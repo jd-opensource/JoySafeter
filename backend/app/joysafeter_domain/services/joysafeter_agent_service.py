@@ -400,7 +400,7 @@ class JoySafeterAgentService:
         if req.environment_ref is not None and req.environment_ref != agent.environment_ref:
             agent.environment_ref = req.environment_ref
             changed = True
-        if req.secret_ref is not None and req.secret_ref != agent.secret_ref:
+        if "secret_ref" in req.model_fields_set and req.secret_ref != agent.secret_ref:
             agent.secret_ref = req.secret_ref
             changed = True
 

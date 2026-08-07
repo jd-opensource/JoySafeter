@@ -22,6 +22,7 @@ interface PageResult<T> {
 interface UsePaginatedListOptions<T extends { id?: string }> {
   queryKey: string
   path: string
+  cacheVersion?: string
   limit?: number
   pageSizeOptions?: number[]
   enabled?: boolean
@@ -150,6 +151,7 @@ async function apiPage<T extends { id?: string }>(
 export function usePaginatedList<T extends { id?: string }>({
   queryKey,
   path,
+  cacheVersion,
   limit = 10,
   pageSizeOptions = [10, 25, 50],
   enabled = true,
@@ -163,7 +165,7 @@ export function usePaginatedList<T extends { id?: string }>({
   const defaultPageSize = pageSizeOptions.includes(limit) ? limit : pageSizeOptions[0]
   const [pageSize, setPageSizeState] = useState(defaultPageSize)
   const effectivePageSize = pageSizeOptions.includes(pageSize) ? pageSize : defaultPageSize
-  const listScope = `${queryKey}:${path}:${managedScope.key}:${includeArchived}:${effectivePageSize}`
+  const listScope = `${queryKey}:${path}:${managedScope.key}:${includeArchived}:${effectivePageSize}:${cacheVersion ?? ''}`
   const [cursorState, setCursorState] = useState<CursorState>(() =>
     loadCursorState(listScope, parseCursor),
   )
@@ -173,7 +175,15 @@ export function usePaginatedList<T extends { id?: string }>({
     [cursorState, listScope],
   )
 
-  const fullKey = [queryKey, managedScope.key, path, cursor, includeArchived, effectivePageSize]
+  const fullKey = [
+    queryKey,
+    managedScope.key,
+    path,
+    cursor,
+    includeArchived,
+    effectivePageSize,
+    ...(cacheVersion ? [cacheVersion] : []),
+  ]
   const queryEnabled = enabled && hasManagedRequestScope(managedScope)
 
   useEffect(() => {
@@ -207,7 +217,8 @@ export function usePaginatedList<T extends { id?: string }>({
         previousKey[1] === managedScope.key &&
         previousKey[2] === path &&
         previousKey[4] === includeArchived &&
-        previousKey[5] === effectivePageSize
+        previousKey[5] === effectivePageSize &&
+        previousKey[6] === cacheVersion
       ) {
         return previousData
       }
@@ -231,6 +242,7 @@ export function usePaginatedList<T extends { id?: string }>({
         page.last_id,
         includeArchived,
         effectivePageSize,
+        ...(cacheVersion ? [cacheVersion] : []),
       ]
       queryClient.prefetchQuery({
         queryKey: nextKey,
@@ -254,6 +266,7 @@ export function usePaginatedList<T extends { id?: string }>({
     managedScope,
     path,
     effectivePageSize,
+    cacheVersion,
     includeArchived,
     parseItem,
     parseCursor,

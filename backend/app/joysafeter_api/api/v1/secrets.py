@@ -7,8 +7,16 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
+from app.joysafeter_domain.llm.catalog import LlmCatalogError, get_llm_catalog
+from app.joysafeter_domain.llm.compatibility import (
+    LlmCompatibilityError,
+    compatible_engine_ids,
+    validate_credential_data,
+    validate_provider_protocol,
+)
 from app.joysafeter_domain.schemas.joysafeter_secret import (
     CreateSecretRequest,
+    SecretKind,
     SecretListItem,
     SecretResponse,
     SecretTestResponse,
@@ -37,8 +45,6 @@ router = APIRouter(tags=["joysafeter-secrets"])
 SECRET_TEST_TIMEOUT_SECONDS = 20.0
 SECRET_TEST_ERROR_DETAIL_LIMIT = 2000
 SECRET_TEST_MAX_OUTPUT_TOKENS = 32
-ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
-OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
 
 def _secret_not_found_error(secret_id: SecretId) -> AppError:
@@ -172,39 +178,28 @@ def _extract_upstream_error_detail(response: httpx.Response) -> str | None:
     return text[:SECRET_TEST_ERROR_DETAIL_LIMIT] if text else None
 
 
-def _provider_family(provider: str, protocol: str) -> str:
-    provider = provider.lower()
-    protocol = protocol.lower()
-    if protocol == "anthropic_messages" or provider in {"claude", "anthropic"}:
-        return "anthropic"
-    if protocol in {"openai_responses", "chat_completions"} or provider in {"codex", "openai"}:
-        return "openai"
-    return "unsupported"
-
-
 async def _test_secret_connectivity(req: TestSecretRequest) -> SecretTestResponse:
-    data = SecretService.apply_provider_aliases({str(k): str(v) for k, v in (req.data or {}).items()})
-    provider = req.provider or "custom"
-    protocol = req.protocol or "custom"
-    family = _provider_family(provider, protocol)
+    data = {str(k): str(v) for k, v in (req.data or {}).items()}
+    provider = req.provider
+    protocol = req.protocol
+    binding = validate_provider_protocol(provider, protocol)
+    validate_credential_data(provider, protocol, data)
+    profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
+    base_url_key = profile.base_url_key or "BASE_URL"
+    base_url_value = data.get(base_url_key) or binding.default_base_url
+    if not base_url_value:
+        raise InvalidRequestError(
+            code="SECRET_TEST_BASE_URL_REQUIRED",
+            message=f"{base_url_key} is required for this provider",
+            data={"provider": provider, "protocol": protocol, "key": base_url_key},
+            user_action="fix_input",
+        )
+    base_url = _validate_llm_base_url(base_url_value, key=base_url_key, provider=provider)
+    model = data.get(profile.model_key, "") if profile.model_key else ""
 
-    if family == "anthropic":
+    if profile.id == "anthropic_standard" and protocol == "anthropic_messages":
         api_key = data.get("ANTHROPIC_API_KEY") or ""
         auth_token = data.get("ANTHROPIC_AUTH_TOKEN") or ""
-        credential = auth_token or api_key
-        if not credential:
-            raise InvalidRequestError(
-                code="SECRET_TEST_MISSING_KEY",
-                message="Secret missing ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN.",
-                data={"provider": provider, "required_key": "ANTHROPIC_API_KEY"},
-                user_action="fix_input",
-            )
-
-        base_url = _validate_llm_base_url(
-            data.get("ANTHROPIC_BASE_URL") or ANTHROPIC_DEFAULT_BASE_URL,
-            key="ANTHROPIC_BASE_URL",
-            provider=provider,
-        )
         endpoint = _append_anthropic_messages_path(base_url)
         headers = {
             "anthropic-version": "2023-06-01",
@@ -215,25 +210,12 @@ async def _test_secret_connectivity(req: TestSecretRequest) -> SecretTestRespons
         else:
             headers["x-api-key"] = api_key
         body = {
-            "model": data.get("ANTHROPIC_MODEL") or data.get("MODEL") or "claude-3-5-haiku-latest",
+            "model": model or "claude-3-5-haiku-latest",
             "max_tokens": SECRET_TEST_MAX_OUTPUT_TOKENS,
             "messages": [{"role": "user", "content": "ping"}],
         }
-    elif family == "openai":
+    elif profile.id == "openai_bearer" and protocol in {"openai_responses", "chat_completions"}:
         api_key = data.get("OPENAI_API_KEY") or ""
-        if not api_key:
-            raise InvalidRequestError(
-                code="SECRET_TEST_MISSING_KEY",
-                message="Secret missing OPENAI_API_KEY.",
-                data={"provider": provider, "required_key": "OPENAI_API_KEY"},
-                user_action="fix_input",
-            )
-
-        base_url = _validate_llm_base_url(
-            data.get("OPENAI_BASE_URL") or OPENAI_DEFAULT_BASE_URL,
-            key="OPENAI_BASE_URL",
-            provider=provider,
-        )
         headers = {
             "authorization": f"Bearer {api_key}",
             "content-type": "application/json",
@@ -241,7 +223,7 @@ async def _test_secret_connectivity(req: TestSecretRequest) -> SecretTestRespons
         if protocol == "chat_completions":
             endpoint = _url_join(base_url, "/chat/completions")
             body = {
-                "model": data.get("OPENAI_MODEL") or data.get("MODEL") or "gpt-4.1-mini",
+                "model": model or "gpt-4.1-mini",
                 "messages": [{"role": "user", "content": "ping"}],
                 "max_tokens": SECRET_TEST_MAX_OUTPUT_TOKENS,
                 "stream": False,
@@ -249,16 +231,20 @@ async def _test_secret_connectivity(req: TestSecretRequest) -> SecretTestRespons
         else:
             endpoint = _url_join(base_url, "/responses")
             body = {
-                "model": data.get("OPENAI_MODEL") or data.get("MODEL") or "gpt-4.1-mini",
+                "model": model or "gpt-4.1-mini",
                 "input": "ping",
                 "max_output_tokens": SECRET_TEST_MAX_OUTPUT_TOKENS,
                 "stream": False,
             }
     else:
         raise InvalidRequestError(
-            code="SECRET_TEST_PROVIDER_UNSUPPORTED",
-            message="Only Anthropic Messages, OpenAI Responses, and Chat Completions secrets can be tested.",
-            data={"provider": provider, "protocol": protocol},
+            code="SECRET_TEST_CREDENTIAL_PROFILE_UNSUPPORTED",
+            message="The selected credential profile has no connectivity adapter.",
+            data={
+                "provider": provider,
+                "protocol": protocol,
+                "credential_profile_id": profile.id,
+            },
             user_action="fix_input",
         )
 
@@ -296,6 +282,50 @@ async def _test_secret_connectivity(req: TestSecretRequest) -> SecretTestRespons
     )
 
 
+def _catalog_identity(secret) -> tuple[str | None, list[str]]:
+    if secret.kind != SecretKind.LLM.value or not secret.provider or not secret.protocol:
+        return None, []
+    try:
+        binding = validate_provider_protocol(secret.provider, secret.protocol)
+        profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
+        return profile.model_key, compatible_engine_ids(secret.provider, secret.protocol)
+    except (LlmCatalogError, LlmCompatibilityError):
+        return None, []
+
+
+def _secret_model(secret, service: SecretService, model_key: str | None) -> str | None:
+    if not model_key:
+        return None
+    value = service.get_secret_data(secret).get(model_key)
+    return value or None
+
+
+def _validate_list_filters(provider: str | None, protocol: str | None) -> None:
+    catalog = get_llm_catalog()
+    if provider is not None:
+        try:
+            catalog.provider(provider)
+        except LlmCatalogError as exc:
+            raise LlmCompatibilityError(
+                code="LLM_PROVIDER_UNKNOWN",
+                message=f"Unknown LLM provider: {provider}",
+                data={"provider": provider},
+                user_action="fix_input",
+            ) from exc
+    if protocol is not None:
+        try:
+            catalog.protocol(protocol)
+        except LlmCatalogError as exc:
+            raise LlmCompatibilityError(
+                code="LLM_PROTOCOL_UNKNOWN",
+                message=f"Unknown LLM protocol: {protocol}",
+                data={"protocol": protocol},
+                user_action="fix_input",
+            ) from exc
+    if provider is not None and protocol is not None:
+        validate_provider_protocol(provider, protocol)
+
+
 @router.post("", status_code=201)
 async def create_secret(
     req: CreateSecretRequest,
@@ -325,8 +355,11 @@ async def create_secret(
     return SecretResponse(
         id=secret.id,
         name=secret.name,
+        kind=secret.kind,
         provider=secret.provider,
         protocol=secret.protocol,
+        model=_secret_model(secret, svc, _catalog_identity(secret)[0]),
+        compatible_engine_ids=_catalog_identity(secret)[1],
         is_default=secret.is_default,
         secret_data=svc.get_masked_secret_data(secret),
         created_at=secret.created_at,
@@ -346,24 +379,44 @@ async def test_secret(
 async def list_secrets(
     limit: int = Query(10, ge=1, le=100),
     after_id: Optional[SecretId] = Query(None),
+    kind: Optional[SecretKind] = None,
+    name: Optional[str] = None,
+    provider: Optional[str] = None,
+    protocol: Optional[str] = None,
+    compatible_engine: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
     svc = SecretService(db)
-    secrets, has_more = await svc.list_secrets(limit, after_id, project_id=auth_ctx.project_id)
-    items = [
-        SecretListItem(
-            id=s.id,
-            name=s.name,
-            provider=s.provider,
-            protocol=s.protocol,
-            is_default=s.is_default,
-            keys=list(s.data.keys()) if s.data else [],
-            created_at=s.created_at,
-            updated_at=s.updated_at,
+    _validate_list_filters(provider, protocol)
+    secrets, has_more = await svc.list_secrets(
+        limit,
+        after_id,
+        project_id=auth_ctx.project_id,
+        kind=kind,
+        name=name,
+        provider=provider,
+        protocol=protocol,
+        compatible_engine=compatible_engine,
+    )
+    items = []
+    for secret in secrets:
+        model_key, engine_ids = _catalog_identity(secret)
+        items.append(
+            SecretListItem(
+                id=secret.id,
+                name=secret.name,
+                kind=secret.kind,
+                provider=secret.provider,
+                protocol=secret.protocol,
+                model=_secret_model(secret, svc, model_key),
+                compatible_engine_ids=engine_ids,
+                is_default=secret.is_default,
+                keys=sorted(secret.data.keys()) if secret.data else [],
+                created_at=secret.created_at,
+                updated_at=secret.updated_at,
+            )
         )
-        for s in secrets
-    ]
     return {
         "data": [item.model_dump(mode="json") for item in items],
         "has_more": has_more,
@@ -382,11 +435,15 @@ async def get_secret(
     secret = await svc.get_secret(secret_id, project_id=auth_ctx.project_id)
     if not secret:
         raise _secret_not_found_error(secret_id)
+    model_key, engine_ids = _catalog_identity(secret)
     return SecretResponse(
         id=secret.id,
         name=secret.name,
+        kind=secret.kind,
         provider=secret.provider,
         protocol=secret.protocol,
+        model=_secret_model(secret, svc, model_key),
+        compatible_engine_ids=engine_ids,
         is_default=secret.is_default,
         secret_data=svc.get_masked_secret_data(secret),
         created_at=secret.created_at,
@@ -439,8 +496,11 @@ async def update_secret(
     return SecretResponse(
         id=secret.id,
         name=secret.name,
+        kind=secret.kind,
         provider=secret.provider,
         protocol=secret.protocol,
+        model=_secret_model(secret, svc, _catalog_identity(secret)[0]),
+        compatible_engine_ids=_catalog_identity(secret)[1],
         is_default=secret.is_default,
         secret_data=svc.get_masked_secret_data(secret),
         created_at=secret.created_at,
@@ -471,8 +531,11 @@ async def set_default_secret(
     return SecretResponse(
         id=secret.id,
         name=secret.name,
+        kind=secret.kind,
         provider=secret.provider,
         protocol=secret.protocol,
+        model=_secret_model(secret, svc, _catalog_identity(secret)[0]),
+        compatible_engine_ids=_catalog_identity(secret)[1],
         is_default=secret.is_default,
         secret_data={},
         created_at=secret.created_at,

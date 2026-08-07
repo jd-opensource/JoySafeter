@@ -5,6 +5,13 @@ from typing import Any, Optional, cast
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.llm.catalog import get_llm_catalog
+from app.joysafeter_domain.llm.compatibility import (
+    LlmCompatibilityError,
+    validate_engine,
+    validate_engine_protocol,
+    validate_provider_protocol,
+)
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     AgentVersionResponse,
@@ -123,28 +130,6 @@ def _validate_tool_mcp_references(tools: list | None, mcp_servers: list[dict] | 
                 )
 
 
-def _secret_matches_engine(secret, engine_kind: str) -> bool:
-    provider = (getattr(secret, "provider", "") or "").lower()
-    protocol = (getattr(secret, "protocol", "") or "").lower()
-    keys = set((getattr(secret, "data", None) or {}).keys())
-    is_openai_secret = (
-        provider == "codex" or protocol in {"openai_responses", "chat_completions"} or "OPENAI_API_KEY" in keys
-    )
-    is_anthropic_secret = (
-        provider in {"anthropic", "claude"}
-        or protocol == "anthropic_messages"
-        or "ANTHROPIC_API_KEY" in keys
-        or "ANTHROPIC_AUTH_TOKEN" in keys
-    )
-    if engine_kind == "codex":
-        return is_openai_secret
-    if engine_kind == "claude":
-        return is_anthropic_secret
-    if engine_kind in ("native", "pi"):
-        return is_anthropic_secret or is_openai_secret
-    return True
-
-
 async def _validate_secret_ref_for_engine(
     db: AsyncSession,
     *,
@@ -152,6 +137,7 @@ async def _validate_secret_ref_for_engine(
     engine_kind: str,
     project_id: Optional[str],
 ) -> None:
+    validate_engine(engine_kind)
     if not secret_ref:
         return
     secret_svc = SecretService(db)
@@ -162,17 +148,28 @@ async def _validate_secret_ref_for_engine(
             message=f"Secret not found: {secret_ref}",
             data={"secret_ref": secret_ref, "engine_kind": engine_kind},
         )
-    if not _secret_matches_engine(secret, engine_kind):
+    identity_data = {
+        "secret_ref": secret_ref,
+        "engine_kind": engine_kind,
+        "kind": getattr(secret, "kind", None),
+        "provider": getattr(secret, "provider", None),
+        "protocol": getattr(secret, "protocol", None),
+    }
+    if secret.kind != "llm" or not secret.provider or not secret.protocol:
         raise _agent_config_error(
-            code="AGENT_SECRET_ENGINE_INCOMPATIBLE",
+            code="AGENT_SECRET_INCOMPATIBLE",
             message=f"Secret '{secret_ref}' is not compatible with engine_kind '{engine_kind}'",
-            data={
-                "secret_ref": secret_ref,
-                "engine_kind": engine_kind,
-                "provider": getattr(secret, "provider", None),
-                "protocol": getattr(secret, "protocol", None),
-            },
+            data=identity_data,
         )
+    try:
+        validate_provider_protocol(secret.provider, secret.protocol)
+        validate_engine_protocol(engine_kind, secret.protocol)
+    except LlmCompatibilityError as exc:
+        raise _agent_config_error(
+            code="AGENT_SECRET_INCOMPATIBLE",
+            message=f"Secret '{secret_ref}' is not compatible with engine_kind '{engine_kind}'",
+            data=identity_data,
+        ) from exc
 
 
 async def _validate_environment_ref(
@@ -200,18 +197,17 @@ async def _validate_environment_ref(
         )
 
 
-def _model_from_secret_data(secret_data: dict[str, Any] | None, engine_kind: str | None) -> Optional[dict[str, str]]:
-    if not secret_data:
+def _model_from_secret_data(secret, secret_data: dict[str, Any] | None) -> Optional[dict[str, str]]:
+    if (
+        not secret_data
+        or getattr(secret, "kind", None) != "llm"
+        or not getattr(secret, "provider", None)
+        or not getattr(secret, "protocol", None)
+    ):
         return None
-
-    if (engine_kind or "claude") == "codex":
-        model_id = secret_data.get("OPENAI_MODEL")
-    elif engine_kind in ("native", "pi"):
-        model_id = secret_data.get("ANTHROPIC_MODEL") or secret_data.get("OPENAI_MODEL") or secret_data.get("MODEL")
-    else:
-        # claude and any other engine
-        model_id = secret_data.get("ANTHROPIC_MODEL") or secret_data.get("MODEL")
-
+    binding = validate_provider_protocol(secret.provider, secret.protocol)
+    profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
+    model_id = secret_data.get(profile.model_key) if profile.model_key else None
     return {"id": str(model_id)} if model_id else None
 
 
@@ -220,7 +216,7 @@ async def _resolve_agent_model(
     secret_svc: SecretService,
     *,
     project_id: Optional[str],
-    secret_cache: Optional[dict[str, Optional[dict[str, Any]]]] = None,
+    secret_cache: Optional[dict[str, Optional[tuple[Any, dict[str, Any]]]]] = None,
 ) -> Optional[dict[str, Any]]:
     if agent.model:
         return cast(Optional[dict[str, Any]], agent.model)
@@ -230,13 +226,16 @@ async def _resolve_agent_model(
     if secret_cache is not None:
         if agent.secret_ref not in secret_cache:
             secret = await secret_svc.get_secret_by_name(agent.secret_ref, project_id=project_id)
-            secret_cache[agent.secret_ref] = secret_svc.get_secret_data(secret) if secret else None
-        secret_data = secret_cache.get(agent.secret_ref)
+            secret_cache[agent.secret_ref] = (secret, secret_svc.get_secret_data(secret)) if secret else None
+        cached = secret_cache.get(agent.secret_ref)
+        if cached is None:
+            return None
+        secret, secret_data = cached
     else:
         secret = await secret_svc.get_secret_by_name(agent.secret_ref, project_id=project_id)
         secret_data = secret_svc.get_secret_data(secret) if secret else None
 
-    return _model_from_secret_data(secret_data, getattr(agent, "engine_kind", None))
+    return _model_from_secret_data(secret, secret_data)
 
 
 def _agent_to_response(agent, *, model: Optional[dict[str, Any]] = None) -> AgentResponse:
@@ -306,7 +305,7 @@ async def list_agents(
     )
 
     secret_svc = SecretService(db)
-    secret_cache: dict[str, Optional[dict]] = {}
+    secret_cache: dict[str, Optional[tuple[Any, dict[str, Any]]]] = {}
     data = [
         _agent_to_response(
             agent,
@@ -389,7 +388,8 @@ async def update_agent(
     _validate_tool_mcp_references(effective_tools, mcp_dicts)
 
     effective_engine_kind = req.engine_kind.value if req.engine_kind is not None else current_agent.engine_kind
-    effective_secret_ref = req.secret_ref if req.secret_ref is not None else current_agent.secret_ref
+    secret_ref_supplied = "secret_ref" in req.model_fields_set
+    effective_secret_ref = req.secret_ref if secret_ref_supplied else current_agent.secret_ref
     effective_environment_ref = (
         req.environment_ref if req.environment_ref is not None else current_agent.environment_ref
     )
@@ -405,7 +405,7 @@ async def update_agent(
         project_id=auth_ctx.project_id,
     )
 
-    dependency_ref_changed = (req.secret_ref is not None and req.secret_ref != current_agent.secret_ref) or (
+    dependency_ref_changed = (secret_ref_supplied and req.secret_ref != current_agent.secret_ref) or (
         req.environment_ref is not None and req.environment_ref != current_agent.environment_ref
     )
     if dependency_ref_changed:

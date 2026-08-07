@@ -6,6 +6,7 @@ from app.joysafeter_api.api.v1.auth import router as auth_router
 from app.joysafeter_api.api.v1.environments import router as environments_router
 from app.joysafeter_api.api.v1.files import router as files_router
 from app.joysafeter_api.api.v1.health import router as health_router
+from app.joysafeter_api.api.v1.llm import router as llm_router
 from app.joysafeter_api.api.v1.memory_stores import router as memory_stores_router
 from app.joysafeter_api.api.v1.network_policies import router as network_policies_router
 from app.joysafeter_api.api.v1.oauth import router as oauth_router
@@ -42,6 +43,7 @@ joysafeter_router.include_router(network_policies_router, prefix="/network-polic
 joysafeter_router.include_router(vaults_router, prefix="/vaults")
 joysafeter_router.include_router(files_router, prefix="/files")
 joysafeter_router.include_router(health_router, prefix="/health")
+joysafeter_router.include_router(llm_router, prefix="/llm")
 joysafeter_router.include_router(organizations_router, prefix="/organizations")
 joysafeter_router.include_router(quickstart_router, prefix="/quickstart")
 joysafeter_router.include_router(analytics_router, prefix="/analytics")

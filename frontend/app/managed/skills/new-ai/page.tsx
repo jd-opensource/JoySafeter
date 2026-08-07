@@ -51,6 +51,7 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 import { managedGet } from '@/lib/api-client'
+import { useProtocolSecrets } from '@/hooks/managed/use-compatible-secrets'
 import {
   useSkillAuthoring,
   type SkillDraft,
@@ -65,8 +66,6 @@ import {
 import { SkillCodeEditor } from '@/components/managed/skills/skill-code-editor'
 import { downloadDraftZip } from '@/lib/managed/skill-draft-zip'
 import { severityLabelKey } from '@/lib/managed/skill-severity'
-import type { Secret } from '@/types/managed'
-import { parseSecretListResponse } from '@/lib/managed/secret-response-parsers'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -76,8 +75,6 @@ import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
-
-type SecretsResponse = { data?: unknown[] } | unknown[]
 
 // Sentinel ids used by the tab bar. Preview / Editor / Metadata are pinned
 // pseudo-files; everything else is keyed by its draft path.
@@ -161,15 +158,7 @@ export default function SkillAiAuthoringPage() {
   const [activeTab, setActiveTab] = useState<string>(TAB_EDITOR)
   const [activeFilePath, setActiveFilePath] = useState<string>('SKILL.md')
 
-  const { data: secretsRes } = useQuery({
-    queryKey: ['secrets', managedScope.key],
-    queryFn: () => managedGet<SecretsResponse>('/secrets', managedRequestOptions(managedScope)),
-    enabled: hasManagedRequestScope(managedScope),
-  })
-  const secrets = useMemo<Secret[]>(() => {
-    if (!secretsRes) return []
-    return parseSecretListResponse(Array.isArray(secretsRes) ? secretsRes : secretsRes.data || [])
-  }, [secretsRes])
+  const { data: secrets = [] } = useProtocolSecrets({ protocolId: 'openai_responses' })
 
   const effectiveSecretRef = useMemo(() => {
     if (!secrets.length) return ''

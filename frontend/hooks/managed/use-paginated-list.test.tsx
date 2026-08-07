@@ -91,6 +91,16 @@ function HarnessWithParser() {
   return <div data-testid="items">{data.map((item) => item.name).join(',')}</div>
 }
 
+function HarnessWithCacheVersion({ cacheVersion }: { cacheVersion: string }) {
+  const { data } = usePaginatedList<Item>({
+    queryKey: 'items',
+    path: '/items',
+    cacheVersion,
+  })
+
+  return <div data-testid="items">{data.map((item) => item.name).join(',')}</div>
+}
+
 function HarnessWithAuditCursor() {
   const { data, error, goNext, hasNext } = usePaginatedList<Item>({
     queryKey: 'storage-audit',
@@ -276,6 +286,58 @@ describe('usePaginatedList managed context isolation', () => {
     })
 
     expect(getByTestId('items').textContent).toBe('Project B item')
+  })
+
+  it('isolates cached pages by cache version without breaking the stable invalidation prefix', async () => {
+    useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+    const secondVersionPage = deferred<{
+      data: Array<{ id: string; name: string }>
+      has_more: boolean
+    }>()
+    managedGetMock
+      .mockResolvedValueOnce({
+        data: [{ id: 'item-v1', name: 'Version 1 item' }],
+        has_more: false,
+      })
+      .mockImplementationOnce(() => secondVersionPage.promise)
+
+    const { getByTestId, queryClient, rerender } = renderWithQueryClient(
+      <HarnessWithCacheVersion cacheVersion="catalog-v1" />,
+    )
+
+    await waitFor(() => expect(getByTestId('items').textContent).toBe('Version 1 item'))
+
+    await act(async () => {
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <HarnessWithCacheVersion cacheVersion="catalog-v2" />
+        </QueryClientProvider>,
+      )
+      await wait(0)
+    })
+
+    expect(getByTestId('items').textContent).toBe('')
+    expect(
+      queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ['items', 'org-a:project-a'] })
+        .map((query) => query.queryKey),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.arrayContaining(['catalog-v1']),
+        expect.arrayContaining(['catalog-v2']),
+      ]),
+    )
+
+    await act(async () => {
+      secondVersionPage.resolve({
+        data: [{ id: 'item-v2', name: 'Version 2 item' }],
+        has_more: false,
+      })
+      await wait(20)
+    })
+
+    expect(getByTestId('items').textContent).toBe('Version 2 item')
   })
 
   it('drops the previous project cursor before fetching the next project page', async () => {

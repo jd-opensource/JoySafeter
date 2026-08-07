@@ -3,6 +3,7 @@ pub mod command_listener;
 pub mod engine_adapter;
 pub mod harness_input_builder;
 pub mod leader_election;
+pub mod llm_catalog;
 pub mod llm_providers;
 pub mod memory_sync;
 pub mod queue;

@@ -35,7 +35,7 @@ export interface Agent {
   env?: Record<string, string>
   environment_ref?: string | null
   secret_ref?: string | null
-  engine_kind?: string
+  engine_kind: string
   created_at: string
   updated_at: string
   archived_at?: string | null
@@ -611,18 +611,19 @@ export interface MemberRecord {
 export interface Secret {
   id: import('./entity-id').SecretId
   name: string
-  provider?: string
-  protocol?: string
-  is_default?: boolean
+  kind: 'llm' | 'generic'
+  provider: string | null
+  protocol: string | null
+  model: string | null
+  compatible_engine_ids: string[]
+  is_default: boolean
   data?: Record<string, string>
   keys?: string[]
   created_at: string
   updated_at: string
 }
 
-export interface SecretDetail extends Omit<Secret, 'provider' | 'protocol'> {
-  provider: string
-  protocol: string
+export interface SecretDetail extends Omit<Secret, 'keys'> {
   secret_data: Record<string, string>
 }
 

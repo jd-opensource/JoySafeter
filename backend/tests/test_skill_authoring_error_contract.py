@@ -76,7 +76,8 @@ async def test_authoring_chat_missing_secret_returns_structured_error(db_session
 async def test_authoring_chat_missing_openai_key_returns_structured_error(db_session):
     secret = JoySafeterSecret(
         name=f"authoring-missing-key-{uuid.uuid4()}",
-        provider="codex",
+        kind="llm",
+        provider="openai",
         protocol="openai_responses",
         data=encrypted_secret_data({"OPENAI_MODEL": "gpt-5.5"}),
     )
@@ -98,10 +99,29 @@ async def test_authoring_chat_missing_openai_key_returns_structured_error(db_ses
 
 
 @pytest.mark.asyncio
+async def test_authoring_chat_rejects_generic_secret_even_with_openai_key(db_session):
+    secret = JoySafeterSecret(
+        name=f"authoring-generic-{uuid.uuid4()}",
+        kind="generic",
+        provider=None,
+        protocol=None,
+        data=encrypted_secret_data({"OPENAI_API_KEY": "value"}),
+    )
+    db_session.add(secret)
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await authoring_chat(_chat_req(secret.name), db_session, _auth_ctx())
+
+    assert exc_info.value.code == "SKILL_AUTHORING_SECRET_INCOMPATIBLE"
+
+
+@pytest.mark.asyncio
 async def test_authoring_chat_invalid_openai_base_url_returns_structured_error(db_session):
     secret = JoySafeterSecret(
         name=f"authoring-invalid-url-{uuid.uuid4()}",
-        provider="codex",
+        kind="llm",
+        provider="openai",
         protocol="openai_responses",
         data=encrypted_secret_data({"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "http://169.254.169.254/latest"}),
     )
@@ -131,7 +151,8 @@ async def test_authoring_chat_rejects_unallowlisted_openai_base_url(db_session, 
     monkeypatch.setenv("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS", "api.openai.com")
     secret = JoySafeterSecret(
         name=f"authoring-unallowlisted-url-{uuid.uuid4()}",
-        provider="codex",
+        kind="llm",
+        provider="openai",
         protocol="openai_responses",
         data=encrypted_secret_data({"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "https://evil.example.com/v1"}),
     )

@@ -25,14 +25,31 @@ async def test_secret_name_reusable_after_soft_delete_within_project(db_session)
     # raises IntegrityError.
     await _ensure_project(db_session, "proj-idx")
 
-    db_session.add(JoySafeterSecret(name="shared", project_id="proj-idx", deleted_at=utc_now()))
+    db_session.add(
+        JoySafeterSecret(
+            name="shared",
+            kind="generic",
+            provider=None,
+            protocol=None,
+            project_id="proj-idx",
+            deleted_at=utc_now(),
+        )
+    )
     await db_session.commit()
 
-    db_session.add(JoySafeterSecret(name="shared", project_id="proj-idx", deleted_at=None))
+    db_session.add(
+        JoySafeterSecret(
+            name="shared", kind="generic", provider=None, protocol=None, project_id="proj-idx", deleted_at=None
+        )
+    )
     await db_session.commit()
 
     # Two LIVE rows with the same (project_id, name) must still collide.
-    db_session.add(JoySafeterSecret(name="shared", project_id="proj-idx", deleted_at=None))
+    db_session.add(
+        JoySafeterSecret(
+            name="shared", kind="generic", provider=None, protocol=None, project_id="proj-idx", deleted_at=None
+        )
+    )
     with pytest.raises(IntegrityError):
         await db_session.commit()
     await db_session.rollback()
@@ -49,13 +66,13 @@ async def test_create_secret_duplicate_active_name_raises_conflict(db_session):
     await _ensure_project(db_session, "proj-idx")
     svc = SecretService(db_session)
     await svc.create_secret(
-        CreateSecretRequest(name="dup", provider="custom", protocol="custom", data={"WEBHOOK_SECRET": "x"}),
+        CreateSecretRequest(kind="generic", name="dup", data={"WEBHOOK_SECRET": "x"}),
         project_id="proj-idx",
     )
 
     with pytest.raises(ResourceConflictError) as exc_info:
         await svc.create_secret(
-            CreateSecretRequest(name="dup", provider="custom", protocol="custom", data={"WEBHOOK_SECRET": "y"}),
+            CreateSecretRequest(kind="generic", name="dup", data={"WEBHOOK_SECRET": "y"}),
             project_id="proj-idx",
         )
     assert exc_info.value.code == "SECRET_NAME_EXISTS"

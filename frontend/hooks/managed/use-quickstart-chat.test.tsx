@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react'
+import { act, renderHook as renderTestingHook } from '@testing-library/react'
 import { JSDOM } from 'jsdom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -14,6 +14,12 @@ import {
 } from '@/test-utils/entity-ids'
 
 import { useQuickstartChat } from './use-quickstart-chat'
+
+function renderHook(callback: () => ReturnType<typeof useQuickstartChat>) {
+  const view = renderTestingHook(callback)
+  act(() => view.result.current.selectEngine('claude'))
+  return view
+}
 
 vi.mock('@/lib/i18n', () => ({
   useTranslation: () => ({
@@ -197,6 +203,34 @@ describe('useQuickstartChat resource creation', () => {
       await wait(0)
     })
     vi.restoreAllMocks()
+  })
+
+  it('sends engine_kind instead of provider to quickstart chat', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(quickstartAgentConfigResponse(AGENT_ID))
+    globalThis.fetch = fetchMock as typeof fetch
+    const { result } = renderHook(() => useQuickstartChat('openai-prod'))
+
+    act(() => result.current.selectEngine('codex'))
+    await act(async () => {
+      await result.current.sendMessage('make an agent', { stepOverride: 3 })
+    })
+
+    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string)
+    expect(body).toMatchObject({ engine_kind: 'codex', secret_ref: 'openai-prod' })
+    expect(body).not.toHaveProperty('provider')
+  })
+
+  it('does not invent a default engine before the catalog-driven selection', async () => {
+    const fetchMock = vi.fn()
+    globalThis.fetch = fetchMock as typeof fetch
+    const { result } = renderTestingHook(() => useQuickstartChat('openai-prod'))
+
+    await act(async () => {
+      await result.current.sendMessage('make an agent', { stepOverride: 3 })
+    })
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.current.messages).toEqual([])
   })
 
   it('does not start quickstart generation or create resources when the current project is archived', async () => {

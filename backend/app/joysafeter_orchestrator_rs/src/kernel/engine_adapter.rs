@@ -13,9 +13,8 @@ pub struct EngineSpec {
     /// Whether conversation history injection applies (vs harness resume).
     pub injects_conversation_history: bool,
 
-    /// Secret keys to read for the model name, in priority order. First key
-    /// present in the secrets map wins.
-    pub model_secret_keys: &'static [&'static str],
+    /// Protocols this engine can execute, using canonical Catalog IDs.
+    pub supported_protocol_ids: &'static [&'static str],
 }
 
 /// Returns the ordered registry of engine adapters.
@@ -24,26 +23,22 @@ pub fn engine_registry() -> &'static [EngineSpec] {
         EngineSpec {
             engine_kind: "claude",
             injects_conversation_history: true,
-            model_secret_keys: &["ANTHROPIC_MODEL", "MODEL"],
+            supported_protocol_ids: &["anthropic_messages"],
         },
         EngineSpec {
             engine_kind: "codex",
             injects_conversation_history: true,
-            model_secret_keys: &["OPENAI_MODEL"],
+            supported_protocol_ids: &["openai_responses"],
         },
         EngineSpec {
             engine_kind: "native",
             injects_conversation_history: true,
-            model_secret_keys: &["ANTHROPIC_MODEL", "MODEL"],
+            supported_protocol_ids: &["anthropic_messages", "openai_responses", "chat_completions"],
         },
         EngineSpec {
             engine_kind: "pi",
             injects_conversation_history: true,
-            // pi is multi-provider. The frontend pi secret groups store the model
-            // under OPENAI_MODEL (openai_responses / chat_completions protocols) or
-            // ANTHROPIC_MODEL (anthropic_messages protocol); MODEL is a generic
-            // fallback. PI_MODEL is never populated anywhere, so it is not read.
-            model_secret_keys: &["OPENAI_MODEL", "ANTHROPIC_MODEL", "MODEL"],
+            supported_protocol_ids: &["anthropic_messages", "openai_responses", "chat_completions"],
         },
     ];
     REGISTRY
@@ -58,20 +53,28 @@ pub fn engine_spec(engine_kind: &str) -> Option<&'static EngineSpec> {
 
 #[cfg(test)]
 mod tests {
+    use crate::kernel::llm_catalog::catalog;
+
     #[test]
     fn pi_engine_is_registered() {
         assert!(super::engine_spec("pi").is_some());
     }
 
     #[test]
-    fn pi_resolves_openai_and_anthropic_model_keys() {
-        let spec = super::engine_spec("pi").expect("pi registered");
-        // pi is multi-protocol: OpenAI-compatible operators store OPENAI_MODEL,
-        // Anthropic-protocol operators store ANTHROPIC_MODEL. PI_MODEL is never
-        // populated by the frontend secret groups, so it must not be relied on.
-        assert_eq!(
-            spec.model_secret_keys,
-            &["OPENAI_MODEL", "ANTHROPIC_MODEL", "MODEL"]
-        );
+    fn engine_protocol_matrix_matches_catalog() {
+        let catalog = catalog().expect("catalog must parse");
+
+        for engine in &catalog.engines {
+            let spec = super::engine_spec(&engine.id).expect("catalog engine must have adapter");
+            assert_eq!(
+                spec.supported_protocol_ids,
+                engine
+                    .supported_protocol_ids
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+            );
+        }
+        assert_eq!(super::engine_registry().len(), catalog.engines.len());
     }
 }

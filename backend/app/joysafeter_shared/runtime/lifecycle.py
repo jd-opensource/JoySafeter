@@ -7,6 +7,7 @@ import asyncio
 from loguru import logger
 from sqlalchemy import text
 
+from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.config.service_role import current_role
 from app.joysafeter_shared.config.settings import settings
@@ -20,6 +21,10 @@ def validate_credential_encryption_configuration() -> None:
     from app.joysafeter_shared.config.settings import joysafeter_config
 
     CredentialCipher(joysafeter_config.vault_encryption_key).require_enabled()
+
+
+def validate_llm_catalog_configuration() -> None:
+    get_llm_catalog()
 
 
 async def _check_db_connection() -> None:
@@ -61,6 +66,7 @@ async def _check_docker_availability() -> None:
 
 async def _run_common_startup() -> None:
     validate_credential_encryption_configuration()
+    validate_llm_catalog_configuration()
     init_global_provider()
     init_global_processors()
 

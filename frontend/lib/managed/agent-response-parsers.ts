@@ -10,9 +10,13 @@ type RawAgent = Omit<Agent, 'id' | 'skills'> & {
 
 export function parseAgentResponse(response: unknown): Agent {
   const raw = response as RawAgent
+  if (typeof raw.engine_kind !== 'string' || !raw.engine_kind.trim()) {
+    throw new Error('Invalid agent engine_kind')
+  }
   return {
     ...raw,
     id: parseAgentId(raw.id),
+    engine_kind: raw.engine_kind.trim(),
     skills: raw.skills?.map((skill) => ({ ...skill, skill_id: parseSkillId(skill.skill_id) })),
   }
 }

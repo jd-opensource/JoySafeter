@@ -14,6 +14,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.llm.catalog import get_llm_catalog
+from app.joysafeter_domain.llm.compatibility import (
+    LlmCompatibilityError,
+    validate_credential_data,
+    validate_secret_for_engine,
+)
 from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
@@ -48,9 +54,11 @@ class QuickstartAgentContext(BaseModel):
 
 
 class QuickstartChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     messages: list[QuickstartMessage] = Field(..., max_length=50)
     current_step: int = Field(default=1, ge=1, le=5)
-    provider: Literal["claude", "claudecode", "codex", "native", "pi"] = "claude"
+    engine_kind: Literal["claude", "codex", "native", "pi"]
     secret_ref: str = ""
     agent_context: Optional[QuickstartAgentContext] = None
 
@@ -364,6 +372,7 @@ async def _stream_anthropic(
     *,
     base_url: str,
     api_key: str,
+    bearer_token: bool,
     body: dict,
     current_step: int,
 ):
@@ -373,15 +382,19 @@ async def _stream_anthropic(
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         try:
+            headers = {
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+                "accept": "text/event-stream",
+            }
+            if bearer_token:
+                headers["authorization"] = f"Bearer {api_key}"
+            else:
+                headers["x-api-key"] = api_key
             async with client.stream(
                 "POST",
                 _url_join(base_url, "/v1/messages"),
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                    "accept": "text/event-stream",
-                },
+                headers=headers,
                 json=body,
             ) as response:
                 if response.status_code != 200:
@@ -705,12 +718,50 @@ async def quickstart_chat(
         raise NotFoundError(
             code="QUICKSTART_SECRET_NOT_FOUND",
             message="Secret not found or missing required keys",
-            data={"secret_ref": req.secret_ref, "provider": req.provider},
+            data={"secret_ref": req.secret_ref, "engine_kind": req.engine_kind},
             user_action="fix_input",
         )
 
+    try:
+        binding = validate_secret_for_engine(
+            req.engine_kind,
+            secret.kind,
+            secret.provider,
+            secret.protocol,
+        )
+    except LlmCompatibilityError as exc:
+        raise InvalidRequestError(
+            code="QUICKSTART_SECRET_INCOMPATIBLE",
+            message=f"Secret '{req.secret_ref}' is not compatible with engine_kind '{req.engine_kind}'",
+            data={
+                "secret_ref": req.secret_ref,
+                "engine_kind": req.engine_kind,
+                "kind": secret.kind,
+                "provider": secret.provider,
+                "protocol": secret.protocol,
+            },
+            user_action="fix_input",
+        ) from exc
+
     data = svc.get_secret_data(secret)
-    provider = "codex" if req.provider == "codex" else "claude"
+    provider = secret.provider or ""
+    protocol = secret.protocol or ""
+    validate_credential_data(provider, protocol, data)
+    profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
+    base_url_key = profile.base_url_key or "BASE_URL"
+    base_url = data.get(base_url_key) or binding.default_base_url
+    if not base_url:
+        raise InvalidRequestError(
+            code="QUICKSTART_BASE_URL_REQUIRED",
+            message=f"{base_url_key} is required for this provider",
+            data={"provider": provider, "protocol": protocol, "key": base_url_key},
+            user_action="fix_input",
+        )
+    try:
+        base_url = validate_llm_base_url(base_url, key=base_url_key)
+    except LLMBaseUrlError as exc:
+        raise _quickstart_base_url_error(exc, provider=provider) from None
+    model = data.get(profile.model_key) if profile.model_key else None
 
     system_prompt = _build_system_prompt(req.current_step, req.agent_context)
     tools = _build_tools(req.current_step)
@@ -720,24 +771,11 @@ async def quickstart_chat(
     stream_provider = _stream_anthropic
     stream_kwargs = {}
 
-    if provider == "claude":
-        api_key = data.get("ANTHROPIC_AUTH_TOKEN") or data.get("ANTHROPIC_API_KEY") or ""
-        if not api_key:
-            raise InvalidRequestError(
-                code="QUICKSTART_SECRET_MISSING_KEY",
-                message="Secret not found or missing required keys",
-                data={"secret_ref": req.secret_ref, "provider": provider, "required_key": "ANTHROPIC_API_KEY"},
-                user_action="fix_input",
-            )
-        base_url = data.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
-        try:
-            base_url = validate_llm_base_url(base_url, key="ANTHROPIC_BASE_URL")
-        except LLMBaseUrlError as exc:
-            raise _quickstart_base_url_error(exc, provider=provider) from None
-
-        model = data.get("MODEL") or data.get("ANTHROPIC_MODEL") or "claude-sonnet-4-20250514"
+    if protocol == "anthropic_messages":
+        auth_token = data.get("ANTHROPIC_AUTH_TOKEN") or ""
+        api_key = auth_token or data.get("ANTHROPIC_API_KEY") or ""
         claude_body = {
-            "model": model,
+            "model": model or "claude-sonnet-4-20250514",
             "max_tokens": 4096,
             "system": system_prompt,
             "messages": messages,
@@ -748,29 +786,19 @@ async def quickstart_chat(
             if req.current_step in (2, 3, 4):
                 claude_body["tool_choice"] = {"type": "tool", "name": tools[0]["name"]}
 
-        stream_kwargs = {"base_url": base_url, "api_key": api_key, "body": claude_body}
+        stream_kwargs = {
+            "base_url": base_url,
+            "api_key": api_key,
+            "bearer_token": bool(auth_token),
+            "body": claude_body,
+        }
 
-    else:
+    elif protocol in {"openai_responses", "chat_completions"}:
         api_key = data.get("OPENAI_API_KEY") or ""
-        if not api_key:
-            raise InvalidRequestError(
-                code="QUICKSTART_SECRET_MISSING_KEY",
-                message="Secret not found or missing required keys",
-                data={"secret_ref": req.secret_ref, "provider": provider, "required_key": "OPENAI_API_KEY"},
-                user_action="fix_input",
-            )
-        base_url = data.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
-        try:
-            base_url = validate_llm_base_url(base_url, key="OPENAI_BASE_URL")
-        except LLMBaseUrlError as exc:
-            raise _quickstart_base_url_error(exc, provider=provider) from None
-
-        model = data.get("OPENAI_MODEL") or "gpt-5.3-codex"
-        protocol = getattr(secret, "protocol", "") or ""
         if protocol == "chat_completions":
             openai_tools = _build_openai_chat_tools(tools)
             chat_body = {
-                "model": model,
+                "model": model or "gpt-4.1-mini",
                 "messages": [{"role": "system", "content": system_prompt}, *messages],
                 "stream": True,
                 "max_tokens": 4096,
@@ -787,7 +815,7 @@ async def quickstart_chat(
         else:
             responses_tools = _build_openai_responses_tools(tools)
             responses_body = {
-                "model": model,
+                "model": model or "gpt-5.3-codex",
                 "instructions": system_prompt,
                 "input": _messages_to_transcript(messages),
                 "stream": True,
@@ -802,6 +830,13 @@ async def quickstart_chat(
                     }
             stream_provider = _stream_openai_responses
             stream_kwargs = {"base_url": base_url, "api_key": api_key, "body": responses_body}
+    else:
+        raise InvalidRequestError(
+            code="QUICKSTART_PROTOCOL_UNSUPPORTED",
+            message=f"Quickstart does not support protocol '{protocol}'",
+            data={"provider": provider, "protocol": protocol},
+            user_action="fix_input",
+        )
 
     async def event_generator():
         async for event in stream_provider(current_step=req.current_step, **stream_kwargs):

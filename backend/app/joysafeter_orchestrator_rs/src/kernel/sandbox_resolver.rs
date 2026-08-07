@@ -18,6 +18,7 @@ use crate::ids::{
     VaultId,
 };
 use crate::kernel::harness_input_builder::VaultCipher;
+use crate::kernel::llm_catalog::{validate_runtime_secret, RuntimeSecretBinding};
 use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
 use crate::sandbox::lds_backend::{
     normalize_prefix, normalize_rewrite_base_prefix, EgressCredentialRoute, EgressExposure,
@@ -26,7 +27,7 @@ use crate::sandbox::lds_backend::{
 use crate::sandbox::mounts::{resolve_mount_resources, SandboxMount, SandboxMountFingerprint};
 use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
 
-use super::llm_providers::llm_provider_registry;
+use super::llm_providers::credential_profile_spec;
 #[cfg(test)]
 use super::llm_providers::{CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OPENAI_API_KEY};
 
@@ -786,8 +787,10 @@ impl SandboxResolver {
             Some(tag) => tag,
             None => self.config.image_for_provider(&engine_kind)?,
         };
-        let mut env =
+        let resolved_env =
             Self::resolve_agent_env_from(&self.pool, agent.as_ref(), environment.as_ref()).await?;
+        let mut env = resolved_env.values;
+        let llm_binding = resolved_env.llm_binding;
         let configured_networking = environment
             .as_ref()
             .and_then(|env| env.config.get("networking").cloned());
@@ -813,6 +816,7 @@ impl SandboxResolver {
             let mut routes = Vec::new();
             routes.extend(Self::extract_llm_egress(
                 &mut env,
+                llm_binding.as_ref(),
                 &self.config.llm_egress_allowed_hosts,
             ));
             routes.extend(Self::build_mcp_egress(&self.pool, session_id, agent.as_ref()).await?);
@@ -1098,10 +1102,10 @@ impl SandboxResolver {
         pool: &PgPool,
         agent: Option<&JoySafeterAgent>,
         environment: Option<&EnvironmentRow>,
-    ) -> anyhow::Result<HashMap<String, String>> {
+    ) -> anyhow::Result<ResolvedAgentEnv> {
         let mut env = HashMap::new();
         let Some(agent) = agent else {
-            return Ok(env);
+            return Ok(ResolvedAgentEnv::default());
         };
 
         if let Some(environment) = environment {
@@ -1131,6 +1135,7 @@ impl SandboxResolver {
                         secret_ref,
                         agent.project_id.as_deref(),
                         false,
+                        None,
                     )
                     .await?;
                 }
@@ -1138,14 +1143,28 @@ impl SandboxResolver {
         }
 
         if let Some(secret_ref) = agent.secret_ref.as_deref().filter(|v| !v.trim().is_empty()) {
-            Self::merge_secret_ref_into_env(
+            let llm_binding = Self::merge_secret_ref_into_env(
                 pool,
                 &mut env,
                 secret_ref,
                 agent.project_id.as_deref(),
                 true,
+                Some(agent.engine_kind.as_deref().unwrap_or("claude")),
             )
             .await?;
+            if let Some(obj) = agent.env.as_ref().and_then(|v| v.as_object()) {
+                for (key, value) in obj {
+                    let value = value
+                        .as_str()
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| value.to_string());
+                    env.insert(key.clone(), value);
+                }
+            }
+            return Ok(ResolvedAgentEnv {
+                values: env,
+                llm_binding,
+            });
         }
 
         if let Some(obj) = agent.env.as_ref().and_then(|v| v.as_object()) {
@@ -1158,9 +1177,10 @@ impl SandboxResolver {
             }
         }
 
-        apply_provider_aliases(&mut env);
-
-        Ok(env)
+        Ok(ResolvedAgentEnv {
+            values: env,
+            llm_binding: None,
+        })
     }
 
     /// Extract LLM egress credentials from the resolved env, removing the real
@@ -1168,30 +1188,34 @@ impl SandboxResolver {
     /// boundary. After this, the container env holds no LLM API key — the key is
     /// injected by Envoy at the egress boundary instead.
     ///
-    /// Provider detection is data-driven via [`llm_provider_registry`]: the first
-    /// spec whose detection key is present in `env` wins. The upstream host is
-    /// derived from the corresponding `*_BASE_URL` (using the spec's default when
-    /// unset), then the base URL is rewritten to the plaintext egress placeholder
-    /// so the agent's HTTP client targets Envoy.
+    /// Credential handling is selected by the Catalog-resolved profile. Provider
+    /// defaults come from the validated Provider/Protocol binding rather than
+    /// being inferred from environment variable names.
     fn extract_llm_egress(
         env: &mut HashMap<String, String>,
+        binding: Option<&RuntimeSecretBinding>,
         allowed_hosts: &[String],
     ) -> Vec<EgressCredentialRoute> {
-        // Find the first matching provider spec by scanning detection keys in
-        // registry order (preserves the original if/else precedence).
-        let registry = llm_provider_registry();
-        let (spec, matched_key) = match registry.iter().find_map(|spec| {
-            spec.detection_keys
-                .iter()
-                .find(|k| env.contains_key(**k))
-                .map(|k| (spec, *k))
-        }) {
-            Some(pair) => pair,
-            None => return vec![],
+        let Some(binding) = binding else {
+            return vec![];
+        };
+        let Some(spec) = credential_profile_spec(&binding.credential_profile_id) else {
+            warn!(
+                credential_profile_id = %binding.credential_profile_id,
+                protocol_id = %binding.protocol_id,
+                "LLM credential profile has no runtime routing implementation"
+            );
+            return vec![];
+        };
+        let Some(credential_key) = spec
+            .credential_keys
+            .iter()
+            .find(|credential| env.contains_key(credential.key))
+        else {
+            return vec![];
         };
 
-        // Take the key value, removing it from env.
-        let Some(key_value) = env.remove(matched_key) else {
+        let Some(key_value) = env.remove(credential_key.key) else {
             return vec![];
         };
 
@@ -1202,15 +1226,17 @@ impl SandboxResolver {
             env.remove(*extra);
         }
 
-        let base_url_var = spec.base_url_var;
-        let default_host = spec.default_host;
+        let base_url_var = binding.base_url_key.as_str();
 
         // Parse the configured base URL to learn the real upstream
         // host/port/scheme/path. The sandbox is then repointed at the placeholder
         // egress host over plaintext http:// — it never learns the real address.
         // Envoy matches the placeholder, injects the key, host_rewrites to the
         // real upstream, and forwards via that upstream's STRICT_DNS cluster.
-        let configured = env.get(base_url_var).cloned();
+        let configured = env
+            .get(base_url_var)
+            .cloned()
+            .or_else(|| binding.default_base_url.clone());
         let (upstream_host, upstream_port, upstream_prefix, upstream_tls) = match configured
             .as_deref()
         {
@@ -1230,30 +1256,24 @@ impl SandboxResolver {
                     );
                     return vec![];
                 }
-                let host = match (url.host_str(), default_host) {
-                    (Some(h), _) => h.to_string(),
-                    (None, Some(d)) => d.to_string(),
-                    (None, None) => return vec![],
+                let host = match url.host_str() {
+                    Some(host) => host.to_string(),
+                    None => return vec![],
                 };
                 let tls = url.scheme() == "https";
                 let port = url.port().unwrap_or(if tls { 443 } else { 80 });
                 let prefix = normalize_llm_upstream_prefix(url.path());
                 (host, port, prefix, tls)
             }
-            // No base URL configured: use the provider default if it has one.
-            // Providers without a fixed endpoint (Azure) require an explicit base
-            // URL, so bail rather than inject a key toward an unknown host.
-            None => match default_host {
-                Some(d) => (d.to_string(), 443, "/".to_string(), true),
-                None => {
-                    warn!(
-                        base_url_var,
-                        "LLM provider requires an explicit base URL (no fixed \
-                     endpoint); skipping credential injection"
-                    );
-                    return vec![];
-                }
-            },
+            None => {
+                warn!(
+                    base_url_var,
+                    credential_profile_id = %binding.credential_profile_id,
+                    protocol_id = %binding.protocol_id,
+                    "LLM binding requires an explicit base URL"
+                );
+                return vec![];
+            }
         };
 
         if !is_llm_egress_host_allowed(&upstream_host, allowed_hosts) {
@@ -1289,7 +1309,7 @@ impl SandboxResolver {
         };
         env.insert(base_url_var.to_string(), base_url_for_sandbox);
 
-        let header_value = if spec.is_bearer {
+        let header_value = if credential_key.is_bearer {
             format!("Bearer {key_value}")
         } else {
             key_value
@@ -1307,7 +1327,7 @@ impl SandboxResolver {
             upstream_prefix: normalize_rewrite_base_prefix(&upstream_prefix),
             upstream_tls,
             cluster_name: String::new(),
-            inject_headers: vec![(spec.header_name.to_string(), header_value)],
+            inject_headers: vec![(credential_key.header_name.to_string(), header_value)],
             remove_headers: vec![],
         }]
     }
@@ -1693,10 +1713,11 @@ impl SandboxResolver {
         secret_ref: &str,
         project_id: Option<&str>,
         override_existing: bool,
-    ) -> anyhow::Result<()> {
-        let secret: Option<(serde_json::Value,)> = sqlx::query_as(
+        runtime_engine_kind: Option<&str>,
+    ) -> anyhow::Result<Option<RuntimeSecretBinding>> {
+        let secret = sqlx::query_as::<_, RuntimeSecretRow>(
             r#"
-            SELECT data FROM joysafeter_secrets
+            SELECT kind, provider, protocol, data FROM joysafeter_secrets
             WHERE name = $1 AND deleted_at IS NULL
               AND ($2::text IS NULL OR project_id = $2)
             ORDER BY created_at DESC
@@ -1708,12 +1729,26 @@ impl SandboxResolver {
         .fetch_optional(pool)
         .await?;
 
-        let Some((data,)) = secret else {
-            return Ok(());
+        let Some(secret) = secret else {
+            return Ok(None);
+        };
+
+        let binding = if let Some(engine_kind) = runtime_engine_kind {
+            Some(validate_runtime_secret(
+                engine_kind,
+                &secret.kind,
+                secret.provider.as_deref(),
+                secret.protocol.as_deref(),
+            )?)
+        } else {
+            if secret.kind != "generic" {
+                anyhow::bail!("environment secret must have kind=generic");
+            }
+            None
         };
 
         let cipher = VaultCipher::from_env();
-        if let Some(obj) = data.as_object() {
+        if let Some(obj) = secret.data.as_object() {
             for (key, value) in obj {
                 if override_existing || !env.contains_key(key) {
                     let value = value
@@ -1725,7 +1760,7 @@ impl SandboxResolver {
             }
         }
 
-        Ok(())
+        Ok(binding)
     }
 
     async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
@@ -2061,12 +2096,14 @@ pub(crate) async fn rebuild_sandbox_credentials(
                 None => None,
             }
         };
-        if let Ok(mut env) =
+        if let Ok(resolved_env) =
             SandboxResolver::resolve_agent_env_from(pool, agent.as_ref(), environment.as_ref())
                 .await
         {
+            let mut env = resolved_env.values;
             routes.extend(SandboxResolver::extract_llm_egress(
                 &mut env,
+                resolved_env.llm_binding.as_ref(),
                 llm_egress_allowed_hosts,
             ));
         }
@@ -2420,14 +2457,6 @@ fn non_empty(value: Option<&str>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn apply_provider_aliases(env: &mut HashMap<String, String>) {
-    if env.contains_key("ANTHROPIC_AUTH_TOKEN") && !env.contains_key("ANTHROPIC_API_KEY") {
-        if let Some(token) = env.get("ANTHROPIC_AUTH_TOKEN").cloned() {
-            env.insert("ANTHROPIC_API_KEY".to_string(), token);
-        }
-    }
-}
-
 fn effective_networking_config(
     networking: Option<serde_json::Value>,
     envoy_enabled: bool,
@@ -2687,6 +2716,20 @@ struct EnvironmentRow {
     image_tag: Option<String>,
 }
 
+#[derive(Debug, Default)]
+struct ResolvedAgentEnv {
+    values: HashMap<String, String>,
+    llm_binding: Option<RuntimeSecretBinding>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct RuntimeSecretRow {
+    kind: String,
+    provider: Option<String>,
+    protocol: Option<String>,
+    data: serde_json::Value,
+}
+
 fn sanitize_external_service_name(name: &str) -> String {
     name.trim()
         .chars()
@@ -2849,9 +2892,18 @@ mod egress_tests {
     /// always zero or one route.
     fn extract_llm_route(
         env: &mut HashMap<String, String>,
+        provider_id: &str,
+        protocol_id: &str,
         allowed_hosts: &[String],
     ) -> Option<EgressCredentialRoute> {
-        SandboxResolver::extract_llm_egress(env, allowed_hosts)
+        let binding = crate::kernel::llm_catalog::validate_runtime_secret(
+            "native",
+            "llm",
+            Some(provider_id),
+            Some(protocol_id),
+        )
+        .expect("test binding must be Catalog-valid");
+        SandboxResolver::extract_llm_egress(env, Some(&binding), allowed_hosts)
             .into_iter()
             .next()
     }
@@ -3060,15 +3112,19 @@ mod egress_tests {
     #[test]
     fn anthropic_auth_token_uses_bearer_and_leaves_no_key() {
         // Gateway / internal endpoint style: ANTHROPIC_AUTH_TOKEN → Bearer.
-        // apply_provider_aliases would have also set ANTHROPIC_API_KEY; simulate that.
         let mut e = env(&[
             ("ANTHROPIC_AUTH_TOKEN", "tok-123"),
             ("ANTHROPIC_API_KEY", "tok-123"),
             ("ANTHROPIC_BASE_URL", "https://llm.internal.example.com/v1"),
             ("DB_PASSWORD", "keepme"),
         ]);
-        let egress =
-            extract_llm_route(&mut e, &allow(&["llm.internal.example.com"])).expect("egress");
+        let egress = extract_llm_route(
+            &mut e,
+            "anthropic",
+            "anthropic_messages",
+            &allow(&["llm.internal.example.com"]),
+        )
+        .expect("egress");
 
         // Bearer header, real host preserved in egress, TLS upstream.
         assert_eq!(egress.upstream_host, "llm.internal.example.com");
@@ -3096,13 +3152,49 @@ mod egress_tests {
     }
 
     #[test]
+    fn llm_egress_uses_catalog_binding_instead_of_key_inference() {
+        let binding = crate::kernel::llm_catalog::validate_runtime_secret(
+            "native",
+            "llm",
+            Some("deepseek"),
+            Some("chat_completions"),
+        )
+        .expect("DeepSeek Chat Completions must be valid for Native");
+        let mut e = env(&[("OPENAI_API_KEY", "sk-deepseek")]);
+
+        let egress = SandboxResolver::extract_llm_egress(
+            &mut e,
+            Some(&binding),
+            &allow(&["api.deepseek.com"]),
+        )
+        .into_iter()
+        .next()
+        .expect("egress route");
+
+        assert_eq!(egress.upstream_host, "api.deepseek.com");
+        assert_eq!(
+            egress.inject_headers,
+            vec![(
+                "authorization".to_string(),
+                "Bearer sk-deepseek".to_string()
+            )]
+        );
+    }
+
+    #[test]
     fn anthropic_api_key_uses_x_api_key() {
         // Official-style key (no AUTH_TOKEN) → x-api-key header.
         let mut e = env(&[
             ("ANTHROPIC_API_KEY", "sk-ant-xyz"),
             ("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
         ]);
-        let egress = extract_llm_route(&mut e, &allow(&["api.anthropic.com"])).expect("egress");
+        let egress = extract_llm_route(
+            &mut e,
+            "anthropic",
+            "anthropic_messages",
+            &allow(&["api.anthropic.com"]),
+        )
+        .expect("egress");
         assert_eq!(
             egress.inject_headers,
             vec![("x-api-key".to_string(), "sk-ant-xyz".to_string())]
@@ -3120,7 +3212,7 @@ mod egress_tests {
             ("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
         ]);
 
-        assert!(SandboxResolver::extract_llm_egress(&mut e, &[]).is_empty());
+        assert!(extract_llm_route(&mut e, "anthropic", "anthropic_messages", &[]).is_none());
         assert!(!e.contains_key("ANTHROPIC_API_KEY"));
         assert_eq!(
             e.get("ANTHROPIC_BASE_URL").unwrap(),
@@ -3136,9 +3228,13 @@ mod egress_tests {
             ("ANTHROPIC_BASE_URL", "https://evil.example.com/v1"),
         ]);
 
-        assert!(
-            SandboxResolver::extract_llm_egress(&mut e, &allow(&["api.anthropic.com"])).is_empty()
-        );
+        assert!(extract_llm_route(
+            &mut e,
+            "anthropic",
+            "anthropic_messages",
+            &allow(&["api.anthropic.com"]),
+        )
+        .is_none());
         assert!(!e.contains_key("ANTHROPIC_AUTH_TOKEN"));
         assert!(!e.contains_key("ANTHROPIC_API_KEY"));
         assert_eq!(
@@ -3153,7 +3249,13 @@ mod egress_tests {
             ("ANTHROPIC_AUTH_TOKEN", "tok-123"),
             ("ANTHROPIC_BASE_URL", "http://ai-api.jdcloud.com/anthropic"),
         ]);
-        let egress = extract_llm_route(&mut e, &allow(&["ai-api.jdcloud.com"])).expect("egress");
+        let egress = extract_llm_route(
+            &mut e,
+            "custom",
+            "anthropic_messages",
+            &allow(&["ai-api.jdcloud.com"]),
+        )
+        .expect("egress");
         assert_eq!(egress.upstream_host, "ai-api.jdcloud.com");
         assert_eq!(egress.upstream_port, 80);
         assert_eq!(egress.upstream_prefix, "/anthropic/");
@@ -3166,7 +3268,13 @@ mod egress_tests {
             ("OPENAI_API_KEY", "sk-oai"),
             ("OPENAI_BASE_URL", "https://gw.internal/v1"),
         ]);
-        let egress = extract_llm_route(&mut e, &allow(&["gw.internal"])).expect("egress");
+        let egress = extract_llm_route(
+            &mut e,
+            "custom",
+            "openai_responses",
+            &allow(&["gw.internal"]),
+        )
+        .expect("egress");
         assert_eq!(egress.upstream_host, "gw.internal");
         assert_eq!(egress.upstream_prefix, "/v1/");
         assert_eq!(
@@ -3187,7 +3295,7 @@ mod egress_tests {
     #[test]
     fn no_llm_key_returns_none() {
         let mut e = env(&[("DB_PASSWORD", "x")]);
-        assert!(SandboxResolver::extract_llm_egress(&mut e, &[]).is_empty());
+        assert!(extract_llm_route(&mut e, "openai", "openai_responses", &[]).is_none());
         assert_eq!(e.get("DB_PASSWORD").unwrap(), "x");
     }
 
@@ -3198,7 +3306,13 @@ mod egress_tests {
             ("ANTHROPIC_AUTH_TOKEN", "t"),
             ("ANTHROPIC_BASE_URL", "http://llm.internal:8080/v1"),
         ]);
-        let egress = extract_llm_route(&mut e, &allow(&["llm.internal"])).expect("egress");
+        let egress = extract_llm_route(
+            &mut e,
+            "custom",
+            "anthropic_messages",
+            &allow(&["llm.internal"]),
+        )
+        .expect("egress");
         assert_eq!(egress.upstream_host, "llm.internal");
         assert_eq!(egress.upstream_port, 8080);
         assert_eq!(egress.upstream_prefix, "/v1/");
@@ -3206,78 +3320,6 @@ mod egress_tests {
         assert_eq!(
             e.get("ANTHROPIC_BASE_URL").unwrap(),
             "http://llm.internal:8080/v1/"
-        );
-    }
-
-    #[test]
-    fn gemini_uses_x_goog_api_key_and_default_host() {
-        // Google Generative Language API: raw key in x-goog-api-key, default host.
-        let mut e = env(&[("GEMINI_API_KEY", "AIzaXYZ")]);
-        let egress = extract_llm_route(&mut e, &allow(&["generativelanguage.googleapis.com"]))
-            .expect("egress");
-        assert_eq!(egress.upstream_host, "generativelanguage.googleapis.com");
-        assert!(egress.upstream_tls);
-        assert_eq!(
-            egress.inject_headers,
-            vec![("x-goog-api-key".to_string(), "AIzaXYZ".to_string())]
-        );
-        assert!(!e.contains_key("GEMINI_API_KEY"));
-        // base URL is repointed at the plaintext egress placeholder host.
-        assert_eq!(
-            e.get("GOOGLE_GEMINI_BASE_URL").unwrap(),
-            "http://generativelanguage.googleapis.com:443/"
-        );
-    }
-
-    #[test]
-    fn google_api_key_alias_also_works() {
-        let mut e = env(&[("GOOGLE_API_KEY", "AIzaABC")]);
-        let egress = extract_llm_route(&mut e, &allow(&["generativelanguage.googleapis.com"]))
-            .expect("egress");
-        assert_eq!(
-            egress.inject_headers,
-            vec![("x-goog-api-key".to_string(), "AIzaABC".to_string())]
-        );
-        assert!(!e.contains_key("GOOGLE_API_KEY"));
-    }
-
-    #[test]
-    fn azure_uses_api_key_header_no_bearer() {
-        // Azure OpenAI: `api-key` header, raw key (no Bearer). Host from base URL.
-        let mut e = env(&[
-            ("AZURE_OPENAI_API_KEY", "az-secret"),
-            ("AZURE_OPENAI_BASE_URL", "https://my-res.openai.azure.com"),
-        ]);
-        let egress = extract_llm_route(&mut e, &allow(&["*.openai.azure.com"])).expect("egress");
-        assert_eq!(egress.upstream_host, "my-res.openai.azure.com");
-        assert!(egress.upstream_tls);
-        assert_eq!(
-            egress.inject_headers,
-            vec![("api-key".to_string(), "az-secret".to_string())]
-        );
-        assert!(!e.contains_key("AZURE_OPENAI_API_KEY"));
-    }
-
-    #[test]
-    fn azure_wildcard_does_not_allow_parent_domain() {
-        let mut e = env(&[
-            ("AZURE_OPENAI_API_KEY", "az-secret"),
-            ("AZURE_OPENAI_BASE_URL", "https://openai.azure.com"),
-        ]);
-
-        assert!(
-            SandboxResolver::extract_llm_egress(&mut e, &allow(&["*.openai.azure.com"])).is_empty()
-        );
-        assert!(!e.contains_key("AZURE_OPENAI_API_KEY"));
-    }
-
-    #[test]
-    fn azure_without_base_url_bails() {
-        // Azure has no fixed endpoint; without a base URL we must not inject the
-        // key toward an unknown host.
-        let mut e = env(&[("AZURE_OPENAI_API_KEY", "az-secret")]);
-        assert!(
-            SandboxResolver::extract_llm_egress(&mut e, &allow(&["*.openai.azure.com"])).is_empty()
         );
     }
 
@@ -3290,7 +3332,7 @@ mod egress_tests {
             ]);
 
             assert!(
-                SandboxResolver::extract_llm_egress(&mut e, &allow(&[host])).is_empty(),
+                extract_llm_route(&mut e, "custom", "openai_responses", &allow(&[host]),).is_none(),
                 "host should be rejected: {host}"
             );
             assert!(!e.contains_key("OPENAI_API_KEY"));
@@ -3304,9 +3346,13 @@ mod egress_tests {
             ("OPENAI_BASE_URL", "file:///tmp/socket"),
         ]);
 
-        assert!(
-            SandboxResolver::extract_llm_egress(&mut e, &allow(&["api.openai.com"])).is_empty()
-        );
+        assert!(extract_llm_route(
+            &mut e,
+            "custom",
+            "openai_responses",
+            &allow(&["api.openai.com"]),
+        )
+        .is_none());
         assert!(!e.contains_key("OPENAI_API_KEY"));
     }
 

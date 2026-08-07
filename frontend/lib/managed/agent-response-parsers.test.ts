@@ -9,6 +9,7 @@ function rawAgent() {
   return {
     id: `agent_${AGENT_UUID}`,
     name: 'Agent',
+    engine_kind: 'claude',
     model: { id: 'model' },
     skills: [{ type: 'custom' as const, skill_id: `skill_${SKILL_UUID}`, version: '1.0.0' }],
     created_at: '2026-08-07T00:00:00Z',
@@ -31,5 +32,12 @@ describe('agent response parsers', () => {
         skills: [{ type: 'custom', skill_id: `agent_${SKILL_UUID}`, version: '1.0.0' }],
       }),
     ).toThrow()
+  })
+
+  it('rejects missing or blank engine identity instead of guessing a default', () => {
+    expect(() => parseAgentResponse({ ...rawAgent(), engine_kind: undefined })).toThrow(
+      /engine_kind/,
+    )
+    expect(() => parseAgentResponse({ ...rawAgent(), engine_kind: '   ' })).toThrow(/engine_kind/)
   })
 })
