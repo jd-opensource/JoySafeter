@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 
 from app.joysafeter_domain.llm.catalog import (
+    CredentialProfile,
     EngineCapability,
     LlmCatalogError,
     ProviderDefinition,
@@ -11,6 +13,8 @@ from app.joysafeter_domain.llm.catalog import (
 )
 from app.joysafeter_domain.schemas.joysafeter_secret import SecretKind
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
+
+logger = logging.getLogger(__name__)
 
 
 class LlmCompatibilityError(InvalidRequestError):
@@ -194,3 +198,32 @@ def validate_credential_data(provider_id: str, protocol_id: str, data: Mapping[s
             },
             user_action="fix_input",
         )
+
+
+def resolve_credential_profile(secret) -> CredentialProfile | None:
+    """Resolve the LLM credential profile for a secret, or ``None``.
+
+    Returns ``None`` for non-LLM secrets, secrets missing provider/protocol, and
+    provider/protocol pairs no longer known to the catalog (e.g. legacy data
+    predating a compatibility guard). Read paths degrade to an unresolved model
+    instead of propagating the error.
+    """
+    if (
+        getattr(secret, "kind", None) != SecretKind.LLM.value
+        or not getattr(secret, "provider", None)
+        or not getattr(secret, "protocol", None)
+    ):
+        return None
+    try:
+        binding = validate_provider_protocol(secret.provider, secret.protocol)
+        return get_llm_catalog().credential_profile(binding.credential_profile_id)
+    except (LlmCompatibilityError, LlmCatalogError) as exc:
+        logger.warning(
+            "Skipping model resolution for secret %r: incompatible provider/protocol "
+            "(provider=%r, protocol=%r): %s",
+            getattr(secret, "name", None),
+            getattr(secret, "provider", None),
+            getattr(secret, "protocol", None),
+            exc,
+        )
+        return None

@@ -11,6 +11,7 @@ from app.joysafeter_domain.llm.catalog import LlmCatalogError, get_llm_catalog
 from app.joysafeter_domain.llm.compatibility import (
     LlmCompatibilityError,
     compatible_engine_ids,
+    resolve_credential_profile,
     validate_credential_data,
     validate_provider_protocol,
 )
@@ -283,14 +284,10 @@ async def _test_secret_connectivity(req: TestSecretRequest) -> SecretTestRespons
 
 
 def _catalog_identity(secret) -> tuple[str | None, list[str]]:
-    if secret.kind != SecretKind.LLM.value or not secret.provider or not secret.protocol:
+    profile = resolve_credential_profile(secret)
+    if profile is None:
         return None, []
-    try:
-        binding = validate_provider_protocol(secret.provider, secret.protocol)
-        profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
-        return profile.model_key, compatible_engine_ids(secret.provider, secret.protocol)
-    except (LlmCatalogError, LlmCompatibilityError):
-        return None, []
+    return profile.model_key, compatible_engine_ids(secret.provider, secret.protocol)
 
 
 def _secret_model(secret, service: SecretService, model_key: str | None) -> str | None:

@@ -5,9 +5,9 @@ from typing import Any, Optional, cast
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_domain.llm.catalog import LlmCatalogError, get_llm_catalog
 from app.joysafeter_domain.llm.compatibility import (
     LlmCompatibilityError,
+    resolve_credential_profile,
     validate_engine,
     validate_engine_protocol,
     validate_provider_protocol,
@@ -199,31 +199,12 @@ async def _validate_environment_ref(
 
 
 def _model_from_secret_data(secret, secret_data: dict[str, Any] | None) -> Optional[dict[str, str]]:
-    if (
-        not secret_data
-        or getattr(secret, "kind", None) != SecretKind.LLM.value
-        or not getattr(secret, "provider", None)
-        or not getattr(secret, "protocol", None)
-    ):
+    if not secret_data:
         return None
-    # A secret whose provider/protocol is no longer known to the catalog (e.g.
-    # legacy data predating a compatibility guard) must not break listing agents.
-    # Mirror the secrets endpoint's _catalog_identity: degrade to "unresolved
-    # model" instead of propagating the error.
-    try:
-        binding = validate_provider_protocol(secret.provider, secret.protocol)
-        profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
-    except (LlmCompatibilityError, LlmCatalogError) as exc:
-        logger.warning(
-            "Skipping model resolution for secret %r: incompatible provider/protocol "
-            "(provider=%r, protocol=%r): %s",
-            getattr(secret, "name", None),
-            getattr(secret, "provider", None),
-            getattr(secret, "protocol", None),
-            exc,
-        )
+    profile = resolve_credential_profile(secret)
+    if profile is None or not profile.model_key:
         return None
-    model_id = secret_data.get(profile.model_key) if profile.model_key else None
+    model_id = secret_data.get(profile.model_key)
     return {"id": str(model_id)} if model_id else None
 
 
