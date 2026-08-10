@@ -1082,7 +1082,7 @@ const zh = {
         credentials: 'MCP 凭据',
         addCredential: '添加 MCP Bearer 凭据',
         noCredentials: '此 MCP 凭据组暂无 MCP 凭据。',
-        credArchiveTitle: '归档凭证',
+        credArchiveTitle: '归档 MCP 凭据',
         credArchiveDescription: '确定要归档 "{{name}}" 吗？',
         credDeleteDescription: '确定要永久删除 "{{name}}" 吗？此操作无法撤销。',
         cred: {
@@ -1101,7 +1101,7 @@ const zh = {
           add: '添加凭据',
           connecting: '连接中...',
           connect: '连接',
-          createFailed: '创建凭证失败，请重试。',
+          createFailed: '创建 MCP 凭据失败，请重试。',
         },
       },
       triggers: {

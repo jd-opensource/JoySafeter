@@ -1032,7 +1032,7 @@ const en = {
         credentials: 'MCP Credentials',
         addCredential: 'Add MCP Bearer Credential',
         noCredentials: 'No MCP credentials in this credential set yet.',
-        credArchiveTitle: 'Archive Credential',
+        credArchiveTitle: 'Archive MCP Credential',
         credArchiveDescription: 'Are you sure you want to archive "{{name}}"?',
         credDeleteDescription:
           'Are you sure you want to permanently delete "{{name}}"? This action cannot be undone.',
@@ -1052,7 +1052,7 @@ const en = {
           add: 'Add Credential',
           connecting: 'Connecting...',
           connect: 'Connect',
-          createFailed: 'Failed to create credential. Please try again.',
+          createFailed: 'Failed to create MCP credential. Please try again.',
         },
       },
       triggers: {

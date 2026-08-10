@@ -695,6 +695,18 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ['Vault static Bearer', 'managed.vaults.cred.adding', 'Adding…', '添加中…'],
   ['Vault static Bearer', 'managed.vaults.cred.add', 'Add Credential', '添加凭据'],
   [
+    'MCP credentials',
+    'managed.vaults.credArchiveTitle',
+    'Archive MCP Credential',
+    '归档 MCP 凭据',
+  ],
+  [
+    'MCP credentials',
+    'managed.vaults.cred.createFailed',
+    'Failed to create MCP credential. Please try again.',
+    '创建 MCP 凭据失败，请重试。',
+  ],
+  [
     'agent model connection',
     'agents.edit.selectSecret',
     'Select a Model Connection',
@@ -992,6 +1004,7 @@ const legacySourcePatterns = [
   /\bmodel configurations?\b/i,
   /\bagent secrets?\b/i,
   /模型配置|模型密钥|智能体密钥|Agent 密钥/u,
+  /包含 OPENAI_API_KEY 的密钥(?:\s*\(Secret\))?/u,
   /\bvault configuration\b/i,
   /^\$\{…\}\s+vaults?$/i,
 ] as const
