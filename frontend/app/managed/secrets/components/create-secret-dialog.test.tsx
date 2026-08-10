@@ -12,9 +12,7 @@ vi.mock('@/lib/managed/request-scope', () => ({
   useManagedRequestScope: () => ({ orgId: 'org-a', projectId: 'project-a', key: 'scope' }),
 }))
 vi.mock('@/components/managed/llm/llm-secret-configurator', () => ({
-  LlmSecretConfigurator: ({ initialEngineId }: { initialEngineId?: string }) => (
-    <div data-testid="llm-configurator">engine:{initialEngineId}</div>
-  ),
+  LlmSecretConfigurator: () => <div data-testid="llm-configurator">llm</div>,
 }))
 vi.mock('@/components/ui/dialog', () => ({
   Dialog: ({ open, children }: any) => (open ? <div>{children}</div> : null),
@@ -27,17 +25,10 @@ vi.mock('@/components/ui/dialog', () => ({
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 
 describe('CreateSecretDialog', () => {
-  it('defaults to inline LLM configuration with optional engine context', () => {
-    render(
-      <CreateSecretDialog
-        open
-        onOpenChange={vi.fn()}
-        onCreated={vi.fn()}
-        initialEngineId="codex"
-      />,
-    )
+  it('defaults to inline LLM configuration', () => {
+    render(<CreateSecretDialog open onOpenChange={vi.fn()} onCreated={vi.fn()} />)
 
-    expect(screen.getByTestId('llm-configurator').textContent).toContain('codex')
+    expect(screen.getByTestId('llm-configurator')).toBeTruthy()
   })
 
   it('creates an explicit generic secret without provider or protocol', async () => {

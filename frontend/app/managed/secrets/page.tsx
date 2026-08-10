@@ -57,7 +57,6 @@ export default function SecretListPage() {
   const [createdFilter, setCreatedFilter] = useState('all')
   const [showCreate, setShowCreate] = useState(false)
   const [initialKind, setInitialKind] = useState<'llm' | 'generic'>('llm')
-  const [initialEngineId, setInitialEngineId] = useState<string | undefined>()
   const [deleteTarget, setDeleteTarget] = useState<Secret | null>(null)
 
   const list = usePaginatedList<Secret>({
@@ -73,7 +72,6 @@ export default function SecretListPage() {
     const create = searchParams.get('create')
     if (create !== 'llm' && create !== 'generic' && create !== 'custom') return
     setInitialKind(create === 'llm' ? 'llm' : 'generic')
-    setInitialEngineId(searchParams.get('engine') || undefined)
     setShowCreate(true)
     router.replace('/managed/secrets')
   }, [router, searchParams])
@@ -225,7 +223,6 @@ export default function SecretListPage() {
               size="sm"
               onClick={() => {
                 setInitialKind('llm')
-                setInitialEngineId(undefined)
                 setShowCreate(true)
               }}
             >
@@ -285,7 +282,6 @@ export default function SecretListPage() {
         open={showCreate}
         onOpenChange={setShowCreate}
         initialKind={initialKind}
-        initialEngineId={initialEngineId}
         onCreated={(_secret: SecretDetail) => {
           setShowCreate(false)
           invalidateSecretQueries()

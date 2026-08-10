@@ -28,7 +28,6 @@ interface CreateSecretDialogProps {
   onOpenChange: (open: boolean) => void
   onCreated: (secret: SecretDetail) => void
   initialKind?: CreateSecretKind
-  initialEngineId?: string
 }
 
 interface GenericPair {
@@ -41,7 +40,6 @@ export function CreateSecretDialog({
   onOpenChange,
   onCreated,
   initialKind = 'llm',
-  initialEngineId,
 }: CreateSecretDialogProps) {
   const { t } = useTranslation()
   const managedScope = useManagedRequestScope()
@@ -136,7 +134,6 @@ export function CreateSecretDialog({
 
         {kind === 'llm' ? (
           <LlmSecretConfigurator
-            initialEngineId={initialEngineId}
             onCreated={(secret) => {
               onCreated(secret)
               onOpenChange(false)
