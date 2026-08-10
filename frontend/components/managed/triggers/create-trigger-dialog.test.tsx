@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { JSDOM } from 'jsdom'
-import { act } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, type ReactNode } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { managedGet } from '@/lib/api-client'
 import type { AgentTrigger } from '@/lib/managed/triggers'
 import { AGENT_ID, MANUAL_TRIGGER_ID, OTHER_TRIGGER_ID, TRIGGER_ID } from '@/test-utils/entity-ids'
 
@@ -32,23 +33,51 @@ vi.mock('@/hooks/managed/use-scoped-actions', () => ({
 vi.mock('@/lib/managed/request-scope', () => ({
   hasManagedRequestScope: () => true,
   managedRequestOptions: () => ({ headers: {} }),
+  useManagedRequestScope: () => ({
+    orgId: 'org-a',
+    projectId: 'project-a',
+    key: 'org-a:project-a',
+  }),
 }))
 
 vi.mock('@/lib/api-client', () => ({
-  managedGet: vi.fn(async (path: string) => {
-    if (path.startsWith('/agents/')) return []
-    if (path.startsWith('/agents'))
-      return [
-        {
-          id: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001',
-          name: 'Agent 1',
-          archived_at: null,
-        },
-      ]
-    if (path.startsWith('/environments')) return []
-    return []
-  }),
+  managedGet: vi.fn(),
 }))
+
+vi.mock('@/components/ui/select', async () => {
+  const React = await import('react')
+  const SelectContext = React.createContext<(value: string) => void>(() => undefined)
+  return {
+    Select: ({
+      children,
+      value,
+      onValueChange,
+    }: {
+      children: ReactNode
+      value?: string
+      onValueChange?: (value: string) => void
+    }) => (
+      <SelectContext.Provider value={onValueChange ?? (() => undefined)}>
+        <div data-testid={value ? `select-${value}` : undefined}>{children}</div>
+      </SelectContext.Provider>
+    ),
+    SelectContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    SelectGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    SelectItem: ({ children, value }: { children: ReactNode; value: string }) => {
+      const onValueChange = React.useContext(SelectContext)
+      return (
+        <button type="button" onClick={() => onValueChange(value)}>
+          {children}
+        </button>
+      )
+    },
+    SelectLabel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    SelectTrigger: ({ children, ...props }: { children: ReactNode; 'aria-label'?: string }) => (
+      <div {...props}>{children}</div>
+    ),
+    SelectValue: () => null,
+  }
+})
 
 vi.mock('@/lib/managed/triggers', async () => {
   const actual =
@@ -68,6 +97,54 @@ globalThis.HTMLElement = dom.window.HTMLElement
 globalThis.localStorage = dom.window.localStorage
 
 import { CreateTriggerDialog } from './create-trigger-dialog'
+
+const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
+const SERVICE_CREDENTIAL_ID = 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020'
+
+function mockManagedApi({
+  keys = ['WEBHOOK_SECRET', 'ALT_TOKEN'],
+  secretError,
+}: {
+  keys?: string[]
+  secretError?: Error
+} = {}) {
+  managedGetMock.mockImplementation(async (path: string) => {
+    if (path.startsWith('/secrets?')) {
+      if (secretError) throw secretError
+      return {
+        data: [
+          {
+            id: SERVICE_CREDENTIAL_ID,
+            name: 'hook-prod',
+            kind: 'generic',
+            provider: null,
+            protocol: null,
+            model: null,
+            compatible_engine_ids: [],
+            is_default: false,
+            keys,
+            created_at: '2030-01-01T00:00:00Z',
+            updated_at: '2030-01-01T00:00:00Z',
+          },
+        ],
+        has_more: false,
+        last_id: SERVICE_CREDENTIAL_ID,
+      }
+    }
+    if (path.startsWith('/agents/')) return []
+    if (path.startsWith('/agents')) {
+      return [
+        {
+          id: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001',
+          name: 'Agent 1',
+          archived_at: null,
+        },
+      ]
+    }
+    if (path.startsWith('/environments')) return []
+    return []
+  })
+}
 
 function completedOneOffTrigger(): AgentTrigger {
   return {
@@ -140,6 +217,30 @@ function manualTrigger(): AgentTrigger {
   }
 }
 
+function webhookTrigger({
+  secretRef = null,
+  secretKey = null,
+}: {
+  secretRef?: string | null
+  secretKey?: string | null
+} = {}): AgentTrigger {
+  return {
+    ...completedOneOffTrigger(),
+    id: OTHER_TRIGGER_ID,
+    name: 'Inbound hook',
+    type: 'webhook',
+    prompt_template: '{{ body }}',
+    cron_expr: null,
+    timezone: null,
+    run_at: null,
+    next_run_at: null,
+    last_fired_slot: null,
+    secret_ref: secretRef,
+    secret_key: secretKey,
+    config: { auth_methods: ['hmac'] },
+  }
+}
+
 function renderDialog(trigger: AgentTrigger, open = true) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const view = render(
@@ -160,6 +261,11 @@ function renderDialog(trigger: AgentTrigger, open = true) {
 }
 
 describe('CreateTriggerDialog edit mode', () => {
+  beforeEach(() => {
+    managedGetMock.mockReset()
+    mockManagedApi()
+  })
+
   afterEach(() => {
     cleanup()
     vi.useRealTimers()
@@ -233,5 +339,68 @@ describe('CreateTriggerDialog edit mode', () => {
     expect(payload.body).not.toHaveProperty('concurrency_policy')
     expect(payload.body).not.toHaveProperty('secret_ref')
     expect(payload.body).not.toHaveProperty('auth_methods')
+  })
+
+  it('submits the selected Secret resource name and selected metadata key', async () => {
+    const { getByText } = renderDialog(webhookTrigger())
+
+    await waitFor(() => expect(getByText('hook-prod')).toBeTruthy())
+    fireEvent.click(getByText('hook-prod'))
+    fireEvent.click(getByText('ALT_TOKEN'))
+
+    const saveButton = getByText('common.save').closest('button')
+    expect(saveButton).not.toBeDisabled()
+    fireEvent.click(saveButton!)
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled())
+    expect(mutateAsync.mock.calls[0][0].body).toEqual(
+      expect.objectContaining({ secret_ref: 'hook-prod', secret_key: 'ALT_TOKEN' }),
+    )
+  })
+
+  it('preserves an unavailable historical Secret resource and disables save', async () => {
+    const { getAllByText, getByText } = renderDialog(
+      webhookTrigger({ secretRef: 'deleted-hook', secretKey: 'WEBHOOK_SECRET' }),
+    )
+
+    await waitFor(() =>
+      expect(getAllByText('managed.triggers.serviceCredentialUnavailable').length).toBeGreaterThan(
+        0,
+      ),
+    )
+    expect(getByText('common.save').closest('button')).toBeDisabled()
+  })
+
+  it('preserves an unavailable historical Secret field and disables save', async () => {
+    const { getByText } = renderDialog(
+      webhookTrigger({ secretRef: 'hook-prod', secretKey: 'REMOVED_FIELD' }),
+    )
+
+    await waitFor(() =>
+      expect(getByText('managed.triggers.credentialFieldUnavailable')).toBeTruthy(),
+    )
+    expect(getByText('common.save').closest('button')).toBeDisabled()
+  })
+
+  it('reports a Secret with no metadata keys and disables save', async () => {
+    mockManagedApi({ keys: [] })
+    const { getByText } = renderDialog(
+      webhookTrigger({ secretRef: 'hook-prod', secretKey: null }),
+    )
+
+    await waitFor(() => expect(getByText('managed.triggers.credentialFieldEmpty')).toBeTruthy())
+    expect(getByText('common.save').closest('button')).toBeDisabled()
+  })
+
+  it('reports a failed Secret query and disables save', async () => {
+    mockManagedApi({ secretError: new Error('secret metadata unavailable') })
+    const { getByText } = renderDialog(
+      webhookTrigger({ secretRef: 'hook-prod', secretKey: 'WEBHOOK_SECRET' }),
+    )
+
+    await waitFor(() =>
+      expect(getByText('managed.triggers.serviceCredentialLoadFailed')).toBeTruthy(),
+    )
+    expect(getByText('common.save').closest('button')).toBeDisabled()
   })
 })
