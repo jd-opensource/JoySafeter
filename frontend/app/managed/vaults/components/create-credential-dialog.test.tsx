@@ -278,9 +278,27 @@ describe('CreateCredentialDialog object lifecycle', () => {
     expect(onOpenChange).not.toHaveBeenCalled()
   })
 
-  it('creates only a static bearer credential with a required token', async () => {
+  it('omits a blank optional name on the wire and accepts the server fallback response', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const view = render(renderDialog(vaultAId, queryClient))
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    const onOpenChange = vi.fn()
+    let wirePayload: Record<string, unknown> | undefined
+    managedPostMock.mockImplementationOnce(async (_path, payload) => {
+      wirePayload = JSON.parse(JSON.stringify(payload)) as Record<string, unknown>
+      return {
+        id: 'cred_00000000-0000-0000-0000-000000000003',
+        vault_id: vaultAId,
+        name: 'https://mcp-a.example.com',
+        credential_type: 'static_bearer',
+        mcp_server_url: 'https://mcp-a.example.com',
+        token_value: '********',
+        oauth_config: null,
+        archived_at: null,
+        created_at: '2026-08-10T00:00:00Z',
+        updated_at: '2026-08-10T00:00:00Z',
+      }
+    })
+    const view = render(renderDialog(vaultAId, queryClient, onOpenChange))
 
     expect(view.queryByText('OAuth')).toBeNull()
     const submit = view.getByText('managed.vaults.cred.add').closest('button')!
@@ -296,17 +314,14 @@ describe('CreateCredentialDialog object lifecycle', () => {
       fireEvent.click(submit)
     })
 
-    await waitFor(() =>
-      expect(managedPostMock).toHaveBeenCalledWith(
-        `/vaults/${vaultAId}/credentials`,
-        {
-          name: undefined,
-          credential_type: 'static_bearer',
-          mcp_server_url: 'https://mcp-a.example.com',
-          token_value: 'bearer-token',
-        },
-        managedOptions(),
-      ),
-    )
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(wirePayload).toEqual({
+      credential_type: 'static_bearer',
+      mcp_server_url: 'https://mcp-a.example.com',
+      token_value: 'bearer-token',
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['vault-credentials', vaultAId],
+    })
   })
 })

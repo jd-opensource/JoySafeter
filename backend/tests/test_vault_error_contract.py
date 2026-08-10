@@ -328,6 +328,73 @@ async def test_create_credential_normalizes_static_bearer_storage(db_session):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("name_payload", "expected_name"),
+    [
+        pytest.param({}, "https://mcp-name.example.com/api", id="omitted"),
+        pytest.param({"name": None}, "https://mcp-name.example.com/api", id="null"),
+        pytest.param({"name": "   "}, "https://mcp-name.example.com/api", id="blank"),
+        pytest.param({"name": "  Production MCP  "}, "Production MCP", id="explicit"),
+    ],
+)
+async def test_create_credential_api_normalizes_optional_name_and_persists_it(
+    db_session,
+    name_payload,
+    expected_name,
+):
+    vault = JoySafeterVault(name=f"vault-{uuid.uuid4()}", description="")
+    db_session.add(vault)
+    await db_session.commit()
+    await db_session.refresh(vault)
+
+    request = CreateCredentialRequest.model_validate(
+        {
+            **name_payload,
+            "credential_type": "static_bearer",
+            "mcp_server_url": "  https://mcp-name.example.com/api  ",
+            "token_value": "token",
+        }
+    )
+    created = await create_credential(request, _request(), vault.id, db_session, _auth_ctx())
+
+    stored = (
+        await db_session.execute(
+            select(JoySafeterVaultCredential).where(JoySafeterVaultCredential.id == created.id)
+        )
+    ).scalar_one()
+    assert request.name == name_payload.get("name")
+    assert created.name == expected_name
+    assert stored.name == expected_name
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("name", "expected_name"),
+    [
+        pytest.param(None, "https://service-name.example.com/mcp", id="missing"),
+        pytest.param(" \t ", "https://service-name.example.com/mcp", id="blank"),
+        pytest.param("  Service MCP  ", "Service MCP", id="explicit"),
+    ],
+)
+async def test_create_credential_service_normalizes_optional_name(db_session, name, expected_name):
+    vault = JoySafeterVault(name=f"vault-{uuid.uuid4()}", description="")
+    db_session.add(vault)
+    await db_session.commit()
+    await db_session.refresh(vault)
+
+    created = await VaultService(db_session).create_credential(
+        vault_id=vault.id,
+        name=name,
+        credential_type="static_bearer",
+        mcp_server_url="https://service-name.example.com/mcp",
+        token_value="token",
+    )
+
+    assert created is not None
+    assert created.name == expected_name
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("credential_type", ["mcp_oauth", "oauth", "custom"])
 async def test_create_credential_rejects_unsupported_type(db_session, credential_type):
     vault = JoySafeterVault(name=f"vault-{uuid.uuid4()}", description="")
@@ -355,7 +422,20 @@ async def test_create_credential_rejects_unsupported_type(db_session, credential
 
 
 @pytest.mark.asyncio
-async def test_rejected_credential_creation_skips_audit_and_network_refresh(db_session, monkeypatch):
+@pytest.mark.parametrize(
+    ("credential_type", "token_value", "expected_code"),
+    [
+        pytest.param("mcp_oauth", "token", "VAULT_CREDENTIAL_TYPE_NOT_SUPPORTED", id="unsupported-type"),
+        pytest.param("static_bearer", "   ", "VAULT_CREDENTIAL_TOKEN_REQUIRED", id="blank-token"),
+    ],
+)
+async def test_rejected_credential_creation_skips_audit_and_network_refresh(
+    db_session,
+    monkeypatch,
+    credential_type,
+    token_value,
+    expected_code,
+):
     vault = JoySafeterVault(name=f"vault-{uuid.uuid4()}", description="")
     db_session.add(vault)
     await db_session.commit()
@@ -376,10 +456,10 @@ async def test_rejected_credential_creation_skips_audit_and_network_refresh(db_s
     with pytest.raises(AppError) as exc_info:
         await create_credential(
             CreateCredentialRequest(
-                name="Unsupported",
-                credential_type="mcp_oauth",
+                name=None,
+                credential_type=credential_type,
                 mcp_server_url="https://mcp.example.com",
-                token_value="token",
+                token_value=token_value,
             ),
             _request(),
             vault.id,
@@ -388,7 +468,7 @@ async def test_rejected_credential_creation_skips_audit_and_network_refresh(db_s
         )
 
     payload = await handled_app_error_payload(exc_info.value, status_code=400)
-    assert payload["code"] == "VAULT_CREDENTIAL_TYPE_NOT_SUPPORTED"
+    assert payload["code"] == expected_code
 
 
 @pytest.mark.asyncio

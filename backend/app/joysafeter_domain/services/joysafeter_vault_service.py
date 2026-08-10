@@ -229,7 +229,7 @@ class VaultService:
     async def create_credential(
         self,
         vault_id: VaultId,
-        name: str,
+        name: Optional[str],
         credential_type: str,
         mcp_server_url: str,
         token_value: str,
@@ -258,9 +258,10 @@ class VaultService:
                 data={"credential_type": CredentialType.STATIC_BEARER.value},
                 user_action="fix_input",
             )
+        normalized_name = (name or "").strip() or mcp_server_url
         cred = JoySafeterVaultCredential(
             vault_id=vault_id,
-            name=name,
+            name=normalized_name,
             credential_type=normalized_type,
             mcp_server_url=mcp_server_url,
             token_value=self._encrypt_token_value(normalized_token),
