@@ -493,7 +493,8 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
   const isCurrentSaveRun = (runId: number, scope: string) =>
     saveRunRef.current === runId &&
     operationScopeRef.current === scope &&
-    getCurrentOperationScope() === scope
+    getCurrentOperationScope() === scope &&
+    currentProjectAllowsWrite()
 
   // ── Save mutation ──
   const mutation = useMutation({
@@ -509,6 +510,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
     onSuccess: (_data, { agentId, requestScope, runId, scope }) => {
       if (!isCurrentSaveRun(runId, scope)) return
       queryClient.invalidateQueries({ queryKey: ['agent', requestScope.key, agentId] })
+      queryClient.invalidateQueries({ queryKey: ['agents', requestScope.key] })
       router.push(`/managed/agents/${agentId}`)
     },
     onError: (error, { runId, scope }) => {

@@ -27,6 +27,7 @@ import { ResourceErrorState } from '@/components/managed/shared'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { toastOperationError } from '@/lib/managed/errors'
 import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
+import { getSessionDisplayTitle } from '@/lib/managed/session-display'
 import { CreateSessionDialog } from './components/create-session-dialog'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
@@ -126,7 +127,11 @@ export default function SessionListPage() {
     {
       key: 'name',
       header: t('managed.table.name'),
-      render: (s) => <span className="text-foreground">{s.title || '-'}</span>,
+      render: (s) => (
+        <span className="text-foreground">
+          {getSessionDisplayTitle(s.title, t('managed.sessions.untitledSession'))}
+        </span>
+      ),
     },
     {
       key: 'status',

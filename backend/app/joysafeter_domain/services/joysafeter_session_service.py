@@ -112,7 +112,7 @@ from app.joysafeter_domain.models.joysafeter_session import (
     SessionStatus,
 )
 from app.joysafeter_shared.common.app_errors import ConflictError, NotFoundError, ResourceConflictError
-from app.joysafeter_shared.utils.datetime import utc_now
+from app.joysafeter_shared.utils.datetime import platform_now, utc_now
 from app.joysafeter_shared.utils.locks import session_advisory_lock_key
 
 _VALID_TRANSITIONS: dict[str, set[str]] = {
@@ -291,6 +291,14 @@ class SessionService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    @staticmethod
+    def build_session_title(title: Optional[str], agent_name: Optional[str]) -> str:
+        requested_title = (title or "").strip()
+        if requested_title:
+            return requested_title
+        display_agent_name = (agent_name or "").strip() or "Session"
+        return f"{display_agent_name} · {platform_now().strftime('%m-%d %H:%M')}"
+
     async def create_session(
         self,
         agent_id: AgentId,
@@ -301,10 +309,11 @@ class SessionService:
         agent_version: Optional[int] = None,
         agent_snapshot: Optional[dict] = None,
         project_id: Optional[str] = None,
+        agent_name: Optional[str] = None,
     ) -> JoySafeterSession:
         kwargs = dict(
             agent_id=agent_id,
-            title=title,
+            title=self.build_session_title(title, agent_name),
             status=SessionStatus.IDLE.value,
             metadata_=metadata or {},
             vault_ids=[str(vault_id) for vault_id in vault_ids or []],

@@ -3,25 +3,42 @@ import { act, fireEvent, render, screen, waitFor, type RenderResult } from '@tes
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/i18n', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
+vi.mock('@/lib/i18n', () => ({
+  useTranslation: () => ({
+    t: (key: string, options?: Record<string, unknown>) =>
+      key === 'managed.agents.deleteDescription'
+        ? `${key}:${String(options?.triggers ?? '')}`
+        : key,
+  }),
+}))
+
+const routerPush = vi.fn()
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: routerPush }) }))
 
 const managedPost = vi.fn(() => Promise.resolve({}))
+const managedDelete = vi.fn(() => Promise.resolve())
+const toast = vi.fn()
 const AGENT_ID = 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f122'
+const SESSION_ID = 'sess_018f6f42-0a51-7cc4-98c8-4f6f0ca5f123'
 let agentPayload: Record<string, unknown>
+let deletePreviewPayload = { sessions: 0, tasks: 0, versions: 0, triggers: 0 }
 
 vi.mock('@/lib/api-client', () => ({
   managedGet: vi.fn((path: string) => {
+    if (String(path).includes('/delete_preview')) return Promise.resolve(deletePreviewPayload)
     if (String(path).includes('/versions')) return Promise.resolve({ data: [] })
     if (String(path).includes('/sessions')) return Promise.resolve({ data: [] })
     return Promise.resolve(agentPayload)
   }),
   managedPost: (...args: unknown[]) => managedPost(...args),
-  managedDelete: vi.fn(),
+  managedDelete: (...args: unknown[]) => managedDelete(...args),
 }))
+vi.mock('@/hooks/use-toast', () => ({ toast: (...args: unknown[]) => toast(...args) }))
 
 vi.mock('@/lib/managed/agent-response-parsers', () => ({ parseAgentResponse: (x: unknown) => x }))
-vi.mock('@/lib/managed/session-response-parsers', () => ({ parseSessionListResponse: (x: unknown) => x }))
+vi.mock('@/lib/managed/session-response-parsers', () => ({
+  parseSessionListResponse: (x: unknown) => x,
+}))
 vi.mock('@/lib/managed/errors', () => ({
   shouldRetryManagedResourceError: () => false,
   toastOperationError: vi.fn(),
@@ -55,7 +72,9 @@ vi.mock('@/components/ui/select', () => ({
   SelectItem: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   SelectValue: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }))
-vi.mock('@/components/ui/badge', () => ({ Badge: ({ children }: { children: ReactNode }) => <span>{children}</span> }))
+vi.mock('@/components/ui/badge', () => ({
+  Badge: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+}))
 vi.mock('@/components/managed/shared', () => ({
   PageHeader: ({ action }: { action?: ReactNode }) => <div>{action}</div>,
   StatusBadge: () => null,
@@ -66,18 +85,24 @@ vi.mock('@/components/managed/shared', () => ({
   ResourceErrorState: () => <div>error</div>,
   ConfirmDialog: ({
     open,
+    description,
     confirmLabel,
     onConfirm,
   }: {
     open: boolean
+    description: string
     confirmLabel: string
     onConfirm: () => void
   }) =>
     open ? (
-      <button type="button" onClick={onConfirm}>
-        confirm:{confirmLabel}
-      </button>
+      <div>
+        <div>{description}</div>
+        <button type="button" onClick={onConfirm}>
+          confirm:{confirmLabel}
+        </button>
+      </div>
     ) : null,
+  withEntityRouteGuard: (Component: (props: never) => ReactNode) => Component,
 }))
 
 import AgentDetailPage from './page'
@@ -99,11 +124,22 @@ async function renderPage(): Promise<RenderResult> {
 
 describe('AgentDetailPage action toolbar', () => {
   beforeEach(() => {
-    managedPost.mockClear()
+    managedPost.mockReset()
+    managedPost.mockResolvedValue({})
+    managedDelete.mockReset()
+    managedDelete.mockResolvedValue()
+    routerPush.mockClear()
+    toast.mockClear()
+    deletePreviewPayload = { sessions: 0, tasks: 0, versions: 0, triggers: 0 }
   })
 
   it('shows the full toolbar for an active agent', async () => {
-    agentPayload = { id: AGENT_ID, name: 'My Agent', archived_at: null, updated_at: '2026-08-07T00:00:00Z' }
+    agentPayload = {
+      id: AGENT_ID,
+      name: 'My Agent',
+      archived_at: null,
+      updated_at: '2026-08-07T00:00:00Z',
+    }
     await renderPage()
     await waitFor(() => expect(screen.getByText('managed.agents.startSession')).toBeTruthy())
     expect(screen.getByText('common.edit')).toBeTruthy()
@@ -143,5 +179,71 @@ describe('AgentDetailPage action toolbar', () => {
     })
     await waitFor(() => expect(managedPost).toHaveBeenCalled())
     expect(String(managedPost.mock.calls[0][0])).toContain(`/agents/${AGENT_ID}/unarchive`)
+  })
+
+  it('refreshes into the archived state after archive confirmation closes the dialog', async () => {
+    agentPayload = {
+      id: AGENT_ID,
+      name: 'My Agent',
+      archived_at: null,
+      updated_at: '2026-08-07T00:00:00Z',
+    }
+    managedPost.mockImplementationOnce(async () => {
+      agentPayload = {
+        ...agentPayload,
+        archived_at: '2026-08-08T00:00:00Z',
+      }
+      return {}
+    })
+    await renderPage()
+
+    await waitFor(() => expect(screen.getByText('common.archive')).toBeTruthy())
+    fireEvent.click(screen.getByText('common.archive'))
+    fireEvent.click(screen.getByText('confirm:common.archive'))
+
+    await waitFor(() => expect(screen.getByText('common.restore')).toBeTruthy())
+    expect(toast).toHaveBeenCalledWith({ title: 'managed.agents.archiveSuccess' })
+  })
+
+  it('shows a pending state and prevents duplicate session starts', async () => {
+    agentPayload = {
+      id: AGENT_ID,
+      name: 'My Agent',
+      archived_at: null,
+      updated_at: '2026-08-07T00:00:00Z',
+    }
+    let resolveStart!: (value: { id: string }) => void
+    managedPost.mockImplementationOnce(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveStart = resolve
+        }),
+    )
+    await renderPage()
+
+    fireEvent.click(await screen.findByText('managed.agents.startSession'))
+
+    const pendingLabel = await screen.findByText('managed.agents.startingSession')
+    expect(pendingLabel.closest('button')?.disabled).toBe(true)
+    fireEvent.click(pendingLabel)
+    expect(managedPost).toHaveBeenCalledTimes(1)
+
+    resolveStart({ id: SESSION_ID })
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith(`/managed/sessions/${SESSION_ID}`))
+  })
+
+  it('includes triggers in the permanent-delete impact preview', async () => {
+    agentPayload = {
+      id: AGENT_ID,
+      name: 'My Agent',
+      archived_at: '2026-08-07T00:00:00Z',
+      updated_at: '2026-08-07T00:00:00Z',
+    }
+    deletePreviewPayload = { sessions: 2, tasks: 4, versions: 3, triggers: 5 }
+    await renderPage()
+
+    fireEvent.click(await screen.findByText('common.delete'))
+
+    expect(await screen.findByText('managed.agents.deleteDescription:5')).toBeTruthy()
   })
 })

@@ -46,6 +46,40 @@ impl E2bProvider {
     }
 }
 
+fn build_create_body(
+    template_id: &str,
+    sandbox_id: crate::ids::SandboxId,
+    env: &std::collections::HashMap<String, String>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "templateID": template_id,
+        "timeout": 3600,
+        "metadata": {
+            "joysafeter": "true",
+            "sandbox_id": sandbox_id.as_uuid().to_string(),
+        },
+        "envVars": env,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::build_create_body;
+    use crate::ids::SandboxId;
+
+    #[test]
+    fn create_body_forwards_sandbox_environment() {
+        let sandbox_id = SandboxId::from_uuid(uuid::Uuid::nil());
+        let env = HashMap::from([("TZ".to_string(), "Asia/Shanghai".to_string())]);
+
+        let body = build_create_body("template", sandbox_id, &env);
+
+        assert_eq!(body["envVars"]["TZ"], "Asia/Shanghai");
+    }
+}
+
 #[async_trait]
 impl SandboxProvider for E2bProvider {
     fn provider_name(&self) -> &'static str {
@@ -53,14 +87,7 @@ impl SandboxProvider for E2bProvider {
     }
 
     async fn create(&self, config: &SandboxCreateConfig) -> anyhow::Result<String> {
-        let body = serde_json::json!({
-            "templateID": self.template_id,
-            "timeout": 3600,
-            "metadata": {
-                "joysafeter": "true",
-                "sandbox_id": config.sandbox_id.as_uuid().to_string(),
-            },
-        });
+        let body = build_create_body(&self.template_id, config.sandbox_id, &config.env);
 
         let resp = self
             .client

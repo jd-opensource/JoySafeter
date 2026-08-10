@@ -1,19 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { useTranslation } from '@/lib/i18n'
-import { Plus, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
-import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
-import { apiResourcePath } from '@/lib/managed/api-paths'
-import { toastOperationError } from '@/lib/managed/errors'
-import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
-import { isEntityId, parseAgentId } from '@/types/entity-id'
-import type { Agent } from '@/types/managed'
-import { Button } from '@/components/ui/button'
+import { Archive, ArchiveRestore, ArrowRight, Loader2, Pencil, Play, Plus } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { useState } from 'react'
+
 import {
   PageHeader,
   FilterBar,
@@ -25,16 +16,29 @@ import {
   RelativeTime,
   ConfirmDialog,
   ResourceErrorState,
+  ActionMenu,
 } from '@/components/managed/shared'
-import { CreateAgentDialog } from './components/create-agent-dialog'
-import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import { Button } from '@/components/ui/button'
+import { ToastAction } from '@/components/ui/toast'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
+import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
+import { toast } from '@/hooks/use-toast'
+import { managedPost } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
+import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
+import { apiResourceId, apiResourcePath } from '@/lib/managed/api-paths'
+import { toastOperationError } from '@/lib/managed/errors'
+import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import { managedRequestOptions } from '@/lib/managed/request-scope'
+import { isEntityId, parseAgentId, parseSessionId } from '@/types/entity-id'
+import type { Agent } from '@/types/managed'
 
-interface DeletePreview {
-  sessions: number
-  tasks: number
-  versions: number
+import { CreateAgentDialog } from './components/create-agent-dialog'
+
+interface LifecycleConfirm {
+  agent: Agent
+  action: 'archive' | 'restore'
 }
 
 export default function AgentListPage() {
@@ -48,20 +52,22 @@ export default function AgentListPage() {
     beginAction,
     isCurrentAction,
     scopeIsActive,
-    bumpRun,
   } = useScopedActions({
     onReset: () => {
-      setDeleteTarget(null)
-      setDeletePreview(null)
+      setLifecycleConfirm(null)
+      setPendingAction(null)
       setShowCreateDialog(false)
     },
   })
   const [showArchived, setShowArchived] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
-  const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null)
-  const [deletePreview, setDeletePreview] = useState<DeletePreview | null>(null)
+  const [lifecycleConfirm, setLifecycleConfirm] = useState<LifecycleConfirm | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [pendingAction, setPendingAction] = useState<{
+    agentId: Agent['id']
+    type: 'start' | 'archive' | 'restore'
+  } | null>(null)
 
   const {
     data,
@@ -133,82 +139,128 @@ export default function AgentListPage() {
         ),
       )
 
-  const handleDeleteClick = async (agent: Agent) => {
-    if (!currentProjectAllowsWrite()) return
-    if (!scopeIsActive()) return
-    if (!currentAgentIsActive(agent, managedScopeRef.current)) return
-
-    const action = beginAction()
-    if (!action) return
-    const { runId, scope, requestScope } = action
-    try {
-      const preview = await managedGet<DeletePreview>(
-        apiResourcePath('agents', agent.id, 'delete_preview'),
-        managedRequestOptions(requestScope),
+  const currentAgentIsArchived = (agent: Agent, scope: string) =>
+    currentProjectAllowsWrite() &&
+    queryClient
+      .getQueriesData<{ data?: Agent[] }>({ queryKey: ['agents', scope, '/agents'] })
+      .some(([, page]) =>
+        page?.data?.some(
+          (currentAgent) => currentAgent.id === agent.id && !!currentAgent.archived_at,
+        ),
       )
-      if (!isCurrentAction(runId, scope)) return
-      setDeletePreview(preview)
-      setDeleteTarget(agent)
-    } catch (e) {
-      if (!isCurrentAction(runId, scope)) return
-      toastOperationError(t, e, 'common.operationFailed')
-    }
-  }
 
-  const handleDeleteConfirm = async () => {
-    if (!deleteTarget) return
-    if (!currentProjectAllowsWrite()) {
-      setDeleteTarget(null)
-      setDeletePreview(null)
-      return
-    }
-    if (!scopeIsActive()) return
-    if (!currentAgentIsActive(deleteTarget, managedScopeRef.current)) {
-      setDeleteTarget(null)
-      setDeletePreview(null)
+  const handleArchiveConfirm = async () => {
+    const target = lifecycleConfirm?.action === 'archive' ? lifecycleConfirm.agent : null
+    if (!target) return
+    if (!currentAgentIsActive(target, managedScopeRef.current)) {
+      setLifecycleConfirm(null)
       return
     }
 
     const action = beginAction()
     if (!action) return
     const { runId, scope, requestScope } = action
-    try {
-      await managedDelete(
-        apiResourcePath('agents', deleteTarget.id),
-        managedRequestOptions(requestScope),
-      )
-      if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['agents', scope] })
-    } catch (e) {
-      if (!isCurrentAction(runId, scope)) return
-      toastOperationError(t, e, 'common.operationFailed')
-    } finally {
-      if (isCurrentAction(runId, scope)) {
-        setDeleteTarget(null)
-        setDeletePreview(null)
-      }
-    }
-  }
-
-  const handleArchive = async (agent: Agent) => {
-    if (!currentProjectAllowsWrite()) return
-    if (!scopeIsActive()) return
-    if (!currentAgentIsActive(agent, managedScopeRef.current)) return
-
-    const action = beginAction()
-    if (!action) return
-    const { runId, scope, requestScope } = action
+    setLifecycleConfirm(null)
+    setPendingAction({ agentId: target.id, type: 'archive' })
     try {
       await managedPost(
-        apiResourcePath('agents', agent.id, 'archive'),
+        apiResourcePath('agents', target.id, 'archive'),
         {},
         managedRequestOptions(requestScope),
       )
       if (!isCurrentAction(runId, scope)) return
       queryClient.invalidateQueries({ queryKey: ['agents', scope] })
-    } catch (e) {
+      toast({
+        title: t('managed.agents.archiveSuccess', { name: target.name }),
+        action: (
+          <ToastAction altText={t('common.undo')} onClick={() => handleUndoArchive(target, scope)}>
+            {t('common.undo')}
+          </ToastAction>
+        ),
+      })
+    } catch (error) {
       if (!isCurrentAction(runId, scope)) return
-      toastOperationError(t, e, 'common.operationFailed')
+      toastOperationError(t, error, 'common.operationFailed')
+    } finally {
+      if (isCurrentAction(runId, scope)) setPendingAction(null)
+    }
+  }
+
+  const handleUndoArchive = async (agent: Agent, archivedScope: string) => {
+    if (!currentProjectAllowsWrite()) return
+    if (!scopeIsActive(archivedScope)) return
+
+    const action = beginAction()
+    if (!action) return
+    const { runId, scope, requestScope } = action
+    setPendingAction({ agentId: agent.id, type: 'restore' })
+    try {
+      await managedPost(
+        apiResourcePath('agents', agent.id, 'unarchive'),
+        {},
+        managedRequestOptions(requestScope),
+      )
+      if (!isCurrentAction(runId, scope)) return
+      queryClient.invalidateQueries({ queryKey: ['agents', scope] })
+      toast({ title: t('managed.agents.restoreSuccess', { name: agent.name }) })
+    } catch (error) {
+      if (!isCurrentAction(runId, scope)) return
+      toastOperationError(t, error, 'common.operationFailed')
+    } finally {
+      if (isCurrentAction(runId, scope)) setPendingAction(null)
+    }
+  }
+
+  const handleStartSession = async (agent: Agent) => {
+    if (!currentAgentIsActive(agent, managedScopeRef.current)) return
+
+    const action = beginAction()
+    if (!action) return
+    const { runId, scope, requestScope } = action
+    setPendingAction({ agentId: agent.id, type: 'start' })
+    try {
+      const response = await managedPost<{ id: string }>(
+        '/sessions',
+        { agent: apiResourceId(agent.id) },
+        managedRequestOptions(requestScope),
+      )
+      if (!isCurrentAction(runId, scope)) return
+      router.push(`/managed/sessions/${parseSessionId(response.id)}`)
+    } catch (error) {
+      if (!isCurrentAction(runId, scope)) return
+      toastOperationError(t, error, 'common.operationFailed')
+    } finally {
+      if (isCurrentAction(runId, scope)) setPendingAction(null)
+    }
+  }
+
+  const handleRestoreConfirm = async () => {
+    const target = lifecycleConfirm?.action === 'restore' ? lifecycleConfirm.agent : null
+    if (!target) return
+    if (!currentAgentIsArchived(target, managedScopeRef.current)) {
+      setLifecycleConfirm(null)
+      return
+    }
+
+    const action = beginAction()
+    if (!action) return
+    const { runId, scope, requestScope } = action
+    setLifecycleConfirm(null)
+    setPendingAction({ agentId: target.id, type: 'restore' })
+    try {
+      await managedPost(
+        apiResourcePath('agents', target.id, 'unarchive'),
+        {},
+        managedRequestOptions(requestScope),
+      )
+      if (!isCurrentAction(runId, scope)) return
+      queryClient.invalidateQueries({ queryKey: ['agents', scope] })
+      toast({ title: t('managed.agents.restoreSuccess', { name: target.name }) })
+    } catch (error) {
+      if (!isCurrentAction(runId, scope)) return
+      toastOperationError(t, error, 'common.operationFailed')
+    } finally {
+      if (isCurrentAction(runId, scope)) setPendingAction(null)
     }
   }
 
@@ -221,20 +273,30 @@ export default function AgentListPage() {
     {
       key: 'name',
       header: t('managed.table.name'),
-      render: (a) => <span className="font-medium text-foreground">{a.name}</span>,
+      render: (a) => (
+        <button
+          type="button"
+          className="group inline-flex max-w-full items-center gap-1 font-medium text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          onClick={(event) => {
+            event.stopPropagation()
+            router.push(`/managed/agents/${a.id}`)
+          }}
+        >
+          <span className="truncate">{a.name}</span>
+          <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+        </button>
+      ),
     },
     {
       key: 'model',
       header: t('managed.table.model'),
-      render: (a) => <span className="text-muted-foreground">{a.model?.id || '-'}</span>,
-    },
-    {
-      key: 'engine_kind',
-      header: t('managed.table.engineKind'),
       render: (a) => (
-        <span className="whitespace-nowrap text-muted-foreground">
-          {getEngineKindLabel(a.engine_kind)}
-        </span>
+        <div className="min-w-0">
+          <div className="truncate text-foreground">{a.model?.id || '-'}</div>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            {getEngineKindLabel(a.engine_kind)}
+          </div>
+        </div>
       ),
     },
     {
@@ -260,25 +322,89 @@ export default function AgentListPage() {
         </span>
       ),
     },
+    {
+      key: 'actions',
+      header: t('managed.table.actions'),
+      width: '270px',
+      className: 'overflow-visible',
+      render: (a) => {
+        const isStarting = pendingAction?.agentId === a.id && pendingAction.type === 'start'
+        const isArchiving = pendingAction?.agentId === a.id && pendingAction.type === 'archive'
+        const isRestoring = pendingAction?.agentId === a.id && pendingAction.type === 'restore'
+        const rowIsPending = pendingAction?.agentId === a.id
+        return (
+          <div
+            className="flex items-center justify-end gap-1"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => router.push(`/managed/agents/${a.id}`)}
+            >
+              {t('managed.agents.viewDetails')}
+            </Button>
+            {!readOnly && !a.archived_at && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={rowIsPending}
+                  onClick={() => handleStartSession(a)}
+                >
+                  {isStarting ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5" />
+                  )}
+                  {t(isStarting ? 'managed.agents.startingSession' : 'managed.agents.startSession')}
+                </Button>
+                {isArchiving ? (
+                  <Button variant="outline" size="sm" disabled>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {t('managed.agents.archiving')}
+                  </Button>
+                ) : (
+                  <ActionMenu
+                    disabled={rowIsPending}
+                    ariaLabel={t('managed.agents.moreActions', { name: a.name })}
+                    items={[
+                      {
+                        label: t('common.edit'),
+                        icon: <Pencil className="h-3.5 w-3.5" />,
+                        onClick: () => router.push(`/managed/agents/${a.id}/edit`),
+                      },
+                      {
+                        label: t('common.archive'),
+                        icon: <Archive className="h-3.5 w-3.5" />,
+                        separator: true,
+                        onClick: () => setLifecycleConfirm({ agent: a, action: 'archive' }),
+                      },
+                    ]}
+                  />
+                )}
+              </>
+            )}
+            {!readOnly && a.archived_at && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={rowIsPending}
+                onClick={() => setLifecycleConfirm({ agent: a, action: 'restore' })}
+              >
+                {isRestoring ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ArchiveRestore className="h-3.5 w-3.5" />
+                )}
+                {t(isRestoring ? 'managed.agents.restoring' : 'common.restore')}
+              </Button>
+            )}
+          </div>
+        )
+      },
+    },
   ]
-
-  const buildDeleteDescription = () => {
-    if (!deleteTarget || !deletePreview) return ''
-    const lines: string[] = []
-    if (deletePreview.sessions > 0) {
-      lines.push(`  • ${t('managed.agents.deleteSessions', { count: deletePreview.sessions })}`)
-    }
-    if (deletePreview.tasks > 0) {
-      lines.push(`  • ${t('managed.agents.deleteTasks', { count: deletePreview.tasks })}`)
-    }
-    if (deletePreview.versions > 0) {
-      lines.push(`  • ${t('managed.agents.deleteVersions', { count: deletePreview.versions })}`)
-    }
-    if (lines.length > 0) {
-      return t('managed.agents.deleteHasData', { details: lines.join('\n') })
-    }
-    return t('managed.agents.deleteNoData')
-  }
 
   if (isError) {
     return (
@@ -329,22 +455,6 @@ export default function AgentListPage() {
         loading={isLoading}
         fetching={isFetching}
         onRowClick={(a) => router.push(`/managed/agents/${a.id}`)}
-        actionMenu={(a) =>
-          readOnly || a.archived_at
-            ? []
-            : [
-                {
-                  label: t('managed.agents.archiveAgent'),
-                  onClick: () => handleArchive(a),
-                },
-                {
-                  label: t('common.delete'),
-                  destructive: true,
-                  icon: <Trash2 className="h-3.5 w-3.5" />,
-                  onClick: () => handleDeleteClick(a),
-                },
-              ]
-        }
         pagination={{
           hasNext,
           hasPrev,
@@ -360,16 +470,25 @@ export default function AgentListPage() {
       />
 
       <ConfirmDialog
-        open={!readOnly && !!deleteTarget}
-        title={t('managed.agents.deleteTitle', { name: deleteTarget?.name })}
-        description={buildDeleteDescription()}
-        confirmLabel={t('managed.agents.permanentlyDelete')}
-        destructive
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => {
-          setDeleteTarget(null)
-          setDeletePreview(null)
-        }}
+        open={!readOnly && lifecycleConfirm?.action === 'archive'}
+        title={t('managed.agents.archiveTitle')}
+        description={t('managed.agents.archiveDescription', {
+          name: lifecycleConfirm?.agent.name,
+        })}
+        confirmLabel={t('common.archive')}
+        onConfirm={handleArchiveConfirm}
+        onCancel={() => setLifecycleConfirm(null)}
+      />
+
+      <ConfirmDialog
+        open={!readOnly && lifecycleConfirm?.action === 'restore'}
+        title={t('managed.agents.restoreTitle')}
+        description={t('managed.agents.restoreDescription', {
+          name: lifecycleConfirm?.agent.name,
+        })}
+        confirmLabel={t('common.restore')}
+        onConfirm={handleRestoreConfirm}
+        onCancel={() => setLifecycleConfirm(null)}
       />
 
       <CreateAgentDialog

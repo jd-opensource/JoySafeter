@@ -70,6 +70,7 @@ import { parseSkillUsageListResponse } from '@/lib/managed/skill-response-parser
 import { parseSessionEventListResponse } from '@/lib/managed/event-response-parsers'
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
 import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
+import { getSessionDisplayTitle } from '@/lib/managed/session-display'
 import {
   parseFileListResponse,
   parseSessionFileResourceResponse,
@@ -96,7 +97,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
-import { StatusBadge, MonoId, ResourceErrorState, PageHeader, withEntityRouteGuard } from '@/components/managed/shared'
+import {
+  StatusBadge,
+  MonoId,
+  ResourceErrorState,
+  PageHeader,
+  withEntityRouteGuard,
+} from '@/components/managed/shared'
 import { EventList, EventDetail, EventFilter, EventTimeline } from '@/components/managed/session'
 import { RelativeTime } from '@/components/managed/shared'
 import {
@@ -1073,7 +1080,10 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
     label: formatRelativeTime(session.created_at),
   })
 
-  const sessionDisplayName = session.id
+  const sessionDisplayName = getSessionDisplayTitle(
+    session.title,
+    t('managed.sessions.untitledSession'),
+  )
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
@@ -1121,8 +1131,12 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
           }
         />
 
+        <div className="-mt-3 mb-2 text-sm text-muted-foreground">
+          <MonoId id={session.id} truncate={false} />
+        </div>
+
         {/* Metadata bar - own line */}
-        <div className="-mt-3 mb-4 flex items-center gap-1 text-sm text-muted-foreground">
+        <div className="mb-4 flex items-center gap-1 text-sm text-muted-foreground">
           {metaItems.map((item, i) => (
             <span key={i} className="contents">
               {i > 0 && <span className="mx-1.5">&middot;</span>}

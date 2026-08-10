@@ -185,6 +185,12 @@ spec:
           value: "joysafeter"
         - name: JOYSAFETER_SANDBOX_IMAGE
           value: "aisec-repo.jd.com/joysafeter/joysafeter-claudecode:latest"
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: JOYSAFETER_TIMEZONE
+          value: "Asia/Shanghai"
+        - name: JOYSAFETER_SANDBOX_TIMEZONE
+          value: "Asia/Shanghai"
         - name: JOYSAFETER_IMAGE_CLAUDE
           value: "aisec-repo.jd.com/joysafeter/joysafeter-claudecode:latest"
         - name: JOYSAFETER_IMAGE_CODEX

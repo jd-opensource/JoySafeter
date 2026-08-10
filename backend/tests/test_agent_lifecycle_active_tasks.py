@@ -12,6 +12,7 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_agent import JoySafeterCreateAgentRequest
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
@@ -206,15 +207,11 @@ async def test_agent_child_resources_reject_cross_project_at_service_boundary(db
     svc = JoySafeterAgentService(db_session)
 
     await svc.create_agent(
-        JoySafeterCreateAgentRequest(
-            name=f"project-a-agent-{uuid.uuid4()}", engine_kind="claude"
-        ),
+        JoySafeterCreateAgentRequest(name=f"project-a-agent-{uuid.uuid4()}", engine_kind="claude"),
         project_id="project-a",
     )
     agent_b = await svc.create_agent(
-        JoySafeterCreateAgentRequest(
-            name=f"project-b-agent-{uuid.uuid4()}", engine_kind="claude"
-        ),
+        JoySafeterCreateAgentRequest(name=f"project-b-agent-{uuid.uuid4()}", engine_kind="claude"),
         project_id="project-b",
     )
     agent_b_id = agent_b.id
@@ -435,11 +432,60 @@ async def test_delete_agent_rejects_active_task_with_structured_task_ids(db_sess
 async def test_delete_agent_preview_returns_exact_counts(db_session):
     agent, session, task = await _agent_session_and_task(db_session)
     agent_id = agent.id
+    db_session.add(
+        JoySafeterTask(
+            agent_id=agent_id,
+            chat_session_id=session.id,
+            prompt="completed task",
+            status=JoySafeterTaskStatus.COMPLETED.value,
+        )
+    )
+    db_session.add(
+        JoySafeterTrigger(
+            name=f"delete-preview-trigger-{uuid.uuid4()}",
+            type="webhook",
+            agent_id=agent_id,
+            prompt_template="preview",
+        )
+    )
+    await db_session.commit()
 
     result = await delete_agent_preview(agent_id, db_session, _auth_ctx())
 
-    # One session, one active (pending) task, and no versions were created above.
-    assert result == {"sessions": 1, "tasks": 1, "versions": 0}
+    assert result == {"sessions": 1, "tasks": 2, "versions": 0, "triggers": 1}
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_agent_removes_related_triggers(db_session):
+    agent = JoySafeterAgent(name=f"delete-trigger-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    agent_id = agent.id
+
+    trigger = JoySafeterTrigger(
+        name=f"delete-trigger-{uuid.uuid4()}",
+        type="webhook",
+        agent_id=agent_id,
+        prompt_template="delete me",
+    )
+    db_session.add(trigger)
+    await db_session.commit()
+    await db_session.refresh(trigger)
+    trigger_id = trigger.id
+
+    deleted = await JoySafeterAgentService(db_session).hard_delete_agent(agent_id)
+
+    assert deleted is True
+    db_session.expire_all()
+    agent_row = (
+        await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))
+    ).scalar_one_or_none()
+    trigger_row = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one_or_none()
+    assert agent_row is None
+    assert trigger_row is None
 
 
 @pytest.mark.asyncio

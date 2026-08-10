@@ -52,6 +52,12 @@ spec:
           value: "k8s"
         - name: JOYSAFETER_K8S_NAMESPACE
           value: "joysafeter"
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: JOYSAFETER_TIMEZONE
+          value: "Asia/Shanghai"
+        - name: JOYSAFETER_SANDBOX_TIMEZONE
+          value: "Asia/Shanghai"
         # Leader Election
         - name: JOYSAFETER_LEADER_ELECTION_ENABLED
           value: "true"

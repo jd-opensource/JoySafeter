@@ -23,6 +23,7 @@ pub struct JoySafeterConfig {
     // Sandbox - Docker (default)
     pub sandbox_provider: String,
     pub sandbox_image: String,
+    pub sandbox_timezone: String,
     pub sandbox_idle_timeout: u64,
     pub sandbox_stopped_ttl: u64,
     /// Hard wall-clock cap on any non-terminal sandbox lifetime; reaps
@@ -190,6 +191,10 @@ impl JoySafeterConfig {
 
             sandbox_provider: env_str("JOYSAFETER_SANDBOX_PROVIDER", "docker"),
             sandbox_image: env_str("JOYSAFETER_SANDBOX_IMAGE", "joysafeter-claudecode:latest"),
+            sandbox_timezone: env::var("JOYSAFETER_SANDBOX_TIMEZONE")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| env_str("JOYSAFETER_TIMEZONE", &env_str("TZ", "UTC"))),
             sandbox_idle_timeout: env_u64("JOYSAFETER_SANDBOX_IDLE_TIMEOUT", 300),
             sandbox_stopped_ttl: env_u64("JOYSAFETER_SANDBOX_STOPPED_TTL", 600),
             sandbox_hard_timeout: env_u64("JOYSAFETER_SANDBOX_HARD_TIMEOUT", 6 * 3600),

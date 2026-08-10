@@ -464,8 +464,8 @@ async def delete_agent_preview(
     counts = await svc.count_delete_preview(agent_id, project_id=auth_ctx.project_id)
     if counts is None:
         raise _agent_not_found_error(agent_id)
-    sessions, tasks, versions = counts
-    return {"sessions": sessions, "tasks": tasks, "versions": versions}
+    sessions, tasks, versions, triggers = counts
+    return {"sessions": sessions, "tasks": tasks, "versions": versions, "triggers": triggers}
 
 
 @router.delete("/{agent_id}", status_code=204)
@@ -536,9 +536,7 @@ async def delete_agent(
         raise _agent_not_found_error(agent_id)
 
 
-async def _cancel_active_tasks_for_agent(
-    agent_id: AgentId, db: AsyncSession, project_id: Optional[str] = None
-) -> None:
+async def _cancel_active_tasks_for_agent(agent_id: AgentId, db: AsyncSession, project_id: Optional[str] = None) -> None:
     """Cancel all active tasks through the Rust runtime boundary."""
     from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
 

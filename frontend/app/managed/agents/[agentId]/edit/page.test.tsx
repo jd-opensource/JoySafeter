@@ -17,9 +17,10 @@ vi.mock('@/lib/api-client', () => ({
   managedPost: vi.fn(),
 }))
 
+let projectAllowsWrite = true
 vi.mock('@/hooks/managed/use-current-project-read-only', () => ({
-  currentProjectAllowsWrite: () => true,
-  useCurrentProjectReadOnly: () => false,
+  currentProjectAllowsWrite: () => projectAllowsWrite,
+  useCurrentProjectReadOnly: () => !projectAllowsWrite,
 }))
 vi.mock('@/hooks/managed/use-llm-catalog', () => ({
   useLlmCatalog: () => ({
@@ -131,6 +132,7 @@ vi.mock('@/components/managed/shared', () => ({
   FormSectionCard: ({ children }: { children: ReactNode }) => <section>{children}</section>,
   PageHeader: () => null,
   SkillVersionSelect: () => null,
+  withEntityRouteGuard: (Component: (props: never) => ReactNode) => Component,
 }))
 
 vi.mock('@/components/ui/button', () => ({
@@ -215,6 +217,7 @@ describe('AgentEditPage LLM compatibility', () => {
     managedGetMock.mockReset()
     managedPostMock.mockReset()
     pushMock.mockReset()
+    projectAllowsWrite = true
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
@@ -298,5 +301,34 @@ describe('AgentEditPage LLM compatibility', () => {
       engine_kind: 'codex',
       secret_ref: null,
     })
+  })
+
+  it('ignores a save completion after the current project becomes read-only', async () => {
+    let resolveSave!: (value: Record<string, unknown>) => void
+    managedPostMock.mockImplementationOnce(
+      () =>
+        new Promise<Record<string, unknown>>((resolve) => {
+          resolveSave = resolve
+        }),
+    )
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const params = Promise.resolve({ agentId: AGENT_ID })
+    let view!: RenderResult
+    await act(async () => {
+      view = render(
+        <QueryClientProvider client={queryClient}>
+          <AgentEditPage params={params} />
+        </QueryClientProvider>,
+      )
+    })
+
+    fireEvent.click(await waitFor(() => view.getByText('managed.agents.saveChanges')))
+    await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
+
+    projectAllowsWrite = false
+    resolveSave({ id: AGENT_ID })
+
+    await act(async () => {})
+    expect(pushMock).not.toHaveBeenCalled()
   })
 })

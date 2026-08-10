@@ -9,12 +9,14 @@ const en = {
       delete: 'Delete',
       archive: 'Archive',
       restore: 'Restore',
+      undo: 'Undo',
       save: 'Save',
       edit: 'Edit',
       saving: 'Saving...',
       error: 'Error',
       loading: 'Loading...',
       noData: 'No data',
+      select: 'Select',
       all: 'All',
       active: 'Active',
       private: 'Private',
@@ -35,9 +37,7 @@ const en = {
       refresh: 'Refresh',
       close: 'Close',
       noResults: 'No matching results',
-      restore: 'Restore',
       search: 'Search',
-      select: 'Select',
       pageErrorTitle: 'Page failed to load',
       pageErrorDescription:
         'This page could not be loaded right now. Please retry later or contact an administrator if the issue continues.',
@@ -535,14 +535,23 @@ const en = {
         permanentlyDelete: 'Permanently Delete',
         backToAgents: 'Back to agents',
         startSession: 'Start Session',
+        startingSession: 'Starting...',
+        archiving: 'Archiving...',
+        restoring: 'Restoring...',
+        preparingDelete: 'Preparing...',
+        deleting: 'Deleting...',
+        moreActions: 'More actions for {{name}}',
         archiveTitle: 'Archive Agent',
         archiveDescription:
-          'Archiving "{{name}}" will terminate all its running sessions, pause its cron triggers, and make its configuration read-only. You can restore it later. Continue?',
+          'Archiving "{{name}}" will terminate its sessions, pause its cron triggers, and make its configuration read-only. Running or queued tasks must finish or be stopped first. You can restore the agent later. Continue?',
         restoreTitle: 'Restore Agent',
         restoreDescription:
           'Restoring "{{name}}" will make it usable again and recompute the next run time of its cron triggers. Terminated sessions are not restored.',
+        archiveSuccess: 'Archived "{{name}}".',
+        restoreSuccess: 'Restored "{{name}}".',
+        deleteSuccess: 'Deleted "{{name}}" permanently.',
         deleteDescription:
-          'This will permanently delete "{{name}}" and all related data:\n• {{sessions}} session(s)\n• {{tasks}} task(s)\n• {{versions}} version(s)\n\nThis action cannot be undone.',
+          'This will permanently delete "{{name}}" and all related data:\n• {{sessions}} session(s)\n• {{tasks}} task(s)\n• {{versions}} version(s)\n• {{triggers}} trigger(s)\n\nThis action cannot be undone.',
         tab: {
           agent: 'Agent',
           sessions: 'Sessions',
@@ -647,6 +656,7 @@ const en = {
         subtitle: 'Track and debug managed agent sessions.',
         new: 'New Session',
         empty: 'No sessions yet.',
+        untitledSession: 'Untitled session',
         archiveSession: 'Archive Session',
         actions: 'Actions',
         stopSession: 'Stop Session',
@@ -2062,6 +2072,10 @@ const en = {
         unauthorized: 'Authentication failed, please login again',
         projectNotFound: 'Project not found or access denied',
         projectArchived: 'This project is archived and only supports read-only access',
+        agentActiveTasks:
+          'This agent still has running or queued tasks. Stop them or wait for completion, then try again.',
+        agentVersionConflict:
+          'This agent was updated elsewhere. Refresh the page, review the latest configuration, and save again.',
         resourceArchived:
           'This resource is archived. It is read-only and cannot be saved or modified.',
         resourceNotFound:

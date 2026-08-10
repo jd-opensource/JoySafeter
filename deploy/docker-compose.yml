@@ -41,6 +41,9 @@ x-backend-env-files: &backend-env-files
     required: false
 
 x-backend-common-env: &backend-common-env
+  TZ: ${TZ:-Asia/Shanghai}
+  JOYSAFETER_TIMEZONE: ${JOYSAFETER_TIMEZONE:-${TZ:-Asia/Shanghai}}
+  JOYSAFETER_SANDBOX_TIMEZONE: ${JOYSAFETER_SANDBOX_TIMEZONE:-${JOYSAFETER_TIMEZONE:-${TZ:-Asia/Shanghai}}}
   CORS_ORIGINS: ${CORS_ORIGINS:-["${FRONTEND_URL:-http://localhost:3000}"]}
   JOYSAFETER_ENVOY_IMAGE: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.37.1}
   # Must match the /sockets bind-mount host path (see x-backend-volumes and the

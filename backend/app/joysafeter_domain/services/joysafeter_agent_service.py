@@ -15,6 +15,7 @@ from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemo
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.repositories.joysafeter_skill_version import SkillVersionRepository
 from app.joysafeter_domain.schemas.joysafeter_agent import (
@@ -556,6 +557,7 @@ class JoySafeterAgentService:
 
         # Delete any tasks directly linked to agent (not via session)
         await self.db.execute(sa_delete(JoySafeterTask).where(JoySafeterTask.agent_id == agent_id))
+        await self.db.execute(sa_delete(JoySafeterTrigger).where(JoySafeterTrigger.agent_id == agent_id))
         # Delete agent versions
         await self.db.execute(sa_delete(JoySafeterAgentVersion).where(JoySafeterAgentVersion.agent_id == agent_id))
         # Delete agent
@@ -563,9 +565,7 @@ class JoySafeterAgentService:
         await self.db.commit()
         return True
 
-    async def archive_sessions_for_agent(
-        self, agent_id: AgentId, project_id: Optional[str] = None
-    ) -> list[SessionId]:
+    async def archive_sessions_for_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> list[SessionId]:
         if project_id is not None and not await self.get_agent(agent_id, project_id=project_id):
             return []
         if await self._count_active_tasks_for_agent(agent_id, project_id=project_id) > 0:
@@ -608,16 +608,17 @@ class JoySafeterAgentService:
 
     async def count_delete_preview(
         self, agent_id: AgentId, project_id: Optional[str] = None
-    ) -> Optional[tuple[int, int, int]]:
-        """Return (sessions, active_tasks, versions) counts for a delete preview.
+    ) -> Optional[tuple[int, int, int, int]]:
+        """Return (sessions, tasks, versions, triggers) counts for a delete preview.
 
         Returns None when the agent does not exist (or is out of the given
         project scope), so the caller can surface a 404. Counts are exact
         aggregates (``func.count()``) and are NOT affected by list pagination
         limits:
           - sessions: all sessions for the agent, including archived ones
-          - active_tasks: pending/scheduling/running tasks only
+          - tasks: all tasks for the agent, including terminal history
           - versions: all historical versions
+          - triggers: all triggers, including soft-deleted audit rows
         """
         if not await self.get_agent(agent_id, project_id=project_id):
             return None
@@ -627,14 +628,22 @@ class JoySafeterAgentService:
         )
         sessions = cast(int, sessions_result.scalar() or 0)
 
-        active_tasks = await self._count_active_tasks_for_agent(agent_id, project_id=project_id)
+        tasks_result = await self.db.execute(
+            select(func.count()).select_from(JoySafeterTask).where(JoySafeterTask.agent_id == agent_id)
+        )
+        tasks = cast(int, tasks_result.scalar() or 0)
 
         versions_result = await self.db.execute(
             select(func.count()).select_from(JoySafeterAgentVersion).where(JoySafeterAgentVersion.agent_id == agent_id)
         )
         versions = cast(int, versions_result.scalar() or 0)
 
-        return sessions, active_tasks, versions
+        triggers_result = await self.db.execute(
+            select(func.count()).select_from(JoySafeterTrigger).where(JoySafeterTrigger.agent_id == agent_id)
+        )
+        triggers = cast(int, triggers_result.scalar() or 0)
+
+        return sessions, tasks, versions, triggers
 
     async def list_active_tasks_for_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> list:
         if project_id is not None and not await self.get_agent(agent_id, project_id=project_id):

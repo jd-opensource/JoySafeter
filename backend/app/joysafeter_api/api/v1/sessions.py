@@ -463,6 +463,7 @@ async def create_session(
     svc = SessionService(db)
     session = await svc.create_session(
         agent_id=agent.id,
+        agent_name=agent.name,
         title=req.title,
         metadata=req.metadata,
         vault_ids=req.vault_ids,

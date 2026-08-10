@@ -105,6 +105,14 @@ fn model_protocol_env_value(protocol: &str) -> Option<String> {
     }
 }
 
+fn apply_sandbox_timezone(env: &mut HashMap<String, String>, platform_timezone: &str) {
+    let platform_timezone = platform_timezone.trim();
+    if !platform_timezone.is_empty() {
+        env.entry("TZ".to_string())
+            .or_insert_with(|| platform_timezone.to_string());
+    }
+}
+
 /// 3-stage sandbox resolution with full Python parity:
 /// 1. Reuse existing active sandbox for the session (with fingerprint check)
 /// 1b. Restart stopped sandbox for the session
@@ -510,6 +518,7 @@ impl SandboxResolver {
 
         // Build environment variables — both JOYSAFETER_* and JOYSAFETER_* variants
         let mut env = expected.env.clone();
+        apply_sandbox_timezone(&mut env, &self.config.sandbox_timezone);
         env.insert(
             "JOYSAFETER_SANDBOX_ID".to_string(),
             sandbox_db_id.as_uuid().to_string(),
@@ -1959,6 +1968,7 @@ impl SandboxResolver {
         let runner_token = generate_runner_token();
 
         let mut env = HashMap::new();
+        apply_sandbox_timezone(&mut env, &self.config.sandbox_timezone);
         env.insert(
             "JOYSAFETER_SANDBOX_ID".to_string(),
             sandbox_db_id.as_uuid().to_string(),
@@ -2968,6 +2978,23 @@ mod egress_tests {
             mounts: vec![],
             egress_policy_hash: egress_policy_hash.to_string(),
         }
+    }
+
+    #[test]
+    fn sandbox_timezone_uses_platform_default_without_overriding_environment() {
+        let mut default_env = HashMap::new();
+        apply_sandbox_timezone(&mut default_env, "Asia/Shanghai");
+        assert_eq!(
+            default_env.get("TZ").map(String::as_str),
+            Some("Asia/Shanghai")
+        );
+
+        let mut explicit_env = HashMap::from([("TZ".to_string(), "America/New_York".to_string())]);
+        apply_sandbox_timezone(&mut explicit_env, "Asia/Shanghai");
+        assert_eq!(
+            explicit_env.get("TZ").map(String::as_str),
+            Some("America/New_York")
+        );
     }
 
     #[test]

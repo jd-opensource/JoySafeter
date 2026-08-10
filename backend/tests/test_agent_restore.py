@@ -8,6 +8,7 @@ from app.joysafeter_api.api.v1.agents import unarchive_agent
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
@@ -108,9 +109,13 @@ async def test_unarchive_clears_archived_at_and_rearms_triggers(db_session):
     archived, _ = await svc.archive_agent_with_sessions(agent_id, project_id=ctx.project_id)
     assert archived is True
     db_session.expire_all()
-    archived_row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
+    archived_row = (
+        await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))
+    ).scalar_one()
     assert archived_row.archived_at is not None
-    paused = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
+    paused = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one()
     assert paused.next_run_at is None
 
     result = await unarchive_agent(agent_id, db_session, ctx)
@@ -118,9 +123,57 @@ async def test_unarchive_clears_archived_at_and_rearms_triggers(db_session):
 
     db_session.expire_all()
     restored = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
-    rearmed = (await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))).scalar_one()
+    rearmed = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one()
     assert restored.archived_at is None
     assert rearmed.next_run_at is not None
+
+
+@pytest.mark.asyncio
+async def test_unarchive_leaves_terminated_sessions_archived(db_session):
+    project, agent = await _project_and_agent(db_session, name="RestoreSessions")
+    session = JoySafeterSession(agent_id=agent.id, project_id=project.id, status="idle")
+    db_session.add(session)
+    await db_session.commit()
+    await db_session.refresh(session)
+    agent_id = agent.id
+    session_id = session.id
+
+    svc = JoySafeterAgentService(db_session)
+    archived, archived_session_ids = await svc.archive_agent_with_sessions(agent_id, project_id=project.id)
+    assert archived is True
+    assert archived_session_ids == [session_id]
+
+    restored = await svc.restore_agent(agent_id, project_id=project.id)
+    assert restored is True
+
+    db_session.expire_all()
+    session_row = (
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
+    ).scalar_one()
+    assert session_row.archived_at is not None
+    assert session_row.status == "terminated"
+
+
+@pytest.mark.asyncio
+async def test_unarchive_does_not_rearm_cron_when_project_triggers_are_paused(db_session):
+    project, agent = await _project_and_agent(db_session, name="RestorePausedProject")
+    trigger = await _paused_cron_trigger(db_session, project=project, agent=agent)
+    agent.archived_at = utc_now()
+    project.triggers_paused = True
+    await db_session.commit()
+    agent_id = agent.id
+    trigger_id = trigger.id
+
+    restored = await JoySafeterAgentService(db_session).restore_agent(agent_id, project_id=project.id)
+    assert restored is True
+
+    db_session.expire_all()
+    trigger_row = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one()
+    assert trigger_row.next_run_at is None
 
 
 @pytest.mark.asyncio

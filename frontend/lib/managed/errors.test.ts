@@ -60,6 +60,20 @@ describe('managed operation errors', () => {
     )
   })
 
+  it('localizes agent lifecycle conflicts instead of exposing backend English', () => {
+    const error = new ApiError(409, 'Conflict', {
+      code: 'AGENT_ACTIVE_TASKS',
+      message: 'Agent has active tasks. Stop or cancel them before archiving sessions.',
+      source: 'api',
+      retryable: true,
+      user_action: 'retry',
+    })
+
+    expect(getOperationErrorMessage(t, error, 'common.operationFailed')).toBe(
+      'translated:managed.errors.agentActiveTasks',
+    )
+  })
+
   it('uses codes instead of status for retry classification', () => {
     expect(
       shouldRetryManagedResourceError(
