@@ -20,7 +20,7 @@ import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { validateUniqueMcpServerName } from '@/lib/utils/mcp-validation'
 import type { Agent, Secret } from '@/types/managed'
-import { parseAgentId, type AgentId, type SkillId } from '@/types/entity-id'
+import { isEntityId, parseAgentId, type AgentId, type SkillId } from '@/types/entity-id'
 import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
 import { Button } from '@/components/ui/button'
@@ -40,6 +40,7 @@ import {
   FormFieldLabel,
   FormSectionCard,
   PageHeader,
+  ResourceErrorState,
   SkillVersionSelect,
 } from '@/components/managed/shared'
 import { CircleHelp, Plus, Trash2 } from 'lucide-react'
@@ -97,6 +98,20 @@ interface SaveAgentVariables {
 }
 
 export default function AgentEditPage({ params }: { params: Promise<{ agentId: string }> }) {
+  const { agentId: rawAgentId } = React.use(params)
+  if (!isEntityId(rawAgentId, 'agent')) {
+    return (
+      <ResourceErrorState
+        resource="agent"
+        error={{ status: 404 }}
+        onBack={() => window.history.back()}
+      />
+    )
+  }
+  return <AgentEditPageInner params={params} />
+}
+
+function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }) {
   const { agentId: rawAgentId } = React.use(params)
   const agentId = parseAgentId(rawAgentId)
   const router = useRouter()

@@ -14,7 +14,7 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
-import { parseSessionId } from '@/types/entity-id'
+import { isEntityId, parseSessionId } from '@/types/entity-id'
 import type { Session } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/managed/shared'
@@ -255,7 +255,9 @@ export default function SessionListPage() {
         searchPlaceholder={t('managed.search.sessions')}
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
-        onSearch={(id) => router.push(`/managed/sessions/${id}`)}
+        onSearch={(value) => {
+          if (isEntityId(value, 'session')) router.push(`/managed/sessions/${value}`)
+        }}
         filters={filters}
         showArchived={showArchived}
         onArchivedChange={setShowArchived}

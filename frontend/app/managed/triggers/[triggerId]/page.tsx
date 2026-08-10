@@ -41,9 +41,23 @@ import {
   type TriggerRun,
 } from '@/lib/managed/triggers'
 import { toastSuccess } from '@/lib/utils/toast'
-import { parseTriggerId } from '@/types/entity-id'
+import { isEntityId, parseTriggerId } from '@/types/entity-id'
 
 export default function TriggerDetailPage({ params }: { params: Promise<{ triggerId: string }> }) {
+  const { triggerId: rawId } = React.use(params)
+  if (!isEntityId(rawId, 'trigger')) {
+    return (
+      <ResourceErrorState
+        resource="trigger"
+        error={{ status: 404 }}
+        onBack={() => window.history.back()}
+      />
+    )
+  }
+  return <TriggerDetailPageInner params={params} />
+}
+
+function TriggerDetailPageInner({ params }: { params: Promise<{ triggerId: string }> }) {
   const { triggerId: rawId } = React.use(params)
   const triggerId = parseTriggerId(rawId)
   const { t } = useTranslation()

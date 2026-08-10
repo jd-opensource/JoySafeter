@@ -23,7 +23,7 @@ import type {
   Secret,
   StorageVolumeCatalogItem,
 } from '@/types/managed'
-import { parseEnvironmentId, parseSecretId, type EnvironmentId } from '@/types/entity-id'
+import { isEntityId, parseEnvironmentId, parseSecretId, type EnvironmentId } from '@/types/entity-id'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -100,6 +100,20 @@ const mountResourceToForm = (resource: EnvironmentMountResource): MountResourceF
 })
 
 export default function EnvironmentDetailPage({ params }: { params: Promise<{ envId: string }> }) {
+  const { envId: rawId } = React.use(params)
+  if (!isEntityId(rawId, 'environment')) {
+    return (
+      <ResourceErrorState
+        resource="environment"
+        error={{ status: 404 }}
+        onBack={() => window.history.back()}
+      />
+    )
+  }
+  return <EnvironmentDetailPageInner params={params} />
+}
+
+function EnvironmentDetailPageInner({ params }: { params: Promise<{ envId: string }> }) {
   const { envId: rawId } = React.use(params)
   const { t } = useTranslation()
   const router = useRouter()

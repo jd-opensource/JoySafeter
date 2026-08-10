@@ -20,7 +20,7 @@ import {
   type ManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { Vault, VaultCredential } from '@/types/managed'
-import { parseVaultId, type CredentialId, type VaultId } from '@/types/entity-id'
+import { isEntityId, parseVaultId, type CredentialId, type VaultId } from '@/types/entity-id'
 import { Button } from '@/components/ui/button'
 import {
   PageHeader,
@@ -51,6 +51,20 @@ interface VaultDetailActionVariables {
 }
 
 export default function VaultDetailPage({ params }: { params: Promise<{ vaultId: string }> }) {
+  const { vaultId: rawVaultId } = React.use(params)
+  if (!isEntityId(rawVaultId, 'vault')) {
+    return (
+      <ResourceErrorState
+        resource="vault"
+        error={{ status: 404 }}
+        onBack={() => window.history.back()}
+      />
+    )
+  }
+  return <VaultDetailPageInner params={params} />
+}
+
+function VaultDetailPageInner({ params }: { params: Promise<{ vaultId: string }> }) {
   const { vaultId: rawVaultId } = React.use(params)
   const vaultId = parseVaultId(rawVaultId)
   const id = vaultId

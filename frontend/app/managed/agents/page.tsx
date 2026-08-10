@@ -11,7 +11,7 @@ import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
-import { parseAgentId } from '@/types/entity-id'
+import { isEntityId, parseAgentId } from '@/types/entity-id'
 import type { Agent } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import {
@@ -315,7 +315,9 @@ export default function AgentListPage() {
         searchPlaceholder={t('managed.search.agents')}
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
-        onSearch={(id) => router.push(`/managed/agents/${id}`)}
+        onSearch={(value) => {
+          if (isEntityId(value, 'agent')) router.push(`/managed/agents/${value}`)
+        }}
         filters={filters}
         showArchived={showArchived}
         onArchivedChange={setShowArchived}

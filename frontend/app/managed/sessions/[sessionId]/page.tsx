@@ -60,7 +60,7 @@ import {
   sortSessionEvents,
 } from '@/lib/managed/session-events'
 import { useSessionStream } from '@/lib/managed/sse'
-import { parseSessionId, tryParseEnvironmentId, type SessionId } from '@/types/entity-id'
+import { isEntityId, parseSessionId, tryParseEnvironmentId, type SessionId } from '@/types/entity-id'
 import { parseEnvironmentResponse } from '@/lib/managed/environment-response-parsers'
 import {
   parseVaultCredentialListResponse,
@@ -192,6 +192,20 @@ const ENGINE_KIND_LABELS: Record<string, string> = {
 }
 
 export default function SessionDetailPage({ params }: { params: Promise<{ sessionId: string }> }) {
+  const { sessionId: rawSessionId } = React.use(params)
+  if (!isEntityId(rawSessionId, 'session')) {
+    return (
+      <ResourceErrorState
+        resource="session"
+        error={{ status: 404 }}
+        onBack={() => window.history.back()}
+      />
+    )
+  }
+  return <SessionDetailPageInner params={params} />
+}
+
+function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId: rawSessionId } = React.use(params)
   const id = parseSessionId(rawSessionId)
   const { t } = useTranslation()
