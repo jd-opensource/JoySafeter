@@ -35,14 +35,12 @@ interface CreateCredentialDialogProps {
   canSubmit?: () => boolean
 }
 
-type CredType = 'mcp_oauth' | 'static_bearer'
-
 interface CreateCredentialVariables {
   vaultId: VaultId
   queryKey: unknown[]
   payload: {
     name?: string
-    credential_type: CredType
+    credential_type: 'static_bearer'
     mcp_server_url: string
     token_value: string
   }
@@ -65,7 +63,6 @@ export function CreateCredentialDialog({
   const operationScopeRef = useRef(operationScope)
   const requestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const [name, setName] = useState('')
-  const [credentialType, setCredentialType] = useState<CredType>('mcp_oauth')
   const [mcpServerUrl, setMcpServerUrl] = useState('')
   const [tokenValue, setTokenValue] = useState('')
   const queryClient = useQueryClient()
@@ -113,7 +110,6 @@ export function CreateCredentialDialog({
 
   const resetForm = () => {
     setName('')
-    setCredentialType('mcp_oauth')
     setMcpServerUrl('')
     setTokenValue('')
     mutation.reset()
@@ -138,13 +134,14 @@ export function CreateCredentialDialog({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!mcpServerUrl.trim()) return
-    const urlError = validateUrlScheme(mcpServerUrl.trim())
+    const trimmedMcpServerUrl = mcpServerUrl.trim()
+    const trimmedTokenValue = tokenValue.trim()
+    if (!trimmedMcpServerUrl || !trimmedTokenValue) return
+    const urlError = validateUrlScheme(trimmedMcpServerUrl)
     if (urlError) {
       alert(urlError)
       return
     }
-    if (credentialType === 'static_bearer' && !tokenValue.trim()) return
     if (
       !currentOperationScopeIsActive() ||
       !currentProjectAllowsWrite() ||
@@ -161,9 +158,9 @@ export function CreateCredentialDialog({
       queryKey,
       payload: {
         name: name || undefined,
-        credential_type: credentialType,
-        mcp_server_url: mcpServerUrl,
-        token_value: tokenValue,
+        credential_type: 'static_bearer',
+        mcp_server_url: trimmedMcpServerUrl,
+        token_value: trimmedTokenValue,
       },
       runId,
       scope: operationScopeRef.current,
@@ -179,8 +176,6 @@ export function CreateCredentialDialog({
     }
     onOpenChange(next)
   }
-
-  const isOAuth = credentialType === 'mcp_oauth'
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -208,34 +203,6 @@ export function CreateCredentialDialog({
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">{t('managed.vaults.cred.type')}</label>
-            <div className="flex w-fit overflow-hidden rounded-md border border-border">
-              <button
-                type="button"
-                onClick={() => setCredentialType('mcp_oauth')}
-                className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                  isOAuth
-                    ? 'bg-foreground text-background'
-                    : 'bg-background text-foreground hover:bg-accent'
-                }`}
-              >
-                OAuth
-              </button>
-              <button
-                type="button"
-                onClick={() => setCredentialType('static_bearer')}
-                className={`border-l border-border px-3 py-1.5 text-sm font-medium transition-colors ${
-                  !isOAuth
-                    ? 'bg-foreground text-background'
-                    : 'bg-background text-foreground hover:bg-accent'
-                }`}
-              >
-                {t('managed.vaults.cred.bearerToken')}
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
             <label htmlFor="cred-url" className="text-sm font-medium">
               {t('managed.vaults.cred.mcpServer')}
             </label>
@@ -247,31 +214,27 @@ export function CreateCredentialDialog({
             />
           </div>
 
-          {!isOAuth && (
-            <div className="space-y-1.5">
-              <label htmlFor="cred-token" className="text-sm font-medium">
-                {t('managed.vaults.cred.token')}
-              </label>
-              <Input
-                id="cred-token"
-                type="password"
-                placeholder="sk-..."
-                value={tokenValue}
-                onChange={(e) => setTokenValue(e.target.value)}
-              />
-            </div>
-          )}
+          <div className="space-y-1.5">
+            <label htmlFor="cred-token" className="text-sm font-medium">
+              {t('managed.vaults.cred.token')}
+            </label>
+            <Input
+              id="cred-token"
+              type="password"
+              placeholder={t('managed.vaults.cred.tokenPlaceholder')}
+              value={tokenValue}
+              onChange={(e) => setTokenValue(e.target.value)}
+            />
+          </div>
 
           <div className="flex justify-end">
             <Button
               type="submit"
-              disabled={
-                !mcpServerUrl.trim() || (!isOAuth && !tokenValue.trim()) || mutation.isPending
-              }
+              disabled={!mcpServerUrl.trim() || !tokenValue.trim() || mutation.isPending}
             >
               {mutation.isPending
-                ? t('managed.vaults.cred.connecting')
-                : t('managed.vaults.cred.connect')}
+                ? t('managed.vaults.cred.adding')
+                : t('managed.vaults.cred.add')}
             </Button>
           </div>
         </form>
