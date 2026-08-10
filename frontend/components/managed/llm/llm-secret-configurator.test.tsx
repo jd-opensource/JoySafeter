@@ -139,15 +139,20 @@ const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 describe('LlmSecretConfigurator', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('auto-selects a unique protocol and shows multiple protocols explicitly', () => {
+  it('does not render an engine selector', () => {
     render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
+    expect(screen.queryByLabelText('managed.llm.engine')).toBeNull()
+  })
 
+  it('auto-selects a unique provider and hides the protocol selector', () => {
+    render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
     expect(screen.getByDisplayValue('Anthropic')).toBeTruthy()
     expect(screen.queryByLabelText('managed.llm.protocol')).toBeNull()
+  })
 
-    fireEvent.change(screen.getByLabelText('managed.llm.engine'), { target: { value: 'native' } })
+  it('shows the protocol selector for a provider with multiple protocols', () => {
+    render(<LlmSecretConfigurator initialEngineId="native" onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('managed.llm.provider'), { target: { value: 'openai' } })
-
     expect(screen.getByLabelText('managed.llm.protocol')).toBeTruthy()
   })
 

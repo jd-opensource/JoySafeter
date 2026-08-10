@@ -1262,7 +1262,6 @@ const en = {
         },
       },
       llm: {
-        allEngines: 'All engines',
         catalogLoadFailed: 'Failed to load the LLM compatibility catalog.',
         catalogIdentityUnavailable:
           'This model configuration references a provider or protocol that is no longer available in the current catalog. Create a new configuration before using it.',
@@ -1285,10 +1284,7 @@ const en = {
         createFailed: 'Failed to create the model configuration.',
         creating: 'Creating...',
         defaultForProtocol: 'Protocol default',
-        engine: 'Engine',
         engineUnavailable: 'Unavailable',
-        engineFilterHint:
-          'Used only to filter compatible protocols; it does not bind this configuration to one engine.',
         genericKey: 'Key',
         genericKeyPlaceholder: 'e.g. GITHUB_TOKEN',
         genericPairRequired: 'Add at least one non-empty key and value.',

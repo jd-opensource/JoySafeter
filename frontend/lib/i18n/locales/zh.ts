@@ -1310,7 +1310,6 @@ const zh = {
         },
       },
       llm: {
-        allEngines: '全部引擎',
         catalogLoadFailed: '加载大模型兼容目录失败。',
         catalogIdentityUnavailable:
           '该模型配置引用的供应商或协议已不在当前目录中，现为只读状态。请新建可用配置后再替换使用。',
@@ -1332,9 +1331,7 @@ const zh = {
         createFailed: '创建模型配置失败。',
         creating: '创建中...',
         defaultForProtocol: '协议默认',
-        engine: '引擎',
         engineUnavailable: '当前不可用',
-        engineFilterHint: '仅用于筛选兼容协议，不会把该配置绑定到单个引擎。',
         genericKey: '键名',
         genericKeyPlaceholder: '例如 GITHUB_TOKEN',
         genericPairRequired: '请至少添加一组非空键值。',

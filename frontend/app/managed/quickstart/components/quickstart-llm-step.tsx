@@ -27,7 +27,6 @@ export function QuickstartLlmStep({
     return (
       <LlmSecretConfigurator
         initialEngineId={engineId}
-        lockEngine
         onCancel={() => {
           setView('select')
         }}

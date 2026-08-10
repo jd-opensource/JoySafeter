@@ -445,7 +445,6 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           </DialogHeader>
           <LlmSecretConfigurator
             initialEngineId={engineKind}
-            lockEngine
             onCancel={() => setDialogView('agent_form')}
             onCreated={(created: SecretDetail) => {
               const listItem: Secret = {

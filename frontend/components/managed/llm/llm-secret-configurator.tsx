@@ -24,7 +24,6 @@ import type { SecretDetail } from '@/types/managed'
 
 interface LlmSecretConfiguratorProps {
   initialEngineId?: string
-  lockEngine?: boolean
   onCreated: (secret: SecretDetail) => void
   onCancel?: () => void
   className?: string
@@ -61,7 +60,6 @@ function fieldInputType(field: LlmCredentialField) {
 
 export function LlmSecretConfigurator({
   initialEngineId,
-  lockEngine = false,
   onCreated,
   onCancel,
   className,
@@ -69,7 +67,7 @@ export function LlmSecretConfigurator({
   const { t } = useTranslation()
   const managedScope = useManagedRequestScope()
   const catalogQuery = useLlmCatalog()
-  const [engineId, setEngineId] = useState(initialEngineId ?? '')
+  const engineId = initialEngineId ?? ''
   const [providerId, setProviderId] = useState('')
   const [protocolId, setProtocolId] = useState('')
   const [values, setValues] = useState<Record<string, string>>({})
@@ -244,29 +242,6 @@ export function LlmSecretConfigurator({
 
   return (
     <div className={cn('space-y-5', className)}>
-      {!lockEngine ? (
-        <div className="space-y-2">
-          <FormFieldLabel htmlFor="llm-engine">{t('managed.llm.engine')}</FormFieldLabel>
-          <select
-            id="llm-engine"
-            aria-label={t('managed.llm.engine')}
-            value={engineId}
-            onChange={(event) => setEngineId(event.target.value)}
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-          >
-            <option value="">{t('managed.llm.allEngines')}</option>
-            {catalogQuery.data.engines
-              .filter((engine) => engine.enabled)
-              .map((engine) => (
-                <option key={engine.id} value={engine.id}>
-                  {engine.display_name}
-                </option>
-              ))}
-          </select>
-          <p className="text-xs text-muted-foreground">{t('managed.llm.engineFilterHint')}</p>
-        </div>
-      ) : null}
-
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <FormFieldLabel htmlFor="llm-provider" required>
