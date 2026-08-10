@@ -53,12 +53,16 @@ use joysafeter_types::harness::HarnessResultStatus;
 /// conditions to avoid flagging a legitimately terse turn.
 pub(crate) fn finalize_pi_turn(
     aborted: bool,
+    explicit_error: Option<&str>,
     output_is_empty: bool,
     usage_is_zero: bool,
     stderr_tail: &str,
 ) -> (HarnessResultStatus, Option<String>) {
     if aborted {
         return (HarnessResultStatus::Aborted, None);
+    }
+    if let Some(error) = explicit_error.filter(|message| !message.trim().is_empty()) {
+        return (HarnessResultStatus::Failed, Some(error.to_string()));
     }
     if output_is_empty && usage_is_zero {
         let mut msg =
@@ -92,6 +96,7 @@ struct TurnState {
     turn_done_tx: Option<tokio::sync::oneshot::Sender<bool>>,
     usage: Arc<std::sync::Mutex<joysafeter_types::token_usage::TokenUsage>>,
     output: Arc<std::sync::Mutex<String>>,
+    error: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl Default for PiAdapter {
@@ -128,6 +133,7 @@ impl HarnessAdapter for PiAdapter {
             joysafeter_types::token_usage::TokenUsage::default(),
         ));
         let output = Arc::new(std::sync::Mutex::new(String::new()));
+        let turn_error = Arc::new(std::sync::Mutex::new(None));
         {
             let mut ct = session.current_turn.lock().await;
             *ct = Some(TurnState {
@@ -135,6 +141,7 @@ impl HarnessAdapter for PiAdapter {
                 turn_done_tx: Some(td_tx),
                 usage: usage.clone(),
                 output: output.clone(),
+                error: turn_error.clone(),
             });
         }
 
@@ -159,6 +166,7 @@ impl HarnessAdapter for PiAdapter {
             let aborted = td_rx.await.unwrap_or(true);
             let final_output = output.lock().unwrap().clone();
             let final_usage = usage.lock().unwrap().clone();
+            let final_error = turn_error.lock().unwrap().clone();
             {
                 let mut ct = current_turn.lock().await;
                 *ct = None;
@@ -171,8 +179,13 @@ impl HarnessAdapter for PiAdapter {
                 .lock()
                 .map(|g| g.clone())
                 .unwrap_or_default();
-            let (status, error) =
-                finalize_pi_turn(aborted, final_output.trim().is_empty(), usage_is_zero, &tail);
+            let (status, error) = finalize_pi_turn(
+                aborted,
+                final_error.as_deref(),
+                final_output.trim().is_empty(),
+                usage_is_zero,
+                &tail,
+            );
             let _ = result_tx.send(joysafeter_types::harness::HarnessResult {
                 status,
                 output: final_output,
@@ -262,6 +275,33 @@ fn extract_tool_output(result: Option<&serde_json::Value>) -> String {
     }
 }
 
+fn pi_error_message(event: &serde_json::Value) -> Option<String> {
+    match event.get("type").and_then(|value| value.as_str()) {
+        Some("message_end")
+            if event
+                .get("message")
+                .and_then(|message| message.get("stopReason"))
+                .and_then(|value| value.as_str())
+                == Some("error") =>
+        {
+            Some(
+                event
+                    .get("message")
+                    .and_then(|message| message.get("errorMessage"))
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("pi model request failed")
+                    .to_string(),
+            )
+        }
+        Some("error") => event
+            .get("message")
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned)
+            .or_else(|| event.get("error").and_then(crate::error_value_message)),
+        _ => None,
+    }
+}
+
 pub fn map_pi_event(
     event: &serde_json::Value,
     call_id_to_tool: &mut HashMap<String, String>,
@@ -283,23 +323,47 @@ pub fn map_pi_event(
                 .unwrap_or("");
             match ame_type {
                 "text_delta" if !delta.is_empty() => {
-                    events.push(HarnessEvent::Text { content: delta.to_string() });
+                    events.push(HarnessEvent::Text {
+                        content: delta.to_string(),
+                    });
                 }
                 "thinking_delta" if !delta.is_empty() => {
-                    events.push(HarnessEvent::Thinking { content: delta.to_string() });
+                    events.push(HarnessEvent::Thinking {
+                        content: delta.to_string(),
+                    });
                 }
                 _ => {}
             }
         }
         "tool_execution_start" => {
-            let tool = event.get("toolName").and_then(|t| t.as_str()).unwrap_or("").to_string();
-            let call_id = event.get("toolCallId").and_then(|t| t.as_str()).unwrap_or("").to_string();
-            let input = event.get("args").cloned().unwrap_or(serde_json::Value::Null);
+            let tool = event
+                .get("toolName")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+            let call_id = event
+                .get("toolCallId")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+            let input = event
+                .get("args")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
             call_id_to_tool.insert(call_id.clone(), tool.clone());
-            events.push(HarnessEvent::ToolUse { tool, call_id, input, is_control_request: false });
+            events.push(HarnessEvent::ToolUse {
+                tool,
+                call_id,
+                input,
+                is_control_request: false,
+            });
         }
         "tool_execution_end" => {
-            let call_id = event.get("toolCallId").and_then(|t| t.as_str()).unwrap_or("").to_string();
+            let call_id = event
+                .get("toolCallId")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
             let tool = event
                 .get("toolName")
                 .and_then(|t| t.as_str())
@@ -307,10 +371,20 @@ pub fn map_pi_event(
                 .or_else(|| call_id_to_tool.get(&call_id).cloned())
                 .unwrap_or_default();
             let output = extract_tool_output(event.get("result"));
-            if event.get("isError").and_then(|b| b.as_bool()).unwrap_or(false) {
-                events.push(HarnessEvent::Error { message: output.clone() });
+            if event
+                .get("isError")
+                .and_then(|b| b.as_bool())
+                .unwrap_or(false)
+            {
+                events.push(HarnessEvent::Error {
+                    message: output.clone(),
+                });
             }
-            events.push(HarnessEvent::ToolResult { tool, call_id, output });
+            events.push(HarnessEvent::ToolResult {
+                tool,
+                call_id,
+                output,
+            });
         }
         "message_end" => {
             if let Some(message) = event.get("message") {
@@ -318,8 +392,11 @@ pub fn map_pi_event(
                 // also fires for role=user and role=toolResult with `usage: null`;
                 // skip those so we don't emit spurious zero-usage events.
                 if let Some(usage) = message.get("usage").filter(|u| u.is_object()) {
-                    let model =
-                        message.get("model").and_then(|m| m.as_str()).unwrap_or("unknown").to_string();
+                    let model = message
+                        .get("model")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
                     let g = |k: &str| usage.get(k).and_then(|v| v.as_u64()).unwrap_or(0);
                     events.push(HarnessEvent::ModelRequestEnd {
                         model,
@@ -329,27 +406,18 @@ pub fn map_pi_event(
                         cache_write_tokens: g("cacheWrite"),
                     });
                 }
+                if let Some(error_message) = pi_error_message(event) {
+                    events.push(HarnessEvent::Error {
+                        message: error_message,
+                    });
+                }
             }
         }
         "agent_settled" => {
             turn_done = true;
         }
         "error" => {
-            let msg = event
-                .get("message")
-                .and_then(|m| m.as_str())
-                .map(|s| s.to_string())
-                .or_else(|| {
-                    event.get("error").and_then(|e| match e {
-                        serde_json::Value::String(s) => Some(s.clone()),
-                        serde_json::Value::Object(_) => e
-                            .get("message")
-                            .and_then(|m| m.as_str())
-                            .map(|s| s.to_string()),
-                        _ => None,
-                    })
-                })
-                .unwrap_or_else(|| "pi error".to_string());
+            let msg = pi_error_message(event).unwrap_or_else(|| "pi error".to_string());
             events.push(HarnessEvent::Error { message: msg });
         }
         _ => {}
@@ -360,6 +428,7 @@ pub fn map_pi_event(
 
 /// Parse and dispatch a single pi stdout line. Returns true if the line is
 /// agent_settled (turn complete). Response lines (type=="response") are skipped.
+#[cfg(test)]
 pub(crate) async fn dispatch_pi_line(
     line: &str,
     event_tx: &mpsc::Sender<HarnessEvent>,
@@ -373,10 +442,20 @@ pub(crate) async fn dispatch_pi_line(
         Ok(v) => v,
         Err(_) => return false,
     };
+    dispatch_pi_value(&value, event_tx, call_id_to_tool).await
+}
+
+/// Dispatch an already-parsed pi event. Returns true if the line is
+/// agent_settled (turn complete). Response lines (type=="response") are skipped.
+pub(crate) async fn dispatch_pi_value(
+    value: &serde_json::Value,
+    event_tx: &mpsc::Sender<HarnessEvent>,
+    call_id_to_tool: &mut HashMap<String, String>,
+) -> bool {
     if value.get("type").and_then(|t| t.as_str()) == Some("response") {
         return false;
     }
-    let mapped = map_pi_event(&value, call_id_to_tool);
+    let mapped = map_pi_event(value, call_id_to_tool);
     for ev in mapped.events {
         let _ = event_tx.send(ev).await;
     }
@@ -394,19 +473,28 @@ async fn persistent_pi_reader(
     while let Ok(Some(line)) = lines.next_line().await {
         let refs = {
             let guard = current_turn.lock().await;
-            guard
-                .as_ref()
-                .map(|t| (t.event_tx.clone(), t.usage.clone(), t.output.clone()))
+            guard.as_ref().map(|t| {
+                (
+                    t.event_tx.clone(),
+                    t.usage.clone(),
+                    t.output.clone(),
+                    t.error.clone(),
+                )
+            })
         };
-        let Some((event_tx, usage, output)) = refs else {
+        let Some((event_tx, usage, output, turn_error)) = refs else {
             continue;
         };
 
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) {
-            accumulate_usage_and_output(&v, &usage, &output);
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+            continue;
+        };
+        accumulate_usage_and_output(&v, &usage, &output);
+        if let Some(error_message) = pi_error_message(&v) {
+            *turn_error.lock().unwrap() = Some(error_message);
         }
 
-        let turn_done = dispatch_pi_line(&line, &event_tx, &mut call_id_to_tool).await;
+        let turn_done = dispatch_pi_value(&v, &event_tx, &mut call_id_to_tool).await;
         if turn_done {
             let mut guard = current_turn.lock().await;
             if let Some(ref mut t) = *guard {
@@ -462,7 +550,10 @@ fn accumulate_usage_and_output(
                 acc.output_tokens += g("output");
                 acc.cache_read_tokens += g("cacheRead");
                 acc.cache_write_tokens += g("cacheWrite");
-                let e = acc.by_model.entry(model).or_insert_with(ModelUsage::default);
+                let e = acc
+                    .by_model
+                    .entry(model)
+                    .or_insert_with(ModelUsage::default);
                 e.input_tokens += g("input");
                 e.output_tokens += g("output");
                 e.cache_read_tokens += g("cacheRead");
@@ -479,7 +570,10 @@ pub(crate) fn build_prompt_line(message: &str, id: &str) -> String {
 }
 
 pub(crate) fn build_steer_line(message: &str, id: &str) -> String {
-    format!("{}\n", serde_json::json!({ "type": "steer", "message": message, "id": id }))
+    format!(
+        "{}\n",
+        serde_json::json!({ "type": "steer", "message": message, "id": id })
+    )
 }
 
 pub(crate) fn build_abort_line(id: &str) -> String {
@@ -604,30 +698,59 @@ mod tests {
 
     #[test]
     fn finalize_flags_empty_zero_usage_turn_as_failed() {
-        let (status, err) = super::finalize_pi_turn(false, true, true, "boom: model not found");
+        let (status, err) =
+            super::finalize_pi_turn(false, None, true, true, "boom: model not found");
         assert_eq!(status, HarnessResultStatus::Failed);
         let err = err.expect("error populated");
         assert!(err.contains("no output"), "msg: {err}");
-        assert!(err.contains("boom: model not found"), "should include stderr tail: {err}");
+        assert!(
+            err.contains("boom: model not found"),
+            "should include stderr tail: {err}"
+        );
     }
 
     #[test]
     fn finalize_keeps_normal_turn_completed() {
-        let (status, err) = super::finalize_pi_turn(false, false, false, "");
+        let (status, err) = super::finalize_pi_turn(false, None, false, false, "");
         assert_eq!(status, HarnessResultStatus::Completed);
         assert!(err.is_none());
     }
 
     #[test]
+    fn finalize_explicit_provider_error_is_failed_even_with_usage() {
+        let (status, err) = super::finalize_pi_turn(
+            false,
+            Some("Provider returned 404: route_not_found"),
+            true,
+            false,
+            "",
+        );
+        assert_eq!(status, HarnessResultStatus::Failed);
+        assert_eq!(
+            err.as_deref(),
+            Some("Provider returned 404: route_not_found")
+        );
+    }
+
+    #[test]
     fn finalize_partial_usage_is_not_failure() {
         // Text present but zero usage, or usage present with empty text: not a failure.
-        assert_eq!(super::finalize_pi_turn(false, false, true, "").0, HarnessResultStatus::Completed);
-        assert_eq!(super::finalize_pi_turn(false, true, false, "").0, HarnessResultStatus::Completed);
+        assert_eq!(
+            super::finalize_pi_turn(false, None, false, true, "").0,
+            HarnessResultStatus::Completed
+        );
+        assert_eq!(
+            super::finalize_pi_turn(false, None, true, false, "").0,
+            HarnessResultStatus::Completed
+        );
     }
 
     #[test]
     fn finalize_aborted_stays_aborted() {
-        assert_eq!(super::finalize_pi_turn(true, true, true, "x").0, HarnessResultStatus::Aborted);
+        assert_eq!(
+            super::finalize_pi_turn(true, None, true, true, "x").0,
+            HarnessResultStatus::Aborted
+        );
     }
 
     #[test]
@@ -643,13 +766,19 @@ mod tests {
     #[test]
     fn pi_model_arg_prefixes_declared_provider() {
         assert_eq!(super::pi_model_arg("GPT-4.1"), "joysafeter/GPT-4.1");
-        assert_eq!(super::pi_model_arg("Claude-Opus-4.6"), "joysafeter/Claude-Opus-4.6");
+        assert_eq!(
+            super::pi_model_arg("Claude-Opus-4.6"),
+            "joysafeter/Claude-Opus-4.6"
+        );
     }
 
     #[test]
     fn pi_model_arg_does_not_double_prefix() {
         // If a caller ever passes an already-qualified id, keep it as-is.
-        assert_eq!(super::pi_model_arg("joysafeter/GPT-4.1"), "joysafeter/GPT-4.1");
+        assert_eq!(
+            super::pi_model_arg("joysafeter/GPT-4.1"),
+            "joysafeter/GPT-4.1"
+        );
     }
 
     #[test]
@@ -678,7 +807,12 @@ mod tests {
             "args": { "command": "ls" }
         }));
         match &m.events[0] {
-            HarnessEvent::ToolUse { tool, call_id, is_control_request, .. } => {
+            HarnessEvent::ToolUse {
+                tool,
+                call_id,
+                is_control_request,
+                ..
+            } => {
                 assert_eq!(tool, "bash");
                 assert_eq!(call_id, "call_1");
                 assert!(!is_control_request);
@@ -690,17 +824,27 @@ mod tests {
     #[test]
     fn tool_execution_end_maps_to_tool_result() {
         let mut cmap = HashMap::new();
-        map_pi_event(&serde_json::json!({
-            "type": "tool_execution_start",
-            "toolCallId": "call_1", "toolName": "bash", "args": {}
-        }), &mut cmap);
-        let m = map_pi_event(&serde_json::json!({
-            "type": "tool_execution_end",
-            "toolCallId": "call_1", "toolName": "bash",
-            "result": "file.txt", "isError": false
-        }), &mut cmap);
+        map_pi_event(
+            &serde_json::json!({
+                "type": "tool_execution_start",
+                "toolCallId": "call_1", "toolName": "bash", "args": {}
+            }),
+            &mut cmap,
+        );
+        let m = map_pi_event(
+            &serde_json::json!({
+                "type": "tool_execution_end",
+                "toolCallId": "call_1", "toolName": "bash",
+                "result": "file.txt", "isError": false
+            }),
+            &mut cmap,
+        );
         match &m.events[0] {
-            HarnessEvent::ToolResult { tool, call_id, output } => {
+            HarnessEvent::ToolResult {
+                tool,
+                call_id,
+                output,
+            } => {
                 assert_eq!(tool, "bash");
                 assert_eq!(call_id, "call_1");
                 assert!(output.contains("file.txt"));
@@ -718,10 +862,19 @@ mod tests {
                 "usage": { "input": 10, "output": 5, "cacheRead": 2, "cacheWrite": 1 }
             }
         }));
-        let mre = m.events.iter().find(|e| matches!(e, HarnessEvent::ModelRequestEnd { .. }))
+        let mre = m
+            .events
+            .iter()
+            .find(|e| matches!(e, HarnessEvent::ModelRequestEnd { .. }))
             .expect("expected ModelRequestEnd");
         match mre {
-            HarnessEvent::ModelRequestEnd { model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens } => {
+            HarnessEvent::ModelRequestEnd {
+                model,
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+            } => {
                 assert_eq!(model, "deepseek/deepseek-chat");
                 assert_eq!(*input_tokens, 10);
                 assert_eq!(*output_tokens, 5);
@@ -742,7 +895,10 @@ mod tests {
             "message": { "role": "toolResult", "usage": serde_json::Value::Null }
         }));
         assert!(
-            !null_usage.events.iter().any(|e| matches!(e, HarnessEvent::ModelRequestEnd { .. })),
+            !null_usage
+                .events
+                .iter()
+                .any(|e| matches!(e, HarnessEvent::ModelRequestEnd { .. })),
             "null usage must not emit ModelRequestEnd"
         );
         let absent_usage = map(serde_json::json!({
@@ -750,7 +906,10 @@ mod tests {
             "message": { "role": "user" }
         }));
         assert!(
-            !absent_usage.events.iter().any(|e| matches!(e, HarnessEvent::ModelRequestEnd { .. })),
+            !absent_usage
+                .events
+                .iter()
+                .any(|e| matches!(e, HarnessEvent::ModelRequestEnd { .. })),
             "absent usage must not emit ModelRequestEnd"
         );
     }
@@ -761,15 +920,18 @@ mod tests {
             "type": "error",
             "error": { "message": "model not found: gpt-x" }
         }));
-        assert!(m.events.iter().any(|e|
-            matches!(e, HarnessEvent::Error { message } if message.contains("model not found"))));
+        assert!(m.events.iter().any(
+            |e| matches!(e, HarnessEvent::Error { message } if message.contains("model not found"))
+        ));
     }
 
     #[test]
     fn maps_top_level_error_string_field() {
         let m = map(serde_json::json!({ "type": "error", "error": "boom" }));
-        assert!(m.events.iter().any(|e|
-            matches!(e, HarnessEvent::Error { message } if message == "boom")));
+        assert!(m
+            .events
+            .iter()
+            .any(|e| matches!(e, HarnessEvent::Error { message } if message == "boom")));
     }
 
     #[test]
@@ -778,7 +940,26 @@ mod tests {
             "type": "message_end",
             "message": { "model": "m", "usage": { "input": 1, "output": 1 } }
         }));
-        assert!(!m.events.iter().any(|e| matches!(e, HarnessEvent::Error { .. })));
+        assert!(!m
+            .events
+            .iter()
+            .any(|e| matches!(e, HarnessEvent::Error { .. })));
+    }
+
+    #[test]
+    fn message_end_error_is_forwarded_to_harness() {
+        let m = map(serde_json::json!({
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "stopReason": "error",
+                "errorMessage": "Provider returned 404: route_not_found",
+                "usage": { "input": 0, "output": 0 }
+            }
+        }));
+        assert!(m.events.iter().any(|event| {
+            matches!(event, HarnessEvent::Error { message } if message == "Provider returned 404: route_not_found")
+        }));
     }
 
     #[test]
