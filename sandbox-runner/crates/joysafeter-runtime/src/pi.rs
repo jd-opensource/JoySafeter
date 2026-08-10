@@ -534,6 +534,13 @@ impl PiAdapter {
         for (k, v) in &input.secrets {
             cmd.env(k, v);
         }
+        // pi runs on Node 22, whose built-in fetch (undici) does NOT honor the
+        // HTTP_PROXY/HTTPS_PROXY env vars unless NODE_USE_ENV_PROXY=1 is set. The
+        // runner injects HTTP_PROXY (its 127.0.0.1:3128 egress bridge → Envoy),
+        // but without this flag pi connects directly to the repointed LLM host,
+        // which the limited-networking sandbox cannot resolve → empty turn. Force
+        // undici to route through the runner proxy so Envoy injects the real key.
+        cmd.env("NODE_USE_ENV_PROXY", "1");
 
         let mut child = cmd
             .spawn()
