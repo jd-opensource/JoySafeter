@@ -348,6 +348,56 @@ async def test_force_delete_secret_rejects_active_task_agent_egress_environment_
 
 
 @pytest.mark.asyncio
+async def test_force_delete_secret_does_not_refresh_for_active_egress_dependency(db_session, monkeypatch):
+    secret = await _secret(db_session)
+    env = JoySafeterEnvironment(
+        name=f"refresh-agent-egress-env-secret-{uuid.uuid4()}",
+        description="",
+        config={
+            "egress_services": [
+                {
+                    "name": "crm",
+                    "base_url": "https://crm.example.com",
+                    "credential_ref": secret.name,
+                    "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                }
+            ]
+        },
+    )
+    db_session.add(env)
+    await db_session.commit()
+    await db_session.refresh(env)
+    agent = JoySafeterAgent(name=f"refresh-agent-egress-env-agent-{uuid.uuid4()}", environment_ref=str(env.id))
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    task = JoySafeterTask(
+        agent_id=agent.id,
+        prompt="scan target",
+        status=JoySafeterTaskStatus.RUNNING.value,
+    )
+    db_session.add(task)
+    await db_session.commit()
+    await db_session.refresh(task)
+    refresh = AsyncMock(return_value=0)
+    monkeypatch.setattr(
+        "app.joysafeter_api.api.v1.secrets.refresh_live_limited_sandbox_network_policies",
+        refresh,
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await secrets_api.delete_secret(_request(), secret.id, True, db_session, _auth_ctx())
+
+    payload = await handled_app_error_payload(exc_info.value, status_code=409)
+    assert payload["code"] == "SECRET_ACTIVE_TASK_DEPENDENCY"
+    assert payload["data"]["task_id"] == str(task.id)
+    assert payload["data"]["source"] == "agent environment_ref"
+    assert payload["data"]["operation"] == "deleting"
+    await _assert_secret_intact(db_session, secret.id)
+    assert refresh.await_count == 0
+
+
+@pytest.mark.asyncio
 async def test_force_delete_secret_rejects_active_task_session_environment_ref(db_session):
     secret = await _secret(db_session)
     env = JoySafeterEnvironment(
