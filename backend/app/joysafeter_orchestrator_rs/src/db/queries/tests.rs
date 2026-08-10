@@ -1009,6 +1009,64 @@ async fn event_bus_persists_runner_event_with_canonical_db_seq_not_runner_seq() 
 }
 
 #[tokio::test]
+async fn running_status_with_preserved_terminal_reason_does_not_emit_duplicate_event() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
+    let task_id = create_task(&pool, agent_id, session_id, "running").await;
+
+    let result = async {
+        let previous_reason = json!({"type": "end_turn"});
+        sqlx::query("UPDATE joysafeter_sessions SET stop_reason = $2 WHERE id = $1")
+            .bind(session_id)
+            .bind(&previous_reason)
+            .execute(&pool)
+            .await
+            .expect("seed preserved terminal stop reason");
+
+        let payload = json!({"task_id": task_id.to_string()});
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_session_events (id, session_id, event_type, payload, seq, created_at)
+            VALUES ($1, $2, 'session.status_running', $3, 1, NOW())
+            "#,
+        )
+        .bind(EventId::from_uuid(Uuid::now_v7()))
+        .bind(session_id)
+        .bind(&payload)
+        .execute(&pool)
+        .await
+        .expect("seed original running event");
+
+        let inserted = update_session_status_and_insert_event(
+            &pool,
+            session_id,
+            "running",
+            None,
+            "session.status_running",
+            &payload,
+        )
+        .await
+        .expect("repeat running transition");
+
+        assert_eq!(inserted, None);
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM joysafeter_session_events WHERE session_id = $1 AND event_type = 'session.status_running'",
+        )
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count running events");
+        assert_eq!(count, 1);
+    }
+    .await;
+
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
 async fn event_bus_stream_primary_falls_back_to_db_before_flush_immediate_returns() {
     let Some(pool) = test_pool().await else {
         return;
@@ -1058,7 +1116,7 @@ async fn event_bus_stream_primary_falls_back_to_db_before_flush_immediate_return
 }
 
 #[tokio::test]
-async fn event_bus_stream_primary_without_fallback_does_not_direct_write_to_db() {
+async fn event_bus_stream_mode_keeps_ordered_direct_db_durability_mirror() {
     let Some(pool) = test_pool().await else {
         return;
     };
@@ -1095,9 +1153,96 @@ async fn event_bus_stream_primary_without_fallback_does_not_direct_write_to_db()
         .expect("count events after stream publish failure without fallback");
 
         assert_eq!(
-            count, 0,
-            "stream-enabled EventBus must not use the direct DB persister as a second primary path"
+            count, 1,
+            "stream mode must keep the ordered DB mirror so status events cannot overtake agent output"
         );
+    }
+    .await;
+
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
+async fn event_bus_flush_persists_all_agent_output_before_atomic_idle_status() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
+    let task_id = create_task(&pool, agent_id, session_id, "running").await;
+
+    let result = async {
+        let mut config = JoySafeterConfig::from_env();
+        config.event_stream_enabled = true;
+        config.event_stream_fallback_to_db = false;
+        config.event_batch_max_size = 100;
+        config.event_batch_max_delay_ms = 60_000;
+        let runtime_config = Arc::new(RuntimeConfig::from_config(&config));
+        let redis_client =
+            redis::Client::open("redis://127.0.0.1:1/").expect("construct redis client");
+        let event_bus = EventBus::new(pool.clone(), &config, runtime_config, redis_client);
+
+        for (event_type, payload) in [
+            ("agent.message", json!({"content": "first"})),
+            ("agent.message", json!({"content": "second"})),
+            (
+                "span.model_request_end",
+                json!({"model": "test-model", "usage": {"output_tokens": 2}}),
+            ),
+        ] {
+            event_bus
+                .publish(EventEnvelope::new(session_id, event_type, payload).with_task(task_id))
+                .await;
+        }
+        event_bus.flush().await;
+
+        let transitioned = transition_task_cas(&pool, task_id, "running", "completed", None, None)
+            .await
+            .expect("complete test task");
+        assert!(transitioned);
+
+        let stop_reason = json!({"type": "end_turn"});
+        let idle_payload =
+            json!({"task_id": task_id.to_string(), "stop_reason": stop_reason.clone()});
+        let (_, idle_seq) = update_session_status_if_no_active_tasks_and_insert_event(
+            &pool,
+            session_id,
+            "idle",
+            Some(&stop_reason),
+            "session.status_idle",
+            &idle_payload,
+        )
+        .await
+        .expect("idle transition succeeds")
+        .expect("idle transition inserts event");
+
+        let rows: Vec<(String, serde_json::Value, i64)> = sqlx::query_as(
+            r#"
+            SELECT event_type, payload, seq
+            FROM joysafeter_session_events
+            WHERE session_id = $1
+            ORDER BY seq ASC
+            "#,
+        )
+        .bind(session_id)
+        .fetch_all(&pool)
+        .await
+        .expect("load persisted output and idle boundary");
+
+        assert_eq!(
+            rows.iter()
+                .map(|(event_type, _, seq)| (event_type.as_str(), *seq))
+                .collect::<Vec<_>>(),
+            vec![
+                ("agent.message", 1),
+                ("agent.message", 2),
+                ("span.model_request_end", 3),
+                ("session.status_idle", 4),
+            ]
+        );
+        assert_eq!(rows[0].1, json!({"content": "first"}));
+        assert_eq!(rows[1].1, json!({"content": "second"}));
+        assert!(rows[..3].iter().all(|(_, _, seq)| *seq < idle_seq));
     }
     .await;
 

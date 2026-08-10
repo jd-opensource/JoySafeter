@@ -90,6 +90,36 @@ pub async fn update_session_status_if_no_active_tasks_and_insert_event(
     .await
 }
 
+/// Build the atomic session status UPDATE. The trailing predicate makes the
+/// write idempotent: it is a no-op unless the status actually changes, or the
+/// stop_reason is being (re)written for a terminal/idle transition. `allowed_from`
+/// and `active_task_guard` are trusted, caller-computed SQL fragments.
+pub(crate) fn build_session_status_update_sql(
+    allowed_from: &str,
+    active_task_guard: &str,
+) -> String {
+    format!(
+        r#"
+        UPDATE joysafeter_sessions
+        SET status = $2,
+            stop_reason = CASE
+                WHEN $3::jsonb IS NOT NULL OR $2 IN ('idle', 'terminated') THEN $3::jsonb
+                ELSE stop_reason
+            END,
+            updated_at = NOW()
+        WHERE id = $1 AND status IN ({allowed_from})
+          {active_task_guard}
+          AND (
+              status <> $2
+              OR (
+                  ($3::jsonb IS NOT NULL OR $2 IN ('idle', 'terminated'))
+                  AND COALESCE(stop_reason, '{{}}'::jsonb) <> COALESCE($3::jsonb, '{{}}'::jsonb)
+              )
+          )
+        "#,
+    )
+}
+
 async fn update_session_status_and_insert_event_inner(
     pool: &PgPool,
     session_id: SessionId,
@@ -127,20 +157,7 @@ async fn update_session_status_and_insert_event_inner(
         ""
     };
 
-    let sql = format!(
-        r#"
-        UPDATE joysafeter_sessions
-        SET status = $2,
-            stop_reason = CASE
-                WHEN $3::jsonb IS NOT NULL OR $2 IN ('idle', 'terminated') THEN $3::jsonb
-                ELSE stop_reason
-            END,
-            updated_at = NOW()
-        WHERE id = $1 AND status IN ({allowed_from})
-          {active_task_guard}
-          AND NOT (status = $2 AND COALESCE(stop_reason, '{{}}'::jsonb) = COALESCE($3::jsonb, '{{}}'::jsonb))
-        "#,
-    );
+    let sql = build_session_status_update_sql(allowed_from, active_task_guard);
     let update_result = sqlx::query(&sql)
         .bind(session_id)
         .bind(new_status)

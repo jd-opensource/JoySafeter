@@ -159,19 +159,9 @@ impl SessionStateSubscriber {
                     ""
                 };
 
-            let sql = format!(
-                r#"
-                UPDATE joysafeter_sessions
-                SET status = $2,
-                    stop_reason = CASE
-                        WHEN $3::jsonb IS NOT NULL OR $2 IN ('idle', 'terminated') THEN $3::jsonb
-                        ELSE stop_reason
-                    END,
-                    updated_at = NOW()
-                WHERE id = $1 AND status IN ({allowed_from})
-                  {active_task_guard}
-                  AND NOT (status = $2 AND COALESCE(stop_reason, '{{}}'::jsonb) = COALESCE($3::jsonb, '{{}}'::jsonb))
-                "#,
+            let sql = crate::db::queries::build_session_status_update_sql(
+                allowed_from,
+                active_task_guard,
             );
             let update_result = sqlx::query(&sql)
                 .bind(envelope.session_id)
