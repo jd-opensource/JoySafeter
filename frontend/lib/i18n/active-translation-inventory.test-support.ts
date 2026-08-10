@@ -8,6 +8,7 @@ import {
   SUGGESTION_MESSAGE_KEYS,
 } from '@/lib/managed/analytics/health-presenter'
 import { CRON_PRESETS } from '@/lib/managed/cron'
+import { MANAGED_SKILL_IMPORT_RUNTIME_TRANSLATION_KEYS } from '@/lib/managed/skill-import'
 
 type CatalogRoot = Record<string, unknown>
 
@@ -16,6 +17,7 @@ type FiniteFamilyName =
   | 'skillSeverity'
   | 'quickstartInput'
   | 'skillStatus'
+  | 'skillImport'
   | 'cronPresets'
   | 'status'
   | 'alerts'
@@ -96,6 +98,7 @@ const fixedFiniteFamilies = {
     'managed.skills.visibility.organization',
     'managed.skills.visibility.public',
   ],
+  skillImport: MANAGED_SKILL_IMPORT_RUNTIME_TRANSLATION_KEYS,
   cronPresets: CRON_PRESETS.map((preset) => preset.labelKey),
 }
 

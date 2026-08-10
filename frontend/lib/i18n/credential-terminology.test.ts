@@ -1134,9 +1134,11 @@ describe('credential domain terminology', () => {
     expect(inventory.finiteFamilies.status).toHaveLength(21)
     expect(inventory.finiteFamilies.alerts).toHaveLength(6)
     expect(inventory.finiteFamilies.suggestions).toHaveLength(4)
+    expect(inventory.finiteFamilies.skillImport).toHaveLength(15)
     expect(inventory.finiteFamilyAdditions.status).toBe(0)
     expect(inventory.finiteFamilyAdditions.alerts).toBe(6)
     expect(inventory.finiteFamilyAdditions.suggestions).toBe(4)
+    expect(inventory.finiteFamilyAdditions.skillImport).toBe(0)
     expect(inventory.missingEnglishLeaves).toEqual([])
     expect(inventory.missingChineseLeaves).toEqual([])
   })
@@ -1194,6 +1196,21 @@ describe('credential domain terminology', () => {
     expect(inventory.directLeaves).toContain('managed.errors.writeRequired')
     expect(inventory.missingEnglishLeaves).toContain('managed.errors.writeRequired')
     expect(inventory.missingChineseLeaves).toContain('managed.errors.writeRequired')
+  })
+
+  it('reports a skill-import runtime mapping key removed from both catalogs', () => {
+    const englishWithoutPathUnsafe = structuredClone(en.translation)
+    const chineseWithoutPathUnsafe = structuredClone(zh.translation)
+    delete englishWithoutPathUnsafe.managed.skills.zipErrors.pathUnsafe
+    delete chineseWithoutPathUnsafe.managed.skills.zipErrors.pathUnsafe
+
+    const inventory = buildActiveTranslationInventory(
+      englishWithoutPathUnsafe,
+      chineseWithoutPathUnsafe,
+    )
+
+    expect(inventory.missingEnglishLeaves).toContain('managed.skills.zipErrors.pathUnsafe')
+    expect(inventory.missingChineseLeaves).toContain('managed.skills.zipErrors.pathUnsafe')
   })
 
   it('keeps all active catalog values free of legacy credential vocabulary', () => {

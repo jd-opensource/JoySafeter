@@ -43,18 +43,44 @@ type ManagedSkillImportApiErrorData = {
   sample_skipped_system_files?: string[]
 }
 
+export const MANAGED_SKILL_IMPORT_ERROR_KEY_BY_CODE: Readonly<Record<string, string>> = {
+  ALL_FILES_REJECTED: 'managed.skills.allFilesBinary',
+  'SKILL.md_REQUIRED': 'managed.skills.importSkillMdRequired',
+  SKILL_NAME_REQUIRED: 'managed.skills.validationErrors.nameRequired',
+  'SKILL.md_BINARY': 'managed.skills.skillMdBinary',
+  'SKILL.md_READ_ERROR': 'managed.skills.binaryFileReadError',
+}
+
+export const MANAGED_SKILL_IMPORT_ZIP_ERROR_KEY_BY_CODE: Readonly<Record<string, string>> = {
+  SKILL_IMPORT_ZIP_ONLY: 'managed.skills.zipErrors.onlyZip',
+  SKILL_IMPORT_ZIP_TOO_LARGE: 'managed.skills.zipErrors.zipTooLarge',
+  SKILL_IMPORT_ZIP_INVALID: 'managed.skills.zipErrors.invalidZip',
+  SKILL_IMPORT_ZIP_EMPTY: 'managed.skills.zipErrors.emptyZip',
+  SKILL_IMPORT_ZIP_TOO_MANY_FILES: 'managed.skills.zipErrors.tooManyFiles',
+  SKILL_IMPORT_ZIP_PATH_UNSAFE: 'managed.skills.zipErrors.pathUnsafe',
+  SKILL_IMPORT_FILE_TOO_LARGE: 'managed.skills.zipErrors.fileTooLarge',
+  SKILL_IMPORT_TOTAL_TOO_LARGE: 'managed.skills.zipErrors.totalTooLarge',
+  SKILL_IMPORT_BINARY_FILE: 'managed.skills.zipErrors.binaryFile',
+  SKILL_IMPORT_SKILL_MD_REQUIRED: 'managed.skills.importSkillMdRequired',
+  SKILL_IMPORT_NAME_REQUIRED: 'managed.skills.validationErrors.nameRequired',
+  SKILL_IMPORT_FILES_INVALID: 'managed.skills.zipErrors.invalidFiles',
+}
+
+export const MANAGED_SKILL_IMPORT_RUNTIME_TRANSLATION_KEYS = Object.freeze([
+  ...new Set([
+    ...Object.values(MANAGED_SKILL_IMPORT_ERROR_KEY_BY_CODE),
+    ...Object.values(MANAGED_SKILL_IMPORT_ZIP_ERROR_KEY_BY_CODE),
+  ]),
+])
+
 export function getManagedSkillImportErrorMessage(
   errorCode: string,
   t: (key: string, options?: Record<string, unknown>) => string,
 ): string {
-  const keyByCode: Record<string, string> = {
-    ALL_FILES_REJECTED: 'managed.skills.allFilesBinary',
-    'SKILL.md_REQUIRED': 'managed.skills.importSkillMdRequired',
-    SKILL_NAME_REQUIRED: 'managed.skills.validationErrors.nameRequired',
-    'SKILL.md_BINARY': 'managed.skills.skillMdBinary',
-    'SKILL.md_READ_ERROR': 'managed.skills.binaryFileReadError',
-  }
-  return t(keyByCode[errorCode] || 'managed.skills.importValidationFailed')
+  return t(
+    MANAGED_SKILL_IMPORT_ERROR_KEY_BY_CODE[errorCode] ||
+      'managed.skills.importValidationFailed',
+  )
 }
 
 export async function buildManagedSkillImportFromDirectory(
@@ -239,21 +265,6 @@ export function getManagedSkillImportApiErrorMessage(
     })
   }
 
-  const zipKeyByCode: Record<string, string> = {
-    SKILL_IMPORT_ZIP_ONLY: 'managed.skills.zipErrors.onlyZip',
-    SKILL_IMPORT_ZIP_TOO_LARGE: 'managed.skills.zipErrors.zipTooLarge',
-    SKILL_IMPORT_ZIP_INVALID: 'managed.skills.zipErrors.invalidZip',
-    SKILL_IMPORT_ZIP_EMPTY: 'managed.skills.zipErrors.emptyZip',
-    SKILL_IMPORT_ZIP_TOO_MANY_FILES: 'managed.skills.zipErrors.tooManyFiles',
-    SKILL_IMPORT_ZIP_PATH_UNSAFE: 'managed.skills.zipErrors.pathUnsafe',
-    SKILL_IMPORT_FILE_TOO_LARGE: 'managed.skills.zipErrors.fileTooLarge',
-    SKILL_IMPORT_TOTAL_TOO_LARGE: 'managed.skills.zipErrors.totalTooLarge',
-    SKILL_IMPORT_BINARY_FILE: 'managed.skills.zipErrors.binaryFile',
-    SKILL_IMPORT_SKILL_MD_REQUIRED: 'managed.skills.importSkillMdRequired',
-    SKILL_IMPORT_NAME_REQUIRED: 'managed.skills.validationErrors.nameRequired',
-    SKILL_IMPORT_FILES_INVALID: 'managed.skills.zipErrors.invalidFiles',
-  }
-
   if (code === 'SKILL_IMPORT_ZIP_EMPTY' && data) {
     const samples = Array.isArray(data.sample_members)
       ? data.sample_members.filter(Boolean).join(', ')
@@ -282,8 +293,8 @@ export function getManagedSkillImportApiErrorMessage(
     })
   }
 
-  if (zipKeyByCode[code]) {
-    return t(zipKeyByCode[code], {
+  if (MANAGED_SKILL_IMPORT_ZIP_ERROR_KEY_BY_CODE[code]) {
+    return t(MANAGED_SKILL_IMPORT_ZIP_ERROR_KEY_BY_CODE[code], {
       path: data?.path || '',
       maxFiles: data?.max_files || '',
       maxSize: formatBytes(Number(data?.max_bytes || 0)),
