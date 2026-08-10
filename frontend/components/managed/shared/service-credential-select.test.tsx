@@ -4,44 +4,84 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Secret } from '@/types/managed'
 
-const selectState = vi.hoisted(() => ({
-  onValueChange: undefined as ((value: string) => void) | undefined,
-}))
-
 vi.mock('@/lib/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 
-vi.mock('@/components/ui/select', () => ({
-  Select: ({
-    children,
-    onValueChange,
-  }: {
-    children: ReactNode
-    onValueChange?: (value: string) => void
-  }) => {
-    selectState.onValueChange = onValueChange
-    return <div>{children}</div>
-  },
-  SelectContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  SelectGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  SelectItem: ({ children, value }: { children: ReactNode; value: string }) => (
-    <button
-      type="button"
-      role="option"
-      data-value={value}
-      onClick={() => selectState.onValueChange?.(value)}
-    >
-      {children}
-    </button>
-  ),
-  SelectTrigger: ({ children, ...props }: { children: ReactNode; 'aria-label'?: string }) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-  SelectValue: () => null,
-}))
+vi.mock('@/components/ui/select', async () => {
+  const React = await import('react')
+  const SelectContext = React.createContext({
+    value: '',
+    disabled: false,
+    onValueChange: (_value: string) => undefined,
+  })
+
+  return {
+    Select: ({
+      children,
+      value = '',
+      disabled = false,
+      onValueChange,
+    }: {
+      children: ReactNode
+      value?: string
+      disabled?: boolean
+      onValueChange?: (value: string) => void
+    }) => (
+      <SelectContext.Provider
+        value={{ value, disabled, onValueChange: onValueChange ?? (() => undefined) }}
+      >
+        <div>{children}</div>
+      </SelectContext.Provider>
+    ),
+    SelectContent: ({ children }: { children: ReactNode }) => (
+      <div role="listbox">{children}</div>
+    ),
+    SelectGroup: ({ children }: { children: ReactNode }) => <div role="group">{children}</div>,
+    SelectItem: ({ children, value }: { children: ReactNode; value: string }) => {
+      const select = React.useContext(SelectContext)
+      return (
+        <div
+          role="option"
+          aria-selected={select.value === value}
+          aria-disabled={select.disabled}
+          data-value={value}
+          tabIndex={select.disabled ? -1 : 0}
+          onClick={() => {
+            if (!select.disabled) select.onValueChange(value)
+          }}
+        >
+          {children}
+        </div>
+      )
+    },
+    SelectTrigger: ({
+      children,
+      disabled = false,
+      ...props
+    }: {
+      children: ReactNode
+      disabled?: boolean
+      'aria-label'?: string
+    }) => {
+      const select = React.useContext(SelectContext)
+      return (
+        <button
+          type="button"
+          aria-haspopup="listbox"
+          disabled={disabled || select.disabled}
+          {...props}
+        >
+          {children}
+        </button>
+      )
+    },
+    SelectValue: ({ placeholder }: { placeholder?: ReactNode }) => {
+      const select = React.useContext(SelectContext)
+      return <span>{select.value || placeholder}</span>
+    },
+  }
+})
 
 import { ServiceCredentialSelect } from './service-credential-select'
 
@@ -84,12 +124,40 @@ describe('ServiceCredentialSelect', () => {
       />,
     )
 
+    const trigger = screen.getByRole('button', { name: 'Service credential' })
     const option = screen.getByRole('option', { name: /hook-prod/ })
+    expect(trigger).toHaveTextContent('managed.triggers.serviceCredentialPlaceholder')
     expect(option).toHaveAttribute('data-value', 'hook-prod')
+    expect(option).toHaveAttribute('aria-selected', 'false')
     expect(option).not.toHaveAttribute('data-value', 'WEBHOOK_SECRET')
 
     fireEvent.click(option)
     expect(onChange).toHaveBeenCalledWith('hook-prod')
+  })
+
+  it('composes the selected resource name into the labelled trigger', () => {
+    render(
+      <ServiceCredentialSelect
+        value="hook-prod"
+        onChange={vi.fn()}
+        credentials={[
+          genericSecret(
+            'hook-prod',
+            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
+            ['WEBHOOK_SECRET'],
+          ),
+        ]}
+        ariaLabel="Service credential"
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Service credential' })).toHaveTextContent(
+      'hook-prod',
+    )
+    expect(screen.getByRole('option', { name: /hook-prod/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
   })
 
   it('keeps an unavailable current resource visible', () => {
@@ -105,5 +173,31 @@ describe('ServiceCredentialSelect', () => {
     const option = screen.getByRole('option', { name: /deleted-hook/ })
     expect(option).toHaveAttribute('data-value', 'deleted-hook')
     expect(option).toHaveTextContent('managed.triggers.serviceCredentialUnavailable')
+  })
+
+  it('exposes disabled state and ignores disabled option interaction', () => {
+    const onChange = vi.fn()
+    render(
+      <ServiceCredentialSelect
+        value="hook-prod"
+        onChange={onChange}
+        credentials={[
+          genericSecret(
+            'hook-prod',
+            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
+            ['WEBHOOK_SECRET'],
+          ),
+        ]}
+        disabled
+        ariaLabel="Service credential"
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Service credential' })).toBeDisabled()
+    const option = screen.getByRole('option', { name: /hook-prod/ })
+    expect(option).toHaveAttribute('aria-disabled', 'true')
+
+    fireEvent.click(option)
+    expect(onChange).not.toHaveBeenCalled()
   })
 })

@@ -13,18 +13,20 @@ import {
 } from './use-service-credentials'
 
 vi.mock('@/lib/api-client', () => ({ managedGet: vi.fn() }))
-vi.mock('@/lib/managed/request-scope', () => ({
-  hasManagedRequestScope: () => true,
-  managedRequestOptions: () => ({
-    headers: { 'X-Org-Id': 'org-a', 'X-Project-Id': 'project-a' },
-    skipManagedContext: true,
-  }),
-  useManagedRequestScope: () => ({
+const requestScopeState = vi.hoisted(() => ({
+  scope: {
     orgId: 'org-a',
     projectId: 'project-a',
     key: 'org-a:project-a',
-  }),
+  } as ManagedRequestScope,
 }))
+vi.mock('@/lib/managed/request-scope', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/managed/request-scope')>()
+  return {
+    ...actual,
+    useManagedRequestScope: () => requestScopeState.scope,
+  }
+})
 
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 const SECRET_ID_A = 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020'
@@ -57,7 +59,10 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 describe('useServiceCredentials', () => {
-  afterEach(() => vi.clearAllMocks())
+  afterEach(() => {
+    requestScopeState.scope = scope
+    vi.clearAllMocks()
+  })
 
   it('loads every Generic Secret page and preserves resource IDs and keys', async () => {
     managedGetMock
@@ -96,5 +101,24 @@ describe('useServiceCredentials', () => {
       'Service Credential pagination returned an invalid cursor',
     )
     expect(managedGetMock).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ['organization', { orgId: null, projectId: 'project-a', key: ':project-a' }],
+    ['project', { orgId: 'org-a', projectId: null, key: 'org-a:' }],
+  ] as const)('does not request with a missing %s scope', (_label, missingScope) => {
+    requestScopeState.scope = missingScope
+
+    const { result } = renderHook(() => useServiceCredentials(), { wrapper })
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(managedGetMock).not.toHaveBeenCalled()
+  })
+
+  it('does not request when explicitly disabled', () => {
+    const { result } = renderHook(() => useServiceCredentials({ enabled: false }), { wrapper })
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(managedGetMock).not.toHaveBeenCalled()
   })
 })
