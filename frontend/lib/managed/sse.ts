@@ -24,10 +24,19 @@ const NON_RECONNECT_ERROR_CODES = new Set([
   'NOT_ORG_MEMBER',
 ])
 
-export function useSessionStream(sessionId: string, enabled: boolean) {
+interface UseSessionStreamOptions {
+  initialAfterSeq?: number
+}
+
+export function useSessionStream(
+  sessionId: string,
+  enabled: boolean,
+  options: UseSessionStreamOptions = {},
+) {
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const streamScope = `${sessionId}:${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const initialAfterSeq = Math.max(0, options.initialAfterSeq ?? 0)
   const [eventState, setEventState] = useState<{ scope: string; events: SessionEvent[] }>({
     scope: '',
     events: [],
@@ -47,7 +56,7 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
   useEffect(() => {
     const runId = runIdRef.current + 1
     runIdRef.current = runId
-    lastSeqRef.current = 0
+    lastSeqRef.current = initialAfterSeq
 
     if (!enabled || !sessionId) {
       if (process.env.NODE_ENV !== 'production') {
@@ -287,7 +296,7 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
       abortRef.current?.abort()
       abortRef.current = null
     }
-  }, [sessionId, enabled, currentOrgId, currentProjectId, streamScope])
+  }, [sessionId, enabled, currentOrgId, currentProjectId, streamScope, initialAfterSeq])
 
   const clear = useCallback(() => {
     setEventState((prev) => ({ ...prev, events: [] }))

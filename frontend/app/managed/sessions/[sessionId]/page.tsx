@@ -55,11 +55,16 @@ import {
   getEventType,
   getLatestSessionStatusEvent,
   getMaxSeq,
+  getMinSeq,
   isRequiresActionIdle,
   mergeSessionEvents,
   sortSessionEvents,
 } from '@/lib/managed/session-events'
 import { useSessionStream } from '@/lib/managed/sse'
+import {
+  getCachedSessionEventState,
+  setCachedSessionEventState,
+} from '@/lib/managed/session-event-cache'
 import type {
   Agent,
   Environment,
@@ -203,7 +208,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   // new events auto-scroll into view; when the user scrolls up to read history,
   // we stop yanking them back down.
   const stickToBottomRef = useRef(true)
-  const { events: streamEvents, connected: sseConnected } = useSessionStream(id || '', !!id)
+  const pendingPrependScrollHeightRef = useRef<number | null>(null)
 
   const openSessionFiles = useCallback(() => {
     setActiveDrawer('files')
@@ -305,20 +310,37 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     [sessionResources],
   )
 
-  const [loadedEvents, setLoadedEvents] = useState<SessionEvent[]>([])
-  const [hasMoreEvents, setHasMoreEvents] = useState(true)
+  const initialCachedEvents = getCachedSessionEventState(sessionScope)
+  const [loadedEvents, setLoadedEvents] = useState<SessionEvent[]>(
+    () => initialCachedEvents?.events ?? [],
+  )
+  const [hasMoreEvents, setHasMoreEvents] = useState(initialCachedEvents?.hasMoreOlder ?? true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
-  const eventsLoadedRef = useRef(false)
+  const [eventsInitialized, setEventsInitialized] = useState(!!initialCachedEvents)
+  const [streamAfterSeq, setStreamAfterSeq] = useState(() =>
+    getMaxSeq(initialCachedEvents?.events ?? []),
+  )
+  const eventsLoadedRef = useRef(!!initialCachedEvents)
+  const { events: streamEvents, connected: sseConnected } = useSessionStream(
+    id || '',
+    !!id && eventsInitialized,
+    { initialAfterSeq: streamAfterSeq },
+  )
 
   useEffect(() => {
     if (sessionScopeRef.current === sessionScope) return
     sessionScopeRef.current = sessionScope
     managedRequestScopeRef.current = managedScope
     actionRunRef.current += 1
-    eventsLoadedRef.current = false
-    setLoadedEvents([])
-    setHasMoreEvents(true)
+    const cached = getCachedSessionEventState(sessionScope)
+    const cachedEvents = cached?.events ?? []
+    eventsLoadedRef.current = !!cached
+    setLoadedEvents(cachedEvents)
+    setHasMoreEvents(cached?.hasMoreOlder ?? true)
+    setEventsInitialized(!!cached)
+    setStreamAfterSeq(getMaxSeq(cachedEvents))
     setIsLoadingMore(false)
+    pendingPrependScrollHeightRef.current = null
     setSelectedEvent(null)
     setActiveDrawer(null)
     setMsgInput('')
@@ -350,29 +372,46 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   }, [currentSessionScopeIsActive, id, queryClient])
 
   const loadEvents = useCallback(
-    async (afterSeq?: number) => {
+    async (
+      cursor?: number,
+      mode: 'latest' | 'older' | 'newer' = cursor == null ? 'latest' : 'newer',
+    ) => {
       if (!id) return
       const actionScope = sessionScopeRef.current
       const requestScope = managedRequestScopeRef.current
       if (!currentSessionScopeIsActive(actionScope)) return
       setIsLoadingMore(true)
       try {
+        const query: Record<string, string | number> = {
+          limit: 100,
+          order: mode === 'latest' || mode === 'older' ? 'desc' : 'asc',
+        }
+        if (mode === 'older' && cursor != null) query.before_seq = cursor
+        if (mode === 'newer' && cursor != null) query.after_seq = cursor
+
         const res = await managedGet<{ data: SessionEvent[]; has_more: boolean }>(
-          apiResourceSubpath('sessions', id, ['events'], {
-            limit: 100,
-            after_seq: afterSeq,
-          }),
+          apiResourceSubpath('sessions', id, ['events'], query),
           managedRequestOptions(requestScope),
         )
         if (!currentSessionScopeIsActive(actionScope)) return
-        const newEvents = Array.isArray(res) ? res : res.data
+        const newEvents = sortSessionEvents(Array.isArray(res) ? res : res.data)
         const hasMore = Array.isArray(res) ? newEvents.length >= 100 : res.has_more
+
         setLoadedEvents((prev) =>
-          sortSessionEvents(afterSeq != null ? [...prev, ...newEvents] : newEvents),
+          mode === 'latest' ? newEvents : mergeSessionEvents(prev, newEvents),
         )
-        setHasMoreEvents(hasMore)
+        if (mode === 'latest') {
+          setHasMoreEvents(hasMore)
+          setStreamAfterSeq(getMaxSeq(newEvents))
+          setEventsInitialized(true)
+        } else if (mode === 'older') {
+          setHasMoreEvents(hasMore)
+        }
       } catch {
-        // silently fail
+        if (mode === 'latest' && currentSessionScopeIsActive(actionScope)) {
+          setStreamAfterSeq(0)
+          setEventsInitialized(true)
+        }
       } finally {
         if (currentSessionScopeIsActive(actionScope)) {
           setIsLoadingMore(false)
@@ -385,14 +424,16 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   useEffect(() => {
     if (id && !eventsLoadedRef.current) {
       eventsLoadedRef.current = true
-      loadEvents()
+      loadEvents(undefined, 'latest')
     }
   }, [id, loadEvents])
 
   const loadMoreEvents = useCallback(() => {
     if (!hasMoreEvents || isLoadingMore || loadedEvents.length === 0) return
-    const lastSeq = getMaxSeq(loadedEvents)
-    loadEvents(lastSeq)
+    const firstSeq = getMinSeq(loadedEvents)
+    if (!firstSeq) return
+    pendingPrependScrollHeightRef.current = scrollContainerRef.current?.scrollHeight ?? null
+    loadEvents(firstSeq, 'older')
   }, [hasMoreEvents, isLoadingMore, loadedEvents, loadEvents])
 
   const isRunning = session?.status === 'running'
@@ -424,9 +465,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     if (streamForced && wasRunningRef.current && !isRunning) {
       setStreamForced(false)
       wasRunningRef.current = false
-      eventsLoadedRef.current = false
-      setLoadedEvents([])
-      loadEvents()
     }
   }, [isRunning, streamForced, id, queryClient])
 
@@ -461,9 +499,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       )
       if (!isCurrentAction(runId, actionScope)) return
       queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
-      eventsLoadedRef.current = false
-      setLoadedEvents([])
-      loadEvents()
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -508,9 +543,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         )
         if (!isCurrentAction(runId, actionScope)) return
         queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
-        eventsLoadedRef.current = false
-        setLoadedEvents([])
-        loadEvents()
       } catch (e) {
         if (!isCurrentAction(runId, actionScope)) return
         toastOperationError(t, e, 'common.operationFailed')
@@ -520,7 +552,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         }
       }
     },
-    [id, queryClient, loadEvents, t, isCurrentAction, currentSessionDetail],
+    [id, queryClient, t, isCurrentAction, currentSessionDetail],
   )
 
   const handleArchiveSession = async () => {
@@ -567,9 +599,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       )
       if (!isCurrentAction(runId, actionScope)) return
       queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
-      eventsLoadedRef.current = false
-      setLoadedEvents([])
-      loadEvents()
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -593,6 +622,21 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const allEvents = useMemo(() => {
     return mergeSessionEvents(loadedEvents, streamEvents)
   }, [loadedEvents, streamEvents])
+
+  useEffect(() => {
+    if (!id || !eventsInitialized) return
+    setCachedSessionEventState(sessionScope, allEvents, hasMoreEvents)
+  }, [allEvents, eventsInitialized, hasMoreEvents, id, sessionScope])
+
+  useEffect(() => {
+    const previousHeight = pendingPrependScrollHeightRef.current
+    if (previousHeight == null) return
+    const el = scrollContainerRef.current
+    pendingPrependScrollHeightRef.current = null
+    if (!el) return
+    const delta = el.scrollHeight - previousHeight
+    if (delta > 0) el.scrollTop += delta
+  }, [loadedEvents.length])
 
   // Pending tool-confirmation approvals (always_ask): control_request events
   // that have no matching user.tool_confirmation reply yet.
@@ -852,8 +896,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   }, [allEvents, tab, debugFilter, searchText])
 
   useEffect(() => {
-    // Skip auto-loading more events when SSE is connected — SSE pushes live events
-    if (sseConnected) return
     if (
       tab !== 'transcript' ||
       searchText ||
@@ -874,7 +916,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     loadedEvents.length,
     filteredEvents.length,
     loadMoreEvents,
-    sseConnected,
   ])
 
   // Auto-scroll to the newest event when the transcript grows, but only while
@@ -1112,7 +1153,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
             <>
               <Badge variant="outline">{networkPolicyStatus.networking_status}</Badge>
               <span className="text-muted-foreground">
-                {t('managed.sessions.networkPolicy.version', { version: networkPolicyStatus.networking_policy_version || 0 })}
+                {t('managed.sessions.networkPolicy.version', {
+                  version: networkPolicyStatus.networking_policy_version || 0,
+                })}
               </span>
               {networkPolicyStatus.networking_policy_hash ? (
                 <code className="rounded bg-background px-1.5 py-0.5 text-[11px]">
@@ -1121,17 +1164,23 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
               ) : null}
               {networkPolicyStatus.networking_ready_at ? (
                 <span className="text-muted-foreground">
-                  {t('managed.sessions.networkPolicy.readyAt')} <RelativeTime date={networkPolicyStatus.networking_ready_at} />
+                  {t('managed.sessions.networkPolicy.readyAt')}{' '}
+                  <RelativeTime date={networkPolicyStatus.networking_ready_at} />
                 </span>
               ) : null}
               {networkPolicyStatus.networking_last_error ? (
-                <span className="min-w-0 flex-1 truncate text-destructive" title={networkPolicyStatus.networking_last_error}>
+                <span
+                  className="min-w-0 flex-1 truncate text-destructive"
+                  title={networkPolicyStatus.networking_last_error}
+                >
                   {networkPolicyStatus.networking_last_error}
                 </span>
               ) : null}
             </>
           ) : (
-            <span className="text-muted-foreground">{t('managed.sessions.networkPolicy.empty')}</span>
+            <span className="text-muted-foreground">
+              {t('managed.sessions.networkPolicy.empty')}
+            </span>
           )}
         </div>
       </div>
@@ -1213,11 +1262,16 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
             // Pin to bottom only when the user is within 80px of it, so live events
             // keep following; scrolling up to read history releases the pin.
             stickToBottomRef.current = distanceFromBottom < 80
-            if (distanceFromBottom < 100 && hasMoreEvents && !isLoadingMore) {
+            if (el.scrollTop < 100 && hasMoreEvents && !isLoadingMore) {
               loadMoreEvents()
             }
           }}
         >
+          {isLoadingMore && (
+            <div className="flex justify-center py-3">
+              <span className="text-xs text-muted-foreground">{t('common.loading')}</span>
+            </div>
+          )}
           <EventList
             events={filteredEvents}
             sessionStart={sessionStart}
@@ -1225,11 +1279,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
             onSelect={setSelectedEvent}
             mode={tab}
           />
-          {isLoadingMore && (
-            <div className="flex justify-center py-3">
-              <span className="text-xs text-muted-foreground">{t('common.loading')}</span>
-            </div>
-          )}
         </div>
 
         {selectedEvent && (
@@ -2051,7 +2100,10 @@ function EnvDrawer({
               <div className="space-y-1.5">
                 {Object.entries(env.config.env_vars).map(([key, value]) => (
                   <div key={key} className="flex items-start text-sm">
-                    <code className="w-36 shrink-0 truncate font-mono text-xs text-muted-foreground" title={key}>
+                    <code
+                      className="w-36 shrink-0 truncate font-mono text-xs text-muted-foreground"
+                      title={key}
+                    >
                       {key}
                     </code>
                     <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
@@ -2074,16 +2126,18 @@ function EnvDrawer({
             </h3>
             {env.config?.egress_services && env.config.egress_services.length > 0 ? (
               <div className="space-y-2">
-                {env.config.egress_services.map((svc: { name?: string; base_url?: string }, i: number) => (
-                  <div key={i} className="rounded border border-border/60 px-3 py-2">
-                    {svc.name && (
-                      <div className="text-sm font-medium text-foreground">{svc.name}</div>
-                    )}
-                    {svc.base_url && (
-                      <code className="text-xs text-muted-foreground">{svc.base_url}</code>
-                    )}
-                  </div>
-                ))}
+                {env.config.egress_services.map(
+                  (svc: { name?: string; base_url?: string }, i: number) => (
+                    <div key={i} className="border-border/60 rounded border px-3 py-2">
+                      {svc.name && (
+                        <div className="text-sm font-medium text-foreground">{svc.name}</div>
+                      )}
+                      {svc.base_url && (
+                        <code className="text-xs text-muted-foreground">{svc.base_url}</code>
+                      )}
+                    </div>
+                  ),
+                )}
               </div>
             ) : (
               <p className="text-sm italic text-muted-foreground">
@@ -2099,12 +2153,18 @@ function EnvDrawer({
             </h3>
             {env.config?.storage_volumes && env.config.storage_volumes.length > 0 ? (
               <div className="space-y-2">
-                {env.config.storage_volumes.map((vol: { name?: string; mount_path?: string; volume_id?: string }, i: number) => (
-                  <div key={i} className="flex items-center text-sm">
-                    <span className="w-28 shrink-0 text-muted-foreground">{vol.name || vol.volume_id || `vol-${i}`}</span>
-                    <code className="font-mono text-xs text-foreground">{vol.mount_path || '-'}</code>
-                  </div>
-                ))}
+                {env.config.storage_volumes.map(
+                  (vol: { name?: string; mount_path?: string; volume_id?: string }, i: number) => (
+                    <div key={i} className="flex items-center text-sm">
+                      <span className="w-28 shrink-0 text-muted-foreground">
+                        {vol.name || vol.volume_id || `vol-${i}`}
+                      </span>
+                      <code className="font-mono text-xs text-foreground">
+                        {vol.mount_path || '-'}
+                      </code>
+                    </div>
+                  ),
+                )}
               </div>
             ) : (
               <p className="text-sm italic text-muted-foreground">
