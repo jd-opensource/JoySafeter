@@ -292,6 +292,52 @@ async def test_create_environment_rejects_llm_secret_for_service_credentials(db_
 
 
 @pytest.mark.asyncio
+async def test_create_environment_persists_trimmed_direct_secret_refs(db_session):
+    secret = await _project_secret(db_session, kind="generic")
+    secret_name = secret.name
+    req = CreateEnvironmentRequest(
+        name=f"trimmed-create-ref-{uuid.uuid4()}",
+        config=EnvironmentConfig(secret_refs=[f"  {secret_name}  "]),
+    )
+
+    response = await create_environment(req, db_session, _auth_ctx())
+
+    db_session.expire_all()
+    stored = (
+        await db_session.execute(select(JoySafeterEnvironment).where(JoySafeterEnvironment.id == response.id))
+    ).scalar_one()
+    assert response.config.secret_refs == [secret_name]
+    assert stored.config["secret_refs"] == [secret_name]
+
+
+@pytest.mark.asyncio
+async def test_update_environment_persists_trimmed_direct_secret_refs(db_session):
+    secret = await _project_secret(db_session, kind="generic")
+    secret_name = secret.name
+    env = JoySafeterEnvironment(
+        name=f"trimmed-update-ref-{uuid.uuid4()}",
+        description="",
+        config=EnvironmentConfig().model_dump(),
+    )
+    db_session.add(env)
+    await db_session.commit()
+    await db_session.refresh(env)
+    env_id = env.id
+    req = UpdateEnvironmentRequest(
+        config=EnvironmentConfig(secret_refs=[f"\t{secret_name}\n"]),
+    )
+
+    response = await update_environment(req, env_id, db_session, _auth_ctx())
+
+    db_session.expire_all()
+    stored = (
+        await db_session.execute(select(JoySafeterEnvironment).where(JoySafeterEnvironment.id == env_id))
+    ).scalar_one()
+    assert response.config.secret_refs == [secret_name]
+    assert stored.config["secret_refs"] == [secret_name]
+
+
+@pytest.mark.asyncio
 async def test_create_environment_with_packages_builds_image_via_rust_runtime(db_session, monkeypatch):
     redis = _FakeRuntimeRedis(image_tag="joysafeter/env-runtime:v1")
     monkeypatch.setattr(

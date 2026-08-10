@@ -359,6 +359,16 @@ def extract_environment_secret_references(
     return references
 
 
+def _normalize_request_secret_refs(config: EnvironmentConfig) -> EnvironmentConfig:
+    normalized_refs: list[str] = []
+    for value in config.secret_refs:
+        name = value.strip()
+        if not name:
+            raise ValueError("secret_refs entries must not be blank")
+        normalized_refs.append(name)
+    return config.model_copy(update={"secret_refs": normalized_refs})
+
+
 class CreateEnvironmentRequest(BaseModel):
     name: str
     description: str = ""
@@ -369,6 +379,11 @@ class CreateEnvironmentRequest(BaseModel):
     @classmethod
     def validate_name(cls, value: str) -> str:
         return _validate_environment_name(value)
+
+    @field_validator("config")
+    @classmethod
+    def normalize_secret_refs(cls, value: EnvironmentConfig) -> EnvironmentConfig:
+        return _normalize_request_secret_refs(value)
 
 
 class UpdateEnvironmentRequest(BaseModel):
@@ -381,6 +396,11 @@ class UpdateEnvironmentRequest(BaseModel):
     @classmethod
     def validate_name(cls, value: Optional[str]) -> Optional[str]:
         return None if value is None else _validate_environment_name(value)
+
+    @field_validator("config")
+    @classmethod
+    def normalize_secret_refs(cls, value: Optional[EnvironmentConfig]) -> Optional[EnvironmentConfig]:
+        return None if value is None else _normalize_request_secret_refs(value)
 
 
 class EnvironmentResponse(BaseModel):

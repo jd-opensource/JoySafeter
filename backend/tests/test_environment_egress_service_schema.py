@@ -2,8 +2,10 @@ import pytest
 from pydantic import ValidationError
 
 from app.joysafeter_domain.schemas.joysafeter_environment import (
+    CreateEnvironmentRequest,
     EnvironmentConfig,
     EnvironmentSecretReference,
+    UpdateEnvironmentRequest,
     extract_environment_secret_references,
 )
 
@@ -138,3 +140,15 @@ def test_extract_environment_secret_references_tolerates_legacy_malformed_config
         EnvironmentSecretReference("direct", "secret_refs"),
         EnvironmentSecretReference("egress", "egress_services"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("request_model", "request_data"),
+    [
+        (CreateEnvironmentRequest, {"name": "blank-create-ref"}),
+        (UpdateEnvironmentRequest, {}),
+    ],
+)
+def test_environment_requests_reject_blank_direct_secret_refs(request_model, request_data):
+    with pytest.raises(ValidationError, match="secret_refs entries must not be blank"):
+        request_model(**request_data, config={"secret_refs": ["   "]})
