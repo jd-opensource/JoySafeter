@@ -258,12 +258,13 @@ class VaultService:
                 data={"credential_type": CredentialType.STATIC_BEARER.value},
                 user_action="fix_input",
             )
-        normalized_name = (name or "").strip() or mcp_server_url
+        normalized_server_url = mcp_server_url.strip()
+        normalized_name = (name or "").strip() or normalized_server_url or "MCP Credential"
         cred = JoySafeterVaultCredential(
             vault_id=vault_id,
             name=normalized_name,
             credential_type=normalized_type,
-            mcp_server_url=mcp_server_url,
+            mcp_server_url=normalized_server_url,
             token_value=self._encrypt_token_value(normalized_token),
             oauth_config=None,
         )

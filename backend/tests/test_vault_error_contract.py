@@ -369,14 +369,39 @@ async def test_create_credential_api_normalizes_optional_name_and_persists_it(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("name", "expected_name"),
+    ("name", "mcp_server_url", "expected_name", "expected_url"),
     [
-        pytest.param(None, "https://service-name.example.com/mcp", id="missing"),
-        pytest.param(" \t ", "https://service-name.example.com/mcp", id="blank"),
-        pytest.param("  Service MCP  ", "Service MCP", id="explicit"),
+        pytest.param(
+            None,
+            "  https://service-name.example.com/mcp  ",
+            "https://service-name.example.com/mcp",
+            "https://service-name.example.com/mcp",
+            id="missing",
+        ),
+        pytest.param(
+            " \t ",
+            "https://service-name.example.com/mcp",
+            "https://service-name.example.com/mcp",
+            "https://service-name.example.com/mcp",
+            id="blank",
+        ),
+        pytest.param(
+            "  Service MCP  ",
+            "https://service-name.example.com/mcp",
+            "Service MCP",
+            "https://service-name.example.com/mcp",
+            id="explicit",
+        ),
+        pytest.param(None, "   ", "MCP Credential", "", id="blank-url-fallback"),
     ],
 )
-async def test_create_credential_service_normalizes_optional_name(db_session, name, expected_name):
+async def test_create_credential_service_normalizes_optional_name(
+    db_session,
+    name,
+    mcp_server_url,
+    expected_name,
+    expected_url,
+):
     vault = JoySafeterVault(name=f"vault-{uuid.uuid4()}", description="")
     db_session.add(vault)
     await db_session.commit()
@@ -386,12 +411,13 @@ async def test_create_credential_service_normalizes_optional_name(db_session, na
         vault_id=vault.id,
         name=name,
         credential_type="static_bearer",
-        mcp_server_url="https://service-name.example.com/mcp",
+        mcp_server_url=mcp_server_url,
         token_value="token",
     )
 
     assert created is not None
     assert created.name == expected_name
+    assert created.mcp_server_url == expected_url
 
 
 @pytest.mark.asyncio
