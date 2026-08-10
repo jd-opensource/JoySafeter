@@ -3,13 +3,19 @@ import { JSDOM } from 'jsdom'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+const { localeState } = vi.hoisted(() => ({
+  localeState: { current: 'en' as 'en' | 'zh' },
+}))
+
 vi.mock('@/lib/i18n', async () => {
+  const { default: en } = await import('@/lib/i18n/locales/en')
   const { default: zh } = await import('@/lib/i18n/locales/zh')
+  const catalogs = { en: en.translation, zh: zh.translation }
   const resolve = (key: string) =>
     key.split('.').reduce<unknown>((value, segment) => {
       if (typeof value !== 'object' || value === null) return undefined
       return (value as Record<string, unknown>)[segment]
-    }, zh.translation)
+    }, catalogs[localeState.current])
   return {
     useTranslation: () => ({
       t: (key: string) => {
@@ -61,7 +67,24 @@ import { EgressServicesEditor, emptyEgressService } from './environments-egress-
 describe('EgressServicesEditor terminology', () => {
   afterEach(cleanup)
 
-  it('renders approved Chinese Service Credential terminology', () => {
+  it.each([
+    {
+      locale: 'en' as const,
+      baseUrlHint:
+        'The real third-party endpoint (with https). In your skill use http:// for the same address; the platform authenticates the request at the gateway using the selected Service Credential, then re-originates to https.',
+      section: 'Service Credential',
+      skillHint:
+        'Use this address in your skill; authentication derived from the selected Service Credential is applied automatically.',
+    },
+    {
+      locale: 'zh' as const,
+      baseUrlHint:
+        '填写第三方接口的真实地址（含 https）。skill 内改用 http 访问同一地址；平台会在网关使用所选服务凭据对请求进行认证，然后回源到 https。',
+      section: '服务凭据',
+      skillHint: '在 skill 中使用此地址访问；平台会自动应用基于所选服务凭据生成的认证信息。',
+    },
+  ])('renders approved $locale Service Credential semantics', ({ locale, baseUrlHint, section, skillHint }) => {
+    localeState.current = locale
     const service = {
       ...emptyEgressService(),
       name: 'crm',
@@ -71,12 +94,8 @@ describe('EgressServicesEditor terminology', () => {
       <EgressServicesEditor services={[service]} setServices={vi.fn()} />,
     )
 
-    expect(
-      getByText(
-        '填写第三方接口的真实地址（含 https）。skill 内改用 http 访问同一地址；平台会在网关使用服务凭据注入认证信息，并回源到 https。',
-      ),
-    ).toBeTruthy()
-    expect(getAllByText('服务凭据')).toHaveLength(2)
-    expect(getByText('在 skill 中使用此地址访问；服务凭据中的认证信息会自动注入。')).toBeTruthy()
+    expect(getByText(baseUrlHint)).toBeTruthy()
+    expect(getAllByText(section)).toHaveLength(2)
+    expect(getByText(skillHint)).toBeTruthy()
   })
 })

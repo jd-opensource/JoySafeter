@@ -939,23 +939,23 @@ const en = {
         packages: 'Packages',
         envVarsLabel: 'Environment Variables',
         envVarsHint:
-          'Non-sensitive environment variables injected into the sandbox. Format: KEY=value, separated by commas or new lines. Do not enter tokens, cookies, API keys, or other sensitive credentials.',
+          'Non-sensitive environment variables injected into the sandbox. Format: KEY=value, separated by commas or new lines. Do not enter tokens, cookies, API keys, or other sensitive values; store them in a Service Credential instead.',
         storageMounts: 'Storage Mounts',
         egressServices: 'Third-party Services',
         egressServicesHint:
-          'Skills call the real service URL directly; credentials are injected automatically and never exposed to the sandbox.',
+          'Skills call the real service URL directly; authentication values derived from the selected Service Credential are applied automatically and never exposed to the sandbox.',
         addEgressService: 'Add Service',
         removeEgressService: 'Remove Service',
         egressName: 'Service name',
         egressBaseUrl: 'Base URL',
         egressBaseUrlHint:
-          'The real third-party endpoint (with https). In your skill use http:// for the same address; the platform injects the credential at the gateway and re-originates to https.',
+          'The real third-party endpoint (with https). In your skill use http:// for the same address; the platform authenticates the request at the gateway using the selected Service Credential, then re-originates to https.',
         egressAllowedPaths: 'Allowed paths',
         egressAllowedPathsHint:
           'One path per line. A trailing / means prefix match (everything under it); otherwise exact match (that endpoint only). Leave empty = allow every endpoint under this address; for high-privilege service credentials, list paths explicitly to prevent unintended access.',
         egressAllowedPathsPlaceholder: '/api/warning/getWarningDetailById\n/api/warning/work/',
         egressSectionBasic: 'Basics',
-        egressSectionCredential: 'Credential',
+        egressSectionCredential: 'Service Credential',
         egressSectionAccess: 'Access control',
         egressSectionPreview: 'Preview',
         egressNoSecretHint: 'No third-party secret yet?',
@@ -988,7 +988,7 @@ const en = {
         egressCookies: 'Cookie header field',
         egressSkillExample: 'Skill uses',
         egressSkillExampleHint:
-          'Use this address in your skill; the credential is injected automatically.',
+          'Use this address in your skill; authentication derived from the selected Service Credential is applied automatically.',
         egressInjectExample: 'Injected',
         validation: {
           required: 'This field is required',

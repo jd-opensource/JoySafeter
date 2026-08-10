@@ -3,9 +3,7 @@ import path from 'node:path'
 
 import ts from 'typescript'
 
-import { alertDetailKey, suggestionMessageKey } from '@/lib/managed/analytics/health-presenter'
 import { CRON_PRESETS } from '@/lib/managed/cron'
-import { statusLabelKey } from '@/lib/managed/status-tone'
 
 type CatalogRoot = Record<string, unknown>
 
@@ -65,33 +63,7 @@ const skillEligibilityLeaves = [
   ].map((slug) => `managed.skills.eligibility.action.${slug}`),
 ]
 
-const statusLeaves = [
-  'active',
-  'running',
-  'idle',
-  'terminated',
-  'archived',
-  'paused',
-  'private',
-  'passed',
-  'warning',
-  'blocked',
-  'failed',
-  'not_scanned',
-  'pending',
-  'scheduling',
-  'rescheduling',
-  'completed',
-  'aborted',
-  'timeout',
-  'cancelled',
-  'error',
-  'auto_disabled',
-]
-  .map(statusLabelKey)
-  .filter((key): key is string => Boolean(key))
-
-const finiteFamilies: Record<FiniteFamilyName, readonly string[]> = {
+const fixedFiniteFamilies = {
   skillEligibility: skillEligibilityLeaves,
   skillSeverity: ['critical', 'high', 'medium', 'low', 'info', 'unknown'].map(
     (slug) => `managed.skills.severityLabel.${slug}`,
@@ -117,24 +89,12 @@ const finiteFamilies: Record<FiniteFamilyName, readonly string[]> = {
     'managed.skills.visibility.public',
   ],
   cronPresets: CRON_PRESETS.map((preset) => preset.labelKey),
-  status: statusLeaves,
-  alerts: [
-    'consecutive_failures',
-    'slow_agent',
-    'token_spike',
-    'high_retries',
-    'zombie_session',
-    '__unknown__',
-  ].map(alertDetailKey),
-  suggestions: [
-    'low_cache_hit',
-    'high_output_ratio',
-    'high_queue_wait',
-    '__unknown__',
-  ].map(suggestionMessageKey),
 }
 
-const aiAuthorScanStatuses = ['passed', 'warning', 'blocked', 'failed', 'scanning', 'timeout']
+const catalogDrivenFamilyPrefixes = {
+  alerts: 'analytics.alerts.detail.',
+  suggestions: 'analytics.tokenSummary.suggestionMessages.',
+} as const
 
 function flattenCatalogLeaves(root: unknown, prefix = ''): string[] {
   if (typeof root !== 'object' || root === null || Array.isArray(root)) {
@@ -184,6 +144,45 @@ function expandTypedTemplate(node: ts.TemplateExpression, checker: ts.TypeChecke
     )
   }
   return values
+}
+
+function collectObjectStringValues(
+  program: ts.Program,
+  sourcePath: string,
+  variableName: string,
+): string[] {
+  const sourceFile = program.getSourceFile(sourcePath)
+  if (!sourceFile) throw new Error(`TypeScript program did not load ${sourcePath}`)
+  const values: string[] = []
+
+  function visit(node: ts.Node) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === variableName &&
+      node.initializer &&
+      ts.isObjectLiteralExpression(node.initializer)
+    ) {
+      for (const property of node.initializer.properties) {
+        if (
+          ts.isPropertyAssignment(property) &&
+          (ts.isStringLiteral(property.initializer) ||
+            ts.isNoSubstitutionTemplateLiteral(property.initializer))
+        ) {
+          values.push(property.initializer.text)
+        }
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+
+  visit(sourceFile)
+  if (values.length === 0) throw new Error(`${variableName} has no string values in ${sourcePath}`)
+  return values
+}
+
+function catalogLeavesUnderPrefix(catalogLeaves: Set<string>, prefix: string): string[] {
+  return [...catalogLeaves].filter((leaf) => leaf.startsWith(prefix))
 }
 
 function isTranslationCall(node: ts.CallExpression): boolean {
@@ -237,18 +236,9 @@ export function buildActiveTranslationInventory(
         ts.isTemplateExpression(node.arguments[0])
       ) {
         const key = node.arguments[0]
-        let candidates: string[]
-        if (
-          path.relative(frontendRoot, file) === 'app/managed/skills/new-ai/page.tsx' &&
-          key.head.text === 'managed.skills.aiAuthor.scan.status.'
-        ) {
-          candidates = aiAuthorScanStatuses.map(
-            (status) => `managed.skills.aiAuthor.scan.status.${status}`,
-          )
-        } else {
-          const typedCandidates = expandTypedTemplate(key, checker)
-          candidates = typedCandidates ?? [...catalogLeaves].filter((leaf) => templatePattern(key).test(leaf))
-        }
+        const typedCandidates = expandTypedTemplate(key, checker)
+        const candidates =
+          typedCandidates ?? [...catalogLeaves].filter((leaf) => templatePattern(key).test(leaf))
         for (const candidate of candidates) {
           if (catalogLeaves.has(candidate)) templateDynamicLeaves.add(candidate)
         }
@@ -259,6 +249,16 @@ export function buildActiveTranslationInventory(
     visit(sourceFile)
   }
 
+  const finiteFamilies: Record<FiniteFamilyName, readonly string[]> = {
+    ...fixedFiniteFamilies,
+    status: collectObjectStringValues(
+      program,
+      path.join(frontendRoot, 'lib/managed/status-tone.ts'),
+      'STATUS_LABEL_KEY',
+    ),
+    alerts: catalogLeavesUnderPrefix(catalogLeaves, catalogDrivenFamilyPrefixes.alerts),
+    suggestions: catalogLeavesUnderPrefix(catalogLeaves, catalogDrivenFamilyPrefixes.suggestions),
+  }
   const familySets = Object.fromEntries(
     Object.entries(finiteFamilies).map(([name, leaves]) => [name, new Set(leaves)]),
   ) as Record<FiniteFamilyName, Set<string>>
