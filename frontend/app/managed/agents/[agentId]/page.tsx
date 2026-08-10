@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from '@/lib/i18n'
-import { Pencil, ChevronRight, Package, Globe, Play, Sparkles, Archive, Trash2 } from 'lucide-react'
+import { Pencil, ChevronRight, Package, Globe, Play, Sparkles, Archive, ArchiveRestore, Trash2 } from 'lucide-react'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
 import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
@@ -38,7 +38,6 @@ import {
   DataTable,
   type Column,
   FilterBar,
-  ActionMenu,
   ConfirmDialog,
   ResourceErrorState,
 } from '@/components/managed/shared'
@@ -133,6 +132,13 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
     if (!currentProjectAllowsWrite()) return false
     const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope.key, agentId])
     return !!currentAgent && currentAgent.id === agent?.id && !currentAgent.archived_at
+  }
+
+  const currentAgentIsWritable = () => {
+    if (!currentOperationScopeIsActive()) return false
+    if (!currentProjectAllowsWrite()) return false
+    const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope.key, agentId])
+    return !!currentAgent && currentAgent.id === agent?.id
   }
 
   const nextAction = () => {
@@ -258,8 +264,42 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
     })
   }
 
+  const handleRestore = () => {
+    if (!currentAgentIsWritable()) return
+    const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope.key, agentId])
+    if (!currentAgent?.archived_at) return
+    actionRunRef.current += 1
+    setConfirmDialog({
+      open: true,
+      title: t('managed.agents.restoreTitle'),
+      description: t('managed.agents.restoreDescription', { name: agent?.name }),
+      confirmLabel: t('common.restore'),
+      destructive: false,
+      onConfirm: async () => {
+        const action = nextAction()
+        if (!action) return
+        const { runId, scope } = action
+        const requestScope = managedRequestScopeRef.current
+        try {
+          await managedPost(
+            apiResourcePath('agents', agentId, 'unarchive'),
+            {},
+            managedRequestOptions(requestScope),
+          )
+          if (!isCurrentAction(runId, scope)) return
+          queryClient.invalidateQueries({ queryKey: ['agent', requestScope.key, agentId] })
+          setConfirmDialog((prev) => ({ ...prev, open: false }))
+        } catch (e) {
+          if (!isCurrentAction(runId, scope)) return
+          setConfirmDialog((prev) => ({ ...prev, open: false }))
+          toastOperationError(t, e, 'common.operationFailed')
+        }
+      },
+    })
+  }
+
   const handleDelete = async () => {
-    if (!currentAgentIsActive()) return
+    if (!currentAgentIsWritable()) return
 
     const action = nextAction()
     if (!action) return
@@ -270,7 +310,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         apiResourcePath('agents', agentId, 'delete_preview'),
         managedRequestOptions(requestScope),
       )
-      if (!isCurrentAction(runId, scope) || !currentAgentIsActive()) return
+      if (!isCurrentAction(runId, scope) || !currentAgentIsWritable()) return
       const desc = t('managed.agents.deleteDescription', {
         name: agent?.name,
         sessions: preview.sessions,
@@ -284,7 +324,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         confirmLabel: t('managed.agents.permanentlyDelete'),
         destructive: true,
         onConfirm: async () => {
-          if (!currentAgentIsActive()) {
+          if (!currentAgentIsWritable()) {
             setConfirmDialog((prev) => ({ ...prev, open: false }))
             return
           }
@@ -359,33 +399,6 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   }
 
   const isArchived = !!agent.archived_at
-  const menuItems =
-    isArchived || projectReadOnly
-      ? []
-      : [
-          {
-            label: t('managed.agents.startSession'),
-            onClick: handleStartSession,
-            icon: <Play className="h-3.5 w-3.5" />,
-          },
-          {
-            label: t('managed.agents.guidedEdit'),
-            onClick: handleGuidedEdit,
-            icon: <Sparkles className="h-3.5 w-3.5" />,
-          },
-          {
-            label: t('common.archive'),
-            onClick: handleArchive,
-            icon: <Archive className="h-3.5 w-3.5" />,
-            separator: true,
-          },
-          {
-            label: t('common.delete'),
-            onClick: handleDelete,
-            icon: <Trash2 className="h-3.5 w-3.5" />,
-            destructive: true,
-          },
-        ]
 
   return (
     <div>
@@ -398,19 +411,66 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         ]}
         action={
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isArchived || projectReadOnly}
-              onClick={() => {
-                if (!currentAgentIsActive()) return
-                router.push(`/managed/agents/${agentId}/edit`)
-              }}
-            >
-              <Pencil className="mr-1.5 h-3.5 w-3.5" />
-              {t('common.edit')}
-            </Button>
-            <ActionMenu items={menuItems} />
+            {isArchived ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={projectReadOnly}
+                  onClick={handleRestore}
+                >
+                  <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
+                  {t('common.restore')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={projectReadOnly}
+                  className="text-destructive hover:text-destructive"
+                  onClick={handleDelete}
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  {t('common.delete')}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="default" size="sm" disabled={projectReadOnly} onClick={handleStartSession}>
+                  <Play className="mr-1.5 h-3.5 w-3.5" />
+                  {t('managed.agents.startSession')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={projectReadOnly}
+                  onClick={() => {
+                    if (!currentAgentIsActive()) return
+                    router.push(`/managed/agents/${agentId}/edit`)
+                  }}
+                >
+                  <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                  {t('common.edit')}
+                </Button>
+                <Button variant="outline" size="sm" disabled={projectReadOnly} onClick={handleGuidedEdit}>
+                  <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                  {t('managed.agents.guidedEdit')}
+                </Button>
+                <Button variant="outline" size="sm" disabled={projectReadOnly} onClick={handleArchive}>
+                  <Archive className="mr-1.5 h-3.5 w-3.5" />
+                  {t('common.archive')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={projectReadOnly}
+                  className="text-destructive hover:text-destructive"
+                  onClick={handleDelete}
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  {t('common.delete')}
+                </Button>
+              </>
+            )}
           </div>
         }
       />
