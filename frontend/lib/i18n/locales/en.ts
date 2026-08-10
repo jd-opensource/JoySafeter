@@ -1013,7 +1013,7 @@ const en = {
         createTitle: 'Create MCP Credential Set',
         createDescription: 'Create a new MCP credential set.',
         sharedWarning:
-          'MCP credential sets are shared across this organization. Credentials added to this set can be used by anyone with Project Access Token access.',
+          'MCP credential sets are shared within the current project. Access and management require appropriate project permissions.',
         learnMore: 'Learn more here',
         learnMoreSuffix: '.',
         namePlaceholder: 'Production MCP Credential Set',

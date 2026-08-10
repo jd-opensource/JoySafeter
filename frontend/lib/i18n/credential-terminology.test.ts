@@ -267,8 +267,8 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   [
     'MCP credential sets',
     'managed.vaults.sharedWarning',
-    'MCP credential sets are shared across this organization. Credentials added to this set can be used by anyone with Project Access Token access.',
-    'MCP 凭据组在当前组织内共享。添加到此凭据组的凭据可供任何拥有项目访问令牌权限的成员使用。',
+    'MCP credential sets are shared within the current project. Access and management require appropriate project permissions.',
+    'MCP 凭据组在当前项目内共享，访问和管理需要相应的项目权限。',
   ],
   [
     'MCP credential sets',
@@ -1131,6 +1131,45 @@ describe('credential domain terminology', () => {
     expect(inventory.finiteFamilyAdditions.suggestions).toBe(4)
     expect(inventory.missingEnglishLeaves).toEqual([])
     expect(inventory.missingChineseLeaves).toEqual([])
+  })
+
+  it('reports presenter runtime keys removed from both catalogs', () => {
+    const englishWithoutRuntimeKeys = structuredClone(en.translation)
+    const chineseWithoutRuntimeKeys = structuredClone(zh.translation)
+    const englishAlertDetails = englishWithoutRuntimeKeys.analytics.alerts.detail as Record<
+      string,
+      unknown
+    >
+    const chineseAlertDetails = chineseWithoutRuntimeKeys.analytics.alerts.detail as Record<
+      string,
+      unknown
+    >
+    const englishSuggestionMessages = englishWithoutRuntimeKeys.analytics.tokenSummary
+      .suggestionMessages as Record<string, unknown>
+    const chineseSuggestionMessages = chineseWithoutRuntimeKeys.analytics.tokenSummary
+      .suggestionMessages as Record<string, unknown>
+    delete englishAlertDetails.slowAgent
+    delete chineseAlertDetails.slowAgent
+    delete englishSuggestionMessages.highQueueWait
+    delete chineseSuggestionMessages.highQueueWait
+
+    const inventory = buildActiveTranslationInventory(
+      englishWithoutRuntimeKeys,
+      chineseWithoutRuntimeKeys,
+    )
+
+    expect(inventory.missingEnglishLeaves).toEqual(
+      expect.arrayContaining([
+        'analytics.alerts.detail.slowAgent',
+        'analytics.tokenSummary.suggestionMessages.highQueueWait',
+      ]),
+    )
+    expect(inventory.missingChineseLeaves).toEqual(
+      expect.arrayContaining([
+        'analytics.alerts.detail.slowAgent',
+        'analytics.tokenSummary.suggestionMessages.highQueueWait',
+      ]),
+    )
   })
 
   it('keeps all active catalog values free of legacy credential vocabulary', () => {

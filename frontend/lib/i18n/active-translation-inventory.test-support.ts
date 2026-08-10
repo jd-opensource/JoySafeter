@@ -3,6 +3,10 @@ import path from 'node:path'
 
 import ts from 'typescript'
 
+import {
+  ALERT_DETAIL_KEYS,
+  SUGGESTION_MESSAGE_KEYS,
+} from '@/lib/managed/analytics/health-presenter'
 import { CRON_PRESETS } from '@/lib/managed/cron'
 
 type CatalogRoot = Record<string, unknown>
@@ -91,11 +95,6 @@ const fixedFiniteFamilies = {
   cronPresets: CRON_PRESETS.map((preset) => preset.labelKey),
 }
 
-const catalogDrivenFamilyPrefixes = {
-  alerts: 'analytics.alerts.detail.',
-  suggestions: 'analytics.tokenSummary.suggestionMessages.',
-} as const
-
 function flattenCatalogLeaves(root: unknown, prefix = ''): string[] {
   if (typeof root !== 'object' || root === null || Array.isArray(root)) {
     return prefix ? [prefix] : []
@@ -181,10 +180,6 @@ function collectObjectStringValues(
   return values
 }
 
-function catalogLeavesUnderPrefix(catalogLeaves: Set<string>, prefix: string): string[] {
-  return [...catalogLeaves].filter((leaf) => leaf.startsWith(prefix))
-}
-
 function isTranslationCall(node: ts.CallExpression): boolean {
   const callee = node.expression
   return (
@@ -256,8 +251,8 @@ export function buildActiveTranslationInventory(
       path.join(frontendRoot, 'lib/managed/status-tone.ts'),
       'STATUS_LABEL_KEY',
     ),
-    alerts: catalogLeavesUnderPrefix(catalogLeaves, catalogDrivenFamilyPrefixes.alerts),
-    suggestions: catalogLeavesUnderPrefix(catalogLeaves, catalogDrivenFamilyPrefixes.suggestions),
+    alerts: ALERT_DETAIL_KEYS,
+    suggestions: SUGGESTION_MESSAGE_KEYS,
   }
   const familySets = Object.fromEntries(
     Object.entries(finiteFamilies).map(([name, leaves]) => [name, new Set(leaves)]),

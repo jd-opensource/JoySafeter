@@ -27,6 +27,7 @@ export function serviceCredentialsQueryKey(scopeKey: string) {
 
 export async function fetchAllServiceCredentials(scope: ManagedRequestScope): Promise<Secret[]> {
   const credentials: Secret[] = []
+  const seenCursors = new Set<string>()
   let afterId: string | undefined
 
   for (;;) {
@@ -34,12 +35,15 @@ export async function fetchAllServiceCredentials(scope: ManagedRequestScope): Pr
       apiCollectionPath('secrets', { limit: PAGE_SIZE, kind: 'generic', after_id: afterId }),
       managedRequestOptions(scope),
     )
+    if (page.has_more) {
+      if (!page.last_id || seenCursors.has(page.last_id)) {
+        throw new Error('Service Credential pagination returned an invalid cursor')
+      }
+      seenCursors.add(page.last_id)
+      afterId = page.last_id
+    }
     credentials.push(...parseSecretListResponse(page.data))
     if (!page.has_more) return credentials
-    if (!page.last_id || page.last_id === afterId) {
-      throw new Error('Service Credential pagination returned an invalid cursor')
-    }
-    afterId = page.last_id
   }
 }
 

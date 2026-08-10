@@ -103,6 +103,19 @@ describe('useServiceCredentials', () => {
     expect(managedGetMock).toHaveBeenCalledTimes(2)
   })
 
+  it('rejects a multi-page cursor cycle before requesting a duplicate page', async () => {
+    managedGetMock
+      .mockResolvedValueOnce({ data: [], has_more: true, last_id: SECRET_ID_A })
+      .mockResolvedValueOnce({ data: [], has_more: true, last_id: SECRET_ID_B })
+      .mockResolvedValueOnce({ data: [], has_more: true, last_id: SECRET_ID_A })
+      .mockResolvedValue({ data: [], has_more: true, last_id: SECRET_ID_A })
+
+    await expect(fetchAllServiceCredentials(scope)).rejects.toThrow(
+      'Service Credential pagination returned an invalid cursor',
+    )
+    expect(managedGetMock).toHaveBeenCalledTimes(3)
+  })
+
   it.each([
     ['organization', { orgId: null, projectId: 'project-a', key: ':project-a' }],
     ['project', { orgId: 'org-a', projectId: null, key: 'org-a:' }],

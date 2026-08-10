@@ -1067,7 +1067,7 @@ const zh = {
         createTitle: '创建 MCP 凭据组',
         createDescription: '创建新的 MCP 凭据组。',
         sharedWarning:
-          'MCP 凭据组在当前组织内共享。添加到此凭据组的凭据可供任何拥有项目访问令牌权限的成员使用。',
+          'MCP 凭据组在当前项目内共享，访问和管理需要相应的项目权限。',
         learnMore: '了解更多',
         learnMoreSuffix: '。',
         namePlaceholder: '生产 MCP 凭据组',
