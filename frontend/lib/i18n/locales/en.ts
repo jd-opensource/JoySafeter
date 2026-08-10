@@ -8,6 +8,7 @@ const en = {
       confirm: 'Confirm',
       delete: 'Delete',
       archive: 'Archive',
+      restore: 'Restore',
       save: 'Save',
       edit: 'Edit',
       saving: 'Saving...',
@@ -172,7 +173,7 @@ const en = {
         envValuePlaceholder: 'Value',
       },
       archiveDescription:
-        'Are you sure you want to archive "{{name}}"? Archived agents cannot create new sessions.',
+        'Archiving "{{name}}" will terminate all its running sessions, pause its cron triggers, and make its configuration read-only. You can restore it later. Continue?',
       deleteDescription:
         'This will permanently delete "{{name}}" and all related data:\n• {{sessions}} session(s)\n• {{tasks}} task(s)\n• {{versions}} version(s)\n\nThis action cannot be undone.',
       editTitle: 'Edit: {{name}}',
@@ -523,7 +524,10 @@ const en = {
         guidedEdit: 'Guided Edit',
         archiveTitle: 'Archive Agent',
         archiveDescription:
-          'Are you sure you want to archive "{{name}}"? Archived agents cannot create new sessions.',
+          'Archiving "{{name}}" will terminate all its running sessions, pause its cron triggers, and make its configuration read-only. You can restore it later. Continue?',
+        restoreTitle: 'Restore Agent',
+        restoreDescription:
+          'Restoring "{{name}}" will make it usable again and recompute the next run time of its cron triggers. Terminated sessions are not restored.',
         deleteDescription:
           'This will permanently delete "{{name}}" and all related data:\n• {{sessions}} session(s)\n• {{tasks}} task(s)\n• {{versions}} version(s)\n\nThis action cannot be undone.',
         tab: {

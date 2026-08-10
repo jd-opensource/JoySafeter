@@ -563,6 +563,30 @@ class JoySafeterTriggerService:
             trigger.next_run_at = await self._next_run_or_pause(trigger)
             self._sync_config(trigger)
 
+    async def resume_after_agent_restore(self, agent_id: AgentId) -> None:
+        """Recompute cron trigger fire slots after an agent is restored from archive.
+
+        The caller owns the transaction and must clear the agent's ``archived_at``
+        before calling this, so ``_next_run_or_pause`` sees the agent as live.
+        Enabled cron triggers resume from the next future instant; disabled ones
+        (and those whose project/environment is still paused/archived) stay paused
+        with no due slot.
+        """
+        result = await self.db.execute(
+            select(JoySafeterTrigger).where(
+                JoySafeterTrigger.agent_id == agent_id,
+                JoySafeterTrigger.type == "cron",
+                JoySafeterTrigger.deleted_at.is_(None),
+            )
+        )
+        for trigger in result.scalars().all():
+            trigger.locked_by = None
+            trigger.locked_at = None
+            trigger.pending_slot_at = None
+            trigger.slot_attempts = 0
+            trigger.next_run_at = await self._next_run_or_pause(trigger)
+            self._sync_config(trigger)
+
     async def get_active_tasks(self, trigger_id: TriggerId) -> Sequence[JoySafeterTask]:
         result = await self.db.execute(
             select(JoySafeterTask).where(

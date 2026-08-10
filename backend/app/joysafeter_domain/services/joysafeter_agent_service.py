@@ -476,6 +476,29 @@ class JoySafeterAgentService:
         await self.db.commit()
         return True, session_ids
 
+    async def restore_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> bool:
+        """Un-archive an agent and rearm its paused cron triggers in one transaction.
+
+        Returns False when the agent does not exist (or is out of the given
+        project scope). Returns True when restored, or when it was already active
+        (idempotent, no side effects). Already-terminated sessions are left as-is.
+        """
+        agent = await self.get_agent(agent_id, project_id=project_id)
+        if not agent:
+            return False
+        if agent.archived_at is None:
+            return True
+
+        from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
+
+        now = utc_now()
+        agent.archived_at = None
+        agent.updated_at = now
+        await self.db.flush()  # make cleared archived_at visible to _next_run_or_pause
+        await JoySafeterTriggerService(self.db).resume_after_agent_restore(agent_id)
+        await self.db.commit()
+        return True
+
     async def list_versions(
         self,
         agent_id: AgentId,
