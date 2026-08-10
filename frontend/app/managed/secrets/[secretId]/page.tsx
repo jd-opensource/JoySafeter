@@ -12,6 +12,7 @@ import {
   PageHeader,
   RelativeTime,
   ResourceErrorState,
+  withEntityRouteGuard,
 } from '@/components/managed/shared'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -32,7 +33,7 @@ import {
 import { parseSecretDetailResponse } from '@/lib/managed/secret-response-parsers'
 import { isSecretValueMaskedKey } from '@/lib/managed/secret-keys'
 import { secretDetailQueryKey } from '@/lib/managed/secret-query-keys'
-import { isEntityId, parseSecretId } from '@/types/entity-id'
+import { parseSecretId } from '@/types/entity-id'
 import type { LlmCredentialField } from '@/types/llm'
 import type { SecretDetail } from '@/types/managed'
 
@@ -47,19 +48,11 @@ function inputType(field: LlmCredentialField, showValues: boolean) {
   return 'text'
 }
 
-export default function SecretDetailPage({ params }: { params: Promise<{ secretId: string }> }) {
-  const { secretId: rawSecretId } = React.use(params)
-  if (!isEntityId(rawSecretId, 'secret')) {
-    return (
-      <ResourceErrorState
-        resource="secret"
-        error={{ status: 404 }}
-        onBack={() => window.history.back()}
-      />
-    )
-  }
-  return <SecretDetailPageInner params={params} />
-}
+export default withEntityRouteGuard(SecretDetailPageInner, {
+  kind: 'secret',
+  paramKey: 'secretId',
+  backTo: '/managed/secrets',
+})
 
 function SecretDetailPageInner({ params }: { params: Promise<{ secretId: string }> }) {
   const { secretId: rawSecretId } = React.use(params)

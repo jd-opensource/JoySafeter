@@ -20,7 +20,7 @@ import {
   type ManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { Vault, VaultCredential } from '@/types/managed'
-import { isEntityId, parseVaultId, type CredentialId, type VaultId } from '@/types/entity-id'
+import { parseVaultId, type CredentialId, type VaultId } from '@/types/entity-id'
 import { Button } from '@/components/ui/button'
 import {
   PageHeader,
@@ -32,6 +32,7 @@ import {
   type Column,
   ConfirmDialog,
   FilterBar,
+  withEntityRouteGuard,
 } from '@/components/managed/shared'
 import { CreateCredentialDialog } from '../components/create-credential-dialog'
 import { useProjectStore } from '@/stores/managed/project-store'
@@ -50,19 +51,11 @@ interface VaultDetailActionVariables {
   requestScope: ManagedRequestScope
 }
 
-export default function VaultDetailPage({ params }: { params: Promise<{ vaultId: string }> }) {
-  const { vaultId: rawVaultId } = React.use(params)
-  if (!isEntityId(rawVaultId, 'vault')) {
-    return (
-      <ResourceErrorState
-        resource="vault"
-        error={{ status: 404 }}
-        onBack={() => window.history.back()}
-      />
-    )
-  }
-  return <VaultDetailPageInner params={params} />
-}
+export default withEntityRouteGuard(VaultDetailPageInner, {
+  kind: 'vault',
+  paramKey: 'vaultId',
+  backTo: '/managed/vaults',
+})
 
 function VaultDetailPageInner({ params }: { params: Promise<{ vaultId: string }> }) {
   const { vaultId: rawVaultId } = React.use(params)

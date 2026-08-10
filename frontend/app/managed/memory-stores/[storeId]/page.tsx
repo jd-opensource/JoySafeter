@@ -35,7 +35,7 @@ import {
   parseMemoryStoreResponse,
   type MemoryRecord,
 } from '@/lib/managed/memory-response-parsers'
-import { isEntityId, parseMemoryStoreId, type MemoryId, type MemoryStoreId } from '@/types/entity-id'
+import { parseMemoryStoreId, type MemoryId, type MemoryStoreId } from '@/types/entity-id'
 import type { MemoryStore } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -60,6 +60,7 @@ import {
   RelativeTime,
   ConfirmDialog,
   ResourceErrorState,
+  withEntityRouteGuard,
 } from '@/components/managed/shared'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
@@ -425,23 +426,11 @@ function ContentPane({
 // Main page
 // ---------------------------------------------------------------------------
 
-export default function MemoryStoreDetailPage({
-  params,
-}: {
-  params: Promise<{ storeId: string }>
-}) {
-  const { storeId: rawId } = React.use(params)
-  if (!isEntityId(rawId, 'memoryStore')) {
-    return (
-      <ResourceErrorState
-        resource="memoryStore"
-        error={{ status: 404 }}
-        onBack={() => window.history.back()}
-      />
-    )
-  }
-  return <MemoryStoreDetailPageInner params={params} />
-}
+export default withEntityRouteGuard(MemoryStoreDetailPageInner, {
+  kind: 'memoryStore',
+  paramKey: 'storeId',
+  backTo: '/managed/memory-stores',
+})
 
 function MemoryStoreDetailPageInner({ params }: { params: Promise<{ storeId: string }> }) {
   const { storeId: rawId } = React.use(params)

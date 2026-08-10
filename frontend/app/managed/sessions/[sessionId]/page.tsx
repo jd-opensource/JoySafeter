@@ -60,7 +60,7 @@ import {
   sortSessionEvents,
 } from '@/lib/managed/session-events'
 import { useSessionStream } from '@/lib/managed/sse'
-import { isEntityId, parseSessionId, tryParseEnvironmentId, type SessionId } from '@/types/entity-id'
+import { parseSessionId, tryParseEnvironmentId, type SessionId } from '@/types/entity-id'
 import { parseEnvironmentResponse } from '@/lib/managed/environment-response-parsers'
 import {
   parseVaultCredentialListResponse,
@@ -96,7 +96,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
-import { StatusBadge, MonoId, ResourceErrorState, PageHeader } from '@/components/managed/shared'
+import { StatusBadge, MonoId, ResourceErrorState, PageHeader, withEntityRouteGuard } from '@/components/managed/shared'
 import { EventList, EventDetail, EventFilter, EventTimeline } from '@/components/managed/session'
 import { RelativeTime } from '@/components/managed/shared'
 import {
@@ -191,19 +191,11 @@ const ENGINE_KIND_LABELS: Record<string, string> = {
   native: 'Native',
 }
 
-export default function SessionDetailPage({ params }: { params: Promise<{ sessionId: string }> }) {
-  const { sessionId: rawSessionId } = React.use(params)
-  if (!isEntityId(rawSessionId, 'session')) {
-    return (
-      <ResourceErrorState
-        resource="session"
-        error={{ status: 404 }}
-        onBack={() => window.history.back()}
-      />
-    )
-  }
-  return <SessionDetailPageInner params={params} />
-}
+export default withEntityRouteGuard(SessionDetailPageInner, {
+  kind: 'session',
+  paramKey: 'sessionId',
+  backTo: '/managed/sessions',
+})
 
 function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId: rawSessionId } = React.use(params)

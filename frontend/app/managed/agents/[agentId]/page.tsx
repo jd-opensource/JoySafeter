@@ -17,7 +17,7 @@ import {
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { VersionDiffView } from '@/components/managed/agent/version-diff-view'
 import type { Agent, AgentTool, McpServer, Session } from '@/types/managed'
-import { isEntityId, parseAgentId, parseSessionId } from '@/types/entity-id'
+import { parseAgentId, parseSessionId } from '@/types/entity-id'
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
 import { parseSessionListResponse } from '@/lib/managed/session-response-parsers'
 import { Button } from '@/components/ui/button'
@@ -40,6 +40,7 @@ import {
   FilterBar,
   ConfirmDialog,
   ResourceErrorState,
+  withEntityRouteGuard,
 } from '@/components/managed/shared'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
@@ -66,19 +67,11 @@ const ENGINE_KIND_LABELS: Record<string, string> = {
   native: 'Native',
 }
 
-export default function AgentDetailPage({ params }: { params: Promise<{ agentId: string }> }) {
-  const { agentId: rawAgentId } = React.use(params)
-  if (!isEntityId(rawAgentId, 'agent')) {
-    return (
-      <ResourceErrorState
-        resource="agent"
-        error={{ status: 404 }}
-        onBack={() => window.history.back()}
-      />
-    )
-  }
-  return <AgentDetailPageInner params={params} />
-}
+export default withEntityRouteGuard(AgentDetailPageInner, {
+  kind: 'agent',
+  paramKey: 'agentId',
+  backTo: '/managed/agents',
+})
 
 function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }> }) {
   const { agentId: rawAgentId } = React.use(params)

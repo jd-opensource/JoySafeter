@@ -23,7 +23,7 @@ import type {
   Secret,
   StorageVolumeCatalogItem,
 } from '@/types/managed'
-import { isEntityId, parseEnvironmentId, parseSecretId, type EnvironmentId } from '@/types/entity-id'
+import { parseEnvironmentId, parseSecretId, type EnvironmentId } from '@/types/entity-id'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -44,6 +44,7 @@ import {
   FormActionBar,
   FormFieldLabel,
   FormSectionCard,
+  withEntityRouteGuard,
 } from '@/components/managed/shared'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
@@ -99,19 +100,11 @@ const mountResourceToForm = (resource: EnvironmentMountResource): MountResourceF
   required: resource.required !== false,
 })
 
-export default function EnvironmentDetailPage({ params }: { params: Promise<{ envId: string }> }) {
-  const { envId: rawId } = React.use(params)
-  if (!isEntityId(rawId, 'environment')) {
-    return (
-      <ResourceErrorState
-        resource="environment"
-        error={{ status: 404 }}
-        onBack={() => window.history.back()}
-      />
-    )
-  }
-  return <EnvironmentDetailPageInner params={params} />
-}
+export default withEntityRouteGuard(EnvironmentDetailPageInner, {
+  kind: 'environment',
+  paramKey: 'envId',
+  backTo: '/managed/environments',
+})
 
 function EnvironmentDetailPageInner({ params }: { params: Promise<{ envId: string }> }) {
   const { envId: rawId } = React.use(params)
