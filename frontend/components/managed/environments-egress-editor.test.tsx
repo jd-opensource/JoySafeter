@@ -3,6 +3,8 @@ import { JSDOM } from 'jsdom'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { Secret } from '@/types/managed'
+
 const { localeState } = vi.hoisted(() => ({
   localeState: { current: 'en' as 'en' | 'zh' },
 }))
@@ -51,7 +53,11 @@ vi.mock('@/components/ui/label', () => ({
 vi.mock('@/components/ui/select', () => ({
   Select: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   SelectContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  SelectItem: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SelectItem: ({ children, value }: { children: ReactNode; value: string }) => (
+    <div role="option" aria-selected="false" data-value={value}>
+      {children}
+    </div>
+  ),
   SelectTrigger: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   SelectValue: () => null,
 }))
@@ -63,6 +69,22 @@ globalThis.navigator = dom.window.navigator
 globalThis.HTMLElement = dom.window.HTMLElement
 
 import { EgressServicesEditor, emptyEgressService } from './environments-egress-editor'
+
+function genericSecret(name: string, id: string): Secret {
+  return {
+    id: id as Secret['id'],
+    name,
+    kind: 'generic',
+    provider: null,
+    protocol: null,
+    model: null,
+    compatible_engine_ids: [],
+    is_default: false,
+    keys: ['TOKEN'],
+    created_at: '2030-01-01T00:00:00Z',
+    updated_at: '2030-01-01T00:00:00Z',
+  }
+}
 
 describe('EgressServicesEditor terminology', () => {
   afterEach(cleanup)
@@ -97,5 +119,35 @@ describe('EgressServicesEditor terminology', () => {
     expect(getByText(baseUrlHint)).toBeTruthy()
     expect(getAllByText(section)).toHaveLength(2)
     expect(getByText(skillHint)).toBeTruthy()
+  })
+
+  it('excludes blank and noncanonical historical names from Egress credential options', () => {
+    localeState.current = 'en'
+    const service = {
+      ...emptyEgressService(),
+      name: 'crm',
+      baseUrl: 'https://crm.example.com/api/',
+    }
+    const { container } = render(
+      <EgressServicesEditor
+        services={[service]}
+        setServices={vi.fn()}
+        secrets={[
+          genericSecret('', 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020'),
+          genericSecret(
+            ' padded-service ',
+            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021',
+          ),
+          genericSecret(
+            'canonical-service',
+            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f022',
+          ),
+        ]}
+      />,
+    )
+
+    expect(container.querySelector('[data-value="canonical-service"]')).toBeTruthy()
+    expect(container.querySelector('[data-value=""]')).toBeNull()
+    expect(container.querySelector('[data-value=" padded-service "]')).toBeNull()
   })
 })

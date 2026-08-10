@@ -149,6 +149,24 @@ class SecretService:
                 next_data[key_str] = value_str
         return next_data
 
+    @staticmethod
+    def _secret_name_conflict(name: str) -> ResourceConflictError:
+        return ResourceConflictError(
+            code="SECRET_NAME_EXISTS",
+            message=f"A secret named '{name}' already exists in this project",
+            data={"name": name},
+            user_action="fix_input",
+        )
+
+    @staticmethod
+    def _is_secret_name_integrity_error(exc: IntegrityError) -> bool:
+        message = str(getattr(exc, "orig", None) or exc).lower()
+        return (
+            "uq_joysafeter_secrets_project_name" in message
+            or "uq_joysafeter_secrets_global_name" in message
+            or ("joysafeter_secrets" in message and "name" in message and "unique" in message)
+        )
+
     async def create_secret(self, req: CreateSecretRequest, project_id: Optional[str] = None) -> JoySafeterSecret:
         if req.kind is SecretKind.LLM:
             provider = req.provider or ""
@@ -190,18 +208,8 @@ class SecretService:
             await self.db.commit()
         except IntegrityError as exc:
             await self.db.rollback()
-            message = str(getattr(exc, "orig", None) or exc).lower()
-            if (
-                "uq_joysafeter_secrets_project_name" in message
-                or "uq_joysafeter_secrets_global_name" in message
-                or ("joysafeter_secrets" in message and "name" in message and "unique" in message)
-            ):
-                raise ResourceConflictError(
-                    code="SECRET_NAME_EXISTS",
-                    message=f"A secret named '{req.name}' already exists in this project",
-                    data={"name": req.name},
-                    user_action="fix_input",
-                ) from exc
+            if self._is_secret_name_integrity_error(exc):
+                raise self._secret_name_conflict(req.name) from exc
             raise
         await self.db.refresh(secret)
         return secret
@@ -349,12 +357,24 @@ class SecretService:
         secret = await self.get_secret(secret_id, project_id=project_id)
         if not secret:
             return None
+        if req.name is not None and req.name != secret.name:
+            existing = await self.get_secret_by_name(req.name, project_id=project_id)
+            if existing is not None and existing.id != secret.id:
+                raise self._secret_name_conflict(req.name)
         next_plaintext = self.merge_update_plaintext(secret.data, req.data)
         if secret.kind == SecretKind.LLM.value:
             validate_credential_data(secret.provider or "", secret.protocol or "", next_plaintext)
+        if req.name is not None:
+            secret.name = req.name
         secret.data = self.encrypt_data_for_storage(next_plaintext)
         secret.updated_at = utc_now()
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            if req.name is not None and self._is_secret_name_integrity_error(exc):
+                raise self._secret_name_conflict(req.name) from exc
+            raise
         await self.db.refresh(secret)
         return secret
 

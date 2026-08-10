@@ -9,6 +9,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useTranslation } from '@/lib/i18n'
+import {
+  filterSelectableSecretResources,
+  isSelectableSecretResourceName,
+} from '@/lib/managed/secret-response-parsers'
 import type { Secret } from '@/types/managed'
 
 interface ServiceCredentialSelectProps {
@@ -29,7 +33,10 @@ export function ServiceCredentialSelect({
   ariaLabel,
 }: ServiceCredentialSelectProps) {
   const { t } = useTranslation()
-  const showUnavailableValue = Boolean(value) && !credentials.some((item) => item.name === value)
+  const selectableCredentials = filterSelectableSecretResources(credentials)
+  const showUnavailableValue =
+    isSelectableSecretResourceName(value) &&
+    !selectableCredentials.some((item) => item.name === value)
 
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled || loading}>
@@ -42,7 +49,7 @@ export function ServiceCredentialSelect({
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
-          {credentials.map((credential) => (
+          {selectableCredentials.map((credential) => (
             <SelectItem key={credential.id} value={credential.name}>
               <span>{credential.name}</span>
               <span className="text-xs text-muted-foreground">

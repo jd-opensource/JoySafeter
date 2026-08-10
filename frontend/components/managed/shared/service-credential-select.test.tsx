@@ -222,4 +222,33 @@ describe('ServiceCredentialSelect', () => {
 
     expect(screen.getByRole('option', { name: /hook-prod/ })).toHaveTextContent('1 fields')
   })
+
+  it('does not render blank or noncanonical historical resource names as selectable values', () => {
+    render(
+      <ServiceCredentialSelect
+        value=" padded-service "
+        onChange={vi.fn()}
+        credentials={[
+          genericSecret('', 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020', ['TOKEN']),
+          genericSecret(
+            ' padded-service ',
+            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021',
+            ['TOKEN'],
+          ),
+          genericSecret(
+            'canonical-service',
+            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f022',
+            ['TOKEN'],
+          ),
+        ]}
+        ariaLabel="Service credential"
+      />,
+    )
+
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    expect(screen.getByRole('option', { name: /canonical-service/ })).toHaveAttribute(
+      'data-value',
+      'canonical-service',
+    )
+  })
 })

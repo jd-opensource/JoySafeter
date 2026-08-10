@@ -39,6 +39,13 @@ def _validate_secret_field_names(data: dict[str, str]) -> dict[str, str]:
     return data
 
 
+def _normalize_secret_name(name: str) -> str:
+    normalized = name.strip()
+    if not normalized:
+        raise ValueError("Secret name must not be blank")
+    return normalized
+
+
 class SecretKind(StrEnum):
     LLM = "llm"
     GENERIC = "generic"
@@ -53,6 +60,11 @@ class CreateSecretRequest(BaseModel):
     protocol: Optional[str] = None
     data: dict[str, str] = Field(default_factory=dict)
     is_default: bool = False
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, v: str) -> str:
+        return _normalize_secret_name(v)
 
     @field_validator("data")
     @classmethod
@@ -75,7 +87,13 @@ class CreateSecretRequest(BaseModel):
 class UpdateSecretRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    name: Optional[str] = None
     data: dict[str, str]
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, v: Optional[str]) -> Optional[str]:
+        return _normalize_secret_name(v) if v is not None else None
 
     @field_validator("data")
     @classmethod

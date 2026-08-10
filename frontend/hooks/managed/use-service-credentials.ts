@@ -10,7 +10,10 @@ import {
   type ManagedRequestScope,
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
-import { parseSecretListResponse } from '@/lib/managed/secret-response-parsers'
+import {
+  filterSelectableSecretResources,
+  parseSecretListResponse,
+} from '@/lib/managed/secret-response-parsers'
 import type { Secret } from '@/types/managed'
 
 interface SecretPage {
@@ -42,7 +45,7 @@ export async function fetchAllServiceCredentials(scope: ManagedRequestScope): Pr
       seenCursors.add(page.last_id)
       afterId = page.last_id
     }
-    credentials.push(...parseSecretListResponse(page.data))
+    credentials.push(...filterSelectableSecretResources(parseSecretListResponse(page.data)))
     if (!page.has_more) return credentials
   }
 }

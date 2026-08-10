@@ -46,3 +46,13 @@ export function parseSecretDetailResponse(response: unknown): SecretDetail {
 export function parseSecretListResponse(response: unknown[]): Secret[] {
   return response.map(parseSecretResponse)
 }
+
+export function isSelectableSecretResourceName(name: string): boolean {
+  return name.length > 0 && name === name.trim()
+}
+
+export function filterSelectableSecretResources<T extends Pick<Secret, 'name'>>(
+  secrets: T[],
+): T[] {
+  return secrets.filter((secret) => isSelectableSecretResourceName(secret.name))
+}

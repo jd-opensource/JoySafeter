@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useTranslation } from '@/lib/i18n'
+import { filterSelectableSecretResources } from '@/lib/managed/secret-response-parsers'
 import type { EnvironmentEgressService, Secret } from '@/types/managed'
 
 // Sentinel value for the "create secret" option in the credential dropdown.
@@ -295,7 +296,9 @@ export function EgressServicesEditor({
     })
   }
 
-  const customSecrets = secrets.filter((secret) => secret.kind === 'generic')
+  const customSecrets = filterSelectableSecretResources(
+    secrets.filter((secret) => secret.kind === 'generic'),
+  )
 
   const changeService = (
     index: number,

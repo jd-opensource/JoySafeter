@@ -94,6 +94,22 @@ describe('useServiceCredentials', () => {
     ])
   })
 
+  it('excludes blank and noncanonical historical names from selector query results', async () => {
+    managedGetMock.mockResolvedValueOnce({
+      data: [
+        genericSecret('', SECRET_ID_A, ['TOKEN']),
+        genericSecret(' padded-service ', SECRET_ID_A, ['TOKEN']),
+        genericSecret('canonical-service', SECRET_ID_B, ['API_KEY']),
+      ],
+      has_more: false,
+      last_id: SECRET_ID_B,
+    })
+
+    await expect(fetchAllServiceCredentials(scope)).resolves.toEqual([
+      expect.objectContaining({ name: 'canonical-service' }),
+    ])
+  })
+
   it('rejects a repeated pagination cursor instead of looping', async () => {
     managedGetMock.mockResolvedValue({ data: [], has_more: true, last_id: SECRET_ID_A })
 

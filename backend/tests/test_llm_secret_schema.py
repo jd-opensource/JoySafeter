@@ -62,6 +62,19 @@ def test_generic_secret_rejects_llm_identity_and_default() -> None:
         CreateSecretRequest(kind="generic", name="invalid-default", data={}, is_default=True)
 
 
+def test_secret_request_names_are_trimmed_and_blank_names_are_rejected() -> None:
+    create_request = CreateSecretRequest(kind="generic", name="  service-token  ", data={})
+    update_request = UpdateSecretRequest(name="  renamed-token  ", data={})
+
+    assert create_request.name == "service-token"
+    assert update_request.name == "renamed-token"
+
+    with pytest.raises(ValidationError, match="Secret name must not be blank"):
+        CreateSecretRequest(kind="generic", name="   ", data={})
+    with pytest.raises(ValidationError, match="Secret name must not be blank"):
+        UpdateSecretRequest(name="\t", data={})
+
+
 def test_secret_identity_is_not_accepted_by_update_request() -> None:
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         UpdateSecretRequest(provider="openai", data={"OPENAI_API_KEY": "secret"})

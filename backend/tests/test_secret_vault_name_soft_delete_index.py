@@ -79,6 +79,47 @@ async def test_create_secret_duplicate_active_name_raises_conflict(db_session):
 
 
 @pytest.mark.asyncio
+async def test_secret_name_conflicts_use_canonical_create_and_update_names(db_session):
+    from app.joysafeter_domain.schemas.joysafeter_secret import CreateSecretRequest, UpdateSecretRequest
+    from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
+    from app.joysafeter_shared.common.app_errors import ResourceConflictError
+
+    await _ensure_project(db_session, "proj-idx")
+    svc = SecretService(db_session)
+    first = await svc.create_secret(
+        CreateSecretRequest(kind="generic", name="canonical", data={"TOKEN": "first"}),
+        project_id="proj-idx",
+    )
+    second = await svc.create_secret(
+        CreateSecretRequest(kind="generic", name="second", data={"TOKEN": "second"}),
+        project_id="proj-idx",
+    )
+    first_id = first.id
+    second_id = second.id
+
+    with pytest.raises(ResourceConflictError) as create_error:
+        await svc.create_secret(
+            CreateSecretRequest(kind="generic", name="  canonical  ", data={"TOKEN": "third"}),
+            project_id="proj-idx",
+        )
+    assert create_error.value.code == "SECRET_NAME_EXISTS"
+    assert create_error.value.data == {"name": "canonical"}
+
+    with pytest.raises(ResourceConflictError) as update_error:
+        await svc.update_secret(
+            second_id,
+            UpdateSecretRequest(name=" canonical ", data={"TOKEN": "second"}),
+            project_id="proj-idx",
+        )
+    assert update_error.value.code == "SECRET_NAME_EXISTS"
+    assert update_error.value.data == {"name": "canonical"}
+
+    db_session.expire_all()
+    assert (await db_session.get(JoySafeterSecret, first_id)).name == "canonical"
+    assert (await db_session.get(JoySafeterSecret, second_id)).name == "second"
+
+
+@pytest.mark.asyncio
 async def test_vault_name_reusable_after_soft_delete_within_project(db_session):
     await _ensure_project(db_session, "proj-idx")
 

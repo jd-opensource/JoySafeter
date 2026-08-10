@@ -214,6 +214,44 @@ async def test_create_secret_rejects_blank_field_name_without_persisting(db_sess
 
 
 @pytest.mark.asyncio
+async def test_create_secret_rejects_blank_resource_name_before_side_effects(
+    db_session,
+    monkeypatch,
+):
+    project_id = f"project-{uuid.uuid4()}"
+    await _ensure_project(db_session, project_id)
+    audit = AsyncMock()
+    refresh = AsyncMock()
+    monkeypatch.setattr(secrets_api, "audit_joysafeter_event", audit)
+    monkeypatch.setattr(secrets_api, "refresh_live_limited_sandbox_network_policies", refresh)
+    app = _app(db_session, _project_auth_ctx(project_id))
+
+    async with _client(app) as client:
+        response = await client.post(
+            "/api/v1/secrets",
+            json={"kind": "generic", "name": "   ", "data": {"TOKEN": "must-not-persist"}},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "REQUEST_VALIDATION_ERROR"
+    assert response.json()["data"]["errors"] == [
+        {
+            "field": "body.name",
+            "message": "Value error, Secret name must not be blank",
+            "type": "value_error",
+        }
+    ]
+    persisted = (
+        await db_session.execute(
+            select(JoySafeterSecret).where(JoySafeterSecret.project_id == project_id)
+        )
+    ).scalars().all()
+    assert persisted == []
+    audit.assert_not_awaited()
+    refresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_update_secret_rejects_blank_field_name_without_mutating(db_session):
     project_id = f"project-{uuid.uuid4()}"
     secret = await _project_secret(db_session, project_id=project_id)
@@ -242,6 +280,112 @@ async def test_update_secret_rejects_blank_field_name_without_mutating(db_sessio
         await db_session.execute(select(JoySafeterSecret).where(JoySafeterSecret.id == secret_id))
     ).scalar_one()
     assert SecretService(db_session).get_secret_data(persisted) == {"TOKEN": "value"}
+
+
+@pytest.mark.asyncio
+async def test_update_secret_rejects_blank_resource_name_before_side_effects(
+    db_session,
+    monkeypatch,
+):
+    project_id = f"project-{uuid.uuid4()}"
+    secret = await _project_secret(db_session, project_id=project_id, name="stable-name")
+    secret_id = secret.id
+    audit = AsyncMock()
+    refresh = AsyncMock()
+    monkeypatch.setattr(secrets_api, "audit_joysafeter_event", audit)
+    monkeypatch.setattr(secrets_api, "refresh_live_limited_sandbox_network_policies", refresh)
+    app = _app(db_session, _project_auth_ctx(project_id))
+
+    async with _client(app) as client:
+        response = await client.put(
+            f"/api/v1/secrets/{secret_id}",
+            json={"name": "\t", "data": {"TOKEN": "must-not-persist"}},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "REQUEST_VALIDATION_ERROR"
+    assert response.json()["data"]["errors"] == [
+        {
+            "field": "body.name",
+            "message": "Value error, Secret name must not be blank",
+            "type": "value_error",
+        }
+    ]
+    persisted = await _assert_secret_intact(db_session, secret_id)
+    assert persisted.name == "stable-name"
+    assert SecretService(db_session).get_secret_data(persisted) == {"TOKEN": "value"}
+    audit.assert_not_awaited()
+    refresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_secret_create_and_update_persist_trimmed_resource_names(db_session, monkeypatch):
+    project_id = f"project-{uuid.uuid4()}"
+    await _ensure_project(db_session, project_id)
+    monkeypatch.setattr(secrets_api, "audit_joysafeter_event", AsyncMock())
+    monkeypatch.setattr(
+        secrets_api,
+        "refresh_live_limited_sandbox_network_policies",
+        AsyncMock(return_value=0),
+    )
+    app = _app(db_session, _project_auth_ctx(project_id))
+
+    async with _client(app) as client:
+        create_response = await client.post(
+            "/api/v1/secrets",
+            json={
+                "kind": "generic",
+                "name": "  canonical-service  ",
+                "data": {"TOKEN": "value"},
+            },
+        )
+        assert create_response.status_code == 201
+        assert create_response.json()["name"] == "canonical-service"
+        secret_id = SecretId.from_public(create_response.json()["id"])
+
+        update_response = await client.put(
+            f"/api/v1/secrets/{secret_id}",
+            json={"name": "  renamed-service  ", "data": {"TOKEN": "next-value"}},
+        )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["name"] == "renamed-service"
+    persisted = await db_session.get(JoySafeterSecret, secret_id)
+    assert persisted is not None
+    assert persisted.name == "renamed-service"
+    assert SecretService(db_session).get_secret_data(persisted) == {"TOKEN": "next-value"}
+
+
+@pytest.mark.asyncio
+async def test_historical_noncanonical_secret_names_remain_listable_and_renamable(db_session):
+    project_id = f"project-{uuid.uuid4()}"
+    historical = await _project_secret(
+        db_session,
+        project_id=project_id,
+        name="  historical-service  ",
+    )
+    auth_ctx = _project_auth_ctx(project_id)
+
+    page = await list_secrets(
+        limit=10,
+        after_id=None,
+        kind=None,
+        name=None,
+        provider=None,
+        protocol=None,
+        compatible_engine=None,
+        db=db_session,
+        auth_ctx=auth_ctx,
+    )
+    updated = await SecretService(db_session).update_secret(
+        historical.id,
+        UpdateSecretRequest(name=" cleaned-service ", data={"TOKEN": "value"}),
+        project_id=project_id,
+    )
+
+    assert [item["name"] for item in page["data"]] == ["  historical-service  "]
+    assert updated is not None
+    assert updated.name == "cleaned-service"
 
 
 @pytest.mark.asyncio

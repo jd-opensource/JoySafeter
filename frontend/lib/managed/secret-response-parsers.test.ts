@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  filterSelectableSecretResources,
   parseSecretDetailResponse,
   parseSecretListResponse,
   parseSecretResponse,
@@ -73,5 +74,24 @@ describe('secret response parsers', () => {
       ' TOKEN ': '********name',
       OPENAI_API_KEY: '********value',
     })
+  })
+
+  it('preserves historical resource names for management while filtering selector inputs', () => {
+    const historicalSecrets = parseSecretListResponse([
+      { ...rawSecret(), name: '' },
+      { ...rawSecret(), name: '   ' },
+      { ...rawSecret(), name: ' padded-name ' },
+      { ...rawSecret(), name: 'canonical-name' },
+    ])
+
+    expect(historicalSecrets.map((secret) => secret.name)).toEqual([
+      '',
+      '   ',
+      ' padded-name ',
+      'canonical-name',
+    ])
+    expect(filterSelectableSecretResources(historicalSecrets).map((secret) => secret.name)).toEqual([
+      'canonical-name',
+    ])
   })
 })
