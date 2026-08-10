@@ -1487,7 +1487,12 @@ export default function QuickstartPage() {
 
   const configText = useMemo(() => {
     if (!configObj) {
-      const label = currentStep === 4 ? 'Environment' : currentStep === 5 ? 'Vault' : 'Agent'
+      const label =
+        currentStep === 4
+          ? t('managed.quickstart.resourceKindEnvironment')
+          : currentStep === 5
+            ? t('managed.quickstart.resourceKindMcpCredentialSet')
+            : t('managed.quickstart.resourceKindAgent')
       return editorTab === 'yaml'
         ? `# ${label} configuration will appear here\n# as the AI generates it...`
         : `{\n  // ${label} configuration will appear here\n  // as the AI generates it...\n}`
@@ -1498,7 +1503,7 @@ export default function QuickstartPage() {
     } catch {
       return JSON.stringify(configObj, null, 2)
     }
-  }, [configObj, editorTab, currentStep])
+  }, [configObj, editorTab, currentStep, t])
 
   const codeLines = configText.split('\n')
 
