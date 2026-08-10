@@ -128,3 +128,59 @@ The backend error-catalog guard now excludes `TRIGGER_SECRET_VALUE_BLANK` from i
 4. `test_initial_schema_remains_the_only_alembic_head` is stale against the branch's existing `20260807_000002` Alembic head. This wave adds no migration and does not change that existing head.
 
 No reviewed security-boundary finding remains unresolved.
+
+## Fix Round: Secret Rename Lifecycle
+
+### Root cause
+
+Secret names are persisted wire references in `JoySafeterAgent.secret_ref`, `JoySafeterTrigger.secret_ref`, Environment `secret_refs`, and Environment Egress `credential_ref`. Name canonicalization added an update path that changed only `JoySafeterSecret.name`; it did not check those references or rewrite them. A successful rename therefore left dependents pointing at the old name and caused exact-name resolution failures, including Webhook credential resolution.
+
+The update route also applied the active-task dependency gate to every Secret update. That missed inactive persisted references while unnecessarily blocking data-only credential rotation for active dependents.
+
+### Policy and implementation
+
+- A true rename is `req.name is not None and req.name != secret.name` after request-model normalization. Padded input for an already canonical current name is therefore data-only, while cleanup of a historical padded current name remains a true rename.
+- `SecretService.secret_reference_dependencies` is the shared project-scoped inventory for live Agent, Environment direct, Environment Egress, and Trigger references.
+- Environment direct and Egress references use the existing `extract_environment_secret_references` parser, so rename and delete cannot drift on historical config handling.
+- `SecretService.update_secret` blocks a true rename before plaintext merge, encryption, mutation, or commit when any dependency category is present.
+- Non-force deletion now consumes the same inventory while preserving the existing Agent, Environment, and Trigger error codes, messages, ordering semantics, and active-task protection.
+- Data-only updates and padded same-canonical-name updates remain allowed with dependencies, including active tasks.
+- Unreferenced historical padded names remain renamable for cleanup.
+- No JSON/reference cascade, migration, alias layer, route change, or wire-field rename was introduced.
+
+### Error contract
+
+Referenced renames return HTTP `409` with:
+
+- Code: `SECRET_RENAME_REFERENCED`
+- Message: `Secret name cannot be changed while the current name is referenced`
+- Data: `secret_id`, current `secret_name`, and ordered `dependency_categories`
+- Categories: `agent`, `environment_direct`, `environment_egress`, `trigger`
+- User action: `fix_input`
+
+The error contains no Secret field names or values. Rejected requests leave both name and encrypted data unchanged and do not run audit or live-network refresh side effects. The new code is registered in the shared catalog and is absent from the catalog guard's baseline missing set.
+
+### TDD RED/GREEN
+
+- RED focused selection: `1 passed`, `8 failed`. The shared inventory method was absent, all four referenced renames returned `200`, and active Agent/Egress dependencies rejected data-only and same-canonical-name updates.
+- GREEN focused selection: `9 passed`, `28 deselected`, with the existing `9` SQLAlchemy dependency-cycle warnings.
+- The mutation each regression catches is explicit: removing the service rename branch permits the four `200` responses; restoring the unconditional active-task update gate breaks all three allowed-update cases; dropping an Environment source omits its category from the shared inventory.
+
+### Verification
+
+- Targeted lifecycle, Secret-name, Trigger update, Trigger HTTP, and Webhook route selection: `88 passed`, `67` existing SQLAlchemy warnings.
+- Complete lifecycle file, including unchanged delete behavior: `37 passed`, `37` existing SQLAlchemy warnings.
+- Exact 16-file Task 8 backend suite: `220 passed`, `161` existing SQLAlchemy warnings.
+- Expanded frontend suite: `22` files and `520` tests passed.
+- Targeted Ruff lint and format checks: `4` touched backend files passed.
+- Frontend type-check: exit `0`, no diagnostics.
+- Frontend lint: exit `0`, `0` errors and the unchanged `692`-warning baseline; `609` warnings remain potentially fixable.
+- Fix-range whitespace, migration, route-decorator, plaintext, frontend, and OAuth boundary guards passed before commit.
+- The error-catalog guard remains at its existing branch baseline: `4 passed`, `1 failed` for the same `11` pre-existing missing codes; `SECRET_RENAME_REFERENCED` is registered.
+
+### Commit and concerns
+
+- `0359560c3682b35800f8d2769fd95609dfa98efa` — `fix(secrets): block renames with live references`
+- This Fix Round report is committed separately and identified in the handoff.
+- Existing concerns are unchanged: SQLAlchemy dependency-cycle warnings, the `692` frontend lint warnings, the `11` pre-existing catalog omissions, and the stale Alembic-head assertion documented above.
+- No new migration, plaintext exposure, OAuth behavior, public route/API/type rename, or unresolved Secret rename lifecycle issue remains.
