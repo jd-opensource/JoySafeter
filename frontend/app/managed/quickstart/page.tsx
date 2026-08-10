@@ -23,12 +23,12 @@ import {
   Square,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { QuickstartLlmStep } from './components/quickstart-llm-step'
 import {
   QuickstartCompletionDescription,
   QuickstartCompletionTitle,
   type QuickstartCompletionStep,
 } from './components/quickstart-completion-copy'
+import { QuickstartLlmStep } from './components/quickstart-llm-step'
 import {
   Select,
   SelectContent,
