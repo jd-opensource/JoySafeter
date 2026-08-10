@@ -352,3 +352,86 @@ bun run test -- \
 3. Broad bans on `凭据`, API key, token, Bearer, Cookie, or Secret would reject legitimate field, protocol, and internal diagnostic language, so both active-value and hard-coded-source guards remain semantically targeted.
 
 No finding from this review round remains open. No push, amend, or main-checkout modification was performed.
+
+## Fix Round — Semantic Credential Copy And Catalog-Derived Dynamics
+
+### Semantic Dispositions
+
+1. `managed.environments.envVarsHint` now identifies tokens, cookies, API keys, and similar material as sensitive values, then directs users to store those values in a Service Credential. It no longer misclassifies the values themselves as Credential Fields. Both Chinese production fallbacks remain synchronized with the catalog.
+2. `managed.environments.egressServicesHint` now explains that Skills call the real URL while authentication values derived from the selected Service Credential are applied automatically and never exposed to the sandbox. It no longer says that the credential resource is injected.
+3. `managed.environments.egressBaseUrlHint` now explains that the platform authenticates the request at the gateway using the selected Service Credential before re-originating to HTTPS. It no longer says that the platform injects the credential.
+4. `managed.environments.egressSectionCredential` now uses the exact section noun `Service Credential` / `服务凭据` in both locales.
+5. `managed.environments.egressSkillExampleHint` now explains that authentication derived from the selected Service Credential is applied automatically. It no longer says that the credential resource itself is injected.
+
+The exact bilingual contract pins all five values, and the focused Environment egress editor test renders the English and Chinese Base URL guidance, exact section noun, and Skill preview guidance. Provider API key, token, Cookie, Bearer, Credential Field, and internal Secret language remains unchanged where it describes a real field, value, protocol, or diagnostic concept.
+
+### Inventory Root Cause And Correction
+
+The repository-backed inventory had a special-case `aiAuthorScanStatuses` list for the dynamic call `managed.skills.aiAuthor.scan.status.${result.status}`. That list contained six statuses but omitted the active catalog leaf `not_scanned`, even though the backend scan summary defaults to `not_scanned` and can return it to the UI. The manual exception therefore undercounted an open-ended dynamic family.
+
+- Template translation calls now use their typed values when finite; otherwise the inventory matches every bilingual catalog leaf against the template's static segments. The AI Skill Author status family therefore expands from the catalog prefix and automatically includes `managed.skills.aiAuthor.scan.status.not_scanned`.
+- Alert details now derive from every catalog leaf below `analytics.alerts.detail.` instead of duplicating backend alert slugs.
+- Suggestion messages now derive from every catalog leaf below `analytics.tokenSummary.suggestionMessages.` instead of duplicating backend suggestion slugs.
+- Status labels do not share a safe catalog prefix because the production map intentionally spans `common.*`, `managed.sessions.*`, and `managed.triggers.*`. The audit therefore derives that bounded family directly from the string values in the production `STATUS_LABEL_KEY` object instead of maintaining a second raw-status list.
+
+The recomputed repository-state buckets are:
+
+- `157` production TS/TSX files under `frontend/app`, `frontend/components`, and `frontend/hooks`, with tests, specs, stories, and generated paths excluded.
+- `1,321` unique direct literal leaves.
+- `189` template candidates, of which `5` overlap the direct set, producing `184` template additions.
+- `79` finite-family additions: `26` skill eligibility, `6` skill severity, `5` Quickstart input, `5` skill lifecycle/visibility, `8` cron presets, `19` status, `6` alerts, and `4` suggestions.
+- `1,321 + 184 + 79 = 1,584` unique active leaves, equivalently `1,321` direct plus `263` dynamic leaves.
+
+Both locale catalogs contain every resolved leaf. The active credential-value scan evaluates all `1,584` English and Chinese leaves and reports zero active legacy vocabulary violations. No additional active credential-domain value was exposed by the corrected inventory.
+
+### RED And GREEN Evidence
+
+The pre-fix command was:
+
+```bash
+cd frontend
+bun run test -- \
+  lib/i18n/credential-terminology.test.ts \
+  components/managed/environments-egress-editor.test.tsx
+```
+
+- RED exit status: `1`; `13 failed, 376 passed` across two files.
+- Failures covered both rendering locales, all five incorrect English expectations, the four Chinese values that still conflated values/resources/application, the incomplete `1,583` inventory, and the production-source guard for both stale `敏感凭据字段` fallbacks.
+- The inventory received `1,321` direct plus `262` dynamic leaves instead of `1,321 + 263`, proving that `not_scanned` was absent.
+- There were no collection, syntax, fixture, or environment errors.
+
+The post-fix targeted command was:
+
+```bash
+cd frontend
+bun run test -- \
+  lib/i18n/credential-terminology.test.ts \
+  components/managed/environments-egress-editor.test.tsx \
+  lib/managed/environment-response-parsers.test.ts
+```
+
+- GREEN exit status: `0`; `3/3` files and `393/393` tests passed.
+- The contract explicitly requires `managed.skills.aiAuthor.scan.status.not_scanned`, the `184` template additions, the `79` finite additions, and the `1,584` total.
+
+### Full Verification And Boundaries
+
+- Exact Task 8 frontend suite: `10/10` files and `456/456` tests passed with no warnings or errors.
+- `bun run type-check`: exit `0`; `tsc --noEmit` produced no diagnostics.
+- `bun run lint`: exit `0`; the unchanged baseline remains `692 warnings, 0 errors`, with `609` warnings potentially fixable.
+- Exact Task 8 backend suite: `194 passed, 0 failed` in `34.87s`; the existing SQLAlchemy FK-cycle warning occurred `135` times at `backend/tests/conftest.py:148`.
+- `git diff --check` and the staged diff check both exited `0`.
+- Compatibility checks found no Alembic change from base `d42aaf2cc8fb5f3841aa33b92b7fe204c9a6bb3a`, no selector-path `secret_data`, no OAuth branch in MCP Credential Set creation, no backend/API/type file change, and no file or route rename.
+- Production changes are limited to five bilingual catalog values and the two synchronized Chinese fallbacks. No route, query key, API field, persisted value, existing i18n key, or TypeScript/domain type changed.
+
+### Commits
+
+- `37a9732bd886bd4163a95ce92768702a64bee342` — `fix(frontend): correct credential semantics and inventory`
+- This appended fix-round report is committed separately; its SHA is recorded in the final handoff because a commit cannot contain its own SHA without amendment.
+
+### Fix-Round Concerns
+
+1. Frontend lint and backend SQLAlchemy warnings remain unchanged baseline warnings, not errors.
+2. Open-ended template, alert, and suggestion families now grow with their safe catalog prefixes; the mixed-prefix status family remains source-derived from its production map.
+3. The hard-coded source guard remains semantically narrow so legitimate provider API key, token, Cookie, Bearer, Credential Field, and internal Secret terms are not rejected.
+
+No finding from this review round remains open. No push, amend, or main-checkout modification was performed.
