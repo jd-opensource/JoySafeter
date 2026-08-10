@@ -150,8 +150,9 @@ describe('AgentListPage', () => {
   it('shows the engine as secondary model information instead of a separate column', () => {
     renderPage()
 
+    expect(screen.getByText('managed.table.model / managed.agents.engineKind')).toBeTruthy()
     expect(screen.getByText('GPT-4.1')).toBeTruthy()
-    expect(screen.getByText('Pi')).toBeTruthy()
+    expect(screen.getByText('managed.agents.engineKind: Pi')).toBeTruthy()
     expect(screen.queryByText('managed.table.engineKind')).toBeNull()
   })
 

@@ -19,6 +19,10 @@ export interface Column<T> {
   header: string
   render: (row: T) => ReactNode
   className?: string
+  headerClassName?: string
+  cellClassName?: string
+  align?: 'left' | 'center' | 'right'
+  truncate?: boolean
   width?: string
 }
 
@@ -57,6 +61,17 @@ function widthToSize(w?: string): number | undefined {
   if (w.endsWith('%')) return Math.round((n / 100) * 1200) // assume ~1200px viewport
   if (w.endsWith('px')) return Math.round(n)
   return Math.round(n)
+}
+
+function alignClassName(align?: 'left' | 'center' | 'right') {
+  switch (align) {
+    case 'center':
+      return 'text-center'
+    case 'right':
+      return 'text-right'
+    default:
+      return 'text-left'
+  }
 }
 
 export type DataTableSelectionKey = string | number
@@ -149,7 +164,14 @@ export function DataTable<T>({
         size: size ?? 150,
         minSize: 50,
         enableResizing: true,
-        meta: { className: col.className, cssWidth: col.width },
+        meta: {
+          className: col.className,
+          headerClassName: col.headerClassName,
+          cellClassName: col.cellClassName,
+          align: col.align,
+          truncate: col.truncate ?? true,
+          cssWidth: col.width,
+        },
       })
     }
 
@@ -162,6 +184,7 @@ export function DataTable<T>({
         maxSize: 60,
         enableResizing: false,
         header: t('managed.table.actions'),
+        meta: { align: 'center', truncate: false },
         cell: ({ row }) => (
           <div onClick={(e) => e.stopPropagation()}>
             <ActionMenu items={actionMenu(row.original)} />
@@ -214,14 +237,18 @@ export function DataTable<T>({
                 <tr key={headerGroup.id} className="border-b border-border bg-muted/30">
                   {headerGroup.headers.map((header) => {
                     const meta = header.column.columnDef.meta as
-                      | { className?: string; cssWidth?: string }
+                      | {
+                          className?: string
+                          headerClassName?: string
+                          align?: 'left' | 'center' | 'right'
+                          cssWidth?: string
+                        }
                       | undefined
+                    const headerAlignClassName = alignClassName(meta?.align)
                     return (
                       <th
                         key={header.id}
-                        className={`group/th relative px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground ${
-                          meta?.className || ''
-                        }`}
+                        className={`group/th relative px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground ${headerAlignClassName} ${meta?.className || ''} ${meta?.headerClassName || ''}`}
                         style={{ width: header.getSize() }}
                       >
                         {header.isPlaceholder
@@ -270,11 +297,21 @@ export function DataTable<T>({
                     }`}
                   >
                     {row.getVisibleCells().map((cell) => {
-                      const meta = cell.column.columnDef.meta as { className?: string } | undefined
+                      const meta = cell.column.columnDef.meta as
+                        | {
+                            className?: string
+                            cellClassName?: string
+                            align?: 'left' | 'center' | 'right'
+                            truncate?: boolean
+                          }
+                        | undefined
+                      const cellAlignClassName = alignClassName(meta?.align)
+                      const truncateClassName =
+                        meta?.truncate === false ? '' : 'overflow-hidden truncate'
                       return (
                         <td
                           key={cell.id}
-                          className={`overflow-hidden truncate px-4 py-3 text-sm ${meta?.className || ''}`}
+                          className={`${truncateClassName} px-4 py-3 text-sm ${cellAlignClassName} ${meta?.className || ''} ${meta?.cellClassName || ''}`}
                           style={{ width: cell.column.getSize() }}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}

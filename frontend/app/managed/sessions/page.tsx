@@ -98,6 +98,7 @@ export default function SessionListPage() {
         s.status,
         s.agent?.name,
         s.agent?.id,
+        s.agent?.model?.id,
         s.agent?.engine_kind,
         getEngineKindLabel(s.agent?.engine_kind),
       ]),
@@ -139,18 +140,16 @@ export default function SessionListPage() {
       render: (s) => <StatusBadge status={s.status} />,
     },
     {
-      key: 'engine_kind',
-      header: t('managed.table.engineKind'),
-      render: (s) => (
-        <span className="whitespace-nowrap text-muted-foreground">
-          {getEngineKindLabel(s.agent?.engine_kind)}
-        </span>
-      ),
-    },
-    {
       key: 'agent',
-      header: t('managed.table.agent'),
-      render: (s) => <span className="text-xs text-muted-foreground">{s.agent?.name || '-'}</span>,
+      header: `${t('managed.table.agent')} / ${t('managed.agents.engineKind')}`,
+      render: (s) => (
+        <div className="min-w-0">
+          <div className="truncate text-foreground">{s.agent?.name || '-'}</div>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            {t('managed.agents.engineKind')}: {getEngineKindLabel(s.agent?.engine_kind)}
+          </div>
+        </div>
+      ),
     },
     {
       key: 'created_at',

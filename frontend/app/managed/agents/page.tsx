@@ -289,12 +289,12 @@ export default function AgentListPage() {
     },
     {
       key: 'model',
-      header: t('managed.table.model'),
+      header: `${t('managed.table.model')} / ${t('managed.agents.engineKind')}`,
       render: (a) => (
         <div className="min-w-0">
           <div className="truncate text-foreground">{a.model?.id || '-'}</div>
           <div className="mt-0.5 truncate text-xs text-muted-foreground">
-            {getEngineKindLabel(a.engine_kind)}
+            {t('managed.agents.engineKind')}: {getEngineKindLabel(a.engine_kind)}
           </div>
         </div>
       ),
@@ -326,7 +326,9 @@ export default function AgentListPage() {
       key: 'actions',
       header: t('managed.table.actions'),
       width: '270px',
-      className: 'overflow-visible',
+      align: 'right',
+      truncate: false,
+      cellClassName: 'overflow-visible',
       render: (a) => {
         const isStarting = pendingAction?.agentId === a.id && pendingAction.type === 'start'
         const isArchiving = pendingAction?.agentId === a.id && pendingAction.type === 'archive'
