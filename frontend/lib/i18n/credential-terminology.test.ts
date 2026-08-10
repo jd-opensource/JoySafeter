@@ -5,6 +5,7 @@ import { createInstance } from 'i18next'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
+import { buildActiveTranslationInventory } from './active-translation-inventory.test-support'
 import en from './locales/en'
 import zh from './locales/zh'
 
@@ -402,6 +403,36 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   ['triggers', 'managed.triggers.credentialFieldCount', '{{count}} fields', '{{count}} 个字段'],
   ['triggers', 'managed.triggers.authMethods', 'Authentication Methods', '认证方式'],
+  [
+    'environments',
+    'managed.environments.envVarsHint',
+    'Non-sensitive environment variables injected into the sandbox. Format: KEY=value, separated by commas or new lines. Do not enter tokens, cookies, API keys, or other sensitive credentials.',
+    '注入到沙箱的非敏感环境变量。格式：KEY=value，逗号或换行分隔。不要填写 token、cookie、API key 等敏感凭据字段；请改存到服务凭据中。',
+  ],
+  [
+    'environments',
+    'managed.environments.egressServicesHint',
+    'Skills call the real service URL directly; credentials are injected automatically and never exposed to the sandbox.',
+    'Skill 直接使用真实服务地址访问；服务凭据会自动注入，且不会暴露给沙箱。',
+  ],
+  [
+    'environments',
+    'managed.environments.egressBaseUrlHint',
+    'The real third-party endpoint (with https). In your skill use http:// for the same address; the platform injects the credential at the gateway and re-originates to https.',
+    '填写第三方接口的真实地址（含 https）。skill 内改用 http 访问同一地址；平台会在网关使用服务凭据注入认证信息，并回源到 https。',
+  ],
+  [
+    'environments',
+    'managed.environments.egressSectionCredential',
+    'Credential',
+    '服务凭据',
+  ],
+  [
+    'environments',
+    'managed.environments.egressSkillExampleHint',
+    'Use this address in your skill; the credential is injected automatically.',
+    '在 skill 中使用此地址访问；服务凭据中的认证信息会自动注入。',
+  ],
   [
     'environments',
     'managed.environments.egressCredential',
@@ -1005,9 +1036,24 @@ const legacySourcePatterns = [
   /\bagent secrets?\b/i,
   /模型配置|模型密钥|智能体密钥|Agent 密钥/u,
   /包含 OPENAI_API_KEY 的密钥(?:\s*\(Secret\))?/u,
+  /敏感凭证|凭证自动注入|注入凭证/u,
   /\bvault configuration\b/i,
   /^\$\{…\}\s+vaults?$/i,
 ] as const
+const activeLegacyCatalogPatterns = [
+  /\bmodel secrets?\b/i,
+  /\bmodel configurations?\b/i,
+  /\bagent secrets?\b/i,
+  /\bvaults?\b/i,
+  /凭证库|凭据库|模型配置|模型密钥|智能体密钥|Agent 密钥|凭证/u,
+] as const
+
+let activeTranslationInventory: ReturnType<typeof buildActiveTranslationInventory> | undefined
+
+function getActiveTranslationInventory() {
+  activeTranslationInventory ??= buildActiveTranslationInventory(en.translation, zh.translation)
+  return activeTranslationInventory
+}
 
 function collectProductionSourceFiles(directory: string): string[] {
   return readdirSync(directory).flatMap((entry) => {
@@ -1059,6 +1105,39 @@ function findHardCodedLegacyCredentialCopy(): string[] {
 }
 
 describe('credential domain terminology', () => {
+  it('inventories direct, template, and finite active translation leaves', () => {
+    const inventory = getActiveTranslationInventory()
+
+    expect(inventory.sourceFileCount).toBe(157)
+    expect(inventory.counts).toEqual({ direct: 1321, dynamic: 262, total: 1583 })
+    expect(inventory.finiteFamilies.status).toHaveLength(21)
+    expect(inventory.finiteFamilies.alerts).toHaveLength(6)
+    expect(inventory.finiteFamilies.suggestions).toHaveLength(4)
+    expect(inventory.finiteFamilyAdditions.status).toBe(19)
+    expect(inventory.finiteFamilyAdditions.alerts).toBe(6)
+    expect(inventory.finiteFamilyAdditions.suggestions).toBe(4)
+    expect(inventory.missingEnglishLeaves).toEqual([])
+    expect(inventory.missingChineseLeaves).toEqual([])
+  })
+
+  it('keeps all active catalog values free of legacy credential vocabulary', () => {
+    const inventory = getActiveTranslationInventory()
+    const violations = [...inventory.activeLeaves].flatMap((key) => {
+      const values = [
+        ['en', getTranslationValue(en.translation, key)],
+        ['zh', getTranslationValue(zh.translation, key)],
+      ] as const
+      return values.flatMap(([locale, value]) =>
+        typeof value === 'string' &&
+        activeLegacyCatalogPatterns.some((pattern) => pattern.test(value))
+          ? [`${locale}:${key}:${value}`]
+          : [],
+      )
+    })
+
+    expect(violations).toEqual([])
+  })
+
   it.each(terminologyExpectations)(
     'uses exact English %s copy for %s',
     (_category, path, english) => {
