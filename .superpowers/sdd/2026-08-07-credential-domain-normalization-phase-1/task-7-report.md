@@ -110,3 +110,96 @@ An additional runtime audit imported both locale objects and checked 62 bilingua
 
 - The brief mandates a `managed.apiKeys.*` terminology contract, while the existing API-token page intentionally uses `manage.apiKeys.*`. Both paths now carry identical required Task 7 copy so no existing call site was renamed; this deliberate duplication should remain synchronized in future copy changes.
 - No unresolved test, type-check, scope, or parked-dependency issue remains.
+
+## Fix Round 1
+
+### Status
+
+- **Finding:** Medium test-quality gap in the bilingual terminology contract.
+- **Disposition:** RESOLVED.
+- **Pre-fix head:** `55e150871f9a57f462c763b80c2f485b13b4d474`
+- **Fix implementation head:** `855ecf5e06e247029dbb39e6b4d2e1143f8d5f1f`
+- **Fix implementation commit:** `855ecf5e06e247029dbb39e6b4d2e1143f8d5f1f` (`test(frontend): expand credential terminology contract`)
+- **Production files:** Unchanged in Fix Round 1.
+- **Push/main checkout:** Not pushed; main checkout was not modified.
+
+### Finding Disposition
+
+The original contract asserted only 10 paths per locale and checked `managed.apiKeys.title` without checking the production `manage.apiKeys.*` path. The replacement contract now:
+
+- Uses literal, table-driven English and Chinese expectations.
+- Covers both mandated `managed.apiKeys.*` values and production `manage.apiKeys.*` values.
+- Adds direct synchronization assertions for all relevant duplicated API-token fields.
+- Restricts legacy Quickstart noun checks to the exact model-connection and MCP-credential-set paths changed by Task 7 instead of scanning the full locale catalog.
+
+### Coverage
+
+- **Bilingual exact-value paths:** 96 paths / 192 literal English and Chinese values.
+- **Generated contract assertions:** 219 total.
+- **API-token synchronization:** 6 fields in both locales: `title`, `subtitle`, `create`, `empty`, `revokeTitle`, and `revoke`.
+- **Focused Quickstart legacy checks:** 21 paths: 8 Model Connection paths and 13 MCP Credential Set paths.
+
+Exact-value categories:
+
+- Navigation: 3 paths.
+- Connections & Credentials page/search/empty/delete/back copy: 8 paths.
+- Model Connection and Service Credential labels: 2 paths.
+- MCP Credential Set page/search/empty/archive/delete/back copy: 10 paths.
+- Project Access Token mandated/production/search copy: 13 paths.
+- Trigger states and labels: 10 paths.
+- Environment labels, selector states, tooltip/hint text, and validation: 14 paths.
+- Session labels, search, navigation, and advanced summary: 6 paths.
+- Quickstart resource kinds, model wording, preserved guidance, and MCP wording: 24 paths.
+- Vault static Bearer creation copy: 6 paths.
+
+### Mutation Evidence
+
+After expanding the contract, `manage.apiKeys.title` was temporarily changed from `Project Access Tokens` to `Project API Tokens`, then the contract was run:
+
+```bash
+cd frontend
+bun run test -- lib/i18n/credential-terminology.test.ts
+```
+
+Observed RED result: exit 1; 2 assertions failed and 217 passed.
+
+- The exact `manage.apiKeys.title` assertion detected the wrong production value.
+- The `managed.apiKeys.title` / `manage.apiKeys.title` synchronization assertion detected the drift.
+
+The temporary mutation was restored immediately. A locale diff check confirmed no production file remained modified, and the same command returned exit 0 with 219/219 assertions passing.
+
+### Verification
+
+Exact affected suite:
+
+```bash
+cd frontend
+bun run test -- \
+  lib/i18n/credential-terminology.test.ts \
+  components/managed/triggers/create-trigger-dialog.test.tsx \
+  app/managed/vaults/components/create-credential-dialog.test.tsx \
+  app/managed/sessions/components/create-session-dialog.test.tsx \
+  hooks/managed/use-quickstart-chat.test.tsx
+```
+
+Observed result: exit 0; 5 test files passed and 268/268 tests passed.
+
+Type-check:
+
+```bash
+cd frontend
+bun run type-check
+```
+
+Observed result: exit 0 (`tsc --noEmit`).
+
+### Commits
+
+- `18afd5762fb8a7ead811a546992aab825f90632e` — Task 7 implementation.
+- `55e150871f9a57f462c763b80c2f485b13b4d474` — Initial Task 7 report.
+- `855ecf5e06e247029dbb39e6b4d2e1143f8d5f1f` — Fix Round 1 terminology-contract expansion.
+
+### Concerns
+
+- The duplicated `managed.apiKeys.*` and production `manage.apiKeys.*` structures remain for compatibility, but the relevant values now have both exact-value and synchronization coverage.
+- No production mismatch was exposed by the expanded contract, so Fix Round 1 changes only the contract and this report.
