@@ -220,7 +220,7 @@ describe('useQuickstartChat resource creation', () => {
     expect(body).not.toHaveProperty('provider')
   })
 
-  it('uses the translated MCP Credential Set prompt for the step 5 auto intro', async () => {
+  it('uses the translated MCP Credential Vault prompt for the step 5 auto intro', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(quickstartResponseText(''))
     globalThis.fetch = fetchMock as typeof fetch
     const { result } = renderHook(() => useQuickstartChat('openai-prod'))

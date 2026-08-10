@@ -24,8 +24,8 @@ const completionCopy = {
     ],
     [
       5,
-      'MCP Credential Set Configured',
-      'MCP Credential Set configured! This project-scoped MCP credential set securely stores MCP server credentials for sessions in the current project.',
+      'MCP Credential Vault Configured',
+      'MCP Credential Vault configured! This project-scoped MCP credential vault securely stores MCP server credentials for sessions in the current project.',
     ],
     [
       6,
@@ -46,8 +46,8 @@ const completionCopy = {
     ],
     [
       5,
-      'MCP 凭据组已配置',
-      'MCP 凭据组已配置！这个项目级 MCP 凭据组为当前项目中的会话安全存储 MCP 服务器凭据。',
+      'MCP 凭据库已配置',
+      'MCP 凭据库已配置！这个项目级 MCP 凭据库为当前项目中的会话安全存储 MCP 服务器凭据。',
     ],
     [
       6,

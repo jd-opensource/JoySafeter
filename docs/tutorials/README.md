@@ -9,7 +9,7 @@
 | # | 教程 | 核心内容 | 难度 |
 |---|------|---------|------|
 | 01 | [引擎、协议、模型供应商与模型配置](./01-model-provider-setup.md) | 通过统一 LLM Catalog 创建 Provider/Protocol 模型配置，并按 Engine 兼容性选择 | ⭐ 入门 |
-| 02 | [为 Agent 接入 MCP 工具](./02-mcp-service-setup.md) | 在 Agent 编辑器配置 URL 型 `mcp_servers`；凭据放托管智能体 → 凭证库（`/managed/vaults`）；运行时经 gRPC 下发 | ⭐⭐ 进阶 |
+| 02 | [为 Agent 接入 MCP 工具](./02-mcp-service-setup.md) | 在 Agent 编辑器配置 URL 型 `mcp_servers`；凭据放托管智能体 → MCP 凭据库（`/managed/vaults`）；运行时经 gRPC 下发 | ⭐⭐ 进阶 |
 | 03 | [Skills 的导入、安全扫描、投递与消费](./03-skills-usage.md) | SKILL.md → skillspector 扫描 → Rust orchestrator 打包 → 沙箱解压消费的闭环 | ⭐⭐ 进阶 |
 | 04 | [构建并运行一个 Agent](./04-agent-build-and-run.md) | 引擎/模型/技能/工具/MCP 组装 → 开 Session → SSE 实时观察 → 干预/停止 | ⭐⭐ 进阶 |
 
@@ -26,7 +26,7 @@
 
 1. 完成快速开始。
 2. **教程 03**：导入一个技能包，跑通“扫描 → approved → 挂到 Agent → 沙箱消费”闭环。
-3. **教程 02**：给 Agent 接入一个 MCP 工具（凭据放 Vaults）。
+3. **教程 02**：给 Agent 接入一个 MCP 工具（凭据放 MCP 凭据库）。
 4. **教程 04**：把工具 / 技能 / MCP 组合进同一个 Agent，构建自动化工作流。
 
 ### 🏆 进阶应用

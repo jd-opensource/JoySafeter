@@ -9,20 +9,20 @@
 - **MCP 服务器定义** 通过 Agent API 的 `mcp_servers` 配置，在 **Agent 编辑器**里编辑
   （前端表现为 `mcp_toolset` 工具项，带 `permission_policy`）。当前每条只接受
   `type: "url"`、`name` 和 `url`。
-- **MCP 凭据** 存在 **Vaults**（`joysafeter_vaults` / `joysafeter_vault_credentials`，
-  API `/api/v1/vaults`，UI **托管智能体 → 凭证库** `/managed/vaults`）：加密的 token / OAuth 配置，
+- **MCP 凭据** 存在 **MCP 凭据库**（`joysafeter_vaults` / `joysafeter_vault_credentials`，
+  API `/api/v1/vaults`，UI **托管智能体 → MCP 凭据库** `/managed/vaults`）：加密的 token / OAuth 配置，
   按 MCP server URL 匹配。
 
 **运行时如何生效**：任务调度时，orchestrator：
 1. 从 Agent 的 `mcp_servers` 取 MCP 服务器列表；
-2. 调 `VaultService.resolve_mcp_credentials(...)` 按 URL 匹配 Vault 凭据，注入 `Authorization: Bearer`
+2. 调 `VaultService.resolve_mcp_credentials(...)` 按 URL 匹配 MCP 凭据库中的凭据，注入 `Authorization: Bearer`
    头（OAuth 临期会自动刷新）；
 3. 把结果作为 `McpConfig` 消息经 gRPC `SetupSandbox` / `StartTask` 下发给沙箱内的 runner；
 4. runner 把 MCP 配置写入沙箱内的 `.claude/settings.json`（Claude 引擎），CLI harness 据此连接 MCP
    服务器并调用工具。
 
 > “工具能不能用”取决于：**该 Agent 的 `mcp_servers` 里有没有这条
-> server + Vault 里有没有对应凭据 + 沙箱能否网络到达该 MCP 端点（Envoy 出口白名单）**。
+> server + MCP 凭据库里有没有对应凭据 + 沙箱能否网络到达该 MCP 端点（Envoy 出口白名单）**。
 
 ---
 
@@ -37,13 +37,13 @@
 
 > URL 必须能从**沙箱容器**访问到，且其域名要在 Envoy 出口白名单内（沙箱默认全拒出口）。
 
-## 案例 B：给需要鉴权的 MCP 服务器配置 Vault 凭据
+## 案例 B：给需要鉴权的 MCP 服务器在 MCP 凭据库中配置凭据
 
-1. 进入 **托管智能体 → 凭证库**（`/managed/vaults`），新建一个 Vault，再在其下新建一条 **Credential**：
+1. 进入 **托管智能体 → MCP 凭据库**（`/managed/vaults`），新建一个 MCP 凭据库，再在其下新建一条 **MCP 凭据**：
    - `mcp_server_url`：与上面 Agent 里的 MCP `url` 一致（用于运行时匹配）
    - `credential_type`：`static_bearer`（或 OAuth 配置）
    - `token_value`：你的 Bearer token（**加密存储**）
-2. 在会话 / Agent 上关联该 Vault（会话的 `vault_ids`）。
+2. 在会话 / Agent 上关联该 MCP 凭据库（会话的 `vault_ids`）。
 
 运行时 orchestrator 会按 `mcp_server_url` 把这条凭据的 Bearer 注入到对该 MCP 服务器的请求头，
 你无需把明文 token 写进 Agent 配置。
@@ -57,7 +57,7 @@ Agent 的“工具”来自三处（都在 Agent 编辑器配置，运行时经 
 | 来源 | 配置位置 | 载荷（gRPC） |
 |------|---------|-------------|
 | 内置工具 + 工具策略 | Agent 编辑器：内置工具勾选 + 每工具 `permission_policy`（`always_ask` / `always_allow`） | `allowed_tools` / `disallowed_tools` / `ask_tools` |
-| MCP 服务器 | Agent `mcp_servers` + Vault 凭据 | `McpConfig`（name/url/headers） |
+| MCP 服务器 | Agent `mcp_servers` + MCP 凭据库凭据 | `McpConfig`（name/url/headers） |
 | 自定义工具 | Agent 编辑器：自定义工具（名称 + 描述 + JSON Schema） | `CustomTool` |
 
 ---
@@ -70,7 +70,7 @@ MCP 工具是**可执行的外部能力**（尤其安全扫描 / 利用类）。
   的 tool_use 事件回到前端，需人工确认后 orchestrator 才用 `SendInput` 放行。
 - **沙箱隔离**：每个会话独享一个加固沙箱（丢弃能力、非 root、Envoy 出口白名单），即便工具高危，
   影响也被限制在该沙箱内。
-- **凭据隔离**：MCP token 放 Vault 加密存储，运行时才注入请求头，不落 Agent 明文、不进事件流。
+- **凭据隔离**：MCP token 放 MCP 凭据库加密存储，运行时才注入请求头，不落 Agent 明文、不进事件流。
 
 ---
 

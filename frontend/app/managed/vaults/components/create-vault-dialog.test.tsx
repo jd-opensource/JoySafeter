@@ -151,7 +151,7 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
     )
 
     expect(view.container.textContent).toContain(
-      'MCP credential sets are shared within the current project. Access and management require appropriate project permissions.',
+      'MCP credential vaults are shared within the current project. Access and management require appropriate project permissions.',
     )
   })
 

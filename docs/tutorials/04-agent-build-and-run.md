@@ -1,7 +1,7 @@
 # 教程 04：构建并运行一个 Agent
 
 > **适合人群**：想端到端跑通“定义 Agent → 开会话 → 实时看执行”的用户。
-> **前置**：已配置一条与目标引擎兼容的模型配置（[教程 01](./01-model-provider-setup.md)）。
+> **前置**：已配置一条与目标引擎兼容的模型接入（[教程 01](./01-model-provider-setup.md)）。
 
 ---
 
@@ -25,11 +25,11 @@
 | 配置 | 说明 |
 |------|------|
 | **引擎（engine_kind）** | `claude` / `codex` / `native` / `pi`。决定运行时 harness，并明确声明支持哪些 LLM Protocol。 |
-| **模型配置（secret_ref）** | 页面只展示服务端返回的兼容 LLM Secret；其中的 Provider、Protocol、模型名和凭据决定模型连接。 |
+| **模型接入（secret_ref）** | 页面只展示服务端返回的兼容 LLM Secret；其中的 Provider、Protocol、模型名和凭据决定模型接入。 |
 | **系统提示词（system）** | Agent 的角色与行为约束。 |
 | **技能（skills）** | 勾选已 `approved` 的技能（见教程 03），可选特定版本。 |
 | **工具 + 策略（tools）** | 勾选内置工具，并对高危工具设 `always_ask`（运行时人工确认）。 |
-| **MCP 服务器（mcp_servers）** | URL 型外部工具服务（见教程 02），凭据放 Vaults。 |
+| **MCP 服务器（mcp_servers）** | URL 型外部工具服务（见教程 02），凭据放 MCP 凭据库。 |
 | **权限模式（permission_mode）** | 如 `bypassPermissions` / `default`，影响工具放行策略。 |
 
 `engine_kind` 是必填身份，前端和 API 都不会在未选择时默认回退到某个引擎。
