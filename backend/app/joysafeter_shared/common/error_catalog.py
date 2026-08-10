@@ -571,6 +571,11 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ResourceConflictError,
         default_message="Secret active task dependency",
     ),
+    "SECRET_RENAME_REFERENCED": CatalogEntry(
+        code="SECRET_RENAME_REFERENCED",
+        error_class=ResourceConflictError,
+        default_message="Secret name cannot be changed while the current name is referenced",
+    ),
     "SECRET_TEST_BASE_URL_INVALID": CatalogEntry(
         code="SECRET_TEST_BASE_URL_INVALID",
         error_class=InvalidRequestError,

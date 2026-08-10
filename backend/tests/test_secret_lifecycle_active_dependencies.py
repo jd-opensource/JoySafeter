@@ -6,8 +6,8 @@ import pytest
 from credential_test_helpers import encrypted_secret_data
 from error_contract_helpers import handled_app_error_payload
 from fastapi import FastAPI
-from starlette.requests import Request
 from sqlalchemy import select
+from starlette.requests import Request
 
 from app.joysafeter_api.api.v1 import secrets as secrets_api
 from app.joysafeter_api.api.v1.secrets import (
@@ -162,6 +162,60 @@ async def _assert_secret_intact(db_session, secret_id: SecretId) -> JoySafeterSe
     return row
 
 
+async def _add_secret_reference(
+    db_session,
+    secret: JoySafeterSecret,
+    category: str,
+) -> str:
+    if category == "agent":
+        resource = JoySafeterAgent(name=f"rename-agent-{uuid.uuid4()}", secret_ref=secret.name)
+        db_session.add(resource)
+    elif category == "environment_direct":
+        resource = JoySafeterEnvironment(
+            name=f"rename-direct-environment-{uuid.uuid4()}",
+            description="",
+            config={"secret_refs": [secret.name]},
+        )
+        db_session.add(resource)
+    elif category == "environment_egress":
+        resource = JoySafeterEnvironment(
+            name=f"rename-egress-environment-{uuid.uuid4()}",
+            description="",
+            config={
+                "egress_services": [
+                    {
+                        "name": "crm",
+                        "base_url": "https://crm.example.com",
+                        "credential_ref": secret.name,
+                        "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                    }
+                ]
+            },
+        )
+        db_session.add(resource)
+    elif category == "trigger":
+        agent = JoySafeterAgent(name=f"rename-trigger-agent-{uuid.uuid4()}")
+        db_session.add(agent)
+        await db_session.commit()
+        await db_session.refresh(agent)
+        resource = JoySafeterTrigger(
+            name=f"rename-trigger-{uuid.uuid4()}",
+            type="webhook",
+            agent_id=agent.id,
+            prompt_template="run",
+            secret_ref=secret.name,
+            secret_key="TOKEN",
+            config={"auth_methods": ["hmac"]},
+            filter={},
+            last_payload={},
+        )
+        db_session.add(resource)
+    else:
+        raise AssertionError(f"unsupported test dependency category: {category}")
+    await db_session.commit()
+    return resource.name
+
+
 @pytest.mark.asyncio
 async def test_list_secrets_returns_canonical_secret_cursor(db_session):
     await _secret(db_session)
@@ -242,10 +296,10 @@ async def test_create_secret_rejects_blank_resource_name_before_side_effects(
         }
     ]
     persisted = (
-        await db_session.execute(
-            select(JoySafeterSecret).where(JoySafeterSecret.project_id == project_id)
-        )
-    ).scalars().all()
+        (await db_session.execute(select(JoySafeterSecret).where(JoySafeterSecret.project_id == project_id)))
+        .scalars()
+        .all()
+    )
     assert persisted == []
     audit.assert_not_awaited()
     refresh.assert_not_awaited()
@@ -386,6 +440,69 @@ async def test_historical_noncanonical_secret_names_remain_listable_and_renamabl
     assert [item["name"] for item in page["data"]] == ["  historical-service  "]
     assert updated is not None
     assert updated.name == "cleaned-service"
+
+
+@pytest.mark.asyncio
+async def test_secret_reference_inventory_classifies_all_rename_blockers(db_session):
+    secret = await _secret(db_session)
+    resource_names = {
+        category: await _add_secret_reference(db_session, secret, category)
+        for category in ("agent", "environment_direct", "environment_egress", "trigger")
+    }
+
+    dependencies = await SecretService(db_session).secret_reference_dependencies(secret.name)
+
+    assert [(dependency.category, dependency.resource_name) for dependency in dependencies] == [
+        ("agent", resource_names["agent"]),
+        ("environment_direct", resource_names["environment_direct"]),
+        ("environment_egress", resource_names["environment_egress"]),
+        ("trigger", resource_names["trigger"]),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "category",
+    ["agent", "environment_direct", "environment_egress", "trigger"],
+)
+async def test_update_secret_blocks_referenced_rename_without_mutation_or_side_effects(
+    db_session,
+    monkeypatch,
+    category,
+):
+    secret = await _secret(db_session)
+    await _add_secret_reference(db_session, secret, category)
+    audit = AsyncMock()
+    refresh = AsyncMock()
+    monkeypatch.setattr(secrets_api, "audit_joysafeter_event", audit)
+    monkeypatch.setattr(secrets_api, "refresh_live_limited_sandbox_network_policies", refresh)
+    app = _app(db_session, _auth_ctx())
+
+    async with _client(app) as client:
+        response = await client.put(
+            f"/api/v1/secrets/{secret.id}",
+            json={"name": "renamed-secret", "data": {"TOKEN": "must-not-persist"}},
+        )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "code": "SECRET_RENAME_REFERENCED",
+        "message": "Secret name cannot be changed while the current name is referenced",
+        "data": {
+            "secret_id": str(secret.id),
+            "secret_name": secret.name,
+            "dependency_categories": [category],
+        },
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+    persisted = await _assert_secret_intact(db_session, secret.id)
+    assert persisted.name == secret.name
+    assert SecretService(db_session).get_secret_data(persisted) == {"TOKEN": "value"}
+    assert "must-not-persist" not in response.text
+    audit.assert_not_awaited()
+    refresh.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -774,7 +891,7 @@ async def test_force_delete_secret_rejects_active_task_agent_environment_ref(db_
 
 
 @pytest.mark.asyncio
-async def test_update_secret_rejects_active_task_agent_secret_ref(db_session):
+async def test_update_secret_allows_data_only_change_with_active_agent_dependency(db_session):
     secret = await _secret(db_session)
     agent = JoySafeterAgent(name=f"update-secret-agent-{uuid.uuid4()}", secret_ref=secret.name)
     db_session.add(agent)
@@ -789,34 +906,20 @@ async def test_update_secret_rejects_active_task_agent_secret_ref(db_session):
     await db_session.commit()
     await db_session.refresh(task)
 
-    req = UpdateSecretRequest(data={"TOKEN": "new-value"})
-    with pytest.raises(AppError) as exc_info:
-        await update_secret(req, None, secret.id, db_session, _auth_ctx())  # type: ignore[arg-type]
-
-    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
-        "code": "SECRET_ACTIVE_TASK_DEPENDENCY",
-        "message": (
-            f"Secret is required by active task '{task.id}' via agent secret_ref. "
-            "Stop or wait for the task before updating."
-        ),
-        "data": {
-            "secret_id": str(secret.id),
-            "secret_name": secret.name,
-            "task_id": str(task.id),
-            "source": "agent secret_ref",
-            "operation": "updating",
-        },
-        "source": "api",
-        "retryable": True,
-        "user_action": "retry",
-    }
-
+    await update_secret(
+        UpdateSecretRequest(data={"TOKEN": "new-value"}),
+        _request(),
+        secret.id,
+        db_session,
+        _auth_ctx(),
+    )
     row = await _assert_secret_intact(db_session, secret.id)
-    assert SecretService(db_session).get_secret_data(row) == {"TOKEN": "value"}
+    assert row.name == secret.name
+    assert SecretService(db_session).get_secret_data(row) == {"TOKEN": "new-value"}
 
 
 @pytest.mark.asyncio
-async def test_update_secret_rejects_active_task_agent_egress_environment_ref(db_session):
+async def test_update_secret_allows_data_only_change_with_active_egress_dependency(db_session):
     secret = await _secret(db_session)
     env = JoySafeterEnvironment(
         name=f"update-agent-egress-env-secret-{uuid.uuid4()}",
@@ -848,22 +951,45 @@ async def test_update_secret_rejects_active_task_agent_egress_environment_ref(db
     await db_session.commit()
     await db_session.refresh(task)
 
-    with pytest.raises(AppError) as exc_info:
-        await secrets_api.update_secret(
-            UpdateSecretRequest(data={"TOKEN": "new-value"}),
-            None,
-            secret.id,
-            db_session,
-            _auth_ctx(),
-        )  # type: ignore[arg-type]
-
-    payload = await handled_app_error_payload(exc_info.value, status_code=409)
-    assert payload["code"] == "SECRET_ACTIVE_TASK_DEPENDENCY"
-    assert payload["data"]["task_id"] == str(task.id)
-    assert payload["data"]["source"] == "agent environment_ref"
-    assert payload["data"]["operation"] == "updating"
+    await secrets_api.update_secret(
+        UpdateSecretRequest(data={"TOKEN": "new-value"}),
+        _request(),
+        secret.id,
+        db_session,
+        _auth_ctx(),
+    )
     row = await _assert_secret_intact(db_session, secret.id)
-    assert SecretService(db_session).get_secret_data(row) == {"TOKEN": "value"}
+    assert row.name == secret.name
+    assert SecretService(db_session).get_secret_data(row) == {"TOKEN": "new-value"}
+
+
+@pytest.mark.asyncio
+async def test_update_secret_treats_padded_same_name_as_data_only_with_active_dependency(db_session):
+    secret = await _secret(db_session, name="canonical-secret")
+    agent = JoySafeterAgent(name=f"same-name-agent-{uuid.uuid4()}", secret_ref=secret.name)
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    db_session.add(
+        JoySafeterTask(
+            agent_id=agent.id,
+            prompt="scan target",
+            status=JoySafeterTaskStatus.PENDING.value,
+        )
+    )
+    await db_session.commit()
+
+    await update_secret(
+        UpdateSecretRequest(name="  canonical-secret  ", data={"TOKEN": "new-value"}),
+        _request(),
+        secret.id,
+        db_session,
+        _auth_ctx(),
+    )
+
+    row = await _assert_secret_intact(db_session, secret.id)
+    assert row.name == "canonical-secret"
+    assert SecretService(db_session).get_secret_data(row) == {"TOKEN": "new-value"}
 
 
 @pytest.mark.asyncio
