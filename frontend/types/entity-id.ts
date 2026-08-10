@@ -95,6 +95,17 @@ export function parseAnyEntityId(value: string): AnyEntityId {
   throw new TypeError(`Expected a registered entity ID, received ${value}`)
 }
 
+export function parseOptionalId<T>(
+  value: string | null | undefined,
+  parse: (raw: string) => T,
+): T | null | undefined {
+  return value == null ? value : parse(value)
+}
+
+export function parseNullableId<T>(value: string | null, parse: (raw: string) => T): T | null {
+  return value === null ? null : parse(value)
+}
+
 export function parseAgentId(value: string): AgentId {
   return parseEntityId(value, 'agent')
 }

@@ -1,5 +1,6 @@
 import {
   parseAgentId,
+  parseNullableId,
   parseSessionId,
   parseTaskId,
   type AgentId,
@@ -29,10 +30,6 @@ type RawAgentTrendPoint = Omit<AgentTrendPoint, 'agent_id'> & { agent_id: string
 type RawAlertItem = Omit<AlertItem, 'agent_id'> & { agent_id: string | null }
 type RawHealthCheckResponse = Omit<HealthCheckResponse, 'alerts'> & { alerts: RawAlertItem[] }
 type RawAgentRankingItem = Omit<AgentRankingItem, 'agent_id'> & { agent_id: string }
-
-function parseNullableId<T>(value: string | null, parse: (raw: string) => T): T | null {
-  return value === null ? null : parse(value)
-}
 
 export function parseCallsListResponse(response: RawCallsListResponse): CallsListResponse {
   return {

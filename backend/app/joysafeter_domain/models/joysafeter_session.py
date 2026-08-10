@@ -53,7 +53,7 @@ class JoySafeterSession(JoySafeterBaseModel):
         nullable=False,
     )
     title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="idle")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default=SessionStatus.IDLE.value)
     stop_reason: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     usage: Mapped[dict] = mapped_column(
         JSONB,

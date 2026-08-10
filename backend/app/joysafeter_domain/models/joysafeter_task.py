@@ -110,7 +110,7 @@ class JoySafeterTask(JoySafeterBaseModel):
         ForeignKey("joysafeter_sessions.id"),
         nullable=True,
     )
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default=JoySafeterTaskStatus.PENDING.value)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     sandbox_id: Mapped[Optional[SandboxId]] = mapped_column(EntityIdType(SandboxId), nullable=True)

@@ -68,7 +68,8 @@ export default function NetworkPolicyDiagnosticsPage() {
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
-  const columns: Column<NetworkPolicyStatus>[] = [
+  const columns: Column<NetworkPolicyStatus>[] = useMemo(
+    () => [
     {
       key: 'target',
       header: t('managed.networkPolicies.columns.target'),
@@ -150,7 +151,9 @@ export default function NetworkPolicyDiagnosticsPage() {
         />
       ),
     },
-  ]
+    ],
+    [t],
+  )
 
   return (
     <div className="space-y-6">

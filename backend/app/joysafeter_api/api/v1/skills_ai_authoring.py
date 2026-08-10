@@ -294,7 +294,7 @@ async def authoring_chat(
             user_action="fix_input",
         )
     try:
-        base_url = validate_llm_base_url(base_url, key="OPENAI_BASE_URL")
+        base_url = validate_llm_base_url(base_url, key=base_url_key)
     except LLMBaseUrlError as exc:
         raise _authoring_base_url_error(exc, secret_ref=req.secret_ref) from None
     model = data.get(profile.model_key) if profile.model_key else None

@@ -1,5 +1,6 @@
 import {
   parseEnvironmentId,
+  parseOptionalId,
   parseSessionId,
   parseSessionResourceId,
   parseStorageGrantId,
@@ -46,13 +47,6 @@ type RawStorageMountAudit = Omit<
   volume_id?: string | null
   session_id?: string | null
   environment_id?: string | null
-}
-
-function parseOptionalId<T>(
-  value: string | null | undefined,
-  parse: (raw: string) => T,
-): T | null | undefined {
-  return value == null ? value : parse(value)
 }
 
 export function parseStorageProjectGrantResponse(response: unknown): StorageProjectGrant {

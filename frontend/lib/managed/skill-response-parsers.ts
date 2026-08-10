@@ -1,5 +1,6 @@
 import {
   parseAgentId,
+  parseOptionalId,
   parseSessionId,
   parseSkillFileId,
   parseSkillId,
@@ -13,6 +14,7 @@ import {
   type SkillSecurityScanId,
   type SkillVersionId,
 } from '@/types/entity-id'
+import { parseCollection } from './parse-collection'
 import type {
   SessionSkillUsage,
   SkillFileRecord,
@@ -103,10 +105,6 @@ type RawSkillLifecycleTransitionResponse = Omit<SkillLifecycleTransitionResponse
   skill_id: string
 }
 
-function parseOptionalId<T>(value: string | null | undefined, parse: (raw: string) => T): T | null | undefined {
-  return value == null ? value : parse(value)
-}
-
 function parseSecuritySummary(summary: RawSkillSecurityScanSummary): SkillSecurityScanSummary {
   return {
     ...summary,
@@ -136,8 +134,7 @@ export function parseSkillFileResponse(response: unknown): SkillFileRecord {
 }
 
 export function parseSkillFileListResponse(response: unknown): SkillFileRecord[] {
-  const raw = response as unknown[] | { data?: unknown[] }
-  return (Array.isArray(raw) ? raw : raw.data || []).map(parseSkillFileResponse)
+  return parseCollection(response, parseSkillFileResponse)
 }
 
 export function parseSkillVersionResponse(response: unknown): SkillVersionRecord {
@@ -150,8 +147,7 @@ export function parseSkillVersionResponse(response: unknown): SkillVersionRecord
 }
 
 export function parseSkillVersionListResponse(response: unknown): SkillVersionRecord[] {
-  const raw = response as unknown[] | { data?: unknown[] }
-  return (Array.isArray(raw) ? raw : raw.data || []).map(parseSkillVersionResponse)
+  return parseCollection(response, parseSkillVersionResponse)
 }
 
 export function parseSkillVersionFileResponse(response: unknown): SkillVersionFileRecord {
@@ -165,8 +161,7 @@ export function parseSkillVersionFileResponse(response: unknown): SkillVersionFi
 }
 
 export function parseSkillVersionFileListResponse(response: unknown): SkillVersionFileRecord[] {
-  const raw = response as unknown[] | { data?: unknown[] }
-  return (Array.isArray(raw) ? raw : raw.data || []).map(parseSkillVersionFileResponse)
+  return parseCollection(response, parseSkillVersionFileResponse)
 }
 
 export function parseSkillSecurityScanResponse(response: unknown): SkillSecurityScanRecord {
@@ -179,8 +174,7 @@ export function parseSkillSecurityScanResponse(response: unknown): SkillSecurity
 }
 
 export function parseSkillSecurityScanListResponse(response: unknown): SkillSecurityScanRecord[] {
-  const raw = response as unknown[] | { data?: unknown[] }
-  return (Array.isArray(raw) ? raw : raw.data || []).map(parseSkillSecurityScanResponse)
+  return parseCollection(response, parseSkillSecurityScanResponse)
 }
 
 export function parseSkillUsageResponse(response: unknown): SessionSkillUsage {
@@ -200,8 +194,7 @@ export function parseSkillUsageResponse(response: unknown): SessionSkillUsage {
 }
 
 export function parseSkillUsageListResponse(response: unknown): SessionSkillUsage[] {
-  const raw = response as unknown[] | { data?: unknown[] }
-  return (Array.isArray(raw) ? raw : raw.data || []).map(parseSkillUsageResponse)
+  return parseCollection(response, parseSkillUsageResponse)
 }
 
 export function parseSkillAuthoringSaveResponse(response: unknown): SkillAuthoringSaveResponse {

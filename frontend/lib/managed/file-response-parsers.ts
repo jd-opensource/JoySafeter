@@ -1,8 +1,8 @@
 import {
   parseFileId,
+  parseOptionalId,
   parseSessionId,
   parseSessionResourceId,
-  type SessionId,
 } from '@/types/entity-id'
 import type {
   FileRecord,
@@ -23,16 +23,12 @@ type RawSessionFileResource = Omit<SessionFileResource, 'id' | 'file_id'> & {
 
 type RawSessionRepoResource = Omit<SessionRepoResource, 'id'> & { id: string }
 
-function parseOptionalSessionId(value: string | null | undefined): SessionId | null | undefined {
-  return value == null ? value : parseSessionId(value)
-}
-
 export function parseFileResponse(response: unknown): FileRecord {
   const raw = response as RawFileRecord
   return {
     ...raw,
     id: parseFileId(raw.id),
-    session_id: parseOptionalSessionId(raw.session_id),
+    session_id: parseOptionalId(raw.session_id, parseSessionId),
   }
 }
 

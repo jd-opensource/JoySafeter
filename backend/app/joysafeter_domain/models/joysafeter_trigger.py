@@ -82,7 +82,7 @@ class JoySafeterTrigger(JoySafeterBaseModel):
     cron_expr: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     timezone: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    concurrency_policy: Mapped[str] = mapped_column(String(16), nullable=False, default="allow", server_default="allow")
+    concurrency_policy: Mapped[str] = mapped_column(String(16), nullable=False, default=TriggerConcurrencyPolicy.ALLOW.value, server_default=TriggerConcurrencyPolicy.ALLOW.value)
     next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_fired_slot: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

@@ -1,4 +1,5 @@
 import {
+  parseOptionalId,
   parseSandboxId,
   parseSessionId,
   parseTaskId,
@@ -15,13 +16,6 @@ type RawNetworkPolicyStatus = Omit<NetworkPolicyStatus, 'sandbox_id' | 'session_
 
 type RawNetworkPolicyListResponse = Omit<NetworkPolicyListResponse, 'data'> & {
   data: RawNetworkPolicyStatus[]
-}
-
-function parseOptionalId<T>(
-  value: string | null | undefined,
-  parse: (raw: string) => T,
-): T | null | undefined {
-  return value == null ? value : parse(value)
 }
 
 export function parseNetworkPolicyStatusResponse(response: unknown): NetworkPolicyStatus {

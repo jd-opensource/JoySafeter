@@ -157,24 +157,6 @@ impl MemoryStoreSubscribers {
             }
         }
     }
-
-    /// Get all peer sandbox IDs for a store (excluding the given sandbox).
-    pub async fn get_peers(
-        &self,
-        store_id: MemoryStoreId,
-        exclude_sandbox: SandboxId,
-    ) -> Vec<SandboxId> {
-        let subs = self.subscriptions.lock().await;
-        subs.get(&store_id)
-            .map(|entries| {
-                entries
-                    .iter()
-                    .filter(|s| s.sandbox_db_id != exclude_sandbox)
-                    .map(|s| s.sandbox_db_id)
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
 }
 
 #[cfg(test)]

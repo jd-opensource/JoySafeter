@@ -6,6 +6,7 @@ import {
   type MemoryStoreId,
   type MemoryVersionId,
 } from '@/types/entity-id'
+import { parseCollection } from './parse-collection'
 import type { MemoryStore } from '@/types/managed'
 
 export interface MemoryRecord {
@@ -47,7 +48,5 @@ export function parseMemoryResponse(response: unknown): MemoryRecord {
 }
 
 export function parseMemoryListResponse(response: unknown): MemoryRecord[] {
-  const raw = response as unknown[] | { data?: unknown[] }
-  const data = Array.isArray(raw) ? raw : raw.data || []
-  return data.map(parseMemoryResponse)
+  return parseCollection(response, parseMemoryResponse)
 }

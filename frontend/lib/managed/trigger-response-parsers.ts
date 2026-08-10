@@ -1,5 +1,6 @@
 import {
   parseAgentId,
+  parseNullableId,
   parseSessionId,
   parseTaskId,
   parseTriggerId,
@@ -36,10 +37,6 @@ type RawTriggerRun = Omit<TriggerRun, 'id' | 'trigger_id' | 'chat_session_id'> &
 type RawTriggerFireResult = Omit<TriggerFireResult, 'task_id' | 'session_id'> & {
   task_id: string | null
   session_id: string | null
-}
-
-function parseNullableId<T>(value: string | null, parse: (raw: string) => T): T | null {
-  return value === null ? null : parse(value)
 }
 
 export function parseAgentTriggerResponse(response: RawAgentTrigger): AgentTrigger {
