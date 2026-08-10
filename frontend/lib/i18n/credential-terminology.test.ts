@@ -700,9 +700,9 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   [
     'quickstart',
-    'managed.quickstart.stepDesc.4',
-    'MCP Credential Set configured! An MCP credential set is a workspace-level MCP server credential store that sessions reference by ID at creation -- enabling the same authorized connection to be reused across multiple sessions.',
-    'MCP 凭据组已配置！MCP 凭据组是工作区级别的 MCP 服务器凭据存储，会话在创建时通过 ID 引用它 —— 让同一授权连接可在多个会话间复用。',
+    'managed.quickstart.stepDesc.mcpCredentialSet',
+    'MCP Credential Set configured! This project-scoped MCP credential set securely stores MCP server credentials for sessions in the current project.',
+    'MCP 凭据组已配置！这个项目级 MCP 凭据组为当前项目中的会话安全存储 MCP 服务器凭据。',
   ],
   [
     'Vault static Bearer',
@@ -975,7 +975,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   [
     'quickstart',
-    'managed.quickstart.stepDesc.1',
+    'managed.quickstart.stepDesc.modelConnection',
     'Model Connection selected. The Agent will use this connection for model, endpoint, and API key settings at runtime.',
     '模型连接已选择。这个 Agent 运行时会从该模型连接读取模型、接口地址和 API Key 设置。',
   ],
@@ -1013,7 +1013,7 @@ const quickstartMcpCredentialSetPaths = [
   'managed.quickstart.errors.createVaultFailed',
   'managed.quickstart.errors.vaultConfigMissing',
   'managed.quickstart.stepComplete.vaultCreated',
-  'managed.quickstart.stepDesc.4',
+  'managed.quickstart.stepDesc.mcpCredentialSet',
 ] as const
 
 function getTranslationValue(root: unknown, path: string): unknown {
@@ -1108,7 +1108,7 @@ describe('credential domain terminology', () => {
   it('inventories direct, template, and finite active translation leaves', () => {
     const inventory = getActiveTranslationInventory()
 
-    expect(inventory.sourceFileCount).toBe(157)
+    expect(inventory.sourceFileCount).toBe(158)
     const templateAdditions =
       new Set([...inventory.directLeaves, ...inventory.templateDynamicLeaves]).size -
       inventory.directLeaves.size

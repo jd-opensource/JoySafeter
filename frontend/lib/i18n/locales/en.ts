@@ -1496,11 +1496,16 @@ const en = {
           sessionStarted: 'Session Started',
         },
         stepDesc: {
-          1: 'Model Connection selected. The Agent will use this connection for model, endpoint, and API key settings at runtime.',
-          2: 'Agent created! An agent is a reusable, versioned configuration -- it defines the role, model, and tools, but does not run on its own; you start a session from it each time you need it to work.',
-          3: 'Environment created! An environment defines the sandbox where the agent runs -- network rules, packages, and resource limits. Attach it to a session to enforce those constraints.',
-          4: 'MCP Credential Set configured! An MCP credential set is a workspace-level MCP server credential store that sessions reference by ID at creation -- enabling the same authorized connection to be reused across multiple sessions.',
-          5: 'A session is an instance of the agent running in its environment -- you send it events (messages) and observe its work in real time.',
+          modelConnection:
+            'Model Connection selected. The Agent will use this connection for model, endpoint, and API key settings at runtime.',
+          agent:
+            'Agent created! An agent is a reusable, versioned configuration -- it defines the role, model, and tools, but does not run on its own; you start a session from it each time you need it to work.',
+          environment:
+            'Environment created! An environment defines the sandbox where the agent runs -- network rules, packages, and resource limits. Attach it to a session to enforce those constraints.',
+          mcpCredentialSet:
+            'MCP Credential Set configured! This project-scoped MCP credential set securely stores MCP server credentials for sessions in the current project.',
+          session:
+            'Session started and the trial run completed successfully. The Agent ran in its selected Environment, and you can continue sending messages and observing its work in real time.',
         },
       },
       filters: {

@@ -25,6 +25,11 @@ import {
 import { Button } from '@/components/ui/button'
 import { QuickstartLlmStep } from './components/quickstart-llm-step'
 import {
+  QuickstartCompletionDescription,
+  QuickstartCompletionTitle,
+  type QuickstartCompletionStep,
+} from './components/quickstart-completion-copy'
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -429,39 +434,23 @@ function StepCompleteCard({
   onNext,
   nextLabel,
 }: {
-  step: number
+  step: QuickstartCompletionStep
   curl: string
   endpoint: string
   onNext: () => void
   nextLabel: string
 }) {
-  const { t } = useTranslation()
-  const titles: Record<number, string> = {
-    2: t('managed.quickstart.stepComplete.secretSelected'),
-    3: t('managed.quickstart.stepComplete.agentCreated'),
-    4: t('managed.quickstart.stepComplete.envCreated'),
-    5: t('managed.quickstart.stepComplete.vaultCreated'),
-    6: t('managed.quickstart.stepComplete.sessionStarted'),
-  }
-  const descriptions: Record<number, string> = {
-    1: t('managed.quickstart.stepDesc.1'),
-    2: t('managed.quickstart.stepDesc.2'),
-    3: t('managed.quickstart.stepDesc.3'),
-    4: t('managed.quickstart.stepDesc.4'),
-    5: t('managed.quickstart.stepDesc.5'),
-    6: t('managed.quickstart.stepDesc.6'),
-  }
-
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
         <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-        {titles[step] || t('common.done')}
+        <QuickstartCompletionTitle step={step} />
       </div>
       <ApiCard endpoint={endpoint} curl={curl} />
-      {descriptions[step] && (
-        <p className="text-[13px] leading-6 text-foreground/80">{descriptions[step]}</p>
-      )}
+      <QuickstartCompletionDescription
+        step={step}
+        className="text-[13px] leading-6 text-foreground/80"
+      />
       <Button className="h-10 rounded-xl px-4 text-sm" onClick={onNext}>
         {nextLabel}
       </Button>
@@ -2155,16 +2144,15 @@ export default function QuickstartPage() {
                             </div>
                           )}
                           {trialRunStatus === 'success' && (
-                            <>
-                              <p className="text-[13px] leading-6 text-foreground/80">
-                                {t('managed.quickstart.stepDesc.6')}
-                              </p>
-                            </>
+                            <QuickstartCompletionDescription
+                              step={6}
+                              className="text-[13px] leading-6 text-foreground/80"
+                            />
                           )}
                         </>
                       ) : (
                         <StepCompleteCard
-                          step={currentStep}
+                          step={currentStep as QuickstartCompletionStep}
                           curl={curls[currentStep]}
                           endpoint={STEP_API_ENDPOINTS[currentStep] || '/unknown'}
                           onNext={advanceStep}
