@@ -1,3 +1,8 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import path from 'node:path'
+
+import { createInstance } from 'i18next'
+import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
 import en from './locales/en'
@@ -689,6 +694,254 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   ['Vault static Bearer', 'managed.vaults.cred.adding', 'Adding…', '添加中…'],
   ['Vault static Bearer', 'managed.vaults.cred.add', 'Add Credential', '添加凭据'],
+  [
+    'agent model connection',
+    'agents.edit.selectSecret',
+    'Select a Model Connection',
+    '选择模型连接',
+  ],
+  [
+    'agent model connection',
+    'agents.edit.searchSecret',
+    'Search Model Connections',
+    '搜索模型连接',
+  ],
+  [
+    'agent model connection',
+    'agents.edit.noSecretMatch',
+    'No matching Model Connections',
+    '没有匹配的模型连接',
+  ],
+  [
+    'agent model connection',
+    'agents.edit.createSecret',
+    'Create Model Connection…',
+    '新建模型连接…',
+  ],
+  [
+    'agent model connection',
+    'managed.agents.edit.selectSecret',
+    'Select a Model Connection',
+    '选择模型连接',
+  ],
+  [
+    'agent model connection',
+    'managed.agents.edit.searchSecret',
+    'Search Model Connections',
+    '搜索模型连接',
+  ],
+  [
+    'agent model connection',
+    'managed.agents.edit.noSecretMatch',
+    'No matching Model Connections',
+    '没有匹配的模型连接',
+  ],
+  [
+    'agent model connection',
+    'managed.agents.edit.createSecret',
+    'Create Model Connection…',
+    '新建模型连接…',
+  ],
+  [
+    'agent model connection',
+    'managed.agents.basicSettingsDesc',
+    'Set the agent name, model connection, engine, and system prompt.',
+    '设置智能体名称、模型连接、引擎和系统提示词。',
+  ],
+  [
+    'agent model connection',
+    'managed.skills.aiAuthor.noSecrets',
+    'No model connections available',
+    '暂无可用模型连接',
+  ],
+  [
+    'model connection states',
+    'managed.llm.configurationName',
+    'Name',
+    '名称',
+  ],
+  ['model connection states', 'managed.llm.configurationType', 'Type', '类型'],
+  ['model connection states', 'managed.llm.nameRequired', 'Enter a name.', '请输入名称。'],
+  [
+    'model connection states',
+    'managed.llm.engineFilterHint',
+    'Used only to filter compatible protocols; it does not bind this Model Connection to one engine.',
+    '仅用于筛选兼容协议，不会把此模型连接绑定到单个引擎。',
+  ],
+  [
+    'model connection states',
+    'managed.llm.noCompatibleConfigurationsHint',
+    'Create one here using a provider and protocol supported by this engine.',
+    '可在此使用该引擎支持的供应商与协议创建模型连接。',
+  ],
+  [
+    'model connection states',
+    'managed.llm.setAsProtocolDefault',
+    'Set as default for this protocol',
+    '设为该协议的默认模型连接',
+  ],
+  [
+    'service credential fields',
+    'managed.llm.genericKey',
+    'Credential Field',
+    '凭据字段',
+  ],
+  [
+    'service credential fields',
+    'managed.llm.genericPairRequired',
+    'Add at least one non-empty credential field and value.',
+    '请至少添加一组非空凭据字段和值。',
+  ],
+  [
+    'service credential fields',
+    'managed.llm.genericValuePlaceholder',
+    'Credential value',
+    '凭据值',
+  ],
+  [
+    'service credentials',
+    'managed.environments.egressCreateSecretOption',
+    'Create a service credential…',
+    '去创建服务凭据…',
+  ],
+  [
+    'service credentials',
+    'managed.environments.egressAllowedPathsHint',
+    'One path per line. A trailing / means prefix match (everything under it); otherwise exact match (that endpoint only). Leave empty = allow every endpoint under this address; for high-privilege service credentials, list paths explicitly to prevent unintended access.',
+    '一行一个路径。以 / 结尾为前缀匹配（该目录下全部），否则为精确匹配（仅该接口）。留空 = 放行该地址下所有接口；高权限服务凭据建议逐条列出以防越权。',
+  ],
+  [
+    'connections and credentials errors',
+    'managed.errorStates.secret.forbidden.title',
+    'No access to this connection or credential',
+    '无权访问此连接或凭据',
+  ],
+  [
+    'connections and credentials errors',
+    'managed.errorStates.secret.forbidden.description',
+    'Connection and credential values require write-level project access. Ask an organization admin or owner to grant access.',
+    '查看连接或凭据内容需要项目写入权限。请联系组织管理员或所有者为你开通权限。',
+  ],
+  [
+    'connections and credentials errors',
+    'managed.errorStates.secret.notFound.title',
+    'Connection or credential not found',
+    '连接或凭据未找到',
+  ],
+  [
+    'connections and credentials errors',
+    'managed.errorStates.secret.notFound.description',
+    'This connection or credential may have been deleted, archived, or the link is no longer valid.',
+    '此连接或凭据可能已被删除、归档，或当前链接已失效。',
+  ],
+  [
+    'connections and credentials errors',
+    'managed.errorStates.secret.unknown.title',
+    'Could not load connection or credential',
+    '无法加载连接或凭据',
+  ],
+  [
+    'connections and credentials errors',
+    'managed.errorStates.secret.unknown.description',
+    'We could not load this connection or credential right now. Please retry or check your connection.',
+    '暂时无法加载此连接或凭据。请重试，或检查网络连接。',
+  ],
+  [
+    'project access token errors',
+    'managed.errorStates.apiKey.forbidden.title',
+    'No access to project access tokens',
+    '无权访问项目访问令牌',
+  ],
+  [
+    'project access token errors',
+    'managed.errorStates.apiKey.forbidden.description',
+    'You do not have permission to view or manage project access tokens. Ask an organization admin or owner for access.',
+    '你没有权限查看或管理项目访问令牌，请联系组织管理员或所有者。',
+  ],
+  [
+    'project access token errors',
+    'managed.errorStates.apiKey.notFound.title',
+    'Project access token not found',
+    '项目访问令牌未找到',
+  ],
+  [
+    'project access token errors',
+    'managed.errorStates.apiKey.notFound.description',
+    'This project access token may have been deleted, or the link is no longer valid.',
+    '该项目访问令牌可能已被删除，或当前链接已失效。',
+  ],
+  [
+    'project access token errors',
+    'managed.errorStates.apiKey.unknown.title',
+    'Could not load project access tokens',
+    '无法加载项目访问令牌',
+  ],
+  [
+    'project access token errors',
+    'managed.errorStates.apiKey.unknown.description',
+    'We could not load project access tokens right now. Please retry or check your connection.',
+    '暂时无法加载项目访问令牌，请稍后重试。',
+  ],
+  [
+    'project access tokens',
+    'manage.apiKeys.namePlaceholder',
+    'Enter token name',
+    '输入令牌名称',
+  ],
+  [
+    'project access tokens',
+    'manage.apiKeys.newKeyWarning',
+    "Copy this project access token now. You won't be able to see it again.",
+    '请立即复制此项目访问令牌，关闭后将无法再次查看。',
+  ],
+  [
+    'project access tokens',
+    'manage.apiKeys.revokeDesc',
+    'This project access token will be immediately invalidated. All requests using it will be rejected. This cannot be undone.',
+    '撤销后此项目访问令牌将立即失效，使用该令牌的所有请求将被拒绝。此操作不可撤销。',
+  ],
+  [
+    'sessions',
+    'managed.sessions.credentials',
+    'MCP Credentials',
+    'MCP 凭据',
+  ],
+  [
+    'sessions',
+    'managed.sessions.noCredentials',
+    'No MCP credentials configured.',
+    '未配置 MCP 凭据。',
+  ],
+  [
+    'sessions',
+    'managed.sessions.mcpCredentialSetCount_one',
+    '{{count}} MCP credential set',
+    '{{count}} 个 MCP 凭据组',
+  ],
+  [
+    'sessions',
+    'managed.sessions.mcpCredentialSetCount_other',
+    '{{count}} MCP credential sets',
+    '{{count}} 个 MCP 凭据组',
+  ],
+  [
+    'quickstart',
+    'managed.quickstart.stepComplete.secretSelected',
+    'Model Connection Selected',
+    '模型连接已选择',
+  ],
+  [
+    'quickstart',
+    'managed.quickstart.stepDesc.1',
+    'Model Connection selected. The Agent will use this connection for model, endpoint, and API key settings at runtime.',
+    '模型连接已选择。这个 Agent 运行时会从该模型连接读取模型、接口地址和 API Key 设置。',
+  ],
+  [
+    'quickstart',
+    'managed.quickstart.autoIntro.mcpCredentialSetQuestion',
+    'What MCP credential set does my agent need for MCP server credentials?',
+    '我的智能体需要怎样的 MCP 凭据组来保存 MCP 服务器凭据？',
+  ],
 ]
 
 const apiKeyFields = ['title', 'subtitle', 'create', 'empty', 'revokeTitle', 'revoke'] as const
@@ -727,6 +980,71 @@ function getTranslationValue(root: unknown, path: string): unknown {
   }, root)
 }
 
+const frontendRoot = path.resolve(process.cwd())
+const productionSourceRoots = ['app', 'components', 'hooks'].map((directory) =>
+  path.join(frontendRoot, directory),
+)
+const excludedSourcePath = /(?:^|\/)(?:__generated__|generated)(?:\/|$)/
+const excludedSourceFile = /\.(?:test|spec|stories)\.[cm]?[jt]sx?$/
+const sourceFilePattern = /\.[cm]?[jt]sx?$/
+const legacySourcePatterns = [
+  /\bmodel secrets?\b/i,
+  /\bmodel configurations?\b/i,
+  /\bagent secrets?\b/i,
+  /模型配置|模型密钥|智能体密钥|Agent 密钥/u,
+  /\bvault configuration\b/i,
+  /^\$\{…\}\s+vaults?$/i,
+] as const
+
+function collectProductionSourceFiles(directory: string): string[] {
+  return readdirSync(directory).flatMap((entry) => {
+    const absolutePath = path.join(directory, entry)
+    const relativePath = path.relative(frontendRoot, absolutePath)
+    if (excludedSourcePath.test(relativePath)) return []
+    if (statSync(absolutePath).isDirectory()) return collectProductionSourceFiles(absolutePath)
+    if (!sourceFilePattern.test(entry) || excludedSourceFile.test(entry)) return []
+    return [absolutePath]
+  })
+}
+
+function templateLiteralText(node: ts.TemplateExpression): string {
+  return node.templateSpans.reduce(
+    (value, span) => `${value}\${…}${span.literal.text}`,
+    node.head.text,
+  )
+}
+
+function findHardCodedLegacyCredentialCopy(): string[] {
+  const violations: string[] = []
+  for (const file of productionSourceRoots.flatMap(collectProductionSourceFiles)) {
+    const source = readFileSync(file, 'utf8')
+    const sourceFile = ts.createSourceFile(
+      file,
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    )
+
+    function visit(node: ts.Node) {
+      let text: string | undefined
+      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) text = node.text
+      if (ts.isTemplateExpression(node)) text = templateLiteralText(node)
+      if (ts.isJsxText(node)) text = node.getText(sourceFile).trim()
+      if (text && legacySourcePatterns.some((pattern) => pattern.test(text))) {
+        const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
+        violations.push(
+          `${path.relative(frontendRoot, file)}:${position.line + 1}:${position.character + 1} ${JSON.stringify(text)}`,
+        )
+      }
+      ts.forEachChild(node, visit)
+    }
+
+    visit(sourceFile)
+  }
+  return violations
+}
+
 describe('credential domain terminology', () => {
   it.each(terminologyExpectations)(
     'uses exact English %s copy for %s',
@@ -762,4 +1080,33 @@ describe('credential domain terminology', () => {
       expect(getTranslationValue(zh.translation, path)).not.toMatch(/凭[据证]库/)
     },
   )
+
+  it('interpolates singular and plural MCP Credential Set counts in both locales', async () => {
+    const instance = createInstance()
+    await instance.init({
+      lng: 'en',
+      fallbackLng: false,
+      resources: { en, zh },
+      interpolation: { escapeValue: false },
+    })
+
+    expect(instance.t('managed.sessions.mcpCredentialSetCount', { count: 1 })).toBe(
+      '1 MCP credential set',
+    )
+    expect(instance.t('managed.sessions.mcpCredentialSetCount', { count: 2 })).toBe(
+      '2 MCP credential sets',
+    )
+
+    await instance.changeLanguage('zh')
+    expect(instance.t('managed.sessions.mcpCredentialSetCount', { count: 1 })).toBe(
+      '1 个 MCP 凭据组',
+    )
+    expect(instance.t('managed.sessions.mcpCredentialSetCount', { count: 2 })).toBe(
+      '2 个 MCP 凭据组',
+    )
+  })
+
+  it('keeps hard-coded production copy free of legacy credential nouns', () => {
+    expect(findHardCodedLegacyCredentialCopy()).toEqual([])
+  })
 })
