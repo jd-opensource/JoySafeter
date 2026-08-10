@@ -40,6 +40,7 @@ credential_profiles:
         label: Auth Token
         type: secret
         help_text: Bearer token for an Anthropic-compatible gateway.
+        advanced: true
       - key: ANTHROPIC_BASE_URL
         label: Base URL
         type: url
