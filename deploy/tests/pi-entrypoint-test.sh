@@ -34,11 +34,15 @@ assert_contains "$out" '"$OPENAI_API_KEY"'
 # The real key must never be baked in; only the placeholder ref is used.
 assert_not_contains "$out" 'sk-'
 
-# --- chat_completions ---
+# --- chat_completions (also verifies trailing slash is stripped from baseUrl:
+#     pi appends /chat/completions, so a trailing slash would yield a // path
+#     that the JD Cloud gateway rejects with 400) ---
 out="$(JOYSAFETER_MODEL_PROTOCOL=chat_completions \
-      OPENAI_MODEL=GPT-4.1 OPENAI_BASE_URL=http://egress.local:3128/v1 \
+      OPENAI_MODEL=GPT-4.1 OPENAI_BASE_URL=http://egress.local:3128/v1/ \
       OPENAI_API_KEY=placeholder generate_pi_models_json)"
 assert_contains "$out" '"openai-completions"'
+assert_contains "$out" '"baseUrl": "http://egress.local:3128/v1"'
+assert_not_contains "$out" 'v1/"'
 
 # --- anthropic_messages ---
 out="$(JOYSAFETER_MODEL_PROTOCOL=anthropic_messages \

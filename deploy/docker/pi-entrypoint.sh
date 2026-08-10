@@ -46,6 +46,13 @@ generate_pi_models_json() {
 
     [ -n "$model" ] || return 0
 
+    # Strip trailing slash(es) from baseUrl. pi appends "/chat/completions" (etc.),
+    # so a base like "http://host/v1/" would yield "http://host/v1//chat/completions"
+    # — the JD Cloud gateway rejects the double slash with 400 "参数解析失败", which
+    # surfaces as an empty pi turn. The egress-repointed OPENAI_BASE_URL carries the
+    # operator's trailing slash, so normalize it here.
+    while [ "${base_url%/}" != "$base_url" ]; do base_url="${base_url%/}"; done
+
     # Render JSON. Uses python3 for correct escaping (present in the pi image).
     JS_API="$api" JS_BASE="$base_url" JS_KEY="$api_key_var" \
     JS_MODEL="$model" JS_PROVIDER="$PI_PROVIDER_NAME" python3 - <<'PY'
