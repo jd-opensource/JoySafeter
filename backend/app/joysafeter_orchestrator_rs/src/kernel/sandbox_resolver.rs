@@ -84,6 +84,13 @@ pub struct SandboxResolver {
     network_policy_ready: dashmap::DashMap<Uuid, String>,
     /// Optional notify to trigger immediate pool replenishment after a claim.
     pool_replenish_notify: Option<Arc<tokio::sync::Notify>>,
+    /// Optional xDS state store. In multi mode, the initial setup_networking on
+    /// the sandbox-start path pushes the LDS listener into THIS replica's local
+    /// xDS server only; peers must be told to reconcile so the Envoy that lands
+    /// on their ADS stream (Service load-balanced) also receives the listener.
+    /// Without this broadcast the sandbox's egress socket is never created on
+    /// nodes whose Envoy happens to be connected to a different replica.
+    xds_store: Option<Arc<dyn XdsStateStore>>,
 }
 
 impl SandboxResolver {
@@ -95,12 +102,21 @@ impl SandboxResolver {
             session_locks: dashmap::DashMap::new(),
             network_policy_ready: dashmap::DashMap::new(),
             pool_replenish_notify: None,
+            xds_store: None,
         }
     }
 
     /// Set the pool replenish notify (called from scheduler setup).
     pub fn with_pool_replenish_notify(mut self, notify: Arc<tokio::sync::Notify>) -> Self {
         self.pool_replenish_notify = Some(notify);
+        self
+    }
+
+    /// Set the xDS state store so the initial networking push broadcasts a
+    /// cross-replica reconcile notification (multi mode). No-op store in
+    /// standalone/leader modes, so this is safe to always wire up.
+    pub fn with_xds_store(mut self, xds_store: Arc<dyn XdsStateStore>) -> Self {
+        self.xds_store = Some(xds_store);
         self
     }
 
@@ -745,6 +761,17 @@ impl SandboxResolver {
                     let _ =
                         queries::mark_sandbox_network_policy_acked(&self.pool, sandbox_db_id).await;
                 }
+                // Multi mode: tell peer replicas to reconcile so the Envoy landing
+                // on their ADS stream also gets this sandbox's listener. The
+                // initial push above only populated THIS replica's local xDS.
+                if let Some(ref store) = self.xds_store {
+                    if let Err(e) = store.notify_change(sandbox_db_id, XdsAction::Upsert).await {
+                        warn!(
+                            sandbox_id = %sandbox_db_id,
+                            "Failed to broadcast xDS upsert to peers: {e}"
+                        );
+                    }
+                }
             }
         }
 
@@ -1061,6 +1088,16 @@ impl SandboxResolver {
             .insert(sandbox_id, context.expected.egress_policy_hash.clone());
         if self.config.envoy_xds_mode != "grpc" {
             let _ = queries::mark_sandbox_network_policy_acked(&self.pool, sandbox_id).await;
+        }
+        // Multi mode: broadcast so peer replicas reconcile this sandbox's
+        // listener into their local xDS (see with_xds_store docs).
+        if let Some(ref store) = self.xds_store {
+            if let Err(e) = store.notify_change(sandbox_id, XdsAction::Upsert).await {
+                warn!(
+                    sandbox_id = %sandbox_id,
+                    "Failed to broadcast xDS upsert to peers (pool claim): {e}"
+                );
+            }
         }
         info!(
             sandbox_id = %sandbox_id,
@@ -2280,7 +2317,18 @@ pub(crate) async fn reconcile_sandbox_networking(
         .await;
         return Err(e);
     }
-    queries::mark_sandbox_network_policy_acked(pool, sandbox_id).await?;
+    // In grpc (Delta xDS) mode the real Envoy ACK/NACK arrives asynchronously
+    // and is persisted by persist_ack/persist_nack — do NOT optimistically mark
+    // ready here, or the reconcile loop's query stops selecting a sandbox whose
+    // push actually NACK'd (e.g. socket dir not yet created), leaving it stuck
+    // with no listener. Only the filesystem backend applies synchronously, so we
+    // mark ready immediately there.
+    let is_grpc_xds = std::env::var("JOYSAFETER_ENVOY_XDS_MODE")
+        .map(|m| m == "grpc")
+        .unwrap_or(false);
+    if !is_grpc_xds {
+        queries::mark_sandbox_network_policy_acked(pool, sandbox_id).await?;
+    }
 
     // Notify other instances so their Envoy DaemonSets pick up the change
     if let Some(store) = xds_store {

@@ -3,6 +3,18 @@ kind: ServiceAccount
 metadata:
   name: joysafeter-orchestrator
   namespace: {{ .Values.namespace }}
+{{- with .Values.image.imagePullSecrets }}
+imagePullSecrets:
+  {{- range . }}
+  - name: {{ . }}
+  {{- end }}
+{{- end }}
+
+# 注意: sandbox Pod 由 orchestrator 用 default SA 创建, 需要 default SA 带
+# imagePullSecrets 才能拉私有镜像。default SA 是 K8s 自建、非 Helm 管理,
+# 无法由 chart 接管, 部署前手工 patch 一次 (见 README):
+#   kubectl patch serviceaccount default -n <ns> \
+#     -p '{"imagePullSecrets":[{"name":"aisec-repo-cred"}]}'
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1

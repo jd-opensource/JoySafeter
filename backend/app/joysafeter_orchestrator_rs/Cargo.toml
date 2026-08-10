@@ -48,6 +48,10 @@ k8s-openapi = { version = "0.24", features = ["v1_32"] }
 
 # HTTP client (for Daytona/E2B providers)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# rustls 0.23 requires a process-level CryptoProvider to be installed explicitly
+# when multiple providers (ring + aws-lc-rs) are present in the graph. We install
+# aws-lc-rs in main() before any TLS is used (Redis TLS / PG SSL / HTTPS clients).
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
 aws-config = { version = "1", default-features = false, features = ["behavior-version-latest", "rt-tokio", "rustls"] }
 aws-credential-types = "1"
 aws-sdk-s3 = "1"

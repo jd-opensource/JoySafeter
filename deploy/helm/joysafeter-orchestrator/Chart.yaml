@@ -1,6 +1,6 @@
 apiVersion: v2
 name: joysafeter-orchestrator
-description: JoySafeter AI Agent Sandbox Orchestrator
+description: JoySafeter AI Agent Sandbox Orchestrator (multi-replica + Envoy DaemonSet)
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.1.0"

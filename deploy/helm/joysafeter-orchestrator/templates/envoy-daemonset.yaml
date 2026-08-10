@@ -16,9 +16,16 @@ spec:
     metadata:
       labels:
         app: joysafeter-envoy
+        app.kubernetes.io/environment: {{ .Values.environment }}
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 10
+      {{- with .Values.image.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
 
       containers:
       - name: envoy
@@ -110,7 +117,7 @@ spec:
                         "endpoint": {
                           "address": {
                             "socket_address": {
-                              "address": "joysafeter-orchestrator",
+                              "address": "joysafeter-orchestrator.{{ .Values.namespace }}.svc.cluster.local",
                               "port_value": {{ .Values.orchestrator.grpc.port }}
                             }
                           }
@@ -124,7 +131,7 @@ spec:
             "admin": {
               "address": {
                 "socket_address": {
-                  "address": "127.0.0.1",
+                  "address": "0.0.0.0",
                   "port_value": 9901
                 }
               }

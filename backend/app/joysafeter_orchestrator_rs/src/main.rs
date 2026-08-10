@@ -22,6 +22,13 @@ async fn main() -> anyhow::Result<()> {
     // Load .env if present
     let _ = dotenvy::dotenv();
 
+    // Install the rustls process-level CryptoProvider before any TLS is used.
+    // rustls 0.23 panics on first TLS use if it cannot auto-select a provider,
+    // which happens when both ring and aws-lc-rs are in the dependency graph
+    // (sqlx PG SSL, redis rediss://, reqwest HTTPS, kube). Install aws-lc-rs
+    // explicitly so cloud TLS connections work. Err = already installed → ignore.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -312,6 +319,7 @@ async fn main() -> anyhow::Result<()> {
         sandbox_provider.clone(),
         config.clone(),
         Some(sandbox_controller.pool_replenish_notify.clone()),
+        Some(ha.xds_store.clone()),
     );
     info!("Task scheduler started");
 
@@ -441,8 +449,22 @@ async fn main() -> anyhow::Result<()> {
         tokio::time::sleep(DRAIN_TIMEOUT).await;
     }
 
-    // Send shutdown to remaining connected runners
-    bridge_store.shutdown_all().await;
+    // Send shutdown to remaining connected runners — ONLY in standalone mode.
+    //
+    // In standalone the only orchestrator is going away, so runners must exit
+    // (nothing to reconnect to). In multi/leader modes this replica is one of
+    // several: on a rolling restart the runner's gRPC stream simply breaks and
+    // it reconnects to a surviving replica via the Service (bridge state is in
+    // Redis). Sending an explicit Shutdown here would needlessly kill every
+    // running sandbox on each orchestrator deploy, defeating HA.
+    if ha.mode.as_str() == "standalone" {
+        bridge_store.shutdown_all().await;
+    } else {
+        info!(
+            ha_mode = %ha.mode.as_str(),
+            "Skipping runner shutdown broadcast; runners will reconnect to a surviving replica"
+        );
+    }
 
     // Stop remaining background tasks
     grpc_handle.abort();

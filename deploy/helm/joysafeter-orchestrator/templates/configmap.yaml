@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: joysafeter-orchestrator-config
+  namespace: {{ .Values.namespace }}
+data:
+  # ── 基础 ──
+  RUST_LOG: {{ .Values.orchestrator.logLevel | quote }}
+
+  # ── 数据库连接池 ──
+  DATABASE_POOL_SIZE: {{ .Values.orchestrator.database.poolSize | quote }}
+  DATABASE_MIN_CONNECTIONS: {{ .Values.orchestrator.database.minConnections | quote }}
+
+  # ── HA ──
+  JOYSAFETER_HA_MODE: {{ .Values.haMode | quote }}
+  JOYSAFETER_HEARTBEAT_INTERVAL: {{ .Values.orchestrator.heartbeat.interval | quote }}
+  JOYSAFETER_HEARTBEAT_TTL: {{ .Values.orchestrator.heartbeat.ttl | quote }}
+  {{- if eq .Values.haMode "leader" }}
+  JOYSAFETER_LEADER_ELECTION_ENABLED: "true"
+  JOYSAFETER_LEADER_LEASE_NAME: {{ .Values.orchestrator.leader.leaseName | quote }}
+  JOYSAFETER_LEADER_LEASE_DURATION_SEC: {{ .Values.orchestrator.leader.leaseDurationSec | quote }}
+  JOYSAFETER_LEADER_RENEW_INTERVAL_SEC: {{ .Values.orchestrator.leader.renewIntervalSec | quote }}
+  {{- end }}
+
+  # ── gRPC ──
+  JOYSAFETER_GRPC_HOST: "0.0.0.0"
+  JOYSAFETER_GRPC_PORT: {{ .Values.orchestrator.grpc.port | quote }}
+  JOYSAFETER_GRPC_PUBLIC_URL: "http://joysafeter-orchestrator.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.orchestrator.grpc.port }}"
+  JOYSAFETER_GRPC_MAX_CONNECTIONS: {{ .Values.orchestrator.grpc.maxConnections | quote }}
+  JOYSAFETER_GRPC_MAX_EXECUTIONS: {{ .Values.orchestrator.grpc.maxExecutions | quote }}
+
+  # ── Sandbox Provider ──
+  JOYSAFETER_SANDBOX_PROVIDER: "k8s"
+  JOYSAFETER_K8S_NAMESPACE: {{ .Values.namespace | quote }}
+  # sandbox 连回 orchestrator 的地址 (K8s Service FQDN)
+  JOYSAFETER_K8S_ORCHESTRATOR_URL: "http://joysafeter-orchestrator.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.orchestrator.grpc.port }}"
+  JOYSAFETER_SANDBOX_IMAGE: {{ .Values.image.sandbox.claude | quote }}
+  JOYSAFETER_IMAGE_CLAUDE: {{ .Values.image.sandbox.claude | quote }}
+  JOYSAFETER_IMAGE_CODEX: {{ .Values.image.sandbox.codex | quote }}
+  JOYSAFETER_IMAGE_NATIVE: {{ .Values.image.sandbox.native | quote }}
+  JOYSAFETER_MAX_MEMORIES_PER_STORE: {{ .Values.orchestrator.maxMemoriesPerStore | quote }}
+  {{- if .Values.orchestrator.sandboxWorkspaceRoot }}
+  JOYSAFETER_SANDBOX_WORKSPACE_ROOT: {{ .Values.orchestrator.sandboxWorkspaceRoot | quote }}
+  {{- end }}
+
+  # ── Sandbox 容器加固 ──
+  JOYSAFETER_SANDBOX_DROP_ALL_CAPS: {{ .Values.orchestrator.hardening.dropAllCaps | quote }}
+  JOYSAFETER_SANDBOX_NO_NEW_PRIVILEGES: {{ .Values.orchestrator.hardening.noNewPrivileges | quote }}
+  JOYSAFETER_SANDBOX_PIDS_LIMIT: {{ .Values.orchestrator.hardening.pidsLimit | quote }}
+  {{- if .Values.orchestrator.hardening.runAsUser }}
+  JOYSAFETER_SANDBOX_RUN_AS_USER: {{ .Values.orchestrator.hardening.runAsUser | quote }}
+  {{- end }}
+
+  # ── Sandbox 资源限制 ──
+  {{- if .Values.orchestrator.sandboxResources.cpu }}
+  JOYSAFETER_SANDBOX_CPU: {{ .Values.orchestrator.sandboxResources.cpu | quote }}
+  {{- end }}
+  {{- if .Values.orchestrator.sandboxResources.memoryMb }}
+  JOYSAFETER_SANDBOX_MEMORY_MB: {{ .Values.orchestrator.sandboxResources.memoryMb | quote }}
+  {{- end }}
+  {{- if .Values.orchestrator.sandboxResources.diskMb }}
+  JOYSAFETER_SANDBOX_DISK_MB: {{ .Values.orchestrator.sandboxResources.diskMb | quote }}
+  {{- end }}
+
+  # ── 预热池 ──
+  JOYSAFETER_SANDBOX_POOL_ENABLED: {{ .Values.orchestrator.pool.enabled | quote }}
+  JOYSAFETER_SANDBOX_POOL_MIN_SIZE: {{ .Values.orchestrator.pool.minSize | quote }}
+  JOYSAFETER_SANDBOX_POOL_MAX_AGE: {{ .Values.orchestrator.pool.maxAge | quote }}
+  {{- if .Values.orchestrator.pool.images }}
+  JOYSAFETER_SANDBOX_POOL_IMAGES: {{ .Values.orchestrator.pool.images | toJson | quote }}
+  {{- end }}
+
+  # ── Sandbox 生命周期 ──
+  JOYSAFETER_SANDBOX_IDLE_TIMEOUT: {{ .Values.orchestrator.sandbox.idleTimeout | quote }}
+  JOYSAFETER_SANDBOX_STOPPED_TTL: {{ .Values.orchestrator.sandbox.stoppedTTL | quote }}
+  JOYSAFETER_SANDBOX_HARD_TIMEOUT: {{ .Values.orchestrator.sandbox.hardTimeout | quote }}
+  JOYSAFETER_SANDBOX_BRIDGE_DISCONNECT_GRACE: {{ .Values.orchestrator.sandbox.bridgeDisconnectGrace | quote }}
+  JOYSAFETER_SANDBOX_FAILURE_THRESHOLD: {{ .Values.orchestrator.sandbox.failureThreshold | quote }}
+
+  # ── Envoy ──
+  {{- if .Values.envoy.enabled }}
+  JOYSAFETER_ENVOY_ENABLED: "true"
+  JOYSAFETER_ENVOY_XDS_MODE: {{ .Values.envoy.xdsMode | quote }}
+  JOYSAFETER_ENVOY_SOCKET_HOST_DIR: {{ .Values.envoy.socketHostDir | quote }}
+  JOYSAFETER_ENVOY_GRPC_HOST: "joysafeter-orchestrator.{{ .Values.namespace }}.svc.cluster.local"
+  JOYSAFETER_ENVOY_GRPC_PORT: {{ .Values.orchestrator.grpc.port | quote }}
+  {{- end }}
+
+  # ── 调度 ──
+  JOYSAFETER_MAX_CONCURRENT_TASKS: {{ .Values.orchestrator.scheduling.maxConcurrentTasks | quote }}
+  JOYSAFETER_MAX_SCHEDULING_TASKS: {{ .Values.orchestrator.scheduling.maxSchedulingTasks | quote }}
+  JOYSAFETER_SCHEDULER_BATCH_SIZE: {{ .Values.orchestrator.scheduling.batchSize | quote }}
+  JOYSAFETER_TASK_DEFAULT_TIMEOUT: {{ .Values.orchestrator.task.defaultTimeout | quote }}
+  JOYSAFETER_TASK_DEFAULT_MAX_RETRIES: {{ .Values.orchestrator.task.defaultMaxRetries | quote }}
+  JOYSAFETER_TASK_LEASE_TTL_SEC: {{ .Values.orchestrator.task.leaseTtlSec | quote }}
+  JOYSAFETER_TASK_LEASE_RENEW_INTERVAL_SEC: {{ .Values.orchestrator.task.leaseRenewIntervalSec | quote }}
+
+  # ── 事件流 ──
+  JOYSAFETER_EVENT_STREAM_ENABLED: {{ .Values.orchestrator.eventStream.enabled | quote }}
+  JOYSAFETER_EVENT_STREAM_KEY: {{ .Values.orchestrator.eventStream.key | quote }}
+  JOYSAFETER_EVENT_STREAM_GROUP: {{ .Values.orchestrator.eventStream.group | quote }}
+  JOYSAFETER_EVENT_STREAM_MAX_LEN: {{ .Values.orchestrator.eventStream.maxLen | quote }}
+  JOYSAFETER_EVENT_STREAM_BATCH_SIZE: {{ .Values.orchestrator.eventStream.batchSize | quote }}
+  JOYSAFETER_EVENT_STREAM_BLOCK_MS: {{ .Values.orchestrator.eventStream.blockMs | quote }}
+  JOYSAFETER_EVENT_STREAM_FALLBACK_TO_DB: {{ .Values.orchestrator.eventStream.fallbackToDb | quote }}
+  JOYSAFETER_REDIS_QUEUE_PREFIX: "joysafeter"
+
+  # ── Egress 白名单 ──
+  JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS: {{ join "," .Values.egress.allowedHosts | quote }}
+
+  # ── 沙箱遥测禁用 ──
+  DISABLE_TELEMETRY: "1"

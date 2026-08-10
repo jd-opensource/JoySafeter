@@ -13,3 +13,15 @@ spec:
   - port: 9091
     targetPort: health
     name: health
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: joysafeter-orchestrator
+  namespace: {{ .Values.namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: joysafeter-orchestrator

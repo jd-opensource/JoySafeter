@@ -57,10 +57,14 @@ pub fn spawn_scheduler(
     provider: Arc<dyn SandboxProvider>,
     config: JoySafeterConfig,
     pool_replenish_notify: Option<Arc<tokio::sync::Notify>>,
+    xds_store: Option<Arc<dyn crate::kernel::ha::XdsStateStore>>,
 ) -> JoinHandle<()> {
     let mut resolver = SandboxResolver::new(pool.clone(), provider, config.clone());
     if let Some(notify) = pool_replenish_notify {
         resolver = resolver.with_pool_replenish_notify(notify);
+    }
+    if let Some(store) = xds_store {
+        resolver = resolver.with_xds_store(store);
     }
     let resolver = Arc::new(resolver);
     let scheduling_semaphore = Arc::new(Semaphore::new(config.max_scheduling_tasks));

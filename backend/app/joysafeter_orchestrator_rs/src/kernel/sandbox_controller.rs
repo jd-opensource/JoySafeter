@@ -151,16 +151,29 @@ impl SandboxController {
         if !self.provider.capabilities().has_egress_management {
             return;
         }
-        let interval = Duration::from_secs(15);
+        // Adaptive cadence: poll fast (2s) while there is degraded networking to
+        // repair, back off to 15s when everything is healthy. A freshly-created
+        // K8s sandbox NACKs its first listener push (Envoy tries to bind the
+        // socket before the pod initContainer has created the dir); the fast
+        // cadence re-pushes within ~2s once the dir exists instead of leaving a
+        // ~15s egress gap. Idle cost stays low via the 15s back-off.
+        const FAST: Duration = Duration::from_secs(2);
+        const IDLE: Duration = Duration::from_secs(15);
         const BATCH: i64 = 20;
-        info!("SandboxController networking reconcile started (interval=15s)");
+        info!("SandboxController networking reconcile started (adaptive 2s/15s)");
 
         loop {
-            tokio::time::sleep(interval).await;
-
-            if let Err(e) = self.reconcile_degraded_networking(BATCH).await {
-                error!("Networking reconcile error: {e}");
-            }
+            let repaired = match self.reconcile_degraded_networking(BATCH).await {
+                Ok(count) => count,
+                Err(e) => {
+                    error!("Networking reconcile error: {e}");
+                    0
+                }
+            };
+            // Stay in fast mode while we're actively repairing (a NACK'd sandbox
+            // stays degraded until its async ACK lands, so keep polling quickly).
+            let next = if repaired > 0 { FAST } else { IDLE };
+            tokio::time::sleep(next).await;
         }
     }
 
@@ -168,13 +181,17 @@ impl SandboxController {
     /// sandboxes. Each reconcile is independent; one failure does not abort the
     /// batch. Fail-closed: a sandbox that can't be repaired stays `network=none`
     /// with no egress and is retried next tick.
-    async fn reconcile_degraded_networking(&self, limit: i64) -> anyhow::Result<()> {
+    ///
+    /// Returns the number of degraded sandboxes found this tick (0 = all
+    /// healthy), so the caller can adapt its polling cadence.
+    async fn reconcile_degraded_networking(&self, limit: i64) -> anyhow::Result<usize> {
         let degraded = queries::list_degraded_limited_sandboxes(&self.pool, limit).await?;
         if degraded.is_empty() {
-            return Ok(());
+            return Ok(0);
         }
+        let degraded_count = degraded.len();
         debug!(
-            count = degraded.len(),
+            count = degraded_count,
             "Reconciling degraded sandbox networking"
         );
 
@@ -207,7 +224,7 @@ impl SandboxController {
                 }
             }
         }
-        Ok(())
+        Ok(degraded_count)
     }
 
     /// Cleanup loop: runs every 10s OR immediately when pool claim notifies.

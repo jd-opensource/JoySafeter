@@ -1489,6 +1489,12 @@ pub struct DeltaXdsServer {
     /// to only send resources for sandboxes running on their node. Empty in
     /// standalone/Docker mode (→ permissive: all resources pass filter).
     sandbox_nodes: Arc<dashmap::DashMap<Uuid, String>>,
+    /// True in K8s mode (DaemonSet Envoy, one per node). When set, a sandbox
+    /// whose node mapping is not yet known is NOT sent to any Envoy stream
+    /// (restrictive) — sending it to the wrong node's Envoy would NACK because
+    /// that node lacks the sandbox's hostPath socket dir. In standalone/Docker
+    /// mode this stays false and filtering is permissive (single Envoy).
+    node_aware: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl DeltaXdsServer {
@@ -1502,6 +1508,7 @@ impl DeltaXdsServer {
             apply_status: Arc::new(Mutex::new(HashMap::new())),
             status_notify,
             sandbox_nodes: Arc::new(dashmap::DashMap::new()),
+            node_aware: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
     }
 
@@ -1514,7 +1521,22 @@ impl DeltaXdsServer {
     /// In standalone/Docker mode this is not called; the filter defaults to
     /// "include all" when a sandbox has no node entry.
     pub fn set_sandbox_node(&self, sandbox_id: Uuid, node_name: String) {
-        self.sandbox_nodes.insert(sandbox_id, node_name);
+        let changed = self
+            .sandbox_nodes
+            .insert(sandbox_id, node_name)
+            .is_none();
+        // Enabling node-aware mode is sticky: once any sandbox→node mapping is
+        // registered we are in K8s (DaemonSet) mode, so unmapped sandboxes must
+        // be filtered restrictively rather than broadcast to every node's Envoy.
+        self.node_aware
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        // Bump the push version so connected Envoy streams re-evaluate the
+        // node filter. A mapping that arrives after the initial push (PodWatcher
+        // cache lag) must trigger delivery to the correct node's Envoy now.
+        if changed {
+            let next = *self.notify.borrow() + 1;
+            let _ = self.notify.send(next);
+        }
     }
 
     /// Remove sandbox→node mapping (called on sandbox destroy).
@@ -1852,11 +1874,17 @@ impl CdsBackend for GrpcCds {
 /// Resource names follow the pattern `{sandbox_uuid}_{suffix}` (e.g.,
 /// `{uuid}_http` for listeners, `{uuid}_{host}_{port}` for clusters).
 /// Non-sandbox resources (e.g., shared DFP clusters) always pass.
-/// If a sandbox has no node entry (standalone mode), it also passes (permissive).
+///
+/// Unmapped sandboxes: in standalone/Docker mode (`node_aware=false`, single
+/// Envoy) they pass (permissive). In K8s mode (`node_aware=true`, DaemonSet)
+/// they are WITHHELD until their node is known — sending a listener to the
+/// wrong node's Envoy makes it NACK (`cannot bind .../http.sock`) because that
+/// node lacks the sandbox's hostPath socket dir.
 fn resource_matches_node(
     resource_name: &str,
     stream_node: &str,
     sandbox_nodes: &dashmap::DashMap<Uuid, String>,
+    node_aware: bool,
 ) -> bool {
     // Sandbox UUIDs are 36 chars (8-4-4-4-12 with hyphens)
     if resource_name.len() < 36 {
@@ -1868,7 +1896,9 @@ fn resource_matches_node(
     };
     match sandbox_nodes.get(&sandbox_id) {
         Some(entry) => entry.value() == stream_node,
-        None => true, // Not registered → permissive (standalone or race)
+        // Not registered: permissive in standalone (single Envoy), restrictive
+        // in K8s (withhold until the node mapping is known → avoids wrong-node NACK).
+        None => !node_aware,
     }
 }
 
@@ -1906,6 +1936,7 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
         let state_handle = self.state_snapshot_handle();
         let xds_status_handle = self.status_handle();
         let sandbox_nodes = self.sandbox_nodes.clone();
+        let node_aware = self.node_aware.clone();
 
         // Resource types this aggregated stream serves. Order matters: Clusters
         // (CDS) must be pushed before Listeners (LDS) so a listener's routes
@@ -1965,7 +1996,7 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                                         snap
                                     } else {
                                         snap.into_iter()
-                                            .filter(|(name, _)| resource_matches_node(name, &stream_node, &sandbox_nodes))
+                                            .filter(|(name, _)| resource_matches_node(name, &stream_node, &sandbox_nodes, node_aware.load(std::sync::atomic::Ordering::Relaxed)))
                                             .collect()
                                     };
                                     let (resp, current) = delta_response_from_snapshot(
@@ -2013,7 +2044,7 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                                     snap
                                 } else {
                                     snap.into_iter()
-                                        .filter(|(name, _)| resource_matches_node(name, &stream_node, &sandbox_nodes))
+                                        .filter(|(name, _)| resource_matches_node(name, &stream_node, &sandbox_nodes, node_aware.load(std::sync::atomic::Ordering::Relaxed)))
                                         .collect()
                                 };
                                 let (resp, current) = delta_response_from_snapshot(
@@ -2046,7 +2077,7 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                             // Node-aware filter: skip resources not on this node
                             if !stream_node.is_empty() {
                                 resp.resources.retain(|r| {
-                                    resource_matches_node(&r.name, &stream_node, &sandbox_nodes)
+                                    resource_matches_node(&r.name, &stream_node, &sandbox_nodes, node_aware.load(std::sync::atomic::Ordering::Relaxed))
                                 });
                                 // Only keep removed_resources that match this node too
                                 // (so we don't tell Envoy to remove something it never had)
@@ -2057,7 +2088,7 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                             }
                             for name in &removed {
                                 if stream_node.is_empty()
-                                    || resource_matches_node(name, &stream_node, &sandbox_nodes)
+                                    || resource_matches_node(name, &stream_node, &sandbox_nodes, node_aware.load(std::sync::atomic::Ordering::Relaxed))
                                 {
                                     prev.remove(name);
                                 }

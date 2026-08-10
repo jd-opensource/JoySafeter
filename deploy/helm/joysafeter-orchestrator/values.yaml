@@ -1,9 +1,14 @@
 # =============================================================================
-# JoySafeter Orchestrator Helm Values
+# JoySafeter Orchestrator Helm Values — 默认值 (通用基础)
+# =============================================================================
+# 使用方式:
+#   helm install joysafeter-test . -f values-test.yaml
+#   helm install joysafeter-prod . -f values-prod.yaml
 # =============================================================================
 
 # ── 全局 ──
 namespace: joysafeter
+environment: production   # test / production
 
 # ── 镜像 ──
 image:
@@ -14,16 +19,55 @@ image:
     codex: aisec-repo.jd.com/joysafeter/joysafeter-codex:latest
     native: aisec-repo.jd.com/joysafeter/joysafeter-native:latest
   pullPolicy: Always
+  # 私有仓库拉取凭证名 (被所有 pod 引用)
+  imagePullSecrets:
+    - aisec-repo-cred
+
+# ── 私有仓库账号 (可选) ──
+# 配了则 Helm 自动生成 docker-registry Secret (名字 = secretName)
+# 不配则需手动创建:
+#   kubectl create secret docker-registry aisec-repo-cred -n <ns> \
+#     --docker-server=aisec-repo.jd.com --docker-username=xxx --docker-password=xxx
+# imageRegistry:
+#   secretName: aisec-repo-cred
+#   server: aisec-repo.jd.com
+#   username: "your-user"
+#   password: "your-password"
+
+# ── 外部依赖 (通过 Secret 注入) ──
+# 方式 1: 在 values-{env}.yaml 中配置 database/redis → 自动生成 Secret
+# 方式 2: 手动 kubectl create secret → 只设 externalSecret 名称
+externalSecret: joysafeter-secrets
+
+# ── 数据库 (可选,配了则自动生成 Secret) ──
+# database:
+#   host: pg-host
+#   port: 5432
+#   user: joysafeter
+#   password: "your-password"
+#   name: joysafeter
+
+# ── Redis (可选,配了则自动生成 Secret) ──
+# redis:
+#   host: redis-host
+#   port: 6379
+#   password: "your-password"
+#   db: 0
+
+# ── Vault 加密密钥 (可选,配了则写入 Secret) ──
+# 生成: openssl rand -base64 32
+# vaultEncryptionKey: "your-base64-key"
 
 # ── HA 模式 ──
-# standalone: 单机 (Docker Compose)
-# leader:     主备 (K8s 2副本, Lease 选主)
-# multi:      多副本无状态 (K8s N副本, Redis 协调)
-haMode: multi
+haMode: multi   # standalone / leader / multi
 
-# ── Orchestrator Deployment ──
+# ═══════════════════════════════════════════════════════════════════════════════
+# Orchestrator Deployment
+# ═══════════════════════════════════════════════════════════════════════════════
+
 orchestrator:
   replicas: 3
+
   resources:
     requests:
       cpu: "500m"
@@ -32,19 +76,26 @@ orchestrator:
       cpu: "4"
       memory: "4Gi"
 
-  # gRPC
+  # ── gRPC ──
   grpc:
     port: 9090
     maxConnections: 5000
     maxExecutions: 2000
 
-  # 调度
+  # ── 调度 ──
   scheduling:
     maxConcurrentTasks: 500
     maxSchedulingTasks: 300
     batchSize: 10
 
-  # Sandbox 生命周期
+  # ── 任务重试/租约 ──
+  task:
+    defaultTimeout: 7200
+    defaultMaxRetries: 2
+    leaseTtlSec: 45
+    leaseRenewIntervalSec: 10
+
+  # ── Sandbox 生命周期 ──
   sandbox:
     idleTimeout: 300
     stoppedTTL: 3600
@@ -52,35 +103,74 @@ orchestrator:
     bridgeDisconnectGrace: 90
     failureThreshold: 3
 
-  # 预热池
+  # ── Sandbox 容器加固 (注入到每个沙箱 Pod) ──
+  hardening:
+    dropAllCaps: true
+    noNewPrivileges: true
+    pidsLimit: 256           # 0=不限制; 单机用 0, K8s 建议限制
+    runAsUser: "1000:1000"   # 空=用镜像默认 USER
+
+  # ── Sandbox 资源限制 (每个沙箱容器, 空=不限制) ──
+  sandboxResources:
+    cpu: ""                  # 如 "2" (核数)
+    memoryMb: ""             # 如 4096
+    diskMb: ""               # 如 10240
+
+  # ── 沙箱内存存储上限 ──
+  maxMemoriesPerStore: 2000
+
+  # ── 沙箱工作区根目录 (K8s 通常用 PVC, 留空) ──
+  sandboxWorkspaceRoot: ""
+
+  # ── 预热池 ──
   pool:
     enabled: true
     minSize: 5
     maxAge: 1800
+    # 预热的镜像列表 (留空则用 sandbox.claude 单一镜像)
+    images: []
+    # images:
+    #   - aisec-repo.jd.com/joysafeter/joysafeter-claudecode:latest
+    #   - aisec-repo.jd.com/joysafeter/joysafeter-codex:latest
 
-  # 事件流
+  # ── 事件流 ──
   eventStream:
     enabled: true
     key: "joysafeter:orchestrator:events"
     group: "joysafeter-orchestrator-event-workers"
     maxLen: 100000
+    batchSize: 100
+    blockMs: 1000
+    fallbackToDb: true
 
-  # Leader 模式配置 (仅 haMode=leader 时生效)
+  # ── 数据库连接池 ──
+  database:
+    poolSize: 20
+    minConnections: 5
+
+  # ── 心跳 ──
+  heartbeat:
+    interval: 15
+    ttl: 30
+
+  # ── Leader 模式 (仅 haMode=leader 时) ──
   leader:
     leaseName: joysafeter-orchestrator-leader
     leaseDurationSec: 10
     renewIntervalSec: 3
 
-  # 心跳
-  heartbeat:
-    interval: 15
-    ttl: 30
+  # ── 日志 ──
+  logLevel: info
 
-# ── Envoy DaemonSet ──
+# ═══════════════════════════════════════════════════════════════════════════════
+# Envoy DaemonSet
+# ═══════════════════════════════════════════════════════════════════════════════
+
 envoy:
   enabled: true
   xdsMode: grpc
   socketHostDir: /data/joysafeter/envoy-sockets
+
   resources:
     requests:
       cpu: "100m"
@@ -89,18 +179,18 @@ envoy:
       cpu: "2"
       memory: "512Mi"
 
-# ── Egress 白名单 ──
+# ═══════════════════════════════════════════════════════════════════════════════
+# Egress 白名单 (Envoy 允许出站的 LLM/MCP 域名)
+# ═══════════════════════════════════════════════════════════════════════════════
+
 egress:
   allowedHosts:
     - ai-api.jdcloud.com
-    - api.anthropic.com
-    - api.openai.com
-    - generativelanguage.googleapis.com
 
-# ── 外部依赖 (通过 Secret 注入) ──
-# Secret 名称, 必须包含: DATABASE_URL, REDIS_URL, JOYSAFETER_VAULT_ENCRYPTION_KEY
-externalSecret: joysafeter-secrets
+# ═══════════════════════════════════════════════════════════════════════════════
+# NetworkPolicy (Cilium)
+# ═══════════════════════════════════════════════════════════════════════════════
 
-# ── NetworkPolicy ──
 networkPolicy:
   enabled: true
+  type: cilium   # cilium (CiliumNetworkPolicy) / standard (K8s NetworkPolicy)

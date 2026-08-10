@@ -17,19 +17,22 @@ spec:
     metadata:
       labels:
         app: joysafeter-orchestrator
+        app.kubernetes.io/environment: {{ .Values.environment }}
+      annotations:
+        # 配置变更时触发滚动更新 (ConfigMap/Secret 内容变了 → pod 重建)
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
     spec:
       serviceAccountName: joysafeter-orchestrator
       terminationGracePeriodSeconds: 30
-
+      {{- with .Values.image.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
       affinity:
         podAntiAffinity:
-          {{- if eq .Values.haMode "leader" }}
-          requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchLabels:
-                app: joysafeter-orchestrator
-            topologyKey: kubernetes.io/hostname
-          {{- else }}
           preferredDuringSchedulingIgnoredDuringExecution:
           - weight: 100
             podAffinityTerm:
@@ -37,7 +40,6 @@ spec:
                 matchLabels:
                   app: joysafeter-orchestrator
               topologyKey: kubernetes.io/hostname
-          {{- end }}
 
       containers:
       - name: orchestrator
@@ -49,10 +51,8 @@ spec:
         - containerPort: 9091
           name: health
 
+        # Pod 级动态字段 (必须用 fieldRef,不能进 ConfigMap)
         env:
-        # ── 基础 ──
-        - name: RUST_LOG
-          value: "info"
         - name: JOYSAFETER_INSTANCE_ID
           valueFrom:
             fieldRef:
@@ -62,111 +62,10 @@ spec:
             fieldRef:
               fieldPath: metadata.name
 
-        # ── HA 模式 ──
-        - name: JOYSAFETER_HA_MODE
-          value: {{ .Values.haMode | quote }}
-        - name: JOYSAFETER_HEARTBEAT_INTERVAL
-          value: {{ .Values.orchestrator.heartbeat.interval | quote }}
-        - name: JOYSAFETER_HEARTBEAT_TTL
-          value: {{ .Values.orchestrator.heartbeat.ttl | quote }}
-
-        {{- if eq .Values.haMode "leader" }}
-        # ── Leader Election ──
-        - name: JOYSAFETER_LEADER_ELECTION_ENABLED
-          value: "true"
-        - name: JOYSAFETER_LEADER_LEASE_NAME
-          value: {{ .Values.orchestrator.leader.leaseName | quote }}
-        - name: JOYSAFETER_LEADER_LEASE_DURATION_SEC
-          value: {{ .Values.orchestrator.leader.leaseDurationSec | quote }}
-        - name: JOYSAFETER_LEADER_RENEW_INTERVAL_SEC
-          value: {{ .Values.orchestrator.leader.renewIntervalSec | quote }}
-        {{- end }}
-
-        # ── gRPC ──
-        - name: JOYSAFETER_GRPC_HOST
-          value: "0.0.0.0"
-        - name: JOYSAFETER_GRPC_PORT
-          value: {{ .Values.orchestrator.grpc.port | quote }}
-        - name: JOYSAFETER_GRPC_PUBLIC_URL
-          value: "http://joysafeter-orchestrator:{{ .Values.orchestrator.grpc.port }}"
-        - name: JOYSAFETER_GRPC_MAX_CONNECTIONS
-          value: {{ .Values.orchestrator.grpc.maxConnections | quote }}
-        - name: JOYSAFETER_GRPC_MAX_EXECUTIONS
-          value: {{ .Values.orchestrator.grpc.maxExecutions | quote }}
-
-        # ── Sandbox Provider ──
-        - name: JOYSAFETER_SANDBOX_PROVIDER
-          value: "k8s"
-        - name: JOYSAFETER_K8S_NAMESPACE
-          value: {{ .Values.namespace | quote }}
-        - name: JOYSAFETER_SANDBOX_IMAGE
-          value: {{ .Values.image.sandbox.claude | quote }}
-        - name: JOYSAFETER_IMAGE_CLAUDE
-          value: {{ .Values.image.sandbox.claude | quote }}
-        - name: JOYSAFETER_IMAGE_CODEX
-          value: {{ .Values.image.sandbox.codex | quote }}
-        - name: JOYSAFETER_IMAGE_NATIVE
-          value: {{ .Values.image.sandbox.native | quote }}
-
-        # ── 预热池 ──
-        - name: JOYSAFETER_SANDBOX_POOL_ENABLED
-          value: {{ .Values.orchestrator.pool.enabled | quote }}
-        - name: JOYSAFETER_SANDBOX_POOL_MIN_SIZE
-          value: {{ .Values.orchestrator.pool.minSize | quote }}
-        - name: JOYSAFETER_SANDBOX_POOL_MAX_AGE
-          value: {{ .Values.orchestrator.pool.maxAge | quote }}
-
-        # ── Envoy ──
-        {{- if .Values.envoy.enabled }}
-        - name: JOYSAFETER_ENVOY_ENABLED
-          value: "true"
-        - name: JOYSAFETER_ENVOY_XDS_MODE
-          value: {{ .Values.envoy.xdsMode | quote }}
-        - name: JOYSAFETER_ENVOY_SOCKET_HOST_DIR
-          value: {{ .Values.envoy.socketHostDir | quote }}
-        - name: JOYSAFETER_ENVOY_GRPC_HOST
-          value: "joysafeter-orchestrator"
-        - name: JOYSAFETER_ENVOY_GRPC_PORT
-          value: {{ .Values.orchestrator.grpc.port | quote }}
-        {{- end }}
-
-        # ── 调度/运行时 ──
-        - name: JOYSAFETER_MAX_CONCURRENT_TASKS
-          value: {{ .Values.orchestrator.scheduling.maxConcurrentTasks | quote }}
-        - name: JOYSAFETER_MAX_SCHEDULING_TASKS
-          value: {{ .Values.orchestrator.scheduling.maxSchedulingTasks | quote }}
-        - name: JOYSAFETER_SCHEDULER_BATCH_SIZE
-          value: {{ .Values.orchestrator.scheduling.batchSize | quote }}
-        - name: JOYSAFETER_SANDBOX_IDLE_TIMEOUT
-          value: {{ .Values.orchestrator.sandbox.idleTimeout | quote }}
-        - name: JOYSAFETER_SANDBOX_STOPPED_TTL
-          value: {{ .Values.orchestrator.sandbox.stoppedTTL | quote }}
-        - name: JOYSAFETER_SANDBOX_HARD_TIMEOUT
-          value: {{ .Values.orchestrator.sandbox.hardTimeout | quote }}
-        - name: JOYSAFETER_TASK_DEFAULT_TIMEOUT
-          value: "7200"
-
-        # ── 事件流 ──
-        - name: JOYSAFETER_EVENT_STREAM_ENABLED
-          value: {{ .Values.orchestrator.eventStream.enabled | quote }}
-        - name: JOYSAFETER_EVENT_STREAM_KEY
-          value: {{ .Values.orchestrator.eventStream.key | quote }}
-        - name: JOYSAFETER_EVENT_STREAM_GROUP
-          value: {{ .Values.orchestrator.eventStream.group | quote }}
-        - name: JOYSAFETER_EVENT_STREAM_MAX_LEN
-          value: {{ .Values.orchestrator.eventStream.maxLen | quote }}
-        - name: JOYSAFETER_REDIS_QUEUE_PREFIX
-          value: "joysafeter"
-
-        # ── Egress 白名单 ──
-        - name: JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS
-          value: {{ join "," .Values.egress.allowedHosts | quote }}
-
-        - name: DISABLE_TELEMETRY
-          value: "1"
-
-        # ── Secret ──
+        # 非敏感配置 (ConfigMap) + 敏感配置 (Secret)
         envFrom:
+        - configMapRef:
+            name: joysafeter-orchestrator-config
         - secretRef:
             name: {{ .Values.externalSecret }}
 
@@ -174,7 +73,7 @@ spec:
           httpGet:
             path: /healthz/ready
             port: 9091
-          periodSeconds: {{ if eq .Values.haMode "leader" }}2{{ else }}5{{ end }}
+          periodSeconds: 5
           failureThreshold: 3
           initialDelaySeconds: 5
 
