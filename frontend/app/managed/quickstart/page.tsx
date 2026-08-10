@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
+  isQuickstartCompletionStep,
   QuickstartCompletionDescription,
   QuickstartCompletionTitle,
   type QuickstartCompletionStep,
@@ -2150,9 +2151,9 @@ export default function QuickstartPage() {
                             />
                           )}
                         </>
-                      ) : (
+                      ) : isQuickstartCompletionStep(currentStep) ? (
                         <StepCompleteCard
-                          step={currentStep as QuickstartCompletionStep}
+                          step={currentStep}
                           curl={curls[currentStep]}
                           endpoint={STEP_API_ENDPOINTS[currentStep] || '/unknown'}
                           onNext={advanceStep}
@@ -2166,7 +2167,7 @@ export default function QuickstartPage() {
                                   : t('common.done')
                           }
                         />
-                      )}
+                      ) : null}
                     </>
                   )}
 

@@ -1548,8 +1548,6 @@ const zh = {
           sessionStarted: '会话已启动',
         },
         stepDesc: {
-          modelConnection:
-            '模型连接已选择。这个 Agent 运行时会从该模型连接读取模型、接口地址和 API Key 设置。',
           agent:
             '智能体已创建！智能体是可复用的版本化配置 —— 它定义了角色、模型和工具，但不会自行运行；你每次需要它工作时都从中启动会话。',
           environment:

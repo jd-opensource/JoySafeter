@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import i18n from '@/lib/i18n/config'
 
 import {
+  QUICKSTART_COMPLETION_STEPS,
   QuickstartCompletionDescription,
   QuickstartCompletionTitle,
   type QuickstartCompletionStep,
@@ -11,11 +12,6 @@ import {
 
 const completionCopy = {
   en: [
-    [
-      2,
-      'Model Connection Selected',
-      'Model Connection selected. The Agent will use this connection for model, endpoint, and API key settings at runtime.',
-    ],
     [
       3,
       'Agent Created',
@@ -38,11 +34,6 @@ const completionCopy = {
     ],
   ],
   zh: [
-    [
-      2,
-      '模型连接已选择',
-      '模型连接已选择。这个 Agent 运行时会从该模型连接读取模型、接口地址和 API Key 设置。',
-    ],
     [
       3,
       '智能体已创建',
@@ -67,6 +58,10 @@ const completionCopy = {
 } as const
 
 afterEach(() => cleanup())
+
+it('limits semantic completion copy to production description steps', () => {
+  expect(QUICKSTART_COMPLETION_STEPS).toEqual([3, 4, 5, 6])
+})
 
 describe.each(['en', 'zh'] as const)('Quickstart completion copy in %s', (locale) => {
   it.each(completionCopy[locale])(

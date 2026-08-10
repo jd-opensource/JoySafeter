@@ -1518,8 +1518,6 @@ const en = {
           sessionStarted: 'Session Started',
         },
         stepDesc: {
-          modelConnection:
-            'Model Connection selected. The Agent will use this connection for model, endpoint, and API key settings at runtime.',
           agent:
             'Agent created! An agent is a reusable, versioned configuration -- it defines the role, model, and tools, but does not run on its own; you start a session from it each time you need it to work.',
           environment:

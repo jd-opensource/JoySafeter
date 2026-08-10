@@ -975,12 +975,6 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   [
     'quickstart',
-    'managed.quickstart.stepDesc.modelConnection',
-    'Model Connection selected. The Agent will use this connection for model, endpoint, and API key settings at runtime.',
-    '模型连接已选择。这个 Agent 运行时会从该模型连接读取模型、接口地址和 API Key 设置。',
-  ],
-  [
-    'quickstart',
     'managed.quickstart.autoIntro.mcpCredentialSetQuestion',
     'What MCP credential set does my agent need for MCP server credentials?',
     '我的智能体需要怎样的 MCP 凭据组来保存 MCP 服务器凭据？',
@@ -1125,7 +1119,7 @@ describe('credential domain terminology', () => {
       0,
     )
 
-    expect(inventory.counts).toEqual({ direct: 1274, dynamic: 387, total: 1661 })
+    expect(inventory.counts).toEqual({ direct: 1273, dynamic: 387, total: 1660 })
     expect(templateAdditions).toBe(340)
     expect(finiteAdditions).toBe(47)
     expect(inventory.templateDynamicLeaves).toContain(

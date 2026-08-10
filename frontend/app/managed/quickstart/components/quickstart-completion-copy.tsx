@@ -2,7 +2,13 @@
 
 import { useTranslation } from '@/lib/i18n'
 
-export type QuickstartCompletionStep = 2 | 3 | 4 | 5 | 6
+export const QUICKSTART_COMPLETION_STEPS = [3, 4, 5, 6] as const
+
+export type QuickstartCompletionStep = (typeof QUICKSTART_COMPLETION_STEPS)[number]
+
+export function isQuickstartCompletionStep(step: number): step is QuickstartCompletionStep {
+  return QUICKSTART_COMPLETION_STEPS.some((completionStep) => completionStep === step)
+}
 
 interface QuickstartCompletionCopyProps {
   step: QuickstartCompletionStep
@@ -16,8 +22,6 @@ export function QuickstartCompletionTitle({ step }: QuickstartCompletionCopyProp
   const { t } = useTranslation()
 
   switch (step) {
-    case 2:
-      return t('managed.quickstart.stepComplete.secretSelected')
     case 3:
       return t('managed.quickstart.stepComplete.agentCreated')
     case 4:
@@ -37,9 +41,6 @@ export function QuickstartCompletionDescription({
   let description: string
 
   switch (step) {
-    case 2:
-      description = t('managed.quickstart.stepDesc.modelConnection')
-      break
     case 3:
       description = t('managed.quickstart.stepDesc.agent')
       break
