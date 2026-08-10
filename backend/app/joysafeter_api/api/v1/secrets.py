@@ -25,6 +25,7 @@ from app.joysafeter_domain.schemas.joysafeter_secret import (
     SecretTestResponse,
     TestSecretRequest,
     UpdateSecretRequest,
+    is_usable_secret_field_name,
 )
 from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_shared.common.app_errors import (
@@ -306,16 +307,19 @@ def _secret_model(secret, service: SecretService, model_key: str | None) -> str 
 def _secret_response(secret, svc: SecretService, *, include_secret_data: bool) -> SecretResponse:
     model_key, engine_ids = _catalog_identity(secret)
     decrypted = svc.get_secret_data(secret) if (model_key or include_secret_data) else {}
+    response_data = {
+        key: value for key, value in decrypted.items() if is_usable_secret_field_name(key)
+    }
     return SecretResponse(
         id=secret.id,
         name=secret.name,
         kind=secret.kind,
         provider=secret.provider,
         protocol=secret.protocol,
-        model=(decrypted.get(model_key) or None) if model_key else None,
+        model=(response_data.get(model_key) or None) if model_key else None,
         compatible_engine_ids=engine_ids,
         is_default=secret.is_default,
-        secret_data=svc.mask_data(decrypted) if include_secret_data else {},
+        secret_data=svc.mask_data(response_data) if include_secret_data else {},
         created_at=secret.created_at,
         updated_at=secret.updated_at,
     )
@@ -421,7 +425,7 @@ async def list_secrets(
                 model=_secret_model(secret, svc, model_key),
                 compatible_engine_ids=engine_ids,
                 is_default=secret.is_default,
-                keys=sorted(secret.data.keys()) if secret.data else [],
+                keys=sorted(key for key in (secret.data or {}) if is_usable_secret_field_name(key)),
                 created_at=secret.created_at,
                 updated_at=secret.updated_at,
             )

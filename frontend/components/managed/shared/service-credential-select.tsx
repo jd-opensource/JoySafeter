@@ -47,7 +47,7 @@ export function ServiceCredentialSelect({
               <span>{credential.name}</span>
               <span className="text-xs text-muted-foreground">
                 {t('managed.triggers.credentialFieldCount', {
-                  count: credential.keys?.length ?? 0,
+                  count: credential.keys?.filter((field) => field.trim().length > 0).length ?? 0,
                 })}
               </span>
             </SelectItem>

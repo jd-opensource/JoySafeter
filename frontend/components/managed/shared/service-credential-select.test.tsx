@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Secret } from '@/types/managed'
 
 vi.mock('@/lib/i18n', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string, params?: { count?: number }) =>
+      key === 'managed.triggers.credentialFieldCount' ? `${params?.count ?? 0} fields` : key,
+  }),
 }))
 
 vi.mock('@/components/ui/select', async () => {
@@ -199,5 +202,24 @@ describe('ServiceCredentialSelect', () => {
 
     fireEvent.click(option)
     expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('omits malformed blank keys from the displayed field count', () => {
+    render(
+      <ServiceCredentialSelect
+        value=""
+        onChange={vi.fn()}
+        credentials={[
+          genericSecret(
+            'hook-prod',
+            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
+            ['', '   ', ' TOKEN '],
+          ),
+        ]}
+        ariaLabel="Service credential"
+      />,
+    )
+
+    expect(screen.getByRole('option', { name: /hook-prod/ })).toHaveTextContent('1 fields')
   })
 })

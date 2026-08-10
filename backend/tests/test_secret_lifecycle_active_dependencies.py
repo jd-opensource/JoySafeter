@@ -1,9 +1,11 @@
 import uuid
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from credential_test_helpers import encrypted_secret_data
 from error_contract_helpers import handled_app_error_payload
+from fastapi import FastAPI
 from starlette.requests import Request
 from sqlalchemy import select
 
@@ -27,6 +29,7 @@ from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_secret import CreateSecretRequest, UpdateSecretRequest
 from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_shared.common.app_errors import AppError
+from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.ids import SecretId
 from app.joysafeter_shared.utils.datetime import utc_now
@@ -62,6 +65,20 @@ def _request() -> Request:
             "query_string": b"",
         }
     )
+
+
+def _app(db, auth_ctx: JoySafeterAuthContext) -> FastAPI:
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.include_router(secrets_api.router, prefix="/api/v1/secrets")
+    app.dependency_overrides[secrets_api.get_db] = lambda: db
+    app.dependency_overrides[secrets_api.get_joysafeter_auth_context] = lambda: auth_ctx
+    app.dependency_overrides[secrets_api.require_joysafeter_write] = lambda: auth_ctx
+    return app
+
+
+def _client(app: FastAPI) -> httpx.AsyncClient:
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
 
 class _DisabledCipher:
@@ -155,6 +172,124 @@ async def test_list_secrets_returns_canonical_secret_cursor(db_session):
     assert page["has_more"] is True
     assert page["last_id"] is not None
     assert str(SecretId.from_public(page["last_id"])) == page["last_id"]
+
+
+@pytest.mark.asyncio
+async def test_create_secret_rejects_blank_field_name_without_persisting(db_session):
+    project_id = f"project-{uuid.uuid4()}"
+    await _ensure_project(db_session, project_id)
+    secret_name = f"invalid-secret-{uuid.uuid4()}"
+    app = _app(db_session, _project_auth_ctx(project_id))
+
+    async with _client(app) as client:
+        response = await client.post(
+            "/api/v1/secrets",
+            json={
+                "kind": "generic",
+                "name": secret_name,
+                "data": {"   ": "must-not-persist"},
+            },
+        )
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["code"] == "REQUEST_VALIDATION_ERROR"
+    assert payload["user_action"] == "fix_input"
+    assert payload["data"]["errors"] == [
+        {
+            "field": "body.data",
+            "message": "Value error, Secret field names must not be blank",
+            "type": "value_error",
+        }
+    ]
+    persisted = (
+        await db_session.execute(
+            select(JoySafeterSecret).where(
+                JoySafeterSecret.project_id == project_id,
+                JoySafeterSecret.name == secret_name,
+            )
+        )
+    ).scalar_one_or_none()
+    assert persisted is None
+
+
+@pytest.mark.asyncio
+async def test_update_secret_rejects_blank_field_name_without_mutating(db_session):
+    project_id = f"project-{uuid.uuid4()}"
+    secret = await _project_secret(db_session, project_id=project_id)
+    secret_id = secret.id
+    app = _app(db_session, _project_auth_ctx(project_id))
+
+    async with _client(app) as client:
+        response = await client.put(
+            f"/api/v1/secrets/{secret_id}",
+            json={"data": {"": "must-not-persist"}},
+        )
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["code"] == "REQUEST_VALIDATION_ERROR"
+    assert payload["user_action"] == "fix_input"
+    assert payload["data"]["errors"] == [
+        {
+            "field": "body.data",
+            "message": "Value error, Secret field names must not be blank",
+            "type": "value_error",
+        }
+    ]
+    db_session.expire_all()
+    persisted = (
+        await db_session.execute(select(JoySafeterSecret).where(JoySafeterSecret.id == secret_id))
+    ).scalar_one()
+    assert SecretService(db_session).get_secret_data(persisted) == {"TOKEN": "value"}
+
+
+@pytest.mark.asyncio
+async def test_secret_responses_omit_historical_blank_field_names_without_plaintext(db_session):
+    project_id = f"project-{uuid.uuid4()}"
+    await _ensure_project(db_session, project_id)
+    secret = JoySafeterSecret(
+        name=f"historical-secret-{uuid.uuid4()}",
+        kind="generic",
+        provider=None,
+        protocol=None,
+        data=encrypted_secret_data(
+            {
+                "": "empty-name-plaintext",
+                "   ": "whitespace-name-plaintext",
+                " TOKEN ": "surrounded-name-plaintext",
+                "TOKEN": "normal-name-plaintext",
+            }
+        ),
+        project_id=project_id,
+    )
+    db_session.add(secret)
+    await db_session.commit()
+    await db_session.refresh(secret)
+    auth_ctx = _project_auth_ctx(project_id)
+
+    page = await list_secrets(
+        limit=10,
+        after_id=None,
+        kind=None,
+        name=secret.name,
+        provider=None,
+        protocol=None,
+        compatible_engine=None,
+        db=db_session,
+        auth_ctx=auth_ctx,
+    )
+    detail = await get_secret(secret.id, db_session, auth_ctx)
+
+    assert page["data"][0]["keys"] == [" TOKEN ", "TOKEN"]
+    assert set(detail.secret_data) == {" TOKEN ", "TOKEN"}
+    assert all(value.startswith("********") for value in detail.secret_data.values())
+    assert not {
+        "empty-name-plaintext",
+        "whitespace-name-plaintext",
+        "surrounded-name-plaintext",
+        "normal-name-plaintext",
+    }.intersection(detail.secret_data.values())
 
 
 @pytest.mark.asyncio

@@ -145,6 +145,10 @@ function isWebhookAuthMethod(value: unknown): value is WebhookAuthMethod {
   return typeof value === 'string' && AUTH_METHODS.includes(value as WebhookAuthMethod)
 }
 
+function usableCredentialFields(fields: readonly string[] | undefined): string[] {
+  return (fields ?? []).filter((field) => field.trim().length > 0)
+}
+
 // Sentinel Select value for "no explicit environment" — radix Select cannot use
 // an empty-string item value, so we map this to `environment_ref = null`.
 const FOLLOW_AGENT_ENV = '__agent_default__'
@@ -331,7 +335,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
     [secretRef, serviceCredentials],
   )
   const credentialFields = useMemo(
-    () => selectedCredential?.keys ?? [],
+    () => usableCredentialFields(selectedCredential?.keys),
     [selectedCredential],
   )
   const missingCredential = useMemo(
@@ -581,7 +585,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
 
   const handleServiceCredentialChange = (value: string) => {
     const credential = serviceCredentials.find((item) => item.name === value)
-    const fields = credential?.keys ?? []
+    const fields = usableCredentialFields(credential?.keys)
     setSecretRef(value)
     setSecretKey(fields.includes(DEFAULT_SECRET_KEY) ? DEFAULT_SECRET_KEY : (fields[0] ?? ''))
   }

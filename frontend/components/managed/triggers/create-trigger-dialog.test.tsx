@@ -9,6 +9,7 @@ import type { AgentTrigger } from '@/lib/managed/triggers'
 import { AGENT_ID, MANUAL_TRIGGER_ID, OTHER_TRIGGER_ID, TRIGGER_ID } from '@/test-utils/entity-ids'
 
 const mutateAsync = vi.fn()
+const secretParserState = vi.hoisted(() => ({ bypass: false }))
 
 vi.mock('@/lib/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
@@ -44,6 +45,15 @@ vi.mock('@/lib/api-client', () => ({
   managedGet: vi.fn(),
 }))
 
+vi.mock('@/lib/managed/secret-response-parsers', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/managed/secret-response-parsers')>()
+  return {
+    ...actual,
+    parseSecretListResponse: (response: unknown[]) =>
+      secretParserState.bypass ? response : actual.parseSecretListResponse(response),
+  }
+})
+
 vi.mock('@/components/ui/select', async () => {
   const React = await import('react')
   const SelectContext = React.createContext<(value: string) => void>(() => undefined)
@@ -65,8 +75,9 @@ vi.mock('@/components/ui/select', async () => {
     SelectGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
     SelectItem: ({ children, value }: { children: ReactNode; value: string }) => {
       const onValueChange = React.useContext(SelectContext)
+      if (!value.trim()) throw new Error('Radix SelectItem values must not be blank')
       return (
-        <button type="button" onClick={() => onValueChange(value)}>
+        <button type="button" data-select-value={value} onClick={() => onValueChange(value)}>
           {children}
         </button>
       )
@@ -263,6 +274,7 @@ function renderDialog(trigger: AgentTrigger, open = true) {
 describe('CreateTriggerDialog edit mode', () => {
   beforeEach(() => {
     managedGetMock.mockReset()
+    secretParserState.bypass = false
     mockManagedApi()
   })
 
@@ -390,6 +402,23 @@ describe('CreateTriggerDialog edit mode', () => {
 
     await waitFor(() => expect(getByText('managed.triggers.credentialFieldEmpty')).toBeTruthy())
     expect(getByText('common.save').closest('button')).toBeDisabled()
+  })
+
+  it('never renders blank credential field items when malformed metadata bypasses parsing', async () => {
+    secretParserState.bypass = true
+    mockManagedApi({ keys: ['', '   ', 'WEBHOOK_SECRET'] })
+
+    const view = renderDialog(
+      webhookTrigger({ secretRef: 'hook-prod', secretKey: 'WEBHOOK_SECRET' }),
+    )
+
+    await waitFor(() => expect(view.getByText('WEBHOOK_SECRET')).toBeTruthy())
+    const itemValues = [...view.baseElement.querySelectorAll('[data-select-value]')].map(
+      (item) => item.getAttribute('data-select-value') ?? '',
+    )
+    expect(itemValues).toContain('WEBHOOK_SECRET')
+    expect(itemValues.some((value) => !value.trim())).toBe(false)
+    expect(view.getByText('common.save').closest('button')).not.toBeDisabled()
   })
 
   it('reports a failed Secret query and disables save', async () => {

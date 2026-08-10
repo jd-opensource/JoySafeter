@@ -17,9 +17,20 @@ const secretBaseSchema = z
   })
   .strict()
 
-const secretListSchema = secretBaseSchema.extend({ keys: z.array(z.string()).default([]) }).strict()
+const usableSecretFieldNamesSchema = z
+  .array(z.string())
+  .default([])
+  .transform((fields) => fields.filter((field) => field.trim().length > 0))
+const usableSecretDataSchema = z
+  .record(z.string(), z.string())
+  .default({})
+  .transform((data) =>
+    Object.fromEntries(Object.entries(data).filter(([field]) => field.trim().length > 0)),
+  )
+
+const secretListSchema = secretBaseSchema.extend({ keys: usableSecretFieldNamesSchema }).strict()
 const secretDetailSchema = secretBaseSchema
-  .extend({ secret_data: z.record(z.string(), z.string()).default({}) })
+  .extend({ secret_data: usableSecretDataSchema })
   .strict()
 
 export function parseSecretResponse(response: unknown): Secret {

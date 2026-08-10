@@ -29,6 +29,16 @@ def _trim_secret_values(data: dict[str, str]) -> dict[str, str]:
     }
 
 
+def is_usable_secret_field_name(key: str) -> bool:
+    return bool(key.strip())
+
+
+def _validate_secret_field_names(data: dict[str, str]) -> dict[str, str]:
+    if any(not is_usable_secret_field_name(key) for key in data):
+        raise ValueError("Secret field names must not be blank")
+    return data
+
+
 class SecretKind(StrEnum):
     LLM = "llm"
     GENERIC = "generic"
@@ -47,7 +57,7 @@ class CreateSecretRequest(BaseModel):
     @field_validator("data")
     @classmethod
     def _trim_url_values(cls, v: dict[str, str]) -> dict[str, str]:
-        return _trim_secret_values(v)
+        return _trim_secret_values(_validate_secret_field_names(v))
 
     @model_validator(mode="after")
     def _validate_identity(self) -> "CreateSecretRequest":
@@ -70,7 +80,7 @@ class UpdateSecretRequest(BaseModel):
     @field_validator("data")
     @classmethod
     def _trim_url_values(cls, v: dict[str, str]) -> dict[str, str]:
-        return _trim_secret_values(v)
+        return _trim_secret_values(_validate_secret_field_names(v))
 
 
 class TestSecretRequest(BaseModel):
