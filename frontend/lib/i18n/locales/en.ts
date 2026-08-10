@@ -33,6 +33,10 @@ const en = {
       retry: 'Retry',
       refresh: 'Refresh',
       close: 'Close',
+      noResults: 'No matching results',
+      restore: 'Restore',
+      search: 'Search',
+      select: 'Select',
       pageErrorTitle: 'Page failed to load',
       pageErrorDescription:
         'This page could not be loaded right now. Please retry later or contact an administrator if the issue continues.',
@@ -181,6 +185,7 @@ const en = {
     user: {
       logout: 'Log out',
       user: 'User',
+      userMenu: 'User menu',
     },
     settings: {
       profile: 'Profile',
@@ -563,6 +568,12 @@ const en = {
         description: 'Description',
         descriptionPlaceholder: 'Optional description',
         systemPromptPlaceholder: 'Enter system prompt...',
+        promptModeAppend: 'Append mode',
+        promptModeAppendTooltip:
+          "Append the system prompt after the engine's built-in prompt, preserving its behavior guidelines and best practices.",
+        promptModeReplace: 'Replace mode',
+        promptModeReplaceTooltip:
+          'Replace the engine built-in prompt completely so your system prompt controls Agent behavior. Tools such as commands and file operations remain available.',
         saving: 'Saving...',
         saveChanges: 'Save Changes',
         viewDetails: 'View Details',
@@ -587,6 +598,8 @@ const en = {
           environmentRefHint:
             'Optional. If unset, choose an environment when creating a session. If set, sessions use this by default unless overridden.',
           permissionMode: 'Permission Mode',
+          permissionModeHint:
+            'Controls whether the Agent requires confirmation before using tools such as commands and file writes. Always Allow lets the Agent execute all operations autonomously.',
           permBypass: 'Always Allow (bypass permissions)',
           permAsk: 'Ask (require confirmation)',
           advancedSummary: 'MCP, tools, skills',
@@ -681,6 +694,11 @@ const en = {
         credentials: 'MCP Credentials',
         credentialsDesc: 'Stored MCP server authorizations available to the agent.',
         noCredentials: 'No MCP credentials configured.',
+        envVars: 'Environment Variables',
+        egressServices: 'Third-party Services',
+        storageVolumes: 'Storage Volume Mounts',
+        filesUnavailable: 'Files could not be loaded.',
+        noFilesAvailable: 'No files available.',
         mcpCredentialSetCount_one: '{{count}} MCP credential set',
         mcpCredentialSetCount_other: '{{count}} MCP credential sets',
         overview: 'Overview',
@@ -925,6 +943,8 @@ const en = {
         basicSettingsDesc: 'Set the environment name, purpose, and default network access policy.',
         creating: 'Creating...',
         networking: 'Networking',
+        networkingHint:
+          'In limited network mode, the sandbox cannot access the internet by default. Only allowlisted hosts and configured third-party service addresses are reachable.',
         netUnrestricted: 'Unrestricted',
         netUnrestrictedDesc:
           'Allow sandbox internet access; recommended only for trusted environments or debugging.',
@@ -933,6 +953,8 @@ const en = {
           'Block internet access by default; allow only allowlisted hosts and configured third-party services.',
         recommended: 'Recommended',
         allowedHosts: 'Allowed hosts',
+        allowedHostsHint:
+          'Comma-separated internet hosts the sandbox may access directly. Configured third-party service addresses are allowed automatically and do not need to be repeated.',
         allowedHostsPlaceholder: 'api.example.com\ngithub.com\n*.internal.example.com',
         allowedHostsDesc:
           'Use commas or new lines. Third-party service hosts are allowed automatically; only add extra hosts that need direct access.',
@@ -1540,6 +1562,7 @@ const en = {
         status: 'Status',
         security: 'Security',
         created: 'Created',
+        updated: 'Updated',
         lastUpdated: 'Last Updated',
         type: 'Type',
         agent: 'Agent',
@@ -1565,6 +1588,8 @@ const en = {
         subtitle: 'Create and manage reusable skills for your agents.',
         new: 'New Skill',
         empty: 'No skills yet.',
+        archiveImpactConfirm:
+          'Archive this skill? It is referenced by {{count}} item(s): {{agents}} agent(s), {{triggers}} trigger(s), {{activeTasks}} active task(s).',
         name: 'Name',
         namePlaceholder: 'e.g. financial-analysis',
         description: 'Description',

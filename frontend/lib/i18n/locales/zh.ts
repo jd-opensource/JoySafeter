@@ -33,6 +33,10 @@ const zh = {
       retry: '重试',
       refresh: '刷新',
       close: '关闭',
+      noResults: '无匹配结果',
+      restore: '恢复',
+      search: '搜索',
+      select: '请选择',
       pageErrorTitle: '页面加载失败',
       pageErrorDescription: '当前页面暂时无法加载，请稍后重试。如果问题持续存在，请联系管理员。',
       idle: '空闲',
@@ -289,6 +293,7 @@ const zh = {
     user: {
       logout: '退出登录',
       user: '用户',
+      userMenu: '用户菜单',
     },
     settings: {
       profile: '个人资料',
@@ -633,6 +638,12 @@ const zh = {
         description: '描述',
         descriptionPlaceholder: '可选描述',
         systemPromptPlaceholder: '输入系统提示词...',
+        promptModeAppend: '追加模式',
+        promptModeAppendTooltip:
+          '将系统提示追加到引擎内置提示之后，保留引擎的行为规范和最佳实践指引。',
+        promptModeReplace: '替换模式',
+        promptModeReplaceTooltip:
+          '完全替换引擎内置提示，由你的系统提示控制 Agent 行为。命令和文件操作等工具仍可正常使用。',
         saving: '保存中...',
         saveChanges: '保存更改',
         viewDetails: '查看详情',
@@ -656,6 +667,8 @@ const zh = {
           environmentRefHint:
             '可选。不设置时，创建会话可单独选择环境；设置后会作为该智能体的默认运行环境，创建会话时仍可覆盖。',
           permissionMode: '权限模式',
+          permissionModeHint:
+            '控制 Agent 使用命令、文件写入等工具时是否需要人工确认。“始终允许”会让 Agent 自主执行所有操作。',
           permBypass: '始终允许（跳过权限确认）',
           permAsk: '询问（需要确认）',
           advancedSummary: 'MCP、工具、Skills',
@@ -745,6 +758,11 @@ const zh = {
         credentials: 'MCP 凭据',
         credentialsDesc: '存储的 MCP 服务器授权，智能体可使用。',
         noCredentials: '未配置 MCP 凭据。',
+        envVars: '环境变量',
+        egressServices: '第三方服务',
+        storageVolumes: '数据卷挂载',
+        filesUnavailable: '暂时无法加载文件。',
+        noFilesAvailable: '暂无可用文件。',
         mcpCredentialSetCount_one: '{{count}} 个 MCP 凭据组',
         mcpCredentialSetCount_other: '{{count}} 个 MCP 凭据组',
         overview: '概览',
@@ -985,12 +1003,16 @@ const zh = {
         basicSettingsDesc: '设置环境名称、用途和默认网络访问策略。',
         creating: '创建中...',
         networking: '网络配置',
+        networkingHint:
+          '在限制访问模式下，沙箱默认无法访问外网，只能访问白名单主机和已配置的第三方服务地址。',
         netUnrestricted: '不限制',
         netUnrestrictedDesc: '允许沙箱访问外网；仅建议在可信环境或调试场景使用。',
         netLimited: '限制访问',
         netLimitedDesc: '默认禁止外网访问，仅允许白名单主机和已配置的第三方服务。',
         recommended: '推荐',
         allowedHosts: '允许的主机',
+        allowedHostsHint:
+          '填写沙箱可直接访问的外网主机，使用逗号分隔。第三方服务地址会自动放行，无需重复填写。',
         allowedHostsPlaceholder: 'api.example.com\ngithub.com\n*.internal.example.com',
         allowedHostsDesc:
           '支持逗号或换行分隔。第三方服务地址会自动放行；这里仅填写额外需要直连访问的主机。',
@@ -1570,6 +1592,8 @@ const zh = {
         subtitle: '创建和管理智能体可复用的技能。',
         new: '新建技能',
         empty: '暂无技能。',
+        archiveImpactConfirm:
+          '确定归档此技能吗？它被 {{count}} 项引用：{{agents}} 个智能体、{{triggers}} 个触发器、{{activeTasks}} 个活跃任务。',
         name: '名称',
         namePlaceholder: '例如 financial-analysis',
         description: '描述',
@@ -2042,6 +2066,7 @@ const zh = {
         engineKind: '引擎类型',
         version: '版本',
         created: '创建时间',
+        updated: '更新时间',
         lastUpdated: '最后更新',
         type: '类型',
         size: '大小',

@@ -23,6 +23,7 @@ type FiniteFamilyName =
 
 export interface ActiveTranslationInventory {
   sourceFileCount: number
+  sourceFiles: string[]
   directLeaves: Set<string>
   templateDynamicLeaves: Set<string>
   finiteFamilies: Record<FiniteFamilyName, Set<string>>
@@ -37,9 +38,12 @@ export interface ActiveTranslationInventory {
   }
 }
 
-const excludedSourcePath = /(?:^|\/)(?:__generated__|generated)(?:\/|$)/
-const excludedSourceFile = /\.(?:test|spec|stories)\.[cm]?[jt]sx?$/
-const sourceFilePattern = /\.[cm]?[jt]sx?$/
+const excludedSourcePath =
+  /(?:^|\/)(?:__fixtures__|__generated__|fixtures|generated|locales)(?:\/|$)/
+const excludedSourceFile =
+  /(?:\.(?:fixture|spec|stories?|test)|(?:^|[.-])test-support|(?:^|[.-])test-utils|\.generated)\.[cm]?tsx?$/
+const declarationFile = /\.d\.[cm]?ts$/
+const sourceFilePattern = /\.[cm]?tsx?$/
 
 const skillEligibilityLeaves = [
   ...[
@@ -104,17 +108,30 @@ function flattenCatalogLeaves(root: unknown, prefix = ''): string[] {
   )
 }
 
+function catalogContainsRequiredKey(catalogLeaves: Set<string>, key: string): boolean {
+  return (
+    catalogLeaves.has(key) || (catalogLeaves.has(`${key}_one`) && catalogLeaves.has(`${key}_other`))
+  )
+}
+
 function collectProductionSourceFiles(frontendRoot: string, directory: string): string[] {
-  return readdirSync(directory).flatMap((entry) => {
-    const absolutePath = path.join(directory, entry)
-    const relativePath = path.relative(frontendRoot, absolutePath)
-    if (excludedSourcePath.test(relativePath)) return []
-    if (statSync(absolutePath).isDirectory()) {
-      return collectProductionSourceFiles(frontendRoot, absolutePath)
-    }
-    if (!sourceFilePattern.test(entry) || excludedSourceFile.test(entry)) return []
-    return [absolutePath]
-  })
+  return readdirSync(directory)
+    .sort()
+    .flatMap((entry) => {
+      const absolutePath = path.join(directory, entry)
+      const relativePath = path.relative(frontendRoot, absolutePath).split(path.sep).join('/')
+      if (excludedSourcePath.test(relativePath)) return []
+      if (statSync(absolutePath).isDirectory()) {
+        return collectProductionSourceFiles(frontendRoot, absolutePath)
+      }
+      if (
+        !sourceFilePattern.test(entry) ||
+        declarationFile.test(entry) ||
+        excludedSourceFile.test(entry)
+      )
+        return []
+      return [absolutePath]
+    })
 }
 
 function literalTypeValues(type: ts.Type): string[] {
@@ -133,7 +150,10 @@ function templatePattern(node: ts.TemplateExpression): RegExp {
   return new RegExp(`^${pattern}$`)
 }
 
-function expandTypedTemplate(node: ts.TemplateExpression, checker: ts.TypeChecker): string[] | null {
+function expandTypedTemplate(
+  node: ts.TemplateExpression,
+  checker: ts.TypeChecker,
+): string[] | null {
   let values = [node.head.text]
   for (const span of node.templateSpans) {
     const expressionValues = literalTypeValues(checker.getTypeAtLocation(span.expression))
@@ -182,10 +202,10 @@ function collectObjectStringValues(
 
 function isTranslationCall(node: ts.CallExpression): boolean {
   const callee = node.expression
-  return (
-    (ts.isIdentifier(callee) && callee.text === 't') ||
-    (ts.isPropertyAccessExpression(callee) && callee.name.text === 't')
-  )
+  if (ts.isIdentifier(callee)) return callee.text === 't' || callee.text === 'tr'
+  if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== 't') return false
+  const owner = callee.expression.getText()
+  return /(?:^|\.)(?:i18n|translation|translator)$/.test(owner)
 }
 
 export function buildActiveTranslationInventory(
@@ -193,11 +213,14 @@ export function buildActiveTranslationInventory(
   chineseCatalog: CatalogRoot,
 ): ActiveTranslationInventory {
   const frontendRoot = path.resolve(process.cwd())
-  const sourceRoots = ['app', 'components', 'hooks'].map((directory) =>
+  const sourceRoots = ['app', 'components', 'hooks', 'lib'].map((directory) =>
     path.join(frontendRoot, directory),
   )
   const sourceFiles = sourceRoots.flatMap((root) =>
     collectProductionSourceFiles(frontendRoot, root),
+  )
+  const relativeSourceFiles = sourceFiles.map((file) =>
+    path.relative(frontendRoot, file).split(path.sep).join('/'),
   )
   const englishLeaves = new Set(flattenCatalogLeaves(englishCatalog))
   const chineseLeaves = new Set(flattenCatalogLeaves(chineseCatalog))
@@ -221,21 +244,20 @@ export function buildActiveTranslationInventory(
         (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
         catalogLeaves.has(node.text)
       ) {
-        directLeaves.add(node.text)
+        templateDynamicLeaves.add(node.text)
       }
 
-      if (
-        ts.isCallExpression(node) &&
-        node.arguments.length > 0 &&
-        isTranslationCall(node) &&
-        ts.isTemplateExpression(node.arguments[0])
-      ) {
+      if (ts.isCallExpression(node) && node.arguments.length > 0 && isTranslationCall(node)) {
         const key = node.arguments[0]
-        const typedCandidates = expandTypedTemplate(key, checker)
-        const candidates =
-          typedCandidates ?? [...catalogLeaves].filter((leaf) => templatePattern(key).test(leaf))
-        for (const candidate of candidates) {
-          if (catalogLeaves.has(candidate)) templateDynamicLeaves.add(candidate)
+        if (ts.isStringLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key)) {
+          directLeaves.add(key.text)
+        } else if (ts.isTemplateExpression(key)) {
+          const typedCandidates = expandTypedTemplate(key, checker)
+          const candidates =
+            typedCandidates ?? [...catalogLeaves].filter((leaf) => templatePattern(key).test(leaf))
+          for (const candidate of candidates) {
+            templateDynamicLeaves.add(candidate)
+          }
         }
       }
       ts.forEachChild(node, visit)
@@ -270,13 +292,18 @@ export function buildActiveTranslationInventory(
 
   return {
     sourceFileCount: sourceFiles.length,
+    sourceFiles: relativeSourceFiles,
     directLeaves,
     templateDynamicLeaves,
     finiteFamilies: familySets,
     finiteFamilyAdditions,
     activeLeaves,
-    missingEnglishLeaves: [...activeLeaves].filter((leaf) => !englishLeaves.has(leaf)).sort(),
-    missingChineseLeaves: [...activeLeaves].filter((leaf) => !chineseLeaves.has(leaf)).sort(),
+    missingEnglishLeaves: [...activeLeaves]
+      .filter((leaf) => !catalogContainsRequiredKey(englishLeaves, leaf))
+      .sort(),
+    missingChineseLeaves: [...activeLeaves]
+      .filter((leaf) => !catalogContainsRequiredKey(chineseLeaves, leaf))
+      .sort(),
     counts: {
       direct: directLeaves.size,
       dynamic: activeLeaves.size - directLeaves.size,

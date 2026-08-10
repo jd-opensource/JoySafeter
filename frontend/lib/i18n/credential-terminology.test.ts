@@ -1108,7 +1108,15 @@ describe('credential domain terminology', () => {
   it('inventories direct, template, and finite active translation leaves', () => {
     const inventory = getActiveTranslationInventory()
 
-    expect(inventory.sourceFileCount).toBe(158)
+    expect(inventory.sourceFileCount).toBe(235)
+    expect(inventory.sourceFiles).toContain('lib/managed/errors.ts')
+    expect(inventory.sourceFiles).not.toContain('lib/i18n/locales/en.ts')
+    expect(inventory.sourceFiles).not.toContain(
+      'lib/i18n/active-translation-inventory.test-support.ts',
+    )
+    expect(inventory.sourceFiles.every((file) => !/(?:^|\/)fixtures(?:\/|$)/.test(file))).toBe(true)
+    expect(inventory.directLeaves).toContain('managed.errors.writeRequired')
+    expect(inventory.directLeaves).not.toContain('JOYSAFETER_WRITE_REQUIRED')
     const templateAdditions =
       new Set([...inventory.directLeaves, ...inventory.templateDynamicLeaves]).size -
       inventory.directLeaves.size
@@ -1117,16 +1125,16 @@ describe('credential domain terminology', () => {
       0,
     )
 
-    expect(inventory.counts).toEqual({ direct: 1321, dynamic: 263, total: 1584 })
-    expect(templateAdditions).toBe(184)
-    expect(finiteAdditions).toBe(79)
+    expect(inventory.counts).toEqual({ direct: 1274, dynamic: 387, total: 1661 })
+    expect(templateAdditions).toBe(340)
+    expect(finiteAdditions).toBe(47)
     expect(inventory.templateDynamicLeaves).toContain(
       'managed.skills.aiAuthor.scan.status.not_scanned',
     )
     expect(inventory.finiteFamilies.status).toHaveLength(21)
     expect(inventory.finiteFamilies.alerts).toHaveLength(6)
     expect(inventory.finiteFamilies.suggestions).toHaveLength(4)
-    expect(inventory.finiteFamilyAdditions.status).toBe(19)
+    expect(inventory.finiteFamilyAdditions.status).toBe(0)
     expect(inventory.finiteFamilyAdditions.alerts).toBe(6)
     expect(inventory.finiteFamilyAdditions.suggestions).toBe(4)
     expect(inventory.missingEnglishLeaves).toEqual([])
@@ -1170,6 +1178,22 @@ describe('credential domain terminology', () => {
         'analytics.tokenSummary.suggestionMessages.highQueueWait',
       ]),
     )
+  })
+
+  it('reports a literal lib translation call removed from both catalogs', () => {
+    const englishWithoutWriteRequired = structuredClone(en.translation)
+    const chineseWithoutWriteRequired = structuredClone(zh.translation)
+    delete englishWithoutWriteRequired.managed.errors.writeRequired
+    delete chineseWithoutWriteRequired.managed.errors.writeRequired
+
+    const inventory = buildActiveTranslationInventory(
+      englishWithoutWriteRequired,
+      chineseWithoutWriteRequired,
+    )
+
+    expect(inventory.directLeaves).toContain('managed.errors.writeRequired')
+    expect(inventory.missingEnglishLeaves).toContain('managed.errors.writeRequired')
+    expect(inventory.missingChineseLeaves).toContain('managed.errors.writeRequired')
   })
 
   it('keeps all active catalog values free of legacy credential vocabulary', () => {
