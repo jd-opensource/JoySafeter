@@ -123,8 +123,10 @@ def test_secret_model_contains_identity_constraint_and_protocol_default_indexes(
     assert "uq_joysafeter_secrets_global_protocol_default" in index_names
 
 
-def test_initial_schema_remains_the_only_alembic_head() -> None:
+def test_alembic_history_has_a_single_head() -> None:
+    # History must stay linear: exactly one head, no divergent branches. Post-initial
+    # migrations are allowed; multiple heads break `alembic upgrade head` determinism.
     config = Config("alembic.ini")
     config.set_main_option("script_location", "alembic")
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["20260803_000001"]
+    assert len(script.get_heads()) == 1

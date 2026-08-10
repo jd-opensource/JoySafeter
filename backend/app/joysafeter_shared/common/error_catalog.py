@@ -496,6 +496,23 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InvalidRequestError,
         default_message="LLM base URL host is not allowlisted.",
     ),
+    "QUICKSTART_BASE_URL_REQUIRED": CatalogEntry(
+        code="QUICKSTART_BASE_URL_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="Base URL is required for this provider",
+        user_action="fix_input",
+    ),
+    "QUICKSTART_PROTOCOL_UNSUPPORTED": CatalogEntry(
+        code="QUICKSTART_PROTOCOL_UNSUPPORTED",
+        error_class=InvalidRequestError,
+        default_message="Quickstart does not support this protocol",
+        user_action="fix_input",
+    ),
+    "QUICKSTART_SECRET_INCOMPATIBLE": CatalogEntry(
+        code="QUICKSTART_SECRET_INCOMPATIBLE",
+        error_class=InvalidRequestError,
+        default_message="Secret is not compatible with the selected engine kind",
+    ),
     "QUICKSTART_SECRET_MISSING_KEY": CatalogEntry(
         code="QUICKSTART_SECRET_MISSING_KEY",
         error_class=InvalidRequestError,
@@ -580,6 +597,17 @@ CATALOG: dict[str, CatalogEntry] = {
         code="SECRET_TEST_BASE_URL_NOT_ALLOWED",
         error_class=InvalidRequestError,
         default_message="Secret test base URL host is not allowlisted.",
+    ),
+    "SECRET_TEST_BASE_URL_REQUIRED": CatalogEntry(
+        code="SECRET_TEST_BASE_URL_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="Base URL is required for this provider",
+        user_action="fix_input",
+    ),
+    "SECRET_TEST_CREDENTIAL_PROFILE_UNSUPPORTED": CatalogEntry(
+        code="SECRET_TEST_CREDENTIAL_PROFILE_UNSUPPORTED",
+        error_class=InvalidRequestError,
+        default_message="The selected credential profile has no connectivity adapter.",
     ),
     "SECRET_TEST_MISSING_KEY": CatalogEntry(
         code="SECRET_TEST_MISSING_KEY",
@@ -850,6 +878,17 @@ CATALOG: dict[str, CatalogEntry] = {
         code="SKILL_AUTHORING_BASE_URL_NOT_ALLOWED",
         error_class=InvalidRequestError,
         default_message="OPENAI_BASE_URL host is not allowlisted.",
+    ),
+    "SKILL_AUTHORING_BASE_URL_REQUIRED": CatalogEntry(
+        code="SKILL_AUTHORING_BASE_URL_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="Base URL is required for skill authoring.",
+        user_action="fix_input",
+    ),
+    "SKILL_AUTHORING_SECRET_INCOMPATIBLE": CatalogEntry(
+        code="SKILL_AUTHORING_SECRET_INCOMPATIBLE",
+        error_class=InvalidRequestError,
+        default_message="Skill authoring requires an OpenAI Responses compatible model configuration.",
     ),
     "SKILL_AUTHORING_SECRET_MISSING_KEY": CatalogEntry(
         code="SKILL_AUTHORING_SECRET_MISSING_KEY",
