@@ -214,6 +214,36 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // ── xDS leader (K8s multi mode only) ──────────────────────────────────
+    // Task scheduling in multi mode is leaderless (all replicas active), but the
+    // Envoy xDS control plane is stateful and must converge to a single source.
+    // Elect a dedicated xDS leader and label its pod so the leader-only Service
+    // routes every Envoy DaemonSet to one replica. No-op unless multi + k8s +
+    // xDS enabled (Docker/standalone/leader already have a single xDS source).
+    if config.ha_mode == "multi"
+        && config.sandbox_provider == "k8s"
+        && xds_service.is_some()
+    {
+        match kube::Client::try_default().await {
+            Ok(kube_client) => {
+                if let Ok(pod_name) = std::env::var("POD_NAME") {
+                    kernel::xds_leader::spawn(
+                        kube_client,
+                        config.k8s_namespace.clone(),
+                        pod_name,
+                        config.xds_leader_lease_name.clone(),
+                        config.leader_identity.clone(),
+                        std::time::Duration::from_secs(config.leader_lease_duration_sec),
+                        std::time::Duration::from_secs(config.leader_renew_interval_sec),
+                    );
+                } else {
+                    warn!("multi+k8s xDS leader requested but POD_NAME unset; skipping (Envoys stay load-balanced across replicas)");
+                }
+            }
+            Err(e) => warn!("xDS leader: K8s client init failed: {e}; skipping"),
+        }
+    }
+
     // Health server — expose readiness/liveness for K8s probes.
     // Starts early (both leader and standby expose /healthz/live).
     // ready_flag is set to true only after services are fully started.

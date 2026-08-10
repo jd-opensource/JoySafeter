@@ -164,6 +164,11 @@ pub struct JoySafeterConfig {
     pub leader_renew_interval_sec: u64,
     pub leader_identity: String,
 
+    /// Dedicated Lease name for xDS leader election in K8s multi mode. Separate
+    /// from `leader_lease_name` — task scheduling stays leaderless (all replicas
+    /// active); only the Envoy xDS control plane converges to one leader.
+    pub xds_leader_lease_name: String,
+
     // HA mode
     pub ha_mode: String,
 
@@ -334,6 +339,11 @@ impl JoySafeterConfig {
             leader_identity: env::var("POD_NAME")
                 .or_else(|_| env::var("HOSTNAME"))
                 .unwrap_or_else(|_| format!("orch-{}", uuid::Uuid::now_v7())),
+
+            xds_leader_lease_name: env_str(
+                "JOYSAFETER_XDS_LEADER_LEASE_NAME",
+                "joysafeter-orchestrator-xds-leader",
+            ),
 
             ha_mode: env_str("JOYSAFETER_HA_MODE", "standalone"),
 

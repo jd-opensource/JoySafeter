@@ -117,7 +117,11 @@ spec:
                         "endpoint": {
                           "address": {
                             "socket_address": {
+                              {{- if eq .Values.haMode "multi" }}
+                              "address": "joysafeter-orchestrator-xds.{{ .Values.namespace }}.svc.cluster.local",
+                              {{- else }}
                               "address": "joysafeter-orchestrator.{{ .Values.namespace }}.svc.cluster.local",
+                              {{- end }}
                               "port_value": {{ .Values.orchestrator.grpc.port }}
                             }
                           }
