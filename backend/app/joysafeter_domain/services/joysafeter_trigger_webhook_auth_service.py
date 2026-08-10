@@ -108,7 +108,15 @@ class WebhookAuthService:
                 data={**context, "secret_key": secret_key},
                 user_action="fix_input",
             )
-        return secret_data[secret_key]
+        secret_value = secret_data[secret_key]
+        if not secret_value.strip():
+            raise RequestValidationAppError(
+                code="TRIGGER_SECRET_VALUE_BLANK",
+                message="Webhook credential field must not be blank",
+                data={**context, "secret_key": secret_key},
+                user_action="fix_input",
+            )
+        return secret_value
 
     async def resolve_webhook_secret(self, trigger: Any) -> str:
         if not trigger.secret_ref:

@@ -386,6 +386,59 @@ async def test_webhook_route_hides_historical_invalid_secret_kind_from_public_ca
 
 
 @pytest.mark.asyncio
+async def test_webhook_route_rejects_historical_blank_secret_and_empty_key_hmac(
+    db_session,
+    monkeypatch,
+):
+    secret_name = f"historical-blank-secret-{uuid.uuid4()}"
+    trigger = await _seed_webhook_trigger(
+        db_session,
+        config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
+        name="blank-secret-route-hook",
+        secret_ref=secret_name,
+    )
+    db_session.add(
+        JoySafeterSecret(
+            name=secret_name,
+            project_id=trigger.project_id,
+            kind="generic",
+            provider=None,
+            protocol=None,
+            data=encrypted_secret_data({"WEBHOOK_SECRET": ""}),
+        )
+    )
+    await db_session.commit()
+    raw_body = b'{"kind":"empty-key-attack"}'
+    empty_key_signature = f"sha256={WebhookAuthService.sign('', raw_body)}"
+
+    async def fake_fire(self, *args, **kwargs):
+        raise AssertionError("a historical blank webhook secret must never fire the trigger")
+
+    monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
+
+    app = _app(db_session)
+    async with _client(app) as client:
+        resp = await client.post(
+            f"/api/v1/triggers/{trigger.id}/webhook",
+            content=raw_body,
+            headers={"X-JoySafeter-Signature": empty_key_signature},
+        )
+
+    assert resp.status_code == 422
+    assert resp.json() == {
+        "code": "TRIGGER_WEBHOOK_UNAUTHORIZED",
+        "message": "Invalid webhook signature or token",
+        "data": {},
+        "source": "validation",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+    assert secret_name not in resp.text
+    assert "WEBHOOK_SECRET" not in resp.text
+    assert str(trigger.id) not in resp.text
+
+
+@pytest.mark.asyncio
 async def test_webhook_route_rate_limits_by_trigger_and_client_ip(db_session, monkeypatch):
     _rate_limiter._requests.clear()
     trigger = await _seed_webhook_trigger(

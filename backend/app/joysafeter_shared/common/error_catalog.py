@@ -1205,6 +1205,11 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=RequestValidationAppError,
         default_message="Webhook trigger requires secret_ref",
     ),
+    "TRIGGER_SECRET_VALUE_BLANK": CatalogEntry(
+        code="TRIGGER_SECRET_VALUE_BLANK",
+        error_class=RequestValidationAppError,
+        default_message="Webhook credential field must not be blank",
+    ),
     "TRIGGER_SESSION_KEY_REQUIRED": CatalogEntry(
         code="TRIGGER_SESSION_KEY_REQUIRED",
         error_class=RequestValidationAppError,
