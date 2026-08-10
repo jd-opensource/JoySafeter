@@ -201,3 +201,71 @@ git diff --check
 4. The unreferenced Trigger placeholder keeps legacy Vault wording by design; production callsite and AST evidence prove it is inactive.
 
 No active legacy credential-domain path, migration, plaintext selector access, OAuth creation branch, route/API/type rename, or compatibility-boundary change remains.
+
+## Fix Round — Independent Review Residuals
+
+### Dispositions
+
+1. `frontend/hooks/managed/use-skill-authoring.ts` is production-reachable from the AI Skill Author page and used `密钥(Secret)` when an `openai_responses` Model Connection was not selected. The prompt now says `包含 OPENAI_API_KEY 的模型连接`, preserving the requirement that the selected connection contain the provider's real `OPENAI_API_KEY` field while naming the JoySafeter resource as Model Connection / 模型连接.
+2. `managed.vaults.credArchiveTitle` is rendered by the MCP Credential Set detail page for an individual MCP Credential archive action. Its values are now `Archive MCP Credential` / `归档 MCP 凭据`.
+3. `managed.vaults.cred.createFailed` is rendered by the MCP Credential creation dialog after an MCP Credential create failure. Its values are now `Failed to create MCP credential. Please try again.` / `创建 MCP 凭据失败，请重试。`.
+4. The hook contract pins the exact production prompt, the bilingual terminology table pins both active MCP keys, and the production-source guard now detects the exact `包含 OPENAI_API_KEY 的密钥(Secret)` context. The guard remains intentionally narrow so provider API key fields, Bearer tokens, and internal Secret diagnostics remain permitted.
+
+### Revised Active-Key Audit Count
+
+The earlier `1,527` pre-fix and `1,529` post-fix totals are superseded because the disposable script did not retain reproducible literal and dynamic buckets, expanded only template-key dynamics, and mislabeled the resulting union.
+
+- Scope remains the same `157` production TS/TSX files below `frontend/app`, `frontend/components`, and `frontend/hooks`, excluding tests, specs, stories, and generated paths.
+- Both locale catalogs were flattened to leaf paths. AST string literals and no-substitution template literals equal to a catalog leaf produced `1,321` unique direct literal leaves.
+- Template translation keys were expanded by matching their static path segments against both catalogs. After removing leaves already present in the direct bucket, these contributed `187` unique leaves.
+- The remaining `42` non-template dynamic translation callsites were traced to finite arrays, object metadata, helper return branches, and literal-union producers. After the same deduplication, these contributed `46` unique leaves.
+- The finite dynamic bucket is therefore `187 + 46 = 233`; the corrected active inventory is `1,321 + 233 = 1,554` unique translation leaves. Direct and finite-dynamic buckets are disjoint, and each catalog path is counted once.
+
+The audit still finds no active credential-domain value using the legacy concepts in scope. Inactive catalog values remain governed by the unreferenced proof recorded earlier in this report.
+
+### RED And GREEN Evidence
+
+The pre-fix command was:
+
+```bash
+cd frontend
+bun run test -- lib/i18n/credential-terminology.test.ts hooks/managed/use-skill-authoring.test.tsx
+```
+
+- RED exit status: `1`; `6 failed, 386 passed` across two files.
+- Expected failures were the hook's legacy prompt, its source-guard match, and exact English/Chinese assertions for the two MCP keys.
+- GREEN exit status: `0`; `2/2` files and `392/392` tests passed after the minimal production changes.
+
+The affected hook, terminology, and MCP creation-dialog suite also exited `0`:
+
+```bash
+cd frontend
+bun run test -- \
+  lib/i18n/credential-terminology.test.ts \
+  hooks/managed/use-skill-authoring.test.tsx \
+  app/managed/vaults/components/create-credential-dialog.test.tsx
+```
+
+- Result: `3/3` files and `396/396` tests passed with no warnings or errors.
+
+### Full Verification
+
+- Exact Task 8 frontend suite: `10/10` files and `444/444` tests passed; no warnings or errors.
+- `bun run type-check`: exit `0`; `tsc --noEmit` produced no diagnostics.
+- `bun run lint`: exit `0`; the unchanged baseline is `692 warnings, 0 errors`, with `609` warnings potentially fixable.
+- Exact Task 8 backend suite: `194 passed, 0 failed` in `35.50s`; the existing SQLAlchemy FK-cycle warning occurred `135` times at `backend/tests/conftest.py:148`.
+- `git diff --check`: exit `0` before the code commit.
+- Compatibility commands confirmed no Alembic change, no selector-path `secret_data`, no OAuth branch in Vault Credential creation, and no route, query key, API field, persisted value, i18n key, or TypeScript/domain-type rename. The focused code diff contains only one prompt value, two bilingual locale values, and their tests.
+
+### Commits
+
+- `00d639df03c5d382b8eb9ac92158d2b2205f4982` — `fix(frontend): close reviewed terminology gaps`
+- Fix-round report commit: the separate commit containing this appended section; its SHA is recorded in the final handoff because a commit cannot contain its own SHA without amendment.
+
+### Fix-Round Concerns
+
+1. Frontend lint and backend SQLAlchemy warnings remain baseline warnings, not errors.
+2. The source guard is context-specific by design; broad bans on `Secret`, `密钥`, or `凭据` would incorrectly reject legitimate provider and protocol terminology.
+3. The earlier audit totals remain in the historical sections above; this revised method and `1,554` total explicitly supersede them.
+
+No independent-review finding remains open. No push or main-checkout modification was performed.
