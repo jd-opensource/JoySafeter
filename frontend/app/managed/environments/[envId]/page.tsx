@@ -462,7 +462,7 @@ function EnvironmentDetailPageInner({ params }: { params: Promise<{ envId: strin
               optional={t('managed.environments.optional')}
               tooltip={t(
                 'managed.environments.envVarsHint',
-                '注入到沙箱的非敏感环境变量。格式：KEY=value，逗号或换行分隔。不要填写 token、cookie、API key 等敏感凭证。',
+                '注入到沙箱的非敏感环境变量。格式：KEY=value，逗号或换行分隔。不要填写 token、cookie、API key 等敏感值；请改存到服务凭据中。',
               )}
               className="mb-3"
             >

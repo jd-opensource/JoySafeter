@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, NamedTuple, Optional
 
 from sqlalchemy import and_, delete, or_, outerjoin, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
@@ -17,6 +17,8 @@ from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnviro
 from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
+from app.joysafeter_domain.schemas.joysafeter_environment import extract_environment_secret_references
 from app.joysafeter_domain.schemas.joysafeter_secret import CreateSecretRequest, SecretKind, UpdateSecretRequest
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
 from app.joysafeter_shared.ids import SecretId, TaskId
@@ -75,13 +77,12 @@ def _secret_ref_matches(secret_ref: object, name: str) -> bool:
     return str(secret_ref).strip() == name if secret_ref is not None else False
 
 
-def _environment_secret_refs(config: object) -> list[str]:
-    if not isinstance(config, dict):
-        return []
-    refs = config.get("secret_refs")
-    if not isinstance(refs, list):
-        return []
-    return [str(ref).strip() for ref in refs if str(ref).strip()]
+SecretReferenceCategory = Literal["agent", "environment_direct", "environment_egress", "trigger"]
+
+
+class SecretReferenceDependency(NamedTuple):
+    category: SecretReferenceCategory
+    resource_name: str
 
 
 class SecretService:
@@ -156,6 +157,24 @@ class SecretService:
                 next_data[key_str] = value_str
         return next_data
 
+    @staticmethod
+    def _secret_name_conflict(name: str) -> ResourceConflictError:
+        return ResourceConflictError(
+            code="SECRET_NAME_EXISTS",
+            message=f"A secret named '{name}' already exists in this project",
+            data={"name": name},
+            user_action="fix_input",
+        )
+
+    @staticmethod
+    def _is_secret_name_integrity_error(exc: IntegrityError) -> bool:
+        message = str(getattr(exc, "orig", None) or exc).lower()
+        return (
+            "uq_joysafeter_secrets_project_name" in message
+            or "uq_joysafeter_secrets_global_name" in message
+            or ("joysafeter_secrets" in message and "name" in message and "unique" in message)
+        )
+
     async def create_secret(self, req: CreateSecretRequest, project_id: Optional[str] = None) -> JoySafeterSecret:
         if req.kind is SecretKind.LLM:
             provider = req.provider or ""
@@ -197,18 +216,8 @@ class SecretService:
             await self.db.commit()
         except IntegrityError as exc:
             await self.db.rollback()
-            message = str(getattr(exc, "orig", None) or exc).lower()
-            if (
-                "uq_joysafeter_secrets_project_name" in message
-                or "uq_joysafeter_secrets_global_name" in message
-                or ("joysafeter_secrets" in message and "name" in message and "unique" in message)
-            ):
-                raise ResourceConflictError(
-                    code="SECRET_NAME_EXISTS",
-                    message=f"A secret named '{req.name}' already exists in this project",
-                    data={"name": req.name},
-                    user_action="fix_input",
-                ) from exc
+            if self._is_secret_name_integrity_error(exc):
+                raise self._secret_name_conflict(req.name) from exc
             raise
         await self.db.refresh(secret)
         return secret
@@ -356,12 +365,37 @@ class SecretService:
         secret = await self.get_secret(secret_id, project_id=project_id)
         if not secret:
             return None
+        rename_requested = req.name is not None and req.name != secret.name
+        if rename_requested:
+            dependencies = await self.secret_reference_dependencies(secret.name, project_id=project_id)
+            if dependencies:
+                raise ResourceConflictError(
+                    code="SECRET_RENAME_REFERENCED",
+                    message="Secret name cannot be changed while the current name is referenced",
+                    data={
+                        "secret_id": str(secret.id),
+                        "secret_name": secret.name,
+                        "dependency_categories": [dependency.category for dependency in dependencies],
+                    },
+                    user_action="fix_input",
+                )
+            existing = await self.get_secret_by_name(req.name, project_id=project_id)
+            if existing is not None and existing.id != secret.id:
+                raise self._secret_name_conflict(req.name)
         next_plaintext = self.merge_update_plaintext(secret.data, req.data)
         if secret.kind == SecretKind.LLM.value:
             validate_credential_data(secret.provider or "", secret.protocol or "", next_plaintext)
+        if req.name is not None:
+            secret.name = req.name
         secret.data = self.encrypt_data_for_storage(next_plaintext)
         secret.updated_at = utc_now()
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            if req.name is not None and self._is_secret_name_integrity_error(exc):
+                raise self._secret_name_conflict(req.name) from exc
+            raise
         await self.db.refresh(secret)
         return secret
 
@@ -385,38 +419,85 @@ class SecretService:
         return bool(getattr(result, "rowcount", 0))
 
     async def secret_is_referenced(self, name: str, project_id: Optional[str] = None) -> bool:
-        """Check if any live agent or environment references this secret name."""
-        if await self.secret_is_referenced_by_agent(name, project_id=project_id):
-            return True
-        if await self.secret_is_referenced_by_environment(name, project_id=project_id):
-            return True
-        return False
+        """Check if any live resource references this secret name."""
+        return bool(await self.secret_reference_dependencies(name, project_id=project_id))
 
-    async def secret_is_referenced_by_agent(self, name: str, project_id: Optional[str] = None) -> Optional[str]:
-        """Return the name of the first agent referencing this secret, or None."""
-        conditions = [
+    async def secret_reference_dependencies(
+        self,
+        name: str,
+        project_id: Optional[str] = None,
+    ) -> tuple[SecretReferenceDependency, ...]:
+        dependencies: list[SecretReferenceDependency] = []
+        agent_conditions = [
             JoySafeterAgent.secret_ref == name,
             JoySafeterAgent.deleted_at.is_(None),
         ]
         if project_id is not None:
-            conditions.append(JoySafeterAgent.project_id == project_id)
-        result = await self.db.execute(select(JoySafeterAgent.name).where(and_(*conditions)).limit(1))
-        return result.scalar_one_or_none()
+            agent_conditions.append(JoySafeterAgent.project_id == project_id)
+        agent_result = await self.db.execute(select(JoySafeterAgent.name).where(and_(*agent_conditions)).limit(1))
+        agent_name = agent_result.scalar_one_or_none()
+        if agent_name is not None:
+            dependencies.append(SecretReferenceDependency("agent", str(agent_name)))
 
-    async def secret_is_referenced_by_environment(self, name: str, project_id: Optional[str] = None) -> Optional[str]:
-        """Return the name of the first environment referencing this secret, or None."""
-        conditions: list[ColumnElement[bool]] = [
+        environment_conditions: list[ColumnElement[bool]] = [
             JoySafeterEnvironment.deleted_at.is_(None),
         ]
         if project_id is not None:
-            conditions.append(JoySafeterEnvironment.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterEnvironment.name, JoySafeterEnvironment.config).where(and_(*conditions))
+            environment_conditions.append(JoySafeterEnvironment.project_id == project_id)
+        environment_result = await self.db.execute(
+            select(JoySafeterEnvironment.name, JoySafeterEnvironment.config).where(and_(*environment_conditions))
         )
-        for env_name, config in result.all():
-            if any(_secret_ref_matches(ref, name) for ref in _environment_secret_refs(config)):
-                return str(env_name)
-        return None
+        seen_environment_categories: set[SecretReferenceCategory] = set()
+        for environment_name, config in environment_result.all():
+            for reference in extract_environment_secret_references(config):
+                if not _secret_ref_matches(reference.name, name):
+                    continue
+                category: SecretReferenceCategory = (
+                    "environment_direct" if reference.source == "secret_refs" else "environment_egress"
+                )
+                if category not in seen_environment_categories:
+                    dependencies.append(SecretReferenceDependency(category, str(environment_name)))
+                    seen_environment_categories.add(category)
+
+        trigger_conditions = [
+            JoySafeterTrigger.secret_ref == name,
+            JoySafeterTrigger.deleted_at.is_(None),
+        ]
+        if project_id is not None:
+            trigger_conditions.append(JoySafeterTrigger.project_id == project_id)
+        trigger_result = await self.db.execute(select(JoySafeterTrigger.name).where(and_(*trigger_conditions)).limit(1))
+        trigger_name = trigger_result.scalar_one_or_none()
+        if trigger_name is not None:
+            dependencies.append(SecretReferenceDependency("trigger", str(trigger_name)))
+        return tuple(dependencies)
+
+    async def secret_is_referenced_by_agent(self, name: str, project_id: Optional[str] = None) -> Optional[str]:
+        """Return the name of the first agent referencing this secret, or None."""
+        dependencies = await self.secret_reference_dependencies(name, project_id=project_id)
+        return next(
+            (dependency.resource_name for dependency in dependencies if dependency.category == "agent"),
+            None,
+        )
+
+    async def secret_is_referenced_by_environment(self, name: str, project_id: Optional[str] = None) -> Optional[str]:
+        """Return the name of the first environment referencing this secret, or None."""
+        dependencies = await self.secret_reference_dependencies(name, project_id=project_id)
+        return next(
+            (
+                dependency.resource_name
+                for dependency in dependencies
+                if dependency.category in {"environment_direct", "environment_egress"}
+            ),
+            None,
+        )
+
+    async def secret_is_referenced_by_trigger(self, name: str, project_id: Optional[str] = None) -> Optional[str]:
+        """Return the name of the first trigger referencing this secret, or None."""
+        dependencies = await self.secret_reference_dependencies(name, project_id=project_id)
+        return next(
+            (dependency.resource_name for dependency in dependencies if dependency.category == "trigger"),
+            None,
+        )
 
     async def _environment_refs_for_secret(self, name: str, project_id: Optional[str] = None) -> set[str]:
         conditions: list[ColumnElement[bool]] = [
@@ -431,7 +512,8 @@ class SecretService:
         )
         refs: set[str] = set()
         for env_id, env_name, config in result.all():
-            if any(_secret_ref_matches(ref, name) for ref in _environment_secret_refs(config)):
+            references = extract_environment_secret_references(config)
+            if any(_secret_ref_matches(reference.name, name) for reference in references):
                 refs.add(str(env_name))
                 refs.add(str(env_id))
         return refs

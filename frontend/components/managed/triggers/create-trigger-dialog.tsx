@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 
-import { SecretKeySelect } from '@/components/managed/shared'
+import { ServiceCredentialSelect } from '@/components/managed/shared'
 import { CronEditor } from '@/components/managed/triggers/cron-editor'
 import { Button } from '@/components/ui/button'
 import {
@@ -20,6 +20,7 @@ import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -29,6 +30,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
+import { useServiceCredentials } from '@/hooks/managed/use-service-credentials'
 import { managedGet } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourceId } from '@/lib/managed/api-paths'
@@ -141,6 +143,10 @@ function inactiveNowSnapshot(): number {
 
 function isWebhookAuthMethod(value: unknown): value is WebhookAuthMethod {
   return typeof value === 'string' && AUTH_METHODS.includes(value as WebhookAuthMethod)
+}
+
+function usableCredentialFields(fields: readonly string[] | undefined): string[] {
+  return (fields ?? []).filter((field) => field.trim().length > 0)
 }
 
 // Sentinel Select value for "no explicit environment" — radix Select cannot use
@@ -319,6 +325,48 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
   const [dedupeHeader, setDedupeHeader] = useState(initialForm.dedupeHeader)
   const [filterRows, setFilterRows] = useState<FilterRow[]>(initialForm.filterRows)
 
+  const serviceCredentialsQuery = useServiceCredentials({ enabled: open && type === 'webhook' })
+  const serviceCredentials = useMemo(
+    () => serviceCredentialsQuery.data ?? [],
+    [serviceCredentialsQuery.data],
+  )
+  const selectedCredential = useMemo(
+    () => serviceCredentials.find((credential) => credential.name === secretRef),
+    [secretRef, serviceCredentials],
+  )
+  const credentialFields = useMemo(
+    () => usableCredentialFields(selectedCredential?.keys),
+    [selectedCredential],
+  )
+  const missingCredential = useMemo(
+    () =>
+      !serviceCredentialsQuery.isLoading &&
+      !serviceCredentialsQuery.isError &&
+      Boolean(secretRef) &&
+      !selectedCredential,
+    [
+      secretRef,
+      selectedCredential,
+      serviceCredentialsQuery.isError,
+      serviceCredentialsQuery.isLoading,
+    ],
+  )
+  const missingCredentialField = useMemo(
+    () =>
+      !serviceCredentialsQuery.isLoading &&
+      !serviceCredentialsQuery.isError &&
+      Boolean(selectedCredential) &&
+      Boolean(secretKey) &&
+      !credentialFields.includes(secretKey),
+    [
+      credentialFields,
+      secretKey,
+      selectedCredential,
+      serviceCredentialsQuery.isError,
+      serviceCredentialsQuery.isLoading,
+    ],
+  )
+
   const agentsQuery = useQuery({
     queryKey: ['agents', scope.key, 'for-trigger'],
     queryFn: () =>
@@ -421,6 +469,13 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
     (row) => Boolean(row.path.trim()) === Boolean(row.value.trim()),
   )
 
+  const webhookCredentialValid =
+    !serviceCredentialsQuery.isLoading &&
+    !serviceCredentialsQuery.isError &&
+    Boolean(selectedCredential) &&
+    Boolean(secretKey) &&
+    credentialFields.includes(secretKey)
+
   const canSubmit =
     name.trim().length > 0 &&
     !!agentId &&
@@ -436,7 +491,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
         ? runAtIsFuture || isUnchangedCompletedOneOff
         : isValidCron(cron)
       : type === 'webhook'
-        ? !!secretRef && authMethods.length > 0 && filterRowsValid
+        ? webhookCredentialValid && authMethods.length > 0 && filterRowsValid
         : true)
 
   const pending = createMut.isPending || updateMut.isPending
@@ -486,7 +541,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
         : type === 'webhook'
           ? {
               secret_ref: secretRef,
-              secret_key: secretKey || DEFAULT_SECRET_KEY,
+              secret_key: secretKey,
               auth_methods: authMethods,
               dedupe_header: dedupeHeader.trim() || DEFAULT_DEDUPE_HEADER,
               filter: rowsToFilter(filterRows),
@@ -526,6 +581,13 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
     setAuthMethods((prev) =>
       prev.includes(method) ? prev.filter((m) => m !== method) : [...prev, method],
     )
+  }
+
+  const handleServiceCredentialChange = (value: string) => {
+    const credential = serviceCredentials.find((item) => item.name === value)
+    const fields = usableCredentialFields(credential?.keys)
+    setSecretRef(value)
+    setSecretKey(fields.includes(DEFAULT_SECRET_KEY) ? DEFAULT_SECRET_KEY : (fields[0] ?? ''))
   }
 
   return (
@@ -786,24 +848,57 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
             <div className="space-y-3 rounded-md border p-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>{t('managed.triggers.secretRef')}</Label>
-                  <SecretKeySelect
+                  <Label>{t('managed.triggers.serviceCredential')}</Label>
+                  <ServiceCredentialSelect
                     value={secretRef}
-                    onChange={setSecretRef}
-                    placeholder={t('managed.triggers.secretRefPlaceholder')}
+                    onChange={handleServiceCredentialChange}
+                    credentials={serviceCredentials}
+                    loading={serviceCredentialsQuery.isLoading}
+                    ariaLabel={t('managed.triggers.serviceCredential')}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="trig-secret-key">{t('managed.triggers.secretKey')}</Label>
-                  <Input
-                    id="trig-secret-key"
+                  <Label>{t('managed.triggers.credentialField')}</Label>
+                  <Select
                     value={secretKey}
-                    onChange={(e) => setSecretKey(e.target.value)}
-                    className="font-mono"
-                    placeholder={DEFAULT_SECRET_KEY}
-                  />
+                    onValueChange={setSecretKey}
+                    disabled={!selectedCredential || credentialFields.length === 0}
+                  >
+                    <SelectTrigger aria-label={t('managed.triggers.credentialField')}>
+                      <SelectValue
+                        placeholder={t('managed.triggers.credentialFieldPlaceholder')}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {credentialFields.map((field) => (
+                          <SelectItem key={field} value={field}>
+                            {field}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
+
+              {serviceCredentialsQuery.isError ? (
+                <p className="text-xs text-destructive">
+                  {t('managed.triggers.serviceCredentialLoadFailed')}
+                </p>
+              ) : missingCredential ? (
+                <p className="text-xs text-destructive">
+                  {t('managed.triggers.serviceCredentialUnavailable')}
+                </p>
+              ) : selectedCredential && credentialFields.length === 0 ? (
+                <p className="text-xs text-destructive">
+                  {t('managed.triggers.credentialFieldEmpty')}
+                </p>
+              ) : missingCredentialField ? (
+                <p className="text-xs text-destructive">
+                  {t('managed.triggers.credentialFieldUnavailable')}
+                </p>
+              ) : null}
 
               <div className="space-y-1.5">
                 <Label>{t('managed.triggers.authMethods')}</Label>

@@ -4,10 +4,18 @@ import { JSDOM } from 'jsdom'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/i18n', () => ({
-  i18n: { language: 'en' },
-  useTranslation: () => ({ t: (key: string, _params?: unknown) => key }),
-}))
+vi.mock('@/lib/i18n', async () => {
+  const { default: en } = await import('@/lib/i18n/locales/en')
+  return {
+    i18n: { language: 'en' },
+    useTranslation: () => ({
+      t: (key: string, _params?: unknown) =>
+        key === 'managed.vaults.sharedWarning'
+          ? en.translation.managed.vaults.sharedWarning
+          : key,
+    }),
+  }
+})
 
 vi.mock('@/lib/api-client', () => ({
   extractErrorFromResponse: vi.fn(async () => new Error('mock api error')),
@@ -125,6 +133,26 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
       projects: [],
     })
     localStorage.clear()
+  })
+
+  it('renders the current-project permission warning', () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <CreateVaultDialog open onOpenChange={() => {}} />
+      </QueryClientProvider>,
+    )
+
+    expect(view.container.textContent).toContain(
+      'MCP credential sets are shared within the current project. Access and management require appropriate project permissions.',
+    )
   })
 
   it('does not create a vault from old dialog state in the same turn as a project switch', async () => {

@@ -29,6 +29,23 @@ def _trim_secret_values(data: dict[str, str]) -> dict[str, str]:
     }
 
 
+def is_usable_secret_field_name(key: str) -> bool:
+    return bool(key.strip())
+
+
+def _validate_secret_field_names(data: dict[str, str]) -> dict[str, str]:
+    if any(not is_usable_secret_field_name(key) for key in data):
+        raise ValueError("Secret field names must not be blank")
+    return data
+
+
+def _normalize_secret_name(name: str) -> str:
+    normalized = name.strip()
+    if not normalized:
+        raise ValueError("Secret name must not be blank")
+    return normalized
+
+
 class SecretKind(StrEnum):
     LLM = "llm"
     GENERIC = "generic"
@@ -44,10 +61,15 @@ class CreateSecretRequest(BaseModel):
     data: dict[str, str] = Field(default_factory=dict)
     is_default: bool = False
 
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, v: str) -> str:
+        return _normalize_secret_name(v)
+
     @field_validator("data")
     @classmethod
     def _trim_url_values(cls, v: dict[str, str]) -> dict[str, str]:
-        return _trim_secret_values(v)
+        return _trim_secret_values(_validate_secret_field_names(v))
 
     @model_validator(mode="after")
     def _validate_identity(self) -> "CreateSecretRequest":
@@ -65,12 +87,18 @@ class CreateSecretRequest(BaseModel):
 class UpdateSecretRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    name: Optional[str] = None
     data: dict[str, str]
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, v: Optional[str]) -> Optional[str]:
+        return _normalize_secret_name(v) if v is not None else None
 
     @field_validator("data")
     @classmethod
     def _trim_url_values(cls, v: dict[str, str]) -> dict[str, str]:
-        return _trim_secret_values(v)
+        return _trim_secret_values(_validate_secret_field_names(v))
 
 
 class TestSecretRequest(BaseModel):

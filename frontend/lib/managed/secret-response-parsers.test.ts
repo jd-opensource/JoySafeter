@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  filterSelectableSecretResources,
   parseSecretDetailResponse,
   parseSecretListResponse,
   parseSecretResponse,
@@ -48,5 +49,49 @@ describe('secret response parsers', () => {
       compatible_engine_ids: ['codex', 'native', 'pi'],
     })
     expect(() => parseSecretResponse({ ...rawSecret(), kind: 'engine' })).toThrow()
+  })
+
+  it('omits blank metadata keys without renaming nonblank field names', () => {
+    const listSecret = {
+      ...rawSecret(),
+      keys: ['', '   ', ' TOKEN ', 'OPENAI_API_KEY'],
+    }
+    const detailSecret: Record<string, unknown> = { ...listSecret }
+    delete detailSecret.keys
+
+    expect(parseSecretResponse(listSecret).keys).toEqual([' TOKEN ', 'OPENAI_API_KEY'])
+    expect(
+      parseSecretDetailResponse({
+        ...detailSecret,
+        secret_data: {
+          '': '********',
+          '   ': '********',
+          ' TOKEN ': '********name',
+          OPENAI_API_KEY: '********value',
+        },
+      }).secret_data,
+    ).toEqual({
+      ' TOKEN ': '********name',
+      OPENAI_API_KEY: '********value',
+    })
+  })
+
+  it('preserves historical resource names for management while filtering selector inputs', () => {
+    const historicalSecrets = parseSecretListResponse([
+      { ...rawSecret(), name: '' },
+      { ...rawSecret(), name: '   ' },
+      { ...rawSecret(), name: ' padded-name ' },
+      { ...rawSecret(), name: 'canonical-name' },
+    ])
+
+    expect(historicalSecrets.map((secret) => secret.name)).toEqual([
+      '',
+      '   ',
+      ' padded-name ',
+      'canonical-name',
+    ])
+    expect(filterSelectableSecretResources(historicalSecrets).map((secret) => secret.name)).toEqual([
+      'canonical-name',
+    ])
   })
 })

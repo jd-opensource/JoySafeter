@@ -17,9 +17,20 @@ const secretBaseSchema = z
   })
   .strict()
 
-const secretListSchema = secretBaseSchema.extend({ keys: z.array(z.string()).default([]) }).strict()
+const usableSecretFieldNamesSchema = z
+  .array(z.string())
+  .default([])
+  .transform((fields) => fields.filter((field) => field.trim().length > 0))
+const usableSecretDataSchema = z
+  .record(z.string(), z.string())
+  .default({})
+  .transform((data) =>
+    Object.fromEntries(Object.entries(data).filter(([field]) => field.trim().length > 0)),
+  )
+
+const secretListSchema = secretBaseSchema.extend({ keys: usableSecretFieldNamesSchema }).strict()
 const secretDetailSchema = secretBaseSchema
-  .extend({ secret_data: z.record(z.string(), z.string()).default({}) })
+  .extend({ secret_data: usableSecretDataSchema })
   .strict()
 
 export function parseSecretResponse(response: unknown): Secret {
@@ -34,4 +45,14 @@ export function parseSecretDetailResponse(response: unknown): SecretDetail {
 
 export function parseSecretListResponse(response: unknown[]): Secret[] {
   return response.map(parseSecretResponse)
+}
+
+export function isSelectableSecretResourceName(name: string): boolean {
+  return name.length > 0 && name === name.trim()
+}
+
+export function filterSelectableSecretResources<T extends Pick<Secret, 'name'>>(
+  secrets: T[],
+): T[] {
+  return secrets.filter((secret) => isSelectableSecretResourceName(secret.name))
 }

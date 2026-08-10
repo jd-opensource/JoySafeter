@@ -17,13 +17,12 @@ from app.joysafeter_domain.models.joysafeter_task import (
 )
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
-from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_domain.services.joysafeter_trigger_config_policy import TriggerConfigPolicy
 from app.joysafeter_domain.services.joysafeter_trigger_fire_service import TriggerFireService
 from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import TriggerRuntimeGate
 from app.joysafeter_domain.services.joysafeter_trigger_scheduler_state_service import TriggerSchedulerStateService
 from app.joysafeter_domain.services.joysafeter_trigger_webhook_auth_service import WebhookAuthService
-from app.joysafeter_shared.common.app_errors import NotFoundError, ResourceConflictError
+from app.joysafeter_shared.common.app_errors import ResourceConflictError
 from app.joysafeter_shared.ids import AgentId, SessionId, TaskId, TriggerId
 
 _NON_TERMINAL_STATUSES = [s.value for s in JoySafeterTaskStatus if s not in JOYSAFETER_TERMINAL_STATUSES]
@@ -238,15 +237,12 @@ class JoySafeterTriggerService:
             project_id=project_id,
             environment_ref=environment_ref,
         )
-        if type == "webhook" and secret_ref:
-            secret = await SecretService(self.db).get_secret_by_name(secret_ref, project_id=project_id)
-            if secret is None:
-                raise NotFoundError(
-                    code="TRIGGER_SECRET_NOT_FOUND",
-                    message=f"Secret not found: {secret_ref}",
-                    data={"secret_ref": secret_ref},
-                    user_action="fix_input",
-                )
+        if type == "webhook" and secret_ref and secret_key:
+            await WebhookAuthService(self.db).resolve_secret_value(
+                secret_ref=secret_ref,
+                secret_key=secret_key,
+                project_id=project_id,
+            )
         # Defer schedule arming to ``_next_run_or_pause`` so create/update/restore
         # all honor the same project pause/archive, agent, environment, recurring
         # cron, and one-off run_at invariants.
@@ -376,17 +372,13 @@ class JoySafeterTriggerService:
                 project_id=trigger.project_id,
                 environment_ref=plan.next_environment_ref,
             )
-        if plan.secret_ref_to_verify is not None:
-            secret = await SecretService(self.db).get_secret_by_name(
-                plan.secret_ref_to_verify, project_id=trigger.project_id
+        if plan.secret_ref_to_verify is not None and plan.secret_key_to_verify is not None:
+            await WebhookAuthService(self.db).resolve_secret_value(
+                secret_ref=plan.secret_ref_to_verify,
+                secret_key=plan.secret_key_to_verify,
+                project_id=trigger.project_id,
+                trigger_id=str(trigger.id),
             )
-            if secret is None:
-                raise NotFoundError(
-                    code="TRIGGER_SECRET_NOT_FOUND",
-                    message=f"Secret not found: {plan.secret_ref_to_verify}",
-                    data={"secret_ref": plan.secret_ref_to_verify},
-                    user_action="fix_input",
-                )
         plan.apply_to(trigger)
         if plan.recompute_next_run:
             trigger.next_run_at = await self._next_run_or_pause(trigger)

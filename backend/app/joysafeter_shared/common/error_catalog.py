@@ -588,6 +588,11 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ResourceConflictError,
         default_message="Secret active task dependency",
     ),
+    "SECRET_RENAME_REFERENCED": CatalogEntry(
+        code="SECRET_RENAME_REFERENCED",
+        error_class=ResourceConflictError,
+        default_message="Secret name cannot be changed while the current name is referenced",
+    ),
     "SECRET_TEST_BASE_URL_INVALID": CatalogEntry(
         code="SECRET_TEST_BASE_URL_INVALID",
         error_class=InvalidRequestError,
@@ -1243,6 +1248,11 @@ CATALOG: dict[str, CatalogEntry] = {
         code="TRIGGER_SECRET_REQUIRED",
         error_class=RequestValidationAppError,
         default_message="Webhook trigger requires secret_ref",
+    ),
+    "TRIGGER_SECRET_VALUE_BLANK": CatalogEntry(
+        code="TRIGGER_SECRET_VALUE_BLANK",
+        error_class=RequestValidationAppError,
+        default_message="Webhook credential field must not be blank",
     ),
     "TRIGGER_SESSION_KEY_REQUIRED": CatalogEntry(
         code="TRIGGER_SESSION_KEY_REQUIRED",

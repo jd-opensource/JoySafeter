@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_vault import JoySafeterVault, JoySafeterVaultCredential
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
+from app.joysafeter_domain.schemas.joysafeter_vault import CredentialType
+from app.joysafeter_shared.common.app_errors import InvalidRequestError
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.ids import CredentialId, VaultId
 from app.joysafeter_shared.security.credential_cipher import CredentialCipher
@@ -227,7 +229,7 @@ class VaultService:
     async def create_credential(
         self,
         vault_id: VaultId,
-        name: str,
+        name: Optional[str],
         credential_type: str,
         mcp_server_url: str,
         token_value: str,
@@ -237,14 +239,34 @@ class VaultService:
         vault = await self.get_vault(vault_id, project_id=project_id)
         if not vault or vault.archived_at is not None:
             return None
-        encrypted_token = self._encrypt_token_value(token_value)
+        normalized_type = str(credential_type or "").strip().lower()
+        if normalized_type != CredentialType.STATIC_BEARER.value:
+            raise InvalidRequestError(
+                code="VAULT_CREDENTIAL_TYPE_NOT_SUPPORTED",
+                message=f"Unsupported credential type: {credential_type}",
+                data={
+                    "credential_type": credential_type,
+                    "supported": [CredentialType.STATIC_BEARER.value],
+                },
+                user_action="fix_input",
+            )
+        normalized_token = token_value.strip()
+        if not normalized_token:
+            raise InvalidRequestError(
+                code="VAULT_CREDENTIAL_TOKEN_REQUIRED",
+                message="A Bearer token is required",
+                data={"credential_type": CredentialType.STATIC_BEARER.value},
+                user_action="fix_input",
+            )
+        normalized_server_url = mcp_server_url.strip()
+        normalized_name = (name or "").strip() or normalized_server_url or "MCP Credential"
         cred = JoySafeterVaultCredential(
             vault_id=vault_id,
-            name=name,
-            credential_type=credential_type,
-            mcp_server_url=mcp_server_url,
-            token_value=encrypted_token,
-            oauth_config=self._encrypt_oauth_config_for_storage(oauth_config),
+            name=normalized_name,
+            credential_type=normalized_type,
+            mcp_server_url=normalized_server_url,
+            token_value=self._encrypt_token_value(normalized_token),
+            oauth_config=None,
         )
         self.db.add(cred)
         await self.db.commit()

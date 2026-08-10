@@ -1012,7 +1012,7 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
       label:
         vaultDetail?.name ||
         (session.vault_ids.length > 1
-          ? `${session.vault_ids.length} vaults`
+          ? t('managed.sessions.mcpCredentialSetCount', { count: session.vault_ids.length })
           : shortEntityId(session.vault_ids[0], 'vault', 12)),
       tooltip: vaultDetail?.name || session.vault_ids[0],
       onClick: () => setActiveDrawer('vault'),

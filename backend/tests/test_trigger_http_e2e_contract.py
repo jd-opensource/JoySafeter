@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -87,6 +88,210 @@ async def _seed_project_agent_and_secret(db_session):
     await db_session.refresh(agent)
     await db_session.refresh(project)
     return org, project, agent
+
+
+@pytest.mark.asyncio
+async def test_webhook_trigger_create_rejects_llm_secret(db_session):
+    org, project, agent = await _seed_project_agent_and_secret(db_session)
+    llm_secret = JoySafeterSecret(
+        name="model-only",
+        project_id=project.id,
+        kind="llm",
+        provider="openai",
+        protocol="openai_chat_completions",
+        data=encrypted_secret_data({"OPENAI_API_KEY": "model-token", "MODEL": "gpt-5"}),
+    )
+    db_session.add(llm_secret)
+    await db_session.commit()
+
+    app = _app(db_session, _ctx(project.id, org.id))
+    async with _client(app) as client:
+        response = await client.post(
+            "/api/v1/triggers",
+            json={
+                "name": "invalid-llm-webhook",
+                "type": "webhook",
+                "agent_id": str(agent.id),
+                "prompt_template": "run",
+                "secret_ref": "model-only",
+                "secret_key": "OPENAI_API_KEY",
+                "auth_methods": ["hmac"],
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "TRIGGER_SECRET_KIND_INVALID"
+    assert response.json()["data"] == {"secret_ref": "model-only", "kind": "llm"}
+
+
+@pytest.mark.asyncio
+async def test_webhook_trigger_create_rejects_missing_credential_field(db_session):
+    org, project, agent = await _seed_project_agent_and_secret(db_session)
+    app = _app(db_session, _ctx(project.id, org.id))
+
+    async with _client(app) as client:
+        response = await client.post(
+            "/api/v1/triggers",
+            json={
+                "name": "missing-field-webhook",
+                "type": "webhook",
+                "agent_id": str(agent.id),
+                "prompt_template": "run",
+                "secret_ref": "hook-secret",
+                "secret_key": "MISSING_FIELD",
+                "auth_methods": ["hmac"],
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "TRIGGER_SECRET_KEY_NOT_FOUND"
+    assert response.json()["data"] == {
+        "secret_ref": "hook-secret",
+        "secret_key": "MISSING_FIELD",
+    }
+
+
+@pytest.mark.asyncio
+async def test_webhook_trigger_create_rejects_blank_credential_value_without_side_effects(
+    db_session,
+    monkeypatch,
+):
+    org, project, agent = await _seed_project_agent_and_secret(db_session)
+    blank_secret_name = f"blank-hook-secret-{uuid.uuid4()}"
+    db_session.add(
+        JoySafeterSecret(
+            name=blank_secret_name,
+            project_id=project.id,
+            kind="generic",
+            provider=None,
+            protocol=None,
+            data=encrypted_secret_data({"WEBHOOK_SECRET": ""}),
+        )
+    )
+    await db_session.commit()
+    notify_scheduler = AsyncMock()
+    monkeypatch.setattr(JoySafeterTriggerService, "_notify_scheduler", notify_scheduler)
+    app = _app(db_session, _ctx(project.id, org.id))
+
+    async with _client(app) as client:
+        response = await client.post(
+            "/api/v1/triggers",
+            json={
+                "name": "blank-value-webhook",
+                "type": "webhook",
+                "agent_id": str(agent.id),
+                "prompt_template": "run",
+                "secret_ref": blank_secret_name,
+                "secret_key": "WEBHOOK_SECRET",
+                "auth_methods": ["hmac"],
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "TRIGGER_SECRET_VALUE_BLANK"
+    assert response.json()["data"] == {
+        "secret_ref": blank_secret_name,
+        "secret_key": "WEBHOOK_SECRET",
+    }
+    assert response.json()["user_action"] == "fix_input"
+    persisted = (
+        await db_session.execute(
+            select(JoySafeterTrigger).where(JoySafeterTrigger.name == "blank-value-webhook")
+        )
+    ).scalar_one_or_none()
+    assert persisted is None
+    notify_scheduler.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_webhook_trigger_update_rejects_missing_credential_field_without_persisting(db_session):
+    org, project, agent = await _seed_project_agent_and_secret(db_session)
+    app = _app(db_session, _ctx(project.id, org.id))
+
+    async with _client(app) as client:
+        create_response = await client.post(
+            "/api/v1/triggers",
+            json={
+                "name": "valid-webhook",
+                "type": "webhook",
+                "agent_id": str(agent.id),
+                "prompt_template": "run",
+                "secret_ref": "hook-secret",
+                "secret_key": "WEBHOOK_SECRET",
+                "auth_methods": ["hmac"],
+            },
+        )
+        assert create_response.status_code == 201
+        trigger_id = create_response.json()["id"]
+
+        response = await client.patch(
+            f"/api/v1/triggers/{trigger_id}",
+            json={"secret_key": "MISSING_FIELD"},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "TRIGGER_SECRET_KEY_NOT_FOUND"
+    stored = await db_session.get(JoySafeterTrigger, TriggerId.from_public(trigger_id))
+    assert stored is not None
+    assert stored.secret_key == "WEBHOOK_SECRET"
+
+
+@pytest.mark.asyncio
+async def test_webhook_trigger_update_rejects_whitespace_credential_value_without_side_effects(
+    db_session,
+    monkeypatch,
+):
+    org, project, agent = await _seed_project_agent_and_secret(db_session)
+    blank_secret_name = f"whitespace-hook-secret-{uuid.uuid4()}"
+    db_session.add(
+        JoySafeterSecret(
+            name=blank_secret_name,
+            project_id=project.id,
+            kind="generic",
+            provider=None,
+            protocol=None,
+            data=encrypted_secret_data({"WEBHOOK_SECRET": "   "}),
+        )
+    )
+    await db_session.commit()
+    app = _app(db_session, _ctx(project.id, org.id))
+
+    async with _client(app) as client:
+        create_response = await client.post(
+            "/api/v1/triggers",
+            json={
+                "name": "valid-webhook-before-blank-update",
+                "type": "webhook",
+                "agent_id": str(agent.id),
+                "prompt_template": "run",
+                "secret_ref": "hook-secret",
+                "secret_key": "WEBHOOK_SECRET",
+                "auth_methods": ["hmac"],
+            },
+        )
+        assert create_response.status_code == 201
+        trigger_id = create_response.json()["id"]
+        notify_scheduler = AsyncMock()
+        monkeypatch.setattr(JoySafeterTriggerService, "_notify_scheduler", notify_scheduler)
+
+        response = await client.patch(
+            f"/api/v1/triggers/{trigger_id}",
+            json={"secret_ref": blank_secret_name},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "TRIGGER_SECRET_VALUE_BLANK"
+    assert response.json()["data"] == {
+        "secret_ref": blank_secret_name,
+        "trigger_id": trigger_id,
+        "secret_key": "WEBHOOK_SECRET",
+    }
+    assert response.json()["user_action"] == "fix_input"
+    stored = await db_session.get(JoySafeterTrigger, TriggerId.from_public(trigger_id))
+    assert stored is not None
+    assert stored.secret_ref == "hook-secret"
+    assert stored.secret_key == "WEBHOOK_SECRET"
+    notify_scheduler.assert_not_awaited()
 
 
 @pytest.mark.asyncio

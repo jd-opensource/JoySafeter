@@ -553,7 +553,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
             title={t('agents.edit.basicInfo')}
             description={t(
               'managed.agents.basicSettingsDesc',
-              '设置智能体名称、模型密钥、引擎和系统提示词。',
+              '设置智能体名称、模型连接、引擎和系统提示词。',
             )}
           >
             <div>

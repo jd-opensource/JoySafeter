@@ -22,6 +22,7 @@ class TriggerUpdatePlan:
     next_environment_ref: Optional[str]
     should_resolve_target: bool
     secret_ref_to_verify: Optional[str]
+    secret_key_to_verify: Optional[str]
     recompute_next_run: bool
     is_reenable: bool
 
@@ -144,11 +145,15 @@ class TriggerConfigPolicy:
                 secret_key=fields["secret_key"] if "secret_key" in fields else trigger.secret_key,
                 config=config,
             )
+        verify_secret = trigger.type == "webhook" and bool({"secret_ref", "secret_key"} & fields.keys())
+        effective_secret_ref = fields.get("secret_ref", trigger.secret_ref)
+        effective_secret_key = fields.get("secret_key", trigger.secret_key)
         return TriggerUpdatePlan(
             fields=dict(fields),
             next_environment_ref=fields["environment_ref"] if "environment_ref" in fields else trigger.environment_ref,
             should_resolve_target="environment_ref" in fields or fields.get("enabled") is True,
-            secret_ref_to_verify=fields["secret_ref"] if trigger.type == "webhook" and "secret_ref" in fields else None,
+            secret_ref_to_verify=effective_secret_ref if verify_secret else None,
+            secret_key_to_verify=effective_secret_key if verify_secret else None,
             recompute_next_run=trigger.type == "cron"
             and any(key in fields for key in ("cron_expr", "timezone", "run_at", "enabled")),
             is_reenable=fields.get("enabled") is True,

@@ -1,7 +1,7 @@
 import posixpath
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, NamedTuple, Optional
 from urllib.parse import urlparse
 
 from pydantic import (
@@ -320,6 +320,55 @@ class EnvironmentConfig(BaseModel):
         return self
 
 
+EnvironmentSecretReferenceSource = Literal["secret_refs", "egress_services"]
+
+
+class EnvironmentSecretReference(NamedTuple):
+    name: str
+    source: EnvironmentSecretReferenceSource
+
+
+def extract_environment_secret_references(
+    config: EnvironmentConfig | dict[str, Any] | None,
+) -> list[EnvironmentSecretReference]:
+    raw = config.model_dump() if isinstance(config, EnvironmentConfig) else config
+    if not isinstance(raw, dict):
+        return []
+
+    references: list[EnvironmentSecretReference] = []
+    seen: set[str] = set()
+
+    def append(value: object, source: EnvironmentSecretReferenceSource) -> None:
+        name = str(value).strip() if value is not None else ""
+        if not name or name in seen:
+            return
+        seen.add(name)
+        references.append(EnvironmentSecretReference(name, source))
+
+    direct_refs = raw.get("secret_refs")
+    if isinstance(direct_refs, list):
+        for value in direct_refs:
+            append(value, "secret_refs")
+
+    services = raw.get("egress_services")
+    if isinstance(services, list):
+        for service in services:
+            if isinstance(service, dict):
+                append(service.get("credential_ref"), "egress_services")
+
+    return references
+
+
+def _normalize_request_secret_refs(config: EnvironmentConfig) -> EnvironmentConfig:
+    normalized_refs: list[str] = []
+    for value in config.secret_refs:
+        name = value.strip()
+        if not name:
+            raise ValueError("secret_refs entries must not be blank")
+        normalized_refs.append(name)
+    return config.model_copy(update={"secret_refs": normalized_refs})
+
+
 class CreateEnvironmentRequest(BaseModel):
     name: str
     description: str = ""
@@ -330,6 +379,11 @@ class CreateEnvironmentRequest(BaseModel):
     @classmethod
     def validate_name(cls, value: str) -> str:
         return _validate_environment_name(value)
+
+    @field_validator("config")
+    @classmethod
+    def normalize_secret_refs(cls, value: EnvironmentConfig) -> EnvironmentConfig:
+        return _normalize_request_secret_refs(value)
 
 
 class UpdateEnvironmentRequest(BaseModel):
@@ -342,6 +396,11 @@ class UpdateEnvironmentRequest(BaseModel):
     @classmethod
     def validate_name(cls, value: Optional[str]) -> Optional[str]:
         return None if value is None else _validate_environment_name(value)
+
+    @field_validator("config")
+    @classmethod
+    def normalize_secret_refs(cls, value: Optional[EnvironmentConfig]) -> Optional[EnvironmentConfig]:
+        return None if value is None else _normalize_request_secret_refs(value)
 
 
 class EnvironmentResponse(BaseModel):

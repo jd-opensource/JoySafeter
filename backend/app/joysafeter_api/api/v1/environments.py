@@ -11,9 +11,12 @@ from app.joysafeter_api.api.v1.network_policy_refresh import (
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
+    EnvironmentConfig,
     EnvironmentResponse,
     UpdateEnvironmentRequest,
+    extract_environment_secret_references,
 )
+from app.joysafeter_domain.schemas.joysafeter_secret import SecretKind
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
 from app.joysafeter_shared.common.app_errors import (
@@ -180,25 +183,30 @@ def _env_to_response(env) -> EnvironmentResponse:
 
 async def _validate_secret_refs(
     db: AsyncSession,
-    secret_refs: list[str],
+    config: EnvironmentConfig,
     project_id: Optional[str],
 ) -> None:
-    if not secret_refs:
-        return
-
     from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 
     secret_svc = SecretService(db)
-    for secret_ref in secret_refs:
-        ref = str(secret_ref).strip()
-        if not ref:
-            continue
-        secret = await secret_svc.get_secret_by_name(ref, project_id=project_id)
-        if not secret:
+    for reference in extract_environment_secret_references(config):
+        secret = await secret_svc.get_secret_by_name(reference.name, project_id=project_id)
+        if secret is None:
             raise InvalidRequestError(
                 code="ENVIRONMENT_SECRET_NOT_FOUND",
-                message=f"Secret not found: {ref}",
-                data={"secret_ref": ref},
+                message=f"Secret not found: {reference.name}",
+                data={"secret_ref": reference.name, "source": reference.source},
+                user_action="fix_input",
+            )
+        if secret.kind != SecretKind.GENERIC.value:
+            raise InvalidRequestError(
+                code="ENVIRONMENT_SECRET_KIND_INVALID",
+                message="Environment credentials require a generic Secret",
+                data={
+                    "secret_ref": reference.name,
+                    "source": reference.source,
+                    "kind": secret.kind,
+                },
                 user_action="fix_input",
             )
 
@@ -217,7 +225,7 @@ async def create_environment(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> EnvironmentResponse:
-    await _validate_secret_refs(db, req.config.secret_refs, auth_ctx.project_id)
+    await _validate_secret_refs(db, req.config, auth_ctx.project_id)
     await StorageMountService(db).validate_mount_resources(req.config.mount_resources, auth_ctx.project_id)
 
     svc = EnvironmentService(db)
@@ -294,7 +302,7 @@ async def update_environment(
         )
 
     if req.config is not None:
-        await _validate_secret_refs(db, req.config.secret_refs, auth_ctx.project_id)
+        await _validate_secret_refs(db, req.config, auth_ctx.project_id)
         await StorageMountService(db).validate_mount_resources(req.config.mount_resources, auth_ctx.project_id)
 
     try:

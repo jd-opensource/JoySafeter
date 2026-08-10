@@ -692,7 +692,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
             title={t('managed.sessions.create.advancedOptions', '高级选项')}
             summary={t(
               'managed.sessions.create.advancedSummary',
-              '运行环境、凭证库、文件资源、Memory、Git',
+              '运行环境、MCP 凭据组、文件资源、Memory、Git',
             )}
           >
             {/* Environment */}

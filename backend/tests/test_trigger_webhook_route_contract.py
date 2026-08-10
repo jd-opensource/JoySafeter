@@ -36,6 +36,7 @@ async def _seed_webhook_trigger(
     *,
     config: dict,
     name: str = "route-hook",
+    secret_ref: str = "hook-secret",
 ) -> JoySafeterTrigger:
     unique = uuid.uuid4()
     org = Organization(name=f"Webhook Route Org {unique}", slug=f"webhook-route-org-{unique}")
@@ -57,7 +58,7 @@ async def _seed_webhook_trigger(
         prompt_template="handle route delivery",
         enabled=True,
         filter={},
-        secret_ref="hook-secret",
+        secret_ref=secret_ref,
         secret_key="WEBHOOK_SECRET",
         config=config,
         last_payload={},
@@ -336,6 +337,104 @@ async def test_webhook_route_hides_secret_resolution_errors_from_public_callers(
     assert resp.json()["code"] == "TRIGGER_WEBHOOK_UNAUTHORIZED"
     assert resp.json()["data"] == {}
     assert "hook-secret" not in resp.text
+    assert str(trigger.id) not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_webhook_route_hides_historical_invalid_secret_kind_from_public_callers(
+    db_session,
+    monkeypatch,
+):
+    secret_name = f"historical-model-secret-{uuid.uuid4()}"
+    trigger = await _seed_webhook_trigger(
+        db_session,
+        config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
+        name="invalid-kind-route-hook",
+        secret_ref=secret_name,
+    )
+    db_session.add(
+        JoySafeterSecret(
+            name=secret_name,
+            project_id=trigger.project_id,
+            kind="llm",
+            provider="openai",
+            protocol="openai_chat_completions",
+            data=encrypted_secret_data({"WEBHOOK_SECRET": "model-token", "MODEL": "gpt-5"}),
+        )
+    )
+    await db_session.commit()
+
+    async def fake_fire(self, *args, **kwargs):
+        raise AssertionError("misconfigured webhook auth must not fire the trigger")
+
+    monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
+
+    app = _app(db_session)
+    async with _client(app) as client:
+        resp = await client.post(
+            f"/api/v1/triggers/{trigger.id}/webhook",
+            json={"kind": "wanted"},
+            headers={"X-JoySafeter-Signature": "sha256=" + "0" * 64},
+        )
+
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "TRIGGER_WEBHOOK_UNAUTHORIZED"
+    assert resp.json()["data"] == {}
+    assert secret_name not in resp.text
+    assert '"kind"' not in resp.text
+    assert "llm" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_webhook_route_rejects_historical_blank_secret_and_empty_key_hmac(
+    db_session,
+    monkeypatch,
+):
+    secret_name = f"historical-blank-secret-{uuid.uuid4()}"
+    trigger = await _seed_webhook_trigger(
+        db_session,
+        config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
+        name="blank-secret-route-hook",
+        secret_ref=secret_name,
+    )
+    db_session.add(
+        JoySafeterSecret(
+            name=secret_name,
+            project_id=trigger.project_id,
+            kind="generic",
+            provider=None,
+            protocol=None,
+            data=encrypted_secret_data({"WEBHOOK_SECRET": ""}),
+        )
+    )
+    await db_session.commit()
+    raw_body = b'{"kind":"empty-key-attack"}'
+    empty_key_signature = f"sha256={WebhookAuthService.sign('', raw_body)}"
+
+    async def fake_fire(self, *args, **kwargs):
+        raise AssertionError("a historical blank webhook secret must never fire the trigger")
+
+    monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
+
+    app = _app(db_session)
+    async with _client(app) as client:
+        resp = await client.post(
+            f"/api/v1/triggers/{trigger.id}/webhook",
+            content=raw_body,
+            headers={"X-JoySafeter-Signature": empty_key_signature},
+        )
+
+    assert resp.status_code == 422
+    assert resp.json() == {
+        "code": "TRIGGER_WEBHOOK_UNAUTHORIZED",
+        "message": "Invalid webhook signature or token",
+        "data": {},
+        "source": "validation",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+    assert secret_name not in resp.text
+    assert "WEBHOOK_SECRET" not in resp.text
     assert str(trigger.id) not in resp.text
 
 

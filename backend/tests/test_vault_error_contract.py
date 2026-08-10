@@ -7,12 +7,14 @@ from fastapi import Request
 from sqlalchemy import func, select
 
 from app.joysafeter_api.api.v1.vaults import (
+    archive_credential,
     archive_vault,
     create_credential,
     delete_credential,
     delete_vault,
     get_credential,
     get_vault,
+    list_credentials,
     update_credential,
     update_vault,
 )
@@ -23,6 +25,7 @@ from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_vault import JoySafeterVault, JoySafeterVaultCredential
 from app.joysafeter_domain.schemas.joysafeter_vault import (
     CreateCredentialRequest,
+    OAuthConfigSchema,
     UpdateCredentialRequest,
     UpdateVaultRequest,
 )
@@ -289,6 +292,318 @@ async def test_create_credential_rejects_archived_vault_without_creating_row(db_
 
 
 @pytest.mark.asyncio
+async def test_create_credential_normalizes_static_bearer_storage(db_session):
+    vault = JoySafeterVault(name=f"vault-{uuid.uuid4()}", description="")
+    db_session.add(vault)
+    await db_session.commit()
+    await db_session.refresh(vault)
+
+    created = await create_credential(
+        CreateCredentialRequest(
+            name="Normalized",
+            credential_type=" STATIC_BEARER ",
+            mcp_server_url="https://normalized.example.com",
+            token_value="  normalized-token  ",
+            oauth_config=OAuthConfigSchema(
+                client_id="client-id",
+                client_secret="client-secret",
+                refresh_token="refresh-token",
+                token_endpoint="https://auth.example.com/token",
+            ),
+        ),
+        _request(),
+        vault.id,
+        db_session,
+        _auth_ctx(),
+    )
+
+    stored = (
+        await db_session.execute(
+            select(JoySafeterVaultCredential).where(JoySafeterVaultCredential.id == created.id)
+        )
+    ).scalar_one()
+    assert stored.credential_type == "static_bearer"
+    assert decrypted_credential_value(stored.token_value) == "normalized-token"
+    assert stored.oauth_config is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("name_payload", "expected_name"),
+    [
+        pytest.param({}, "https://mcp-name.example.com/api", id="omitted"),
+        pytest.param({"name": None}, "https://mcp-name.example.com/api", id="null"),
+        pytest.param({"name": "   "}, "https://mcp-name.example.com/api", id="blank"),
+        pytest.param({"name": "  Production MCP  "}, "Production MCP", id="explicit"),
+    ],
+)
+async def test_create_credential_api_normalizes_optional_name_and_persists_it(
+    db_session,
+    name_payload,
+    expected_name,
+):
+    vault = JoySafeterVault(name=f"vault-{uuid.uuid4()}", description="")
+    db_session.add(vault)
+    await db_session.commit()
+    await db_session.refresh(vault)
+
+    request = CreateCredentialRequest.model_validate(
+        {
+            **name_payload,
+            "credential_type": "static_bearer",
+            "mcp_server_url": "  https://mcp-name.example.com/api  ",
+            "token_value": "token",
+        }
+    )
+    created = await create_credential(request, _request(), vault.id, db_session, _auth_ctx())
+
+    stored = (
+        await db_session.execute(
+            select(JoySafeterVaultCredential).where(JoySafeterVaultCredential.id == created.id)
+        )
+    ).scalar_one()
+    assert request.name == name_payload.get("name")
+    assert created.name == expected_name
+    assert stored.name == expected_name
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("name", "mcp_server_url", "expected_name", "expected_url"),
+    [
+        pytest.param(
+            None,
+            "  https://service-name.example.com/mcp  ",
+            "https://service-name.example.com/mcp",
+            "https://service-name.example.com/mcp",
+            id="missing",
+        ),
+        pytest.param(
+            " \t ",
+            "https://service-name.example.com/mcp",
+            "https://service-name.example.com/mcp",
+            "https://service-name.example.com/mcp",
+            id="blank",
+        ),
+        pytest.param(
+            "  Service MCP  ",
+            "https://service-name.example.com/mcp",
+            "Service MCP",
+            "https://service-name.example.com/mcp",
+            id="explicit",
+        ),
+        pytest.param(None, "   ", "MCP Credential", "", id="blank-url-fallback"),
+    ],
+)
+async def test_create_credential_service_normalizes_optional_name(
+    db_session,
+    name,
+    mcp_server_url,
+    expected_name,
+    expected_url,
+):
+    vault = JoySafeterVault(name=f"vault-{uuid.uuid4()}", description="")
+    db_session.add(vault)
+    await db_session.commit()
+    await db_session.refresh(vault)
+
+    created = await VaultService(db_session).create_credential(
+        vault_id=vault.id,
+        name=name,
+        credential_type="static_bearer",
+        mcp_server_url=mcp_server_url,
+        token_value="token",
+    )
+
+    assert created is not None
+    assert created.name == expected_name
+    assert created.mcp_server_url == expected_url
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("credential_type", ["mcp_oauth", "oauth", "custom"])
+async def test_create_credential_rejects_unsupported_type(db_session, credential_type):
+    vault = JoySafeterVault(name=f"vault-{uuid.uuid4()}", description="")
+    db_session.add(vault)
+    await db_session.commit()
+    await db_session.refresh(vault)
+
+    with pytest.raises(AppError) as exc_info:
+        await create_credential(
+            CreateCredentialRequest(
+                name="Unsupported",
+                credential_type=credential_type,
+                mcp_server_url="https://mcp.example.com",
+                token_value="token",
+            ),
+            _request(),
+            vault.id,
+            db_session,
+            _auth_ctx(),
+        )
+
+    payload = await handled_app_error_payload(exc_info.value, status_code=400)
+    assert payload["code"] == "VAULT_CREDENTIAL_TYPE_NOT_SUPPORTED"
+    assert payload["data"] == {"credential_type": credential_type, "supported": ["static_bearer"]}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("credential_type", "token_value", "expected_code"),
+    [
+        pytest.param("mcp_oauth", "token", "VAULT_CREDENTIAL_TYPE_NOT_SUPPORTED", id="unsupported-type"),
+        pytest.param("static_bearer", "   ", "VAULT_CREDENTIAL_TOKEN_REQUIRED", id="blank-token"),
+    ],
+)
+async def test_rejected_credential_creation_skips_audit_and_network_refresh(
+    db_session,
+    monkeypatch,
+    credential_type,
+    token_value,
+    expected_code,
+):
+    vault = JoySafeterVault(name=f"vault-{uuid.uuid4()}", description="")
+    db_session.add(vault)
+    await db_session.commit()
+    await db_session.refresh(vault)
+
+    async def unexpected_audit(*args, **kwargs):
+        raise AssertionError("rejected credential creation must not write an audit event")
+
+    async def unexpected_refresh(*args, **kwargs):
+        raise AssertionError("rejected credential creation must not refresh network policies")
+
+    monkeypatch.setattr("app.joysafeter_api.api.v1.vaults.audit_joysafeter_event", unexpected_audit)
+    monkeypatch.setattr(
+        "app.joysafeter_api.api.v1.vaults.refresh_live_limited_sandbox_network_policies",
+        unexpected_refresh,
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await create_credential(
+            CreateCredentialRequest(
+                name=None,
+                credential_type=credential_type,
+                mcp_server_url="https://mcp.example.com",
+                token_value=token_value,
+            ),
+            _request(),
+            vault.id,
+            db_session,
+            _auth_ctx(),
+        )
+
+    payload = await handled_app_error_payload(exc_info.value, status_code=400)
+    assert payload["code"] == expected_code
+
+
+@pytest.mark.asyncio
+async def test_create_credential_rejects_blank_static_bearer_token(db_session):
+    vault = JoySafeterVault(name=f"vault-{uuid.uuid4()}", description="")
+    db_session.add(vault)
+    await db_session.commit()
+    await db_session.refresh(vault)
+
+    with pytest.raises(AppError) as exc_info:
+        await create_credential(
+            CreateCredentialRequest(
+                name="Blank token",
+                credential_type="static_bearer",
+                mcp_server_url="https://mcp.example.com",
+                token_value="   ",
+            ),
+            _request(),
+            vault.id,
+            db_session,
+            _auth_ctx(),
+        )
+
+    payload = await handled_app_error_payload(exc_info.value, status_code=400)
+    assert payload["code"] == "VAULT_CREDENTIAL_TOKEN_REQUIRED"
+    assert payload["data"] == {"credential_type": "static_bearer"}
+    count = (
+        await db_session.execute(
+            select(func.count())
+            .select_from(JoySafeterVaultCredential)
+            .where(JoySafeterVaultCredential.vault_id == vault.id)
+        )
+    ).scalar_one()
+    assert count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("credential_type", ["mcp_oauth", "oauth"])
+async def test_historical_oauth_credential_remains_listable_readable_updatable_archivable_and_deletable(
+    db_session, credential_type
+):
+    vault = JoySafeterVault(name=f"vault-{uuid.uuid4()}", description="")
+    db_session.add(vault)
+    await db_session.commit()
+    await db_session.refresh(vault)
+
+    historical = JoySafeterVaultCredential(
+        vault_id=vault.id,
+        name="Historical OAuth",
+        credential_type=credential_type,
+        mcp_server_url=f"https://historical-{credential_type}.example.com",
+        token_value=encrypted_credential_value("historical-token"),
+        oauth_config=None,
+    )
+    db_session.add(historical)
+    await db_session.commit()
+    await db_session.refresh(historical)
+    historical_id = historical.id
+
+    listed = await list_credentials(
+        vault.id,
+        limit=20,
+        after_id=None,
+        include_archived=True,
+        db=db_session,
+        auth_ctx=_auth_ctx(),
+    )
+    assert listed["has_more"] is False
+    assert listed["first_id"] == str(historical_id)
+    assert listed["last_id"] == str(historical_id)
+    assert listed["data"][0]["id"] == str(historical_id)
+    assert listed["data"][0]["vault_id"] == str(vault.id)
+    assert listed["data"][0]["name"] == "Historical OAuth"
+    assert listed["data"][0]["credential_type"] == credential_type
+    assert listed["data"][0]["mcp_server_url"] == f"https://historical-{credential_type}.example.com"
+    assert listed["data"][0]["token_value"] == "********"
+    assert listed["data"][0]["oauth_config"] is None
+    assert listed["data"][0]["archived_at"] is None
+    response = await get_credential(vault.id, historical_id, db_session, _auth_ctx())
+    assert response.credential_type == credential_type
+    assert response.model_dump()["token_value"] == "********"
+    updated = await update_credential(
+        UpdateCredentialRequest(name="Updated Historical OAuth"),
+        _request(),
+        vault.id,
+        historical_id,
+        db_session,
+        _auth_ctx(),
+    )
+    assert updated.name == "Updated Historical OAuth"
+    assert updated.credential_type == credential_type
+    assert await archive_credential(_request(), vault.id, historical_id, db_session, _auth_ctx()) == {"status": "archived"}
+
+    historical.archived_at = None
+    await db_session.commit()
+
+    assert await delete_credential(_request("DELETE"), vault.id, historical_id, db_session, _auth_ctx()) == {
+        "deleted": True
+    }
+    db_session.expire_all()
+    deleted = (
+        await db_session.execute(
+            select(JoySafeterVaultCredential).where(JoySafeterVaultCredential.id == historical_id)
+        )
+    ).scalar_one()
+    assert deleted.deleted_at is not None
+
+
+@pytest.mark.asyncio
 async def test_update_archived_credential_rejects_without_mutating_secret(db_session):
     vault = JoySafeterVault(name=f"vault-{uuid.uuid4()}", description="")
     db_session.add(vault)
@@ -448,20 +763,23 @@ async def test_vault_credentials_keep_encrypted_storage_during_read_archive_and_
     vault_id = vault.id
 
     svc = VaultService(db_session)
-    cred = await svc.create_credential(
+    cred = JoySafeterVaultCredential(
         vault_id=vault_id,
         name="Encrypted MCP",
         credential_type="mcp_oauth",
         mcp_server_url="https://encrypted-mcp.example.com",
-        token_value="access-token",
+        token_value=cipher.encrypt("access-token"),
         oauth_config={
             "client_id": "client-id",
-            "client_secret": "client-secret",
-            "refresh_token": "refresh-token",
+            "client_secret": cipher.encrypt("client-secret"),
+            "refresh_token": cipher.encrypt("refresh-token"),
             "token_endpoint": "https://auth.example.com/token",
             "expires_at": "2999-01-01T00:00:00+00:00",
         },
     )
+    db_session.add(cred)
+    await db_session.commit()
+    await db_session.refresh(cred)
     cred_id = cred.id
 
     db_session.expire_all()

@@ -220,6 +220,24 @@ describe('useQuickstartChat resource creation', () => {
     expect(body).not.toHaveProperty('provider')
   })
 
+  it('uses the translated MCP Credential Set prompt for the step 5 auto intro', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(quickstartResponseText(''))
+    globalThis.fetch = fetchMock as typeof fetch
+    const { result } = renderHook(() => useQuickstartChat('openai-prod'))
+
+    await act(async () => {
+      await result.current.sendAutoIntro(5)
+    })
+
+    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string)
+    expect(body.messages).toEqual([
+      {
+        role: 'user',
+        content: 'managed.quickstart.autoIntro.mcpCredentialSetQuestion',
+      },
+    ])
+  })
+
   it('does not invent a default engine before the catalog-driven selection', async () => {
     const fetchMock = vi.fn()
     globalThis.fetch = fetchMock as typeof fetch

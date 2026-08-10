@@ -49,7 +49,13 @@ class VaultResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class CreateCredentialRequest(BaseModel):
-    name: str
+    name: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional display name; omitted, null, or blank values use the normalized MCP server "
+            'URL, or "MCP Credential" when that URL is blank.'
+        ),
+    )
     credential_type: str = "static_bearer"
     mcp_server_url: str
     token_value: str

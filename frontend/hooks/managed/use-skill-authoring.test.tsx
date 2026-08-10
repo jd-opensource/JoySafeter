@@ -143,6 +143,24 @@ describe('useSkillAuthoring stream lifecycle', () => {
     window.localStorage.clear()
   })
 
+  it('uses Model Connection terminology when authoring has no selected connection', async () => {
+    const { result } = renderHook(() => useSkillAuthoring({ startFresh: true }))
+
+    await act(async () => {
+      await result.current.send('build a skill', '')
+    })
+
+    expect(apiStreamMock).not.toHaveBeenCalled()
+    expect(result.current.messages).toEqual([
+      { role: 'user', content: 'build a skill' },
+      {
+        role: 'assistant',
+        content:
+          '⚠️ 请先在右上角选择一个包含 OPENAI_API_KEY 的模型连接，才能让我开始创作。',
+      },
+    ])
+  })
+
   it('does not hydrate a persisted draft from a different managed project', () => {
     window.localStorage.setItem(
       'joysafeter:skill-authoring-state:v1',

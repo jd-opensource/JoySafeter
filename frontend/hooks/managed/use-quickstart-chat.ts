@@ -854,12 +854,12 @@ export function useQuickstartChat(agentSecretRef: string) {
         )
       } else if (step === 5) {
         await sendMessage(
-          'What vault configuration does my agent need for MCP server credentials?',
+          t('managed.quickstart.autoIntro.mcpCredentialSetQuestion'),
           { stepOverride: 5, hidden: true },
         )
       }
     },
-    [sendMessage],
+    [sendMessage, t],
   )
 
   const generateTestMessage = useCallback(async (): Promise<string> => {

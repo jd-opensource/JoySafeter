@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { JSDOM } from 'jsdom'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -75,10 +75,13 @@ globalThis.alert = vi.fn()
 
 import { managedPost } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
+import { parseVaultId, type VaultId } from '@/types/entity-id'
 
 import { CreateCredentialDialog } from './create-credential-dialog'
 
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
+const vaultAId = parseVaultId('vault_00000000-0000-0000-0000-000000000001')
+const vaultBId = parseVaultId('vault_00000000-0000-0000-0000-000000000002')
 
 function managedOptions() {
   return {
@@ -99,7 +102,7 @@ function deferred<T>() {
 }
 
 function renderDialog(
-  vaultId: string,
+  vaultId: VaultId,
   queryClient: QueryClient,
   onOpenChange: (open: boolean) => void = () => {},
 ) {
@@ -159,7 +162,7 @@ describe('CreateCredentialDialog object lifecycle', () => {
     })
 
     const { getByPlaceholderText, getByText, rerender } = render(
-      renderDialog('vault-a', queryClient),
+      renderDialog(vaultAId, queryClient),
     )
 
     await act(async () => {
@@ -169,14 +172,17 @@ describe('CreateCredentialDialog object lifecycle', () => {
       fireEvent.input(getByPlaceholderText('https://mcp.example.com'), {
         target: { value: 'https://mcp-a.example.com' },
       })
+      fireEvent.input(getByPlaceholderText('managed.vaults.cred.tokenPlaceholder'), {
+        target: { value: 'bearer-token' },
+      })
     })
 
     await act(async () => {
-      rerender(renderDialog('vault-b', queryClient))
+      rerender(renderDialog(vaultBId, queryClient))
     })
 
     await act(async () => {
-      fireEvent.click(getByText('managed.vaults.cred.connect'))
+      fireEvent.click(getByText('managed.vaults.cred.add'))
     })
 
     expect(managedPostMock).not.toHaveBeenCalled()
@@ -195,31 +201,36 @@ describe('CreateCredentialDialog object lifecycle', () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
     const { getByPlaceholderText, getByText, rerender } = render(
-      renderDialog('vault-a', queryClient),
+      renderDialog(vaultAId, queryClient),
     )
 
     await act(async () => {
       fireEvent.input(getByPlaceholderText('https://mcp.example.com'), {
         target: { value: 'https://mcp-a.example.com' },
       })
+      fireEvent.input(getByPlaceholderText('managed.vaults.cred.tokenPlaceholder'), {
+        target: { value: 'bearer-token' },
+      })
     })
-
     await act(async () => {
-      fireEvent.click(getByText('managed.vaults.cred.connect'))
+      fireEvent.click(getByText('managed.vaults.cred.add'))
       await Promise.resolve()
     })
 
-    expect(managedPostMock).toHaveBeenCalledWith(
-      '/vaults/vault-a/credentials',
-      expect.objectContaining({
-        credential_type: 'mcp_oauth',
-        mcp_server_url: 'https://mcp-a.example.com',
-      }),
-      managedOptions(),
+    await waitFor(() =>
+      expect(managedPostMock).toHaveBeenCalledWith(
+        `/vaults/${vaultAId}/credentials`,
+        expect.objectContaining({
+          credential_type: 'static_bearer',
+          mcp_server_url: 'https://mcp-a.example.com',
+          token_value: 'bearer-token',
+        }),
+        managedOptions(),
+      ),
     )
 
     await act(async () => {
-      rerender(renderDialog('vault-b', queryClient))
+      rerender(renderDialog(vaultBId, queryClient))
       create.resolve({ id: 'cred-created-in-vault-a' })
       await Promise.resolve()
     })
@@ -240,16 +251,19 @@ describe('CreateCredentialDialog object lifecycle', () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     const onOpenChange = vi.fn()
 
-    const view = render(renderDialog('vault-a', queryClient, onOpenChange))
+    const view = render(renderDialog(vaultAId, queryClient, onOpenChange))
 
     await act(async () => {
       fireEvent.input(view.getByPlaceholderText('https://mcp.example.com'), {
         target: { value: 'https://mcp-a.example.com' },
       })
+      fireEvent.input(view.getByPlaceholderText('managed.vaults.cred.tokenPlaceholder'), {
+        target: { value: 'bearer-token' },
+      })
     })
 
     await act(async () => {
-      fireEvent.click(view.getByText('managed.vaults.cred.connect'))
+      fireEvent.click(view.getByText('managed.vaults.cred.add'))
       await Promise.resolve()
     })
 
@@ -262,5 +276,52 @@ describe('CreateCredentialDialog object lifecycle', () => {
 
     expect(invalidateSpy).not.toHaveBeenCalled()
     expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it('omits a blank optional name on the wire and accepts the server fallback response', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    const onOpenChange = vi.fn()
+    let wirePayload: Record<string, unknown> | undefined
+    managedPostMock.mockImplementationOnce(async (_path, payload) => {
+      wirePayload = JSON.parse(JSON.stringify(payload)) as Record<string, unknown>
+      return {
+        id: 'cred_00000000-0000-0000-0000-000000000003',
+        vault_id: vaultAId,
+        name: 'https://mcp-a.example.com',
+        credential_type: 'static_bearer',
+        mcp_server_url: 'https://mcp-a.example.com',
+        token_value: '********',
+        oauth_config: null,
+        archived_at: null,
+        created_at: '2026-08-10T00:00:00Z',
+        updated_at: '2026-08-10T00:00:00Z',
+      }
+    })
+    const view = render(renderDialog(vaultAId, queryClient, onOpenChange))
+
+    expect(view.queryByText('OAuth')).toBeNull()
+    const submit = view.getByText('managed.vaults.cred.add').closest('button')!
+    expect(submit.disabled).toBe(true)
+
+    fireEvent.input(view.getByPlaceholderText('https://mcp.example.com'), {
+      target: { value: 'https://mcp-a.example.com' },
+    })
+    fireEvent.input(view.getByPlaceholderText('managed.vaults.cred.tokenPlaceholder'), {
+      target: { value: ' bearer-token ' },
+    })
+    await act(async () => {
+      fireEvent.click(submit)
+    })
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(wirePayload).toEqual({
+      credential_type: 'static_bearer',
+      mcp_server_url: 'https://mcp-a.example.com',
+      token_value: 'bearer-token',
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['vault-credentials', vaultAId],
+    })
   })
 })
