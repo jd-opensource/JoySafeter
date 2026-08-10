@@ -269,3 +269,86 @@ bun run test -- \
 3. The earlier audit totals remain in the historical sections above; this revised method and `1,554` total explicitly supersede them.
 
 No independent-review finding remains open. No push or main-checkout modification was performed.
+
+## Fix Round — Environment Service Credentials And Complete Dynamic Inventory
+
+### Dispositions And Callsites
+
+1. `managed.environments.envVarsHint` is active in both `frontend/app/managed/environments/page.tsx` and `frontend/app/managed/environments/[envId]/page.tsx`. The Chinese catalog value and both production fallbacks now classify token, cookie, and API-key material as sensitive `凭据字段` and direct users to store it in a `服务凭据`. The English value remains unchanged and is pinned by the bilingual contract.
+2. `managed.environments.egressServicesHint` is active on both Environment create and detail pages. Its Chinese value now states that the platform injects the `服务凭据` without exposing it to the sandbox.
+3. `managed.environments.egressBaseUrlHint` is active in `frontend/components/managed/environments-egress-editor.tsx`. Its Chinese value now states that the gateway uses the `服务凭据` to inject authentication information.
+4. `managed.environments.egressSectionCredential` is active as the outbound-service editor section heading. Its Chinese value is now the exact resource term `服务凭据`.
+5. `managed.environments.egressSkillExampleHint` is active in the outbound URL preview. Its Chinese value now states that authentication information from the `服务凭据` is injected automatically.
+
+These changes preserve the semantic distinction between the Service Credential resource and a Credential Field inside that resource. Provider API key names, token and cookie protocol terms, Bearer authentication, internal Secret diagnostics, routes, API fields, persisted values, i18n key names, and TypeScript/domain identifiers remain unchanged.
+
+### Reproducible Active Translation Inventory
+
+`frontend/lib/i18n/active-translation-inventory.test-support.ts` replaces the earlier disposable audit with a repository-backed implementation used by `frontend/lib/i18n/credential-terminology.test.ts`.
+
+- It recursively scans the same `157` production TS/TSX files below `frontend/app`, `frontend/components`, and `frontend/hooks`, excluding test, spec, story, and generated paths.
+- It flattens both locale catalogs, collects string literals and no-substitution template literals that resolve to catalog leaves, expands typed and catalog-matched template translation calls, and adds finite variable-driven families from their production helpers or bounded producers.
+- Deduplication is explicit: `1,321` direct leaves form the first set; `188` template candidates contribute `183` new leaves after `5` direct overlaps; finite families then contribute `79` additional leaves not already present.
+- The finite additions are `26` skill-eligibility, `6` skill-severity, `5` Quickstart-input, `5` skill-lifecycle/visibility, `8` cron-preset, `19` status, `6` alert, and `4` suggestion leaves.
+- The corrected result is therefore `1,321` direct plus `262` deduplicated dynamic leaves, or `1,583` unique active leaves. Both catalogs contain every resolved leaf.
+
+The contract pins the total and each newly omitted family, so deleting status, alert, or suggestion coverage changes the inventory count and fails the test. This method and `1,583` total supersede the earlier `1,554` count and its non-reproducible `187 + 46` dynamic split.
+
+### Corrected Vocabulary Scan And Inactive Proof
+
+The active-value scan now evaluates all `1,583` resolved leaves in both English and Chinese and reports zero active legacy credential-domain values. It exposed no additional production value after the five Environment paths were corrected.
+
+The prior inactive-key disposition remains valid under the larger inventory. In particular, `managed.triggers.secretRefPlaceholder` has no production reference under `frontend/app`, `frontend/components`, or `frontend/hooks`, and the repository-backed inventory reports it absent from `activeLeaves`. Its unreferenced catalog value may therefore remain without weakening the active UI contract.
+
+The hard-coded production-source guard now also targets the exact sensitive-credential fallback context that caused this round while retaining the earlier narrow exclusions. It does not ban legitimate provider API key, Bearer, Cookie, or internal Secret terminology.
+
+### RED And GREEN Evidence
+
+The pre-fix command was:
+
+```bash
+cd frontend
+bun run test -- lib/i18n/credential-terminology.test.ts
+```
+
+- RED exit status: `1`; `7 failed, 379 passed`.
+- Five exact Chinese expectations received the legacy Environment values.
+- The inventory expected `1,583` leaves but received the incomplete `1,554` result because status, alert, and suggestion families were omitted.
+- The production-source guard found the two active `敏感凭证` fallbacks on the Environment create and detail pages.
+
+After the minimal locale, fallback, inventory, and test changes, the targeted command was:
+
+```bash
+cd frontend
+bun run test -- \
+  lib/i18n/credential-terminology.test.ts \
+  components/managed/environments-egress-editor.test.tsx \
+  lib/managed/environment-response-parsers.test.ts
+```
+
+- GREEN exit status: `0`; `3/3` files and `392/392` tests passed.
+- The terminology contract resolves exactly `1,321` direct plus `262` dynamic leaves, verifies all five bilingual paths, and reports zero active vocabulary violations.
+- The focused UI test renders the approved Chinese Service Credential copy from the real Environment egress editor.
+
+### Full Verification And Boundaries
+
+- Exact Task 8 frontend suite: `10/10` files and `456/456` tests passed with no warnings or errors.
+- `bun run type-check`: exit `0`; `tsc --noEmit` produced no diagnostics.
+- `bun run lint`: exit `0`; the unchanged baseline is `692 warnings, 0 errors`, with `609` warnings potentially fixable.
+- Exact Task 8 backend suite: `194 passed, 0 failed` in `35.94s`; the existing SQLAlchemy FK-cycle warning occurred `135` times at `backend/tests/conftest.py:148`.
+- `git diff --check` and the staged diff check both exited `0`.
+- Compatibility checks found no Alembic change from base `d42aaf2cc8fb5f3841aa33b92b7fe204c9a6bb3a`, no selector-path `secret_data`, no OAuth branch in MCP Credential Set creation, no backend/API/type file change, and no file or route rename.
+- The focused production diff changes only five Chinese locale values and two synchronized fallback strings; no route, query key, API field, persisted value, existing i18n key, or TypeScript/domain type changed.
+
+### Commits
+
+- `128964f5dc6270417aac01878741dcd6732c0324` — `fix(frontend): close environment terminology audit gaps`
+- This appended fix-round report is committed separately; its SHA is recorded in the final handoff because a commit cannot contain its own SHA without amendment.
+
+### Fix-Round Concerns
+
+1. Frontend lint and backend SQLAlchemy warnings remain unchanged baseline warnings, not errors.
+2. The inventory intentionally keeps bounded finite-family declarations explicit; its exact family and total assertions make omissions visible in review and CI.
+3. Broad bans on `凭据`, API key, token, Bearer, Cookie, or Secret would reject legitimate field, protocol, and internal diagnostic language, so both active-value and hard-coded-source guards remain semantically targeted.
+
+No finding from this review round remains open. No push, amend, or main-checkout modification was performed.
