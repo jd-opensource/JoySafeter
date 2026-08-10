@@ -592,7 +592,6 @@ const zh = {
         permanentlyDelete: '永久删除',
         backToAgents: '返回智能体列表',
         startSession: '启动会话',
-        guidedEdit: '引导编辑',
         archiveTitle: '归档智能体',
         archiveDescription:
           '归档 "{{name}}" 将终止其所有进行中的会话、暂停其定时触发器，并将配置设为只读。你可以稍后恢复。确定继续吗？',

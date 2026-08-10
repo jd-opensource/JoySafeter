@@ -107,7 +107,6 @@ describe('AgentDetailPage action toolbar', () => {
     await renderPage()
     await waitFor(() => expect(screen.getByText('managed.agents.startSession')).toBeTruthy())
     expect(screen.getByText('common.edit')).toBeTruthy()
-    expect(screen.getByText('managed.agents.guidedEdit')).toBeTruthy()
     expect(screen.getByText('common.archive')).toBeTruthy()
     expect(screen.getByText('common.delete')).toBeTruthy()
     expect(screen.queryByText('common.restore')).toBeNull()

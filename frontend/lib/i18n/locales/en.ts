@@ -521,7 +521,6 @@ const en = {
         permanentlyDelete: 'Permanently Delete',
         backToAgents: 'Back to agents',
         startSession: 'Start Session',
-        guidedEdit: 'Guided Edit',
         archiveTitle: 'Archive Agent',
         archiveDescription:
           'Archiving "{{name}}" will terminate all its running sessions, pause its cron triggers, and make its configuration read-only. You can restore it later. Continue?',

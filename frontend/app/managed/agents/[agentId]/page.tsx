@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from '@/lib/i18n'
-import { Pencil, ChevronRight, Package, Globe, Play, Sparkles, Archive, ArchiveRestore, Trash2 } from 'lucide-react'
+import { Pencil, ChevronRight, Package, Globe, Play, Archive, ArchiveRestore, Trash2 } from 'lucide-react'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
 import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
@@ -221,11 +221,6 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
     }
-  }
-
-  const handleGuidedEdit = () => {
-    if (!currentAgentIsActive()) return
-    router.push(`/managed/agents/${agentId}/edit?guided=true`)
   }
 
   const handleArchive = () => {
@@ -450,10 +445,6 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
                 >
                   <Pencil className="mr-1.5 h-3.5 w-3.5" />
                   {t('common.edit')}
-                </Button>
-                <Button variant="outline" size="sm" disabled={projectReadOnly} onClick={handleGuidedEdit}>
-                  <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-                  {t('managed.agents.guidedEdit')}
                 </Button>
                 <Button variant="outline" size="sm" disabled={projectReadOnly} onClick={handleArchive}>
                   <Archive className="mr-1.5 h-3.5 w-3.5" />
