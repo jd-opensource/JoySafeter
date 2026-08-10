@@ -73,3 +73,71 @@ rerun with approved local Docker/cache access and passed as recorded above.
 ## Concerns
 
 None.
+
+## Fix Round 1
+
+### Status
+
+COMPLETE
+
+The requested fix commit and its follow-up tests were inspected against the
+Task 4 brief. No additional code or test changes were required: all three
+review findings are closed and the added assertions are valid for the current
+Vault API and service lifecycle.
+
+### Finding Dispositions
+
+1. **Important — normalized successful creation:** CLOSED. The service change
+   in `ac99e0a50b0204d30e770d6b05820e0013198572` normalizes the credential type
+   and token before encryption, stores `oauth_config=None`, and rejects invalid
+   input before insertion. The test added in
+   `5eb1749dd88b5deb094b15ddb9f0e23c16f4f5b` creates through the API with
+   surrounding whitespace and OAuth input, then queries the ORM and decrypts
+   the stored token to verify `static_bearer`, the trimmed token, and
+   `oauth_config is None`.
+2. **Minor — historical compatibility:** CLOSED. The follow-up test is
+   parameterized for both `mcp_oauth` and `oauth`, inserts each historical row
+   directly through the ORM, and covers list, get/redaction, update, archive,
+   restore-for-legacy-delete, and delete. No creation path is used to
+   manufacture historical data.
+3. **Minor — rejected API side effects:** CLOSED. The follow-up API test
+   monkeypatches both `audit_joysafeter_event` and
+   `refresh_live_limited_sandbox_network_policies` to fail if called, then
+   submits rejected `mcp_oauth` creation and verifies the structured error.
+   Since the service error propagates before those route statements, neither
+   side effect runs; no route change is needed.
+
+### Validation
+
+Command run from `backend/`:
+
+```bash
+uv run pytest tests/test_vault_error_contract.py tests/test_credential_masking_default_deny.py tests/test_secret_vault_name_soft_delete_index.py -q
+```
+
+Result: `32 passed, 27 warnings in 11.72s`. The warnings are the existing
+SQLAlchemy cyclic-FK warnings from `tests/conftest.py`.
+
+Additional review checks:
+
+```bash
+git diff ea3ee352..5eb1749d --check
+git status --short --branch
+```
+
+Both checks are clean before this report-only update.
+
+### Files and Revisions
+
+- Service policy: `backend/app/joysafeter_domain/services/joysafeter_vault_service.py`
+- Focused lifecycle tests: `backend/tests/test_vault_error_contract.py`
+- API route inspected and unchanged: `backend/app/joysafeter_api/api/v1/vaults.py`
+- Final reviewed code/test head SHA: `5eb1749dd88b5deb094b15ddb9f0e23c16f4f5b`
+- Fix commits: `ac99e0a50b0204d30e770d6b05820e0013198572` (service policy and
+  initial coverage), `5eb1749dd88b5deb094b15ddb9f0e23c16f4f5b` (normalization,
+  compatibility, and side-effect coverage)
+- Report update: this section is committed separately after the fix commits.
+
+### Concerns
+
+None beyond the pre-existing SQLAlchemy cyclic-FK warnings noted above.
