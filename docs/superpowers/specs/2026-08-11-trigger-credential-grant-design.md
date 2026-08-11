@@ -50,11 +50,15 @@
 fire 时依据"该触发器是否存在过 grant 记录"区分两类触发器：
 
 - **零 grant 记录**（从未授权过）= 旧的 / 无凭据型触发器：照常用空 `vault_ids` 运行，向后兼容，不触发 fail-closed。
-- **存在过 grant 记录**（active 或已撤销）= 凭据绑定型触发器：必须有一条**有效 active grant** 才能 fire，
-  否则走 fail-closed。
+- **存在过 grant 记录**（active 或已撤销）= 凭据绑定型触发器：**当本次 fire 需要新建 session 时**，
+  必须有一条**有效 active grant** 才能 fire，否则走 fail-closed。
 
-这一判定使得"曾授权、后被撤销"的触发器在再次 fire 时会 fail-closed（停下来要求重新授权），
-而不是静默用空凭据继续运行——撤销是一次刻意的安全动作，必须被尊重。
+凭据绑定 + fail-closed **仅在触发器本次新建 session（`fresh` / `keyed` / `reuse` 无空闲会话）时生效**。
+`pinned` 与 `reuse` 复用已有 session 的场景**豁免**——它们的 vault 来自人工建 session 时确定的 `session.vault_ids`，
+与触发器 grant 无关，因此触发器 grant 的有效性不影响这两种模式的 fire。
+
+在新建 session 的场景下，这一判定使得"曾授权、后被撤销"的凭据绑定型触发器再次 fire 时会 fail-closed
+（停下来要求重新授权），而不是静默用空凭据继续运行——撤销是一次刻意的安全动作，必须被尊重。
 
 ## Grant 生命周期与 API
 
@@ -69,13 +73,15 @@ fire 时依据"该触发器是否存在过 grant 记录"区分两类触发器：
 
 ## Fire 时校验（fail-closed）
 
-在 `AgentTriggerExecutor.resolve_session` 创建 session 之前：
+在 `AgentTriggerExecutor.resolve_session` 判定本次将**复用 / 固定已有 session** 还是**新建 session**：
 
-1. 判定触发器是否为凭据绑定型（是否存在过 grant 记录）。
-2. 凭据绑定型：加载 active grant。若无有效 active grant → fail-closed。
-3. 校验 active grant 中每个 vault 仍存在且属于本项目；任一失效 → fail-closed。
-4. 校验通过 → 将 `vault_ids=grant.vault_ids` 传入 `create_session(...)`，与交互式 session 一致。
-5. 零 grant 记录触发器 → 用空 `vault_ids` 正常运行。
+1. **复用 / 固定已有 session**（`pinned`；`reuse` 命中空闲可复用会话）→ **跳过 grant 校验**，
+   直接使用该 session 自身的 `vault_ids`（豁免 fail-closed）。
+2. **需新建 session**（`fresh` / `keyed`；`reuse` 无空闲会话）：
+   1. 零 grant 记录触发器 → 用空 `vault_ids` 正常新建并运行。
+   2. 凭据绑定型触发器 → 加载 active grant；无有效 active grant → fail-closed。
+   3. 校验 active grant 中每个 vault 仍存在且属于本项目；任一失效 → fail-closed。
+   4. 校验通过 → 将 `vault_ids=grant.vault_ids` 传入 `create_session(...)`，与交互式 session 一致。
 
 fail-closed 复用现有失败处理：写入 `last_error`（凭据授权失败的专用错误码 / 类型），
 `consecutive_failures` 自增，达阈值时置 `auto_disabled_at` 自动禁用触发器。
@@ -90,7 +96,8 @@ fail-closed 复用现有失败处理：写入 `last_error`（凭据授权失败�
 - `reuse` 复用已有 session：保留该 session 已存的 `vault_ids`。
 
 理由：pinned / reuse-existing 的运行授权在人工建 session 时已确定；触发器 grant 只管它自己新建的 session。
-凭据绑定判定与 fail-closed 校验仍对所有 session_mode 生效——只是校验通过后，vault 仅注入到触发器新建的 session。
+因此凭据绑定判定与 fail-closed 校验**仅在触发器本次新建 session 时生效**；`pinned` 与 `reuse` 复用已有 session 时
+豁免，直接沿用 session 自身的 `vault_ids`，即便该触发器的 grant 已失效或被撤销也照常 fire。
 
 ## 前端
 
@@ -102,8 +109,9 @@ fail-closed 复用现有失败处理：写入 `last_error`（凭据授权失败�
 ## 错误与边界
 
 - 凭据授权失败使用独立错误码 / 类型，写入 `last_error` 与触发器状态，便于 UI 与排障区分普通失败。
-- 撤销后的触发器（无 active grant）fire 一律 fail-closed，直至重新授权。
-- grant 中引用的 vault 被删除或移出项目视为失效，fire 时 fail-closed。
+- 撤销后的凭据绑定型触发器（无 active grant）在**新建 session** 的 fire 中一律 fail-closed，直至重新授权；
+  `pinned` / `reuse` 复用已有 session 的 fire 豁免。
+- grant 中引用的 vault 被删除或移出项目视为失效，在新建 session 的 fire 中 fail-closed。
 - active grant 的唯一性由"重新授权=先撤销后插入"保证；并发下以 `(trigger_id) WHERE revoked_at IS NULL` 的部分唯一索引兜底。
 - 授权与撤销均要求 `require_joysafeter_write`，与触发器其他变更一致。
 
@@ -113,13 +121,14 @@ fail-closed 复用现有失败处理：写入 `last_error`（凭据授权失败�
 
 - Grant 生命周期：创建触发器带 vault → 生成 active grant；重新授权 → 旧 grant 撤销 + 新 active grant；
   撤销 → active grant 置 `revoked_at`。
-- Fire 时校验四条分支：
+- Fire 时校验分支（新建 session 场景，`fresh` / `keyed`）：
   - 有效 active grant → `vault_ids` 注入到触发器新建的 session。
   - grant 引用的 vault 失效 → fail-closed + `consecutive_failures` 自增。
   - 已撤销（无 active grant，但有历史）→ fail-closed。
   - 零 grant 记录旧触发器 → 空 `vault_ids` 正常运行。
-- session_mode 交互：`pinned` / `reuse-existing` 保留 session 自身 vault，grant 不覆盖。
-- 达阈自动禁用：连续授权失败累计到阈值 → `auto_disabled_at` 置位。
+- session_mode 豁免：`pinned` 与 `reuse` 命中空闲会话时，即便 grant 失效 / 已撤销也照常 fire，
+  且使用该 session 自身的 `vault_ids`，grant 不覆盖、不 fail-closed。
+- 达阈自动禁用：新建 session 场景下连续授权失败累计到阈值 → `auto_disabled_at` 置位。
 
 前端：
 
