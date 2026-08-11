@@ -220,6 +220,7 @@ async fn main() -> anyhow::Result<()> {
     // Elect a dedicated xDS leader and label its pod so the leader-only Service
     // routes every Envoy DaemonSet to one replica. No-op unless multi + k8s +
     // xDS enabled (Docker/standalone/leader already have a single xDS source).
+    let mut xds_leader_handle = None;
     if config.ha_mode == "multi"
         && config.sandbox_provider == "k8s"
         && xds_service.is_some()
@@ -227,7 +228,7 @@ async fn main() -> anyhow::Result<()> {
         match kube::Client::try_default().await {
             Ok(kube_client) => {
                 if let Ok(pod_name) = std::env::var("POD_NAME") {
-                    kernel::xds_leader::spawn(
+                    xds_leader_handle = Some(kernel::xds_leader::spawn(
                         kube_client,
                         config.k8s_namespace.clone(),
                         pod_name,
@@ -235,7 +236,7 @@ async fn main() -> anyhow::Result<()> {
                         config.leader_identity.clone(),
                         std::time::Duration::from_secs(config.leader_lease_duration_sec),
                         std::time::Duration::from_secs(config.leader_renew_interval_sec),
-                    );
+                    ));
                 } else {
                     warn!("multi+k8s xDS leader requested but POD_NAME unset; skipping (Envoys stay load-balanced across replicas)");
                 }
@@ -462,6 +463,15 @@ async fn main() -> anyhow::Result<()> {
     // drain in-flight work before stopping services.
     ready_flag.store(false, Ordering::Release);
     info!("Marked not-ready; draining in-flight work...");
+
+    // Hand off xDS leadership up front: drop our pod label (Envoy xDS Service
+    // stops routing to us) and release the Lease so a peer wins within seconds
+    // instead of waiting for lease expiry. Without this, the terminating pod
+    // keeps the label through its whole grace period, leaving a ~lease-duration
+    // gap with no xDS leader during rolling upgrades.
+    if let Some(ref xh) = xds_leader_handle {
+        xh.shutdown().await;
+    }
 
     // Stop scheduler immediately (no new tasks claimed).
     scheduler_handle.abort();

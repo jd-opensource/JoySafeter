@@ -31,10 +31,31 @@ use super::leader_election::LeaderElection;
 /// Pod label that the leader-only xDS Service selects on.
 pub const XDS_LEADER_LABEL: &str = "joysafeter-xds-leader";
 
-/// Spawn the xDS leader coordinator. Returns immediately; the election and
-/// label reconciliation run in the background. Non-fatal: on any error the
-/// pod simply may not become/refresh the label and Envoys keep their last
-/// config (already-established egress is unaffected).
+/// Handle to proactively hand off xDS leadership on graceful shutdown.
+/// Removing the label immediately drops this pod from the leader-only Service
+/// endpoint, and releasing the Lease lets a peer take over within seconds
+/// instead of waiting for the ~lease-duration expiry.
+pub struct XdsLeaderHandle {
+    election: Arc<LeaderElection>,
+    client: Client,
+    namespace: String,
+    pod_name: String,
+}
+
+impl XdsLeaderHandle {
+    /// Best-effort graceful hand-off: drop the pod label so the xDS Service
+    /// stops routing to us, then release the Lease so a peer wins immediately.
+    pub async fn shutdown(&self) {
+        set_leader_label(&self.client, &self.namespace, &self.pod_name, false).await;
+        self.election.release().await;
+        info!(pod = %self.pod_name, "xDS leadership handed off on shutdown");
+    }
+}
+
+/// Spawn the xDS leader coordinator. Returns a handle for graceful hand-off.
+/// The election and label reconciliation run in the background. Non-fatal: on
+/// any error the pod simply may not become/refresh the label and Envoys keep
+/// their last config (already-established egress is unaffected).
 pub fn spawn(
     client: Client,
     namespace: String,
@@ -43,7 +64,7 @@ pub fn spawn(
     identity: String,
     lease_duration: Duration,
     renew_interval: Duration,
-) {
+) -> XdsLeaderHandle {
     let election = Arc::new(LeaderElection::new(
         client.clone(),
         &namespace,
@@ -53,6 +74,13 @@ pub fn spawn(
         renew_interval,
     ));
     election.clone().spawn();
+
+    let handle = XdsLeaderHandle {
+        election: election.clone(),
+        client: client.clone(),
+        namespace: namespace.clone(),
+        pod_name: pod_name.clone(),
+    };
 
     tokio::spawn(async move {
         info!(
@@ -73,6 +101,8 @@ pub fn spawn(
             set_leader_label(&client, &namespace, &pod_name, false).await;
         }
     });
+
+    handle
 }
 
 /// Patch the pod's `joysafeter-xds-leader` label. `true` sets it to "true";
