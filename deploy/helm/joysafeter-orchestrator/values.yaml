@@ -9,6 +9,7 @@
 # ── 全局 ──
 namespace: joysafeter
 environment: production   # test / production
+timezone: Asia/Shanghai
 
 # ── 镜像 ──
 image:

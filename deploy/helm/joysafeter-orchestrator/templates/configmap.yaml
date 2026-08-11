@@ -42,6 +42,7 @@ data:
   {{- if .Values.orchestrator.sandboxWorkspaceRoot }}
   JOYSAFETER_SANDBOX_WORKSPACE_ROOT: {{ .Values.orchestrator.sandboxWorkspaceRoot | quote }}
   {{- end }}
+  JOYSAFETER_SANDBOX_TIMEZONE: {{ .Values.timezone | default "Asia/Shanghai" | quote }}
 
   # ── Sandbox 容器加固 ──
   JOYSAFETER_SANDBOX_DROP_ALL_CAPS: {{ .Values.orchestrator.hardening.dropAllCaps | quote }}

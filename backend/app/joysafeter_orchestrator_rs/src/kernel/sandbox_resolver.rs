@@ -533,6 +533,10 @@ impl SandboxResolver {
         // api.anthropic.com and telemetry attempts just produce NR 404 noise.
         env.entry("DISABLE_TELEMETRY".to_string())
             .or_insert_with(|| "1".to_string());
+        if !self.config.sandbox_timezone.trim().is_empty() {
+            env.entry("TZ".to_string())
+                .or_insert_with(|| self.config.sandbox_timezone.clone());
+        }
 
         let grpc_url = self.provider.orchestrator_url(self.config.grpc_port);
         env.insert("JOYSAFETER_ORCHESTRATOR_URL".to_string(), grpc_url.clone());
@@ -2014,6 +2018,9 @@ impl SandboxResolver {
             sandbox_db_id.to_string(),
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
+        if !self.config.sandbox_timezone.trim().is_empty() {
+            env.insert("TZ".to_string(), self.config.sandbox_timezone.clone());
+        }
 
         let grpc_url = self.provider.orchestrator_url(self.config.grpc_port);
         env.insert("JOYSAFETER_ORCHESTRATOR_URL".to_string(), grpc_url.clone());

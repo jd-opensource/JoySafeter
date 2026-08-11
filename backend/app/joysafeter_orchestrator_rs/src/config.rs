@@ -41,6 +41,8 @@ pub struct JoySafeterConfig {
     pub sandbox_cpu: Option<f64>,
     pub sandbox_memory_mb: Option<u64>,
     pub sandbox_disk_mb: Option<u64>,
+    /// Timezone injected into runner sandbox containers as TZ. Empty disables injection.
+    pub sandbox_timezone: String,
 
     // -- Sandbox container hardening (P0.1) -----------------------------------
     // Matches the Python `Settings.sandbox_*` block of the same name. See
@@ -219,6 +221,7 @@ impl JoySafeterConfig {
             sandbox_disk_mb: env::var("JOYSAFETER_SANDBOX_DISK_MB")
                 .ok()
                 .and_then(|v| v.parse().ok()),
+            sandbox_timezone: env_str("JOYSAFETER_SANDBOX_TIMEZONE", "Asia/Shanghai"),
 
             // Hardening defaults — keep the secure defaults; only flip these
             // off for targeted debugging. See settings.py for rationale.

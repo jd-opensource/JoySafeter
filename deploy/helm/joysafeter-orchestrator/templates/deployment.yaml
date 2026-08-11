@@ -61,6 +61,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: TZ
+          value: {{ .Values.timezone | default "Asia/Shanghai" | quote }}
 
         # 非敏感配置 (ConfigMap) + 敏感配置 (Secret)
         envFrom:
