@@ -15,7 +15,15 @@ from app.repositories.model_provider import ModelProviderRepository
 from .base import BaseService
 
 # built-in provider fixed display order
-BUILTIN_PROVIDER_ORDER = ("openaiapicompatible", "anthropic", "gemini", "zhipu", "ollama", "custom")
+BUILTIN_PROVIDER_ORDER = (
+    "openaiapicompatible",
+    "anthropic",
+    "gemini",
+    "zhipu",
+    "minimax",
+    "ollama",
+    "custom",
+)
 
 
 def _provider_sort_key(provider_data: Dict[str, Any]) -> int:
