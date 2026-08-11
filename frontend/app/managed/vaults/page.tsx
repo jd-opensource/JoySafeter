@@ -10,6 +10,7 @@ import type { Vault } from '@/types/managed'
 import { managedPost, managedDelete } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
+import { toastError } from '@/lib/utils/toast'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { Button } from '@/components/ui/button'
@@ -63,19 +64,20 @@ export default function VaultListPage() {
     },
   })
 
-  const currentVaultIsActive = (vault: Vault, scope: string) =>
-    scopeIsActive(scope) &&
-    currentProjectAllowsWrite() &&
-    queryClient
-      .getQueriesData<{ data?: Vault[] }>({ queryKey: ['vaults', scope, '/vaults'] })
-      .some(([, page]) =>
-        page?.data?.some(
-          (currentVault) => currentVault.id === vault.id && !currentVault.archived_at,
-        ),
-      )
+  // Guard actions on a vault row. The row object itself is the source of
+  // truth for archived state — re-deriving it from the paginated-list query
+  // cache was fragile (the cache key includes cursor/pageSize/includeArchived,
+  // so prefix lookups missed rows off the current page, silently blocking
+  // delete/archive with no feedback). We only require the scope to still be
+  // active (no stale cross-project action) and write permission.
+  const currentVaultIsActive = (_vault: Vault, scope: string) =>
+    scopeIsActive(scope) && currentProjectAllowsWrite()
 
   const openArchiveDialog = (vault: Vault) => {
-    if (!currentVaultIsActive(vault, managedScopeRef.current)) return
+    if (!currentVaultIsActive(vault, managedScopeRef.current)) {
+      toastError(t('managed.vaults.actionUnavailable'))
+      return
+    }
     bumpRun()
     setArchiveTarget(vault)
   }
@@ -86,7 +88,10 @@ export default function VaultListPage() {
   }
 
   const openDeleteDialog = (vault: Vault) => {
-    if (!currentVaultIsActive(vault, managedScopeRef.current)) return
+    if (!currentVaultIsActive(vault, managedScopeRef.current)) {
+      toastError(t('managed.vaults.actionUnavailable'))
+      return
+    }
     bumpRun()
     setDeleteTarget(vault)
   }

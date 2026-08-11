@@ -1009,6 +1009,8 @@ const en = {
         creating: 'Creating...',
         empty: 'No vaults yet.',
         archiveVault: 'Archive Vault',
+        actionUnavailable:
+          'This vault cannot be modified right now. Refresh the page or confirm the correct project is selected, then retry.',
         archiveTitle: 'Archive Vault',
         archiveDescription:
           'Are you sure you want to archive "{{name}}"? Credentials in this vault will no longer be available to agents.',

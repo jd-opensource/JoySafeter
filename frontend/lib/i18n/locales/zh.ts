@@ -1064,6 +1064,7 @@ const zh = {
         creating: '创建中...',
         empty: '暂无凭证库。',
         archiveVault: '归档凭证库',
+        actionUnavailable: '当前无法操作该凭证库，请刷新页面或确认已选择正确的项目后重试。',
         archiveTitle: '归档凭证库',
         archiveDescription: '确定要归档 "{{name}}" 吗？此凭证库中的凭证将不再对智能体可用。',
         deleteTitle: '删除凭证库',
