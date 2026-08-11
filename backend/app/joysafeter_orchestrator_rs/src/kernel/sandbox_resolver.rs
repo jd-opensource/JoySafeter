@@ -274,6 +274,18 @@ impl SandboxResolver {
                                     info!(sandbox_id = %sandbox.id, "Restarted stopped sandbox");
                                     return Ok((sandbox.id, ext_id.clone()));
                                 }
+                                // Restart failed (e.g. pod deleted in K8s). Destroy the
+                                // stale DB record so the unique-session constraint is freed
+                                // and a fresh sandbox can be created below.
+                                if !self
+                                    .destroy_observed_sandbox(&sandbox, "stopped restart failed")
+                                    .await?
+                                {
+                                    anyhow::bail!(
+                                        "stopped sandbox {} changed state before cleanup after failed restart",
+                                        sandbox.id
+                                    );
+                                }
                             }
                         }
                         "error" => {
@@ -325,6 +337,17 @@ impl SandboxResolver {
                     if self.restart_stopped_sandbox(sandbox.id, ext_id).await? {
                         info!(sandbox_id = %sandbox.id, "Restarted stopped sandbox for session");
                         return Ok((sandbox.id, ext_id.clone()));
+                    }
+                    // Restart failed — destroy stale record to free the unique-session
+                    // constraint so a fresh sandbox can be created below.
+                    if !self
+                        .destroy_observed_sandbox(&sandbox, "stopped restart failed (session)")
+                        .await?
+                    {
+                        anyhow::bail!(
+                            "stopped sandbox {} changed state before cleanup after failed restart",
+                            sandbox.id
+                        );
                     }
                 }
             }
@@ -1933,6 +1956,47 @@ impl SandboxResolver {
                 return Ok(true);
             }
             anyhow::bail!("stopped sandbox {sandbox_id} changed state during restart");
+        }
+
+        // Verify the runtime still exists. In K8s, pods cannot be "restarted"
+        // once deleted; provider.start() is a no-op and the pod will never come
+        // back. Without this check the sandbox transitions to provisioning and
+        // waits indefinitely for a runner that never connects. Return false so
+        // the caller falls through to create a fresh sandbox instead.
+        use crate::sandbox::provider::SandboxStatus;
+        match self.provider.status(external_id).await {
+            Ok(SandboxStatus::NotFound | SandboxStatus::Unknown(_)) => {
+                // Pod/container doesn't exist — can't restart.
+                let _ = queries::restore_stopped_sandbox_after_restart_start_failure(
+                    &self.pool,
+                    sandbox_id,
+                    external_id,
+                )
+                .await;
+                debug!(
+                    sandbox_id = %sandbox_id,
+                    "Cannot restart stopped sandbox — runtime gone (pod deleted); will create new"
+                );
+                return Ok(false);
+            }
+            Ok(SandboxStatus::Running) => {
+                // Still alive somehow (unusual for "stopped" in DB) — proceed.
+            }
+            Ok(SandboxStatus::Stopped) => {
+                // Docker: container stopped but exists, can be restarted.
+                // K8s: shouldn't reach here (deleted pods are NotFound).
+                // Proceed with start() attempt.
+            }
+            Err(_) => {
+                // Provider check failed — be conservative, don't restart.
+                let _ = queries::restore_stopped_sandbox_after_restart_start_failure(
+                    &self.pool,
+                    sandbox_id,
+                    external_id,
+                )
+                .await;
+                return Ok(false);
+            }
         }
 
         if self.provider.start(external_id).await.is_err() {
