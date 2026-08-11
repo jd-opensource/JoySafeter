@@ -104,7 +104,7 @@ fail-closed 复用现有失败处理：写入 `last_error`（凭据授权失败�
 - 凭据授权失败使用独立错误码 / 类型，写入 `last_error` 与触发器状态，便于 UI 与排障区分普通失败。
 - 撤销后的触发器（无 active grant）fire 一律 fail-closed，直至重新授权。
 - grant 中引用的 vault 被删除或移出项目视为失效，fire 时 fail-closed。
-- active grant 的唯一性由"重新授权=先撤销后插入"保证；并发下以数据库层约束 / 校验兜底。
+- active grant 的唯一性由"重新授权=先撤销后插入"保证；并发下以 `(trigger_id) WHERE revoked_at IS NULL` 的部分唯一索引兜底。
 - 授权与撤销均要求 `require_joysafeter_write`，与触发器其他变更一致。
 
 ## 测试范围
