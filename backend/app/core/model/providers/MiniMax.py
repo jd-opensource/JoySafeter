@@ -20,17 +20,17 @@ from .OpenaiApiCompatible import OpenAIAPICompatibleProvider, _format_validation
 
 # region-specific OpenAI-compatible base URLs (path ends with /v1)
 _REGION_BASE_URLS = {
-    "global": "https://api.minimax.io/v1",
-    "cn": "https://api.minimaxi.com/v1",
+    "global_en": "https://api.minimax.io/v1",
+    "cn_zh": "https://api.minimaxi.com/v1",
 }
 
 # region-specific Anthropic-compatible base URLs
 _REGION_ANTHROPIC_BASE_URLS = {
-    "global": "https://api.minimax.io/anthropic",
-    "cn": "https://api.minimaxi.com/anthropic",
+    "global_en": "https://api.minimax.io/anthropic",
+    "cn_zh": "https://api.minimaxi.com/anthropic",
 }
 
-DEFAULT_REGION = "global"
+DEFAULT_REGION = "global_en"
 
 
 class MiniMaxProvider(OpenAIAPICompatibleProvider):
@@ -42,16 +42,34 @@ class MiniMaxProvider(OpenAIAPICompatibleProvider):
     # low-cost model used for credential validation
     VALIDATION_MODEL = "MiniMax-M2.7"
 
-    PREDEFINED_CHAT_MODELS = [
+    PREDEFINED_CHAT_MODELS: List[Dict[str, Any]] = [
         {
             "name": "MiniMax-M3",
             "display_name": "MiniMax M3",
             "description": "MiniMax flagship multimodal model with a 1M context window, adaptive thinking, and prompt caching",
+            "context_window": 1_000_000,
+            "pricing_usd_per_million_tokens": {
+                "input": 0.6,
+                "output": 2.4,
+                "cache_read": 0.12,
+                "cache_write": None,
+            },
+            "input_modalities": ["text", "image", "video"],
+            "thinking": ["adaptive", "disabled"],
         },
         {
             "name": "MiniMax-M2.7",
             "display_name": "MiniMax M2.7",
             "description": "MiniMax text model with always-on thinking and a 204K context window",
+            "context_window": 204_800,
+            "pricing_usd_per_million_tokens": {
+                "input": 0.3,
+                "output": 1.2,
+                "cache_read": 0.06,
+                "cache_write": 0.375,
+            },
+            "input_modalities": ["text"],
+            "thinking": ["always_on"],
         },
     ]
 
@@ -98,7 +116,7 @@ class MiniMaxProvider(OpenAIAPICompatibleProvider):
                     "type": "string",
                     "title": "Region",
                     "description": "MiniMax API region",
-                    "enum": ["global", "cn"],
+                    "enum": ["global_en", "cn_zh"],
                     "enumNames": ["Global (api.minimax.io)", "China (api.minimaxi.com)"],
                     "default": DEFAULT_REGION,
                 },
@@ -230,16 +248,7 @@ class MiniMaxProvider(OpenAIAPICompatibleProvider):
     ) -> List[Dict[str, Any]]:
         """Return the model list."""
         if model_type == ModelType.CHAT:
-            models = []
-            for model in self.PREDEFINED_CHAT_MODELS:
-                model_info = {
-                    "name": model["name"],
-                    "display_name": model["display_name"],
-                    "description": model["description"],
-                    "is_available": True,
-                }
-                models.append(model_info)
-            return models
+            return [{**model, "is_available": True} for model in self.PREDEFINED_CHAT_MODELS]
         return []
 
     def get_predefined_models(self, model_type: ModelType) -> List[Dict[str, Any]]:

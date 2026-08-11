@@ -55,21 +55,47 @@ def test_credential_schema(provider):
     assert schema["required"] == ["api_key"]
     props = schema["properties"]
     assert set(props) == {"api_key", "region", "protocol_type", "base_url"}
-    assert props["region"]["enum"] == ["global", "cn"]
+    assert props["region"]["enum"] == ["global_en", "cn_zh"]
     assert props["protocol_type"]["enum"] == ["openai", "anthropic"]
-    assert props["region"]["default"] == "global"
+    assert props["region"]["default"] == "global_en"
     assert props["protocol_type"]["default"] == "openai"
 
 
 def test_predefined_models(provider):
     base, _ = _load_providers()
     models = provider.get_model_list(base.ModelType.CHAT)
-    names = [m["name"] for m in models]
-    assert names == ["MiniMax-M3", "MiniMax-M2.7"]
-    for m in models:
-        assert m["is_available"] is True
-        assert m["display_name"]
-        assert m["description"]
+    assert models == [
+        {
+            "name": "MiniMax-M3",
+            "display_name": "MiniMax M3",
+            "description": "MiniMax flagship multimodal model with a 1M context window, adaptive thinking, and prompt caching",
+            "context_window": 1_000_000,
+            "pricing_usd_per_million_tokens": {
+                "input": 0.6,
+                "output": 2.4,
+                "cache_read": 0.12,
+                "cache_write": None,
+            },
+            "input_modalities": ["text", "image", "video"],
+            "thinking": ["adaptive", "disabled"],
+            "is_available": True,
+        },
+        {
+            "name": "MiniMax-M2.7",
+            "display_name": "MiniMax M2.7",
+            "description": "MiniMax text model with always-on thinking and a 204K context window",
+            "context_window": 204_800,
+            "pricing_usd_per_million_tokens": {
+                "input": 0.3,
+                "output": 1.2,
+                "cache_read": 0.06,
+                "cache_write": 0.375,
+            },
+            "input_modalities": ["text"],
+            "thinking": ["always_on"],
+            "is_available": True,
+        },
+    ]
 
 
 def test_create_openai_global_default_base_url(provider):
@@ -83,7 +109,7 @@ def test_create_openai_global_default_base_url(provider):
 def test_create_openai_china_region_base_url(provider):
     base, _ = _load_providers()
     inst = provider.create_model_instance(
-        "MiniMax-M3", base.ModelType.CHAT, {"api_key": "k", "protocol_type": "openai", "region": "cn"}
+        "MiniMax-M3", base.ModelType.CHAT, {"api_key": "k", "protocol_type": "openai", "region": "cn_zh"}
     )
     assert inst.openai_api_base == "https://api.minimaxi.com/v1"
 
@@ -99,7 +125,7 @@ def test_create_anthropic_global_default_base_url(provider):
 def test_create_anthropic_china_region_base_url(provider):
     base, _ = _load_providers()
     inst = provider.create_model_instance(
-        "MiniMax-M3", base.ModelType.CHAT, {"api_key": "k", "protocol_type": "anthropic", "region": "cn"}
+        "MiniMax-M3", base.ModelType.CHAT, {"api_key": "k", "protocol_type": "anthropic", "region": "cn_zh"}
     )
     assert inst.anthropic_api_url == "https://api.minimaxi.com/anthropic"
 
