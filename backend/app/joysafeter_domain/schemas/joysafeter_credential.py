@@ -8,12 +8,13 @@ extra fields) so malformed input is rejected before it reaches the service.
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.joysafeter_shared.ids import CredentialGroupId
+from app.joysafeter_shared.ids import CredentialGroupId, CredentialId
 
 # --- data contract limits (flat dict[str, str]) ---------------------------------
 # Named constants for the size bounds the service enforces on every credential's
@@ -91,6 +92,60 @@ class CreateCredentialGroupRequest(BaseModel):
     @classmethod
     def _norm_name(cls, v: str) -> str:
         return _normalize_name(v)
+
+
+# --- test-connection request/response (ported from the secrets API) -------------
+# A model credential's provider/protocol/data are validated against the LLM
+# catalog and a ping request is issued to the upstream API. The request never
+# touches the store, so it carries the fields inline (no stored credential id).
+
+
+class TestCredentialRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str
+    protocol: str
+    data: dict[str, str] = Field(default_factory=dict)
+
+
+class CredentialTestResponse(BaseModel):
+    ok: bool
+    provider: str
+    protocol: str
+    message: str
+    endpoint: Optional[str] = None
+    status: Optional[int] = None
+    error_detail: Optional[str] = None
+
+
+# --- responses (masked; never raw secret material) ------------------------------
+# Reads mask every non-display-safe `data` value via CredentialService.get_masked
+# before shaping these, so a project reader can never recover raw secret material
+# through GET/list.
+
+
+class CredentialResponse(BaseModel):
+    id: CredentialId
+    kind: CredentialKind
+    name: str
+    data: dict[str, str] = Field(default_factory=dict)
+    provider: Optional[str] = None
+    protocol: Optional[str] = None
+    is_default: bool = False
+    mcp_server_url: Optional[str] = None
+    group_id: Optional[CredentialGroupId] = None
+    archived_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CredentialGroupResponse(BaseModel):
+    id: CredentialGroupId
+    name: str
+    description: str = ""
+    archived_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class UpdateCredentialGroupRequest(BaseModel):
