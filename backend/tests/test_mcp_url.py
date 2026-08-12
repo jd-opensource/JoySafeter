@@ -1,0 +1,39 @@
+"""Cross-language MCP-URL normalization vectors.
+
+These vectors are the shared contract between the Python
+``normalize_mcp_url`` and the Rust ``mcp_url::normalize``: both languages must
+map every ``raw`` input to the same ``normalized`` canonical form, so the DB
+uniqueness constraint ``(group_id, normalized_mcp_server_url)`` and the runtime
+credential match agree on a single normal form.
+"""
+
+import json
+from pathlib import Path
+
+import pytest
+
+from app.joysafeter_shared.mcp_url import normalize_mcp_url
+
+pytestmark = pytest.mark.no_db
+
+_VECTORS_PATH = Path(__file__).parent / "fixtures" / "mcp_url_vectors.json"
+
+
+def _load_vectors() -> list[dict]:
+    return json.loads(_VECTORS_PATH.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("vector", _load_vectors())
+def test_normalize_matches_vector(vector: dict) -> None:
+    assert normalize_mcp_url(vector["raw"]) == vector["normalized"]
+
+
+def test_trailing_slash_and_bare_are_equal() -> None:
+    assert normalize_mcp_url("https://example.com/mcp/") == normalize_mcp_url(
+        "https://example.com/mcp"
+    )
+
+
+def test_default_port_removed_but_custom_kept() -> None:
+    assert normalize_mcp_url("https://h.com:443/x") == "https://h.com/x"
+    assert normalize_mcp_url("https://h.com:8443/x") == "https://h.com:8443/x"

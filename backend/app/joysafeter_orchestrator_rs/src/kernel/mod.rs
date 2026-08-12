@@ -5,6 +5,7 @@ pub mod harness_input_builder;
 pub mod leader_election;
 pub mod llm_catalog;
 pub mod llm_providers;
+pub mod mcp_url;
 pub mod memory_sync;
 pub mod queue;
 pub mod redis_coordinator;
