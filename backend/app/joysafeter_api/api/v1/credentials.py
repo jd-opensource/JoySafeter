@@ -20,8 +20,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
-from app.joysafeter_domain.llm.catalog import get_llm_catalog
+from app.joysafeter_domain.llm.catalog import LlmCatalogError, get_llm_catalog
 from app.joysafeter_domain.llm.compatibility import (
+    LlmCompatibilityError,
+    compatible_engine_ids,
+    resolve_credential_profile,
     validate_credential_data,
     validate_provider_protocol,
 )
@@ -55,14 +58,31 @@ CREDENTIAL_TEST_MAX_OUTPUT_TOKENS = 32
 # --- response shaping (always masked) -------------------------------------------
 
 
+def _catalog_identity(cred: JoySafeterCredential) -> tuple[str | None, list[str]]:
+    """Resolve (model_key, compatible_engine_ids) for a model credential.
+
+    Non-model credentials (and model credentials whose provider/protocol are no
+    longer in the catalog) resolve to ``(None, [])``.
+    """
+    profile = resolve_credential_profile(cred)
+    if profile is None:
+        return None, []
+    return profile.model_key, compatible_engine_ids(cred.provider, cred.protocol)
+
+
 def _credential_response(cred: JoySafeterCredential, svc: CredentialService) -> CredentialResponse:
+    model_key, engine_ids = _catalog_identity(cred)
+    masked = svc.get_masked(cred)
+    model = (masked.get(model_key) or None) if model_key else None
     return CredentialResponse(
         id=cred.id,
         kind=CredentialKind(cred.kind),
         name=cred.name,
-        data=svc.get_masked(cred),
+        data=masked,
         provider=cred.provider,
         protocol=cred.protocol,
+        model=model,
+        compatible_engine_ids=engine_ids,
         is_default=cred.is_default,
         mcp_server_url=cred.mcp_server_url,
         group_id=cred.group_id,
@@ -70,6 +90,38 @@ def _credential_response(cred: JoySafeterCredential, svc: CredentialService) -> 
         created_at=cred.created_at,
         updated_at=cred.updated_at,
     )
+
+
+def _validate_list_filters(provider: str | None, protocol: str | None) -> None:
+    """Reject unknown provider/protocol list filters against the LLM catalog.
+
+    Mirrors the old ``/secrets`` list guard so a bad filter surfaces a semantic
+    ``LLM_PROVIDER_UNKNOWN`` / ``LLM_PROTOCOL_UNKNOWN`` instead of silently
+    returning an empty page.
+    """
+    catalog = get_llm_catalog()
+    if provider is not None:
+        try:
+            catalog.provider(provider)
+        except LlmCatalogError as exc:
+            raise LlmCompatibilityError(
+                code="LLM_PROVIDER_UNKNOWN",
+                message=f"Unknown LLM provider: {provider}",
+                data={"provider": provider},
+                user_action="fix_input",
+            ) from exc
+    if protocol is not None:
+        try:
+            catalog.protocol(protocol)
+        except LlmCatalogError as exc:
+            raise LlmCompatibilityError(
+                code="LLM_PROTOCOL_UNKNOWN",
+                message=f"Unknown LLM protocol: {protocol}",
+                data={"protocol": protocol},
+                user_action="fix_input",
+            ) from exc
+    if provider is not None and protocol is not None:
+        validate_provider_protocol(provider, protocol)
 
 
 def _audit_details(cred: JoySafeterCredential) -> dict:
@@ -295,13 +347,22 @@ async def list_credentials(
     limit: int = Query(20, ge=1, le=100),
     after_id: Optional[CredentialId] = Query(None),
     kind: Optional[CredentialKind] = Query(None),
+    name: Optional[str] = Query(None),
+    provider: Optional[str] = Query(None),
+    protocol: Optional[str] = Query(None),
+    compatible_engine: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
     svc = CredentialService(db)
+    _validate_list_filters(provider, protocol)
     creds, has_more = await svc.list(
         project_id=auth_ctx.project_id,
         kind=kind,
+        name=name,
+        provider=provider,
+        protocol=protocol,
+        compatible_engine=compatible_engine,
         limit=limit,
         after_id=after_id,
     )

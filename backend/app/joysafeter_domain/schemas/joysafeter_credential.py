@@ -131,6 +131,8 @@ class CredentialResponse(BaseModel):
     data: dict[str, str] = Field(default_factory=dict)
     provider: Optional[str] = None
     protocol: Optional[str] = None
+    model: Optional[str] = None
+    compatible_engine_ids: list[str] = Field(default_factory=list)
     is_default: bool = False
     mcp_server_url: Optional[str] = None
     group_id: Optional[CredentialGroupId] = None

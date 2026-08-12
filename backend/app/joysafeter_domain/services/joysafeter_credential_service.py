@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from sqlalchemy import and_, delete, or_, select, update
+from sqlalchemy import and_, delete, or_, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
@@ -415,6 +415,10 @@ class CredentialService:
         self,
         project_id: str,
         kind: CredentialKind | str | None = None,
+        name: str | None = None,
+        provider: str | None = None,
+        protocol: str | None = None,
+        compatible_engine: str | None = None,
         limit: int = 20,
         after_id: Optional[CredentialId] = None,
     ) -> tuple[list[JoySafeterCredential], bool]:
@@ -425,7 +429,30 @@ class CredentialService:
         if kind is not None:
             kind_value = kind.value if isinstance(kind, CredentialKind) else kind
             q = q.where(JoySafeterCredential.kind == kind_value)
+        if name is not None:
+            q = q.where(JoySafeterCredential.name == name)
+        if provider is not None:
+            q = q.where(JoySafeterCredential.provider == provider)
+        if protocol is not None:
+            q = q.where(JoySafeterCredential.protocol == protocol)
+        if compatible_engine is not None:
+            # Import locally to avoid coupling the service module to the LLM
+            # catalog at import time.
+            from app.joysafeter_domain.llm.compatibility import (
+                compatible_provider_protocol_pairs,
+            )
+
+            pairs = compatible_provider_protocol_pairs(compatible_engine)
+            q = q.where(
+                JoySafeterCredential.kind == CredentialKind.MODEL.value,
+                tuple_(JoySafeterCredential.provider, JoySafeterCredential.protocol).in_(pairs),
+            )
         if after_id:
+            cursor_is_default = (
+                select(JoySafeterCredential.is_default)
+                .where(JoySafeterCredential.id == after_id)
+                .scalar_subquery()
+            )
             cursor_created_at = (
                 select(JoySafeterCredential.created_at)
                 .where(JoySafeterCredential.id == after_id)
@@ -433,14 +460,21 @@ class CredentialService:
             )
             q = q.where(
                 or_(
-                    JoySafeterCredential.created_at < cursor_created_at,
+                    JoySafeterCredential.is_default < cursor_is_default,
                     and_(
-                        JoySafeterCredential.created_at == cursor_created_at,
-                        JoySafeterCredential.id < after_id,
+                        JoySafeterCredential.is_default == cursor_is_default,
+                        or_(
+                            JoySafeterCredential.created_at < cursor_created_at,
+                            and_(
+                                JoySafeterCredential.created_at == cursor_created_at,
+                                JoySafeterCredential.id < after_id,
+                            ),
+                        ),
                     ),
                 )
             )
         q = q.order_by(
+            JoySafeterCredential.is_default.desc(),
             JoySafeterCredential.created_at.desc(),
             JoySafeterCredential.id.desc(),
         ).limit(limit + 1)

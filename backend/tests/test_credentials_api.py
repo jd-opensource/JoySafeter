@@ -175,6 +175,76 @@ def test_credential_create_list_get_masked_default_archive_restore(client) -> No
     assert resp.status_code == 404
 
 
+def test_credential_list_filters_and_compat_fields(client) -> None:
+    """The list endpoint restores the old /secrets server-side filters
+    (compatible_engine / provider / protocol / name) and the response carries the
+    catalog-derived ``model`` + ``compatible_engine_ids`` a model picker needs."""
+    api, _project_id, _factory = client
+
+    # Model cred A: openai/openai_responses -> engines include 'codex', model from OPENAI_MODEL.
+    a = api.post(
+        "/credentials",
+        json={
+            "kind": "model",
+            "name": "openai-a",
+            "provider": "openai",
+            "protocol": "openai_responses",
+            "data": {"API_KEY": "sk-a", "OPENAI_MODEL": "gpt-5.5"},
+        },
+    )
+    assert a.status_code == 201, a.text
+    a_body = a.json()
+    assert a_body["model"] == "gpt-5.5"
+    assert "codex" in a_body["compatible_engine_ids"]
+    assert "claude" not in a_body["compatible_engine_ids"]
+
+    # Model cred B: anthropic/anthropic_messages -> engines include 'claude'.
+    b = api.post(
+        "/credentials",
+        json={
+            "kind": "model",
+            "name": "anthropic-b",
+            "provider": "anthropic",
+            "protocol": "anthropic_messages",
+            "data": {"API_KEY": "sk-b"},
+        },
+    )
+    assert b.status_code == 201, b.text
+    b_body = b.json()
+    assert "claude" in b_body["compatible_engine_ids"]
+
+    # compatible_engine filter discriminates between the two.
+    codex_ids = {i["id"] for i in api.get("/credentials", params={"compatible_engine": "codex"}).json()["data"]}
+    assert a_body["id"] in codex_ids
+    assert b_body["id"] not in codex_ids
+    claude_ids = {i["id"] for i in api.get("/credentials", params={"compatible_engine": "claude"}).json()["data"]}
+    assert b_body["id"] in claude_ids
+    assert a_body["id"] not in claude_ids
+
+    # provider filter.
+    prov = api.get("/credentials", params={"provider": "openai"}).json()["data"]
+    assert all(i["provider"] == "openai" for i in prov)
+    assert a_body["id"] in {i["id"] for i in prov}
+    assert b_body["id"] not in {i["id"] for i in prov}
+
+    # name filter (exact, against the normalized stored name).
+    named = api.get("/credentials", params={"name": a_body["name"]}).json()["data"]
+    assert [i["id"] for i in named] == [a_body["id"]]
+
+    # is_default sorts first.
+    api.post(f"/credentials/{a_body['id']}/default")
+    model_list = api.get("/credentials", params={"kind": "model"}).json()["data"]
+    assert model_list[0]["id"] == a_body["id"]
+
+    # Unknown provider/protocol list filters surface semantic errors, not empty pages.
+    r = api.get("/credentials", params={"provider": "bogus"})
+    assert r.status_code == 400
+    assert r.json()["code"] == "LLM_PROVIDER_UNKNOWN"
+    r = api.get("/credentials", params={"protocol": "bogus"})
+    assert r.status_code == 400
+    assert r.json()["code"] == "LLM_PROTOCOL_UNKNOWN"
+
+
 def test_credential_update_preserves_masked_value(client) -> None:
     api, _project_id, _factory = client
     resp = api.post(
