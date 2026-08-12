@@ -55,7 +55,7 @@ def upgrade() -> None:
     sa.Column('multiagent', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     sa.Column('version', sa.Integer(), nullable=False),
     sa.Column('environment_ref', sa.Text(), nullable=True),
-    sa.Column('secret_ref', sa.Text(), nullable=True),
+    sa.Column('model_credential_id', sa.UUID(), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('archived_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('id', sa.UUID(), nullable=False),
@@ -65,6 +65,7 @@ def upgrade() -> None:
     )
     op.create_index('idx_ca_created_at', 'joysafeter_agents', ['created_at'], unique=False)
     op.create_index('idx_ca_project', 'joysafeter_agents', ['project_id'], unique=False)
+    op.create_index(op.f('ix_joysafeter_agents_model_credential_id'), 'joysafeter_agents', ['model_credential_id'], unique=False)
     op.create_index(op.f('ix_joysafeter_agents_project_id'), 'joysafeter_agents', ['project_id'], unique=False)
     op.create_index('uq_joysafeter_agents_global_name', 'joysafeter_agents', ['name'], unique=True, postgresql_where=sa.text('project_id IS NULL AND deleted_at IS NULL'), sqlite_where=sa.text('project_id IS NULL AND deleted_at IS NULL'))
     op.create_index('uq_joysafeter_agents_project_name', 'joysafeter_agents', ['project_id', 'name'], unique=True, postgresql_where=sa.text('project_id IS NOT NULL AND deleted_at IS NULL'), sqlite_where=sa.text('project_id IS NOT NULL AND deleted_at IS NULL'))
@@ -872,6 +873,7 @@ def upgrade() -> None:
     # represented in a single explicit baseline migration.
     op.create_foreign_key('fk_joysafeter_agent_versions_agent_id_joysafeter_agents', 'joysafeter_agent_versions', 'joysafeter_agents', ['agent_id'], ['id'])
     op.create_foreign_key('fk_joysafeter_agents_project_id_joysafeter_organizat_0323e88f26', 'joysafeter_agents', 'joysafeter_organization_projects', ['project_id'], ['id'])
+    op.create_foreign_key('fk_joysafeter_agents_model_credential_id_joysafeter_credentials', 'joysafeter_agents', 'joysafeter_credentials', ['model_credential_id'], ['id'], ondelete='RESTRICT')
     op.create_foreign_key('fk_joysafeter_api_keys_created_by_joysafeter_users', 'joysafeter_api_keys', 'joysafeter_users', ['created_by'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_joysafeter_api_keys_org_id_joysafeter_organizations', 'joysafeter_api_keys', 'joysafeter_organizations', ['org_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_joysafeter_api_keys_project_id_joysafeter_organiz_c91dcf8ec0', 'joysafeter_api_keys', 'joysafeter_organization_projects', ['project_id'], ['id'], ondelete='CASCADE')
@@ -1039,6 +1041,7 @@ def downgrade() -> None:
     op.drop_constraint('fk_joysafeter_api_keys_project_id_joysafeter_organiz_c91dcf8ec0', 'joysafeter_api_keys', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_api_keys_org_id_joysafeter_organizations', 'joysafeter_api_keys', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_api_keys_created_by_joysafeter_users', 'joysafeter_api_keys', type_='foreignkey')
+    op.drop_constraint('fk_joysafeter_agents_model_credential_id_joysafeter_credentials', 'joysafeter_agents', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_agents_project_id_joysafeter_organizat_0323e88f26', 'joysafeter_agents', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_agent_versions_agent_id_joysafeter_agents', 'joysafeter_agent_versions', type_='foreignkey')
     op.drop_table('joysafeter_session_credential_groups')

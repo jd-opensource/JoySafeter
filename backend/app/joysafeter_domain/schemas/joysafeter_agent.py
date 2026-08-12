@@ -17,7 +17,7 @@ from pydantic import (
     model_validator,
 )
 
-from app.joysafeter_shared.ids import AgentId, SkillId
+from app.joysafeter_shared.ids import AgentId, CredentialId, SkillId
 
 
 class JoySafeterEngineKind(str, Enum):
@@ -137,11 +137,11 @@ class JoySafeterCreateAgentRequest(BaseModel):
     tools: list[AgentTool] = Field(default_factory=list)
     multiagent: Optional[Dict[str, Any]] = None
     environment_ref: Optional[str] = None
-    secret_ref: Optional[str] = None
+    model_credential_id: Optional[CredentialId] = None
 
     model_config = ConfigDict(extra="forbid")
 
-    @field_validator("name", "description", "environment_ref", "secret_ref")
+    @field_validator("name", "description", "environment_ref")
     @classmethod
     def trim_config_value(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
@@ -175,11 +175,11 @@ class JoySafeterUpdateAgentRequest(BaseModel):
     tools: Optional[list[AgentTool]] = None
     multiagent: Optional[Dict[str, Any]] = None
     environment_ref: Optional[str] = None
-    secret_ref: Optional[str] = None
+    model_credential_id: Optional[CredentialId] = None
 
     model_config = ConfigDict(extra="forbid")
 
-    @field_validator("name", "description", "environment_ref", "secret_ref")
+    @field_validator("name", "description", "environment_ref")
     @classmethod
     def trim_config_value(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
@@ -215,7 +215,7 @@ class JoySafeterAgentResponse(BaseModel):
     multiagent: Optional[Dict[str, Any]] = None
     version: int
     environment_ref: Optional[str] = None
-    secret_ref: Optional[str] = None
+    model_credential_id: Optional[CredentialId] = None
     created_at: datetime
     updated_at: datetime
     archived_at: Optional[datetime] = None

@@ -23,8 +23,8 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterUpdateAgentRequest,
 )
 from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
-from app.joysafeter_shared.common.app_errors import InvalidRequestError
-from app.joysafeter_shared.ids import AgentId, SessionId, SkillId
+from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
+from app.joysafeter_shared.ids import AgentId, CredentialId, SessionId, SkillId
 from app.joysafeter_shared.utils.datetime import utc_now  # noqa: E402
 
 TERMINAL_TASK_STATUSES = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
@@ -117,7 +117,7 @@ class JoySafeterAgentService:
             "permission_mode": agent.permission_mode,
             "multiagent": agent.multiagent,
             "environment_ref": effective_environment_ref,
-            "secret_ref": agent.secret_ref,
+            "model_credential_id": str(agent.model_credential_id) if agent.model_credential_id else None,
         }
         environment_snapshot = JoySafeterAgentService.build_environment_execution_snapshot(
             environment,
@@ -207,6 +207,41 @@ class JoySafeterAgentService:
                 data={"skills": invalid},
             )
 
+    async def _validate_model_credential_ref(
+        self, model_credential_id: Optional[CredentialId], project_id: Optional[str]
+    ) -> None:
+        """Ensure an agent's model_credential_id references a usable model credential.
+
+        The credential must exist in the same project, be of kind ``model``, and
+        not be archived/soft-deleted (``CredentialService.get`` already filters
+        soft-deleted rows). project_id-less (global) agents cannot pin a
+        project-scoped credential, so a supplied id is rejected outright.
+        """
+        if model_credential_id is None:
+            return
+        if project_id is None:
+            raise NotFoundError(
+                code="CREDENTIAL_NOT_FOUND",
+                message="Credential not found",
+                data={"credential_id": str(model_credential_id)},
+            )
+        from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
+
+        cred = await CredentialService(self.db).get(model_credential_id, project_id=project_id)
+        if cred is None or cred.archived_at is not None:
+            raise NotFoundError(
+                code="CREDENTIAL_NOT_FOUND",
+                message="Credential not found",
+                data={"credential_id": str(model_credential_id)},
+            )
+        if cred.kind != "model":
+            raise InvalidRequestError(
+                code="CREDENTIAL_KIND_INVALID",
+                message="Agent model reference must point to a model credential",
+                data={"credential_id": str(model_credential_id), "kind": cred.kind},
+                user_action="fix_input",
+            )
+
     async def _count_active_tasks_for_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> int:
         if project_id is not None and not await self.get_agent(agent_id, project_id=project_id):
             return 0
@@ -258,6 +293,7 @@ class JoySafeterAgentService:
         self, req: JoySafeterCreateAgentRequest, project_id: Optional[str] = None
     ) -> JoySafeterAgent:
         await self._validate_skill_refs(list(req.skills or []), project_id)
+        await self._validate_model_credential_ref(req.model_credential_id, project_id)
         model_data = None
         if req.model:
             model_data = req.model if isinstance(req.model, str) else req.model.model_dump()
@@ -276,7 +312,7 @@ class JoySafeterAgentService:
             multiagent=req.multiagent,
             version=1,
             environment_ref=req.environment_ref,
-            secret_ref=req.secret_ref,
+            model_credential_id=req.model_credential_id,
             project_id=project_id,
         )
         self.db.add(agent)
@@ -401,8 +437,9 @@ class JoySafeterAgentService:
         if req.environment_ref is not None and req.environment_ref != agent.environment_ref:
             agent.environment_ref = req.environment_ref
             changed = True
-        if "secret_ref" in req.model_fields_set and req.secret_ref != agent.secret_ref:
-            agent.secret_ref = req.secret_ref
+        if "model_credential_id" in req.model_fields_set and req.model_credential_id != agent.model_credential_id:
+            await self._validate_model_credential_ref(req.model_credential_id, project_id)
+            agent.model_credential_id = req.model_credential_id
             changed = True
 
         if not changed:

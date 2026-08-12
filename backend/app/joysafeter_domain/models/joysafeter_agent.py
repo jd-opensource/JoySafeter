@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from uuid_utils import uuid7
 
 from app.joysafeter_shared.database import Base
-from app.joysafeter_shared.ids import AgentId, EntityIdType
+from app.joysafeter_shared.ids import AgentId, CredentialId, EntityIdType
 
 from .base import JoySafeterBaseModel, TimestampMixin
 
@@ -63,7 +63,12 @@ class JoySafeterAgent(JoySafeterBaseModel):
     multiagent: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     environment_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    secret_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    model_credential_id: Mapped[Optional[CredentialId]] = mapped_column(
+        EntityIdType(CredentialId),
+        ForeignKey("joysafeter_credentials.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
