@@ -15,14 +15,13 @@ ENTITY_ID_CLASS_NAMES = (
     "SessionId",
     "TaskId",
     "EnvironmentId",
-    "SecretId",
     "TriggerId",
     "MemoryStoreId",
     "MemoryId",
     "MemoryVersionId",
     "SandboxId",
-    "VaultId",
     "CredentialId",
+    "CredentialGroupId",
     "SkillId",
     "SkillFileId",
     "SkillSecurityScanId",
@@ -42,14 +41,13 @@ ENTITY_ID_PREFIXES = (
     "sess_",
     "task_",
     "env_",
-    "secret_",
     "trig_",
     "memstore_",
     "mem_",
     "memver_",
     "sbx_",
-    "vault_",
     "cred_",
+    "credgrp_",
     "skill_",
     "sklfile_",
     "sklscan_",
@@ -1263,3 +1261,18 @@ def test_event_public_and_physical_boundaries_use_typed_ids():
     assert "pub event_id: Option<EventId>" in rust_envelope
     assert "id.to_public()" in rust_realtime
     assert 'event["id"] = str(event_id)' in python_session
+
+
+def test_credential_group_id_roundtrip():
+    from app.joysafeter_shared.ids import CredentialGroupId
+
+    cid = CredentialGroupId.new()
+    assert str(cid).startswith("credgrp_")
+    assert CredentialGroupId.from_public(str(cid)) == cid
+
+
+def test_secret_and_vault_ids_removed():
+    import app.joysafeter_shared.ids as ids
+
+    assert not hasattr(ids, "SecretId")
+    assert not hasattr(ids, "VaultId")

@@ -114,10 +114,6 @@ class EnvironmentId(EntityId):
     prefix = "env_"
 
 
-class SecretId(EntityId):
-    prefix = "secret_"
-
-
 class TriggerId(EntityId):
     prefix = "trig_"
 
@@ -138,12 +134,12 @@ class SandboxId(EntityId):
     prefix = "sbx_"
 
 
-class VaultId(EntityId):
-    prefix = "vault_"
-
-
 class CredentialId(EntityId):
     prefix = "cred_"
+
+
+class CredentialGroupId(EntityId):
+    prefix = "credgrp_"
 
 
 class SkillId(EntityId):
