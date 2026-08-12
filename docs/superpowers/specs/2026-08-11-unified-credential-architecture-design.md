@@ -109,7 +109,7 @@
 ### 3.5b Credential Group 授权语义（审计 Blocker 2）
 
 Group 不是标签，是**可授权的 MCP 凭据集合**——往组里加一条凭据会扩大所有绑定该组的 Session/Trigger 的权限。明确：
-- **动态授权集**：运行时按当前组成员解析（保持今天 `resolve_vault_credentials` 每次任务实时读成员的行为）。
+- **动态授权集（用户确认）**：运行时按当前组成员解析（保持今天 `resolve_vault_credentials` 每次任务实时读成员的行为）。
 - **成员变更（增/移/归档）必须审计 + 刷新在线网络策略**（等同凭据变更，§3.6/§3.10）。
 - **多组同 URL 冲突（Blocker 3，已核实 `harness_input_builder.rs:719` HashMap 后写覆盖、无序）**：在 Session/Grant **绑定组时** 及 **组成员变更时** 检测规范化 URL 交集，**冲突即拒绝**，不允许隐式覆盖（关联表无优先级字段，靠拒绝保证确定性）。
 - Trigger Grant 是否额外记录**授权时成员快照**（更强的不可扩权保证）留 **P2A** 定；P0 的 Session 采用动态集。
@@ -159,13 +159,13 @@ env-var 注入 = service 凭据的 Consumer Resolver 一种适配器（Environme
 
 | 后端 kind | 产品对象名 | 材料名 |
 |---|---|---|
-| model | **模型连接 / Model Connection** | 模型访问密钥（待确认，见 §7） |
+| model | **模型连接 / Model Connection** | **模型访问密钥 / model access key**（用户确认；守住"模型连接 ≠ 凭据"边界） |
 | mcp | **MCP 凭据**（在 **MCP 凭据库/group** 内） | token/oauth |
 | service | **服务凭据 / Service Credential** | key/cookie/token |
 
 - 菜单沿用 `模型与凭据`；`环境变量`、`访问令牌` 分列。
 - **消歧陷阱**：网络义 `连接`（测试连接/连接失败/已连接）**不得**被扫进对象名 rename；只改实体义。
-- trigger 入站鉴权字段命名 `webhook_auth_credential_id`/`webhook_auth_field`（覆盖 HMAC/Bearer/Token，不叫 signing）。
+- 材料名 = **模型访问密钥**（用户确认）；trigger 入站鉴权字段命名 `webhook_auth_credential_id`/`webhook_auth_field`（覆盖 HMAC/Bearer/Token，不叫 signing）。
 - 收漂移：智能体引擎/Runtime、第三方服务/custom、据/证混写。
 
 ### 3.13 错误码（审计五，本轮裁决：采用扁平码表）
@@ -218,11 +218,11 @@ env-var 注入 = service 凭据的 Consumer Resolver 一种适配器（Environme
 
 ## 7. 开放问题（评审/计划时确认）
 
-1. `CredentialGroupId` 前缀（`credgrp_`/其他）。
-2. 确认无 seed/admin 脚本创建全局凭据后落 `project_id NOT NULL`。
-3. MCP URL 规范化：query/fragment 是否参与身份（倾向保留 query）。
-4. **材料名**：`模型访问密钥` vs `模型访问凭据`（审计指其覆盖 API Key + Auth Token；但"凭据"会与保留给 mcp/service 的词重叠）——**你裁**。
-5. **Group 授权语义确认**：Session 用动态集（成员变更即影响+审计+刷新）——认可否？Trigger Grant 是否要授权时成员快照（P2A）。
+1. `CredentialGroupId` 前缀（`credgrp_`/其他）——P0 计划里定。
+2. 确认无 seed/admin 脚本创建全局凭据后落 `project_id NOT NULL`——P0 计划里核查。
+3. MCP URL 规范化：query/fragment 是否参与身份（倾向保留 query）——P0 计划里定。
+
+**已裁决（不再开放）**：材料名 = 模型访问密钥；Session 组授权 = 动态集（成员变更即影响 + 审计 + 刷新）；Trigger Grant 成员快照留 P2A。
 
 ---
 
