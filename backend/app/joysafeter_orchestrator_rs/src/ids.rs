@@ -82,8 +82,8 @@ entity_id!(AgentId, "agent_");
 entity_id!(SessionId, "sess_");
 entity_id!(TaskId, "task_");
 entity_id!(EnvironmentId, "env_");
-entity_id!(VaultId, "vault_");
 entity_id!(CredentialId, "cred_");
+entity_id!(CredentialGroupId, "credgrp_");
 entity_id!(SandboxId, "sbx_");
 entity_id!(MemoryStoreId, "memstore_");
 entity_id!(MemoryId, "mem_");
@@ -101,9 +101,9 @@ entity_id!(EventId, "evt_");
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentId, CredentialId, EnvironmentId, EventId, FileId, MemoryId, MemoryStoreId,
-        MemoryVersionId, SandboxId, SessionId, SessionResourceId, SkillFileId, SkillId,
-        SkillSecurityScanId, SkillUsageId, SkillVersionFileId, SkillVersionId, TaskId, VaultId,
+        AgentId, CredentialGroupId, CredentialId, EnvironmentId, EventId, FileId, MemoryId,
+        MemoryStoreId, MemoryVersionId, SandboxId, SessionId, SessionResourceId, SkillFileId,
+        SkillId, SkillSecurityScanId, SkillUsageId, SkillVersionFileId, SkillVersionId, TaskId,
     };
     use uuid::Uuid;
 
@@ -115,8 +115,8 @@ mod tests {
         let session_id = SessionId::from_uuid(uuid);
         let task_id = TaskId::from_uuid(uuid);
         let environment_id = EnvironmentId::from_uuid(uuid);
-        let vault_id = VaultId::from_uuid(uuid);
         let credential_id = CredentialId::from_uuid(uuid);
+        let credential_group_id = CredentialGroupId::from_uuid(uuid);
         let sandbox_id = SandboxId::from_uuid(uuid);
         let store_id = MemoryStoreId::from_uuid(uuid);
         let memory_id = MemoryId::from_uuid(uuid);
@@ -145,12 +145,12 @@ mod tests {
             environment_id
         );
         assert_eq!(
-            VaultId::from_public(&vault_id.to_public()).unwrap(),
-            vault_id
-        );
-        assert_eq!(
             CredentialId::from_public(&credential_id.to_public()).unwrap(),
             credential_id
+        );
+        assert_eq!(
+            CredentialGroupId::from_public(&credential_group_id.to_public()).unwrap(),
+            credential_group_id
         );
         assert_eq!(
             SandboxId::from_public(&sandbox_id.to_public()).unwrap(),
@@ -211,8 +211,8 @@ mod tests {
         assert!(AgentId::from_public(&uuid.to_string()).is_err());
         assert!(AgentId::from_public(&SessionId::from_uuid(uuid).to_public()).is_err());
         assert!(EnvironmentId::from_public(&uuid.to_string()).is_err());
-        assert!(VaultId::from_public(&uuid.to_string()).is_err());
         assert!(CredentialId::from_public(&uuid.to_string()).is_err());
+        assert!(CredentialGroupId::from_public(&uuid.to_string()).is_err());
     }
 
     #[test]

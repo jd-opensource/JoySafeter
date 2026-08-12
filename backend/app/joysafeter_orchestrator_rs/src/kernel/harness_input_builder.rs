@@ -11,16 +11,16 @@ use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
 use tar::{Builder, Header};
 use tracing::{debug, warn};
-use url::Url;
 use uuid::Uuid;
 
 use crate::db::queries;
 use crate::grpc::proto;
 use crate::ids::{
-    CredentialId, EnvironmentId, SandboxId, SessionId, SkillId, SkillSecurityScanId, SkillUsageId,
-    SkillVersionId, TaskId, VaultId,
+    CredentialGroupId, CredentialId, EnvironmentId, SandboxId, SessionId, SkillId,
+    SkillSecurityScanId, SkillUsageId, SkillVersionId, TaskId,
 };
 use crate::kernel::llm_catalog::{validate_runtime_secret, RuntimeSecretBinding};
+use crate::kernel::mcp_url;
 use crate::kernel::run_spec::{
     agent_for_execution, environment_for_execution, SnapshotEnvironment,
 };
@@ -28,38 +28,12 @@ use crate::kernel::run_spec::{
 const CONVERSATION_HISTORY_EVENT_LIMIT: i64 = 100;
 const CONVERSATION_HISTORY_MAX_CHARS: usize = 24_000;
 
-fn mcp_credential_url_keys(raw: &str) -> Vec<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Vec::new();
-    }
-
-    let mut keys = vec![trimmed.to_string()];
-    if let Ok(mut url) = Url::parse(trimmed) {
-        if let Some(host) = url.host_str().map(|host| host.to_ascii_lowercase()) {
-            let _ = url.set_host(Some(&host));
-        }
-        let path = url.path().to_string();
-        if path != "/" {
-            url.set_path(path.trim_end_matches('/'));
-        }
-        keys.push(url.to_string());
-        if url.path() != "/" {
-            let with_slash_path = format!("{}/", url.path().trim_end_matches('/'));
-            url.set_path(&with_slash_path);
-            keys.push(url.to_string());
-        }
-    }
-    keys.sort();
-    keys.dedup();
-    keys
-}
-
 /// Constructs gRPC SetupSandbox and StartTask messages from task/agent/session data.
 ///
-/// This mirrors Python `build_harness_input`: agent model/env/secret_ref, vault MCP
-/// credentials, memory stores, packed skills/agents/commands, session file resources,
-/// conversation history, custom tools, and permission mode all flow through one builder.
+/// This mirrors Python `build_harness_input`: agent model/env/model credential, MCP
+/// credentials (resolved from the session's credential groups), memory stores, packed
+/// skills/agents/commands, session file resources, conversation history, custom tools,
+/// and permission mode all flow through one builder.
 pub struct HarnessInputBuilder {
     pool: PgPool,
 }
@@ -160,10 +134,8 @@ impl HarnessInputBuilder {
         }
 
         if let Some(ref session) = session {
-            if let Some(ref vault_ids) = session.vault_ids {
-                self.resolve_vault_credentials(vault_ids, &mut input.mcp_servers)
-                    .await?;
-            }
+            self.resolve_vault_credentials(session.id, &mut input.mcp_servers)
+                .await?;
             self.load_memory_stores(session.id, &mut input).await?;
             self.load_session_files(session.id, &mut input).await?;
             self.load_session_repos(session.id, &mut input).await?;
@@ -328,14 +300,13 @@ impl HarnessInputBuilder {
         agent: &crate::db::models::JoySafeterAgent,
         input: &mut HarnessInput,
     ) -> anyhow::Result<Option<RuntimeSecretBinding>> {
-        let secret_ref = match agent.secret_ref.as_deref().filter(|v| !v.trim().is_empty()) {
-            Some(v) => v,
-            None => return Ok(None),
+        let Some(model_credential_id) = agent.model_credential_id else {
+            return Ok(None);
         };
 
         let engine_kind = input.provider.clone();
         self.resolve_secret_ref_into_input(
-            secret_ref,
+            model_credential_id,
             agent.project_id.as_deref(),
             input,
             true,
@@ -374,20 +345,37 @@ impl HarnessInputBuilder {
             environment_config.get("env_vars"),
         ));
 
+        // Environment-level credentials are referenced by id. Both the legacy
+        // list form (`secret_refs`) and the single `service_credential_id` now
+        // hold canonical `cred_` ids resolved against `joysafeter_credentials`.
+        let mut env_credential_ids: Vec<CredentialId> = Vec::new();
+        if let Some(service_credential_id) = environment_config
+            .get("service_credential_id")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.trim().is_empty())
+            .and_then(|raw| CredentialId::from_public(raw).ok())
+        {
+            env_credential_ids.push(service_credential_id);
+        }
         if let Some(secret_refs) = environment_config
             .get("secret_refs")
             .and_then(|v| v.as_array())
         {
-            for secret_ref in secret_refs.iter().filter_map(|v| v.as_str()) {
-                self.resolve_secret_ref_into_input(
-                    secret_ref,
-                    agent.project_id.as_deref(),
-                    input,
-                    false,
-                    None,
-                )
-                .await?;
+            for raw in secret_refs.iter().filter_map(|v| v.as_str()) {
+                if let Ok(credential_id) = CredentialId::from_public(raw) {
+                    env_credential_ids.push(credential_id);
+                }
             }
+        }
+        for credential_id in env_credential_ids {
+            self.resolve_secret_ref_into_input(
+                credential_id,
+                agent.project_id.as_deref(),
+                input,
+                false,
+                None,
+            )
+            .await?;
         }
 
         Ok(())
@@ -395,7 +383,7 @@ impl HarnessInputBuilder {
 
     async fn resolve_secret_ref_into_input(
         &self,
-        secret_ref: &str,
+        credential_id: CredentialId,
         project_id: Option<&str>,
         input: &mut HarnessInput,
         override_existing: bool,
@@ -403,14 +391,12 @@ impl HarnessInputBuilder {
     ) -> anyhow::Result<Option<RuntimeSecretBinding>> {
         let secret = sqlx::query_as::<_, SecretRow>(
             r#"
-            SELECT kind, provider, protocol, data FROM joysafeter_secrets
-            WHERE name = $1 AND deleted_at IS NULL
+            SELECT kind, provider, protocol, data FROM joysafeter_credentials
+            WHERE id = $1 AND deleted_at IS NULL
               AND ($2::text IS NULL OR project_id = $2)
-            ORDER BY created_at DESC
-            LIMIT 1
             "#,
         )
-        .bind(secret_ref)
+        .bind(credential_id)
         .bind(project_id)
         .fetch_optional(&self.pool)
         .await?;
@@ -703,61 +689,71 @@ impl HarnessInputBuilder {
 
     async fn resolve_vault_credentials(
         &self,
-        vault_ids: &serde_json::Value,
+        session_id: SessionId,
         mcp_servers: &mut Vec<proto::McpConfig>,
     ) -> anyhow::Result<()> {
-        let ids: Vec<VaultId> = match vault_ids.as_array() {
-            Some(arr) => arr
-                .iter()
-                .filter_map(|v| v.as_str())
-                .filter_map(parse_vault_ref)
-                .collect(),
-            None => return Ok(()),
-        };
+        // Credential groups bound to the session gate which MCP credentials the
+        // session may use.
+        let group_ids: Vec<CredentialGroupId> = sqlx::query_as::<_, (CredentialGroupId,)>(
+            r#"
+            SELECT credential_group_id
+            FROM joysafeter_session_credential_groups
+            WHERE session_id = $1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "failed to load session credential groups for session {session_id}: {e}"
+            )
+        })?
+        .into_iter()
+        .map(|(id,)| id)
+        .collect();
+        if group_ids.is_empty() {
+            return Ok(());
+        }
 
         let vault_cipher = VaultCipher::from_env();
+        // Map normalized_url -> credential. Python enforces a per-group unique
+        // index on normalized_mcp_server_url and rejects cross-group URL conflicts
+        // at write time, so a single deterministic key per normalized URL suffices
+        // (no last-write-wins nondeterminism).
         let mut creds_by_url: HashMap<String, VaultCredentialRow> = HashMap::new();
-        for vault_id in ids {
-            let creds = sqlx::query_as::<_, VaultCredentialRow>(
-                r#"
-                SELECT c.id, c.mcp_server_url, c.token_value, c.credential_type, c.oauth_config
-                FROM joysafeter_vault_credentials c
-                JOIN joysafeter_vaults v ON v.id = c.vault_id
-                WHERE c.vault_id = $1
-                  AND c.deleted_at IS NULL
-                  AND c.archived_at IS NULL
-                  AND v.deleted_at IS NULL
-                  AND v.archived_at IS NULL
-                "#,
-            )
-            .bind(vault_id)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| {
-                anyhow::anyhow!("failed to load vault credentials for vault {vault_id}: {e}")
+        let creds = sqlx::query_as::<_, VaultCredentialRow>(
+            r#"
+            SELECT id, normalized_mcp_server_url,
+                   COALESCE(data->>'token_value', '') AS token_value,
+                   credential_type, oauth_config
+            FROM joysafeter_credentials
+            WHERE group_id = ANY($1) AND kind = 'mcp' AND deleted_at IS NULL
+            "#,
+        )
+        .bind(&group_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!("failed to load MCP credentials for session {session_id}: {e}")
+        })?;
+        for mut cred in creds {
+            let Some(normalized_url) = cred.normalized_mcp_server_url.clone() else {
+                continue;
+            };
+            vault_cipher.decrypt_row(&mut cred).map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to decrypt vault credential {} for session {}: {e}",
+                    cred.id,
+                    session_id
+                )
             })?;
-            for mut cred in creds {
-                let url_val = cred.mcp_server_url.clone();
-                if let Some(url) = url_val {
-                    vault_cipher.decrypt_row(&mut cred).map_err(|e| {
-                        anyhow::anyhow!(
-                            "failed to decrypt vault credential {} for vault {}: {e}",
-                            cred.id,
-                            vault_id
-                        )
-                    })?;
-                    for key in mcp_credential_url_keys(&url) {
-                        creds_by_url.insert(key, cred.clone());
-                    }
-                }
-            }
+            creds_by_url.insert(normalized_url, cred);
         }
 
         for mcp in mcp_servers {
-            let matched_key = mcp_credential_url_keys(&mcp.url)
-                .into_iter()
-                .find(|key| creds_by_url.contains_key(key));
-            if let Some(cred) = matched_key.and_then(|key| creds_by_url.get_mut(&key)) {
+            let normalized = mcp_url::normalize(&mcp.url);
+            if let Some(cred) = creds_by_url.get_mut(&normalized) {
                 // Trigger OAuth refresh so the DB token stays fresh; the actual
                 // token is injected at the Envoy egress boundary (built separately
                 // from the same DB rows), never written into the sandbox.
@@ -780,9 +776,11 @@ impl HarnessInputBuilder {
     async fn maybe_refresh_oauth(
         &self,
         cred: &mut VaultCredentialRow,
-        cipher: &VaultCipher,
+        _cipher: &VaultCipher,
     ) -> anyhow::Result<String> {
-        if cred.credential_type != "oauth" {
+        // Only OAuth-backed credentials are refreshable; static bearers resolve
+        // their token as-is.
+        if cred.credential_type != "oauth" && cred.credential_type != "mcp_oauth" {
             return Ok(cred.token_value.clone());
         }
         let Some(oauth) = cred.oauth_config.as_ref().and_then(|v| v.as_object()) else {
@@ -801,80 +799,14 @@ impl HarnessInputBuilder {
             return Ok(cred.token_value.clone());
         }
 
-        let Some(refresh_token) = oauth.get("refresh_token").and_then(|v| v.as_str()) else {
-            return Ok(cred.token_value.clone());
-        };
-        let Some(token_url) = oauth.get("token_url").and_then(|v| v.as_str()) else {
-            return Ok(cred.token_value.clone());
-        };
-        let Some(client_id) = oauth.get("client_id").and_then(|v| v.as_str()) else {
-            return Ok(cred.token_value.clone());
-        };
-        let client_secret = oauth
-            .get("client_secret")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .build()?;
-        let response = client
-            .post(token_url)
-            .form(&[
-                ("grant_type", "refresh_token"),
-                ("refresh_token", refresh_token),
-                ("client_id", client_id),
-                ("client_secret", client_secret),
-            ])
-            .send()
-            .await?;
-        if !response.status().is_success() {
-            return Ok(cred.token_value.clone());
-        }
-
-        let data: serde_json::Value = response.json().await?;
-        let Some(new_token) = data.get("access_token").and_then(|v| v.as_str()) else {
-            return Ok(cred.token_value.clone());
-        };
-        let new_refresh = data
-            .get("refresh_token")
-            .and_then(|v| v.as_str())
-            .unwrap_or(refresh_token);
-        let expires_in = data
-            .get("expires_in")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(3600);
-        let new_expires = now + expires_in;
-        let mut new_oauth = cred
-            .oauth_config
-            .clone()
-            .unwrap_or_else(|| serde_json::json!({}));
-        if let Some(obj) = new_oauth.as_object_mut() {
-            obj.insert(
-                "refresh_token".to_string(),
-                serde_json::Value::String(new_refresh.to_string()),
-            );
-            obj.insert(
-                "expires_at".to_string(),
-                serde_json::Value::Number(new_expires.into()),
-            );
-        }
-        let stored_token = cipher.encrypt_or_passthrough(new_token)?;
-        sqlx::query(
-            r#"
-            UPDATE joysafeter_vault_credentials
-            SET token_value = $2, oauth_config = $3, updated_at = NOW()
-            WHERE id = $1
-            "#,
-        )
-        .bind(cred.id)
-        .bind(&stored_token)
-        .bind(&new_oauth)
-        .execute(&self.pool)
-        .await?;
-
-        cred.token_value = new_token.to_string();
-        cred.oauth_config = Some(new_oauth);
+        // P2B: OAuth refresh not yet migrated. The unified `joysafeter_credentials`
+        // schema stores the token inside the encrypted `data` JSONB and the
+        // per-provider refresh flow (network call + write-back) is deferred to
+        // P2B (design §3.14). Until then we resolve the token that is already
+        // present in `data`/`oauth_config` and skip the network refresh + DB
+        // write-back entirely (the old UPDATE targeted the dropped
+        // `joysafeter_vault_credentials` table and is intentionally NOT retargeted
+        // here). Static-bearer credentials are unaffected and keep working.
         Ok(cred.token_value.clone())
     }
 
@@ -1268,13 +1200,13 @@ mod tests {
     use sqlx::PgPool;
 
     use super::{
-        ensure_skill_runtime_ready, extract_content_text, mcp_credential_url_keys, parse_semver,
-        resolve_model_from_binding, session_container_work_dir, should_inject_conversation_history,
+        ensure_skill_runtime_ready, extract_content_text, parse_semver, resolve_model_from_binding,
+        session_container_work_dir, should_inject_conversation_history,
         trim_history_lines_to_budget, HarnessInput, HarnessInputBuilder, SkillForArchive,
     };
     use crate::ids::{
-        AgentId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId, SessionResourceId,
-        SkillSecurityScanId, TaskId, VaultId,
+        AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId,
+        SessionResourceId, SkillSecurityScanId, TaskId,
     };
     use crate::kernel::llm_catalog::validate_runtime_secret;
     use uuid::Uuid;
@@ -1298,13 +1230,6 @@ mod tests {
                 .await
                 .expect("connect to migrated Postgres test database"),
         )
-    }
-
-    #[test]
-    fn mcp_credential_url_keys_matches_trailing_slash_variants() {
-        let keys = mcp_credential_url_keys("https://AI-Legal-Test.JD.com/legal-mcp/mcp/");
-        assert!(keys.contains(&"https://ai-legal-test.jd.com/legal-mcp/mcp".to_string()));
-        assert!(keys.contains(&"https://ai-legal-test.jd.com/legal-mcp/mcp/".to_string()));
     }
 
     #[test]
@@ -1332,7 +1257,7 @@ mod tests {
         agent_id: AgentId,
         session_id: SessionId,
         environment_id: EnvironmentId,
-        secret_names: &[String],
+        credential_ids: &[CredentialId],
     ) {
         let _ =
             sqlx::query("DELETE FROM joysafeter_tasks WHERE chat_session_id = $1 OR agent_id = $2")
@@ -1356,9 +1281,9 @@ mod tests {
             .bind(environment_id)
             .execute(pool)
             .await;
-        for secret_name in secret_names {
-            let _ = sqlx::query("DELETE FROM joysafeter_secrets WHERE name = $1")
-                .bind(secret_name)
+        for credential_id in credential_ids {
+            let _ = sqlx::query("DELETE FROM joysafeter_credentials WHERE id = $1")
+                .bind(credential_id)
                 .execute(pool)
                 .await;
         }
@@ -1478,9 +1403,11 @@ mod tests {
         let task_id = TaskId::from_uuid(Uuid::now_v7());
         let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
+        let org_id = format!("org-{unique}");
+        let project_id = format!("proj-{unique}");
         let environment_ref = environment_id.to_string();
-        let snapshot_secret = format!("snapshot-secret-{unique}");
-        let live_secret = format!("live-secret-{unique}");
+        let snapshot_credential_id = CredentialId::from_uuid(Uuid::now_v7());
+        let live_credential_id = CredentialId::from_uuid(Uuid::now_v7());
         let agent_name = format!("snapshot-agent-{unique}");
         let environment_name = format!("snapshot-env-{unique}");
         let snapshot = json!({
@@ -1508,7 +1435,7 @@ mod tests {
             "agents": [],
             "commands": [],
             "environment_ref": environment_ref,
-            "secret_ref": snapshot_secret,
+            "model_credential_id": snapshot_credential_id.to_string(),
             "environment": {
                 "ref": environment_ref,
                 "id": environment_id.to_string(),
@@ -1526,12 +1453,42 @@ mod tests {
         async {
             sqlx::query(
                 r#"
+                INSERT INTO joysafeter_organizations
+                    (id, name, slug, storage_used_bytes, departed_member_usage)
+                VALUES ($1, $2, $3, 0, 0)
+                "#,
+            )
+            .bind(&org_id)
+            .bind(format!("Snapshot Org {unique}"))
+            .bind(format!("snapshot-org-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert organization");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_organization_projects
+                    (id, org_id, name, slug, is_default)
+                VALUES ($1, $2, $3, $4, false)
+                "#,
+            )
+            .bind(&project_id)
+            .bind(&org_id)
+            .bind(format!("Snapshot Project {unique}"))
+            .bind(format!("snapshot-project-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert project");
+
+            sqlx::query(
+                r#"
                 INSERT INTO joysafeter_environments
-                    (id, name, description, config, image_tag, image_version)
-                VALUES ($1, $2, 'snapshot test env', $3, 'live-image:2', 2)
+                    (id, project_id, name, description, config, image_tag, image_version)
+                VALUES ($1, $2, $3, 'snapshot test env', $4, 'live-image:2', 2)
                 "#,
             )
             .bind(environment_id)
+            .bind(&project_id)
             .bind(&environment_name)
             .bind(json!({
                 "env_vars": {"ENV_LEVEL": "live-env", "LIVE_ONLY": "must-not-appear"},
@@ -1544,52 +1501,55 @@ mod tests {
 
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_secrets
-                    (id, name, kind, provider, protocol, data)
-                VALUES ($1, $2, 'llm', 'anthropic', 'anthropic_messages', $3)
+                INSERT INTO joysafeter_credentials
+                    (id, project_id, kind, name, provider, protocol, data)
+                VALUES ($1, $2, 'model', $3, 'anthropic', 'anthropic_messages', $4)
                 "#,
             )
-            .bind(Uuid::now_v7())
-            .bind(&snapshot_secret)
+            .bind(snapshot_credential_id)
+            .bind(&project_id)
+            .bind(format!("snapshot-credential-{unique}"))
             .bind(json!({"ANTHROPIC_API_KEY": "snapshot-key"}))
             .execute(&pool)
             .await
-            .expect("insert snapshot test secret");
+            .expect("insert snapshot test credential");
 
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_secrets
-                    (id, name, kind, provider, protocol, data)
-                VALUES ($1, $2, 'llm', 'openai', 'openai_responses', $3)
+                INSERT INTO joysafeter_credentials
+                    (id, project_id, kind, name, provider, protocol, data)
+                VALUES ($1, $2, 'model', $3, 'openai', 'openai_responses', $4)
                 "#,
             )
-            .bind(Uuid::now_v7())
-            .bind(&live_secret)
+            .bind(live_credential_id)
+            .bind(&project_id)
+            .bind(format!("live-credential-{unique}"))
             .bind(json!({"OPENAI_API_KEY": "live-key"}))
             .execute(&pool)
             .await
-            .expect("insert live test secret");
+            .expect("insert live test credential");
 
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
+                    id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata,
-                    version, environment_ref, secret_ref
+                    version, environment_ref, model_credential_id
                 )
                 VALUES (
-                    $1, $2, 'codex', $3, 'live system', $4, '[]'::jsonb,
+                    $1, $2, $3, 'codex', $4, 'live system', $5, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'default', '{}'::jsonb, 8, $5, $6
+                    'default', '{}'::jsonb, 8, $6, $7
                 )
                 "#,
             )
             .bind(agent_id)
+            .bind(&project_id)
             .bind(&agent_name)
             .bind(json!({"id": "live-model"}))
             .bind(json!({"AGENT_LEVEL": "live-agent-env", "LIVE_AGENT_ONLY": "must-not-appear"}))
             .bind(&environment_ref)
-            .bind(&live_secret)
+            .bind(live_credential_id)
             .execute(&pool)
             .await
             .expect("insert live agent");
@@ -1672,9 +1632,17 @@ mod tests {
             agent_id,
             session_id,
             environment_id,
-            &[snapshot_secret, live_secret],
+            &[snapshot_credential_id, live_credential_id],
         )
         .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
+            .bind(&project_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organizations WHERE id = $1")
+            .bind(&org_id)
+            .execute(&pool)
+            .await;
     }
 
     #[tokio::test]
@@ -1856,7 +1824,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn harness_input_resolves_vault_prefixed_ids_for_mcp_egress() {
+    async fn harness_input_resolves_session_credential_groups_for_mcp_egress() {
         let Some(pool) = test_pool().await else {
             return;
         };
@@ -1864,37 +1832,75 @@ mod tests {
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let session_id = SessionId::from_uuid(Uuid::now_v7());
         let task_id = TaskId::from_uuid(Uuid::now_v7());
-        let vault_id = VaultId::from_uuid(Uuid::now_v7());
+        let group_id = CredentialGroupId::from_uuid(Uuid::now_v7());
         let credential_id = CredentialId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
+        let org_id = format!("org-{unique}");
+        let project_id = format!("proj-{unique}");
         let mcp_url = "https://mcp.vault-alias.example/api";
+        let normalized = super::mcp_url::normalize(mcp_url);
 
         async {
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_vaults (id, name, description)
-                VALUES ($1, $2, '')
+                INSERT INTO joysafeter_organizations
+                    (id, name, slug, storage_used_bytes, departed_member_usage)
+                VALUES ($1, $2, $3, 0, 0)
                 "#,
             )
-            .bind(vault_id)
-            .bind(format!("vault-alias-{unique}"))
+            .bind(&org_id)
+            .bind(format!("Harness MCP Org {unique}"))
+            .bind(format!("harness-mcp-org-{unique}"))
             .execute(&pool)
             .await
-            .expect("insert vault");
+            .expect("insert organization");
 
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_vault_credentials
-                    (id, vault_id, name, credential_type, mcp_server_url, token_value)
-                VALUES ($1, $2, 'alias credential', 'static_bearer', $3, 'vault-token')
+                INSERT INTO joysafeter_organization_projects
+                    (id, org_id, name, slug, is_default)
+                VALUES ($1, $2, $3, $4, false)
+                "#,
+            )
+            .bind(&project_id)
+            .bind(&org_id)
+            .bind(format!("Harness MCP Project {unique}"))
+            .bind(format!("harness-mcp-project-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert project");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_credential_groups (id, project_id, name, description)
+                VALUES ($1, $2, $3, '')
+                "#,
+            )
+            .bind(group_id)
+            .bind(&project_id)
+            .bind(format!("group-alias-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert credential group");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_credentials
+                    (id, project_id, kind, name, credential_type, mcp_server_url,
+                     normalized_mcp_server_url, group_id, data)
+                VALUES ($1, $2, 'mcp', 'alias credential', 'static_bearer', $3,
+                        $4, $5, $6)
                 "#,
             )
             .bind(credential_id)
-            .bind(vault_id)
+            .bind(&project_id)
             .bind(mcp_url)
+            .bind(&normalized)
+            .bind(group_id)
+            .bind(json!({"token_value": "vault-token"}))
             .execute(&pool)
             .await
-            .expect("insert vault credential");
+            .expect("insert mcp credential");
 
             sqlx::query(
                 r#"
@@ -1923,16 +1929,27 @@ mod tests {
 
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_sessions (id, agent_id, status, vault_ids)
-                VALUES ($1, $2, 'idle', $3)
+                INSERT INTO joysafeter_sessions (id, agent_id, status)
+                VALUES ($1, $2, 'idle')
                 "#,
             )
             .bind(session_id)
             .bind(agent_id)
-            .bind(json!([vault_id.to_string()]))
             .execute(&pool)
             .await
             .expect("insert session");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_session_credential_groups (session_id, credential_group_id)
+                VALUES ($1, $2)
+                "#,
+            )
+            .bind(session_id)
+            .bind(group_id)
+            .execute(&pool)
+            .await
+            .expect("bind session credential group");
 
             sqlx::query(
                 r#"
@@ -1978,6 +1995,11 @@ mod tests {
                 .bind(agent_id)
                 .execute(&pool)
                 .await;
+        let _ =
+            sqlx::query("DELETE FROM joysafeter_session_credential_groups WHERE session_id = $1")
+                .bind(session_id)
+                .execute(&pool)
+                .await;
         let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
             .bind(session_id)
             .execute(&pool)
@@ -1986,18 +2008,26 @@ mod tests {
             .bind(agent_id)
             .execute(&pool)
             .await;
-        let _ = sqlx::query("DELETE FROM joysafeter_vault_credentials WHERE id = $1")
+        let _ = sqlx::query("DELETE FROM joysafeter_credentials WHERE id = $1")
             .bind(credential_id)
             .execute(&pool)
             .await;
-        let _ = sqlx::query("DELETE FROM joysafeter_vaults WHERE id = $1")
-            .bind(vault_id)
+        let _ = sqlx::query("DELETE FROM joysafeter_credential_groups WHERE id = $1")
+            .bind(group_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
+            .bind(&project_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organizations WHERE id = $1")
+            .bind(&org_id)
             .execute(&pool)
             .await;
     }
 
     #[tokio::test]
-    async fn harness_input_vault_prefixed_ids_credential_decrypt_failure_fails_build() {
+    async fn harness_input_session_credential_group_credential_decrypt_failure_fails_build() {
         let Some(pool) = test_pool().await else {
             return;
         };
@@ -2005,37 +2035,78 @@ mod tests {
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let session_id = SessionId::from_uuid(Uuid::now_v7());
         let task_id = TaskId::from_uuid(Uuid::now_v7());
-        let vault_id = VaultId::from_uuid(Uuid::now_v7());
+        let group_id = CredentialGroupId::from_uuid(Uuid::now_v7());
         let credential_id = CredentialId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
+        let org_id = format!("org-{unique}");
+        let project_id = format!("proj-{unique}");
         let mcp_url = "https://mcp.vault-decrypt-fail.example/api";
+        let normalized = super::mcp_url::normalize(mcp_url);
 
         async {
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_vaults (id, name, description)
-                VALUES ($1, $2, '')
+                INSERT INTO joysafeter_organizations
+                    (id, name, slug, storage_used_bytes, departed_member_usage)
+                VALUES ($1, $2, $3, 0, 0)
                 "#,
             )
-            .bind(vault_id)
-            .bind(format!("vault-decrypt-fail-{unique}"))
+            .bind(&org_id)
+            .bind(format!("Harness Decrypt Org {unique}"))
+            .bind(format!("harness-decrypt-org-{unique}"))
             .execute(&pool)
             .await
-            .expect("insert vault");
+            .expect("insert organization");
 
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_vault_credentials
-                    (id, vault_id, name, credential_type, mcp_server_url, token_value)
-                VALUES ($1, $2, 'bad encrypted credential', 'static_bearer', $3, 'enc:not-valid-base64')
+                INSERT INTO joysafeter_organization_projects
+                    (id, org_id, name, slug, is_default)
+                VALUES ($1, $2, $3, $4, false)
+                "#,
+            )
+            .bind(&project_id)
+            .bind(&org_id)
+            .bind(format!("Harness Decrypt Project {unique}"))
+            .bind(format!("harness-decrypt-project-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert project");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_credential_groups (id, project_id, name, description)
+                VALUES ($1, $2, $3, '')
+                "#,
+            )
+            .bind(group_id)
+            .bind(&project_id)
+            .bind(format!("group-decrypt-fail-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert credential group");
+
+            // The token lives in the encrypted `data` JSONB under `token_value`.
+            // An `enc:v1:` envelope with invalid base64 forces the decrypt path to
+            // fail (rather than passthrough), exercising the fail-closed behavior.
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_credentials
+                    (id, project_id, kind, name, credential_type, mcp_server_url,
+                     normalized_mcp_server_url, group_id, data)
+                VALUES ($1, $2, 'mcp', 'bad encrypted credential', 'static_bearer', $3,
+                        $4, $5, $6)
                 "#,
             )
             .bind(credential_id)
-            .bind(vault_id)
+            .bind(&project_id)
             .bind(mcp_url)
+            .bind(&normalized)
+            .bind(group_id)
+            .bind(json!({"token_value": "enc:v1:not-valid-base64"}))
             .execute(&pool)
             .await
-            .expect("insert vault credential");
+            .expect("insert mcp credential");
 
             sqlx::query(
                 r#"
@@ -2064,16 +2135,27 @@ mod tests {
 
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_sessions (id, agent_id, status, vault_ids)
-                VALUES ($1, $2, 'idle', $3)
+                INSERT INTO joysafeter_sessions (id, agent_id, status)
+                VALUES ($1, $2, 'idle')
                 "#,
             )
             .bind(session_id)
             .bind(agent_id)
-            .bind(json!([vault_id.to_string()]))
             .execute(&pool)
             .await
             .expect("insert session");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_session_credential_groups (session_id, credential_group_id)
+                VALUES ($1, $2)
+                "#,
+            )
+            .bind(session_id)
+            .bind(group_id)
+            .execute(&pool)
+            .await
+            .expect("bind session credential group");
 
             sqlx::query(
                 r#"
@@ -2096,11 +2178,7 @@ mod tests {
                 .expect("load task")
                 .expect("task exists");
             let err = HarnessInputBuilder::new(pool.clone())
-                .build(
-                    &task,
-                    "sandbox-ext",
-                    SandboxId::from_uuid(Uuid::now_v7()),
-                )
+                .build(&task, "sandbox-ext", SandboxId::from_uuid(Uuid::now_v7()))
                 .await
                 .expect_err("broken vault credential must fail harness input build");
             let message = err.to_string();
@@ -2118,6 +2196,11 @@ mod tests {
                 .bind(agent_id)
                 .execute(&pool)
                 .await;
+        let _ =
+            sqlx::query("DELETE FROM joysafeter_session_credential_groups WHERE session_id = $1")
+                .bind(session_id)
+                .execute(&pool)
+                .await;
         let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
             .bind(session_id)
             .execute(&pool)
@@ -2126,12 +2209,20 @@ mod tests {
             .bind(agent_id)
             .execute(&pool)
             .await;
-        let _ = sqlx::query("DELETE FROM joysafeter_vault_credentials WHERE id = $1")
+        let _ = sqlx::query("DELETE FROM joysafeter_credentials WHERE id = $1")
             .bind(credential_id)
             .execute(&pool)
             .await;
-        let _ = sqlx::query("DELETE FROM joysafeter_vaults WHERE id = $1")
-            .bind(vault_id)
+        let _ = sqlx::query("DELETE FROM joysafeter_credential_groups WHERE id = $1")
+            .bind(group_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
+            .bind(&project_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organizations WHERE id = $1")
+            .bind(&org_id)
             .execute(&pool)
             .await;
     }
@@ -2452,30 +2543,6 @@ fn combine_system_prompt(base: Option<String>, memory: Option<String>) -> Option
     }
 }
 
-fn parse_vault_ref(raw: &str) -> Option<VaultId> {
-    // session.vault_ids is persisted canonically prefixed (Python list[VaultId] ->
-    // str(vault_id)); only the prefixed form is accepted.
-    VaultId::from_public(raw).ok()
-}
-
-#[cfg(test)]
-mod vault_ref_tests {
-    use super::parse_vault_ref;
-    use crate::ids::VaultId;
-    use uuid::Uuid;
-
-    #[test]
-    fn parse_vault_ref_accepts_only_canonical_prefixed() {
-        let id = Uuid::now_v7();
-        let vault_id = VaultId::from_uuid(id);
-        assert_eq!(parse_vault_ref(&vault_id.to_string()), Some(vault_id));
-        // Bare uuid and wrong-prefixed refs are rejected: vault_ids is canonically
-        // prefixed, so there is no bare-form tolerance.
-        assert_eq!(parse_vault_ref(&id.to_string()), None);
-        assert_eq!(parse_vault_ref(&format!("vlt_{id}")), None);
-    }
-}
-
 fn ensure_skill_runtime_ready(skill: &SkillForArchive) -> anyhow::Result<()> {
     if skill.lifecycle_status != "approved" {
         anyhow::bail!(
@@ -2628,6 +2695,7 @@ impl VaultCipher {
         Ok(String::from_utf8(plaintext)?)
     }
 
+    #[cfg(test)]
     fn encrypt_or_passthrough(&self, plaintext: &str) -> anyhow::Result<String> {
         let Some(key) = self.key else {
             return Ok(plaintext.to_string());
@@ -2742,7 +2810,10 @@ struct SecretRow {
 #[derive(Debug, Clone, FromRow)]
 struct VaultCredentialRow {
     id: CredentialId,
-    mcp_server_url: Option<String>,
+    normalized_mcp_server_url: Option<String>,
+    /// Static-bearer token, sourced from the encrypted `data->>'token_value'`
+    /// JSONB field (see the SELECT that populates this row). Empty when the
+    /// credential carries no static bearer (e.g. OAuth-only, deferred to P2B).
     token_value: String,
     credential_type: String,
     oauth_config: Option<serde_json::Value>,

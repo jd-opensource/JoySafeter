@@ -14,11 +14,12 @@ use crate::config::JoySafeterConfig;
 use crate::db::models::{JoySafeterAgent, JoySafeterSandbox};
 use crate::db::queries;
 use crate::ids::{
-    AgentId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId, SessionResourceId, TaskId,
-    VaultId,
+    AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId,
+    SessionResourceId, TaskId,
 };
 use crate::kernel::harness_input_builder::VaultCipher;
 use crate::kernel::llm_catalog::{validate_runtime_secret, RuntimeSecretBinding};
+use crate::kernel::mcp_url;
 use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
 use crate::sandbox::lds_backend::{
     normalize_prefix, normalize_rewrite_base_prefix, EgressCredentialRoute, EgressExposure,
@@ -39,33 +40,6 @@ use super::llm_providers::{CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OP
 /// networking-reconcile loop retries it. Prevents a single stuck setup from
 /// freezing task scheduling.
 const SETUP_NETWORKING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-
-fn mcp_credential_url_keys(raw: &str) -> Vec<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Vec::new();
-    }
-
-    let mut keys = vec![trimmed.to_string()];
-    if let Ok(mut url) = Url::parse(trimmed) {
-        if let Some(host) = url.host_str().map(|host| host.to_ascii_lowercase()) {
-            let _ = url.set_host(Some(&host));
-        }
-        let path = url.path().to_string();
-        if path != "/" {
-            url.set_path(path.trim_end_matches('/'));
-        }
-        keys.push(url.to_string());
-        if url.path() != "/" {
-            let with_slash_path = format!("{}/", url.path().trim_end_matches('/'));
-            url.set_path(&with_slash_path);
-            keys.push(url.to_string());
-        }
-    }
-    keys.sort();
-    keys.dedup();
-    keys
-}
 
 #[cfg(test)]
 mod protocol_env_tests {
@@ -1170,30 +1144,49 @@ impl SandboxResolver {
                 }
             }
 
+            // Environment-level credentials are referenced by id. Both the
+            // legacy list form (`secret_refs`) and the single `service_credential_id`
+            // now hold canonical `cred_` ids that resolve against
+            // `joysafeter_credentials` with kind=service.
+            let mut env_credential_ids: Vec<CredentialId> = Vec::new();
+            if let Some(service_credential_id) = environment
+                .config
+                .get("service_credential_id")
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.trim().is_empty())
+                .and_then(|raw| CredentialId::from_public(raw).ok())
+            {
+                env_credential_ids.push(service_credential_id);
+            }
             if let Some(secret_refs) = environment
                 .config
                 .get("secret_refs")
                 .and_then(|v| v.as_array())
             {
-                for secret_ref in secret_refs.iter().filter_map(|v| v.as_str()) {
-                    Self::merge_secret_ref_into_env(
-                        pool,
-                        &mut env,
-                        secret_ref,
-                        agent.project_id.as_deref(),
-                        false,
-                        None,
-                    )
-                    .await?;
+                for raw in secret_refs.iter().filter_map(|v| v.as_str()) {
+                    if let Ok(credential_id) = CredentialId::from_public(raw) {
+                        env_credential_ids.push(credential_id);
+                    }
                 }
+            }
+            for credential_id in env_credential_ids {
+                Self::merge_secret_ref_into_env(
+                    pool,
+                    &mut env,
+                    credential_id,
+                    agent.project_id.as_deref(),
+                    false,
+                    None,
+                )
+                .await?;
             }
         }
 
-        if let Some(secret_ref) = agent.secret_ref.as_deref().filter(|v| !v.trim().is_empty()) {
+        if let Some(model_credential_id) = agent.model_credential_id {
             let llm_binding = Self::merge_secret_ref_into_env(
                 pool,
                 &mut env,
-                secret_ref,
+                model_credential_id,
                 agent.project_id.as_deref(),
                 true,
                 Some(agent.engine_kind.as_deref().unwrap_or("claude")),
@@ -1379,7 +1372,8 @@ impl SandboxResolver {
     }
 
     /// Build MCP egress credentials for a sandbox: for each remote MCP server the
-    /// agent references, match a vault credential by URL, decrypt its token, and
+    /// agent references, match a credential (from the session's bound credential
+    /// groups) by canonical normalized URL, decrypt its static-bearer token, and
     /// produce an [`EgressCredentialRoute`] keyed by the server name. The
     /// `.mcp.json` written
     /// into the sandbox points at `mcp-egress.internal/mcp/<name>/` with no token;
@@ -1418,73 +1412,69 @@ impl SandboxResolver {
             return Ok(vec![]);
         }
 
-        // Load the session's vault credentials, keyed by mcp_server_url.
-        let session = match queries::get_session(pool, session_id).await {
-            Ok(Some(s)) => s,
-            Ok(None) => return Ok(vec![]),
-            Err(e) => {
-                return Err(anyhow::anyhow!(
-                    "failed to load session {session_id} while building MCP egress: {e}"
-                ));
-            }
-        };
-        let Some(vault_ids) = session.vault_ids.as_ref() else {
-            return Ok(vec![]);
-        };
-        let ids: Vec<VaultId> = vault_ids
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str())
-                    .filter_map(parse_vault_ref)
-                    .collect()
-            })
-            .unwrap_or_default();
-        if ids.is_empty() {
+        // Load the credential groups bound to the session, then the MCP
+        // credentials in those groups, keyed by their canonical normalized URL.
+        let group_ids: Vec<CredentialGroupId> = sqlx::query_as::<_, (CredentialGroupId,)>(
+            r#"
+            SELECT credential_group_id
+            FROM joysafeter_session_credential_groups
+            WHERE session_id = $1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "failed to load session credential groups for MCP egress in session {session_id}: {e}"
+            )
+        })?
+        .into_iter()
+        .map(|(id,)| id)
+        .collect();
+        if group_ids.is_empty() {
             return Ok(vec![]);
         }
 
+        let rows: Vec<(Option<String>, serde_json::Value)> = sqlx::query_as(
+            r#"
+            SELECT normalized_mcp_server_url, data
+            FROM joysafeter_credentials
+            WHERE group_id = ANY($1) AND kind = 'mcp' AND deleted_at IS NULL
+            "#,
+        )
+        .bind(&group_ids)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!("failed to load MCP credentials for session {session_id}: {e}")
+        })?;
+
         let cipher = VaultCipher::from_env();
+        // Map normalized_url -> decrypted token. Python enforces a per-group
+        // unique index on normalized_mcp_server_url and rejects cross-group URL
+        // conflicts at write time, so a single deterministic key is sufficient.
         let mut token_by_url: HashMap<String, String> = HashMap::new();
-        for vault_id in ids {
-            let rows: Vec<(Option<String>, String)> = sqlx::query_as(
-                r#"
-                SELECT c.mcp_server_url, c.token_value
-                FROM joysafeter_vault_credentials c
-                JOIN joysafeter_vaults v ON v.id = c.vault_id
-                WHERE c.vault_id = $1
-                  AND c.deleted_at IS NULL
-                  AND c.archived_at IS NULL
-                  AND v.deleted_at IS NULL
-                  AND v.archived_at IS NULL
-                "#,
-            )
-            .bind(vault_id)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| {
-                anyhow::anyhow!("failed to load vault credentials for vault {vault_id}: {e}")
+        for (normalized_url, data) in rows {
+            let Some(normalized_url) = normalized_url else {
+                continue;
+            };
+            let Some(token_value) = data.get("token_value").and_then(|v| v.as_str()) else {
+                // OAuth-only or malformed credential: no static bearer to inject.
+                // P2B: OAuth refresh not yet migrated.
+                continue;
+            };
+            let token = cipher.decrypt_or_passthrough(token_value).map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to decrypt MCP credential token for server '{normalized_url}' in session {session_id}: {e}"
+                )
             })?;
-            for (url, token_value) in rows {
-                if let Some(url) = url {
-                    let tok = cipher.decrypt_or_passthrough(&token_value).map_err(|e| {
-                        anyhow::anyhow!(
-                            "failed to decrypt vault credential for MCP server '{url}' in vault {vault_id}: {e}"
-                        )
-                    })?;
-                    for key in mcp_credential_url_keys(&url) {
-                        token_by_url.insert(key, tok.clone());
-                    }
-                }
-            }
+            token_by_url.insert(normalized_url, token);
         }
 
         let mut egress = Vec::new();
         for (name, url) in mcp_servers {
-            let token = mcp_credential_url_keys(&url)
-                .into_iter()
-                .find_map(|key| token_by_url.get(&key));
-            let Some(token) = token else {
+            let Some(token) = token_by_url.get(&mcp_url::normalize(&url)) else {
                 continue;
             };
             let upstream = UpstreamTarget::from_url(&url)
@@ -1623,10 +1613,11 @@ impl SandboxResolver {
             let port = upstream.port;
             let upstream_prefix = normalize_external_upstream_prefix(&upstream.prefix);
 
-            let Some(credential_ref) = service
-                .get("credential_ref")
+            let Some(service_credential_id) = service
+                .get("service_credential_id")
                 .and_then(|value| value.as_str())
                 .filter(|value| !value.trim().is_empty())
+                .and_then(|raw| CredentialId::from_public(raw).ok())
             else {
                 continue;
             };
@@ -1634,11 +1625,12 @@ impl SandboxResolver {
                 continue;
             };
 
-            let secret = match Self::load_secret_data(pool, credential_ref, project_id).await {
+            let secret = match Self::load_secret_data(pool, service_credential_id, project_id).await
+            {
                 Ok(Some(secret)) => secret,
                 Ok(None) => continue,
                 Err(e) => {
-                    warn!(service = %name, credential_ref, "Failed to load external egress secret: {e}");
+                    warn!(service = %name, credential_id = %service_credential_id, "Failed to load external egress secret: {e}");
                     continue;
                 }
             };
@@ -1646,7 +1638,7 @@ impl SandboxResolver {
                 Ok(headers) if !headers.is_empty() => headers,
                 Ok(_) => continue,
                 Err(e) => {
-                    warn!(service = %name, credential_ref, "Failed to build external egress headers: {e}");
+                    warn!(service = %name, credential_id = %service_credential_id, "Failed to build external egress headers: {e}");
                     continue;
                 }
             };
@@ -1718,19 +1710,16 @@ impl SandboxResolver {
 
     async fn load_secret_data(
         pool: &PgPool,
-        secret_ref: &str,
+        credential_id: CredentialId,
         project_id: Option<&str>,
     ) -> anyhow::Result<Option<HashMap<String, String>>> {
         let secret: Option<(serde_json::Value,)> = sqlx::query_as(
             r#"
-            SELECT data FROM joysafeter_secrets
-            WHERE name = $1 AND deleted_at IS NULL
-              AND ($2::text IS NULL OR project_id = $2)
-            ORDER BY created_at DESC
-            LIMIT 1
+            SELECT data FROM joysafeter_credentials
+            WHERE id = $1 AND project_id = $2 AND kind = 'service' AND deleted_at IS NULL
             "#,
         )
-        .bind(secret_ref)
+        .bind(credential_id)
         .bind(project_id)
         .fetch_optional(pool)
         .await?;
@@ -1756,21 +1745,19 @@ impl SandboxResolver {
     async fn merge_secret_ref_into_env(
         pool: &PgPool,
         env: &mut HashMap<String, String>,
-        secret_ref: &str,
+        credential_id: CredentialId,
         project_id: Option<&str>,
         override_existing: bool,
         runtime_engine_kind: Option<&str>,
     ) -> anyhow::Result<Option<RuntimeSecretBinding>> {
         let secret = sqlx::query_as::<_, RuntimeSecretRow>(
             r#"
-            SELECT kind, provider, protocol, data FROM joysafeter_secrets
-            WHERE name = $1 AND deleted_at IS NULL
+            SELECT kind, provider, protocol, data FROM joysafeter_credentials
+            WHERE id = $1 AND deleted_at IS NULL
               AND ($2::text IS NULL OR project_id = $2)
-            ORDER BY created_at DESC
-            LIMIT 1
             "#,
         )
-        .bind(secret_ref)
+        .bind(credential_id)
         .bind(project_id)
         .fetch_optional(pool)
         .await?;
@@ -1787,8 +1774,8 @@ impl SandboxResolver {
                 secret.protocol.as_deref(),
             )?)
         } else {
-            if secret.kind != "generic" {
-                anyhow::bail!("environment secret must have kind=generic");
+            if secret.kind != "service" {
+                anyhow::bail!("environment credential must have kind=service");
             }
             None
         };
@@ -2502,12 +2489,6 @@ fn generate_runner_token() -> String {
     hex::encode(random_bytes)
 }
 
-fn parse_vault_ref(raw: &str) -> Option<VaultId> {
-    // session.vault_ids is persisted canonically prefixed (Python list[VaultId] ->
-    // str(vault_id)); only the prefixed form is accepted.
-    VaultId::from_public(raw).ok()
-}
-
 fn non_empty(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
@@ -2995,14 +2976,6 @@ mod egress_tests {
             explicit_env.get("TZ").map(String::as_str),
             Some("America/New_York")
         );
-    }
-
-    #[test]
-    fn mcp_credential_url_keys_matches_trailing_slash_variants() {
-        let keys = mcp_credential_url_keys("https://AI-Legal-Test.JD.com/legal-mcp/mcp/");
-
-        assert!(keys.contains(&"https://ai-legal-test.jd.com/legal-mcp/mcp".to_string()));
-        assert!(keys.contains(&"https://ai-legal-test.jd.com/legal-mcp/mcp/".to_string()));
     }
 
     #[test]
@@ -4101,44 +4074,82 @@ mod egress_tests {
     }
 
     #[tokio::test]
-    async fn sandbox_resolver_builds_mcp_egress_from_vault_prefixed_ids() {
+    async fn sandbox_resolver_builds_mcp_egress_from_session_credential_groups() {
         let Some(pool) = test_pool().await else {
             return;
         };
 
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let session_id = SessionId::from_uuid(Uuid::now_v7());
-        let vault_id = VaultId::from_uuid(Uuid::now_v7());
+        let group_id = CredentialGroupId::from_uuid(Uuid::now_v7());
         let credential_id = CredentialId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
+        let org_id = format!("org-{unique}");
+        let project_id = format!("proj-{unique}");
         let mcp_url = "https://mcp.vault-alias.example/api";
+        let normalized = mcp_url::normalize(mcp_url);
 
         async {
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_vaults (id, name, description)
-                VALUES ($1, $2, '')
+                INSERT INTO joysafeter_organizations
+                    (id, name, slug, storage_used_bytes, departed_member_usage)
+                VALUES ($1, $2, $3, 0, 0)
                 "#,
             )
-            .bind(vault_id)
-            .bind(format!("resolver-vault-alias-{unique}"))
+            .bind(&org_id)
+            .bind(format!("Resolver MCP Org {unique}"))
+            .bind(format!("resolver-mcp-org-{unique}"))
             .execute(&pool)
             .await
-            .expect("insert vault");
+            .expect("insert organization");
 
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_vault_credentials
-                    (id, vault_id, name, credential_type, mcp_server_url, token_value)
-                VALUES ($1, $2, 'resolver alias credential', 'static_bearer', $3, 'vault-token')
+                INSERT INTO joysafeter_organization_projects
+                    (id, org_id, name, slug, is_default)
+                VALUES ($1, $2, $3, $4, false)
+                "#,
+            )
+            .bind(&project_id)
+            .bind(&org_id)
+            .bind(format!("Resolver MCP Project {unique}"))
+            .bind(format!("resolver-mcp-project-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert project");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_credential_groups (id, project_id, name, description)
+                VALUES ($1, $2, $3, '')
+                "#,
+            )
+            .bind(group_id)
+            .bind(&project_id)
+            .bind(format!("resolver-group-alias-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert credential group");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_credentials
+                    (id, project_id, kind, name, credential_type, mcp_server_url,
+                     normalized_mcp_server_url, group_id, data)
+                VALUES ($1, $2, 'mcp', 'resolver alias credential', 'static_bearer', $3,
+                        $4, $5, $6)
                 "#,
             )
             .bind(credential_id)
-            .bind(vault_id)
+            .bind(&project_id)
             .bind(mcp_url)
+            .bind(&normalized)
+            .bind(group_id)
+            .bind(serde_json::json!({"token_value": "vault-token"}))
             .execute(&pool)
             .await
-            .expect("insert vault credential");
+            .expect("insert mcp credential");
 
             sqlx::query(
                 r#"
@@ -4167,16 +4178,27 @@ mod egress_tests {
 
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_sessions (id, agent_id, status, vault_ids)
-                VALUES ($1, $2, 'idle', $3)
+                INSERT INTO joysafeter_sessions (id, agent_id, status)
+                VALUES ($1, $2, 'idle')
                 "#,
             )
             .bind(session_id)
             .bind(agent_id)
-            .bind(serde_json::json!([vault_id.to_string()]))
             .execute(&pool)
             .await
             .expect("insert session");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_session_credential_groups (session_id, credential_group_id)
+                VALUES ($1, $2)
+                "#,
+            )
+            .bind(session_id)
+            .bind(group_id)
+            .execute(&pool)
+            .await
+            .expect("bind session credential group");
 
             let agent = queries::get_agent(&pool, agent_id)
                 .await
@@ -4203,6 +4225,11 @@ mod egress_tests {
         }
         .await;
 
+        let _ =
+            sqlx::query("DELETE FROM joysafeter_session_credential_groups WHERE session_id = $1")
+                .bind(session_id)
+                .execute(&pool)
+                .await;
         let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
             .bind(session_id)
             .execute(&pool)
@@ -4211,12 +4238,20 @@ mod egress_tests {
             .bind(agent_id)
             .execute(&pool)
             .await;
-        let _ = sqlx::query("DELETE FROM joysafeter_vault_credentials WHERE id = $1")
+        let _ = sqlx::query("DELETE FROM joysafeter_credentials WHERE id = $1")
             .bind(credential_id)
             .execute(&pool)
             .await;
-        let _ = sqlx::query("DELETE FROM joysafeter_vaults WHERE id = $1")
-            .bind(vault_id)
+        let _ = sqlx::query("DELETE FROM joysafeter_credential_groups WHERE id = $1")
+            .bind(group_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
+            .bind(&project_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organizations WHERE id = $1")
+            .bind(&org_id)
             .execute(&pool)
             .await;
     }

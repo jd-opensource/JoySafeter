@@ -286,7 +286,7 @@ async fn schedule_single_task(
 
     // --- Resolve sandbox through the full provider-backed resolver ---
     // The resolver builds the effective Python-compatible context itself:
-    // session/agent environment, secret_ref, environment image, and networking.
+    // session/agent environment, model credential, environment image, and networking.
     let (sandbox_db_id, _external_id) = resolver
         .resolve(task_id, session_id, Some(agent.id), project_id)
         .await?;
@@ -567,7 +567,7 @@ async fn build_agent_execution_snapshot(
         "permission_mode": agent.permission_mode.clone(),
         "multiagent": agent.multiagent.clone(),
         "environment_ref": agent.environment_ref.clone(),
-        "secret_ref": agent.secret_ref.clone(),
+        "model_credential_id": agent.model_credential_id.map(|id| id.to_string()),
     });
 
     if let Some(environment_ref) = agent.environment_ref.as_deref() {

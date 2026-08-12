@@ -1,4 +1,4 @@
-use crate::ids::{AgentId, SandboxId, SessionId, TaskId};
+use crate::ids::{AgentId, CredentialId, SandboxId, SessionId, TaskId};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -82,7 +82,6 @@ pub struct JoySafeterSession {
     pub agent_snapshot: Option<serde_json::Value>,
     pub last_harness_session_id: Option<String>,
     pub last_work_dir: Option<String>,
-    pub vault_ids: Option<serde_json::Value>,
     pub environment_ref: Option<String>,
 }
 
@@ -130,5 +129,5 @@ pub struct JoySafeterAgent {
     pub multiagent: Option<serde_json::Value>,
     pub version: i32,
     pub environment_ref: Option<String>,
-    pub secret_ref: Option<String>,
+    pub model_credential_id: Option<CredentialId>,
 }
