@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 _AES_KEY_SIZE = 32
 _NONCE_SIZE = 12
 _TAG_SIZE = 16
-_ENCRYPTED_PREFIX = "enc:"
+_ENCRYPTED_PREFIX = "enc:v1:"
 _KEY_REQUIRED_MESSAGE = "JOYSAFETER_VAULT_ENCRYPTION_KEY is required for credential encryption"
 
 

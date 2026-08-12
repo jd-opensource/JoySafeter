@@ -2609,7 +2609,7 @@ impl VaultCipher {
     }
 
     pub(crate) fn decrypt_or_passthrough(&self, stored: &str) -> anyhow::Result<String> {
-        let Some(encoded) = stored.strip_prefix("enc:") else {
+        let Some(encoded) = stored.strip_prefix("enc:v1:") else {
             return Ok(stored.to_string());
         };
         let Some(key) = self.key else {
@@ -2641,9 +2641,86 @@ impl VaultCipher {
         let mut raw = nonce_bytes.to_vec();
         raw.extend_from_slice(&ciphertext);
         Ok(format!(
-            "enc:{}",
+            "enc:v1:{}",
             base64::engine::general_purpose::STANDARD.encode(raw)
         ))
+    }
+}
+
+#[cfg(test)]
+impl VaultCipher {
+    fn with_key(key: [u8; 32]) -> Self {
+        Self { key: Some(key) }
+    }
+}
+
+#[cfg(test)]
+mod vault_cipher_tests {
+    use super::{parse_vault_key, VaultCipher};
+    use std::path::PathBuf;
+
+    /// Loads the shared `cipher_vectors.json` produced by the Python cipher and
+    /// proves Python-encrypt -> Rust-decrypt interop: every `enc:v1:` ciphertext
+    /// must decrypt to its recorded plaintext under the fixed fixture key.
+    #[test]
+    fn decrypts_python_generated_v1_vectors() {
+        // CARGO_MANIFEST_DIR = backend/app/joysafeter_orchestrator_rs;
+        // fixture lives at backend/tests/fixtures/cipher_vectors.json.
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/cipher_vectors.json");
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read cipher vectors"))
+                .expect("parse cipher vectors");
+
+        assert_eq!(doc["envelope"], "enc:v1:");
+        let key = parse_vault_key(doc["key"].as_str().expect("key string")).expect("valid key");
+        let cipher = VaultCipher::with_key(key);
+
+        let vectors = doc["vectors"].as_array().expect("vectors array");
+        assert!(!vectors.is_empty(), "expected cross-language vectors");
+        for entry in vectors {
+            let ciphertext = entry["ciphertext"].as_str().expect("ciphertext");
+            let plaintext = entry["plaintext"].as_str().expect("plaintext");
+            assert!(ciphertext.starts_with("enc:v1:"));
+            let decrypted = cipher
+                .decrypt_or_passthrough(ciphertext)
+                .expect("decrypt python vector");
+            assert_eq!(decrypted, plaintext);
+        }
+    }
+
+    /// A bare `enc:` payload (no `v1:` version) is not the accepted envelope, so
+    /// it must NOT be treated as ciphertext (no legacy read path).
+    #[test]
+    fn bare_enc_prefix_is_not_decrypted() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/cipher_vectors.json");
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read cipher vectors"))
+                .expect("parse cipher vectors");
+        let key = parse_vault_key(doc["key"].as_str().unwrap()).unwrap();
+        let cipher = VaultCipher::with_key(key);
+
+        let v1 = doc["vectors"][0]["ciphertext"].as_str().unwrap();
+        let bare = format!("enc:{}", v1.strip_prefix("enc:v1:").unwrap());
+        // `decrypt_or_passthrough` only strips `enc:v1:`; a bare `enc:` value is
+        // returned untouched (passthrough), never AES-decrypted.
+        let out = cipher.decrypt_or_passthrough(&bare).expect("passthrough");
+        assert_eq!(out, bare);
+    }
+
+    /// Rust round-trip stays on the v1 envelope.
+    #[test]
+    fn round_trip_uses_v1_envelope() {
+        let cipher = VaultCipher::with_key([7u8; 32]);
+        let stored = cipher
+            .encrypt_or_passthrough("secret-value")
+            .expect("encrypt");
+        assert!(stored.starts_with("enc:v1:"));
+        assert_eq!(
+            cipher.decrypt_or_passthrough(&stored).expect("decrypt"),
+            "secret-value"
+        );
     }
 }
 
