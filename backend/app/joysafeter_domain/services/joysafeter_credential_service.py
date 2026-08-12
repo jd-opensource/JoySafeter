@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from app.joysafeter_api.api.v1.network_policy_refresh import mark_live_sandboxes_pending
 from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredential
 from app.joysafeter_domain.schemas.joysafeter_credential import (
     CREDENTIAL_DATA_MAX_FIELDS,
@@ -419,6 +420,7 @@ class CredentialService:
             cred.is_default = req.is_default
 
         cred.updated_at = utc_now()
+        await self._mark_sandboxes_pending_for(cred)
         try:
             await self.db.commit()
         except IntegrityError as exc:
@@ -428,6 +430,29 @@ class CredentialService:
             raise
         await self.db.refresh(cred)
         return cred
+
+    # --- default (model only) ----------------------------------------------------
+
+    async def _mark_sandboxes_pending_for(self, cred: JoySafeterCredential) -> None:
+        """Mark live limited-networking sandboxes ``pending`` in THIS transaction.
+
+        Called by the mutation methods that change already-referenced material
+        (update/archive/soft_delete/set_default) BEFORE their own commit, so the
+        credential change and the sandbox pending-mark commit together atomically.
+        There is no window where the DB holds the new/rotated/revoked credential
+        while a sandbox is never flagged for re-push (audit Blocker 5).
+
+        No commit and no Redis nudge here: the caller commits, and the durable
+        ``pending`` reconcile loop converges regardless. Post-commit nudging is
+        left to the route/wrapper. ``create`` is intentionally excluded — a
+        brand-new credential is not yet referenced by any live sandbox.
+        """
+        await mark_live_sandboxes_pending(
+            self.db,
+            project_id=cred.project_id,
+            source_type="credential",
+            source_id=str(cred.id),
+        )
 
     # --- default (model only) ----------------------------------------------------
 
@@ -457,6 +482,7 @@ class CredentialService:
         await self._clear_default(project_id=project_id, protocol=cred.protocol)
         cred.is_default = True
         cred.updated_at = utc_now()
+        await self._mark_sandboxes_pending_for(cred)
         await self.db.commit()
         await self.db.refresh(cred)
         return cred
@@ -479,6 +505,7 @@ class CredentialService:
         if cred.is_default:
             cred.is_default = False
         cred.updated_at = utc_now()
+        await self._mark_sandboxes_pending_for(cred)
         await self.db.commit()
         await self.db.refresh(cred)
         return cred
@@ -497,6 +524,7 @@ class CredentialService:
         if cred.is_default:
             cred.is_default = False
         cred.updated_at = utc_now()
+        await self._mark_sandboxes_pending_for(cred)
         await self.db.commit()
         await self.db.refresh(cred)
         return cred

@@ -10,9 +10,58 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
+from app.joysafeter_shared.ids import SandboxId
 from app.joysafeter_shared.orchestrator_bridge.runtime_commands import publish_to_sandbox_owner_via_redis
 
 logger = logging.getLogger(__name__)
+
+
+async def mark_live_sandboxes_pending(
+    db: AsyncSession,
+    *,
+    project_id: Optional[str],
+    source_type: str,
+    source_id: str,
+) -> list[SandboxId]:
+    """Flip live limited-networking sandboxes to ``pending`` WITHOUT committing.
+
+    This is the atomic primitive shared by two callers:
+
+    - The ``refresh_live_limited_sandbox_network_policies`` wrapper below, which
+      commits and then fires a best-effort Redis nudge (non-atomic callers).
+    - Credential mutation methods, which call this within their OWN transaction
+      so the credential change and the pending mark commit together — no window
+      where the DB holds the new credential but the sandbox is never re-pushed.
+
+    Runs a single ``UPDATE ... RETURNING id`` (no select/update TOCTOU) over all
+    live limited-networking sandboxes in the project, setting
+    ``networking_status='pending'`` and clearing ``networking_last_error``. That
+    row state IS the durable reconcile signal: the orchestrator's
+    networking-reconcile loop scans ``pending`` every tick and re-pushes each
+    policy, so convergence does not depend on any push. Marking a live sandbox
+    ``pending`` does not disrupt it (nothing gates dispatch on
+    ``networking_status``; the re-push is make-before-break).
+
+    Returns the ids of the sandboxes marked (empty list if none). The caller is
+    responsible for committing.
+    """
+
+    conditions = [
+        JoySafeterSandbox.destroyed_at.is_(None),
+        JoySafeterSandbox.status.in_(["idle", "running", "creating", "provisioning"]),
+        JoySafeterSandbox.config["fingerprint"]["networking"]["type"].astext == "limited",
+    ]
+    if project_id is not None:
+        conditions.append(JoySafeterSandbox.project_id == project_id)
+
+    marked = await db.execute(
+        update(JoySafeterSandbox)
+        .where(*conditions)
+        .values(networking_status="pending", networking_last_error=None)
+        .returning(JoySafeterSandbox.id)
+        .execution_options(synchronize_session=False)
+    )
+    return [row[0] for row in marked.all()]
 
 
 async def refresh_live_limited_sandbox_network_policies(
@@ -47,28 +96,17 @@ async def refresh_live_limited_sandbox_network_policies(
     Returns the number of sandboxes marked for refresh.
     """
 
-    conditions = [
-        JoySafeterSandbox.destroyed_at.is_(None),
-        JoySafeterSandbox.status.in_(["idle", "running", "creating", "provisioning"]),
-        JoySafeterSandbox.config["fingerprint"]["networking"]["type"].astext == "limited",
-    ]
-    if project_id is not None:
-        conditions.append(JoySafeterSandbox.project_id == project_id)
-
-    # Durable reconcile signal, atomically: flip the targeted sandboxes to
-    # 'pending' and capture their ids in a single UPDATE ... RETURNING (no
-    # select/update TOCTOU). This row state IS what guarantees convergence — the
-    # orchestrator's networking-reconcile loop scans 'pending' every tick
-    # (oldest-first, so freshly-marked rows are picked up promptly) and re-pushes
-    # each policy, independent of the best-effort push below.
-    marked = await db.execute(
-        update(JoySafeterSandbox)
-        .where(*conditions)
-        .values(networking_status="pending", networking_last_error=None)
-        .returning(JoySafeterSandbox.id)
-        .execution_options(synchronize_session=False)
+    # Durable reconcile signal, atomically: mark the targeted sandboxes 'pending'
+    # (no select/update TOCTOU) and capture their ids. This row state IS what
+    # guarantees convergence — the orchestrator's networking-reconcile loop scans
+    # 'pending' every tick (oldest-first) and re-pushes each policy, independent
+    # of the best-effort push below.
+    sandbox_ids = await mark_live_sandboxes_pending(
+        db,
+        project_id=project_id,
+        source_type=source_type,
+        source_id=source_id,
     )
-    sandbox_ids = [row[0] for row in marked.all()]
     await db.commit()
     if not sandbox_ids:
         return 0
