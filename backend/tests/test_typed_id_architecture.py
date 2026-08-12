@@ -656,18 +656,19 @@ CORE_TYPED_ID_FILES = (
     "app/joysafeter_api/api/v1/analytics.py",
     "app/joysafeter_api/api/v1/environments.py",
     "app/joysafeter_api/api/v1/files.py",
-    "app/joysafeter_api/api/v1/secrets.py",
+    "app/joysafeter_api/api/v1/credentials.py",
+    "app/joysafeter_api/api/v1/credential_groups.py",
     "app/joysafeter_api/api/v1/sandboxes.py",
     "app/joysafeter_api/api/v1/sessions.py",
     "app/joysafeter_api/api/v1/tasks.py",
     "app/joysafeter_api/api/v1/triggers.py",
-    "app/joysafeter_api/api/v1/vaults.py",
     "app/joysafeter_domain/services/agent_trigger_execution.py",
     "app/joysafeter_domain/services/analytics_service.py",
     "app/joysafeter_domain/services/joysafeter_agent_service.py",
+    "app/joysafeter_domain/services/joysafeter_credential_service.py",
+    "app/joysafeter_domain/services/joysafeter_credential_group_service.py",
     "app/joysafeter_domain/services/joysafeter_file_service.py",
     "app/joysafeter_domain/services/joysafeter_sandbox_service.py",
-    "app/joysafeter_domain/services/joysafeter_secret_service.py",
     "app/joysafeter_domain/services/joysafeter_session_resource_service.py",
     "app/joysafeter_domain/services/joysafeter_session_service.py",
     "app/joysafeter_domain/services/joysafeter_task_service.py",
@@ -675,7 +676,6 @@ CORE_TYPED_ID_FILES = (
     "app/joysafeter_domain/services/joysafeter_trigger_fire_service.py",
     "app/joysafeter_domain/services/joysafeter_trigger_runtime_gate.py",
     "app/joysafeter_domain/services/joysafeter_trigger_service.py",
-    "app/joysafeter_domain/services/joysafeter_vault_service.py",
     "app/joysafeter_domain/services/task_submission_service.py",
 )
 
@@ -912,21 +912,6 @@ def probe(session_id, task, sid, adapter):
     )
 
 
-def test_session_vault_jsonb_query_has_one_canonical_candidate():
-    path = BACKEND_ROOT / "app/joysafeter_domain/services/joysafeter_vault_service.py"
-    tree = ast.parse(path.read_text())
-    containment_calls = [
-        ast.unparse(node)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "contains"
-        and ast.unparse(node.func.value) == "JoySafeterSession.vault_ids"
-    ]
-
-    assert containment_calls == ["JoySafeterSession.vault_ids.contains([str(vault_id)])"]
-
-
 def test_retained_entity_uuid_adapters_match_reviewed_allowlist():
     reviewed_counts = {key: count for key, (_, count) in REVIEWED_ENTITY_UUID_ADAPTERS.items()}
     reviewed_categories = {
@@ -986,22 +971,29 @@ def test_environment_models_keep_environment_identity_typed():
     )
 
 
-def test_secret_model_keeps_secret_identity_typed():
-    source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_secret.py").read_text()
+def test_credential_models_keep_identity_typed():
+    source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_credential.py").read_text()
 
-    assert re.search(r"\bid:\s*Mapped\[SecretId\].*?EntityIdType\(SecretId\)", source, re.S)
-
-
-def test_vault_models_keep_vault_and_credential_identity_typed():
-    source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_vault.py").read_text()
-
-    assert re.search(r"class JoySafeterVault.*?\bid:\s*Mapped\[VaultId\].*?EntityIdType\(VaultId\)", source, re.S)
     assert re.search(
-        r"class JoySafeterVaultCredential.*?\bid:\s*Mapped\[CredentialId\].*?EntityIdType\(CredentialId\)",
+        r"class JoySafeterCredential\b.*?\bid:\s*Mapped\[CredentialId\].*?EntityIdType\(CredentialId\)",
         source,
         re.S,
     )
-    assert re.search(r"\bvault_id:\s*Mapped\[VaultId\].*?EntityIdType\(VaultId\)", source, re.S)
+    assert re.search(
+        r"\bgroup_id:\s*Mapped\[Optional\[CredentialGroupId\]\].*?EntityIdType\(CredentialGroupId\)",
+        source,
+        re.S,
+    )
+    assert re.search(
+        r"class JoySafeterCredentialGroup\b.*?\bid:\s*Mapped\[CredentialGroupId\].*?EntityIdType\(CredentialGroupId\)",
+        source,
+        re.S,
+    )
+    assert re.search(
+        r"\bcredential_group_id:\s*Mapped\[CredentialGroupId\].*?EntityIdType\(CredentialGroupId\)",
+        source,
+        re.S,
+    )
 
 
 def test_sandbox_models_keep_sandbox_identity_typed():
@@ -1157,21 +1149,21 @@ def test_rust_entity_ids_cannot_implicitly_deref_to_uuid():
     assert "impl std::ops::Deref" not in rust_ids
 
 
-def test_rust_environment_and_vault_identity_boundaries_are_typed():
+def test_rust_environment_and_credential_identity_boundaries_are_typed():
     rust_ids = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/ids.rs").read_text()
     rust_scheduler = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/scheduler.rs").read_text()
     rust_harness = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/harness_input_builder.rs").read_text()
     rust_resolver = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/sandbox_resolver.rs").read_text()
 
     assert 'entity_id!(EnvironmentId, "env_");' in rust_ids
-    assert 'entity_id!(VaultId, "vault_");' in rust_ids
     assert 'entity_id!(CredentialId, "cred_");' in rust_ids
+    assert 'entity_id!(CredentialGroupId, "credgrp_");' in rust_ids
     assert "id: EnvironmentId" in rust_scheduler
     assert "EnvironmentId::from_public(normalized)" in rust_scheduler
     assert 'strip_prefix("env_").unwrap_or(normalized)' not in rust_scheduler
-    assert "let ids: Vec<VaultId>" in rust_harness
+    assert "let group_ids: Vec<CredentialGroupId>" in rust_harness
     assert "id: CredentialId" in rust_harness
-    assert "let ids: Vec<VaultId>" in rust_resolver
+    assert "let group_ids: Vec<CredentialGroupId>" in rust_resolver
 
 
 def test_rust_orchestrator_models_use_core_entity_ids():

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.joysafeter_domain.schemas.joysafeter_credential import CredentialKind
 from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_shared.common.app_errors import NotFoundError, RequestValidationAppError
-from app.joysafeter_shared.ids import CredentialId
+from app.joysafeter_shared.ids import CredentialId, TriggerId
 
 _WEBHOOK_AUTH_METHODS = frozenset({"hmac", "bearer", "token"})
 
@@ -80,13 +80,13 @@ class WebhookAuthService:
         webhook_auth_credential_id: CredentialId,
         webhook_auth_field: str,
         project_id: Optional[str],
-        trigger_id: Optional[str] = None,
+        trigger_id: Optional[TriggerId] = None,
     ) -> str:
         cred_svc = CredentialService(self.db)
         credential = await cred_svc.get(webhook_auth_credential_id, project_id=project_id or "")
         context: dict[str, Any] = {"webhook_auth_credential_id": str(webhook_auth_credential_id)}
         if trigger_id is not None:
-            context["trigger_id"] = trigger_id
+            context["trigger_id"] = str(trigger_id)
         if credential is None:
             raise NotFoundError(
                 code="TRIGGER_SECRET_NOT_FOUND",
@@ -131,7 +131,7 @@ class WebhookAuthService:
             webhook_auth_credential_id=trigger.webhook_auth_credential_id,
             webhook_auth_field=trigger.webhook_auth_field or "WEBHOOK_SECRET",
             project_id=trigger.project_id,
-            trigger_id=str(trigger.id),
+            trigger_id=trigger.id,
         )
 
     @classmethod

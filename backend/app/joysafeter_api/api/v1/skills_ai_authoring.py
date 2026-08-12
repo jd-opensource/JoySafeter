@@ -59,8 +59,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["skill-ai-authoring"])
 
 
-def _authoring_base_url_error(exc: LLMBaseUrlError, *, credential_id: str) -> InvalidRequestError:
-    data = {"credential_id": credential_id, "key": exc.key, "base_url": exc.base_url}
+def _authoring_base_url_error(exc: LLMBaseUrlError, *, credential_id: CredentialId) -> InvalidRequestError:
+    data = {"credential_id": str(credential_id), "key": exc.key, "base_url": exc.base_url}
     if exc.host:
         data["host"] = exc.host
     if exc.reason == "not_allowed":
@@ -300,7 +300,7 @@ async def authoring_chat(
     try:
         base_url = validate_llm_base_url(base_url, key=base_url_key)
     except LLMBaseUrlError as exc:
-        raise _authoring_base_url_error(exc, credential_id=str(req.model_credential_id)) from None
+        raise _authoring_base_url_error(exc, credential_id=req.model_credential_id) from None
     model = data.get(profile.model_key) if profile.model_key else None
     model = model or "gpt-5.5"
 

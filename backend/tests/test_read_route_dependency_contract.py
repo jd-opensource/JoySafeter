@@ -6,18 +6,18 @@ from fastapi.params import Depends
 from app.joysafeter_api.api.v1 import (
     agents,
     auth,
+    credential_groups,
+    credentials,
     environments,
     files,
     memory_stores,
     quickstart,
     sandboxes,
-    secrets,
     sessions,
     skills,
     skills_ai_authoring,
     tasks,
     triggers,
-    vaults,
 )
 from app.joysafeter_shared.common.joysafeter_auth import (
     get_joysafeter_auth_context,
@@ -54,22 +54,22 @@ def _write_routes(router):
 
 
 def test_archived_project_read_routes_use_read_auth_context():
-    assert _dependency_for(secrets.get_secret) is get_joysafeter_auth_context
-    assert _dependency_for(vaults.get_vault) is get_joysafeter_auth_context
-    assert _dependency_for(vaults.list_credentials) is get_joysafeter_auth_context
-    assert _dependency_for(vaults.get_credential) is get_joysafeter_auth_context
+    assert _dependency_for(credentials.get_credential) is get_joysafeter_auth_context
+    assert _dependency_for(credentials.list_credentials) is get_joysafeter_auth_context
+    assert _dependency_for(credential_groups.get_credential_group) is get_joysafeter_auth_context
+    assert _dependency_for(credential_groups.list_credential_groups) is get_joysafeter_auth_context
     assert _dependency_for(triggers.list_triggers) is get_joysafeter_auth_context
     assert _dependency_for(triggers.get_trigger) is get_joysafeter_auth_context
     assert _dependency_for(triggers.list_trigger_runs) is get_joysafeter_auth_context
 
 
 def test_project_resource_write_routes_still_require_write_context():
-    assert _dependency_for(secrets.update_secret) is require_joysafeter_write
-    assert _dependency_for(vaults.update_vault) is require_joysafeter_write
-    assert _dependency_for(vaults.create_credential) is require_joysafeter_write
-    assert _dependency_for(vaults.update_credential) is require_joysafeter_write
-    assert _dependency_for(vaults.archive_credential) is require_joysafeter_write
-    assert _dependency_for(vaults.delete_credential) is require_joysafeter_write
+    assert _dependency_for(credentials.create_credential) is require_joysafeter_write
+    assert _dependency_for(credentials.update_credential) is require_joysafeter_write
+    assert _dependency_for(credentials.archive_credential) is require_joysafeter_write
+    assert _dependency_for(credentials.delete_credential) is require_joysafeter_write
+    assert _dependency_for(credential_groups.create_credential_group) is require_joysafeter_write
+    assert _dependency_for(credential_groups.delete_credential_group) is require_joysafeter_write
     assert _dependency_for(triggers.create_trigger) is require_joysafeter_write
     assert _dependency_for(triggers.update_trigger) is require_joysafeter_write
     assert _dependency_for(triggers.delete_trigger) is require_joysafeter_write
@@ -79,18 +79,18 @@ def test_project_resource_write_routes_still_require_write_context():
 def test_all_project_resource_write_routes_require_project_write_context():
     project_resource_modules = [
         agents,
+        credential_groups,
+        credentials,
         environments,
         files,
         memory_stores,
         quickstart,
         sandboxes,
-        secrets,
         sessions,
         skills,
         skills_ai_authoring,
         tasks,
         triggers,
-        vaults,
     ]
 
     # Public ingress routes authed by request signature/secret rather than a

@@ -9,8 +9,23 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
+from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
+from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import CredentialId
+
+
+async def _make_service_credential(db_session, project_id: str) -> CredentialId:
+    cred = await CredentialService(db_session).create(
+        CreateCredentialRequest(
+            kind="service",
+            name=f"s-{uuid.uuid4()}",
+            data={"WEBHOOK_SECRET": "hook-secret-value"},
+        ),
+        project_id=project_id,
+    )
+    return cred.id
 
 
 def _ctx(project_id: str = "proj-http", org_id: str = "org-http") -> JoySafeterAuthContext:
@@ -74,7 +89,8 @@ async def test_create_invalid_webhook_auth_method_returns_semantic_error_without
                 "type": "webhook",
                 "agent_id": f"agent_{uuid.uuid4()}",
                 "prompt_template": "run",
-                "secret_ref": "hook-secret",
+                "webhook_auth_credential_id": str(CredentialId.new()),
+                "webhook_auth_field": "WEBHOOK_SECRET",
                 "auth_methods": ["magic-link"],
             },
         )
@@ -97,7 +113,8 @@ async def test_create_missing_webhook_auth_methods_returns_semantic_error_withou
                 "type": "webhook",
                 "agent_id": f"agent_{uuid.uuid4()}",
                 "prompt_template": "run",
-                "secret_ref": "hook-secret",
+                "webhook_auth_credential_id": str(CredentialId.new()),
+                "webhook_auth_field": "WEBHOOK_SECRET",
             },
         )
 
@@ -119,8 +136,8 @@ async def test_create_blank_webhook_secret_key_returns_semantic_error_without_db
                 "type": "webhook",
                 "agent_id": f"agent_{uuid.uuid4()}",
                 "prompt_template": "run",
-                "secret_ref": "hook-secret",
-                "secret_key": "   ",
+                "webhook_auth_credential_id": str(CredentialId.new()),
+                "webhook_auth_field": "   ",
             },
         )
 
@@ -144,6 +161,8 @@ async def test_update_invalid_session_mode_returns_semantic_error(db_session):
     db_session.add(agent)
     await db_session.flush()
 
+    cred_id = await _make_service_credential(db_session, project.id)
+
     trigger = JoySafeterTrigger(
         name=f"trigger-http-{uuid.uuid4()}",
         type="webhook",
@@ -152,8 +171,8 @@ async def test_update_invalid_session_mode_returns_semantic_error(db_session):
         enabled=True,
         session_mode="fresh",
         filter={},
-        secret_ref="hook-secret",
-        secret_key="WEBHOOK_SECRET",
+        webhook_auth_credential_id=cred_id,
+        webhook_auth_field="WEBHOOK_SECRET",
         config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
         last_payload={},
         project_id=project.id,
@@ -189,6 +208,8 @@ async def test_update_blank_webhook_secret_key_returns_semantic_error_without_pe
     db_session.add(agent)
     await db_session.flush()
 
+    cred_id = await _make_service_credential(db_session, project.id)
+
     trigger = JoySafeterTrigger(
         name=f"trigger-http-secret-{uuid.uuid4()}",
         type="webhook",
@@ -197,8 +218,8 @@ async def test_update_blank_webhook_secret_key_returns_semantic_error_without_pe
         enabled=True,
         session_mode="fresh",
         filter={},
-        secret_ref="hook-secret",
-        secret_key="WEBHOOK_SECRET",
+        webhook_auth_credential_id=cred_id,
+        webhook_auth_field="WEBHOOK_SECRET",
         config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
         last_payload={},
         project_id=project.id,
@@ -210,11 +231,11 @@ async def test_update_blank_webhook_secret_key_returns_semantic_error_without_pe
 
     app = _app(db_session, _ctx(project_id=project.id, org_id=org.id))
     async with _client(app) as client:
-        resp = await client.patch(f"/api/v1/triggers/{trigger.id}", json={"secret_key": "   "})
+        resp = await client.patch(f"/api/v1/triggers/{trigger.id}", json={"webhook_auth_field": "   "})
 
     assert resp.status_code == 422
     assert resp.json()["code"] == "TRIGGER_SECRET_KEY_REQUIRED"
     assert resp.json()["user_action"] == "fix_input"
     assert resp.json()["data"] == {"type": "webhook"}
     await db_session.refresh(trigger)
-    assert trigger.secret_key == "WEBHOOK_SECRET"
+    assert trigger.webhook_auth_field == "WEBHOOK_SECRET"

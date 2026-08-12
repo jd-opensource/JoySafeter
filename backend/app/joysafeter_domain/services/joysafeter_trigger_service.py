@@ -377,7 +377,7 @@ class JoySafeterTriggerService:
                 webhook_auth_credential_id=plan.webhook_auth_credential_id_to_verify,
                 webhook_auth_field=plan.webhook_auth_field_to_verify,
                 project_id=trigger.project_id,
-                trigger_id=str(trigger.id),
+                trigger_id=trigger.id,
             )
         plan.apply_to(trigger)
         if plan.recompute_next_run:

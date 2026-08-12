@@ -13,11 +13,9 @@ from app.joysafeter_shared.ids import (
     CredentialId,
     EnvironmentId,
     FileId,
-    SecretId,
     SessionId,
     SessionResourceId,
     TaskId,
-    VaultId,
 )
 
 pytestmark = pytest.mark.no_db
@@ -94,20 +92,11 @@ def _build_typed_id_app() -> FastAPI:
     async def _read_resource(resource_id: SessionResourceId) -> dict:  # pragma: no cover - exercised via client
         return {"ok": str(resource_id)}
 
-    @app.get("/typed-secret/{secret_id}")
-    async def _read_secret(secret_id: SecretId) -> dict:  # pragma: no cover - exercised via client
-        return {"ok": str(secret_id)}
-
-    @app.get("/typed-vault/{vault_id}")
-    async def _read_vault(vault_id: VaultId) -> dict:  # pragma: no cover - exercised via client
-        return {"ok": str(vault_id)}
-
-    @app.get("/typed-vault/{vault_id}/credentials/{cred_id}")
+    @app.get("/typed-credential/{cred_id}")
     async def _read_credential(
-        vault_id: VaultId,
         cred_id: CredentialId,
     ) -> dict:  # pragma: no cover - exercised via client
-        return {"vault_id": str(vault_id), "cred_id": str(cred_id)}
+        return {"cred_id": str(cred_id)}
 
     return app
 
@@ -158,10 +147,8 @@ def test_integration_invalid_agent_path_id_yields_canonical_400():
         (f"/typed-environment/{uuid.uuid4()}", "env_id", "env_"),
         (f"/typed-file/{uuid.uuid4()}", "file_id", "file_"),
         (f"/typed-resource/{uuid.uuid4()}", "resource_id", "sesrsc_"),
-        (f"/typed-secret/{uuid.uuid4()}", "secret_id", "secret_"),
-        (f"/typed-vault/{uuid.uuid4()}", "vault_id", "vault_"),
         (
-            f"/typed-vault/vault_{uuid.uuid4()}/credentials/{uuid.uuid4()}",
+            f"/typed-credential/{uuid.uuid4()}",
             "cred_id",
             "cred_",
         ),

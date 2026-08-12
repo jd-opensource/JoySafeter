@@ -1,14 +1,12 @@
 import uuid
 
 import pytest
-from credential_test_helpers import encrypted_secret_data
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.agents import create_agent, update_agent
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
-from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterCreateAgentRequest,
@@ -140,7 +138,7 @@ async def test_update_agent_rejects_environment_ref_change_with_active_task(db_s
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "AGENT_ACTIVE_TASKS",
-        "message": "Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref.",
+        "message": "Agent has active tasks. Stop or wait for them before changing model_credential_id or environment_ref.",
         "data": {"agent_id": str(agent_id), "active_task_ids": [str(task.id)]},
         "source": "api",
         "retryable": True,
@@ -150,48 +148,6 @@ async def test_update_agent_rejects_environment_ref_change_with_active_task(db_s
     db_session.expire_all()
     row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
     assert row.environment_ref is None
-    assert row.version == 1
-
-
-@pytest.mark.asyncio
-async def test_update_agent_rejects_secret_ref_change_with_active_task(db_session):
-    secret = JoySafeterSecret(
-        name=f"active-secret-{uuid.uuid4()}",
-        kind="llm",
-        provider="anthropic",
-        protocol="anthropic_messages",
-        data=encrypted_secret_data({"ANTHROPIC_API_KEY": "value"}),
-    )
-    agent = JoySafeterAgent(name=f"active-secret-agent-{uuid.uuid4()}", version=1)
-    db_session.add_all([secret, agent])
-    await db_session.commit()
-    await db_session.refresh(secret)
-    await db_session.refresh(agent)
-    agent_id = agent.id
-    task = JoySafeterTask(
-        agent_id=agent_id,
-        prompt="scan target",
-        status=JoySafeterTaskStatus.SCHEDULING.value,
-    )
-    db_session.add(task)
-    await db_session.commit()
-    req = JoySafeterUpdateAgentRequest(version=1, secret_ref=secret.name)
-
-    with pytest.raises(AppError) as exc_info:
-        await update_agent(req, agent_id, db_session, _auth_ctx())
-
-    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
-        "code": "AGENT_ACTIVE_TASKS",
-        "message": "Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref.",
-        "data": {"agent_id": str(agent_id), "active_task_ids": [str(task.id)]},
-        "source": "api",
-        "retryable": True,
-        "user_action": "retry",
-    }
-
-    db_session.expire_all()
-    row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
-    assert row.secret_ref is None
     assert row.version == 1
 
 
@@ -249,132 +205,6 @@ async def test_update_agent_rejects_version_conflict_with_structured_error(db_se
     row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
     assert row.name == original_name
     assert row.version == 2
-
-
-@pytest.mark.asyncio
-async def test_create_agent_rejects_missing_secret_ref_with_structured_error(db_session):
-    missing_ref = f"missing-secret-{uuid.uuid4()}"
-    req = JoySafeterCreateAgentRequest(
-        name=f"secret-ref-agent-{uuid.uuid4()}",
-        engine_kind="claude",
-        secret_ref=missing_ref,
-    )
-
-    with pytest.raises(AppError) as exc_info:
-        await create_agent(req, db_session, _auth_ctx())
-
-    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
-        "code": "AGENT_SECRET_NOT_FOUND",
-        "message": f"Secret not found: {missing_ref}",
-        "data": {"secret_ref": missing_ref, "engine_kind": "claude"},
-        "source": "api",
-        "retryable": False,
-        "user_action": "fix_input",
-    }
-
-    row = (
-        await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.name == req.name))
-    ).scalar_one_or_none()
-    assert row is None
-
-
-@pytest.mark.asyncio
-async def test_create_agent_rejects_secret_engine_mismatch_with_structured_error(db_session):
-    secret = JoySafeterSecret(
-        name=f"openai-secret-{uuid.uuid4()}",
-        kind="llm",
-        provider="openai",
-        protocol="openai_responses",
-        data=encrypted_secret_data({"OPENAI_API_KEY": "value"}),
-    )
-    db_session.add(secret)
-    await db_session.commit()
-    await db_session.refresh(secret)
-
-    req = JoySafeterCreateAgentRequest(
-        name=f"secret-mismatch-agent-{uuid.uuid4()}",
-        engine_kind="claude",
-        secret_ref=secret.name,
-    )
-    with pytest.raises(AppError) as exc_info:
-        await create_agent(req, db_session, _auth_ctx())
-
-    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
-        "code": "AGENT_SECRET_INCOMPATIBLE",
-        "message": f"Secret '{secret.name}' is not compatible with engine_kind 'claude'",
-        "data": {
-                "secret_ref": secret.name,
-                "engine_kind": "claude",
-                "kind": "llm",
-                "provider": "openai",
-            "protocol": "openai_responses",
-        },
-        "source": "api",
-        "retryable": False,
-        "user_action": "fix_input",
-    }
-
-
-@pytest.mark.asyncio
-async def test_create_native_agent_accepts_openai_secret_and_resolves_model(db_session):
-    secret = JoySafeterSecret(
-        name=f"native-openai-secret-{uuid.uuid4()}",
-        kind="llm",
-        provider="openai",
-        protocol="openai_responses",
-        data=encrypted_secret_data({"OPENAI_API_KEY": "value", "OPENAI_MODEL": "gpt-5-native"}),
-    )
-    db_session.add(secret)
-    await db_session.commit()
-    await db_session.refresh(secret)
-
-    req = JoySafeterCreateAgentRequest(
-        name=f"native-openai-agent-{uuid.uuid4()}",
-        engine_kind="native",
-        secret_ref=secret.name,
-    )
-
-    response = await create_agent(req, db_session, _auth_ctx())
-
-    assert response.engine_kind == "native"
-    assert response.secret_ref == secret.name
-    assert response.model is not None
-    assert response.model.id == "gpt-5-native"
-
-    row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.name == req.name))).scalar_one()
-    assert row.engine_kind == "native"
-    assert row.secret_ref == secret.name
-
-
-@pytest.mark.asyncio
-async def test_create_agent_accepts_pi_engine_kind(db_session):
-    secret = JoySafeterSecret(
-        name=f"pi-secret-{uuid.uuid4()}",
-        kind="llm",
-        provider="anthropic",
-        protocol="anthropic_messages",
-        data=encrypted_secret_data({"ANTHROPIC_API_KEY": "value", "ANTHROPIC_MODEL": "pi-model"}),
-    )
-    db_session.add(secret)
-    await db_session.commit()
-    await db_session.refresh(secret)
-
-    req = JoySafeterCreateAgentRequest(
-        name=f"pi-agent-{uuid.uuid4()}",
-        engine_kind="pi",
-        secret_ref=secret.name,
-    )
-
-    response = await create_agent(req, db_session, _auth_ctx())
-
-    assert response.engine_kind == "pi"
-    assert response.secret_ref == secret.name
-    assert response.model is not None
-    assert response.model.id == "pi-model"
-
-    row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.name == req.name))).scalar_one()
-    assert row.engine_kind == "pi"
-    assert row.secret_ref == secret.name
 
 
 @pytest.mark.asyncio
