@@ -72,3 +72,54 @@ class UpdateCredentialRequest(BaseModel):
     @classmethod
     def _norm_name(cls, v: Optional[str]) -> Optional[str]:
         return _normalize_name(v) if v is not None else None
+
+
+# --- credential groups (mcp) -----------------------------------------------------
+# An mcp credential is BORN INTO a group (group_id NOT NULL), so "membership" is an
+# mcp credential row whose group_id is this group. There is no separate cred↔group
+# join. These schemas describe the group resource itself and the mcp fields used to
+# add a member; the group service is the authoritative validator.
+
+
+class CreateCredentialGroupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    description: str = ""
+
+    @field_validator("name")
+    @classmethod
+    def _norm_name(cls, v: str) -> str:
+        return _normalize_name(v)
+
+
+class UpdateCredentialGroupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def _norm_name(cls, v: Optional[str]) -> Optional[str]:
+        return _normalize_name(v) if v is not None else None
+
+
+class AddGroupCredentialRequest(BaseModel):
+    """The mcp-credential fields for adding a member to a group.
+
+    ``kind`` and ``group_id`` are supplied by the group service (the member is
+    born into the group), so they are intentionally absent here; extra="forbid"
+    rejects a caller trying to smuggle them in.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    mcp_server_url: str
+    data: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("name")
+    @classmethod
+    def _norm_name(cls, v: str) -> str:
+        return _normalize_name(v)
