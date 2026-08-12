@@ -8,9 +8,10 @@ from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_domain.schemas.joysafeter_secret import SecretKind
-from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
+from app.joysafeter_domain.schemas.joysafeter_credential import CredentialKind
+from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_shared.common.app_errors import NotFoundError, RequestValidationAppError
+from app.joysafeter_shared.ids import CredentialId
 
 _WEBHOOK_AUTH_METHODS = frozenset({"hmac", "bearer", "token"})
 
@@ -76,59 +77,59 @@ class WebhookAuthService:
     async def resolve_secret_value(
         self,
         *,
-        secret_ref: str,
-        secret_key: str,
+        webhook_auth_credential_id: CredentialId,
+        webhook_auth_field: str,
         project_id: Optional[str],
         trigger_id: Optional[str] = None,
     ) -> str:
-        secret_svc = SecretService(self.db)
-        secret = await secret_svc.get_secret_by_name(secret_ref, project_id=project_id)
-        context = {"secret_ref": secret_ref}
+        cred_svc = CredentialService(self.db)
+        credential = await cred_svc.get(webhook_auth_credential_id, project_id=project_id or "")
+        context: dict[str, Any] = {"webhook_auth_credential_id": str(webhook_auth_credential_id)}
         if trigger_id is not None:
             context["trigger_id"] = trigger_id
-        if secret is None:
+        if credential is None:
             raise NotFoundError(
                 code="TRIGGER_SECRET_NOT_FOUND",
-                message=f"Secret not found: {secret_ref}",
+                message=f"Credential not found: {webhook_auth_credential_id}",
                 data=context,
                 user_action="fix_input",
             )
-        if secret.kind != SecretKind.GENERIC.value:
+        if credential.kind != CredentialKind.SERVICE.value:
             raise RequestValidationAppError(
                 code="TRIGGER_SECRET_KIND_INVALID",
-                message="Webhook triggers require a generic Secret",
-                data={**context, "kind": secret.kind},
+                message="Webhook triggers require a service Credential",
+                data={**context, "kind": credential.kind},
                 user_action="fix_input",
             )
-        secret_data = secret_svc.get_secret_data(secret)
-        if secret_key not in secret_data:
+        credential_data = cred_svc.get_credential_data(credential)
+        if webhook_auth_field not in credential_data:
             raise RequestValidationAppError(
                 code="TRIGGER_SECRET_KEY_NOT_FOUND",
-                message=f"Secret key not found: {secret_key}",
-                data={**context, "secret_key": secret_key},
+                message=f"Credential field not found: {webhook_auth_field}",
+                data={**context, "webhook_auth_field": webhook_auth_field},
                 user_action="fix_input",
             )
-        secret_value = secret_data[secret_key]
+        secret_value = credential_data[webhook_auth_field]
         if not secret_value.strip():
             raise RequestValidationAppError(
                 code="TRIGGER_SECRET_VALUE_BLANK",
                 message="Webhook credential field must not be blank",
-                data={**context, "secret_key": secret_key},
+                data={**context, "webhook_auth_field": webhook_auth_field},
                 user_action="fix_input",
             )
         return secret_value
 
     async def resolve_webhook_secret(self, trigger: Any) -> str:
-        if not trigger.secret_ref:
+        if not trigger.webhook_auth_credential_id:
             raise RequestValidationAppError(
                 code="TRIGGER_SECRET_REF_REQUIRED",
-                message="Webhook trigger requires secret_ref",
+                message="Webhook trigger requires webhook_auth_credential_id",
                 data={"trigger_id": str(trigger.id)},
                 user_action="fix_input",
             )
         return await self.resolve_secret_value(
-            secret_ref=trigger.secret_ref,
-            secret_key=trigger.secret_key or "WEBHOOK_SECRET",
+            webhook_auth_credential_id=trigger.webhook_auth_credential_id,
+            webhook_auth_field=trigger.webhook_auth_field or "WEBHOOK_SECRET",
             project_id=trigger.project_id,
             trigger_id=str(trigger.id),
         )

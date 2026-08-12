@@ -7,7 +7,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.joysafeter_shared.ids import AgentId, SessionId, TaskId, TriggerId
+from app.joysafeter_shared.ids import AgentId, CredentialId, SessionId, TaskId, TriggerId
 
 
 def _strip_required(value: str) -> str:
@@ -43,8 +43,8 @@ class TriggerCreateRequest(BaseModel):
     run_at: Optional[datetime] = None
     concurrency_policy: str = "allow"
 
-    secret_ref: Optional[str] = None
-    secret_key: Optional[str] = "WEBHOOK_SECRET"
+    webhook_auth_credential_id: Optional[CredentialId] = None
+    webhook_auth_field: Optional[str] = "WEBHOOK_SECRET"
     auth_methods: Optional[list[str]] = None
     dedupe_header: Optional[str] = "x-joysafeter-delivery"
 
@@ -59,8 +59,7 @@ class TriggerCreateRequest(BaseModel):
         "environment_ref",
         "description",
         "cron_expr",
-        "secret_ref",
-        "secret_key",
+        "webhook_auth_field",
         "dedupe_header",
         "session_key",
         mode="before",
@@ -92,8 +91,8 @@ class TriggerUpdateRequest(BaseModel):
     run_at: Optional[datetime] = None
     concurrency_policy: Optional[str] = None
 
-    secret_ref: Optional[str] = None
-    secret_key: Optional[str] = None
+    webhook_auth_credential_id: Optional[CredentialId] = None
+    webhook_auth_field: Optional[str] = None
     auth_methods: Optional[list[str]] = None
     dedupe_header: Optional[str] = None
 
@@ -108,8 +107,7 @@ class TriggerUpdateRequest(BaseModel):
         "environment_ref",
         "description",
         "cron_expr",
-        "secret_ref",
-        "secret_key",
+        "webhook_auth_field",
         "dedupe_header",
         "session_key",
         mode="before",
@@ -165,8 +163,8 @@ class TriggerResponse(BaseModel):
     concurrency_policy: Optional[str] = None
     next_run_at: Optional[datetime] = None
     last_fired_slot: Optional[datetime] = None
-    secret_ref: Optional[str] = None
-    secret_key: Optional[str] = None
+    webhook_auth_credential_id: Optional[CredentialId] = None
+    webhook_auth_field: Optional[str] = None
     project_id: Optional[str]
     webhook_url: Optional[str] = None
     last_attempt_at: Optional[datetime]

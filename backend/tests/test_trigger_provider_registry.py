@@ -43,17 +43,20 @@ def test_cron_build_config_shape():
 
 
 def test_webhook_build_config_requires_explicit_auth_methods():
-    cfg = get_provider("webhook").build_config(secret_ref="hook")
+    cred_id = "01J000000000000000000CRED0"
+    cfg = get_provider("webhook").build_config(webhook_auth_credential_id=cred_id)
     assert cfg == {
-        "secret_ref": "hook",
-        "secret_key": "WEBHOOK_SECRET",
+        "webhook_auth_credential_id": cred_id,
+        "webhook_auth_field": "WEBHOOK_SECRET",
         "auth_methods": None,
         "dedupe_header": "x-joysafeter-delivery",
     }
 
 
 def test_webhook_build_config_preserves_explicit_empty_auth_methods():
-    cfg = get_provider("webhook").build_config(secret_ref="hook", auth_methods=[])
+    cfg = get_provider("webhook").build_config(
+        webhook_auth_credential_id="01J000000000000000000CRED0", auth_methods=[]
+    )
     assert cfg["auth_methods"] == []
 
 

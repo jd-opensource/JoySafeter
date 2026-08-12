@@ -23,7 +23,7 @@ from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import Trigg
 from app.joysafeter_domain.services.joysafeter_trigger_scheduler_state_service import TriggerSchedulerStateService
 from app.joysafeter_domain.services.joysafeter_trigger_webhook_auth_service import WebhookAuthService
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
-from app.joysafeter_shared.ids import AgentId, SessionId, TaskId, TriggerId
+from app.joysafeter_shared.ids import AgentId, CredentialId, SessionId, TaskId, TriggerId
 
 _NON_TERMINAL_STATUSES = [s.value for s in JoySafeterTaskStatus if s not in JOYSAFETER_TERMINAL_STATUSES]
 
@@ -204,8 +204,8 @@ class JoySafeterTriggerService:
         timezone: str = "UTC",
         run_at: Optional[datetime] = None,
         concurrency_policy: str = "allow",
-        secret_ref: Optional[str] = None,
-        secret_key: Optional[str] = "WEBHOOK_SECRET",
+        webhook_auth_credential_id: Optional[CredentialId] = None,
+        webhook_auth_field: Optional[str] = "WEBHOOK_SECRET",
         auth_methods: Optional[list[str]] = None,
         dedupe_header: Optional[str] = "x-joysafeter-delivery",
         project_id: Optional[str] = None,
@@ -221,13 +221,13 @@ class JoySafeterTriggerService:
             run_at=run_at,
             timezone_name=timezone,
             concurrency_policy=concurrency_policy,
-            secret_ref=secret_ref,
-            secret_key=secret_key,
+            webhook_auth_credential_id=webhook_auth_credential_id,
+            webhook_auth_field=webhook_auth_field,
             auth_methods=auth_methods,
         )
         if type != "webhook":
-            secret_ref = None
-            secret_key = None
+            webhook_auth_credential_id = None
+            webhook_auth_field = None
             auth_methods = None
             dedupe_header = None
         if await self.get_by_name(name, project_id) is not None:
@@ -237,10 +237,10 @@ class JoySafeterTriggerService:
             project_id=project_id,
             environment_ref=environment_ref,
         )
-        if type == "webhook" and secret_ref and secret_key:
+        if type == "webhook" and webhook_auth_credential_id and webhook_auth_field:
             await WebhookAuthService(self.db).resolve_secret_value(
-                secret_ref=secret_ref,
-                secret_key=secret_key,
+                webhook_auth_credential_id=webhook_auth_credential_id,
+                webhook_auth_field=webhook_auth_field,
                 project_id=project_id,
             )
         # Defer schedule arming to ``_next_run_or_pause`` so create/update/restore
@@ -266,16 +266,16 @@ class JoySafeterTriggerService:
             run_at=run_at if type == "cron" else None,
             concurrency_policy=concurrency_policy,
             next_run_at=next_run_at,
-            secret_ref=secret_ref,
-            secret_key=secret_key,
+            webhook_auth_credential_id=webhook_auth_credential_id,
+            webhook_auth_field=webhook_auth_field,
             config=self._config_for(
                 type=type,
                 cron_expr=cron_expr,
                 timezone=timezone,
                 concurrency_policy=concurrency_policy,
                 next_run_at=next_run_at.isoformat() if next_run_at else None,
-                secret_ref=secret_ref,
-                secret_key=secret_key,
+                webhook_auth_credential_id=webhook_auth_credential_id,
+                webhook_auth_field=webhook_auth_field,
                 auth_methods=auth_methods,
                 dedupe_header=dedupe_header,
             ),
@@ -372,10 +372,10 @@ class JoySafeterTriggerService:
                 project_id=trigger.project_id,
                 environment_ref=plan.next_environment_ref,
             )
-        if plan.secret_ref_to_verify is not None and plan.secret_key_to_verify is not None:
+        if plan.webhook_auth_credential_id_to_verify is not None and plan.webhook_auth_field_to_verify is not None:
             await WebhookAuthService(self.db).resolve_secret_value(
-                secret_ref=plan.secret_ref_to_verify,
-                secret_key=plan.secret_key_to_verify,
+                webhook_auth_credential_id=plan.webhook_auth_credential_id_to_verify,
+                webhook_auth_field=plan.webhook_auth_field_to_verify,
                 project_id=trigger.project_id,
                 trigger_id=str(trigger.id),
             )

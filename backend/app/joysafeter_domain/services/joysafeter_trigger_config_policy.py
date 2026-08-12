@@ -8,7 +8,7 @@ from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger, T
 from app.joysafeter_domain.services.joysafeter_trigger_webhook_auth_service import WebhookAuthService
 from app.joysafeter_domain.triggers import get_provider, supported_kinds
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
-from app.joysafeter_shared.ids import SessionId
+from app.joysafeter_shared.ids import CredentialId, SessionId
 from app.joysafeter_shared.utils.cron import validate_cron, validate_timezone
 
 _SUPPORTED_TRIGGER_TYPES = frozenset(supported_kinds())
@@ -21,8 +21,8 @@ class TriggerUpdatePlan:
     fields: dict[str, Any]
     next_environment_ref: Optional[str]
     should_resolve_target: bool
-    secret_ref_to_verify: Optional[str]
-    secret_key_to_verify: Optional[str]
+    webhook_auth_credential_id_to_verify: Optional[CredentialId]
+    webhook_auth_field_to_verify: Optional[str]
     recompute_next_run: bool
     is_reenable: bool
 
@@ -50,8 +50,8 @@ class TriggerConfigPolicy:
             concurrency_policy=trigger.concurrency_policy,
             next_run_at=trigger.next_run_at.isoformat() if trigger.next_run_at else None,
             last_fired_slot=trigger.last_fired_slot.isoformat() if trigger.last_fired_slot else None,
-            secret_ref=trigger.secret_ref,
-            secret_key=trigger.secret_key or "WEBHOOK_SECRET",
+            webhook_auth_credential_id=trigger.webhook_auth_credential_id,
+            webhook_auth_field=trigger.webhook_auth_field or "WEBHOOK_SECRET",
             auth_methods=(trigger.config or {}).get("auth_methods"),
             dedupe_header=(trigger.config or {}).get("dedupe_header"),
         )
@@ -72,8 +72,8 @@ class TriggerConfigPolicy:
         run_at: Optional[datetime],
         timezone_name: str,
         concurrency_policy: str,
-        secret_ref: Optional[str],
-        secret_key: Optional[str],
+        webhook_auth_credential_id: Optional[CredentialId],
+        webhook_auth_field: Optional[str],
         auth_methods: Optional[list[str]],
     ) -> None:
         cls._validate_trigger_type(type)
@@ -96,8 +96,8 @@ class TriggerConfigPolicy:
         )
         cls._validate_webhook_fields(
             trigger_type=type,
-            secret_ref=secret_ref,
-            secret_key=secret_key,
+            webhook_auth_credential_id=webhook_auth_credential_id,
+            webhook_auth_field=webhook_auth_field,
             config={"auth_methods": auth_methods},
         )
 
@@ -141,19 +141,29 @@ class TriggerConfigPolicy:
                 config["auth_methods"] = fields["auth_methods"]
             cls._validate_webhook_fields(
                 trigger_type=trigger.type,
-                secret_ref=fields["secret_ref"] if "secret_ref" in fields else trigger.secret_ref,
-                secret_key=fields["secret_key"] if "secret_key" in fields else trigger.secret_key,
+                webhook_auth_credential_id=(
+                    fields["webhook_auth_credential_id"]
+                    if "webhook_auth_credential_id" in fields
+                    else trigger.webhook_auth_credential_id
+                ),
+                webhook_auth_field=(
+                    fields["webhook_auth_field"]
+                    if "webhook_auth_field" in fields
+                    else trigger.webhook_auth_field
+                ),
                 config=config,
             )
-        verify_secret = trigger.type == "webhook" and bool({"secret_ref", "secret_key"} & fields.keys())
-        effective_secret_ref = fields.get("secret_ref", trigger.secret_ref)
-        effective_secret_key = fields.get("secret_key", trigger.secret_key)
+        verify_secret = trigger.type == "webhook" and bool(
+            {"webhook_auth_credential_id", "webhook_auth_field"} & fields.keys()
+        )
+        effective_credential_id = fields.get("webhook_auth_credential_id", trigger.webhook_auth_credential_id)
+        effective_field = fields.get("webhook_auth_field", trigger.webhook_auth_field)
         return TriggerUpdatePlan(
             fields=dict(fields),
             next_environment_ref=fields["environment_ref"] if "environment_ref" in fields else trigger.environment_ref,
             should_resolve_target="environment_ref" in fields or fields.get("enabled") is True,
-            secret_ref_to_verify=effective_secret_ref if verify_secret else None,
-            secret_key_to_verify=effective_secret_key if verify_secret else None,
+            webhook_auth_credential_id_to_verify=effective_credential_id if verify_secret else None,
+            webhook_auth_field_to_verify=effective_field if verify_secret else None,
             recompute_next_run=trigger.type == "cron"
             and any(key in fields for key in ("cron_expr", "timezone", "run_at", "enabled")),
             is_reenable=fields.get("enabled") is True,
@@ -280,24 +290,24 @@ class TriggerConfigPolicy:
         cls,
         *,
         trigger_type: str,
-        secret_ref: Optional[str],
-        secret_key: Optional[str],
+        webhook_auth_credential_id: Optional[CredentialId],
+        webhook_auth_field: Optional[str],
         config: dict[str, Any],
     ) -> None:
         if trigger_type != "webhook":
             return
         auth_methods = cls.webhook_auth_methods(config)
-        if not secret_ref:
+        if not webhook_auth_credential_id:
             raise RequestValidationAppError(
                 code="TRIGGER_SECRET_REQUIRED",
-                message="secret_ref is required when type is webhook",
+                message="webhook_auth_credential_id is required when type is webhook",
                 data={"type": trigger_type},
                 user_action="fix_input",
             )
-        if not secret_key:
+        if not webhook_auth_field:
             raise RequestValidationAppError(
                 code="TRIGGER_SECRET_KEY_REQUIRED",
-                message="secret_key is required when type is webhook",
+                message="webhook_auth_field is required when type is webhook",
                 data={"type": trigger_type},
                 user_action="fix_input",
             )

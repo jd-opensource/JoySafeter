@@ -8,7 +8,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Te
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_shared.ids import AgentId, EntityIdType, SessionId, TaskId, TriggerId
+from app.joysafeter_shared.ids import AgentId, CredentialId, EntityIdType, SessionId, TaskId, TriggerId
 
 from .base import JoySafeterBaseModel
 
@@ -72,8 +72,13 @@ class JoySafeterTrigger(JoySafeterBaseModel):
     reusable_session_id: Mapped[Optional[SessionId]] = mapped_column(
         EntityIdType(SessionId), ForeignKey("joysafeter_sessions.id", ondelete="SET NULL"), nullable=True
     )
-    secret_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    secret_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    webhook_auth_credential_id: Mapped[Optional[CredentialId]] = mapped_column(
+        EntityIdType(CredentialId),
+        ForeignKey("joysafeter_credentials.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    webhook_auth_field: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     filter: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     config: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     timeout_sec: Mapped[int] = mapped_column(Integer, nullable=False, default=7200, server_default="7200")

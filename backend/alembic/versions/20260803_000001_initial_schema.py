@@ -801,8 +801,8 @@ def upgrade() -> None:
     sa.Column('session_key', sa.Text(), nullable=True),
     sa.Column('pinned_session_id', sa.UUID(), nullable=True),
     sa.Column('reusable_session_id', sa.UUID(), nullable=True),
-    sa.Column('secret_ref', sa.String(length=255), nullable=True),
-    sa.Column('secret_key', sa.String(length=255), nullable=True),
+    sa.Column('webhook_auth_credential_id', sa.UUID(), nullable=True),
+    sa.Column('webhook_auth_field', sa.String(length=255), nullable=True),
     sa.Column('filter', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
     sa.Column('config', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
     sa.Column('timeout_sec', sa.Integer(), server_default='7200', nullable=False),
@@ -842,6 +842,7 @@ def upgrade() -> None:
     op.create_index('idx_joysafeter_triggers_project_created', 'joysafeter_triggers', ['project_id', 'created_at'], unique=False)
     op.create_index('idx_joysafeter_triggers_type_enabled', 'joysafeter_triggers', ['type', 'enabled'], unique=False)
     op.create_index('idx_joysafeter_triggers_updated', 'joysafeter_triggers', ['updated_at'], unique=False)
+    op.create_index(op.f('ix_joysafeter_triggers_webhook_auth_credential_id'), 'joysafeter_triggers', ['webhook_auth_credential_id'], unique=False)
     op.create_index('uq_joysafeter_triggers_global_name', 'joysafeter_triggers', ['name'], unique=True, postgresql_where=sa.text('project_id IS NULL AND deleted_at IS NULL'), sqlite_where=sa.text('project_id IS NULL AND deleted_at IS NULL'))
     op.create_index('uq_joysafeter_triggers_project_name', 'joysafeter_triggers', ['project_id', 'name'], unique=True, postgresql_where=sa.text('project_id IS NOT NULL AND deleted_at IS NULL'), sqlite_where=sa.text('project_id IS NOT NULL AND deleted_at IS NULL'))
     op.create_table('joysafeter_users',
@@ -943,6 +944,7 @@ def upgrade() -> None:
     op.create_foreign_key('fk_joysafeter_triggers_pinned_session_id_joysafeter_sessions', 'joysafeter_triggers', 'joysafeter_sessions', ['pinned_session_id'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_joysafeter_triggers_project_id_joysafeter_organiz_afba10a3b6', 'joysafeter_triggers', 'joysafeter_organization_projects', ['project_id'], ['id'])
     op.create_foreign_key('fk_joysafeter_triggers_reusable_session_id_joysafeter_sessions', 'joysafeter_triggers', 'joysafeter_sessions', ['reusable_session_id'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key('fk_joysafeter_triggers_webhook_auth_credential_id', 'joysafeter_triggers', 'joysafeter_credentials', ['webhook_auth_credential_id'], ['id'], ondelete='RESTRICT')
 
     # Runtime membership mirror used by health checks/orchestrator. It is not an
     # ORM model but is still part of the deployment schema.
@@ -978,6 +980,7 @@ def downgrade() -> None:
     op.drop_constraint('fk_credential_groups_project_id', 'joysafeter_credential_groups', type_='foreignkey')
     op.drop_constraint('fk_credentials_project_id', 'joysafeter_credentials', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_triggers_reusable_session_id_joysafeter_sessions', 'joysafeter_triggers', type_='foreignkey')
+    op.drop_constraint('fk_joysafeter_triggers_webhook_auth_credential_id', 'joysafeter_triggers', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_triggers_project_id_joysafeter_organiz_afba10a3b6', 'joysafeter_triggers', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_triggers_pinned_session_id_joysafeter_sessions', 'joysafeter_triggers', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_triggers_last_task_id_joysafeter_tasks', 'joysafeter_triggers', type_='foreignkey')
