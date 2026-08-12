@@ -12,7 +12,7 @@ from pydantic import (
     model_validator,
 )
 
-from app.joysafeter_shared.ids import EnvironmentId, registered_entity_id_prefix
+from app.joysafeter_shared.ids import CredentialId, EnvironmentId, registered_entity_id_prefix
 
 SUPPORTED_EGRESS_INJECT_TYPES = {"bearer", "api_key", "raw_header", "cookie"}
 SUPPORTED_EGRESS_EXPOSURES = {"placeholder"}
@@ -194,7 +194,7 @@ class EgressService(BaseModel):
     kind: str = "external"
     exposure: str = "placeholder"
     base_url: str
-    credential_ref: str
+    service_credential_id: CredentialId
     inject: EgressServiceInject = Field(default_factory=EgressServiceInject)
 
     @field_validator("name", mode="before")
@@ -233,14 +233,6 @@ class EgressService(BaseModel):
         if parsed.username or parsed.password:
             raise ValueError("egress service base_url must not include credentials")
         return raw
-
-    @field_validator("credential_ref", mode="before")
-    @classmethod
-    def validate_credential_ref(cls, value: object) -> str:
-        ref = str(value or "").strip()
-        if not ref:
-            raise ValueError("egress service credential_ref is required")
-        return ref
 
 
 class MountResource(BaseModel):
@@ -292,7 +284,7 @@ class EnvironmentConfig(BaseModel):
     packages: Packages = Field(default_factory=Packages)
     networking: Networking = Field(default_factory=Networking)
     env_vars: dict[str, str] = Field(default_factory=dict)
-    secret_refs: list[str] = Field(default_factory=list)
+    secret_refs: list[CredentialId] = Field(default_factory=list)
     egress_services: list[EgressService] = Field(default_factory=list)
     mount_resources: list[MountResource] = Field(default_factory=list)
 
@@ -324,8 +316,22 @@ EnvironmentSecretReferenceSource = Literal["secret_refs", "egress_services"]
 
 
 class EnvironmentSecretReference(NamedTuple):
-    name: str
+    credential_id: CredentialId
     source: EnvironmentSecretReferenceSource
+
+
+def _coerce_credential_id(value: object) -> Optional[CredentialId]:
+    if isinstance(value, CredentialId):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return CredentialId.from_public(text)
+    except (TypeError, ValueError):
+        return None
 
 
 def extract_environment_secret_references(
@@ -336,14 +342,14 @@ def extract_environment_secret_references(
         return []
 
     references: list[EnvironmentSecretReference] = []
-    seen: set[str] = set()
+    seen: set[CredentialId] = set()
 
     def append(value: object, source: EnvironmentSecretReferenceSource) -> None:
-        name = str(value).strip() if value is not None else ""
-        if not name or name in seen:
+        credential_id = _coerce_credential_id(value)
+        if credential_id is None or credential_id in seen:
             return
-        seen.add(name)
-        references.append(EnvironmentSecretReference(name, source))
+        seen.add(credential_id)
+        references.append(EnvironmentSecretReference(credential_id, source))
 
     direct_refs = raw.get("secret_refs")
     if isinstance(direct_refs, list):
@@ -354,18 +360,21 @@ def extract_environment_secret_references(
     if isinstance(services, list):
         for service in services:
             if isinstance(service, dict):
-                append(service.get("credential_ref"), "egress_services")
+                append(service.get("service_credential_id"), "egress_services")
 
     return references
 
 
 def _normalize_request_secret_refs(config: EnvironmentConfig) -> EnvironmentConfig:
-    normalized_refs: list[str] = []
+    # secret_refs is already typed as list[CredentialId]; blank/invalid values are
+    # rejected at field coercion. Deduplicate while preserving order.
+    normalized_refs: list[CredentialId] = []
+    seen: set[CredentialId] = set()
     for value in config.secret_refs:
-        name = value.strip()
-        if not name:
-            raise ValueError("secret_refs entries must not be blank")
-        normalized_refs.append(name)
+        if value in seen:
+            continue
+        seen.add(value)
+        normalized_refs.append(value)
     return config.model_copy(update={"secret_refs": normalized_refs})
 
 

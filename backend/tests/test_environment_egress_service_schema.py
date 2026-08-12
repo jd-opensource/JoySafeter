@@ -8,8 +8,16 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
     UpdateEnvironmentRequest,
     extract_environment_secret_references,
 )
+from app.joysafeter_shared.ids import CredentialId
 
 pytestmark = pytest.mark.no_db
+
+# Stable service-credential ids used across the schema-level tests. Egress refs
+# and env-var secret_refs are id-based (kind='service' credentials) after the
+# Unified Credential P0 cutover.
+_CRM_CRED = CredentialId.new()
+_ERP_CRED = CredentialId.new()
+_LEGACY_CRED = CredentialId.new()
 
 
 def test_environment_egress_service_accepts_bearer_api_key_and_cookie_shapes():
@@ -18,19 +26,19 @@ def test_environment_egress_service_accepts_bearer_api_key_and_cookie_shapes():
             {
                 "name": "CRM_Prod",
                 "base_url": "https://crm.example.com/api/",
-                "credential_ref": "crm-prod",
+                "service_credential_id": str(_CRM_CRED),
                 "inject": {"type": "bearer", "secret_key": "ACCESS_TOKEN"},
             },
             {
                 "name": "erp",
                 "base_url": "http://erp.internal/openapi",
-                "credential_ref": "erp-prod",
+                "service_credential_id": str(_ERP_CRED),
                 "inject": {"type": "api_key", "header": "x-api-key", "secret_key": "API_KEY"},
             },
             {
                 "name": "legacy-cookie",
                 "base_url": "https://legacy.example.com/",
-                "credential_ref": "legacy-prod",
+                "service_credential_id": str(_LEGACY_CRED),
                 "inject": {"type": "cookie", "secret_key": "COOKIE_HEADER"},
             },
         ]
@@ -38,6 +46,7 @@ def test_environment_egress_service_accepts_bearer_api_key_and_cookie_shapes():
 
     assert [service.name for service in config.egress_services] == ["crm_prod", "erp", "legacy-cookie"]
     assert config.egress_services[2].inject.secret_key == "COOKIE_HEADER"
+    assert config.egress_services[0].service_credential_id == _CRM_CRED
 
 
 @pytest.mark.parametrize(
@@ -46,39 +55,44 @@ def test_environment_egress_service_accepts_bearer_api_key_and_cookie_shapes():
         {
             "name": "bad host",
             "base_url": "https://crm.example.com/api/",
-            "credential_ref": "crm-prod",
+            "service_credential_id": str(_CRM_CRED),
         },
         {
             "name": "crm",
             "base_url": "ftp://crm.example.com/api/",
-            "credential_ref": "crm-prod",
+            "service_credential_id": str(_CRM_CRED),
         },
         {
             "name": "crm",
             "base_url": "https://user:pass@crm.example.com/api/",
-            "credential_ref": "crm-prod",
+            "service_credential_id": str(_CRM_CRED),
         },
         {
             "name": "crm",
             "base_url": "https://crm.example.com/api/",
-            "credential_ref": "",
+            "service_credential_id": "",
         },
         {
             "name": "crm",
             "base_url": "https://crm.example.com/api/",
-            "credential_ref": "crm-prod",
+            "service_credential_id": "not-a-credential-id",
+        },
+        {
+            "name": "crm",
+            "base_url": "https://crm.example.com/api/",
+            "service_credential_id": str(_CRM_CRED),
             "exposure": "transparent",
         },
         {
             "name": "crm",
             "base_url": "https://crm.example.com/api/",
-            "credential_ref": "crm-prod",
+            "service_credential_id": str(_CRM_CRED),
             "inject": {"type": "cookie", "cookie_name": "SESSION"},
         },
         {
             "name": "crm",
             "base_url": "https://crm.example.com/api/",
-            "credential_ref": "crm-prod",
+            "service_credential_id": str(_CRM_CRED),
             "inject": {"type": "cookie", "cookies": {"SESSION": "SESSION"}},
         },
     ],
@@ -88,6 +102,18 @@ def test_environment_egress_service_rejects_invalid_shapes(service):
         EnvironmentConfig(egress_services=[service])
 
 
+def test_environment_egress_service_requires_credential_id():
+    with pytest.raises(ValidationError):
+        EnvironmentConfig(
+            egress_services=[
+                {
+                    "name": "crm",
+                    "base_url": "https://crm.example.com/api/",
+                }
+            ]
+        )
+
+
 def test_environment_egress_service_rejects_duplicate_names():
     with pytest.raises(ValidationError):
         EnvironmentConfig(
@@ -95,50 +121,53 @@ def test_environment_egress_service_rejects_duplicate_names():
                 {
                     "name": "crm",
                     "base_url": "https://crm.example.com/api/",
-                    "credential_ref": "crm-prod",
+                    "service_credential_id": str(_CRM_CRED),
                 },
                 {
                     "name": "CRM",
                     "base_url": "https://crm2.example.com/api/",
-                    "credential_ref": "crm-prod-2",
+                    "service_credential_id": str(_ERP_CRED),
                 },
             ]
         )
 
 
 def test_extract_environment_secret_references_unifies_direct_and_egress_refs():
+    direct_id = CredentialId.new()
+    egress_id = CredentialId.new()
     config = EnvironmentConfig(
-        secret_refs=["shared", " direct-only ", "shared"],
+        secret_refs=[str(direct_id), str(direct_id)],
         egress_services=[
             {
                 "name": "crm",
                 "base_url": "https://crm.example.com",
-                "credential_ref": "egress-only",
+                "service_credential_id": str(egress_id),
             },
             {
                 "name": "shared-service",
                 "base_url": "https://shared.example.com",
-                "credential_ref": "shared",
+                "service_credential_id": str(direct_id),
             },
         ],
     )
 
     assert extract_environment_secret_references(config) == [
-        EnvironmentSecretReference("shared", "secret_refs"),
-        EnvironmentSecretReference("direct-only", "secret_refs"),
-        EnvironmentSecretReference("egress-only", "egress_services"),
+        EnvironmentSecretReference(direct_id, "secret_refs"),
+        EnvironmentSecretReference(egress_id, "egress_services"),
     ]
 
 
 def test_extract_environment_secret_references_tolerates_legacy_malformed_config():
+    direct_id = CredentialId.new()
+    egress_id = CredentialId.new()
     assert extract_environment_secret_references(
         {
-            "secret_refs": ["", None, " direct "],
-            "egress_services": [None, "invalid", {"credential_ref": " egress "}, {}],
+            "secret_refs": ["", None, str(direct_id), "not-an-id"],
+            "egress_services": [None, "invalid", {"service_credential_id": str(egress_id)}, {}],
         }
     ) == [
-        EnvironmentSecretReference("direct", "secret_refs"),
-        EnvironmentSecretReference("egress", "egress_services"),
+        EnvironmentSecretReference(direct_id, "secret_refs"),
+        EnvironmentSecretReference(egress_id, "egress_services"),
     ]
 
 
@@ -150,5 +179,5 @@ def test_extract_environment_secret_references_tolerates_legacy_malformed_config
     ],
 )
 def test_environment_requests_reject_blank_direct_secret_refs(request_model, request_data):
-    with pytest.raises(ValidationError, match="secret_refs entries must not be blank"):
+    with pytest.raises(ValidationError):
         request_model(**request_data, config={"secret_refs": ["   "]})

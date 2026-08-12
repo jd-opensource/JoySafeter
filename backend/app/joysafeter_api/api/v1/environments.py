@@ -16,7 +16,7 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
     UpdateEnvironmentRequest,
     extract_environment_secret_references,
 )
-from app.joysafeter_domain.schemas.joysafeter_secret import SecretKind
+from app.joysafeter_domain.schemas.joysafeter_credential import CredentialKind
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
 from app.joysafeter_shared.common.app_errors import (
@@ -186,26 +186,53 @@ async def _validate_secret_refs(
     config: EnvironmentConfig,
     project_id: Optional[str],
 ) -> None:
-    from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
+    """Validate that every referenced credential id (egress service_credential_id
+    and env-var secret_refs) resolves to a live, in-project ``kind='service'``
+    credential in the unified credential store.
 
-    secret_svc = SecretService(db)
-    for reference in extract_environment_secret_references(config):
-        secret = await secret_svc.get_secret_by_name(reference.name, project_id=project_id)
-        if secret is None:
-            raise InvalidRequestError(
-                code="ENVIRONMENT_SECRET_NOT_FOUND",
-                message=f"Secret not found: {reference.name}",
-                data={"secret_ref": reference.name, "source": reference.source},
+    There is no FK (the refs are buried in JSONB), so this write-time check is the
+    integrity guard on create/update. Delete-time dependency scanning is Task 9e.
+    """
+    from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
+
+    references = extract_environment_secret_references(config)
+    if not references:
+        return
+
+    if project_id is None:
+        # A project-less environment cannot pin a project-scoped credential.
+        reference = references[0]
+        raise NotFoundError(
+            code="CREDENTIAL_NOT_FOUND",
+            message="Credential not found",
+            data={
+                "credential_id": str(reference.credential_id),
+                "source": reference.source,
+            },
+            user_action="fix_input",
+        )
+
+    credential_svc = CredentialService(db)
+    for reference in references:
+        cred = await credential_svc.get(reference.credential_id, project_id=project_id)
+        if cred is None or cred.archived_at is not None:
+            raise NotFoundError(
+                code="CREDENTIAL_NOT_FOUND",
+                message="Credential not found",
+                data={
+                    "credential_id": str(reference.credential_id),
+                    "source": reference.source,
+                },
                 user_action="fix_input",
             )
-        if secret.kind != SecretKind.GENERIC.value:
+        if cred.kind != CredentialKind.SERVICE.value:
             raise InvalidRequestError(
-                code="ENVIRONMENT_SECRET_KIND_INVALID",
-                message="Environment credentials require a generic Secret",
+                code="CREDENTIAL_KIND_INVALID",
+                message="Environment credentials must reference a service credential",
                 data={
-                    "secret_ref": reference.name,
+                    "credential_id": str(reference.credential_id),
                     "source": reference.source,
-                    "kind": secret.kind,
+                    "kind": cred.kind,
                 },
                 user_action="fix_input",
             )

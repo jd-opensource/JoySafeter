@@ -46,7 +46,9 @@ class EnvironmentService:
             name=req.name,
             description=req.description,
             metadata_=req.metadata,
-            config=req.config.model_dump(),
+            # ``mode="json"`` serializes typed CredentialId refs (egress
+            # service_credential_id / secret_refs) to plain strings for JSONB.
+            config=req.config.model_dump(mode="json"),
         )
         if project_id is not None:
             kwargs["project_id"] = project_id
@@ -129,7 +131,7 @@ class EnvironmentService:
         env = await self.get_environment(env_id, project_id=project_id)
         if not env:
             return None
-        next_config = req.config.model_dump() if req.config is not None else None
+        next_config = req.config.model_dump(mode="json") if req.config is not None else None
         name_changed = req.name is not None and req.name != env.name
         config_changed = next_config is not None and next_config != (env.config or {})
         if name_changed or config_changed:
