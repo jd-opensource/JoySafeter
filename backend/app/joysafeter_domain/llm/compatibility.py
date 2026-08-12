@@ -11,7 +11,7 @@ from app.joysafeter_domain.llm.catalog import (
     ProviderProtocolBinding,
     get_llm_catalog,
 )
-from app.joysafeter_domain.schemas.joysafeter_secret import SecretKind
+from app.joysafeter_domain.schemas.joysafeter_credential import CredentialKind
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
 
 logger = logging.getLogger(__name__)
@@ -144,10 +144,10 @@ def validate_secret_for_engine(
     provider_id: str | None,
     protocol_id: str | None,
 ) -> ProviderProtocolBinding:
-    if kind != SecretKind.LLM.value or not provider_id or not protocol_id:
+    if kind != CredentialKind.MODEL.value or not provider_id or not protocol_id:
         raise LlmCompatibilityError(
             code="LLM_SECRET_IDENTITY_INVALID",
-            message="Agent model configuration must be an LLM secret with Provider and Protocol",
+            message="Agent model configuration must be a model credential with Provider and Protocol",
             data={
                 "engine_kind": engine_id,
                 "kind": kind,
@@ -209,7 +209,7 @@ def resolve_credential_profile(secret) -> CredentialProfile | None:
     instead of propagating the error.
     """
     if (
-        getattr(secret, "kind", None) != SecretKind.LLM.value
+        getattr(secret, "kind", None) != CredentialKind.MODEL.value
         or not getattr(secret, "provider", None)
         or not getattr(secret, "protocol", None)
     ):

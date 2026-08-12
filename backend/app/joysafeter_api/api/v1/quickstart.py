@@ -20,12 +20,13 @@ from app.joysafeter_domain.llm.compatibility import (
     validate_credential_data,
     validate_secret_for_engine,
 )
-from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
+from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, require_joysafeter_write
 from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import CredentialId
 from app.joysafeter_shared.llm.base_url import LLMBaseUrlError, validate_llm_base_url
 
 router = APIRouter(tags=["joysafeter-quickstart"])
@@ -59,7 +60,7 @@ class QuickstartChatRequest(BaseModel):
     messages: list[QuickstartMessage] = Field(..., max_length=50)
     current_step: int = Field(default=1, ge=1, le=5)
     engine_kind: Literal["claude", "codex", "native", "pi"]
-    secret_ref: str = ""
+    model_credential_id: CredentialId
     agent_context: Optional[QuickstartAgentContext] = None
 
 
@@ -712,40 +713,40 @@ async def quickstart_chat(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ):
-    svc = SecretService(db)
-    secret = await svc.get_secret_by_name(req.secret_ref, project_id=auth_ctx.project_id)
-    if not secret:
+    svc = CredentialService(db)
+    cred = await svc.get(req.model_credential_id, project_id=auth_ctx.project_id)
+    if not cred:
         raise NotFoundError(
-            code="QUICKSTART_SECRET_NOT_FOUND",
-            message="Secret not found or missing required keys",
-            data={"secret_ref": req.secret_ref, "engine_kind": req.engine_kind},
+            code="CREDENTIAL_NOT_FOUND",
+            message="Credential not found",
+            data={"credential_id": str(req.model_credential_id), "engine_kind": req.engine_kind},
             user_action="fix_input",
         )
 
     try:
         binding = validate_secret_for_engine(
             req.engine_kind,
-            secret.kind,
-            secret.provider,
-            secret.protocol,
+            cred.kind,
+            cred.provider,
+            cred.protocol,
         )
     except LlmCompatibilityError as exc:
         raise InvalidRequestError(
             code="QUICKSTART_SECRET_INCOMPATIBLE",
-            message=f"Secret '{req.secret_ref}' is not compatible with engine_kind '{req.engine_kind}'",
+            message=f"Credential '{req.model_credential_id}' is not compatible with engine_kind '{req.engine_kind}'",
             data={
-                "secret_ref": req.secret_ref,
+                "credential_id": str(req.model_credential_id),
                 "engine_kind": req.engine_kind,
-                "kind": secret.kind,
-                "provider": secret.provider,
-                "protocol": secret.protocol,
+                "kind": cred.kind,
+                "provider": cred.provider,
+                "protocol": cred.protocol,
             },
             user_action="fix_input",
         ) from exc
 
-    data = svc.get_secret_data(secret)
-    provider = secret.provider or ""
-    protocol = secret.protocol or ""
+    data = svc.get_credential_data(cred)
+    provider = cred.provider or ""
+    protocol = cred.protocol or ""
     validate_credential_data(provider, protocol, data)
     profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
     base_url_key = profile.base_url_key or "BASE_URL"

@@ -21,7 +21,6 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
 from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
-from app.joysafeter_domain.models.joysafeter_vault import JoySafeterVault
 from app.joysafeter_domain.schemas.joysafeter_session import (
     AgentRef,
     CreateSessionRequest,
@@ -482,7 +481,7 @@ async def test_create_session_file_and_repo_share_workspace_namespace_without_cr
 @pytest.mark.asyncio
 async def test_session_repo_resources_keep_token_encrypted_and_never_echoed(db_session, monkeypatch):
     cipher = CredentialCipher(CredentialCipher.generate_key())
-    monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_secret_service._cipher", cipher)
+    monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_credential_service._cipher", cipher)
 
     agent = await _create_agent(db_session)
     response = await create_session(
@@ -534,7 +533,7 @@ async def test_session_repo_resources_keep_token_encrypted_and_never_echoed(db_s
 @pytest.mark.asyncio
 async def test_session_resource_service_keeps_parent_project_boundary_for_repo_children(db_session, monkeypatch):
     cipher = CredentialCipher(CredentialCipher.generate_key())
-    monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_secret_service._cipher", cipher)
+    monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_credential_service._cipher", cipher)
     project, session = await _create_project_session(db_session, "SessionResourceSvcProject")
     other_project, _ = await _create_project_session(db_session, "SessionResourceSvcOtherProject")
     project_id = project.id
@@ -726,31 +725,6 @@ async def test_create_session_archived_agent_returns_structured_error_without_cr
         "code": "AGENT_ARCHIVED",
         "message": "Agent is archived and cannot create new sessions.",
         "data": {"agent_id": str(agent.id)},
-        "source": "api",
-        "retryable": False,
-        "user_action": "refresh",
-    }
-    assert await _session_count(db_session) == 0
-
-
-@pytest.mark.asyncio
-async def test_create_session_archived_vault_returns_structured_error_without_creating_session(db_session):
-    agent = await _create_agent(db_session)
-    vault = JoySafeterVault(name=f"archived-session-vault-{uuid.uuid4()}", description="", archived_at=utc_now())
-    db_session.add(vault)
-    await db_session.commit()
-    await db_session.refresh(vault)
-
-    vault_ref = str(vault.id)
-    req = CreateSessionRequest(agent_id=agent.id, vault_ids=[vault.id])
-
-    with pytest.raises(AppError) as exc_info:
-        await create_session(req, db_session, _auth_ctx())
-
-    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
-        "code": "SESSION_VAULT_ARCHIVED",
-        "message": f"Vault is archived: {vault_ref}",
-        "data": {"vault_id": vault_ref},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",

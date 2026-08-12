@@ -1,7 +1,16 @@
+"""Error-contract tests for the skill AI-authoring chat route after the 9e
+consumer sweep: the request references a model credential by
+``model_credential_id`` (CredentialId) resolved via ``CredentialService`` (was
+the name-based ``secret_ref`` + ``SecretService`` / ``SecretKind``).
+
+The full app is un-loadable mid-cutover, so the route functions are called
+directly against conftest's real ``db_session``.
+"""
+
 import uuid
 
 import pytest
-from credential_test_helpers import encrypted_secret_data
+import pytest_asyncio
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy.exc import IntegrityError
 
@@ -12,25 +21,72 @@ from app.joysafeter_api.api.v1.skills_ai_authoring import (
     authoring_chat,
     authoring_save_draft,
 )
-from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
+from app.joysafeter_domain.models.joysafeter_organization import Organization
+from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
+from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillService
 from app.joysafeter_shared.common.app_errors import AppError, ResourceConflictError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import CredentialId
 
 
-def _auth_ctx() -> JoySafeterAuthContext:
+async def _make_project(db_session) -> str:
+    org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+    db_session.add(org)
+    await db_session.flush()
+    project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+    db_session.add(project)
+    await db_session.commit()
+    return project.id
+
+
+@pytest_asyncio.fixture
+async def project_id(db_session) -> str:
+    return await _make_project(db_session)
+
+
+def _auth_ctx(project_id: str | None = "proj-a") -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
         user_id="test-user",
         org_id="test-org",
-        project_id=None,  # type: ignore[arg-type]
+        project_id=project_id,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
 
 
-def _chat_req(secret_ref: str) -> AuthoringChatRequest:
+def _chat_req(cred_id: CredentialId) -> AuthoringChatRequest:
     return AuthoringChatRequest(
-        secret_ref=secret_ref, messages=[AuthoringMessage(role="user", content="Draft a skill")]
+        model_credential_id=cred_id,
+        messages=[AuthoringMessage(role="user", content="Draft a skill")],
     )
+
+
+async def _make_model_credential(
+    db_session,
+    project_id: str,
+    data: dict[str, str],
+    *,
+    provider: str = "openai",
+    protocol: str = "openai_responses",
+) -> CredentialId:
+    cred = await CredentialService(db_session).create(
+        CreateCredentialRequest(
+            kind="model",
+            name=f"m-{uuid.uuid4()}",
+            provider=provider,
+            protocol=protocol,
+            data=data,
+        ),
+        project_id=project_id,
+    )
+    return cred.id
+
+
+def test_authoring_schema_uses_model_credential_id_not_secret_ref():
+    fields = AuthoringChatRequest.model_fields
+    assert "model_credential_id" in fields
+    assert "secret_ref" not in fields
 
 
 @pytest.mark.asyncio
@@ -56,16 +112,16 @@ async def test_authoring_save_draft_duplicate_name_raises_conflict(db_session, m
 
 
 @pytest.mark.asyncio
-async def test_authoring_chat_missing_secret_returns_structured_error(db_session):
-    missing_ref = f"missing-secret-{uuid.uuid4()}"
+async def test_authoring_chat_missing_credential_returns_structured_error(db_session, project_id):
+    missing_id = CredentialId.new()
 
     with pytest.raises(AppError) as exc_info:
-        await authoring_chat(_chat_req(missing_ref), db_session, _auth_ctx())
+        await authoring_chat(_chat_req(missing_id), db_session, _auth_ctx(project_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
-        "code": "SKILL_AUTHORING_SECRET_NOT_FOUND",
-        "message": "Secret not found.",
-        "data": {"secret_ref": missing_ref},
+        "code": "CREDENTIAL_NOT_FOUND",
+        "message": "Credential not found.",
+        "data": {"credential_id": str(missing_id)},
         "source": "api",
         "retryable": False,
         "user_action": "fix_input",
@@ -73,25 +129,16 @@ async def test_authoring_chat_missing_secret_returns_structured_error(db_session
 
 
 @pytest.mark.asyncio
-async def test_authoring_chat_missing_openai_key_returns_structured_error(db_session):
-    secret = JoySafeterSecret(
-        name=f"authoring-missing-key-{uuid.uuid4()}",
-        kind="llm",
-        provider="openai",
-        protocol="openai_responses",
-        data=encrypted_secret_data({"OPENAI_MODEL": "gpt-5.5"}),
-    )
-    db_session.add(secret)
-    await db_session.commit()
-    await db_session.refresh(secret)
+async def test_authoring_chat_missing_openai_key_returns_structured_error(db_session, project_id):
+    cred_id = await _make_model_credential(db_session, project_id, {"OPENAI_MODEL": "gpt-5.5"})
 
     with pytest.raises(AppError) as exc_info:
-        await authoring_chat(_chat_req(secret.name), db_session, _auth_ctx())
+        await authoring_chat(_chat_req(cred_id), db_session, _auth_ctx(project_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "SKILL_AUTHORING_SECRET_MISSING_KEY",
-        "message": "Secret missing OPENAI_API_KEY.",
-        "data": {"secret_ref": secret.name, "required_key": "OPENAI_API_KEY"},
+        "message": "Credential missing OPENAI_API_KEY.",
+        "data": {"credential_id": str(cred_id), "required_key": "OPENAI_API_KEY"},
         "source": "api",
         "retryable": False,
         "user_action": "fix_input",
@@ -99,44 +146,37 @@ async def test_authoring_chat_missing_openai_key_returns_structured_error(db_ses
 
 
 @pytest.mark.asyncio
-async def test_authoring_chat_rejects_generic_secret_even_with_openai_key(db_session):
-    secret = JoySafeterSecret(
-        name=f"authoring-generic-{uuid.uuid4()}",
-        kind="generic",
-        provider=None,
-        protocol=None,
-        data=encrypted_secret_data({"OPENAI_API_KEY": "value"}),
+async def test_authoring_chat_rejects_wrong_protocol_credential(db_session, project_id):
+    # A model credential on a non-Responses protocol is incompatible with authoring.
+    cred_id = await _make_model_credential(
+        db_session,
+        project_id,
+        {"OPENAI_API_KEY": "value"},
+        protocol="chat_completions",
     )
-    db_session.add(secret)
-    await db_session.commit()
 
     with pytest.raises(AppError) as exc_info:
-        await authoring_chat(_chat_req(secret.name), db_session, _auth_ctx())
+        await authoring_chat(_chat_req(cred_id), db_session, _auth_ctx(project_id))
 
     assert exc_info.value.code == "SKILL_AUTHORING_SECRET_INCOMPATIBLE"
 
 
 @pytest.mark.asyncio
-async def test_authoring_chat_invalid_openai_base_url_returns_structured_error(db_session):
-    secret = JoySafeterSecret(
-        name=f"authoring-invalid-url-{uuid.uuid4()}",
-        kind="llm",
-        provider="openai",
-        protocol="openai_responses",
-        data=encrypted_secret_data({"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "http://169.254.169.254/latest"}),
+async def test_authoring_chat_invalid_openai_base_url_returns_structured_error(db_session, project_id):
+    cred_id = await _make_model_credential(
+        db_session,
+        project_id,
+        {"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "http://169.254.169.254/latest"},
     )
-    db_session.add(secret)
-    await db_session.commit()
-    await db_session.refresh(secret)
 
     with pytest.raises(AppError) as exc_info:
-        await authoring_chat(_chat_req(secret.name), db_session, _auth_ctx())
+        await authoring_chat(_chat_req(cred_id), db_session, _auth_ctx(project_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "SKILL_AUTHORING_BASE_URL_INVALID",
         "message": "Invalid OPENAI_BASE_URL.",
         "data": {
-            "secret_ref": secret.name,
+            "credential_id": str(cred_id),
             "key": "OPENAI_BASE_URL",
             "base_url": "http://169.254.169.254/latest",
         },
@@ -147,27 +187,22 @@ async def test_authoring_chat_invalid_openai_base_url_returns_structured_error(d
 
 
 @pytest.mark.asyncio
-async def test_authoring_chat_rejects_unallowlisted_openai_base_url(db_session, monkeypatch):
+async def test_authoring_chat_rejects_unallowlisted_openai_base_url(db_session, project_id, monkeypatch):
     monkeypatch.setenv("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS", "api.openai.com")
-    secret = JoySafeterSecret(
-        name=f"authoring-unallowlisted-url-{uuid.uuid4()}",
-        kind="llm",
-        provider="openai",
-        protocol="openai_responses",
-        data=encrypted_secret_data({"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "https://evil.example.com/v1"}),
+    cred_id = await _make_model_credential(
+        db_session,
+        project_id,
+        {"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "https://evil.example.com/v1"},
     )
-    db_session.add(secret)
-    await db_session.commit()
-    await db_session.refresh(secret)
 
     with pytest.raises(AppError) as exc_info:
-        await authoring_chat(_chat_req(secret.name), db_session, _auth_ctx())
+        await authoring_chat(_chat_req(cred_id), db_session, _auth_ctx(project_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "SKILL_AUTHORING_BASE_URL_NOT_ALLOWED",
         "message": "OPENAI_BASE_URL host is not allowlisted.",
         "data": {
-            "secret_ref": secret.name,
+            "credential_id": str(cred_id),
             "key": "OPENAI_BASE_URL",
             "base_url": "https://evil.example.com/v1",
             "host": "evil.example.com",

@@ -19,8 +19,8 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
     SessionRepoResourceRequest,
     SessionRepoResourceResponse,
 )
+from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_domain.services.joysafeter_file_service import FileService
-from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
 from app.joysafeter_shared.ids import FileId, SessionId, SessionResourceId
@@ -169,7 +169,7 @@ class SessionResourceService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self._file_svc = FileService(get_storage())
-        self._secret_svc = SecretService(db)
+        self._secret_svc = CredentialService(db)
         self._session_svc = SessionService(db)
 
     async def get_project_session_or_raise(

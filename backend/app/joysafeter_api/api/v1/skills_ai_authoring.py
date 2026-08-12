@@ -34,8 +34,8 @@ from app.joysafeter_domain.llm.compatibility import (
     validate_credential_data,
     validate_provider_protocol,
 )
-from app.joysafeter_domain.schemas.joysafeter_secret import SecretKind
-from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
+from app.joysafeter_domain.schemas.joysafeter_credential import CredentialKind
+from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_domain.services.joysafeter_skill_authoring import (
     stream_authoring_chat,
 )
@@ -51,7 +51,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import SkillId
+from app.joysafeter_shared.ids import CredentialId, SkillId
 from app.joysafeter_shared.llm.base_url import LLMBaseUrlError, validate_llm_base_url
 
 logger = logging.getLogger(__name__)
@@ -59,8 +59,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["skill-ai-authoring"])
 
 
-def _authoring_base_url_error(exc: LLMBaseUrlError, *, secret_ref: str) -> InvalidRequestError:
-    data = {"secret_ref": secret_ref, "key": exc.key, "base_url": exc.base_url}
+def _authoring_base_url_error(exc: LLMBaseUrlError, *, credential_id: str) -> InvalidRequestError:
+    data = {"credential_id": credential_id, "key": exc.key, "base_url": exc.base_url}
     if exc.host:
         data["host"] = exc.host
     if exc.reason == "not_allowed":
@@ -98,7 +98,7 @@ class AuthoringDraft(BaseModel):
 
 
 class AuthoringChatRequest(BaseModel):
-    secret_ref: str = Field(..., min_length=1, description="Secret name holding OPENAI_*.")
+    model_credential_id: CredentialId = Field(..., description="Model credential holding OPENAI_*.")
     messages: list[AuthoringMessage] = Field(..., max_length=50)
     draft: Optional[AuthoringDraft] = None
 
@@ -231,54 +231,58 @@ async def authoring_chat(
 ):
     """Stream one authoring turn against the configured LLM.
 
-    Credentials live in a JoySafeter secret (multi-tenant) — same shape
-    ``quickstart.py`` uses: ``OPENAI_API_KEY`` (required), ``OPENAI_BASE_URL``
+    Credentials live in a JoySafeter model credential (multi-tenant) — same
+    shape ``quickstart.py`` uses: ``OPENAI_API_KEY`` (required), ``OPENAI_BASE_URL``
     (optional, defaults to api.openai.com), ``OPENAI_MODEL`` (optional,
     defaults to ``gpt-5.5``).
     """
-    svc = SecretService(db)
-    secret = await svc.get_secret_by_name(req.secret_ref, project_id=auth_ctx.project_id)
-    if not secret:
+    svc = CredentialService(db)
+    cred = await svc.get(req.model_credential_id, project_id=auth_ctx.project_id)
+    if not cred:
         raise NotFoundError(
-            code="SKILL_AUTHORING_SECRET_NOT_FOUND",
-            message="Secret not found.",
-            data={"secret_ref": req.secret_ref},
+            code="CREDENTIAL_NOT_FOUND",
+            message="Credential not found.",
+            data={"credential_id": str(req.model_credential_id)},
             user_action="fix_input",
         )
-    if secret.kind != SecretKind.LLM.value or not secret.provider or secret.protocol != "openai_responses":
+    if (
+        cred.kind != CredentialKind.MODEL.value
+        or not cred.provider
+        or cred.protocol != "openai_responses"
+    ):
         raise InvalidRequestError(
             code="SKILL_AUTHORING_SECRET_INCOMPATIBLE",
             message="Skill authoring requires an OpenAI Responses compatible model configuration.",
             data={
-                "secret_ref": req.secret_ref,
-                "kind": secret.kind,
-                "provider": secret.provider,
-                "protocol": secret.protocol,
+                "credential_id": str(req.model_credential_id),
+                "kind": cred.kind,
+                "provider": cred.provider,
+                "protocol": cred.protocol,
                 "required_protocol": "openai_responses",
             },
             user_action="fix_input",
         )
     try:
-        binding = validate_provider_protocol(secret.provider, secret.protocol)
-        data = svc.get_secret_data(secret)
-        validate_credential_data(secret.provider, secret.protocol, data)
+        binding = validate_provider_protocol(cred.provider, cred.protocol)
+        data = svc.get_credential_data(cred)
+        validate_credential_data(cred.provider, cred.protocol, data)
     except LlmCompatibilityError as exc:
         if exc.code == "LLM_SECRET_CREDENTIALS_INCOMPLETE" and exc.data.get(
             "required_fields"
         ) == ["OPENAI_API_KEY"]:
             raise InvalidRequestError(
                 code="SKILL_AUTHORING_SECRET_MISSING_KEY",
-                message="Secret missing OPENAI_API_KEY.",
-                data={"secret_ref": req.secret_ref, "required_key": "OPENAI_API_KEY"},
+                message="Credential missing OPENAI_API_KEY.",
+                data={"credential_id": str(req.model_credential_id), "required_key": "OPENAI_API_KEY"},
                 user_action="fix_input",
             ) from exc
         raise InvalidRequestError(
             code="SKILL_AUTHORING_SECRET_INCOMPATIBLE",
             message="Skill authoring model configuration is invalid.",
             data={
-                "secret_ref": req.secret_ref,
-                "provider": secret.provider,
-                "protocol": secret.protocol,
+                "credential_id": str(req.model_credential_id),
+                "provider": cred.provider,
+                "protocol": cred.protocol,
             },
             user_action="fix_input",
         ) from exc
@@ -290,13 +294,13 @@ async def authoring_chat(
         raise InvalidRequestError(
             code="SKILL_AUTHORING_BASE_URL_REQUIRED",
             message=f"{base_url_key} is required for skill authoring.",
-            data={"secret_ref": req.secret_ref, "key": base_url_key},
+            data={"credential_id": str(req.model_credential_id), "key": base_url_key},
             user_action="fix_input",
         )
     try:
         base_url = validate_llm_base_url(base_url, key=base_url_key)
     except LLMBaseUrlError as exc:
-        raise _authoring_base_url_error(exc, secret_ref=req.secret_ref) from None
+        raise _authoring_base_url_error(exc, credential_id=str(req.model_credential_id)) from None
     model = data.get(profile.model_key) if profile.model_key else None
     model = model or "gpt-5.5"
 
