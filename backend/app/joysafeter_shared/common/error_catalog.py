@@ -30,6 +30,106 @@ class CatalogEntry:
 
 
 CATALOG: dict[str, CatalogEntry] = {
+    # --- Unified credentials (P0). Flat, stable, actionable codes (design 3.13).
+    # SECRET_*/VAULT_* below remain until their dead emitters are removed (T13).
+    "CREDENTIAL_NOT_FOUND": CatalogEntry(
+        code="CREDENTIAL_NOT_FOUND", error_class=NotFoundError, default_message="Credential not found"
+    ),
+    "CREDENTIAL_KIND_INVALID": CatalogEntry(
+        code="CREDENTIAL_KIND_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Credential kind is invalid for this operation",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_NAME_EXISTS": CatalogEntry(
+        code="CREDENTIAL_NAME_EXISTS",
+        error_class=ResourceConflictError,
+        default_message="A credential with this name already exists for this kind in the project",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_IN_USE": CatalogEntry(
+        code="CREDENTIAL_IN_USE",
+        error_class=ResourceConflictError,
+        default_message="Credential is still referenced and cannot be archived or deleted",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_FIELD_MISSING": CatalogEntry(
+        code="CREDENTIAL_FIELD_MISSING",
+        error_class=InvalidRequestError,
+        default_message="A required credential field is missing",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_FIELD_INVALID": CatalogEntry(
+        code="CREDENTIAL_FIELD_INVALID",
+        error_class=InvalidRequestError,
+        default_message="A credential field is invalid",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_MASK_CONFLICT": CatalogEntry(
+        code="CREDENTIAL_MASK_CONFLICT",
+        error_class=InvalidRequestError,
+        default_message="A masked value was submitted for a field with no stored value to preserve",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_GROUP_NOT_FOUND": CatalogEntry(
+        code="CREDENTIAL_GROUP_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Credential group not found",
+    ),
+    "CREDENTIAL_GROUP_NAME_EXISTS": CatalogEntry(
+        code="CREDENTIAL_GROUP_NAME_EXISTS",
+        error_class=ResourceConflictError,
+        default_message="A credential group with this name already exists in the project",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_GROUP_URL_CONFLICT": CatalogEntry(
+        code="CREDENTIAL_GROUP_URL_CONFLICT",
+        error_class=ResourceConflictError,
+        default_message="An mcp credential for this server url already exists in the group",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_TEST_BASE_URL_REQUIRED": CatalogEntry(
+        code="CREDENTIAL_TEST_BASE_URL_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="A base URL is required to test this credential",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_TEST_BASE_URL_INVALID": CatalogEntry(
+        code="CREDENTIAL_TEST_BASE_URL_INVALID",
+        error_class=InvalidRequestError,
+        default_message="The credential base URL is invalid",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_TEST_BASE_URL_NOT_ALLOWED": CatalogEntry(
+        code="CREDENTIAL_TEST_BASE_URL_NOT_ALLOWED",
+        error_class=InvalidRequestError,
+        default_message="The credential base URL host is not allowlisted",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_TEST_CREDENTIAL_PROFILE_UNSUPPORTED": CatalogEntry(
+        code="CREDENTIAL_TEST_CREDENTIAL_PROFILE_UNSUPPORTED",
+        error_class=InvalidRequestError,
+        default_message="Test connection is not supported for this credential profile",
+        user_action="fix_input",
+    ),
+    "SESSION_CREDENTIAL_GROUP_NOT_FOUND": CatalogEntry(
+        code="SESSION_CREDENTIAL_GROUP_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Credential group not found",
+        user_action="refresh",
+    ),
+    "SESSION_CREDENTIAL_GROUP_ARCHIVED": CatalogEntry(
+        code="SESSION_CREDENTIAL_GROUP_ARCHIVED",
+        error_class=ResourceConflictError,
+        default_message="Credential group is archived",
+        user_action="refresh",
+    ),
+    "TRIGGER_SECRET_KIND_INVALID": CatalogEntry(
+        code="TRIGGER_SECRET_KIND_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Webhook auth credential must be a service credential",
+        user_action="fix_input",
+    ),
     "AGENT_ACTIVE_TASKS": CatalogEntry(
         code="AGENT_ACTIVE_TASKS",
         error_class=ResourceConflictError,
