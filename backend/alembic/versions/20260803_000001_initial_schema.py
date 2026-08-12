@@ -319,26 +319,53 @@ def upgrade() -> None:
     op.create_index('idx_csb_status', 'joysafeter_sandboxes', ['status'], unique=False)
     op.create_index('idx_csb_updated', 'joysafeter_sandboxes', ['updated_at'], unique=False)
     op.create_index(op.f('ix_joysafeter_sandboxes_project_id'), 'joysafeter_sandboxes', ['project_id'], unique=False)
-    op.create_table('joysafeter_secrets',
-    sa.Column('project_id', sa.String(length=255), nullable=True),
+    op.create_table('joysafeter_credential_groups',
+    sa.Column('project_id', sa.String(length=255), nullable=False),
     sa.Column('name', sa.Text(), nullable=False),
-    sa.Column('kind', sa.String(length=16), nullable=False),
-    sa.Column('provider', sa.String(length=64), nullable=True),
-    sa.Column('protocol', sa.String(length=64), nullable=True),
-    sa.Column('data', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
-    sa.Column('is_default', sa.Boolean(), server_default='false', nullable=False),
+    sa.Column('description', sa.Text(), nullable=False),
+    sa.Column('archived_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.CheckConstraint("(kind = 'llm' AND provider IS NOT NULL AND protocol IS NOT NULL) OR (kind = 'generic' AND provider IS NULL AND protocol IS NULL AND is_default = false)", name='ck_joysafeter_secrets_kind_identity'),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_secrets'))
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_credential_groups')),
+    sa.UniqueConstraint('id', 'project_id', name='uq_credential_groups_id_project')
     )
-    op.create_index(op.f('ix_joysafeter_secrets_project_id'), 'joysafeter_secrets', ['project_id'], unique=False)
-    op.create_index('uq_joysafeter_secrets_global_name', 'joysafeter_secrets', ['name'], unique=True, postgresql_where=sa.text('project_id IS NULL AND deleted_at IS NULL'), sqlite_where=sa.text('project_id IS NULL AND deleted_at IS NULL'))
-    op.create_index('uq_joysafeter_secrets_global_protocol_default', 'joysafeter_secrets', ['protocol'], unique=True, postgresql_where=sa.text("project_id IS NULL AND kind = 'llm' AND is_default = true AND deleted_at IS NULL"), sqlite_where=sa.text("project_id IS NULL AND kind = 'llm' AND is_default = true AND deleted_at IS NULL"))
-    op.create_index('uq_joysafeter_secrets_project_name', 'joysafeter_secrets', ['project_id', 'name'], unique=True, postgresql_where=sa.text('project_id IS NOT NULL AND deleted_at IS NULL'), sqlite_where=sa.text('project_id IS NOT NULL AND deleted_at IS NULL'))
-    op.create_index('uq_joysafeter_secrets_project_protocol_default', 'joysafeter_secrets', ['project_id', 'protocol'], unique=True, postgresql_where=sa.text("project_id IS NOT NULL AND kind = 'llm' AND is_default = true AND deleted_at IS NULL"), sqlite_where=sa.text("project_id IS NOT NULL AND kind = 'llm' AND is_default = true AND deleted_at IS NULL"))
+    op.create_index(op.f('ix_joysafeter_credential_groups_project_id'), 'joysafeter_credential_groups', ['project_id'], unique=False)
+    op.create_index('uq_credential_groups_project_name', 'joysafeter_credential_groups', ['project_id', 'name'], unique=True, postgresql_where=sa.text('deleted_at IS NULL'), sqlite_where=sa.text('deleted_at IS NULL'))
+    op.create_table('joysafeter_credentials',
+    sa.Column('project_id', sa.String(length=255), nullable=False),
+    sa.Column('kind', sa.String(length=16), nullable=False),
+    sa.Column('name', sa.Text(), nullable=False),
+    sa.Column('data', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
+    sa.Column('provider', sa.String(length=64), nullable=True),
+    sa.Column('protocol', sa.String(length=64), nullable=True),
+    sa.Column('is_default', sa.Boolean(), server_default='false', nullable=False),
+    sa.Column('mcp_server_url', sa.Text(), nullable=True),
+    sa.Column('normalized_mcp_server_url', sa.Text(), nullable=True),
+    sa.Column('credential_type', sa.Text(), nullable=True),
+    sa.Column('oauth_config', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('group_id', sa.UUID(), nullable=True),
+    sa.Column('archived_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.CheckConstraint("(kind = 'model' AND provider IS NOT NULL AND protocol IS NOT NULL AND mcp_server_url IS NULL AND group_id IS NULL) OR (kind = 'mcp' AND mcp_server_url IS NOT NULL AND group_id IS NOT NULL AND provider IS NULL AND protocol IS NULL AND is_default = false) OR (kind = 'service' AND provider IS NULL AND protocol IS NULL AND mcp_server_url IS NULL AND group_id IS NULL AND is_default = false)", name='ck_joysafeter_credentials_kind_identity'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_credentials'))
+    )
+    op.create_index(op.f('ix_joysafeter_credentials_project_id'), 'joysafeter_credentials', ['project_id'], unique=False)
+    op.create_index('ix_joysafeter_credentials_group_id', 'joysafeter_credentials', ['group_id'], unique=False)
+    op.create_index('uq_credentials_project_kind_name', 'joysafeter_credentials', ['project_id', 'kind', 'name'], unique=True, postgresql_where=sa.text('deleted_at IS NULL'), sqlite_where=sa.text('deleted_at IS NULL'))
+    op.create_index('uq_credentials_default_protocol', 'joysafeter_credentials', ['project_id', 'protocol'], unique=True, postgresql_where=sa.text("is_default = true AND kind = 'model' AND archived_at IS NULL AND deleted_at IS NULL"), sqlite_where=sa.text("is_default = true AND kind = 'model' AND archived_at IS NULL AND deleted_at IS NULL"))
+    op.create_index('uq_credentials_group_url', 'joysafeter_credentials', ['group_id', 'normalized_mcp_server_url'], unique=True, postgresql_where=sa.text("kind = 'mcp' AND deleted_at IS NULL"), sqlite_where=sa.text("kind = 'mcp' AND deleted_at IS NULL"))
+    op.create_table('joysafeter_session_credential_groups',
+    sa.Column('session_id', sa.UUID(), nullable=False),
+    sa.Column('credential_group_id', sa.UUID(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.PrimaryKeyConstraint('session_id', 'credential_group_id', name=op.f('pk_joysafeter_session_credential_groups'))
+    )
     op.create_table('joysafeter_security_audit_logs',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('user_id', sa.String(length=255), nullable=True),
@@ -840,37 +867,6 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_users'))
     )
     op.create_index(op.f('ix_joysafeter_users_email'), 'joysafeter_users', ['email'], unique=True)
-    op.create_table('joysafeter_vault_credentials',
-    sa.Column('vault_id', sa.UUID(), nullable=False),
-    sa.Column('name', sa.Text(), nullable=False),
-    sa.Column('credential_type', sa.Text(), nullable=False),
-    sa.Column('mcp_server_url', sa.Text(), nullable=False),
-    sa.Column('token_value', sa.Text(), nullable=False),
-    sa.Column('oauth_config', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-    sa.Column('archived_at', sa.DateTime(timezone=True), nullable=True),
-    sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_vault_credentials')),
-    sa.UniqueConstraint('vault_id', 'mcp_server_url', name='idx_cvc_url')
-    )
-    op.create_table('joysafeter_vaults',
-    sa.Column('project_id', sa.String(length=255), nullable=True),
-    sa.Column('name', sa.Text(), nullable=False),
-    sa.Column('description', sa.Text(), nullable=False),
-    sa.Column('metadata', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
-    sa.Column('archived_at', sa.DateTime(timezone=True), nullable=True),
-    sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_vaults'))
-    )
-    op.create_index('idx_cv_project', 'joysafeter_vaults', ['project_id'], unique=False)
-    op.create_index(op.f('ix_joysafeter_vaults_project_id'), 'joysafeter_vaults', ['project_id'], unique=False)
-    op.create_index('uq_joysafeter_vaults_global_name', 'joysafeter_vaults', ['name'], unique=True, postgresql_where=sa.text('project_id IS NULL AND deleted_at IS NULL'), sqlite_where=sa.text('project_id IS NULL AND deleted_at IS NULL'))
-    op.create_index('uq_joysafeter_vaults_project_name', 'joysafeter_vaults', ['project_id', 'name'], unique=True, postgresql_where=sa.text('project_id IS NOT NULL AND deleted_at IS NULL'), sqlite_where=sa.text('project_id IS NOT NULL AND deleted_at IS NULL'))
 
     # Foreign keys are added after table creation so cyclic relationships can be
     # represented in a single explicit baseline migration.
@@ -897,7 +893,11 @@ def upgrade() -> None:
     op.create_foreign_key('fk_joysafeter_sandbox_network_policies_session_id_jo_e6664db0a3', 'joysafeter_sandbox_network_policies', 'joysafeter_sessions', ['session_id'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_joysafeter_sandbox_network_policies_task_id_joysafeter_tasks', 'joysafeter_sandbox_network_policies', 'joysafeter_tasks', ['task_id'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_joysafeter_sandboxes_project_id_joysafeter_organi_f2ef079275', 'joysafeter_sandboxes', 'joysafeter_organization_projects', ['project_id'], ['id'])
-    op.create_foreign_key('fk_joysafeter_secrets_project_id_joysafeter_organiza_d17fc85ce4', 'joysafeter_secrets', 'joysafeter_organization_projects', ['project_id'], ['id'])
+    op.create_foreign_key('fk_credentials_project_id', 'joysafeter_credentials', 'joysafeter_organization_projects', ['project_id'], ['id'])
+    op.create_foreign_key('fk_credential_groups_project_id', 'joysafeter_credential_groups', 'joysafeter_organization_projects', ['project_id'], ['id'])
+    op.create_foreign_key('fk_credentials_group_project', 'joysafeter_credentials', 'joysafeter_credential_groups', ['group_id', 'project_id'], ['id', 'project_id'], ondelete='RESTRICT')
+    op.create_foreign_key('fk_session_credential_groups_session_id', 'joysafeter_session_credential_groups', 'joysafeter_sessions', ['session_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_session_credential_groups_group_id', 'joysafeter_session_credential_groups', 'joysafeter_credential_groups', ['credential_group_id'], ['id'], ondelete='RESTRICT')
     op.create_foreign_key('fk_joysafeter_session_events_session_id_joysafeter_sessions', 'joysafeter_session_events', 'joysafeter_sessions', ['session_id'], ['id'])
     op.create_foreign_key('fk_joysafeter_session_files_file_id_joysafeter_files', 'joysafeter_session_files', 'joysafeter_files', ['file_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_joysafeter_session_files_session_id_joysafeter_sessions', 'joysafeter_session_files', 'joysafeter_sessions', ['session_id'], ['id'], ondelete='CASCADE')
@@ -941,8 +941,6 @@ def upgrade() -> None:
     op.create_foreign_key('fk_joysafeter_triggers_pinned_session_id_joysafeter_sessions', 'joysafeter_triggers', 'joysafeter_sessions', ['pinned_session_id'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_joysafeter_triggers_project_id_joysafeter_organiz_afba10a3b6', 'joysafeter_triggers', 'joysafeter_organization_projects', ['project_id'], ['id'])
     op.create_foreign_key('fk_joysafeter_triggers_reusable_session_id_joysafeter_sessions', 'joysafeter_triggers', 'joysafeter_sessions', ['reusable_session_id'], ['id'], ondelete='SET NULL')
-    op.create_foreign_key('fk_joysafeter_vault_credentials_vault_id_joysafeter_vaults', 'joysafeter_vault_credentials', 'joysafeter_vaults', ['vault_id'], ['id'])
-    op.create_foreign_key('fk_joysafeter_vaults_project_id_joysafeter_organizat_f9a8d0529d', 'joysafeter_vaults', 'joysafeter_organization_projects', ['project_id'], ['id'])
 
     # Runtime membership mirror used by health checks/orchestrator. It is not an
     # ORM model but is still part of the deployment schema.
@@ -972,8 +970,11 @@ def downgrade() -> None:
         table_name="joysafeter_cluster_members",
     )
     op.drop_table("joysafeter_cluster_members")
-    op.drop_constraint('fk_joysafeter_vaults_project_id_joysafeter_organizat_f9a8d0529d', 'joysafeter_vaults', type_='foreignkey')
-    op.drop_constraint('fk_joysafeter_vault_credentials_vault_id_joysafeter_vaults', 'joysafeter_vault_credentials', type_='foreignkey')
+    op.drop_constraint('fk_session_credential_groups_group_id', 'joysafeter_session_credential_groups', type_='foreignkey')
+    op.drop_constraint('fk_session_credential_groups_session_id', 'joysafeter_session_credential_groups', type_='foreignkey')
+    op.drop_constraint('fk_credentials_group_project', 'joysafeter_credentials', type_='foreignkey')
+    op.drop_constraint('fk_credential_groups_project_id', 'joysafeter_credential_groups', type_='foreignkey')
+    op.drop_constraint('fk_credentials_project_id', 'joysafeter_credentials', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_triggers_reusable_session_id_joysafeter_sessions', 'joysafeter_triggers', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_triggers_project_id_joysafeter_organiz_afba10a3b6', 'joysafeter_triggers', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_triggers_pinned_session_id_joysafeter_sessions', 'joysafeter_triggers', type_='foreignkey')
@@ -1017,7 +1018,6 @@ def downgrade() -> None:
     op.drop_constraint('fk_joysafeter_session_files_session_id_joysafeter_sessions', 'joysafeter_session_files', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_session_files_file_id_joysafeter_files', 'joysafeter_session_files', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_session_events_session_id_joysafeter_sessions', 'joysafeter_session_events', type_='foreignkey')
-    op.drop_constraint('fk_joysafeter_secrets_project_id_joysafeter_organiza_d17fc85ce4', 'joysafeter_secrets', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_sandboxes_project_id_joysafeter_organi_f2ef079275', 'joysafeter_sandboxes', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_sandbox_network_policies_task_id_joysafeter_tasks', 'joysafeter_sandbox_network_policies', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_sandbox_network_policies_session_id_jo_e6664db0a3', 'joysafeter_sandbox_network_policies', type_='foreignkey')
@@ -1041,8 +1041,9 @@ def downgrade() -> None:
     op.drop_constraint('fk_joysafeter_api_keys_created_by_joysafeter_users', 'joysafeter_api_keys', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_agents_project_id_joysafeter_organizat_0323e88f26', 'joysafeter_agents', type_='foreignkey')
     op.drop_constraint('fk_joysafeter_agent_versions_agent_id_joysafeter_agents', 'joysafeter_agent_versions', type_='foreignkey')
-    op.drop_table('joysafeter_vaults')
-    op.drop_table('joysafeter_vault_credentials')
+    op.drop_table('joysafeter_session_credential_groups')
+    op.drop_table('joysafeter_credentials')
+    op.drop_table('joysafeter_credential_groups')
     op.drop_table('joysafeter_users')
     op.drop_table('joysafeter_triggers')
     op.drop_table('joysafeter_tasks')
@@ -1063,7 +1064,6 @@ def downgrade() -> None:
     op.drop_table('joysafeter_session_files')
     op.drop_table('joysafeter_session_events')
     op.drop_table('joysafeter_security_audit_logs')
-    op.drop_table('joysafeter_secrets')
     op.drop_table('joysafeter_sandboxes')
     op.drop_table('joysafeter_sandbox_network_policies')
     op.drop_table('joysafeter_project_members')
