@@ -16,7 +16,7 @@ from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.config.service_role import current_role
 from app.joysafeter_shared.config.settings import joysafeter_config
-from app.joysafeter_shared.ids import AgentId, EventId, SandboxId, SessionId, TaskId, VaultId, as_uuid
+from app.joysafeter_shared.ids import AgentId, CredentialGroupId, EventId, SandboxId, SessionId, TaskId, as_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +106,7 @@ from typing import Optional
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.models.joysafeter_credential import JoySafeterSessionCredentialGroup
 from app.joysafeter_domain.models.joysafeter_session import (
     JoySafeterSession,
     JoySafeterSessionEvent,
@@ -304,19 +305,25 @@ class SessionService:
         agent_id: AgentId,
         title: Optional[str] = None,
         metadata: Optional[dict] = None,
-        vault_ids: Optional[list[VaultId]] = None,
+        credential_group_ids: Optional[list[CredentialGroupId]] = None,
         environment_ref: Optional[str] = None,
         agent_version: Optional[int] = None,
         agent_snapshot: Optional[dict] = None,
         project_id: Optional[str] = None,
         agent_name: Optional[str] = None,
     ) -> JoySafeterSession:
+        # Dedupe preserving order; the association table's composite PK would also
+        # reject dupes, but we normalize up front so the bind validation and the
+        # persisted set match exactly.
+        group_ids = list(dict.fromkeys(credential_group_ids or []))
+        if group_ids:
+            await self._validate_credential_groups(group_ids, project_id)
+
         kwargs = dict(
             agent_id=agent_id,
             title=self.build_session_title(title, agent_name),
             status=SessionStatus.IDLE.value,
             metadata_=metadata or {},
-            vault_ids=[str(vault_id) for vault_id in vault_ids or []],
             environment_ref=environment_ref,
             agent_version=agent_version,
             agent_snapshot=agent_snapshot,
@@ -325,9 +332,80 @@ class SessionService:
             kwargs["project_id"] = project_id
         session = JoySafeterSession(**kwargs)
         self.db.add(session)
+        # Flush to allocate the session id before writing the association rows.
+        await self.db.flush()
+        for group_id in group_ids:
+            self.db.add(
+                JoySafeterSessionCredentialGroup(
+                    session_id=session.id,
+                    credential_group_id=group_id,
+                )
+            )
         await self.db.commit()
         await self.db.refresh(session)
         return session
+
+    async def _validate_credential_groups(
+        self,
+        group_ids: list[CredentialGroupId],
+        project_id: Optional[str],
+    ) -> None:
+        """Validate a session's credential-group binding before persisting it.
+
+        Each group must exist in this project and not be archived; and — because
+        the runtime resolves mcp credentials by normalized url into a single map —
+        the same normalized url must not appear in two of the bound groups
+        (delegated to ``CredentialGroupService.check_url_conflict_for_session``,
+        which raises ``CREDENTIAL_GROUP_URL_CONFLICT``).
+        """
+        from app.joysafeter_domain.services.joysafeter_credential_group_service import (
+            CredentialGroupService,
+        )
+
+        grp_svc = CredentialGroupService(self.db)
+        for group_id in group_ids:
+            group = await grp_svc.get(group_id, project_id=project_id or "")
+            if group is None:
+                raise NotFoundError(
+                    code="SESSION_CREDENTIAL_GROUP_NOT_FOUND",
+                    message=f"Credential group not found: {group_id}",
+                    data={"credential_group_id": str(group_id)},
+                    user_action="refresh",
+                )
+            if group.archived_at is not None:
+                raise ResourceConflictError(
+                    code="SESSION_CREDENTIAL_GROUP_ARCHIVED",
+                    message=f"Credential group is archived: {group_id}",
+                    data={"credential_group_id": str(group_id)},
+                    user_action="refresh",
+                )
+        await grp_svc.check_url_conflict_for_session(group_ids, project_id or "")
+
+    async def get_credential_group_ids(self, session_id: SessionId) -> list[CredentialGroupId]:
+        result = await self.db.execute(
+            select(JoySafeterSessionCredentialGroup.credential_group_id).where(
+                JoySafeterSessionCredentialGroup.session_id == session_id
+            )
+        )
+        return list(result.scalars().all())
+
+    async def credential_group_ids_map(
+        self, session_ids: list[SessionId]
+    ) -> dict[SessionId, list[CredentialGroupId]]:
+        """Batch-load bound credential-group ids for a set of sessions (list view)."""
+        if not session_ids:
+            return {}
+        result = await self.db.execute(
+            select(
+                JoySafeterSessionCredentialGroup.session_id,
+                JoySafeterSessionCredentialGroup.credential_group_id,
+            ).where(JoySafeterSessionCredentialGroup.session_id.in_(session_ids))
+        )
+        out: dict[SessionId, list[CredentialGroupId]] = {}
+        for session_id, group_id in result.all():
+            out.setdefault(session_id, []).append(group_id)
+        return out
+
 
     async def get_session(
         self,

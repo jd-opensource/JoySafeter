@@ -16,6 +16,7 @@ catalog registration (Task 11).
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Optional
 
 from sqlalchemy import and_, delete, or_, select, update
@@ -89,6 +90,66 @@ def _mask_value(value: str) -> str:
         return ""
     suffix = value[-4:] if len(value) > 4 else ""
     return f"{MASKED_SECRET_PREFIX}{suffix}"
+
+
+def _config_references_credential(config: object, cred_id_str: str) -> bool:
+    """Whether an environment ``config`` dict references the credential by id.
+
+    Service credentials are referenced from ``secret_refs`` (a list of ids) and
+    ``egress_services[].service_credential_id`` — both are CredentialId strings
+    since Task 9c. Kept as a plain dict scan (no fragile JSONB path SQL); the set
+    of environments per project is small.
+    """
+    if not isinstance(config, dict):
+        return False
+    for ref in config.get("secret_refs") or []:
+        if str(ref) == cred_id_str:
+            return True
+    for service in config.get("egress_services") or []:
+        if isinstance(service, dict) and str(service.get("service_credential_id")) == cred_id_str:
+            return True
+    return False
+
+
+def _snapshot_references_credential(snapshot: object, cred_id_str: str) -> bool:
+    """Whether a session ``agent_snapshot`` blob pins the credential by id.
+
+    Covers the model connection (``model_credential_id``) and any credential ids
+    embedded in the snapshot's frozen ``environment.config`` (audit Blocker 1: a
+    running session must keep a credential alive even after the agent is rebound).
+    """
+    if not isinstance(snapshot, dict):
+        return False
+    if str(snapshot.get("model_credential_id")) == cred_id_str:
+        return True
+    environment = snapshot.get("environment")
+    if isinstance(environment, dict) and _config_references_credential(
+        environment.get("config"), cred_id_str
+    ):
+        return True
+    return False
+
+
+@dataclass
+class CredentialDependencies:
+    """The live consumers referencing a credential (agent/trigger/env/session)."""
+
+    agent_ids: list = field(default_factory=list)
+    trigger_ids: list = field(default_factory=list)
+    environment_ids: list = field(default_factory=list)
+    session_ids: list = field(default_factory=list)
+
+    @property
+    def in_use(self) -> bool:
+        return bool(self.agent_ids or self.trigger_ids or self.environment_ids or self.session_ids)
+
+    def as_data(self) -> dict:
+        return {
+            "agents": [str(x) for x in self.agent_ids],
+            "triggers": [str(x) for x in self.trigger_ids],
+            "environments": [str(x) for x in self.environment_ids],
+            "sessions": [str(x) for x in self.session_ids],
+        }
 
 
 class CredentialService:
@@ -495,12 +556,118 @@ class CredentialService:
         await self.db.refresh(cred)
         return cred
 
+    # --- cross-consumer dependency scan (Task 9) ---------------------------------
+
+    async def dependencies(self, cred_id: CredentialId, project_id: str) -> CredentialDependencies:
+        """Find the live consumers that reference this credential.
+
+        Union of: agent ``model_credential_id``, trigger
+        ``webhook_auth_credential_id``, environment ``config`` (service creds via
+        ``secret_refs`` / ``egress_services``), the session→group association (an
+        mcp credential is reachable through its group), and ACTIVE session
+        ``agent_snapshot`` blobs (audit Blocker 1). Soft-deleted / archived
+        consumers and terminated/archived sessions are excluded so lifecycle
+        transitions are only blocked by genuinely live references.
+        """
+        from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+        from app.joysafeter_domain.models.joysafeter_credential import (
+            JoySafeterSessionCredentialGroup,
+        )
+        from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
+        from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+        from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
+
+        cred = await self._get_or_raise(cred_id, project_id=project_id)
+        cred_id_str = str(cred_id)
+        deps = CredentialDependencies()
+
+        # Agents (live model connection column).
+        agent_rows = await self.db.execute(
+            select(JoySafeterAgent.id).where(
+                JoySafeterAgent.model_credential_id == cred_id,
+                JoySafeterAgent.project_id == project_id,
+                JoySafeterAgent.deleted_at.is_(None),
+            )
+        )
+        deps.agent_ids = list(agent_rows.scalars().all())
+
+        # Triggers (inbound webhook auth column).
+        trigger_rows = await self.db.execute(
+            select(JoySafeterTrigger.id).where(
+                JoySafeterTrigger.webhook_auth_credential_id == cred_id,
+                JoySafeterTrigger.project_id == project_id,
+                JoySafeterTrigger.deleted_at.is_(None),
+            )
+        )
+        deps.trigger_ids = list(trigger_rows.scalars().all())
+
+        # Environments (service creds embedded in the JSONB config).
+        env_query = select(JoySafeterEnvironment.id, JoySafeterEnvironment.config).where(
+            JoySafeterEnvironment.project_id == project_id,
+            JoySafeterEnvironment.deleted_at.is_(None),
+        )
+        env_rows = await self.db.execute(env_query)
+        deps.environment_ids = [
+            env_id
+            for env_id, config in env_rows.all()
+            if _config_references_credential(config, cred_id_str)
+        ]
+
+        # Sessions: an mcp credential is reachable via its group binding, and any
+        # active session may pin this credential in its frozen snapshot.
+        session_ids: dict = {}  # ordered set
+        if cred.kind == CredentialKind.MCP.value and cred.group_id is not None:
+            grp_rows = await self.db.execute(
+                select(JoySafeterSessionCredentialGroup.session_id)
+                .join(
+                    JoySafeterSession,
+                    JoySafeterSession.id == JoySafeterSessionCredentialGroup.session_id,
+                )
+                .where(
+                    JoySafeterSessionCredentialGroup.credential_group_id == cred.group_id,
+                    JoySafeterSession.project_id == project_id,
+                    JoySafeterSession.archived_at.is_(None),
+                    JoySafeterSession.status != "terminated",
+                )
+            )
+            for session_id in grp_rows.scalars().all():
+                session_ids[session_id] = None
+
+        snap_rows = await self.db.execute(
+            select(JoySafeterSession.id, JoySafeterSession.agent_snapshot).where(
+                JoySafeterSession.project_id == project_id,
+                JoySafeterSession.archived_at.is_(None),
+                JoySafeterSession.status != "terminated",
+                JoySafeterSession.agent_snapshot.is_not(None),
+            )
+        )
+        for session_id, snapshot in snap_rows.all():
+            if _snapshot_references_credential(snapshot, cred_id_str):
+                session_ids[session_id] = None
+        deps.session_ids = list(session_ids.keys())
+
+        return deps
+
+    async def _reject_if_in_use(
+        self, cred: JoySafeterCredential, project_id: str, *, verb: str
+    ) -> None:
+        deps = await self.dependencies(cred.id, project_id=project_id)
+        if deps.in_use:
+            raise ResourceConflictError(
+                code="CREDENTIAL_IN_USE",
+                message=f"Credential is still referenced and cannot be {verb}",
+                data={"credential_id": str(cred.id), **deps.as_data()},
+                user_action="fix_input",
+            )
+
     # --- lifecycle ---------------------------------------------------------------
-    # Cross-consumer in-use rejection is Task 9's responsibility (the consumer ID
-    # columns do not exist yet); these methods just set the timestamps.
+    # archive/soft_delete reject when the credential is still referenced by a live
+    # consumer (agent / trigger / environment / active session or its snapshot);
+    # FK RESTRICT only guards a physical delete, so the service enforces the rest.
 
     async def archive(self, cred_id: CredentialId, project_id: str) -> JoySafeterCredential:
         cred = await self._get_or_raise(cred_id, project_id=project_id)
+        await self._reject_if_in_use(cred, project_id, verb="archived")
         cred.archived_at = utc_now()
         if cred.is_default:
             cred.is_default = False
@@ -520,6 +687,7 @@ class CredentialService:
 
     async def soft_delete(self, cred_id: CredentialId, project_id: str) -> JoySafeterCredential:
         cred = await self._get_or_raise(cred_id, project_id=project_id)
+        await self._reject_if_in_use(cred, project_id, verb="deleted")
         cred.deleted_at = utc_now()
         if cred.is_default:
             cred.is_default = False

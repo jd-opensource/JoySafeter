@@ -227,7 +227,7 @@ async def _load_session_storage_mounts(db: AsyncSession, session_id: SessionId, 
 
 
 def _session_to_response(
-    session, agent=None, resources=None, repo_resources=None, storage_mounts=None
+    session, agent=None, resources=None, repo_resources=None, storage_mounts=None, credential_group_ids=None
 ) -> SessionResponse:
     agent_snapshot = session.agent_snapshot or {}
     agent_data = SessionAgent(
@@ -288,7 +288,7 @@ def _session_to_response(
         stop_reason=session.stop_reason,
         title=session.title,
         metadata=session.metadata_,
-        vault_ids=session.vault_ids or [],
+        credential_group_ids=credential_group_ids or [],
         resources=resource_responses,
         repo_resources=repo_responses,
         storage_mounts=storage_mount_responses,
@@ -428,27 +428,9 @@ async def create_session(
             dump["mount_name"] = _slugify_mount_name(store.name)
         resource_dicts.append(dump)
 
-    # --- Validate vault_ids belong to this project ---
-    if req.vault_ids:
-        from app.joysafeter_domain.services.joysafeter_vault_service import VaultService
-
-        vault_svc = VaultService(db)
-        for vault_id in req.vault_ids:
-            vault = await vault_svc.get_vault(vault_id, project_id=auth_ctx.project_id)
-            if not vault:
-                raise NotFoundError(
-                    code="SESSION_VAULT_NOT_FOUND",
-                    message=f"Vault not found: {vault_id}",
-                    data={"vault_id": str(vault_id)},
-                    user_action="refresh",
-                )
-            if vault.archived_at is not None:
-                raise ResourceConflictError(
-                    code="SESSION_VAULT_ARCHIVED",
-                    message=f"Vault is archived: {vault_id}",
-                    data={"vault_id": str(vault_id)},
-                    user_action="refresh",
-                )
+    # Credential-group binding (existence / project / archived / cross-group url
+    # conflict) is validated inside ``SessionService.create_session`` so the check
+    # and the association-row write commit together.
 
     resource_svc = SessionResourceService(db)
     file_resource_records = await resource_svc.prepare_file_resources(
@@ -466,7 +448,7 @@ async def create_session(
         agent_name=agent.name,
         title=req.title,
         metadata=req.metadata,
-        vault_ids=req.vault_ids,
+        credential_group_ids=req.credential_group_ids,
         environment_ref=effective_environment_ref,
         agent_version=agent_version,
         agent_snapshot=agent_snapshot,
@@ -529,6 +511,7 @@ async def create_session(
         resources=resources,
         repo_resources=repo_records,
         storage_mounts=storage_mount_records,
+        credential_group_ids=req.credential_group_ids,
     )
 
 
@@ -580,11 +563,13 @@ async def list_sessions(
         mount_result = await db.execute(mount_query)
         for mount in mount_result.scalars().all():
             storage_mounts_by_session.setdefault(mount.session_id, []).append(mount)
+    group_ids_by_session = await svc.credential_group_ids_map([s.id for s in sessions])
     data = [
         _session_to_response(
             s,
             agents_by_id.get(s.agent_id),
             storage_mounts=storage_mounts_by_session.get(s.id, []),
+            credential_group_ids=group_ids_by_session.get(s.id, []),
         )
         for s in sessions
     ]
@@ -624,6 +609,7 @@ async def get_session(
         resources=resources,
         repo_resources=repo_records,
         storage_mounts=storage_mount_records,
+        credential_group_ids=await svc.get_credential_group_ids(session_id),
     )
 
 

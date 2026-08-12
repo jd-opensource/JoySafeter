@@ -1122,12 +1122,20 @@ def test_session_event_model_keeps_event_identity_typed():
     )
 
 
-def test_session_vault_ids_are_typed_before_jsonb_storage():
+def test_session_credential_groups_are_typed_not_jsonb():
+    """Sessions bind credential GROUPS via the typed association table, not a
+    ``vault_ids`` JSONB list. The schema carries ``list[CredentialGroupId]`` (on
+    both request + response) and the service persists typed
+    ``JoySafeterSessionCredentialGroup`` rows — so ids stay typed end to end and
+    the legacy JSONB column is gone.
+    """
     schema_source = (BACKEND_ROOT / "app/joysafeter_domain/schemas/joysafeter_session.py").read_text()
     service_source = (BACKEND_ROOT / "app/joysafeter_domain/services/joysafeter_session_service.py").read_text()
 
-    assert schema_source.count("vault_ids: list[VaultId]") == 2
-    assert "vault_ids=[str(vault_id) for vault_id in vault_ids or []]" in service_source
+    assert "vault_ids" not in schema_source
+    assert "vault_ids" not in service_source
+    assert schema_source.count("credential_group_ids: list[CredentialGroupId]") == 2
+    assert "JoySafeterSessionCredentialGroup(" in service_source
 
 
 def test_rust_orchestrator_has_no_bare_core_entity_uuid_annotations():

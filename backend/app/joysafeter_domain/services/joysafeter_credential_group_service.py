@@ -218,14 +218,49 @@ class CredentialGroupService:
         return group
 
     # --- lifecycle ---------------------------------------------------------------
-    # Cross-consumer in-use rejection (e.g. active sessions referencing the group)
-    # is Task 9's responsibility; here we just set the timestamps + mark_pending,
-    # atomically in one commit.
+    # archive/soft_delete reject when an active session still binds the group
+    # (dynamic authz set: a live session's mcp access must not vanish underneath
+    # it). Otherwise we set the timestamps + mark_pending, atomically in one
+    # commit. Member add/remove stays allowed — that only reshapes the set.
+
+    async def _reject_if_bound_to_active_session(
+        self, group_id: CredentialGroupId, project_id: str
+    ) -> None:
+        from app.joysafeter_domain.models.joysafeter_credential import (
+            JoySafeterSessionCredentialGroup,
+        )
+        from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+
+        rows = await self.db.execute(
+            select(JoySafeterSessionCredentialGroup.session_id)
+            .join(
+                JoySafeterSession,
+                JoySafeterSession.id == JoySafeterSessionCredentialGroup.session_id,
+            )
+            .where(
+                JoySafeterSessionCredentialGroup.credential_group_id == group_id,
+                JoySafeterSession.project_id == project_id,
+                JoySafeterSession.archived_at.is_(None),
+                JoySafeterSession.status != "terminated",
+            )
+        )
+        bound = list(rows.scalars().all())
+        if bound:
+            raise ResourceConflictError(
+                code="CREDENTIAL_IN_USE",
+                message="Credential group is bound to an active session and cannot be archived or deleted",
+                data={
+                    "credential_group_id": str(group_id),
+                    "sessions": [str(s) for s in bound],
+                },
+                user_action="fix_input",
+            )
 
     async def archive(
         self, group_id: CredentialGroupId, project_id: str
     ) -> JoySafeterCredentialGroup:
         group = await self.get_or_raise(group_id, project_id=project_id)
+        await self._reject_if_bound_to_active_session(group_id, project_id)
         group.archived_at = utc_now()
         group.updated_at = utc_now()
         await self._mark_pending(project_id=project_id, group_id=group.id)
@@ -237,6 +272,7 @@ class CredentialGroupService:
         self, group_id: CredentialGroupId, project_id: str
     ) -> JoySafeterCredentialGroup:
         group = await self.get_or_raise(group_id, project_id=project_id)
+        await self._reject_if_bound_to_active_session(group_id, project_id)
         group.deleted_at = utc_now()
         group.updated_at = utc_now()
         await self._mark_pending(project_id=project_id, group_id=group.id)

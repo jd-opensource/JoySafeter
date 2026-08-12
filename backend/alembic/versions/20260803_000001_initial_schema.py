@@ -474,7 +474,6 @@ def upgrade() -> None:
     sa.Column('active_seconds', sa.Float(), nullable=True),
     sa.Column('duration_seconds', sa.Float(), nullable=True),
     sa.Column('metadata', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
-    sa.Column('vault_ids', postgresql.JSONB(astext_type=sa.Text()), server_default='[]', nullable=False),
     sa.Column('agent_version', sa.Integer(), nullable=True),
     sa.Column('agent_snapshot', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     sa.Column('environment_ref', sa.Text(), nullable=True),

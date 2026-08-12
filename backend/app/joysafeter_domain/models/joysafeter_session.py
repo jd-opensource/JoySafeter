@@ -63,7 +63,6 @@ class JoySafeterSession(JoySafeterBaseModel):
     active_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default="{}")
-    vault_ids: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     agent_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     agent_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     environment_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
