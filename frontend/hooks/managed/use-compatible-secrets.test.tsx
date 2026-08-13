@@ -38,15 +38,15 @@ const UUID_B = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f021'
 
 function secret(id: string, name: string, isDefault = false) {
   return {
-    id: `secret_${id}`,
+    id: `cred_${id}`,
     name,
-    kind: 'llm',
+    kind: 'model',
     provider: 'openai',
     protocol: 'openai_responses',
     model: 'gpt-5',
     compatible_engine_ids: ['codex', 'native', 'pi'],
     is_default: isDefault,
-    keys: ['OPENAI_API_KEY'],
+    data: { OPENAI_API_KEY: 'sk-test' },
     created_at: '2026-08-07T00:00:00Z',
     updated_at: '2026-08-07T00:00:00Z',
   }
@@ -65,12 +65,12 @@ describe('useCompatibleSecrets', () => {
       .mockResolvedValueOnce({
         data: [secret(UUID_A, 'openai-primary', true)],
         has_more: true,
-        last_id: `secret_${UUID_A}`,
+        last_id: `cred_${UUID_A}`,
       })
       .mockResolvedValueOnce({
         data: [secret(UUID_B, 'openai-backup')],
         has_more: false,
-        last_id: `secret_${UUID_B}`,
+        last_id: `cred_${UUID_B}`,
       })
 
     const { result } = renderHook(
@@ -83,9 +83,9 @@ describe('useCompatibleSecrets', () => {
       'openai-primary',
       'openai-backup',
     ])
-    expect(managedGetMock.mock.calls[0][0]).toContain('kind=llm')
+    expect(managedGetMock.mock.calls[0][0]).toContain('kind=model')
     expect(managedGetMock.mock.calls[0][0]).toContain('compatible_engine=codex')
-    expect(managedGetMock.mock.calls[1][0]).toContain(`after_id=secret_${UUID_A}`)
+    expect(managedGetMock.mock.calls[1][0]).toContain(`after_id=cred_${UUID_A}`)
   })
 
   it('includes the catalog version in the derived compatibility query key', () => {
@@ -110,7 +110,7 @@ describe('useCompatibleSecrets', () => {
     managedGetMock.mockResolvedValueOnce({
       data: [secret(UUID_A, 'persisted-secret')],
       has_more: false,
-      last_id: `secret_${UUID_A}`,
+      last_id: `cred_${UUID_A}`,
     })
 
     const { result } = renderHook(
@@ -120,7 +120,7 @@ describe('useCompatibleSecrets', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(result.current.data?.name).toBe('persisted-secret')
-    expect(managedGetMock.mock.calls[0][0]).toContain('kind=llm')
+    expect(managedGetMock.mock.calls[0][0]).toContain('kind=model')
     expect(managedGetMock.mock.calls[0][0]).toContain('name=persisted-secret')
   })
 
@@ -128,7 +128,7 @@ describe('useCompatibleSecrets', () => {
     managedGetMock.mockResolvedValueOnce({
       data: [secret(UUID_A, 'authoring-openai')],
       has_more: false,
-      last_id: `secret_${UUID_A}`,
+      last_id: `cred_${UUID_A}`,
     })
 
     const { result } = renderHook(
@@ -137,7 +137,7 @@ describe('useCompatibleSecrets', () => {
     )
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(managedGetMock.mock.calls[0][0]).toContain('kind=llm')
+    expect(managedGetMock.mock.calls[0][0]).toContain('kind=model')
     expect(managedGetMock.mock.calls[0][0]).toContain('protocol=openai_responses')
   })
 })

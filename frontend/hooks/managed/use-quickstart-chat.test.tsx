@@ -216,7 +216,7 @@ describe('useQuickstartChat resource creation', () => {
     })
 
     const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string)
-    expect(body).toMatchObject({ engine_kind: 'codex', secret_ref: 'openai-prod' })
+    expect(body).toMatchObject({ engine_kind: 'codex', model_credential_id: 'openai-prod' })
     expect(body).not.toHaveProperty('provider')
   })
 

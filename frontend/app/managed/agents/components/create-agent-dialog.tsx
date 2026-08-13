@@ -49,6 +49,7 @@ import {
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import {
   parseAgentId,
+  parseCredentialId,
   parseEnvironmentId,
   type AgentId,
   type EnvironmentId,
@@ -255,9 +256,9 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
 
   useEffect(() => {
     if (!compatibleSecretsQuery.isSuccess || !secrets) return
-    const secretNames = new Set(secrets.map((secret) => secret.name))
+    const secretIds = new Set<string>(secrets.map((secret) => secret.id))
     if (secretRef) {
-      if (secretNames.has(secretRef)) return
+      if (secretIds.has(secretRef)) return
       setSecretRef('')
       setSecretSelectionCleared(true)
       setSecretCompatibilityNotice(true)
@@ -373,8 +374,8 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
       const currentSecretRef = (() => {
         if (!currentSecrets) return secretRef
         if (currentSecrets.length === 0) return ''
-        const secretNames = new Set(currentSecrets.map((secret) => secret.name))
-        if (secretRef && secretNames.has(secretRef)) return secretRef
+        const secretIds = new Set<string>(currentSecrets.map((secret) => secret.id))
+        if (secretRef && secretIds.has(secretRef)) return secretRef
         return ''
       })()
       const currentEnvironmentRef =
@@ -401,7 +402,9 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           engine_kind: engineKind,
           system: systemPrompt || null,
           metadata: { system_prompt_mode: systemPromptMode },
-          ...(currentSecretRef ? { secret_ref: currentSecretRef } : {}),
+          ...(currentSecretRef
+            ? { model_credential_id: parseCredentialId(currentSecretRef) }
+            : {}),
           ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
           tools,
           mcp_servers: mcpServers.map((m) => ({ type: 'url', name: m.name, url: m.url })),
@@ -447,10 +450,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
             initialEngineId={engineKind}
             onCancel={() => setDialogView('agent_form')}
             onCreated={(created: SecretDetail) => {
-              const listItem: Secret = {
-                ...created,
-                keys: Object.keys(created.secret_data),
-              }
+              const listItem: Secret = created
               queryClient.setQueriesData<Secret[]>(
                 { queryKey: compatibleSecretsQueryPrefix(managedScope.key, engineKind) },
                 (current) => [
@@ -458,7 +458,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                   listItem,
                 ],
               )
-              setSecretRef(created.name)
+              setSecretRef(created.id)
               setSecretSelectionCleared(false)
               setSecretCompatibilityNotice(false)
               setDialogView('agent_form')

@@ -46,10 +46,10 @@ async function fetchAllLlmSecrets(
 
   for (;;) {
     const page = await managedGet<SecretPage>(
-      apiCollectionPath('secrets', {
+      apiCollectionPath('credentials', {
         limit: PAGE_SIZE,
         after_id: afterId,
-        kind: 'llm',
+        kind: 'model',
         ...filter,
       }),
       managedRequestOptions(managedScope),
@@ -114,7 +114,7 @@ export function useLlmSecretByName({ name, enabled = true }: UseLlmSecretByNameO
     queryKey: llmSecretByNameQueryKey(managedScope.key, name, catalogVersion),
     queryFn: async () => {
       const page = await managedGet<SecretPage>(
-        apiCollectionPath('secrets', { limit: 1, kind: 'llm', name }),
+        apiCollectionPath('credentials', { limit: 1, kind: 'model', name }),
         managedRequestOptions(managedScope),
       )
       const secrets = parseSecretListResponse(page.data)

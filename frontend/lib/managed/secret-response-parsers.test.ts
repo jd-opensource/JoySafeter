@@ -10,15 +10,15 @@ import {
 const UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f020'
 
 const rawSecret = () => ({
-  id: `secret_${UUID}`,
+  id: `cred_${UUID}`,
   name: 'openai-prod',
-  kind: 'llm',
+  kind: 'model',
   provider: 'openai',
   protocol: 'openai_responses',
   model: 'gpt-5',
   compatible_engine_ids: ['codex', 'native', 'pi'],
   is_default: true,
-  keys: ['OPENAI_API_KEY', 'OPENAI_MODEL'],
+  data: { OPENAI_API_KEY: '********', OPENAI_MODEL: 'gpt-5' },
   created_at: '2026-08-06T00:00:00Z',
   updated_at: '2026-08-06T00:00:00Z',
 })
@@ -26,12 +26,9 @@ const rawSecret = () => ({
 describe('secret response parsers', () => {
   it('parses list and detail IDs at the API boundary', () => {
     const listSecret = rawSecret()
-    const { keys: _keys, ...detailSecret } = listSecret
-    expect(parseSecretResponse(listSecret).id).toBe(`secret_${UUID}`)
-    expect(parseSecretListResponse([listSecret])[0].id).toBe(`secret_${UUID}`)
-    expect(
-      parseSecretDetailResponse({ ...detailSecret, secret_data: { API_KEY: '********' } }).id,
-    ).toBe(`secret_${UUID}`)
+    expect(parseSecretResponse(listSecret).id).toBe(`cred_${UUID}`)
+    expect(parseSecretListResponse([listSecret])[0].id).toBe(`cred_${UUID}`)
+    expect(parseSecretDetailResponse(listSecret).id).toBe(`cred_${UUID}`)
   })
 
   it('rejects bare and cross-entity IDs', () => {
@@ -39,9 +36,9 @@ describe('secret response parsers', () => {
     expect(() => parseSecretResponse({ ...rawSecret(), id: `env_${UUID}` })).toThrow()
   })
 
-  it('parses LLM metadata and rejects invalid kinds', () => {
+  it('parses model metadata and rejects invalid kinds', () => {
     expect(parseSecretResponse(rawSecret())).toMatchObject({
-      kind: 'llm',
+      kind: 'model',
       provider: 'openai',
       protocol: 'openai_responses',
       model: 'gpt-5',
@@ -51,26 +48,19 @@ describe('secret response parsers', () => {
     expect(() => parseSecretResponse({ ...rawSecret(), kind: 'engine' })).toThrow()
   })
 
-  it('omits blank metadata keys without renaming nonblank field names', () => {
-    const listSecret = {
+  it('exposes field names via data and omits blank keys without renaming nonblank fields', () => {
+    const detail = parseSecretDetailResponse({
       ...rawSecret(),
-      keys: ['', '   ', ' TOKEN ', 'OPENAI_API_KEY'],
-    }
-    const detailSecret: Record<string, unknown> = { ...listSecret }
-    delete detailSecret.keys
+      data: {
+        '': '********',
+        '   ': '********',
+        ' TOKEN ': '********name',
+        OPENAI_API_KEY: '********value',
+      },
+    })
 
-    expect(parseSecretResponse(listSecret).keys).toEqual([' TOKEN ', 'OPENAI_API_KEY'])
-    expect(
-      parseSecretDetailResponse({
-        ...detailSecret,
-        secret_data: {
-          '': '********',
-          '   ': '********',
-          ' TOKEN ': '********name',
-          OPENAI_API_KEY: '********value',
-        },
-      }).secret_data,
-    ).toEqual({
+    expect(Object.keys(detail.data)).toEqual([' TOKEN ', 'OPENAI_API_KEY'])
+    expect(detail.data).toEqual({
       ' TOKEN ': '********name',
       OPENAI_API_KEY: '********value',
     })

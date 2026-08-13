@@ -92,17 +92,22 @@ function genericSecret(name: string, id: string, keys: string[]): Secret {
   return {
     id: id as Secret['id'],
     name,
-    kind: 'generic',
+    kind: 'service',
     provider: null,
     protocol: null,
     model: null,
     compatible_engine_ids: [],
     is_default: false,
-    keys,
+    data: Object.fromEntries(keys.map((key) => [key, 'value'])),
     created_at: '2030-01-01T00:00:00Z',
     updated_at: '2030-01-01T00:00:00Z',
   }
 }
+
+const HOOK_ID = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020'
+const HOOK_ID_B = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021'
+const HOOK_ID_C = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f022'
+const MISSING_ID = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f099'
 
 describe('ServiceCredentialSelect', () => {
   afterEach(() => {
@@ -110,19 +115,13 @@ describe('ServiceCredentialSelect', () => {
     vi.clearAllMocks()
   })
 
-  it('uses Secret resource names as option and change values', () => {
+  it('uses credential ids as option and change values', () => {
     const onChange = vi.fn()
     render(
       <ServiceCredentialSelect
         value=""
         onChange={onChange}
-        credentials={[
-          genericSecret(
-            'hook-prod',
-            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
-            ['WEBHOOK_SECRET', 'ALT_TOKEN'],
-          ),
-        ]}
+        credentials={[genericSecret('hook-prod', HOOK_ID, ['WEBHOOK_SECRET', 'ALT_TOKEN'])]}
         ariaLabel="Service credential"
       />,
     )
@@ -130,51 +129,41 @@ describe('ServiceCredentialSelect', () => {
     const trigger = screen.getByRole('button', { name: 'Service credential' })
     const option = screen.getByRole('option', { name: /hook-prod/ })
     expect(trigger).toHaveTextContent('managed.triggers.serviceCredentialPlaceholder')
-    expect(option).toHaveAttribute('data-value', 'hook-prod')
+    expect(option).toHaveAttribute('data-value', HOOK_ID)
     expect(option).toHaveAttribute('aria-selected', 'false')
-    expect(option).not.toHaveAttribute('data-value', 'WEBHOOK_SECRET')
 
     fireEvent.click(option)
-    expect(onChange).toHaveBeenCalledWith('hook-prod')
+    expect(onChange).toHaveBeenCalledWith(HOOK_ID)
   })
 
-  it('composes the selected resource name into the labelled trigger', () => {
+  it('marks the selected credential id in the labelled trigger', () => {
     render(
       <ServiceCredentialSelect
-        value="hook-prod"
+        value={HOOK_ID}
         onChange={vi.fn()}
-        credentials={[
-          genericSecret(
-            'hook-prod',
-            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
-            ['WEBHOOK_SECRET'],
-          ),
-        ]}
+        credentials={[genericSecret('hook-prod', HOOK_ID, ['WEBHOOK_SECRET'])]}
         ariaLabel="Service credential"
       />,
     )
 
-    expect(screen.getByRole('button', { name: 'Service credential' })).toHaveTextContent(
-      'hook-prod',
-    )
     expect(screen.getByRole('option', { name: /hook-prod/ })).toHaveAttribute(
       'aria-selected',
       'true',
     )
   })
 
-  it('keeps an unavailable current resource visible', () => {
+  it('keeps an unavailable current credential visible', () => {
     render(
       <ServiceCredentialSelect
-        value="deleted-hook"
+        value={MISSING_ID}
         onChange={vi.fn()}
         credentials={[]}
         ariaLabel="Service credential"
       />,
     )
 
-    const option = screen.getByRole('option', { name: /deleted-hook/ })
-    expect(option).toHaveAttribute('data-value', 'deleted-hook')
+    const option = screen.getByRole('option', { name: new RegExp(MISSING_ID) })
+    expect(option).toHaveAttribute('data-value', MISSING_ID)
     expect(option).toHaveTextContent('managed.triggers.serviceCredentialUnavailable')
   })
 
@@ -182,15 +171,9 @@ describe('ServiceCredentialSelect', () => {
     const onChange = vi.fn()
     render(
       <ServiceCredentialSelect
-        value="hook-prod"
+        value={HOOK_ID}
         onChange={onChange}
-        credentials={[
-          genericSecret(
-            'hook-prod',
-            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
-            ['WEBHOOK_SECRET'],
-          ),
-        ]}
+        credentials={[genericSecret('hook-prod', HOOK_ID, ['WEBHOOK_SECRET'])]}
         disabled
         ariaLabel="Service credential"
       />,
@@ -209,13 +192,7 @@ describe('ServiceCredentialSelect', () => {
       <ServiceCredentialSelect
         value=""
         onChange={vi.fn()}
-        credentials={[
-          genericSecret(
-            'hook-prod',
-            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
-            ['', '   ', ' TOKEN '],
-          ),
-        ]}
+        credentials={[genericSecret('hook-prod', HOOK_ID, ['', '   ', ' TOKEN '])]}
         ariaLabel="Service credential"
       />,
     )
@@ -226,20 +203,12 @@ describe('ServiceCredentialSelect', () => {
   it('does not render blank or noncanonical historical resource names as selectable values', () => {
     render(
       <ServiceCredentialSelect
-        value=" padded-service "
+        value={HOOK_ID_B}
         onChange={vi.fn()}
         credentials={[
-          genericSecret('', 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020', ['TOKEN']),
-          genericSecret(
-            ' padded-service ',
-            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021',
-            ['TOKEN'],
-          ),
-          genericSecret(
-            'canonical-service',
-            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f022',
-            ['TOKEN'],
-          ),
+          genericSecret('', HOOK_ID, ['TOKEN']),
+          genericSecret(' padded-service ', HOOK_ID_B, ['TOKEN']),
+          genericSecret('canonical-service', HOOK_ID_C, ['TOKEN']),
         ]}
         ariaLabel="Service credential"
       />,
@@ -248,7 +217,7 @@ describe('ServiceCredentialSelect', () => {
     expect(screen.getAllByRole('option')).toHaveLength(1)
     expect(screen.getByRole('option', { name: /canonical-service/ })).toHaveAttribute(
       'data-value',
-      'canonical-service',
+      HOOK_ID_C,
     )
   })
 })

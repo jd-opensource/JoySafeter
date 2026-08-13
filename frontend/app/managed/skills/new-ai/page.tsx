@@ -162,9 +162,9 @@ export default function SkillAiAuthoringPage() {
 
   const effectiveSecretRef = useMemo(() => {
     if (!secrets.length) return ''
-    const secretNames = new Set(secrets.map((secret) => secret.name))
-    if (secretRef && secretNames.has(secretRef)) return secretRef
-    return (secrets.find((s) => s.is_default) || secrets[0]).name
+    const secretIds = new Set<string>(secrets.map((secret) => secret.id))
+    if (secretRef && secretIds.has(secretRef)) return secretRef
+    return (secrets.find((s) => s.is_default) || secrets[0]).id
   }, [secretRef, secrets])
 
   useEffect(() => {

@@ -1,9 +1,12 @@
 import {
   parseAgentId,
   parseNullableId,
+  parseOptionalId,
+  parseCredentialId,
   parseSessionId,
   parseTaskId,
   parseTriggerId,
+  type CredentialId,
   type SessionId,
   type TaskId,
   type TriggerId,
@@ -19,6 +22,7 @@ type RawAgentTrigger = Omit<
   | 'reusable_session_id'
   | 'last_task_id'
   | 'last_session_id'
+  | 'webhook_auth_credential_id'
 > & {
   id: string
   agent_id: string
@@ -26,6 +30,7 @@ type RawAgentTrigger = Omit<
   reusable_session_id: string | null
   last_task_id: string | null
   last_session_id: string | null
+  webhook_auth_credential_id?: string | null
 }
 
 type RawTriggerRun = Omit<TriggerRun, 'id' | 'trigger_id' | 'chat_session_id'> & {
@@ -48,6 +53,10 @@ export function parseAgentTriggerResponse(response: RawAgentTrigger): AgentTrigg
     reusable_session_id: parseNullableId<SessionId>(response.reusable_session_id, parseSessionId),
     last_task_id: parseNullableId<TaskId>(response.last_task_id, parseTaskId),
     last_session_id: parseNullableId<SessionId>(response.last_session_id, parseSessionId),
+    webhook_auth_credential_id: parseOptionalId<CredentialId>(
+      response.webhook_auth_credential_id,
+      parseCredentialId,
+    ),
   }
 }
 

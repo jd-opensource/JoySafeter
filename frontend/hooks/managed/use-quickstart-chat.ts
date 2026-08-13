@@ -19,9 +19,9 @@ import {
   parseAgentId,
   parseEnvironmentId,
   parseSessionId,
-  parseVaultId,
+  parseCredentialGroupId,
   type EnvironmentId,
-  type VaultId,
+  type CredentialGroupId,
 } from '@/types/entity-id'
 
 import { currentProjectAllowsWrite } from './use-current-project-read-only'
@@ -49,7 +49,7 @@ export interface QuickstartTemplateConfig {
 
 interface CreateSessionOptions {
   environmentId?: EnvironmentId | null
-  vaultId?: VaultId | null
+  vaultId?: CredentialGroupId | null
 }
 
 function getCurrentManagedScope() {
@@ -105,7 +105,7 @@ function getCreatedResourceId(payload: unknown): string | null {
 function parseQuickstartResourceId(step: StepId, value: string): string {
   if (step === 3) return parseAgentId(value)
   if (step === 4) return parseEnvironmentId(value)
-  if (step === 5) return parseVaultId(value)
+  if (step === 5) return parseCredentialGroupId(value)
   if (step === 6) return parseSessionId(value)
   return value
 }
@@ -277,7 +277,7 @@ export function useQuickstartChat(agentSecretRef: string) {
             messages: historyForApi,
             current_step: apiStepForUiStep(step),
             engine_kind: engineKind,
-            secret_ref: requestSecretRef,
+            model_credential_id: requestSecretRef,
             agent_context: step === 4 || step === 5 ? configRef.current.agent : undefined,
           },
           { ...managedRequestOptions(requestScope), signal: controller.signal },
@@ -444,7 +444,7 @@ export function useQuickstartChat(agentSecretRef: string) {
       try {
         const body: Record<string, unknown> = { agent: apiResourceId(parseAgentId(agentId)) }
         if (envId) body.environment_id = apiResourceId(parseEnvironmentId(envId))
-        if (vaultId) body.vault_ids = [apiResourceId(parseVaultId(vaultId))]
+        if (vaultId) body.credential_group_ids = [apiResourceId(parseCredentialGroupId(vaultId))]
 
         const result = await managedPost(
           'sessions',
@@ -577,7 +577,7 @@ export function useQuickstartChat(agentSecretRef: string) {
       try {
         const vaultBody = { name }
         const result = await managedPost(
-          'vaults',
+          'credential-groups',
           vaultBody,
           managedRequestOptions(requestScope),
         ).catch((error) => {
@@ -586,7 +586,7 @@ export function useQuickstartChat(agentSecretRef: string) {
         if (!isCurrentWritableLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
         const rawVaultId = getCreatedResourceId(result)
         if (!rawVaultId) throw new Error(t('managed.quickstart.errors.createVaultFailed'))
-        const vaultId = parseVaultId(rawVaultId)
+        const vaultId = parseCredentialGroupId(rawVaultId)
 
         setResourceIds((prev) => {
           const next = { ...prev, [5]: vaultId }
@@ -595,7 +595,7 @@ export function useQuickstartChat(agentSecretRef: string) {
         })
         setCreatedResourceIds((prev) => new Set([...prev, vaultId]))
 
-        const vaultCurl = `curl -X POST ${API_BASE}/vaults \\
+        const vaultCurl = `curl -X POST ${API_BASE}/credential-groups \\
   -H "Content-Type: application/json" \\
   -H "x-api-key: $API_KEY" \\
   -d '${JSON.stringify(vaultBody, null, 2)}'`
@@ -736,7 +736,7 @@ export function useQuickstartChat(agentSecretRef: string) {
         const v = latestConfig.vault
         if (!v) throw new Error(t('managed.quickstart.errors.vaultConfigMissing'))
         result = await managedPost(
-          'vaults',
+          'credential-groups',
           {
             name: (v.name || 'quickstart-vault') + suffix,
             description: v.description || '',
@@ -825,7 +825,7 @@ export function useQuickstartChat(agentSecretRef: string) {
     setCompletedSteps((prev) => new Set([...prev, 4]))
   }, [])
 
-  const selectExistingVault = useCallback((vaultId: VaultId) => {
+  const selectExistingVault = useCallback((vaultId: CredentialGroupId) => {
     setResourceIds((prev) => {
       const next = { ...prev, [5]: vaultId }
       resourceIdsRef.current = next
@@ -887,7 +887,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
           messages: [{ role: 'user', content: prompt }],
           current_step: 5,
           engine_kind: selectedEngine,
-          secret_ref: agentSecretRef,
+          model_credential_id: agentSecretRef,
           agent_context: agent,
         },
         managedRequestOptions(requestScope),

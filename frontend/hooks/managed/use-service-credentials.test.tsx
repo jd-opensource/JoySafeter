@@ -29,25 +29,25 @@ vi.mock('@/lib/managed/request-scope', async (importOriginal) => {
 })
 
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
-const SECRET_ID_A = 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020'
-const SECRET_ID_B = 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021'
+const SECRET_ID_A = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020'
+const SECRET_ID_B = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021'
 const scope: ManagedRequestScope = {
   orgId: 'org-a',
   projectId: 'project-a',
   key: 'org-a:project-a',
 }
 
-function genericSecret(name: string, id: string, keys: string[]) {
+function genericSecret(name: string, id: string, data: Record<string, string>) {
   return {
     id,
     name,
-    kind: 'generic',
+    kind: 'service',
     provider: null,
     protocol: null,
     model: null,
     compatible_engine_ids: [],
     is_default: false,
-    keys,
+    data,
     created_at: '2030-01-01T00:00:00Z',
     updated_at: '2030-01-01T00:00:00Z',
   }
@@ -64,15 +64,15 @@ describe('useServiceCredentials', () => {
     vi.clearAllMocks()
   })
 
-  it('loads every Generic Secret page and preserves resource IDs and keys', async () => {
+  it('loads every Service Credential page and preserves resource IDs and fields', async () => {
     managedGetMock
       .mockResolvedValueOnce({
-        data: [genericSecret('service-a', SECRET_ID_A, ['TOKEN'])],
+        data: [genericSecret('service-a', SECRET_ID_A, { TOKEN: 'v' })],
         has_more: true,
         last_id: SECRET_ID_A,
       })
       .mockResolvedValueOnce({
-        data: [genericSecret('service-b', SECRET_ID_B, ['API_KEY'])],
+        data: [genericSecret('service-b', SECRET_ID_B, { API_KEY: 'v' })],
         has_more: false,
         last_id: SECRET_ID_B,
       })
@@ -80,13 +80,13 @@ describe('useServiceCredentials', () => {
     const { result } = renderHook(() => useServiceCredentials(), { wrapper })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(managedGetMock.mock.calls[0][0]).toBe('/secrets?limit=100&kind=generic')
+    expect(managedGetMock.mock.calls[0][0]).toBe('/credentials?limit=100&kind=service')
     expect(managedGetMock.mock.calls[1][0]).toBe(
-      `/secrets?limit=100&kind=generic&after_id=${SECRET_ID_A}`,
+      `/credentials?limit=100&kind=service&after_id=${SECRET_ID_A}`,
     )
     expect(result.current.data).toEqual([
-      expect.objectContaining({ id: SECRET_ID_A, name: 'service-a', keys: ['TOKEN'] }),
-      expect.objectContaining({ id: SECRET_ID_B, name: 'service-b', keys: ['API_KEY'] }),
+      expect.objectContaining({ id: SECRET_ID_A, name: 'service-a', data: { TOKEN: 'v' } }),
+      expect.objectContaining({ id: SECRET_ID_B, name: 'service-b', data: { API_KEY: 'v' } }),
     ])
     expect(serviceCredentialsQueryKey('org-a:project-a')).toEqual([
       'service-credentials',
@@ -97,9 +97,9 @@ describe('useServiceCredentials', () => {
   it('excludes blank and noncanonical historical names from selector query results', async () => {
     managedGetMock.mockResolvedValueOnce({
       data: [
-        genericSecret('', SECRET_ID_A, ['TOKEN']),
-        genericSecret(' padded-service ', SECRET_ID_A, ['TOKEN']),
-        genericSecret('canonical-service', SECRET_ID_B, ['API_KEY']),
+        genericSecret('', SECRET_ID_A, { TOKEN: 'v' }),
+        genericSecret(' padded-service ', SECRET_ID_A, { TOKEN: 'v' }),
+        genericSecret('canonical-service', SECRET_ID_B, { API_KEY: 'v' }),
       ],
       has_more: false,
       last_id: SECRET_ID_B,

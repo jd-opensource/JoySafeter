@@ -12,7 +12,7 @@ describe('managed API path helpers', () => {
     expect(apiResourceId(`trig_${UUID}`)).toBe(`trig_${UUID}`)
     expect(apiResourceId(`env_${UUID}`)).toBe(`env_${UUID}`)
     expect(apiResourceId(`secret_${UUID}`)).toBe(`secret_${UUID}`)
-    expect(apiResourceId(`vault_${UUID}`)).toBe(`vault_${UUID}`)
+    expect(apiResourceId(`credgrp_${UUID}`)).toBe(`credgrp_${UUID}`)
     expect(apiResourceId(`cred_${UUID}`)).toBe(`cred_${UUID}`)
     expect(apiResourceId(`skill_${UUID}`)).toBe(`skill_${UUID}`)
     expect(apiResourceId(`sklfile_${UUID}`)).toBe(`sklfile_${UUID}`)
@@ -48,10 +48,10 @@ describe('managed API path helpers', () => {
       `/files?scope_id=sess_${UUID}&limit=20`,
     )
     expect(
-      apiResourceSubpath('vaults', `vault_${UUID}`, ['credentials', `cred_${UUID}`], {
+      apiResourceSubpath('credential-groups', `credgrp_${UUID}`, ['members', `cred_${UUID}`], {
         limit: 100,
       }),
-    ).toBe(`/vaults/vault_${UUID}/credentials/cred_${UUID}?limit=100`)
+    ).toBe(`/credential-groups/credgrp_${UUID}/members/cred_${UUID}?limit=100`)
     expect(apiCollectionPath('skills/usage/search', { limit: 5, target_hash: 'sha256:abc' })).toBe(
       '/skills/usage/search?limit=5&target_hash=sha256%3Aabc',
     )

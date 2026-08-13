@@ -138,7 +138,7 @@ export function CompatibleSecretPicker({
             </button>
           ) : null}
           {options.map((secret) => {
-            const selected = secret.name === value
+            const selected = secret.id === value
             const provider = secret.provider
               ? getProvider(catalogQuery.data, secret.provider).display_name
               : t('managed.llm.unknownProvider')
@@ -152,7 +152,7 @@ export function CompatibleSecretPicker({
                 role="radio"
                 aria-checked={selected}
                 disabled={disabled}
-                onClick={() => onChange(secret.name)}
+                onClick={() => onChange(secret.id)}
                 className={cn(
                   'flex w-full items-start gap-3 rounded-xl border p-3 text-left transition-colors',
                   selected

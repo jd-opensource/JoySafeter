@@ -10,17 +10,19 @@ const pickerMocks = vi.hoisted(() => ({
   catalogRefetch: vi.fn(),
 }))
 
+const SECRET_ID = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020'
+
 const options = [
   {
-    id: 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
+    id: SECRET_ID,
     name: 'openai-prod',
-    kind: 'llm' as const,
+    kind: 'model' as const,
     provider: 'openai',
     protocol: 'openai_responses',
     model: 'gpt-5',
     compatible_engine_ids: ['codex'],
     is_default: true,
-    keys: ['OPENAI_API_KEY'],
+    data: { OPENAI_API_KEY: 'sk-test' },
     created_at: '2026-08-07T00:00:00Z',
     updated_at: '2026-08-07T00:00:00Z',
   },
@@ -96,7 +98,7 @@ describe('CompatibleSecretPicker', () => {
     render(
       <CompatibleSecretPicker
         engineId="codex"
-        value="openai-prod"
+        value={SECRET_ID}
         allowNone
         onChange={onChange}
         onCreateRequested={() => {}}

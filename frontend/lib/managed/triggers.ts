@@ -13,6 +13,7 @@ import {
 import {
   parseTaskId,
   type AgentId,
+  type CredentialId,
   type SessionId,
   type TaskId,
   type TriggerId,
@@ -52,8 +53,8 @@ export interface AgentTrigger {
   concurrency_policy?: TriggerConcurrencyPolicy | null
   next_run_at?: string | null
   last_fired_slot?: string | null
-  secret_ref?: string | null
-  secret_key?: string | null
+  webhook_auth_credential_id?: CredentialId | null
+  webhook_auth_field?: string | null
   config?: Record<string, unknown>
   project_id: string | null
   webhook_url: string | null
@@ -75,8 +76,8 @@ export interface AgentTriggerCreate {
   type?: TriggerType
   agent_id: AgentId
   prompt_template: string
-  secret_ref?: string | null
-  secret_key?: string | null
+  webhook_auth_credential_id?: CredentialId | null
+  webhook_auth_field?: string | null
   environment_ref?: string | null
   description?: string | null
   enabled?: boolean

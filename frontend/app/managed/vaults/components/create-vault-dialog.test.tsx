@@ -104,7 +104,7 @@ function deferred<T>() {
 describe('CreateVaultDialog managed scope lifecycle', () => {
   beforeEach(() => {
     managedPostMock.mockReset()
-    managedPostMock.mockResolvedValue({ id: 'vault-created' })
+    managedPostMock.mockResolvedValue({ id: 'credgrp_018f6f42-0a51-7cc4-98c8-4f6f0ca5f012' })
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
@@ -182,7 +182,11 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults', expect.anything(), managedOptions())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/credential-groups',
+      expect.anything(),
+      managedOptions(),
+    )
   })
 
   it('does not invalidate from a create completion after the managed project changes', async () => {
@@ -221,7 +225,9 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults', 'org-a:project-a'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['credential-groups', 'org-a:project-a'],
+    })
   })
 
   it('does not invalidate from a create completion after the dialog unmounts', async () => {
@@ -261,7 +267,9 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults', 'org-a:project-a'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['credential-groups', 'org-a:project-a'],
+    })
     expect(onOpenChange).not.toHaveBeenCalled()
   })
 })

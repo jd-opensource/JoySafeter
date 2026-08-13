@@ -54,10 +54,10 @@ import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-r
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
   parseSessionId,
+  type CredentialGroupId,
   type FileId,
   type MemoryStoreId,
   type SessionId,
-  type VaultId,
 } from '@/types/entity-id'
 import { parseAgentListResponse } from '@/lib/managed/agent-response-parsers'
 import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
@@ -120,7 +120,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const [agentSearch, setAgentSearch] = useState('')
   const [envId, setEnvId] = useState('')
   const [envSearch, setEnvSearch] = useState('')
-  const [selectedVaultIds, setSelectedVaultIds] = useState<VaultId[]>([])
+  const [selectedVaultIds, setSelectedVaultIds] = useState<CredentialGroupId[]>([])
   const [vaultSearch, setVaultSearch] = useState('')
   const [showVaultDropdown, setShowVaultDropdown] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
@@ -157,9 +157,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   })
 
   const { data: vaultsRes } = useQuery({
-    queryKey: ['vaults-for-session', managedScope.key],
+    queryKey: ['credential-groups-for-session', managedScope.key],
     queryFn: () =>
-      managedGet<{ data: unknown[] }>('/vaults', managedRequestOptions(managedScope)).then(
+      managedGet<{ data: unknown[] }>('/credential-groups', managedRequestOptions(managedScope)).then(
         (response) => ({ ...response, data: parseVaultListResponse(response.data) }),
       ),
     enabled: open && hasManagedRequestScope(managedScope),
@@ -399,7 +399,8 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     const currentEnvironments =
       queryClient.getQueryData<Environment[]>(['envs-for-session', scope]) ?? environments
     const currentVaults =
-      queryClient.getQueryData<{ data?: Vault[] }>(['vaults-for-session', scope])?.data ?? vaults
+      queryClient.getQueryData<{ data?: Vault[] }>(['credential-groups-for-session', scope])?.data ??
+      vaults
     const currentFiles =
       queryClient.getQueryData<{ data?: FileRecord[] }>(['files-for-session', scope])?.data ?? files
     const currentMemoryStores =
@@ -426,7 +427,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     if (title.trim()) body.title = title.trim()
     if (currentEnvId) body.environment_id = apiResourceId(currentEnvId)
     if (currentSelectedVaultIds.length > 0) {
-      body.vault_ids = currentSelectedVaultIds.map(apiResourceId)
+      body.credential_group_ids = currentSelectedVaultIds.map(apiResourceId)
     }
     if (currentSelectedFiles.length > 0) {
       body.file_resources = currentSelectedFiles.map((f) => ({
@@ -490,7 +491,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     }
   }
 
-  const toggleVault = (id: VaultId) => {
+  const toggleVault = (id: CredentialGroupId) => {
     setSelectedVaultIds((prev) =>
       prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id],
     )

@@ -9,10 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useTranslation } from '@/lib/i18n'
-import {
-  filterSelectableSecretResources,
-  isSelectableSecretResourceName,
-} from '@/lib/managed/secret-response-parsers'
+import { filterSelectableSecretResources } from '@/lib/managed/secret-response-parsers'
 import type { Secret } from '@/types/managed'
 
 interface ServiceCredentialSelectProps {
@@ -22,6 +19,10 @@ interface ServiceCredentialSelectProps {
   loading?: boolean
   disabled?: boolean
   ariaLabel: string
+}
+
+function usableFieldCount(credential: Secret): number {
+  return Object.keys(credential.data ?? {}).filter((field) => field.trim().length > 0).length
 }
 
 export function ServiceCredentialSelect({
@@ -35,8 +36,7 @@ export function ServiceCredentialSelect({
   const { t } = useTranslation()
   const selectableCredentials = filterSelectableSecretResources(credentials)
   const showUnavailableValue =
-    isSelectableSecretResourceName(value) &&
-    !selectableCredentials.some((item) => item.name === value)
+    Boolean(value) && !credentials.some((item) => item.id === value)
 
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled || loading}>
@@ -50,11 +50,11 @@ export function ServiceCredentialSelect({
       <SelectContent>
         <SelectGroup>
           {selectableCredentials.map((credential) => (
-            <SelectItem key={credential.id} value={credential.name}>
+            <SelectItem key={credential.id} value={credential.id}>
               <span>{credential.name}</span>
               <span className="text-xs text-muted-foreground">
                 {t('managed.triggers.credentialFieldCount', {
-                  count: credential.keys?.filter((field) => field.trim().length > 0).length ?? 0,
+                  count: usableFieldCount(credential),
                 })}
               </span>
             </SelectItem>

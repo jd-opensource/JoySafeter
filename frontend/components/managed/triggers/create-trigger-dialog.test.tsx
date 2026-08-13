@@ -110,7 +110,8 @@ globalThis.localStorage = dom.window.localStorage
 import { CreateTriggerDialog } from './create-trigger-dialog'
 
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
-const SERVICE_CREDENTIAL_ID = 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020'
+const SERVICE_CREDENTIAL_ID = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020'
+const MISSING_CREDENTIAL_ID = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f099'
 
 function mockManagedApi({
   keys = ['WEBHOOK_SECRET', 'ALT_TOKEN'],
@@ -120,20 +121,20 @@ function mockManagedApi({
   secretError?: Error
 } = {}) {
   managedGetMock.mockImplementation(async (path: string) => {
-    if (path.startsWith('/secrets?')) {
+    if (path.startsWith('/credentials?')) {
       if (secretError) throw secretError
       return {
         data: [
           {
             id: SERVICE_CREDENTIAL_ID,
             name: 'hook-prod',
-            kind: 'generic',
+            kind: 'service',
             provider: null,
             protocol: null,
             model: null,
             compatible_engine_ids: [],
             is_default: false,
-            keys,
+            data: Object.fromEntries(keys.map((key) => [key, 'value'])),
             created_at: '2030-01-01T00:00:00Z',
             updated_at: '2030-01-01T00:00:00Z',
           },
@@ -180,8 +181,8 @@ function completedOneOffTrigger(): AgentTrigger {
     concurrency_policy: 'allow',
     next_run_at: null,
     last_fired_slot: '2000-01-01T00:00:00Z',
-    secret_ref: null,
-    secret_key: null,
+    webhook_auth_credential_id: null,
+    webhook_auth_field: null,
     config: {},
     project_id: 'project-a',
     webhook_url: null,
@@ -232,7 +233,7 @@ function webhookTrigger({
   secretRef = null,
   secretKey = null,
 }: {
-  secretRef?: string | null
+  secretRef?: AgentTrigger['webhook_auth_credential_id']
   secretKey?: string | null
 } = {}): AgentTrigger {
   return {
@@ -246,8 +247,8 @@ function webhookTrigger({
     run_at: null,
     next_run_at: null,
     last_fired_slot: null,
-    secret_ref: secretRef,
-    secret_key: secretKey,
+    webhook_auth_credential_id: secretRef,
+    webhook_auth_field: secretKey,
     config: { auth_methods: ['hmac'] },
   }
 }
@@ -349,11 +350,11 @@ describe('CreateTriggerDialog edit mode', () => {
     expect(payload.body).not.toHaveProperty('run_at')
     expect(payload.body).not.toHaveProperty('timezone')
     expect(payload.body).not.toHaveProperty('concurrency_policy')
-    expect(payload.body).not.toHaveProperty('secret_ref')
+    expect(payload.body).not.toHaveProperty('webhook_auth_credential_id')
     expect(payload.body).not.toHaveProperty('auth_methods')
   })
 
-  it('submits the selected Secret resource name and selected metadata key', async () => {
+  it('submits the selected credential id and selected metadata field', async () => {
     const { getByText } = renderDialog(webhookTrigger())
 
     await waitFor(() => expect(getByText('hook-prod')).toBeTruthy())
@@ -366,13 +367,16 @@ describe('CreateTriggerDialog edit mode', () => {
 
     await waitFor(() => expect(mutateAsync).toHaveBeenCalled())
     expect(mutateAsync.mock.calls[0][0].body).toEqual(
-      expect.objectContaining({ secret_ref: 'hook-prod', secret_key: 'ALT_TOKEN' }),
+      expect.objectContaining({
+        webhook_auth_credential_id: SERVICE_CREDENTIAL_ID,
+        webhook_auth_field: 'ALT_TOKEN',
+      }),
     )
   })
 
-  it('preserves an unavailable historical Secret resource and disables save', async () => {
+  it('preserves an unavailable historical credential and disables save', async () => {
     const { getAllByText, getByText } = renderDialog(
-      webhookTrigger({ secretRef: 'deleted-hook', secretKey: 'WEBHOOK_SECRET' }),
+      webhookTrigger({ secretRef: MISSING_CREDENTIAL_ID, secretKey: 'WEBHOOK_SECRET' }),
     )
 
     await waitFor(() =>
@@ -385,7 +389,7 @@ describe('CreateTriggerDialog edit mode', () => {
 
   it('preserves an unavailable historical Secret field and disables save', async () => {
     const { getByText } = renderDialog(
-      webhookTrigger({ secretRef: 'hook-prod', secretKey: 'REMOVED_FIELD' }),
+      webhookTrigger({ secretRef: SERVICE_CREDENTIAL_ID, secretKey: 'REMOVED_FIELD' }),
     )
 
     await waitFor(() =>
@@ -397,7 +401,7 @@ describe('CreateTriggerDialog edit mode', () => {
   it('reports a Secret with no metadata keys and disables save', async () => {
     mockManagedApi({ keys: [] })
     const { getByText } = renderDialog(
-      webhookTrigger({ secretRef: 'hook-prod', secretKey: null }),
+      webhookTrigger({ secretRef: SERVICE_CREDENTIAL_ID, secretKey: null }),
     )
 
     await waitFor(() => expect(getByText('managed.triggers.credentialFieldEmpty')).toBeTruthy())
@@ -409,7 +413,7 @@ describe('CreateTriggerDialog edit mode', () => {
     mockManagedApi({ keys: ['', '   ', 'WEBHOOK_SECRET'] })
 
     const view = renderDialog(
-      webhookTrigger({ secretRef: 'hook-prod', secretKey: 'WEBHOOK_SECRET' }),
+      webhookTrigger({ secretRef: SERVICE_CREDENTIAL_ID, secretKey: 'WEBHOOK_SECRET' }),
     )
 
     await waitFor(() => expect(view.getByText('WEBHOOK_SECRET')).toBeTruthy())
@@ -424,7 +428,7 @@ describe('CreateTriggerDialog edit mode', () => {
   it('reports a failed Secret query and disables save', async () => {
     mockManagedApi({ secretError: new Error('secret metadata unavailable') })
     const { getByText } = renderDialog(
-      webhookTrigger({ secretRef: 'hook-prod', secretKey: 'WEBHOOK_SECRET' }),
+      webhookTrigger({ secretRef: SERVICE_CREDENTIAL_ID, secretKey: 'WEBHOOK_SECRET' }),
     )
 
     await waitFor(() =>

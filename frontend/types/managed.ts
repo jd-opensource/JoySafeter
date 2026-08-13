@@ -1,5 +1,6 @@
 import type {
   AgentId,
+  CredentialGroupId,
   CredentialId,
   EnvironmentId,
   EventId,
@@ -18,7 +19,6 @@ import type {
   StorageMountAuditId,
   StorageVolumeId,
   TaskId,
-  VaultId,
 } from '@/types/entity-id'
 
 export interface Agent {
@@ -34,7 +34,7 @@ export interface Agent {
   metadata?: Record<string, unknown>
   env?: Record<string, string>
   environment_ref?: string | null
-  secret_ref?: string | null
+  model_credential_id?: CredentialId | null
   engine_kind: string
   created_at: string
   updated_at: string
@@ -92,7 +92,7 @@ export interface Session {
   stop_reason?: string
   title?: string
   metadata?: Record<string, unknown>
-  vault_ids?: VaultId[]
+  credential_group_ids?: CredentialGroupId[]
   repo_resources?: SessionRepoResource[]
   storage_mounts?: SessionStorageMount[]
   usage?: SessionUsage
@@ -243,7 +243,7 @@ export interface EnvironmentEgressService {
   kind?: 'external' | string
   exposure?: 'placeholder' | 'transparent' | string
   base_url: string
-  credential_ref: string
+  service_credential_id: CredentialId
   inject?: EnvironmentEgressServiceInject
   allowed_paths?: string[]
 }
@@ -354,10 +354,9 @@ export interface Environment {
 }
 
 export interface Vault {
-  id: VaultId
+  id: CredentialGroupId
   name: string
   description?: string
-  metadata?: Record<string, unknown>
   created_at: string
   updated_at: string
   archived_at?: string | null
@@ -365,17 +364,10 @@ export interface Vault {
 
 export interface VaultCredential {
   id: CredentialId
-  vault_id: VaultId
+  group_id: CredentialGroupId
   name: string
-  credential_type: string
   mcp_server_url: string
-  oauth_config?: {
-    client_id: string
-    token_endpoint: string
-    expires_at?: string
-    scopes?: string[]
-  } | null
-  env_var_name?: string | null
+  data?: Record<string, string>
   created_at: string
   updated_at: string
   archived_at?: string | null
@@ -609,22 +601,23 @@ export interface MemberRecord {
 }
 
 export interface Secret {
-  id: import('./entity-id').SecretId
+  id: import('./entity-id').CredentialId
   name: string
-  kind: 'llm' | 'generic'
+  kind: 'model' | 'mcp' | 'service'
   provider: string | null
   protocol: string | null
   model: string | null
   compatible_engine_ids: string[]
   is_default: boolean
   data?: Record<string, string>
-  keys?: string[]
+  mcp_server_url?: string | null
+  group_id?: import('./entity-id').CredentialGroupId | null
   created_at: string
   updated_at: string
 }
 
-export interface SecretDetail extends Omit<Secret, 'keys'> {
-  secret_data: Record<string, string>
+export interface SecretDetail extends Secret {
+  data: Record<string, string>
 }
 
 export interface ApiKeyInfo {

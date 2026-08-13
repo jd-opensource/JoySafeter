@@ -94,15 +94,15 @@ vi.mock('@/components/managed/llm/llm-secret-configurator', () => ({
         type="button"
         onClick={() =>
           onCreated({
-            id: 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f124',
+            id: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f124',
             name: 'inline-secret',
-            kind: 'llm',
+            kind: 'model',
             provider: 'anthropic',
             protocol: 'anthropic_messages',
             model: 'claude-sonnet-4-5',
             compatible_engine_ids: ['claude'],
             is_default: false,
-            secret_data: { ANTHROPIC_API_KEY: 'secret' },
+            data: { ANTHROPIC_API_KEY: 'secret' },
             created_at: '2026-08-07T00:00:00Z',
             updated_at: '2026-08-07T00:00:00Z',
           })
@@ -225,7 +225,6 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http:
 const SKILL_ID = 'skill_018f6f42-0a51-7cc4-98c8-4f6f0ca5f120'
 const ENVIRONMENT_ID = 'env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f121'
 const CREATED_AGENT_ID = 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f122'
-const SECRET_ID = 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f123'
 globalThis.window = dom.window as unknown as Window & typeof globalThis
 globalThis.document = dom.window.document
 globalThis.navigator = dom.window.navigator
@@ -252,20 +251,29 @@ function managedOptions(projectId = 'project-a') {
 }
 
 function compatibleSecretsPath(engineId = 'claude') {
-  return `/secrets?limit=100&kind=llm&compatible_engine=${engineId}`
+  return `/credentials?limit=100&kind=model&compatible_engine=${engineId}`
+}
+
+function credentialIdForName(name: string): string {
+  let hash = 0
+  for (let i = 0; i < name.length; i += 1) {
+    hash = (hash * 31 + name.charCodeAt(i)) % 0xfff
+  }
+  const suffix = hash.toString(16).padStart(3, '0')
+  return `cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f${suffix}`
 }
 
 function llmSecret(name: string, isDefault = true, compatibleEngineIds = ['claude']) {
   return {
-    id: SECRET_ID,
+    id: credentialIdForName(name),
     name,
-    kind: 'llm',
+    kind: 'model',
     provider: 'anthropic',
     protocol: 'anthropic_messages',
     model: 'claude-sonnet-4-5',
     compatible_engine_ids: compatibleEngineIds,
     is_default: isDefault,
-    keys: ['ANTHROPIC_API_KEY'],
+    data: { ANTHROPIC_API_KEY: 'secret' },
     created_at: '2026-08-07T00:00:00Z',
     updated_at: '2026-08-07T00:00:00Z',
   }
@@ -437,7 +445,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     expect(managedPostMock).toHaveBeenCalledTimes(1)
     expect(managedPostMock.mock.calls[0][2]).toEqual(managedOptions())
     expect(managedPostMock.mock.calls[0][1]).toMatchObject({ name: 'Created Agent' })
-    expect(managedPostMock.mock.calls[0][1]).not.toHaveProperty('secret_ref')
+    expect(managedPostMock.mock.calls[0][1]).not.toHaveProperty('model_credential_id')
   })
 
   it('does not submit a default secret after the user chooses no selection', async () => {
@@ -480,7 +488,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
 
     expect(managedPostMock).toHaveBeenCalledTimes(1)
     expect(managedPostMock.mock.calls[0][2]).toEqual(managedOptions())
-    expect(managedPostMock.mock.calls[0][1]).not.toHaveProperty('secret_ref')
+    expect(managedPostMock.mock.calls[0][1]).not.toHaveProperty('model_credential_id')
   })
 
   it('does not submit a default secret after it leaves the current selectable secret list', async () => {
@@ -531,7 +539,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
 
     expect(managedPostMock).toHaveBeenCalledTimes(1)
     expect(managedPostMock.mock.calls[0][2]).toEqual(managedOptions())
-    expect(managedPostMock.mock.calls[0][1]).not.toHaveProperty('secret_ref')
+    expect(managedPostMock.mock.calls[0][1]).not.toHaveProperty('model_credential_id')
   })
 
   it('preserves a selected secret when the next engine also supports it', async () => {

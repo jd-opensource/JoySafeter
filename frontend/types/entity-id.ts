@@ -11,6 +11,7 @@ export const ENTITY_ID_PREFIXES = {
   secret: 'secret_',
   vault: 'vault_',
   credential: 'cred_',
+  credentialGroup: 'credgrp_',
   sandbox: 'sbx_',
   memoryStore: 'memstore_',
   memory: 'mem_',
@@ -44,6 +45,7 @@ export type EnvironmentId = EntityId<'env_'>
 export type SecretId = EntityId<'secret_'>
 export type VaultId = EntityId<'vault_'>
 export type CredentialId = EntityId<'cred_'>
+export type CredentialGroupId = EntityId<'credgrp_'>
 export type SandboxId = EntityId<'sbx_'>
 export type MemoryStoreId = EntityId<'memstore_'>
 export type MemoryId = EntityId<'mem_'>
@@ -148,6 +150,20 @@ export function tryParseVaultId(value: string | null | undefined): VaultId | nul
 
 export function parseCredentialId(value: string): CredentialId {
   return parseEntityId(value, 'credential')
+}
+
+export function tryParseCredentialId(value: string | null | undefined): CredentialId | null {
+  return value && isEntityId(value, 'credential') ? value : null
+}
+
+export function parseCredentialGroupId(value: string): CredentialGroupId {
+  return parseEntityId(value, 'credentialGroup')
+}
+
+export function tryParseCredentialGroupId(
+  value: string | null | undefined,
+): CredentialGroupId | null {
+  return value && isEntityId(value, 'credentialGroup') ? value : null
 }
 
 export function parseSandboxId(value: string): SandboxId {

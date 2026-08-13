@@ -75,13 +75,13 @@ globalThis.alert = vi.fn()
 
 import { managedPost } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
-import { parseVaultId, type VaultId } from '@/types/entity-id'
+import { parseCredentialGroupId, type CredentialGroupId } from '@/types/entity-id'
 
 import { CreateCredentialDialog } from './create-credential-dialog'
 
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
-const vaultAId = parseVaultId('vault_00000000-0000-0000-0000-000000000001')
-const vaultBId = parseVaultId('vault_00000000-0000-0000-0000-000000000002')
+const vaultAId = parseCredentialGroupId('credgrp_00000000-0000-0000-0000-000000000001')
+const vaultBId = parseCredentialGroupId('credgrp_00000000-0000-0000-0000-000000000002')
 
 function managedOptions() {
   return {
@@ -102,7 +102,7 @@ function deferred<T>() {
 }
 
 function renderDialog(
-  vaultId: VaultId,
+  vaultId: CredentialGroupId,
   queryClient: QueryClient,
   onOpenChange: (open: boolean) => void = () => {},
 ) {
@@ -121,7 +121,15 @@ function renderDialog(
 describe('CreateCredentialDialog object lifecycle', () => {
   beforeEach(() => {
     managedPostMock.mockReset()
-    managedPostMock.mockResolvedValue({ id: 'cred-created' })
+    managedPostMock.mockResolvedValue({
+      id: 'cred_00000000-0000-0000-0000-000000000003',
+      group_id: 'credgrp_00000000-0000-0000-0000-000000000001',
+      name: 'https://mcp-a.example.com',
+      mcp_server_url: 'https://mcp-a.example.com',
+      data: { token_value: '********' },
+      created_at: '2026-08-10T00:00:00Z',
+      updated_at: '2026-08-10T00:00:00Z',
+    })
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
@@ -219,11 +227,10 @@ describe('CreateCredentialDialog object lifecycle', () => {
 
     await waitFor(() =>
       expect(managedPostMock).toHaveBeenCalledWith(
-        `/vaults/${vaultAId}/credentials`,
+        `/credential-groups/${vaultAId}/members`,
         expect.objectContaining({
-          credential_type: 'static_bearer',
           mcp_server_url: 'https://mcp-a.example.com',
-          token_value: 'bearer-token',
+          data: { token_value: 'bearer-token' },
         }),
         managedOptions(),
       ),
@@ -278,7 +285,7 @@ describe('CreateCredentialDialog object lifecycle', () => {
     expect(onOpenChange).not.toHaveBeenCalled()
   })
 
-  it('omits a blank optional name on the wire and accepts the server fallback response', async () => {
+  it('defaults a blank optional name to the server url and accepts the member response', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     const onOpenChange = vi.fn()
@@ -287,12 +294,10 @@ describe('CreateCredentialDialog object lifecycle', () => {
       wirePayload = JSON.parse(JSON.stringify(payload)) as Record<string, unknown>
       return {
         id: 'cred_00000000-0000-0000-0000-000000000003',
-        vault_id: vaultAId,
+        group_id: vaultAId,
         name: 'https://mcp-a.example.com',
-        credential_type: 'static_bearer',
         mcp_server_url: 'https://mcp-a.example.com',
-        token_value: '********',
-        oauth_config: null,
+        data: { token_value: '********' },
         archived_at: null,
         created_at: '2026-08-10T00:00:00Z',
         updated_at: '2026-08-10T00:00:00Z',
@@ -316,9 +321,9 @@ describe('CreateCredentialDialog object lifecycle', () => {
 
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
     expect(wirePayload).toEqual({
-      credential_type: 'static_bearer',
+      name: 'https://mcp-a.example.com',
       mcp_server_url: 'https://mcp-a.example.com',
-      token_value: 'bearer-token',
+      data: { token_value: 'bearer-token' },
     })
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ['vault-credentials', vaultAId],

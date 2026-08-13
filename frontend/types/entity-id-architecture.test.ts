@@ -19,7 +19,7 @@ const REGISTERED_ENTITY_PREFIX_LENGTHS = new Set(
 const DISPLAY_ID_HELPERS = ['entityIdUuid', 'shortEntityId'] as const
 const DISPLAY_ID_HELPER_ALLOWLIST = {
   'app/managed/quickstart/page.tsx': { 'QuickstartPage::shortEntityId': 4 },
-  'app/managed/sessions/[sessionId]/page.tsx': { 'SessionDetailPage::shortEntityId': 2 },
+  'app/managed/sessions/[sessionId]/page.tsx': { 'SessionDetailPageInner::shortEntityId': 2 },
   'components/managed/session/event-detail.tsx': {
     'EventDetail::shortEntityId': 1,
     'parseEventTime::entityIdUuid': 1,
@@ -645,7 +645,9 @@ function numeric(sessionId) {
     expect(agentParsers).toContain('id: parseAgentId(raw.id)')
     expect(agentParsers).toContain('skill_id: parseSkillId(skill.skill_id)')
     expect(sessionParsers).toContain('id: parseSessionId(raw.id)')
-    expect(sessionParsers).toContain('vault_ids: raw.vault_ids?.map(parseVaultId)')
+    expect(sessionParsers).toContain(
+      'credential_group_ids: raw.credential_group_ids?.map(parseCredentialGroupId)',
+    )
     expect(agentList).toContain('parseItem: parseAgentResponse')
     expect(agentDetail).toContain('.then(parseAgentResponse)')
     expect(sessionList).toContain('parseItem: parseSessionResponse')
@@ -746,13 +748,13 @@ function numeric(sessionId) {
       ['app/managed/agents/page.tsx', 'parseCursor: parseAgentId'],
       ['app/managed/sessions/page.tsx', 'parseCursor: parseSessionId'],
       ['app/managed/environments/page.tsx', 'parseCursor: parseEnvironmentId'],
-      ['app/managed/environments/page.tsx', 'parseCursor: parseSecretId'],
-      ['app/managed/environments/[envId]/page.tsx', 'parseCursor: parseSecretId'],
-      ['app/managed/secrets/page.tsx', 'parseCursor: parseSecretId'],
+      ['app/managed/environments/page.tsx', 'parseCursor: parseCredentialId'],
+      ['app/managed/environments/[envId]/page.tsx', 'parseCursor: parseCredentialId'],
+      ['app/managed/secrets/page.tsx', 'parseCursor: parseCredentialId'],
       ['app/managed/memory-stores/page.tsx', 'parseCursor: parseMemoryStoreId'],
       ['app/managed/skills/page.tsx', 'parseCursor: parseSkillId'],
       ['app/managed/files/page.tsx', 'parseCursor: parseFileId'],
-      ['app/managed/vaults/page.tsx', 'parseCursor: parseVaultId'],
+      ['app/managed/vaults/page.tsx', 'parseCursor: parseCredentialGroupId'],
       ['lib/managed/triggers.ts', 'parseCursor: parseTaskId'],
       [
         'components/managed/storage-volumes/storage-volumes-page.tsx',
@@ -786,9 +788,9 @@ function numeric(sessionId) {
     const parsers = readProjectFile('lib/managed/secret-response-parsers.ts')
 
     expect(listPage).toContain('parseItem: parseSecretResponse')
-    expect(detailPage).toContain('const secretId = parseSecretId(rawSecretId)')
+    expect(detailPage).toContain('const secretId = parseCredentialId(rawSecretId)')
     expect(detailPage).toContain('.then(parseSecretDetailResponse)')
-    expect(parsers).toContain('id: parseSecretId(raw.id)')
+    expect(parsers).toContain('id: parseCredentialId(raw.id)')
     expect(readProjectFile('lib/managed/api-paths.ts')).toContain('parseAnyEntityId')
   })
 
@@ -798,10 +800,10 @@ function numeric(sessionId) {
     const parsers = readProjectFile('lib/managed/vault-response-parsers.ts')
 
     expect(listPage).toContain('parseItem: parseVaultResponse')
-    expect(detailPage).toContain('const vaultId = parseVaultId(rawVaultId)')
+    expect(detailPage).toContain('const vaultId = parseCredentialGroupId(rawVaultId)')
     expect(detailPage).toContain('parseVaultCredentialListResponse(response.data)')
     expect(parsers).toContain('id: parseCredentialId(raw.id)')
-    expect(parsers).toContain('vault_id: parseVaultId(raw.vault_id)')
+    expect(parsers).toContain('group_id: parseCredentialGroupId(raw.group_id)')
     expect(readProjectFile('lib/managed/api-paths.ts')).toContain('parseAnyEntityId')
   })
 

@@ -66,7 +66,7 @@ export function buildQuickstartAgentCreateBody(
     name: `${name}${options.suffix}`,
     engine_kind: options.engineKind,
     system: systemPrompt || null,
-    secret_ref: options.secretRef,
+    model_credential_id: options.secretRef,
     tools: arrayValue(agentConfig.tools) || [],
   }
 

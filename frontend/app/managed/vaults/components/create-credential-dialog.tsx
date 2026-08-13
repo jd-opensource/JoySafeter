@@ -16,7 +16,7 @@ import {
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
-import type { VaultId } from '@/types/entity-id'
+import type { CredentialGroupId } from '@/types/entity-id'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -30,19 +30,18 @@ import {
 interface CreateCredentialDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  vaultId: VaultId
+  vaultId: CredentialGroupId
   queryKey: unknown[]
   canSubmit?: () => boolean
 }
 
 interface CreateCredentialVariables {
-  vaultId: VaultId
+  vaultId: CredentialGroupId
   queryKey: unknown[]
   payload: {
-    name?: string
-    credential_type: 'static_bearer'
+    name: string
     mcp_server_url: string
-    token_value: string
+    data: { token_value: string }
   }
   runId: number
   scope: string
@@ -81,7 +80,7 @@ export function CreateCredentialDialog({
         throw new Error('Stale vault credential create ignored')
       }
       return managedPost<unknown>(
-        apiResourcePath('vaults', vaultId, 'credentials'),
+        apiResourcePath('credential-groups', vaultId, 'members'),
         payload,
         managedRequestOptions(requestScope),
       ).then(parseVaultCredentialResponse)
@@ -157,10 +156,9 @@ export function CreateCredentialDialog({
       vaultId,
       queryKey,
       payload: {
-        name: name || undefined,
-        credential_type: 'static_bearer',
+        name: name.trim() || trimmedMcpServerUrl,
         mcp_server_url: trimmedMcpServerUrl,
-        token_value: trimmedTokenValue,
+        data: { token_value: trimmedTokenValue },
       },
       runId,
       scope: operationScopeRef.current,

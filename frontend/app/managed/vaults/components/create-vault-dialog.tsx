@@ -76,14 +76,14 @@ export function CreateVaultDialog({ open, onOpenChange }: CreateVaultDialogProps
         throw new Error('Archived project vault create ignored')
       }
       return managedPost<unknown>(
-        '/vaults',
+        '/credential-groups',
         { name: vaultName },
         managedRequestOptions(requestScope),
       ).then(parseVaultResponse)
     },
     onSuccess: (_data, { runId, scope }) => {
       if (!isCurrentCreateRun(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['vaults', scope] })
+      queryClient.invalidateQueries({ queryKey: ['credential-groups', scope] })
       setName('')
       onOpenChange(false)
     },

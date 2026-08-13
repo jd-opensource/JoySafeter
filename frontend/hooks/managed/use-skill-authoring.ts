@@ -294,7 +294,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
         const resp = await apiStream(
           'skills/ai-authoring/chat',
           {
-            secret_ref: secretRef,
+            model_credential_id: secretRef,
             // Send the conversation up to (but not including) the blank
             // assistant placeholder we just appended.
             messages: nextMessages.slice(0, -1),

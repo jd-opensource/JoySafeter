@@ -1,4 +1,4 @@
-import { parseAgentId, parseSessionId, parseVaultId } from '@/types/entity-id'
+import { parseAgentId, parseCredentialGroupId, parseSessionId } from '@/types/entity-id'
 import type { Session, SessionAgent } from '@/types/managed'
 import { parseSessionRepoResourceResponse } from './file-response-parsers'
 import { parseSessionStorageMountResponse } from './storage-mount-response-parsers'
@@ -10,11 +10,11 @@ type RawSessionAgent = Omit<SessionAgent, 'id' | 'agent_id'> & {
 
 type RawSession = Omit<
   Session,
-  'id' | 'agent' | 'vault_ids' | 'repo_resources' | 'storage_mounts'
+  'id' | 'agent' | 'credential_group_ids' | 'repo_resources' | 'storage_mounts'
 > & {
   id: string
   agent?: RawSessionAgent
-  vault_ids?: string[]
+  credential_group_ids?: string[]
   repo_resources?: unknown[]
   storage_mounts?: unknown[]
 }
@@ -33,7 +33,7 @@ export function parseSessionResponse(response: unknown): Session {
     ...raw,
     id: parseSessionId(raw.id),
     agent: raw.agent === undefined ? undefined : parseSessionAgent(raw.agent),
-    vault_ids: raw.vault_ids?.map(parseVaultId),
+    credential_group_ids: raw.credential_group_ids?.map(parseCredentialGroupId),
     repo_resources: raw.repo_resources?.map(parseSessionRepoResourceResponse),
     storage_mounts: raw.storage_mounts?.map(parseSessionStorageMountResponse),
   }

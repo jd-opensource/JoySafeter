@@ -1,15 +1,15 @@
-import { parseCredentialId, parseVaultId } from '@/types/entity-id'
+import { parseCredentialGroupId, parseCredentialId } from '@/types/entity-id'
 import type { Vault, VaultCredential } from '@/types/managed'
 
 type RawVault = Omit<Vault, 'id'> & { id: string }
-type RawVaultCredential = Omit<VaultCredential, 'id' | 'vault_id'> & {
+type RawVaultCredential = Omit<VaultCredential, 'id' | 'group_id'> & {
   id: string
-  vault_id: string
+  group_id: string
 }
 
 export function parseVaultResponse(response: unknown): Vault {
   const raw = response as RawVault
-  return { ...raw, id: parseVaultId(raw.id) }
+  return { ...raw, id: parseCredentialGroupId(raw.id) }
 }
 
 export function parseVaultListResponse(response: unknown[]): Vault[] {
@@ -21,7 +21,7 @@ export function parseVaultCredentialResponse(response: unknown): VaultCredential
   return {
     ...raw,
     id: parseCredentialId(raw.id),
-    vault_id: parseVaultId(raw.vault_id),
+    group_id: parseCredentialGroupId(raw.group_id),
   }
 }
 

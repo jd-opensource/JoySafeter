@@ -1,5 +1,6 @@
 import {
   parseAgentId,
+  parseCredentialGroupId,
   parseEnvironmentId,
   parseEventId,
   parseFileId,
@@ -7,7 +8,6 @@ import {
   parseSessionResourceId,
   parseTaskId,
   parseTriggerId,
-  parseVaultId,
 } from '@/types/entity-id'
 
 export const AGENT_ID = parseAgentId('agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001')
@@ -21,8 +21,8 @@ export const OTHER_TRIGGER_ID = parseTriggerId('trig_018f6f42-0a51-7cc4-98c8-4f6
 export const MANUAL_TRIGGER_ID = parseTriggerId('trig_018f6f42-0a51-7cc4-98c8-4f6f0ca5f009')
 export const ENVIRONMENT_ID = parseEnvironmentId('env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f010')
 export const OTHER_ENVIRONMENT_ID = parseEnvironmentId('env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f011')
-export const VAULT_ID = parseVaultId('vault_018f6f42-0a51-7cc4-98c8-4f6f0ca5f012')
-export const OTHER_VAULT_ID = parseVaultId('vault_018f6f42-0a51-7cc4-98c8-4f6f0ca5f013')
+export const VAULT_ID = parseCredentialGroupId('credgrp_018f6f42-0a51-7cc4-98c8-4f6f0ca5f012')
+export const OTHER_VAULT_ID = parseCredentialGroupId('credgrp_018f6f42-0a51-7cc4-98c8-4f6f0ca5f013')
 export const FILE_ID = parseFileId('file_018f6f42-0a51-7cc4-98c8-4f6f0ca5f014')
 export const OTHER_FILE_ID = parseFileId('file_018f6f42-0a51-7cc4-98c8-4f6f0ca5f015')
 export const SESSION_RESOURCE_ID = parseSessionResourceId(

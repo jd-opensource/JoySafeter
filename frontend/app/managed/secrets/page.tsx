@@ -30,7 +30,7 @@ import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { managedRequestOptions, useManagedRequestScope } from '@/lib/managed/request-scope'
 import { parseSecretResponse } from '@/lib/managed/secret-response-parsers'
-import { parseSecretId } from '@/types/entity-id'
+import { parseCredentialId } from '@/types/entity-id'
 import type { Secret, SecretDetail } from '@/types/managed'
 
 import { CreateSecretDialog } from './components/create-secret-dialog'
@@ -60,12 +60,12 @@ export default function SecretListPage() {
   const [deleteTarget, setDeleteTarget] = useState<Secret | null>(null)
 
   const list = usePaginatedList<Secret>({
-    queryKey: 'secrets',
-    path: '/secrets',
+    queryKey: 'credentials',
+    path: '/credentials',
     cacheVersion: catalogVersion || undefined,
     enabled: catalogReady,
     parseItem: parseSecretResponse,
-    parseCursor: parseSecretId,
+    parseCursor: parseCredentialId,
   })
 
   useEffect(() => {
@@ -98,15 +98,15 @@ export default function SecretListPage() {
   ]
 
   const invalidateSecretQueries = () => {
-    queryClient.invalidateQueries({ queryKey: ['secrets', managedScope.key] })
+    queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })
     queryClient.invalidateQueries({ queryKey: ['compatible-secrets', managedScope.key] })
   }
 
   const handleSetDefault = async (secret: Secret) => {
-    if (secret.kind !== 'llm' || projectReadOnly) return
+    if (secret.kind !== 'model' || projectReadOnly) return
     try {
       await managedPost(
-        apiResourcePath('secrets', secret.id, 'default'),
+        apiResourcePath('credentials', secret.id, 'default'),
         {},
         managedRequestOptions(managedScope),
       )
@@ -120,7 +120,7 @@ export default function SecretListPage() {
     if (!deleteTarget || projectReadOnly) return
     try {
       await managedDelete(
-        apiResourcePath('secrets', deleteTarget.id),
+        apiResourcePath('credentials', deleteTarget.id),
         managedRequestOptions(managedScope),
       )
       invalidateSecretQueries()
@@ -155,8 +155,8 @@ export default function SecretListPage() {
       key: 'kind',
       header: t('managed.llm.configurationType'),
       render: (secret) => (
-        <Badge variant={secret.kind === 'llm' ? 'default' : 'outline'}>
-          {secret.kind === 'llm'
+        <Badge variant={secret.kind === 'model' ? 'default' : 'outline'}>
+          {secret.kind === 'model'
             ? t('managed.llm.modelConfiguration')
             : t('managed.llm.genericSecret')}
         </Badge>
@@ -166,7 +166,7 @@ export default function SecretListPage() {
       key: 'binding',
       header: t('managed.llm.providerProtocol'),
       render: (secret) =>
-        secret.kind === 'llm' ? (
+        secret.kind === 'model' ? (
           <div className="text-xs">
             <p className="font-medium text-foreground">{displayId(secret.provider)}</p>
             <p className="text-muted-foreground">{displayId(secret.protocol)}</p>
@@ -207,7 +207,7 @@ export default function SecretListPage() {
       <ResourceErrorState
         error={list.error}
         resource="secret"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['secrets', managedScope.key] })}
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })}
       />
     )
   }
@@ -248,7 +248,7 @@ export default function SecretListPage() {
           projectReadOnly
             ? []
             : [
-                ...(secret.kind === 'llm' && !secret.is_default
+                ...(secret.kind === 'model' && !secret.is_default
                   ? [
                       {
                         label: t('managed.secrets.setDefault'),

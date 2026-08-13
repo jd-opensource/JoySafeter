@@ -4,7 +4,7 @@ import { parseSessionResponse } from './session-response-parsers'
 
 const SESSION_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f001'
 const AGENT_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f002'
-const VAULT_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f003'
+const GROUP_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f003'
 const RESOURCE_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f004'
 
 function rawSession() {
@@ -12,7 +12,7 @@ function rawSession() {
     id: `sess_${SESSION_UUID}`,
     agent: { id: `agent_${AGENT_UUID}`, agent_id: `agent_${AGENT_UUID}`, name: 'Agent' },
     status: 'idle' as const,
-    vault_ids: [`vault_${VAULT_UUID}`],
+    credential_group_ids: [`credgrp_${GROUP_UUID}`],
     repo_resources: [
       {
         id: `sesrsc_${RESOURCE_UUID}`,
@@ -47,7 +47,7 @@ describe('session response parsers', () => {
     const session = parseSessionResponse(rawSession())
     expect(session.id).toBe(`sess_${SESSION_UUID}`)
     expect(session.agent?.id).toBe(`agent_${AGENT_UUID}`)
-    expect(session.vault_ids?.[0]).toBe(`vault_${VAULT_UUID}`)
+    expect(session.credential_group_ids?.[0]).toBe(`credgrp_${GROUP_UUID}`)
     expect(session.repo_resources?.[0].id).toBe(`sesrsc_${RESOURCE_UUID}`)
     expect(session.storage_mounts?.[0].id).toBe(`sesrsc_${RESOURCE_UUID}`)
     expect(session.storage_mounts?.[0].volume_id).toBe(`vol_${RESOURCE_UUID}`)

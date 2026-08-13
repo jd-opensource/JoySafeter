@@ -283,12 +283,12 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
     enabled: !!envId && hasManagedRequestScope(managedScope),
   })
 
-  const vaultId = session?.vault_ids?.[0]
+  const vaultId = session?.credential_group_ids?.[0]
   const { data: vaultDetail } = useQuery({
     queryKey: ['vault', sessionScope, vaultId],
     queryFn: () =>
       managedGet<unknown>(
-        apiResourcePath('vaults', vaultId!),
+        apiResourcePath('credential-groups', vaultId!),
         managedRequestOptions(managedScope),
       ).then(parseVaultResponse),
     enabled: !!vaultId && hasManagedRequestScope(managedScope),
@@ -298,7 +298,7 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
     queryKey: ['vault-credentials', sessionScope, vaultId],
     queryFn: () =>
       managedGet<{ data: unknown[] }>(
-        apiResourceSubpath('vaults', vaultId!, ['credentials'], { limit: 100 }),
+        apiResourceSubpath('credential-groups', vaultId!, ['members'], { limit: 100 }),
         managedRequestOptions(managedScope),
       ).then((response) => ({
         ...response,
@@ -1013,15 +1013,17 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
       onClick: () => setActiveDrawer('env'),
     })
   }
-  if (session.vault_ids && session.vault_ids.length > 0) {
+  if (session.credential_group_ids && session.credential_group_ids.length > 0) {
     metaItems.push({
       icon: <KeyRound className="h-3.5 w-3.5" />,
       label:
         vaultDetail?.name ||
-        (session.vault_ids.length > 1
-          ? t('managed.sessions.mcpCredentialSetCount', { count: session.vault_ids.length })
-          : shortEntityId(session.vault_ids[0], 'vault', 12)),
-      tooltip: vaultDetail?.name || session.vault_ids[0],
+        (session.credential_group_ids.length > 1
+          ? t('managed.sessions.mcpCredentialSetCount', {
+              count: session.credential_group_ids.length,
+            })
+          : shortEntityId(session.credential_group_ids[0], 'credentialGroup', 12)),
+      tooltip: vaultDetail?.name || session.credential_group_ids[0],
       onClick: () => setActiveDrawer('vault'),
     })
   }
@@ -2253,20 +2255,6 @@ function VaultDrawer({
                   <div className="font-mono text-xs text-muted-foreground">
                     {cred.mcp_server_url}
                   </div>
-                  {cred.oauth_config?.expires_at && (
-                    <div className="flex items-center text-xs text-muted-foreground">
-                      <span className="w-16 shrink-0">{t('managed.sessions.expires')}</span>
-                      <span>
-                        {new Date(cred.oauth_config.expires_at).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                    </div>
-                  )}
                   <div className="flex items-center text-xs text-muted-foreground">
                     <span className="w-16 shrink-0">ID</span>
                     <span className="font-mono">{cred.id}</span>

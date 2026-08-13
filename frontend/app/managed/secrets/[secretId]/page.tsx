@@ -20,7 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useCurrentProjectReadOnly } from '@/hooks/managed/use-current-project-read-only'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
-import { managedGet, managedPut } from '@/lib/api-client'
+import { managedGet, managedPatch } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
@@ -33,7 +33,7 @@ import {
 import { parseSecretDetailResponse } from '@/lib/managed/secret-response-parsers'
 import { isSecretValueMaskedKey } from '@/lib/managed/secret-keys'
 import { secretDetailQueryKey } from '@/lib/managed/secret-query-keys'
-import { parseSecretId } from '@/types/entity-id'
+import { parseCredentialId } from '@/types/entity-id'
 import type { LlmCredentialField } from '@/types/llm'
 import type { SecretDetail } from '@/types/managed'
 
@@ -50,13 +50,14 @@ function inputType(field: LlmCredentialField, showValues: boolean) {
 
 export default withEntityRouteGuard(SecretDetailPageInner, {
   kind: 'secret',
+  idKind: 'credential',
   paramKey: 'secretId',
   backTo: '/managed/secrets',
 })
 
 function SecretDetailPageInner({ params }: { params: Promise<{ secretId: string }> }) {
   const { secretId: rawSecretId } = React.use(params)
-  const secretId = parseSecretId(rawSecretId)
+  const secretId = parseCredentialId(rawSecretId)
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const managedScope = useManagedRequestScope()
@@ -74,7 +75,7 @@ function SecretDetailPageInner({ params }: { params: Promise<{ secretId: string 
     queryKey: secretDetailQueryKey(managedScope.key, secretId, catalogVersion),
     queryFn: () =>
       managedGet<unknown>(
-        apiResourcePath('secrets', secretId),
+        apiResourcePath('credentials', secretId),
         managedRequestOptions(managedScope),
       ).then(parseSecretDetailResponse),
     enabled: catalogReady && hasManagedRequestScope(managedScope),
@@ -83,9 +84,9 @@ function SecretDetailPageInner({ params }: { params: Promise<{ secretId: string 
 
   useEffect(() => {
     if (!secretQuery.data || dirty) return
-    setValues(secretQuery.data.secret_data)
+    setValues(secretQuery.data.data)
     setGenericPairs(
-      Object.entries(secretQuery.data.secret_data).map(([key, value]) => ({ key, value })),
+      Object.entries(secretQuery.data.data).map(([key, value]) => ({ key, value })),
     )
   }, [dirty, secretQuery.data])
 
@@ -94,7 +95,7 @@ function SecretDetailPageInner({ params }: { params: Promise<{ secretId: string 
     if (
       !catalogQuery.data ||
       !secret ||
-      secret.kind !== 'llm' ||
+      secret.kind !== 'model' ||
       !secret.provider ||
       !secret.protocol
     ) {
@@ -103,13 +104,13 @@ function SecretDetailPageInner({ params }: { params: Promise<{ secretId: string 
     return findCredentialProfileForBinding(catalogQuery.data, secret.provider, secret.protocol)
   }, [catalogQuery.data, secretQuery.data])
   const catalogIdentityUnavailable =
-    secretQuery.data?.kind === 'llm' && catalogQuery.isSuccess && !profile
+    secretQuery.data?.kind === 'model' && catalogQuery.isSuccess && !profile
 
   const save = async () => {
     const secret = secretQuery.data
     if (!secret || projectReadOnly) return
     const data =
-      secret.kind === 'llm'
+      secret.kind === 'model'
         ? values
         : Object.fromEntries(
             genericPairs
@@ -118,8 +119,8 @@ function SecretDetailPageInner({ params }: { params: Promise<{ secretId: string 
           )
     setSaving(true)
     try {
-      const response = await managedPut<unknown>(
-        apiResourcePath('secrets', secret.id),
+      const response = await managedPatch<unknown>(
+        apiResourcePath('credentials', secret.id),
         { data },
         managedRequestOptions(managedScope),
       )
@@ -128,10 +129,10 @@ function SecretDetailPageInner({ params }: { params: Promise<{ secretId: string 
         secretDetailQueryKey(managedScope.key, secret.id, catalogVersion),
         updated,
       )
-      queryClient.invalidateQueries({ queryKey: ['secrets', managedScope.key] })
+      queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })
       queryClient.invalidateQueries({ queryKey: ['compatible-secrets', managedScope.key] })
-      setValues(updated.secret_data)
-      setGenericPairs(Object.entries(updated.secret_data).map(([key, value]) => ({ key, value })))
+      setValues(updated.data)
+      setGenericPairs(Object.entries(updated.data).map(([key, value]) => ({ key, value })))
       setDirty(false)
     } catch (error) {
       toastOperationError(t, error, 'common.operationFailed')
@@ -171,8 +172,8 @@ function SecretDetailPageInner({ params }: { params: Promise<{ secretId: string 
           { label: secret.name },
         ]}
         titleExtra={
-          <Badge variant={secret.kind === 'llm' ? 'default' : 'outline'}>
-            {secret.kind === 'llm'
+          <Badge variant={secret.kind === 'model' ? 'default' : 'outline'}>
+            {secret.kind === 'model'
               ? t('managed.llm.modelConfiguration')
               : t('managed.llm.genericSecret')}
           </Badge>
@@ -206,7 +207,7 @@ function SecretDetailPageInner({ params }: { params: Promise<{ secretId: string 
             <RelativeTime date={secret.updated_at} />
           </p>
         </div>
-        {secret.kind === 'llm' ? (
+        {secret.kind === 'model' ? (
           <div className="sm:col-span-2 lg:col-span-4">
             <p className="mb-2 text-xs text-muted-foreground">
               {t('managed.llm.compatibleEngines')}
@@ -223,7 +224,7 @@ function SecretDetailPageInner({ params }: { params: Promise<{ secretId: string 
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="font-semibold">{t('managed.secrets.dataLabel')}</h2>
-            {secret.kind === 'llm' ? (
+            {secret.kind === 'model' ? (
               <p className="text-xs text-muted-foreground">
                 {t('managed.llm.identityImmutableHint')}
               </p>
@@ -235,7 +236,7 @@ function SecretDetailPageInner({ params }: { params: Promise<{ secretId: string 
           </Button>
         </div>
 
-        {secret.kind === 'llm' ? (
+        {secret.kind === 'model' ? (
           profile ? (
             <div className="grid gap-4 sm:grid-cols-2">
               {profile.fields.map((field) => (

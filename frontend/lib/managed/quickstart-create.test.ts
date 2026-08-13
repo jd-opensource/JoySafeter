@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { buildQuickstartAgentCreateBody } from './quickstart-create'
 
 const SKILL_ID = 'skill_018f6f42-0a51-7cc4-98c8-4f6f0ca5f111'
+const CRED_ID = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f222'
+const CRED_ID_2 = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f333'
 
 describe('buildQuickstartAgentCreateBody', () => {
   it('preserves generated agent config fields accepted by the backend schema', () => {
@@ -21,7 +23,7 @@ describe('buildQuickstartAgentCreateBody', () => {
       },
       {
         engineKind: 'claude',
-        secretRef: 'anthropic-prod',
+        secretRef: CRED_ID,
         suffix: '-abcd',
       },
     )
@@ -32,7 +34,7 @@ describe('buildQuickstartAgentCreateBody', () => {
       description: 'Finds and summarizes sources',
       system: 'You research carefully.',
       model: { id: 'claude-sonnet-4', speed: 'standard' },
-      secret_ref: 'anthropic-prod',
+      model_credential_id: CRED_ID,
       tools: [{ type: 'agent_toolset_20260401' }],
       mcp_servers: [{ type: 'url', name: 'docs', url: 'https://docs.example.com/mcp' }],
       skills: [{ type: 'custom', skill_id: SKILL_ID, version: 'latest' }],
@@ -46,20 +48,20 @@ describe('buildQuickstartAgentCreateBody', () => {
     expect(
       buildQuickstartAgentCreateBody(
         { name: 'Minimal', system: 'Do the task.' },
-        { engineKind: 'codex', secretRef: 'openai-prod', suffix: '' },
+        { engineKind: 'codex', secretRef: CRED_ID_2, suffix: '' },
       ),
     ).toEqual({
       name: 'Minimal',
       engine_kind: 'codex',
       system: 'Do the task.',
-      secret_ref: 'openai-prod',
+      model_credential_id: CRED_ID_2,
       tools: [],
     })
   })
 })
 
 describe('buildQuickstartAgentCreateBody with malformed generated config', () => {
-  const opts = { engineKind: 'claude', secretRef: 'anthropic-prod', suffix: '' }
+  const opts = { engineKind: 'claude', secretRef: CRED_ID, suffix: '' }
 
   it('drops a model object that is missing the required id', () => {
     const body = buildQuickstartAgentCreateBody(

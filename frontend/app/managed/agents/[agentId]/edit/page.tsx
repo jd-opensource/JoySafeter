@@ -20,7 +20,7 @@ import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { validateUniqueMcpServerName } from '@/lib/utils/mcp-validation'
 import type { Agent, Secret } from '@/types/managed'
-import { parseAgentId, type AgentId, type SkillId } from '@/types/entity-id'
+import { parseAgentId, parseCredentialId, type AgentId, type SkillId } from '@/types/entity-id'
 import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
 import { Button } from '@/components/ui/button'
@@ -216,7 +216,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
   const compatibleSecretsQuery = useCompatibleSecrets({ engineId: engineKind })
   const secrets = compatibleSecretsQuery.data
   const selectedSecretIsCompatible =
-    !secretRef || Boolean(secrets?.some((secret) => secret.name === secretRef))
+    !secretRef || Boolean(secrets?.some((secret) => secret.id === secretRef))
   const secretConflict =
     Boolean(secretRef) && compatibleSecretsQuery.isSuccess && !selectedSecretIsCompatible
   const conflictSecretQuery = useLlmSecretByName({
@@ -323,7 +323,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
     )
 
     // Secret ref
-    setSecretRef(agent.secret_ref || '')
+    setSecretRef(agent.model_credential_id || '')
 
     // Environment ref
     setEnvironmentRef(agent.environment_ref || '')
@@ -434,7 +434,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
     const currentSkills = queryClient.getQueryData<SkillListItem[]>(['skills', scopeKey]) ?? skills
 
     const currentSecretRef =
-      secretRef && (!currentSecrets || currentSecrets.some((secret) => secret.name === secretRef))
+      secretRef && (!currentSecrets || currentSecrets.some((secret) => secret.id === secretRef))
         ? secretRef
         : ''
     const currentEnvironmentRef =
@@ -464,7 +464,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
         skill_id: id,
         version: effectiveSkillVersions[id] || 'latest',
       })),
-      secret_ref: currentSecretRef || null,
+      model_credential_id: currentSecretRef ? parseCredentialId(currentSecretRef) : null,
       ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
       metadata: { system_prompt_mode: systemPromptMode },
     }

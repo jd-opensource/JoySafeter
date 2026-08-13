@@ -7,7 +7,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import type { Vault } from '@/types/managed'
-import { parseVaultId } from '@/types/entity-id'
+import { parseCredentialGroupId } from '@/types/entity-id'
 import { managedPost, managedDelete } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { parseVaultResponse } from '@/lib/managed/vault-response-parsers'
@@ -69,7 +69,9 @@ export default function VaultListPage() {
     scopeIsActive(scope) &&
     currentProjectAllowsWrite() &&
     queryClient
-      .getQueriesData<{ data?: Vault[] }>({ queryKey: ['vaults', scope, '/vaults'] })
+      .getQueriesData<{ data?: Vault[] }>({
+        queryKey: ['credential-groups', scope, '/credential-groups'],
+      })
       .some(([, page]) =>
         page?.data?.some(
           (currentVault) => currentVault.id === vault.id && !currentVault.archived_at,
@@ -114,11 +116,11 @@ export default function VaultListPage() {
     goToPage,
     setPageSize,
   } = usePaginatedList<Vault>({
-    queryKey: 'vaults',
-    path: '/vaults',
+    queryKey: 'credential-groups',
+    path: '/credential-groups',
     includeArchived: showArchived,
     parseItem: parseVaultResponse,
-    parseCursor: parseVaultId,
+    parseCursor: parseCredentialGroupId,
   })
 
   const archiveMutation = useMutation({
@@ -130,14 +132,14 @@ export default function VaultListPage() {
         throw new Error('Archived project vault archive ignored')
       }
       return managedPost(
-        apiResourcePath('vaults', vault.id, 'archive'),
+        apiResourcePath('credential-groups', vault.id, 'archive'),
         {},
         managedRequestOptions(requestScope),
       )
     },
     onSuccess: (_data, { runId, scope }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['vaults', scope] })
+      queryClient.invalidateQueries({ queryKey: ['credential-groups', scope] })
       setArchiveTarget(null)
     },
     onError: (error, { runId, scope }) => {
@@ -154,11 +156,14 @@ export default function VaultListPage() {
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project vault delete ignored')
       }
-      return managedDelete(apiResourcePath('vaults', vault.id), managedRequestOptions(requestScope))
+      return managedDelete(
+        apiResourcePath('credential-groups', vault.id),
+        managedRequestOptions(requestScope),
+      )
     },
     onSuccess: (_data, { runId, scope }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['vaults', scope] })
+      queryClient.invalidateQueries({ queryKey: ['credential-groups', scope] })
       setDeleteTarget(null)
     },
     onError: (error, { runId, scope }) => {
@@ -228,7 +233,9 @@ export default function VaultListPage() {
       <ResourceErrorState
         error={error}
         resource="vault"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['vaults', managedScope.key] })}
+        onRetry={() =>
+          queryClient.invalidateQueries({ queryKey: ['credential-groups', managedScope.key] })
+        }
       />
     )
   }

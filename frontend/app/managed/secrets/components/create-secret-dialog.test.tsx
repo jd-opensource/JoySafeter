@@ -31,17 +31,17 @@ describe('CreateSecretDialog', () => {
     expect(screen.getByTestId('llm-configurator')).toBeTruthy()
   })
 
-  it('creates an explicit generic secret without provider or protocol', async () => {
+  it('creates an explicit service credential without provider or protocol', async () => {
     managedPostMock.mockResolvedValueOnce({
-      id: 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
+      id: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
       name: 'github-token',
-      kind: 'generic',
+      kind: 'service',
       provider: null,
       protocol: null,
       model: null,
       compatible_engine_ids: [],
       is_default: false,
-      secret_data: { GITHUB_TOKEN: '********' },
+      data: { GITHUB_TOKEN: '********' },
       created_at: '2026-08-07T00:00:00Z',
       updated_at: '2026-08-07T00:00:00Z',
     })
@@ -60,8 +60,9 @@ describe('CreateSecretDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'common.create' }))
 
     await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
+    expect(managedPostMock.mock.calls[0][0]).toBe('/credentials')
     expect(managedPostMock.mock.calls[0][1]).toEqual({
-      kind: 'generic',
+      kind: 'service',
       name: 'github-token',
       data: { GITHUB_TOKEN: 'ghp-secret' },
       is_default: false,

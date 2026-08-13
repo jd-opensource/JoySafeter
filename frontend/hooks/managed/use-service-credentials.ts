@@ -35,7 +35,7 @@ export async function fetchAllServiceCredentials(scope: ManagedRequestScope): Pr
 
   for (;;) {
     const page = await managedGet<SecretPage>(
-      apiCollectionPath('secrets', { limit: PAGE_SIZE, kind: 'generic', after_id: afterId }),
+      apiCollectionPath('credentials', { limit: PAGE_SIZE, kind: 'service', after_id: afterId }),
       managedRequestOptions(scope),
     )
     if (page.has_more) {

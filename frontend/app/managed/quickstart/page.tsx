@@ -81,9 +81,9 @@ import {
   parseSessionId,
   tryParseAgentId,
   tryParseEnvironmentId,
-  tryParseVaultId,
+  tryParseCredentialGroupId,
   type SessionId,
-  type VaultId,
+  type CredentialGroupId,
 } from '@/types/entity-id'
 import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
 import { parseVaultListResponse } from '@/lib/managed/vault-response-parsers'
@@ -259,7 +259,7 @@ const TEMPLATE_CONFIGS: Record<string, Record<string, unknown>> = {
 const STEP_API_ENDPOINTS: Record<number, string> = {
   3: '/agents',
   4: '/environments',
-  5: '/vaults',
+  5: '/credential-groups',
   6: '/sessions',
 }
 
@@ -762,7 +762,7 @@ export default function QuickstartPage() {
   const [vaultUsesAI, setVaultUsesAI] = useState(false)
   const [vaultAnswers, setVaultAnswers] = useState<{ choiceLabel?: string }>({})
   const [vaultName, setVaultName] = useState('')
-  const [pendingVaultId, setPendingVaultId] = useState<VaultId | null>(null)
+  const [pendingVaultId, setPendingVaultId] = useState<CredentialGroupId | null>(null)
 
   useEffect(() => {
     if (managedScopeRef.current === managedScope.key) return
@@ -827,9 +827,9 @@ export default function QuickstartPage() {
 
   const { data: vaultsRes } = useQuery(
     quickstartQueryOptions({
-      queryKey: ['vaults-active', managedScope.key],
+      queryKey: ['credential-groups-active', managedScope.key],
       queryFn: () =>
-        managedGet<{ data: unknown[] }>('/vaults', managedRequestOptions(managedScope)).then(
+        managedGet<{ data: unknown[] }>('/credential-groups', managedRequestOptions(managedScope)).then(
           (response) => ({ ...response, data: parseVaultListResponse(response.data) }),
         ),
       enabled: hasManagedRequestScope(managedScope),
@@ -873,16 +873,16 @@ export default function QuickstartPage() {
   const compatibleSecrets = compatibleSecretsQuery.data
 
   const selectedSecret = useMemo(() => {
-    return compatibleSecrets?.find((secret) => secret.name === secretRef)
+    return compatibleSecrets?.find((secret) => secret.id === secretRef)
   }, [compatibleSecrets, secretRef])
 
   const selectedSecretCompatible = Boolean(selectedSecret)
 
   useEffect(() => {
     if (!selectedEngine || !compatibleSecretsQuery.isSuccess || !compatibleSecrets) return
-    const compatibleNames = new Set(compatibleSecrets.map((secret) => secret.name))
+    const compatibleIds = new Set<string>(compatibleSecrets.map((secret) => secret.id))
     if (secretRef) {
-      if (compatibleNames.has(secretRef)) return
+      if (compatibleIds.has(secretRef)) return
       setSecretRef('')
       setSecretSelectionCleared(true)
       return
@@ -905,7 +905,7 @@ export default function QuickstartPage() {
   const isLanding = messages.length === 0 && !isStreaming
   const quickstartAgentId = tryParseAgentId(resourceIds[3])
   const quickstartEnvironmentId = tryParseEnvironmentId(resourceIds[4])
-  const quickstartVaultId = tryParseVaultId(resourceIds[5])
+  const quickstartVaultId = tryParseCredentialGroupId(resourceIds[5])
   const rawSessionId = resourceIds[6] || localSessionId
   const sessionId = rawSessionId ? parseSessionId(rawSessionId) : null
   const isSessionActive = !!sessionId
@@ -1182,7 +1182,7 @@ export default function QuickstartPage() {
 
   const readCurrentActiveVaults = () => {
     const currentVaultData = queryClient.getQueryData<ActiveVaultsCache>([
-      'vaults-active',
+      'credential-groups-active',
       managedScope.key,
     ])
     return (unwrapActiveVaultsCache(currentVaultData) || activeVaults).filter(
@@ -1237,10 +1237,10 @@ export default function QuickstartPage() {
   }
 
   const resolveSessionVaultId = () => {
-    const vaultId = tryParseVaultId(resourceIds[5])
+    const vaultId = tryParseCredentialGroupId(resourceIds[5])
     if (!vaultId) return null
     const currentVaultData = queryClient.getQueryData<ActiveVaultsCache>([
-      'vaults-active',
+      'credential-groups-active',
       managedScope.key,
     ])
     const currentVaultRecord = unwrapActiveVaultsCache(currentVaultData)?.find(
@@ -1515,24 +1515,21 @@ export default function QuickstartPage() {
     selectEngine(engine)
   }
 
-  const handleAgentSecretSelect = (name: string) => {
+  const handleAgentSecretSelect = (credentialId: string) => {
     if (!currentPageProjectAllowsWrite()) return
-    setSecretRef(name)
+    setSecretRef(credentialId)
     setSecretSelectionCleared(false)
     selectAgentSecret()
   }
 
   const handleInlineSecretCreated = (created: SecretDetail) => {
     if (!selectedEngine) return
-    const listItem: Secret = {
-      ...created,
-      keys: Object.keys(created.secret_data),
-    }
+    const listItem: Secret = created
     queryClient.setQueriesData<Secret[]>(
       { queryKey: compatibleSecretsQueryPrefix(managedScope.key, selectedEngine) },
       (current) => [...(current ?? []).filter((secret) => secret.id !== listItem.id), listItem],
     )
-    setSecretRef(created.name)
+    setSecretRef(created.id)
     setSecretSelectionCleared(false)
     goToStep(2)
   }
@@ -2105,8 +2102,8 @@ export default function QuickstartPage() {
                       )}
                       {quickstartVaultId && (
                         <div>
-                          <span className="text-muted-foreground">vault_ids:</span>{' '}
-                          {`["${shortEntityId(quickstartVaultId, 'vault')}"]`}
+                          <span className="text-muted-foreground">credential_group_ids:</span>{' '}
+                          {`["${shortEntityId(quickstartVaultId, 'credentialGroup')}"]`}
                         </div>
                       )}
                     </div>

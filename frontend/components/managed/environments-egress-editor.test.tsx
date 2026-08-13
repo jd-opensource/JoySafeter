@@ -74,17 +74,21 @@ function genericSecret(name: string, id: string): Secret {
   return {
     id: id as Secret['id'],
     name,
-    kind: 'generic',
+    kind: 'service',
     provider: null,
     protocol: null,
     model: null,
     compatible_engine_ids: [],
     is_default: false,
-    keys: ['TOKEN'],
+    data: { TOKEN: 'value' },
     created_at: '2030-01-01T00:00:00Z',
     updated_at: '2030-01-01T00:00:00Z',
   }
 }
+
+const CRED_A = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020'
+const CRED_B = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021'
+const CRED_C = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f022'
 
 describe('EgressServicesEditor terminology', () => {
   afterEach(cleanup)
@@ -133,21 +137,16 @@ describe('EgressServicesEditor terminology', () => {
         services={[service]}
         setServices={vi.fn()}
         secrets={[
-          genericSecret('', 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020'),
-          genericSecret(
-            ' padded-service ',
-            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021',
-          ),
-          genericSecret(
-            'canonical-service',
-            'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f022',
-          ),
+          genericSecret('', CRED_A),
+          genericSecret(' padded-service ', CRED_B),
+          genericSecret('canonical-service', CRED_C),
         ]}
       />,
     )
 
-    expect(container.querySelector('[data-value="canonical-service"]')).toBeTruthy()
+    expect(container.querySelector(`[data-value="${CRED_C}"]`)).toBeTruthy()
     expect(container.querySelector('[data-value=""]')).toBeNull()
-    expect(container.querySelector('[data-value=" padded-service "]')).toBeNull()
+    expect(container.querySelector(`[data-value="${CRED_A}"]`)).toBeNull()
+    expect(container.querySelector(`[data-value="${CRED_B}"]`)).toBeNull()
   })
 })

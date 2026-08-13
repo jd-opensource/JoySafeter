@@ -23,15 +23,15 @@ vi.mock('@/hooks/managed/use-compatible-secrets', () => ({
   useCompatibleSecrets: () => ({
     data: [
       {
-        id: 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
+        id: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
         name: 'model-prod',
-        kind: 'llm',
+        kind: 'model',
         provider: 'openai',
         protocol: 'openai_responses',
         model: 'gpt-5',
         compatible_engine_ids: ['codex'],
         is_default: true,
-        keys: ['OPENAI_API_KEY'],
+        data: { OPENAI_API_KEY: 'sk-test' },
         created_at: '2030-01-01T00:00:00Z',
         updated_at: '2030-01-01T00:00:00Z',
       },
@@ -78,7 +78,7 @@ vi.mock('@/lib/api-client', async (importOriginal) => {
   return {
     ...actual,
     managedGet: vi.fn((path: string) =>
-      Promise.resolve(path === '/vaults' ? { data: [] } : { data: [] }),
+      Promise.resolve(path === '/credential-groups' ? { data: [] } : { data: [] }),
     ),
     managedPost: vi.fn(),
   }

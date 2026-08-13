@@ -79,9 +79,9 @@ export function CreateSecretDialog({
     setError(null)
     try {
       const response = await managedPost<unknown>(
-        '/secrets',
+        '/credentials',
         {
-          kind: 'generic',
+          kind: 'service',
           name: name.trim(),
           data: genericData,
           is_default: false,

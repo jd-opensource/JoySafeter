@@ -23,7 +23,7 @@ import type {
   Secret,
   StorageVolumeCatalogItem,
 } from '@/types/managed'
-import { parseEnvironmentId, parseSecretId, type EnvironmentId } from '@/types/entity-id'
+import { parseEnvironmentId, parseCredentialId, type EnvironmentId } from '@/types/entity-id'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -136,11 +136,11 @@ function EnvironmentDetailPageInner({ params }: { params: Promise<{ envId: strin
     retry: shouldRetryManagedResourceError,
   })
   const { data: secrets } = usePaginatedList<Secret>({
-    queryKey: 'generic-secrets',
-    path: '/secrets?kind=generic',
+    queryKey: 'service-credentials',
+    path: '/credentials?kind=service',
     limit: 50,
     parseItem: parseSecretResponse,
-    parseCursor: parseSecretId,
+    parseCursor: parseCredentialId,
   })
   const { data: storageCatalog } = useQuery({
     queryKey: ['storage-mount-catalog', managedScope.key],

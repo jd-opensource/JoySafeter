@@ -53,22 +53,22 @@ vi.mock('@/hooks/managed/use-llm-catalog', () => ({
 }))
 
 const persistedSecret = {
-  id: 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
+  id: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
   name: 'anthropic-prod',
-  kind: 'llm' as const,
+  kind: 'model' as const,
   provider: 'anthropic',
   protocol: 'anthropic_messages',
   model: 'claude-sonnet-4-5',
   compatible_engine_ids: ['claude'],
   is_default: true,
-  keys: ['ANTHROPIC_API_KEY'],
+  data: { ANTHROPIC_API_KEY: 'secret' },
   created_at: '2026-08-07T00:00:00Z',
   updated_at: '2026-08-07T00:00:00Z',
 }
 
 const codexSecret = {
   ...persistedSecret,
-  id: 'secret_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021',
+  id: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021',
   name: 'openai-prod',
   provider: 'openai',
   protocol: 'openai_responses',
@@ -94,7 +94,7 @@ vi.mock('@/hooks/managed/use-compatible-secrets', () => ({
     isError: false,
   }),
   useLlmSecretByName: ({ name, enabled }: { name: string; enabled: boolean }) => ({
-    data: enabled && name === persistedSecret.name ? persistedSecret : null,
+    data: enabled && name === persistedSecret.id ? persistedSecret : null,
     isSuccess: true,
     isLoading: false,
     isError: false,
@@ -117,7 +117,7 @@ vi.mock('@/components/managed/llm/compatible-secret-picker', () => ({
       <span data-testid="secret-value">{value}</span>
       {conflictMessage ? <span>{conflictMessage}</span> : null}
       {conflictSecret ? <span>{conflictSecret.name}</span> : null}
-      <button type="button" onClick={() => onChange(codexSecret.name)}>
+      <button type="button" onClick={() => onChange(codexSecret.id)}>
         choose-openai
       </button>
     </div>
@@ -241,7 +241,7 @@ describe('AgentEditPage LLM compatibility', () => {
           description: null,
           model: { id: 'claude-sonnet-4-5' },
           engine_kind: 'claude',
-          secret_ref: persistedSecret.name,
+          model_credential_id: persistedSecret.id,
           system: null,
           metadata: { system_prompt_mode: 'append' },
           env: {},
@@ -272,7 +272,9 @@ describe('AgentEditPage LLM compatibility', () => {
       )
     })
 
-    await waitFor(() => expect(view.getByTestId('secret-value').textContent).toBe('anthropic-prod'))
+    await waitFor(() =>
+      expect(view.getByTestId('secret-value').textContent).toBe(persistedSecret.id),
+    )
     fireEvent.click(view.getByText('Codex'))
 
     await waitFor(() => {
@@ -299,7 +301,7 @@ describe('AgentEditPage LLM compatibility', () => {
     await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
     expect(managedPostMock.mock.calls[0][1]).toMatchObject({
       engine_kind: 'codex',
-      secret_ref: null,
+      model_credential_id: null,
     })
   })
 

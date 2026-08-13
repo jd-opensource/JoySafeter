@@ -121,6 +121,7 @@ import {
 
 import { CreateSessionDialog } from './create-session-dialog'
 import { VAULT_ID } from '@/test-utils/entity-ids'
+// VAULT_ID is now a credgrp_ id (unified credential-group model).
 
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
@@ -178,7 +179,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
       if (path === '/agents')
         return { data: [{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }] }
       if (path === '/environments') return { data: [] }
-      if (path === '/vaults') return { data: [] }
+      if (path === '/credential-groups') return { data: [] }
       if (path === '/files?limit=100') return { data: [] }
       if (path === '/memory_stores?limit=100') return { data: [] }
       return { data: [] }
@@ -219,7 +220,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === '/agents') return { data: [projectAgent] }
       if (path === '/environments') return { data: [] }
-      if (path === '/vaults') return { data: [] }
+      if (path === '/credential-groups') return { data: [] }
       if (path === '/files?limit=100') return { data: [] }
       if (path === '/memory_stores?limit=100') return { data: [] }
       return { data: [] }
@@ -274,7 +275,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
       if (path === '/agents')
         return { data: [{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }] }
       if (path === '/environments') return { data: [] }
-      if (path === '/vaults') return { data: [] }
+      if (path === '/credential-groups') return { data: [] }
       if (path === '/files?limit=100') return { data: [] }
       if (path === '/memory_stores?limit=100') return { data: [] }
       return { data: [] }
@@ -326,7 +327,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
       if (path === '/environments') {
         return { data: [{ id: ENVIRONMENT_ID, name: 'Env A', archived_at: null }] }
       }
-      if (path === '/vaults') {
+      if (path === '/credential-groups') {
         return { data: [{ id: VAULT_ID, name: 'Vault A', archived_at: null }] }
       }
       if (path === '/files?limit=100') {
@@ -443,7 +444,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
       if (path === '/environments') {
         return { data: [{ id: ENVIRONMENT_ID, name: 'Env A', archived_at: null }] }
       }
-      if (path === '/vaults') {
+      if (path === '/credential-groups') {
         return { data: [{ id: VAULT_ID, name: 'Vault A', archived_at: null }] }
       }
       if (path === '/files?limit=100') {
@@ -559,7 +560,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
       if (path === '/agents')
         return { data: [{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }] }
       if (path === '/environments') return { data: [] }
-      if (path === '/vaults') return { data: [] }
+      if (path === '/credential-groups') return { data: [] }
       if (path === '/files?limit=100') return { data: [] }
       if (path === '/memory_stores?limit=100') return { data: [] }
       return { data: [] }
@@ -620,7 +621,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
       if (path === '/agents')
         return { data: [{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }] }
       if (path === '/environments') return { data: [] }
-      if (path === '/vaults') return { data: [] }
+      if (path === '/credential-groups') return { data: [] }
       if (path === '/files?limit=100') return { data: [] }
       if (path === '/memory_stores?limit=100') return { data: [] }
       return { data: [] }
@@ -683,7 +684,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
       if (path === '/agents')
         return { data: [{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }] }
       if (path === '/environments') return { data: [] }
-      if (path === '/vaults') return { data: [] }
+      if (path === '/credential-groups') return { data: [] }
       if (path === '/files?limit=100') return { data: [] }
       if (path === '/memory_stores?limit=100') return { data: [] }
       return { data: [] }

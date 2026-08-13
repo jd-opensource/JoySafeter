@@ -194,8 +194,8 @@ export function LlmSecretConfigurator({
     setTestMessage(null)
     try {
       const result = await managedPost<{ ok: boolean; message: string }>(
-        '/secrets/test',
-        { kind: 'llm', provider: providerId, protocol: protocolId, data: values },
+        '/credentials/test',
+        { provider: providerId, protocol: protocolId, data: values },
         managedRequestOptions(managedScope),
       )
       if (!result.ok) {
@@ -221,9 +221,9 @@ export function LlmSecretConfigurator({
     setRequestError(null)
     try {
       const response = await managedPost<unknown>(
-        '/secrets',
+        '/credentials',
         {
-          kind: 'llm',
+          kind: 'model',
           name: name.trim(),
           provider: providerId,
           protocol: protocolId,

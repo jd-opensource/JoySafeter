@@ -48,6 +48,7 @@ import {
 } from '@/lib/managed/triggers'
 import {
   parseAgentId,
+  parseCredentialId,
   parseEnvironmentId,
   parseSessionId,
   type AgentId,
@@ -266,8 +267,8 @@ function triggerToFormState(trigger?: AgentTrigger | null): TriggerFormState {
     tz: trigger.timezone || 'UTC',
     runAt: isoToLocalInput(trigger.run_at),
     policy: (trigger.concurrency_policy ?? 'allow') as TriggerConcurrencyPolicy,
-    secretRef: trigger.secret_ref ?? '',
-    secretKey: trigger.secret_key ?? DEFAULT_SECRET_KEY,
+    secretRef: trigger.webhook_auth_credential_id ?? '',
+    secretKey: trigger.webhook_auth_field ?? DEFAULT_SECRET_KEY,
     authMethods: Array.isArray(cfgAuth) ? cfgAuth.filter(isWebhookAuthMethod) : [...AUTH_METHODS],
     dedupeHeader: (trigger.config?.dedupe_header as string) ?? DEFAULT_DEDUPE_HEADER,
     filterRows: filterToRows(trigger.filter),
@@ -331,11 +332,11 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
     [serviceCredentialsQuery.data],
   )
   const selectedCredential = useMemo(
-    () => serviceCredentials.find((credential) => credential.name === secretRef),
+    () => serviceCredentials.find((credential) => credential.id === secretRef),
     [secretRef, serviceCredentials],
   )
   const credentialFields = useMemo(
-    () => usableCredentialFields(selectedCredential?.keys),
+    () => usableCredentialFields(Object.keys(selectedCredential?.data ?? {})),
     [selectedCredential],
   )
   const missingCredential = useMemo(
@@ -540,8 +541,8 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
             }
         : type === 'webhook'
           ? {
-              secret_ref: secretRef,
-              secret_key: secretKey,
+              webhook_auth_credential_id: secretRef ? parseCredentialId(secretRef) : null,
+              webhook_auth_field: secretKey,
               auth_methods: authMethods,
               dedupe_header: dedupeHeader.trim() || DEFAULT_DEDUPE_HEADER,
               filter: rowsToFilter(filterRows),
@@ -584,8 +585,8 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
   }
 
   const handleServiceCredentialChange = (value: string) => {
-    const credential = serviceCredentials.find((item) => item.name === value)
-    const fields = usableCredentialFields(credential?.keys)
+    const credential = serviceCredentials.find((item) => item.id === value)
+    const fields = usableCredentialFields(Object.keys(credential?.data ?? {}))
     setSecretRef(value)
     setSecretKey(fields.includes(DEFAULT_SECRET_KEY) ? DEFAULT_SECRET_KEY : (fields[0] ?? ''))
   }

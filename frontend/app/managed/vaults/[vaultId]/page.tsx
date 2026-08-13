@@ -20,7 +20,7 @@ import {
   type ManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { Vault, VaultCredential } from '@/types/managed'
-import { parseVaultId, type CredentialId, type VaultId } from '@/types/entity-id'
+import { parseCredentialGroupId, type CredentialId, type CredentialGroupId } from '@/types/entity-id'
 import { Button } from '@/components/ui/button'
 import {
   PageHeader,
@@ -42,8 +42,8 @@ import {
 } from '@/hooks/managed/use-current-project-read-only'
 
 interface VaultDetailActionVariables {
-  vaultId: VaultId
-  id: VaultId
+  vaultId: CredentialGroupId
+  id: CredentialGroupId
   credId?: CredentialId
   runId: number
   scope: string
@@ -53,13 +53,14 @@ interface VaultDetailActionVariables {
 
 export default withEntityRouteGuard(VaultDetailPageInner, {
   kind: 'vault',
+  idKind: 'credentialGroup',
   paramKey: 'vaultId',
   backTo: '/managed/vaults',
 })
 
 function VaultDetailPageInner({ params }: { params: Promise<{ vaultId: string }> }) {
   const { vaultId: rawVaultId } = React.use(params)
-  const vaultId = parseVaultId(rawVaultId)
+  const vaultId = parseCredentialGroupId(rawVaultId)
   const id = vaultId
   const { t } = useTranslation()
   const router = useRouter()
@@ -119,7 +120,7 @@ function VaultDetailPageInner({ params }: { params: Promise<{ vaultId: string }>
     queryKey: ['vault', managedScope.key, id],
     queryFn: () =>
       managedGet<unknown>(
-        apiResourcePath('vaults', vaultId),
+        apiResourcePath('credential-groups', vaultId),
         managedRequestOptions(managedScope),
       ).then(parseVaultResponse),
     enabled: !!id && hasManagedRequestScope(managedScope),
@@ -134,7 +135,7 @@ function VaultDetailPageInner({ params }: { params: Promise<{ vaultId: string }>
     queryKey: ['vault-credentials', managedScope.key, id, showArchivedCredentials],
     queryFn: () =>
       managedGet<{ data: unknown[]; has_more: boolean }>(
-        apiResourceSubpath('vaults', vaultId, ['credentials'], {
+        apiResourceSubpath('credential-groups', vaultId, ['members'], {
           limit: 100,
           include_archived: showArchivedCredentials,
         }),
@@ -177,7 +178,7 @@ function VaultDetailPageInner({ params }: { params: Promise<{ vaultId: string }>
         throw new Error('Archived project vault detail archive ignored')
       }
       return managedPost(
-        apiResourcePath('vaults', vaultId, 'archive'),
+        apiResourcePath('credential-groups', vaultId, 'archive'),
         {},
         managedRequestOptions(requestScope),
       )
@@ -185,7 +186,7 @@ function VaultDetailPageInner({ params }: { params: Promise<{ vaultId: string }>
     onSuccess: (_data, { id, runId, scope, scopeKey }) => {
       if (!isCurrentAction(runId, scope)) return
       queryClient.invalidateQueries({ queryKey: ['vault', scopeKey, id] })
-      queryClient.invalidateQueries({ queryKey: ['vaults', scopeKey] })
+      queryClient.invalidateQueries({ queryKey: ['credential-groups', scopeKey] })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
     },
     onError: (error, { runId, scope }) => {
@@ -202,11 +203,14 @@ function VaultDetailPageInner({ params }: { params: Promise<{ vaultId: string }>
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project vault detail delete ignored')
       }
-      return managedDelete(apiResourcePath('vaults', vaultId), managedRequestOptions(requestScope))
+      return managedDelete(
+        apiResourcePath('credential-groups', vaultId),
+        managedRequestOptions(requestScope),
+      )
     },
     onSuccess: (_data, { runId, scope, scopeKey }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['vaults', scopeKey] })
+      queryClient.invalidateQueries({ queryKey: ['credential-groups', scopeKey] })
       router.push('/managed/vaults')
     },
     onError: (error, { runId, scope }) => {
@@ -223,9 +227,8 @@ function VaultDetailPageInner({ params }: { params: Promise<{ vaultId: string }>
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project vault credential archive ignored')
       }
-      return managedPost(
-        apiResourcePath('vaults', vaultId, 'credentials', credId!, 'archive'),
-        {},
+      return managedDelete(
+        apiResourcePath('credential-groups', vaultId, 'members', credId!),
         managedRequestOptions(requestScope),
       )
     },
@@ -350,17 +353,6 @@ function VaultDetailPageInner({ params }: { params: Promise<{ vaultId: string }>
   const isArchived = !!vault.archived_at
   const canWriteVault = !projectReadOnly && !isArchived
 
-  function formatCredentialType(type: string): string {
-    switch (type) {
-      case 'static_bearer':
-        return 'Bearer'
-      case 'mcp_oauth':
-        return 'OAuth'
-      default:
-        return type
-    }
-  }
-
   const credColumns: Column<VaultCredential>[] = [
     {
       key: 'id',
@@ -375,7 +367,7 @@ function VaultDetailPageInner({ params }: { params: Promise<{ vaultId: string }>
     {
       key: 'type',
       header: t('managed.vaults.cred.type'),
-      render: (c) => <span className="text-sm">{formatCredentialType(c.credential_type)}</span>,
+      render: () => <span className="text-sm">Bearer</span>,
     },
     {
       key: 'mcp_server_url',

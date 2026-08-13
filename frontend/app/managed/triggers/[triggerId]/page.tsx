@@ -284,8 +284,8 @@ function TriggerDetailPageInner({ params }: { params: Promise<{ triggerId: strin
   if (trigger.type === 'webhook') {
     summary.push({
       label: t('managed.triggers.signing'),
-      value: trigger.secret_ref
-        ? t('managed.triggers.signedVia', { secret: trigger.secret_ref })
+      value: trigger.webhook_auth_credential_id
+        ? t('managed.triggers.signedVia', { secret: trigger.webhook_auth_credential_id })
         : t('managed.triggers.unsigned'),
     })
   }
