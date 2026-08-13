@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "crates/jd-agent-identity"]
+
 [package]
 name = "joysafeter-orchestrator"
 version = "0.1.0"
@@ -8,6 +11,10 @@ description = "JoySafeter Orchestrator — Rust implementation"
 [[bin]]
 name = "joysafeter-orchestrator"
 path = "src/main.rs"
+
+[lib]
+name = "joysafeter_orchestrator"
+path = "src/lib.rs"
 
 [dependencies]
 # Async runtime
