@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/jd-agent-identity"]
+members = [".", "crates/agent-identity-trait", "crates/jd-agent-identity"]
 
 [package]
 name = "joysafeter-orchestrator"
@@ -11,10 +11,6 @@ description = "JoySafeter Orchestrator — Rust implementation"
 [[bin]]
 name = "joysafeter-orchestrator"
 path = "src/main.rs"
-
-[lib]
-name = "joysafeter_orchestrator"
-path = "src/lib.rs"
 
 [dependencies]
 # Async runtime
@@ -112,6 +108,16 @@ regex-lite = "0.1"
 rand = "0.8"
 hex = "0.4"
 url = "2"
+
+# Agent Identity Provider (trait crate — always available)
+agent-identity-trait = { path = "crates/agent-identity-trait" }
+
+# Agent Identity Provider (optional, internal JD implementation)
+jd-agent-identity = { path = "crates/jd-agent-identity", optional = true }
+
+[features]
+default = []
+jd-identity = ["dep:jd-agent-identity"]
 
 [build-dependencies]
 tonic-build = "0.12"

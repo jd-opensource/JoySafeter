@@ -44,6 +44,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent-identity-trait"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "serde_json",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2140,6 +2149,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "jd-agent-identity"
+version = "0.1.0"
+dependencies = [
+ "agent-identity-trait",
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "redis",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "jobserver"
 version = "0.1.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2154,6 +2179,7 @@ name = "joysafeter-orchestrator"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "agent-identity-trait",
  "anyhow",
  "async-trait",
  "aws-config",
@@ -2169,6 +2195,7 @@ dependencies = [
  "futures",
  "gethostname",
  "hex",
+ "jd-agent-identity",
  "k8s-openapi",
  "kube",
  "prost",

@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
+agent-identity-trait = { path = "../agent-identity-trait" }
 anyhow = "1"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
@@ -14,7 +15,3 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
 uuid = { version = "1", features = ["v4"] }
-
-[dependencies.joysafeter-orchestrator]
-path = "../.."
-package = "joysafeter-orchestrator"

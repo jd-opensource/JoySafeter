@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use tracing::{debug, info, warn};
 
-use joysafeter_orchestrator::kernel::agent_identity_provider::{
+use agent_identity_trait::{
     AgentIdentityInjection, AgentIdentityProvider, IdentityCleanupContext,
     IdentityEgressTarget, IdentityResolveContext,
 };

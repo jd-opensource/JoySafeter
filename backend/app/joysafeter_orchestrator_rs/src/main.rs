@@ -93,6 +93,31 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // Initialize Agent Identity Provider (pluggable, feature-gated)
+    let identity_provider: Arc<dyn kernel::agent_identity_provider::AgentIdentityProvider> = {
+        #[cfg(feature = "jd-identity")]
+        {
+            match redis_client.as_ref().and_then(|rc| {
+                jd_agent_identity::JdAgentIdentityProvider::from_env(rc.clone())
+            }) {
+                Some(provider) => {
+                    info!("Agent identity provider: jd-agent-identity (enabled)");
+                    Arc::new(provider)
+                }
+                None => {
+                    info!("Agent identity provider: noop (AGENT_IDENTITY_BASE_URL not set)");
+                    Arc::new(kernel::agent_identity_provider::NoopAgentIdentityProvider)
+                }
+            }
+        }
+        #[cfg(not(feature = "jd-identity"))]
+        {
+            info!("Agent identity provider: noop (jd-identity feature not enabled)");
+            Arc::new(kernel::agent_identity_provider::NoopAgentIdentityProvider)
+        }
+    };
+    let _ = &identity_provider; // suppress unused warning until Task 4 wires it
+
     // Initialize runtime config (hot-reloadable)
     let runtime_config = Arc::new(runtime_config::RuntimeConfig::from_config(&config));
 
