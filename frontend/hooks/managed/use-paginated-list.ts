@@ -22,6 +22,7 @@ interface PageResult<T> {
 interface UsePaginatedListOptions<T extends { id?: string }> {
   queryKey: string
   path: string
+  query?: Record<string, string | number | boolean | null | undefined>
   cacheVersion?: string
   limit?: number
   pageSizeOptions?: number[]
@@ -151,6 +152,7 @@ async function apiPage<T extends { id?: string }>(
 export function usePaginatedList<T extends { id?: string }>({
   queryKey,
   path,
+  query,
   cacheVersion,
   limit = 10,
   pageSizeOptions = [10, 25, 50],
@@ -162,10 +164,16 @@ export function usePaginatedList<T extends { id?: string }>({
 }: UsePaginatedListOptions<T>): UsePaginatedListResult<T> {
   const queryClient = useQueryClient()
   const managedScope = useManagedRequestScope()
+  const queryScope = query ? JSON.stringify(query) : ''
+  const scopedPath = useMemo(
+    () => (query ? apiCollectionPath(path, query) : path),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [path, queryScope],
+  )
   const defaultPageSize = pageSizeOptions.includes(limit) ? limit : pageSizeOptions[0]
   const [pageSize, setPageSizeState] = useState(defaultPageSize)
   const effectivePageSize = pageSizeOptions.includes(pageSize) ? pageSize : defaultPageSize
-  const listScope = `${queryKey}:${path}:${managedScope.key}:${includeArchived}:${effectivePageSize}:${cacheVersion ?? ''}`
+  const listScope = `${queryKey}:${scopedPath}:${managedScope.key}:${includeArchived}:${effectivePageSize}:${cacheVersion ?? ''}`
   const [cursorState, setCursorState] = useState<CursorState>(() =>
     loadCursorState(listScope, parseCursor),
   )
@@ -178,7 +186,7 @@ export function usePaginatedList<T extends { id?: string }>({
   const fullKey = [
     queryKey,
     managedScope.key,
-    path,
+    scopedPath,
     cursor,
     includeArchived,
     effectivePageSize,
@@ -200,7 +208,7 @@ export function usePaginatedList<T extends { id?: string }>({
     queryKey: fullKey,
     queryFn: () =>
       apiPage<T>(
-        path,
+        scopedPath,
         managedScope,
         cursor,
         effectivePageSize,
@@ -215,7 +223,7 @@ export function usePaginatedList<T extends { id?: string }>({
         Array.isArray(previousKey) &&
         previousKey[0] === queryKey &&
         previousKey[1] === managedScope.key &&
-        previousKey[2] === path &&
+        previousKey[2] === scopedPath &&
         previousKey[4] === includeArchived &&
         previousKey[5] === effectivePageSize &&
         previousKey[6] === cacheVersion
@@ -238,7 +246,7 @@ export function usePaginatedList<T extends { id?: string }>({
       const nextKey = [
         queryKey,
         managedScope.key,
-        path,
+        scopedPath,
         page.last_id,
         includeArchived,
         effectivePageSize,
@@ -248,7 +256,7 @@ export function usePaginatedList<T extends { id?: string }>({
         queryKey: nextKey,
         queryFn: () =>
           apiPage<T>(
-            path,
+            scopedPath,
             managedScope,
             page.last_id,
             effectivePageSize,
@@ -264,7 +272,7 @@ export function usePaginatedList<T extends { id?: string }>({
     page.last_id,
     queryKey,
     managedScope,
-    path,
+    scopedPath,
     effectivePageSize,
     cacheVersion,
     includeArchived,

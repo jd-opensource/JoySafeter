@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, render, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -709,5 +709,65 @@ describe('usePaginatedList managed context isolation', () => {
       expect(secondView.getByTestId('page').textContent).toBe('2')
       expect(secondView.getByTestId('items').textContent).toBe('Second page')
     })
+  })
+})
+
+describe('usePaginatedList query option', () => {
+  beforeEach(() => {
+    managedGetMock.mockReset()
+    useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+    window.sessionStorage.clear()
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    useProjectStore.setState({ currentOrgId: null, currentProjectId: null })
+    window.sessionStorage.clear()
+  })
+
+  it('threads query params into the request path alongside pagination params', async () => {
+    managedGetMock.mockResolvedValue({ data: [], has_more: false })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrap = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    renderHook(
+      () =>
+        usePaginatedList<{ id: string }>({
+          queryKey: 'credentials',
+          path: '/credentials',
+          query: { kind: 'model' },
+        }),
+      { wrapper: wrap },
+    )
+    await waitFor(() => expect(managedGetMock).toHaveBeenCalled())
+    const url = managedGetMock.mock.calls[0][0] as string
+    expect(url).toContain('/credentials?')
+    expect(url).toContain('kind=model')
+    expect(url).toContain('limit=')
+  })
+
+  it('isolates cache/cursor between two kinds sharing queryKey AND a single QueryClient', async () => {
+    managedGetMock.mockImplementation(async (url: string) => ({
+      data: [{ id: (url as string).includes('kind=model') ? 'cred_model' : 'cred_service' }],
+      has_more: false,
+    }))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrap = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    const model = renderHook(
+      () => usePaginatedList<{ id: string }>({ queryKey: 'credentials', path: '/credentials', query: { kind: 'model' } }),
+      { wrapper: wrap },
+    )
+    const service = renderHook(
+      () => usePaginatedList<{ id: string }>({ queryKey: 'credentials', path: '/credentials', query: { kind: 'service' } }),
+      { wrapper: wrap },
+    )
+    await waitFor(() => expect(model.result.current.data.length).toBe(1))
+    await waitFor(() => expect(service.result.current.data.length).toBe(1))
+    expect(model.result.current.data[0].id).toBe('cred_model')
+    expect(service.result.current.data[0].id).toBe('cred_service')
   })
 })
