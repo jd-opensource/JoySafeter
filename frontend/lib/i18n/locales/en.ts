@@ -2017,6 +2017,8 @@ const en = {
           vault: 'MCP Credential Vault',
           vaultDescription: 'Group MCP bearer credentials for sessions.',
         },
+        orphanCredential: 'This credential is not attached to a vault.',
+        redirecting: 'Redirecting…',
       },
       secrets: {
         title: 'Connections & Credentials',

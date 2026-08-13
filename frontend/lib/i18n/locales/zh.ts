@@ -2005,6 +2005,8 @@ const zh = {
           vault: 'MCP 凭据库',
           vaultDescription: '为会话分组管理 MCP Bearer 凭据。',
         },
+        orphanCredential: '该凭据未归属任何凭据库。',
+        redirecting: '正在跳转…',
       },
       secrets: {
         title: '模型与凭据',
