@@ -666,24 +666,19 @@ async def _destroy_sandboxes_for_agent(
 
 
 async def _cleanup_agent_identity(agent_id: str) -> None:
-    """Cleanup cached BotTokens for a deleted agent.
+    """Clear cached agent identity tokens from Redis on agent deletion.
 
-    Scans Redis for all BotToken cache keys matching this agent, calls the
-    identity platform's destroyBotToken API for each, and removes from cache.
+    Only removes the Redis cache entries. The actual revocation of tokens
+    on the identity platform is handled by the Rust-side provider.cleanup()
+    (which is triggered via the orchestrator's sandbox lifecycle).
+
+    BotTokens have a TTL and will also expire naturally if not revoked.
     Non-fatal: errors are logged but don't block agent deletion.
     """
     import os
-    import time
-
-    import aiohttp
-
-    base_url = os.environ.get("AGENT_IDENTITY_BASE_URL", "").strip()
-    if not base_url:
-        return
 
     redis_url = os.environ.get("REDIS_URL", "")
     if not redis_url:
-        # Try building from REDIS_HOST
         redis_host = os.environ.get("REDIS_HOST", "")
         if not redis_host:
             return
@@ -699,44 +694,18 @@ async def _cleanup_agent_identity(agent_id: str) -> None:
 
         client = aioredis.from_url(redis_url)
         pattern = f"joysafeter:bot_token:*:{agent_id}:*"
-        keys = []
+        deleted = 0
         async for key in client.scan_iter(match=pattern, count=100):
-            keys.append(key)
-
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=5)
-        ) as session:
-            for key in keys:
-                bot_token = await client.get(key)
-                if bot_token:
-                    token_str = (
-                        bot_token.decode()
-                        if isinstance(bot_token, bytes)
-                        else bot_token
-                    )
-                    try:
-                        await session.post(
-                            f"{base_url.rstrip('/')}/ai/identity/sec/api/revokeBotToken",
-                            json={
-                                "traceId": str(uuid.uuid4()),
-                                "botToken": token_str,
-                                "timestamp": int(time.time() * 1000),
-                            },
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"destroyBotToken failed for agent {agent_id}: {e}"
-                        )
-                await client.delete(key)
-
+            await client.delete(key)
+            deleted += 1
         await client.aclose()
-        if keys:
+        if deleted:
             logger.info(
-                f"Cleaned up {len(keys)} BotToken cache entries for agent {agent_id}"
+                f"Cleared {deleted} agent identity cache entries for agent {agent_id}"
             )
     except Exception as e:
         logger.warning(
-            f"Agent identity cleanup failed for {agent_id} (non-fatal): {e}"
+            f"Agent identity cache cleanup failed for {agent_id} (non-fatal): {e}"
         )
 
 
