@@ -155,6 +155,45 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
     )
   })
 
+  it('calls onCreated with the parsed vault after a successful create', async () => {
+    managedPostMock.mockResolvedValue({
+      id: 'credgrp_018f6f42-0a51-7cc4-98c8-4f6f0ca5f012',
+      name: 'v',
+      archived_at: null,
+      created_at: '',
+      updated_at: '',
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const onCreated = vi.fn()
+
+    const { getByPlaceholderText, getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <CreateVaultDialog open onOpenChange={() => {}} onCreated={onCreated} />
+      </QueryClientProvider>,
+    )
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('managed.vaults.namePlaceholder'), {
+        target: { value: 'My Vault' },
+      })
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('common.create'))
+      await Promise.resolve()
+    })
+
+    expect(onCreated).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'credgrp_018f6f42-0a51-7cc4-98c8-4f6f0ca5f012' }),
+    )
+  })
+
   it('does not create a vault from old dialog state in the same turn as a project switch', async () => {
     const queryClient = new QueryClient({
       defaultOptions: {

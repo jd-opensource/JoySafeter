@@ -13,6 +13,7 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
+import type { Vault } from '@/types/managed'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { Button } from '@/components/ui/button'
@@ -30,6 +31,7 @@ const MAX_NAME_LENGTH = 50
 interface CreateVaultDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onCreated?: (vault: Vault) => void
 }
 
 interface CreateVaultVariables {
@@ -39,7 +41,7 @@ interface CreateVaultVariables {
   requestScope: ManagedRequestScope
 }
 
-export function CreateVaultDialog({ open, onOpenChange }: CreateVaultDialogProps) {
+export function CreateVaultDialog({ open, onOpenChange, onCreated }: CreateVaultDialogProps) {
   const { t } = useTranslation()
   const managedScope = useManagedRequestScope()
   const createRunRef = useRef(0)
@@ -81,9 +83,10 @@ export function CreateVaultDialog({ open, onOpenChange }: CreateVaultDialogProps
         managedRequestOptions(requestScope),
       ).then(parseVaultResponse)
     },
-    onSuccess: (_data, { runId, scope }) => {
+    onSuccess: (data, { runId, scope }) => {
       if (!isCurrentCreateRun(runId, scope)) return
       queryClient.invalidateQueries({ queryKey: ['credential-groups', scope] })
+      onCreated?.(data)
       setName('')
       onOpenChange(false)
     },

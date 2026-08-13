@@ -132,7 +132,14 @@ export function CredentialManagementShell() {
         onCreated={onSecretCreated}
       />
 
-      <CreateVaultDialog open={vaultDialogOpen} onOpenChange={setVaultDialogOpen} />
+      <CreateVaultDialog
+        open={vaultDialogOpen}
+        onOpenChange={setVaultDialogOpen}
+        onCreated={(vault) => {
+          setVaultDialogOpen(false)
+          router.push(`/managed/credentials/mcp/${vault.id}?add=1`)
+        }}
+      />
     </div>
   )
 }
