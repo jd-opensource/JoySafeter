@@ -7,10 +7,13 @@ is intentionally un-loadable mid-cutover, so everything here runs at the
 service/model level (no TestClient).
 """
 
+import asyncio
 import uuid
 
 import pytest
 import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
@@ -129,3 +132,66 @@ async def test_create_agent_with_credential_from_other_project_raises(db_session
     with pytest.raises(AppError) as exc:
         await svc.create_agent(_create_req(other_cred_id), project_id=project_id)
     assert exc.value.code == "CREDENTIAL_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_archive_serializes_against_concurrent_agent_binding(
+    db_session,
+    postgres_url,
+    project_id,
+):
+    credential_id = await _make_model_credential(db_session, project_id)
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    archive_scanned = asyncio.Event()
+    release_archive = asyncio.Event()
+    binding_validated = asyncio.Event()
+
+    try:
+        async with session_factory() as archive_db, session_factory() as binding_db:
+            credential_service = CredentialService(archive_db)
+            original_reject = credential_service._reject_if_in_use
+
+            async def pause_after_dependency_scan(credential, scoped_project_id, *, verb):
+                await original_reject(credential, scoped_project_id, verb=verb)
+                archive_scanned.set()
+                await release_archive.wait()
+
+            credential_service._reject_if_in_use = pause_after_dependency_scan
+
+            agent_service = JoySafeterAgentService(binding_db)
+            original_validate = agent_service._validate_model_credential_ref
+
+            async def observe_binding_validation(candidate_id, scoped_project_id):
+                await original_validate(candidate_id, scoped_project_id)
+                binding_validated.set()
+
+            agent_service._validate_model_credential_ref = observe_binding_validation
+
+            archive_task = asyncio.create_task(
+                credential_service.archive(credential_id, project_id=project_id)
+            )
+            await asyncio.wait_for(archive_scanned.wait(), timeout=2)
+            binding_task = asyncio.create_task(
+                agent_service.create_agent(_create_req(credential_id), project_id=project_id)
+            )
+
+            try:
+                await asyncio.wait_for(binding_validated.wait(), timeout=0.25)
+                binding_passed_while_archive_was_open = True
+            except TimeoutError:
+                binding_passed_while_archive_was_open = False
+
+            release_archive.set()
+            archive_result, binding_result = await asyncio.gather(
+                archive_task,
+                binding_task,
+                return_exceptions=True,
+            )
+
+            assert not isinstance(archive_result, Exception)
+            assert binding_passed_while_archive_was_open is False
+            assert isinstance(binding_result, AppError)
+            assert binding_result.code == "CREDENTIAL_NOT_FOUND"
+    finally:
+        await engine.dispose()

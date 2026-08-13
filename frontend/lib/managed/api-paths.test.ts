@@ -11,7 +11,6 @@ describe('managed API path helpers', () => {
     expect(apiResourceId(`task_${UUID}`)).toBe(`task_${UUID}`)
     expect(apiResourceId(`trig_${UUID}`)).toBe(`trig_${UUID}`)
     expect(apiResourceId(`env_${UUID}`)).toBe(`env_${UUID}`)
-    expect(apiResourceId(`secret_${UUID}`)).toBe(`secret_${UUID}`)
     expect(apiResourceId(`credgrp_${UUID}`)).toBe(`credgrp_${UUID}`)
     expect(apiResourceId(`cred_${UUID}`)).toBe(`cred_${UUID}`)
     expect(apiResourceId(`skill_${UUID}`)).toBe(`skill_${UUID}`)

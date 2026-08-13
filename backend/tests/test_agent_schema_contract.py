@@ -61,6 +61,7 @@ def test_agent_requests_reject_unknown_fields() -> None:
 def test_quickstart_context_uses_system_field() -> None:
     context = QuickstartAgentContext(name="Agent", system="Be precise")
     assert context.system == "Be precise"
+    assert "secret_ref" not in QuickstartAgentContext.model_fields
 
     with pytest.raises(ValidationError):
         QuickstartAgentContext(name="Agent", system_prompt="old field")

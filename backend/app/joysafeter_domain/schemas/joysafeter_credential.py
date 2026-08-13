@@ -57,6 +57,13 @@ class CreateCredentialRequest(BaseModel):
     def _norm_name(cls, v: str) -> str:
         return _normalize_name(v)
 
+    @field_validator("mcp_server_url")
+    @classmethod
+    def _validate_mcp_server_url(cls, v: Optional[str]) -> Optional[str]:
+        from app.joysafeter_shared.security.ssrf_guard import validate_url_scheme
+
+        return validate_url_scheme(v)
+
 
 class UpdateCredentialRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -92,7 +99,6 @@ class CreateCredentialGroupRequest(BaseModel):
     @classmethod
     def _norm_name(cls, v: str) -> str:
         return _normalize_name(v)
-
 
 # --- test-connection request/response (ported from the secrets API) -------------
 # A model credential's provider/protocol/data are validated against the LLM
@@ -180,3 +186,12 @@ class AddGroupCredentialRequest(BaseModel):
     @classmethod
     def _norm_name(cls, v: str) -> str:
         return _normalize_name(v)
+
+    @field_validator("mcp_server_url")
+    @classmethod
+    def _validate_mcp_server_url(cls, v: str) -> str:
+        from app.joysafeter_shared.security.ssrf_guard import validate_url_scheme
+
+        validated = validate_url_scheme(v)
+        assert validated is not None
+        return validated

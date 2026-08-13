@@ -48,6 +48,7 @@ function genericSecret(name: string, id: string, data: Record<string, string>) {
     compatible_engine_ids: [],
     is_default: false,
     data,
+    archived_at: null,
     created_at: '2030-01-01T00:00:00Z',
     updated_at: '2030-01-01T00:00:00Z',
   }

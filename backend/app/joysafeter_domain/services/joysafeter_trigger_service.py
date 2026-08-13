@@ -238,6 +238,12 @@ class JoySafeterTriggerService:
             environment_ref=environment_ref,
         )
         if type == "webhook" and webhook_auth_credential_id and webhook_auth_field:
+            from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
+
+            await CredentialService(self.db).lock_credential(
+                webhook_auth_credential_id,
+                project_id=project_id,
+            )
             await WebhookAuthService(self.db).resolve_secret_value(
                 webhook_auth_credential_id=webhook_auth_credential_id,
                 webhook_auth_field=webhook_auth_field,
@@ -373,6 +379,12 @@ class JoySafeterTriggerService:
                 environment_ref=plan.next_environment_ref,
             )
         if plan.webhook_auth_credential_id_to_verify is not None and plan.webhook_auth_field_to_verify is not None:
+            from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
+
+            await CredentialService(self.db).lock_credential(
+                plan.webhook_auth_credential_id_to_verify,
+                project_id=trigger.project_id,
+            )
             await WebhookAuthService(self.db).resolve_secret_value(
                 webhook_auth_credential_id=plan.webhook_auth_credential_id_to_verify,
                 webhook_auth_field=plan.webhook_auth_field_to_verify,

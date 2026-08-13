@@ -227,8 +227,9 @@ function VaultDetailPageInner({ params }: { params: Promise<{ vaultId: string }>
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project vault credential archive ignored')
       }
-      return managedDelete(
-        apiResourcePath('credential-groups', vaultId, 'members', credId!),
+      return managedPost(
+        apiResourcePath('credential-groups', vaultId, 'members', credId!, 'archive'),
+        {},
         managedRequestOptions(requestScope),
       )
     },

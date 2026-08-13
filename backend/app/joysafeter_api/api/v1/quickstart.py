@@ -51,7 +51,6 @@ class QuickstartAgentContext(BaseModel):
     tools: Optional[list] = Field(default=None, max_length=10)
     mcp_servers: Optional[list] = Field(default=None, max_length=10)
     skills: Optional[list] = Field(default=None, max_length=20)
-    secret_ref: Optional[str] = Field(default=None, max_length=100)
 
 
 class QuickstartChatRequest(BaseModel):
@@ -222,7 +221,7 @@ def _generate_curl(tool_name: str, config: dict) -> str:
     endpoints = {
         "generate_agent_config": "/v1/agents",
         "generate_environment_config": "/v1/environments",
-        "generate_vault_config": "/v1/vaults",
+        "generate_vault_config": "/v1/credential-groups",
     }
     endpoint = endpoints.get(tool_name, "/v1/unknown")
     return f"""curl -X POST $BASE_URL{endpoint} \\

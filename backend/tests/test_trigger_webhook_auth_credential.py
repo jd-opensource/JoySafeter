@@ -9,6 +9,7 @@ service/model level (no TestClient).
 """
 
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
@@ -136,6 +137,22 @@ async def test_missing_credential_raises_not_found(db_session, project_id):
     with pytest.raises(AppError) as exc:
         await svc.resolve_secret_value(
             webhook_auth_credential_id=CredentialId.new(),
+            webhook_auth_field="WEBHOOK_SECRET",
+            project_id=project_id,
+        )
+    assert exc.value.code == "TRIGGER_SECRET_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_archived_credential_raises_not_found(db_session, project_id):
+    cred_id = await _make_service_credential(db_session, project_id)
+    credential = await CredentialService(db_session).get(cred_id, project_id=project_id)
+    credential.archived_at = datetime.now(timezone.utc)
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc:
+        await WebhookAuthService(db_session).resolve_secret_value(
+            webhook_auth_credential_id=cred_id,
             webhook_auth_field="WEBHOOK_SECRET",
             project_id=project_id,
         )

@@ -363,6 +363,7 @@ class SessionService:
         )
 
         grp_svc = CredentialGroupService(self.db)
+        await grp_svc.lock_groups(group_ids, project_id=project_id)
         for group_id in group_ids:
             group = await grp_svc.get(group_id, project_id=project_id or "")
             if group is None:

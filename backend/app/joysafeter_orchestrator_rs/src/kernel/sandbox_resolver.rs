@@ -1440,7 +1440,10 @@ impl SandboxResolver {
             r#"
             SELECT normalized_mcp_server_url, data
             FROM joysafeter_credentials
-            WHERE group_id = ANY($1) AND kind = 'mcp' AND deleted_at IS NULL
+            WHERE group_id = ANY($1)
+              AND kind = 'mcp'
+              AND archived_at IS NULL
+              AND deleted_at IS NULL
             "#,
         )
         .bind(&group_ids)
@@ -1716,7 +1719,8 @@ impl SandboxResolver {
         let secret: Option<(serde_json::Value,)> = sqlx::query_as(
             r#"
             SELECT data FROM joysafeter_credentials
-            WHERE id = $1 AND project_id = $2 AND kind = 'service' AND deleted_at IS NULL
+            WHERE id = $1 AND project_id = $2 AND kind = 'service'
+              AND archived_at IS NULL AND deleted_at IS NULL
             "#,
         )
         .bind(credential_id)
@@ -1753,7 +1757,7 @@ impl SandboxResolver {
         let secret = sqlx::query_as::<_, RuntimeSecretRow>(
             r#"
             SELECT kind, provider, protocol, data FROM joysafeter_credentials
-            WHERE id = $1 AND deleted_at IS NULL
+            WHERE id = $1 AND archived_at IS NULL AND deleted_at IS NULL
               AND ($2::text IS NULL OR project_id = $2)
             "#,
         )

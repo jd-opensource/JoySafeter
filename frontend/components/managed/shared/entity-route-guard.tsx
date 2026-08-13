@@ -10,15 +10,13 @@ import { ResourceErrorState, type ManagedResourceKind } from './resource-error-s
 // Kinds that are both a parseable entity id and a ResourceErrorState resource.
 type GuardableKind = EntityKind & ManagedResourceKind
 
-interface EntityRouteGuardOptions<Params> {
-  kind: GuardableKind
+type EntityRouteGuardOptions<Params> = {
   paramKey: keyof Params & string
   backTo: string
-  // Optional entity-id kind used to validate the route param when it differs
-  // from the resource `kind` (e.g. the `secret`/`vault` pages now carry
-  // unified `credential`/`credentialGroup` ids but keep their resource copy).
-  idKind?: EntityKind
-}
+} & (
+  | { kind: GuardableKind; idKind?: EntityKind }
+  | { kind: Exclude<ManagedResourceKind, EntityKind>; idKind: EntityKind }
+)
 
 // Wraps a detail-page component so an invalid `[id]` route param renders a
 // localized not-found state instead of throwing when the param is parsed.
@@ -31,7 +29,8 @@ export function withEntityRouteGuard<Params extends Record<string, string>>(
   function EntityRouteGuard({ params }: { params: Promise<Params> }) {
     const router = useRouter()
     const rawId = React.use(params)[paramKey]
-    if (!isEntityId(rawId, idKind ?? kind)) {
+    const entityKind = idKind ?? (kind as GuardableKind)
+    if (!isEntityId(rawId, entityKind)) {
       return <ResourceErrorState resource={kind} reason="notFound" onBack={() => router.push(backTo)} />
     }
     return <Inner params={params} />

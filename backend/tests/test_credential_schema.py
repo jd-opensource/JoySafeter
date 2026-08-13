@@ -52,6 +52,13 @@ def test_credentials_kind_identity_check_exists() -> None:
     # expands it to ck_<table>_kind_identity.
     assert any(n == "kind_identity" or n.endswith("kind_identity") for n in names)
 
+    kind_identity = next(c for c in checks if c.name and c.name.endswith("kind_identity"))
+    sql = str(kind_identity.sqltext)
+    assert "normalized_mcp_server_url IS NOT NULL" in sql
+    assert "credential_type IS NOT NULL" in sql
+    assert sql.count("credential_type IS NULL") == 2
+    assert sql.count("oauth_config IS NULL") == 2
+
 
 def test_credentials_partial_unique_indexes_exist() -> None:
     index_names = {ix.name for ix in JoySafeterCredential.__table__.indexes}

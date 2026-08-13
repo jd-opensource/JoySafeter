@@ -320,7 +320,7 @@ async def create_credential(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
-    svc = CredentialService(db)
+    svc = CredentialService(db, auto_commit=False)
     cred = await svc.create(req, project_id=auth_ctx.project_id)
     await audit_joysafeter_event(
         db,
@@ -330,7 +330,11 @@ async def create_credential(
         target_type="credential",
         target_id=str(cred.id),
         details=_audit_details(cred),
+        commit=False,
+        best_effort=False,
     )
+    await db.commit()
+    await svc.nudge_pending_network_policy_refreshes()
     return _credential_response(cred, svc)
 
 
@@ -394,7 +398,7 @@ async def update_credential(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
-    svc = CredentialService(db)
+    svc = CredentialService(db, auto_commit=False)
     cred = await svc.update(credential_id, req, project_id=auth_ctx.project_id)
     await audit_joysafeter_event(
         db,
@@ -404,7 +408,11 @@ async def update_credential(
         target_type="credential",
         target_id=str(cred.id),
         details=_audit_details(cred),
+        commit=False,
+        best_effort=False,
     )
+    await db.commit()
+    await svc.nudge_pending_network_policy_refreshes()
     return _credential_response(cred, svc)
 
 
@@ -415,7 +423,7 @@ async def delete_credential(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:
-    svc = CredentialService(db)
+    svc = CredentialService(db, auto_commit=False)
     # Lifecycle soft_delete raises CREDENTIAL_IN_USE (409) when still referenced.
     cred = await svc.soft_delete(credential_id, project_id=auth_ctx.project_id)
     await audit_joysafeter_event(
@@ -426,7 +434,11 @@ async def delete_credential(
         target_type="credential",
         target_id=str(credential_id),
         details=_audit_details(cred),
+        commit=False,
+        best_effort=False,
     )
+    await db.commit()
+    await svc.nudge_pending_network_policy_refreshes()
 
 
 @router.post("/{credential_id}/default")
@@ -436,7 +448,7 @@ async def set_default_credential(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
-    svc = CredentialService(db)
+    svc = CredentialService(db, auto_commit=False)
     cred = await svc.set_default(credential_id, project_id=auth_ctx.project_id)
     await audit_joysafeter_event(
         db,
@@ -446,7 +458,11 @@ async def set_default_credential(
         target_type="credential",
         target_id=str(cred.id),
         details=_audit_details(cred),
+        commit=False,
+        best_effort=False,
     )
+    await db.commit()
+    await svc.nudge_pending_network_policy_refreshes()
     return _credential_response(cred, svc)
 
 
@@ -457,7 +473,7 @@ async def archive_credential(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
-    svc = CredentialService(db)
+    svc = CredentialService(db, auto_commit=False)
     # Lifecycle archive raises CREDENTIAL_IN_USE (409) when still referenced.
     cred = await svc.archive(credential_id, project_id=auth_ctx.project_id)
     await audit_joysafeter_event(
@@ -468,7 +484,11 @@ async def archive_credential(
         target_type="credential",
         target_id=str(cred.id),
         details=_audit_details(cred),
+        commit=False,
+        best_effort=False,
     )
+    await db.commit()
+    await svc.nudge_pending_network_policy_refreshes()
     return _credential_response(cred, svc)
 
 
@@ -479,7 +499,7 @@ async def restore_credential(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
-    svc = CredentialService(db)
+    svc = CredentialService(db, auto_commit=False)
     cred = await svc.restore(credential_id, project_id=auth_ctx.project_id)
     await audit_joysafeter_event(
         db,
@@ -489,5 +509,9 @@ async def restore_credential(
         target_type="credential",
         target_id=str(cred.id),
         details=_audit_details(cred),
+        commit=False,
+        best_effort=False,
     )
+    await db.commit()
+    await svc.nudge_pending_network_policy_refreshes()
     return _credential_response(cred, svc)

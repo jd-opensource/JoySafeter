@@ -31,11 +31,14 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import and_, delete, or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.api.v1.network_policy_refresh import mark_live_sandboxes_pending
+from app.joysafeter_api.api.v1.network_policy_refresh import (
+    mark_live_sandboxes_pending,
+    nudge_sandbox_network_policy_refreshes,
+)
 from app.joysafeter_domain.models.joysafeter_credential import (
     JoySafeterCredential,
     JoySafeterCredentialGroup,
@@ -46,19 +49,63 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     CredentialKind,
     UpdateCredentialGroupRequest,
 )
+from app.joysafeter_domain.services.joysafeter_credential_group_invariants import (
+    credential_group_url_conflict,
+    is_credential_group_url_integrity_error,
+    reject_member_url_conflict_for_bound_sessions,
+)
 from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_shared.common.app_errors import NotFoundError, ResourceConflictError
-from app.joysafeter_shared.ids import CredentialGroupId, CredentialId
+from app.joysafeter_shared.ids import CredentialGroupId, CredentialId, SandboxId
 from app.joysafeter_shared.mcp_url import normalize_mcp_url
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
 class CredentialGroupService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, *, auto_commit: bool = True):
         self.db = db
+        self._auto_commit = auto_commit
+        self._pending_network_policy_refreshes: list[
+            tuple[list[SandboxId], str, str, str, str]
+        ] = []
         # Reused for the flat-``data`` contract validation + encrypt-on-write and
         # kind validation when materializing an mcp member.
         self._credentials = CredentialService(db)
+
+    async def _finish_write(self) -> None:
+        if self._auto_commit:
+            await self.db.commit()
+            await self.nudge_pending_network_policy_refreshes()
+        else:
+            await self.db.flush()
+
+    def _queue_network_policy_refresh(
+        self,
+        sandbox_ids: list[SandboxId],
+        *,
+        project_id: str,
+        reason: str,
+        source_type: str,
+        source_id: str,
+    ) -> None:
+        if sandbox_ids:
+            self._pending_network_policy_refreshes.append(
+                (sandbox_ids, project_id, reason, source_type, source_id)
+            )
+
+    async def nudge_pending_network_policy_refreshes(self) -> None:
+        pending, self._pending_network_policy_refreshes = (
+            self._pending_network_policy_refreshes,
+            [],
+        )
+        for sandbox_ids, project_id, reason, source_type, source_id in pending:
+            await nudge_sandbox_network_policy_refreshes(
+                sandbox_ids,
+                project_id=project_id,
+                reason=reason,
+                source_type=source_type,
+                source_id=source_id,
+            )
 
     # --- conflict helpers --------------------------------------------------------
 
@@ -73,12 +120,7 @@ class CredentialGroupService:
 
     @staticmethod
     def _url_conflict(normalized_url: str) -> ResourceConflictError:
-        return ResourceConflictError(
-            code="CREDENTIAL_GROUP_URL_CONFLICT",
-            message="An mcp credential for this server url already exists in the group",
-            data={"normalized_mcp_server_url": normalized_url},
-            user_action="fix_input",
-        )
+        return credential_group_url_conflict(normalized_url)
 
     @staticmethod
     def _is_group_name_integrity_error(exc: IntegrityError) -> bool:
@@ -87,8 +129,7 @@ class CredentialGroupService:
 
     @staticmethod
     def _is_group_url_integrity_error(exc: IntegrityError) -> bool:
-        message = str(getattr(exc, "orig", None) or exc).lower()
-        return "uq_credentials_group_url" in message
+        return is_credential_group_url_integrity_error(exc)
 
     async def _group_name_exists(self, project_id: str, name: str) -> bool:
         result = await self.db.execute(
@@ -105,16 +146,6 @@ class CredentialGroupService:
     async def create(
         self, req: CreateCredentialGroupRequest, project_id: str
     ) -> JoySafeterCredentialGroup:
-        # Purge any soft-deleted row that would collide on the (project,name)
-        # partial unique index so re-creating a deleted name succeeds.
-        await self.db.execute(
-            delete(JoySafeterCredentialGroup).where(
-                JoySafeterCredentialGroup.project_id == project_id,
-                JoySafeterCredentialGroup.name == req.name,
-                JoySafeterCredentialGroup.deleted_at.is_not(None),
-            )
-        )
-
         group = JoySafeterCredentialGroup(
             project_id=project_id,
             name=req.name,
@@ -122,7 +153,7 @@ class CredentialGroupService:
         )
         self.db.add(group)
         try:
-            await self.db.commit()
+            await self._finish_write()
         except IntegrityError as exc:
             await self.db.rollback()
             if self._is_group_name_integrity_error(exc):
@@ -157,16 +188,48 @@ class CredentialGroupService:
             )
         return group
 
+    async def lock_groups(
+        self,
+        group_ids: list[CredentialGroupId],
+        *,
+        project_id: str | None = None,
+    ) -> list[CredentialGroupId]:
+        """Lock credential groups in stable id order within the transaction."""
+        ordered_ids = sorted(set(group_ids), key=str)
+        if not ordered_ids:
+            return []
+        conditions = [JoySafeterCredentialGroup.id.in_(ordered_ids)]
+        if project_id is not None:
+            conditions.append(JoySafeterCredentialGroup.project_id == project_id)
+        result = await self.db.execute(
+            select(JoySafeterCredentialGroup.id)
+            .where(and_(*conditions))
+            .order_by(JoySafeterCredentialGroup.id)
+            .with_for_update()
+        )
+        return list(result.scalars().all())
+
+    async def lock_group(
+        self,
+        group_id: CredentialGroupId,
+        *,
+        project_id: str | None = None,
+    ) -> None:
+        await self.lock_groups([group_id], project_id=project_id)
+
     async def list(
         self,
         project_id: str,
         limit: int = 20,
         after_id: Optional[CredentialGroupId] = None,
+        include_archived: bool = False,
     ) -> tuple[list[JoySafeterCredentialGroup], bool]:
         q = select(JoySafeterCredentialGroup).where(
             JoySafeterCredentialGroup.project_id == project_id,
             JoySafeterCredentialGroup.deleted_at.is_(None),
         )
+        if not include_archived:
+            q = q.where(JoySafeterCredentialGroup.archived_at.is_(None))
         if after_id:
             cursor_created_at = (
                 select(JoySafeterCredentialGroup.created_at)
@@ -197,6 +260,7 @@ class CredentialGroupService:
         req: UpdateCredentialGroupRequest,
         project_id: str,
     ) -> JoySafeterCredentialGroup:
+        await self.lock_group(group_id, project_id=project_id)
         group = await self.get_or_raise(group_id, project_id=project_id)
 
         if req.name is not None and req.name != group.name:
@@ -208,7 +272,7 @@ class CredentialGroupService:
 
         group.updated_at = utc_now()
         try:
-            await self.db.commit()
+            await self._finish_write()
         except IntegrityError as exc:
             await self.db.rollback()
             if req.name is not None and self._is_group_name_integrity_error(exc):
@@ -259,24 +323,34 @@ class CredentialGroupService:
     async def archive(
         self, group_id: CredentialGroupId, project_id: str
     ) -> JoySafeterCredentialGroup:
+        await self.lock_group(group_id, project_id=project_id)
         group = await self.get_or_raise(group_id, project_id=project_id)
         await self._reject_if_bound_to_active_session(group_id, project_id)
         group.archived_at = utc_now()
         group.updated_at = utc_now()
-        await self._mark_pending(project_id=project_id, group_id=group.id)
-        await self.db.commit()
+        await self._mark_pending(
+            project_id=project_id,
+            group_id=group.id,
+            reason="credential_group_archived",
+        )
+        await self._finish_write()
         await self.db.refresh(group)
         return group
 
     async def soft_delete(
         self, group_id: CredentialGroupId, project_id: str
     ) -> JoySafeterCredentialGroup:
+        await self.lock_group(group_id, project_id=project_id)
         group = await self.get_or_raise(group_id, project_id=project_id)
         await self._reject_if_bound_to_active_session(group_id, project_id)
         group.deleted_at = utc_now()
         group.updated_at = utc_now()
-        await self._mark_pending(project_id=project_id, group_id=group.id)
-        await self.db.commit()
+        await self._mark_pending(
+            project_id=project_id,
+            group_id=group.id,
+            reason="credential_group_deleted",
+        )
+        await self._finish_write()
         await self.db.refresh(group)
         return group
 
@@ -296,20 +370,17 @@ class CredentialGroupService:
         ``CREDENTIAL_GROUP_URL_CONFLICT``. The insert + ``mark_pending`` commit
         together atomically.
         """
+        await self.lock_group(group_id, project_id=project_id)
         await self.get_or_raise(group_id, project_id=project_id)
 
         plaintext = self._credentials._validate_data_contract(mcp_fields.data)
+        plaintext = self._credentials._validate_mcp_static_bearer_data(plaintext)
         normalized_url = normalize_mcp_url(mcp_fields.mcp_server_url)
-
-        # Purge any soft-deleted member colliding on the (project,kind,name)
-        # partial unique index so re-adding a deleted member name succeeds.
-        await self.db.execute(
-            delete(JoySafeterCredential).where(
-                JoySafeterCredential.project_id == project_id,
-                JoySafeterCredential.kind == CredentialKind.MCP.value,
-                JoySafeterCredential.name == mcp_fields.name,
-                JoySafeterCredential.deleted_at.is_not(None),
-            )
+        await reject_member_url_conflict_for_bound_sessions(
+            self.db,
+            group_id=group_id,
+            normalized_url=normalized_url,
+            project_id=project_id,
         )
 
         cred = JoySafeterCredential(
@@ -319,6 +390,7 @@ class CredentialGroupService:
             data=self._credentials.encrypt_data_for_storage(plaintext),
             mcp_server_url=mcp_fields.mcp_server_url,
             normalized_mcp_server_url=normalized_url,
+            credential_type="static_bearer",
             group_id=group_id,
         )
         self.db.add(cred)
@@ -327,8 +399,12 @@ class CredentialGroupService:
             # via an incidental autoflush inside the mark_pending query), letting
             # us map it to the right conflict code before rolling back.
             await self.db.flush()
-            await self._mark_pending(project_id=project_id, group_id=group_id)
-            await self.db.commit()
+            await self._mark_pending(
+                project_id=project_id,
+                group_id=group_id,
+                reason="credential_group_member_added",
+            )
+            await self._finish_write()
         except IntegrityError as exc:
             await self.db.rollback()
             if self._is_group_url_integrity_error(exc):
@@ -346,26 +422,58 @@ class CredentialGroupService:
         project_id: str,
     ) -> JoySafeterCredential:
         """Soft-delete an mcp member of the group; atomic with ``mark_pending``."""
+        await self.lock_group(group_id, project_id=project_id)
+        await self._credentials.lock_credential(cred_id, project_id=project_id)
         cred = await self._get_member_or_raise(group_id, cred_id, project_id=project_id)
         cred.deleted_at = utc_now()
         cred.updated_at = utc_now()
-        await self._mark_pending(project_id=project_id, group_id=group_id)
-        await self.db.commit()
+        await self._mark_pending(
+            project_id=project_id,
+            group_id=group_id,
+            reason="credential_group_member_removed",
+        )
+        await self._finish_write()
         await self.db.refresh(cred)
         return cred
 
-    async def list_members(
-        self, group_id: CredentialGroupId, project_id: str
-    ) -> list[JoySafeterCredential]:
-        result = await self.db.execute(
-            select(JoySafeterCredential)
-            .where(
-                JoySafeterCredential.project_id == project_id,
-                JoySafeterCredential.group_id == group_id,
-                JoySafeterCredential.kind == CredentialKind.MCP.value,
-                JoySafeterCredential.deleted_at.is_(None),
+    async def archive_credential(
+        self,
+        group_id: CredentialGroupId,
+        cred_id: CredentialId,
+        project_id: str,
+    ) -> JoySafeterCredential:
+        await self.lock_group(group_id, project_id=project_id)
+        await self._credentials.lock_credential(cred_id, project_id=project_id)
+        cred = await self._get_member_or_raise(group_id, cred_id, project_id=project_id)
+        if cred.archived_at is None:
+            cred.archived_at = utc_now()
+            cred.updated_at = utc_now()
+            await self._mark_pending(
+                project_id=project_id,
+                group_id=group_id,
+                reason="credential_group_member_archived",
             )
-            .order_by(
+            await self._finish_write()
+            await self.db.refresh(cred)
+        return cred
+
+    async def list_members(
+        self,
+        group_id: CredentialGroupId,
+        project_id: str,
+        *,
+        include_archived: bool = True,
+    ) -> list[JoySafeterCredential]:
+        query = select(JoySafeterCredential).where(
+            JoySafeterCredential.project_id == project_id,
+            JoySafeterCredential.group_id == group_id,
+            JoySafeterCredential.kind == CredentialKind.MCP.value,
+            JoySafeterCredential.deleted_at.is_(None),
+        )
+        if not include_archived:
+            query = query.where(JoySafeterCredential.archived_at.is_(None))
+        result = await self.db.execute(
+            query.order_by(
                 JoySafeterCredential.created_at.desc(),
                 JoySafeterCredential.id.desc(),
             )
@@ -421,6 +529,7 @@ class CredentialGroupService:
                 JoySafeterCredential.project_id == project_id,
                 JoySafeterCredential.group_id.in_(unique_ids),
                 JoySafeterCredential.kind == CredentialKind.MCP.value,
+                JoySafeterCredential.archived_at.is_(None),
                 JoySafeterCredential.deleted_at.is_(None),
             )
         )
@@ -435,16 +544,29 @@ class CredentialGroupService:
 
     # --- atomic refresh primitive ------------------------------------------------
 
-    async def _mark_pending(self, *, project_id: str, group_id: CredentialGroupId) -> None:
+    async def _mark_pending(
+        self,
+        *,
+        project_id: str,
+        group_id: CredentialGroupId,
+        reason: str,
+    ) -> None:
         """Flag live limited-networking sandboxes ``pending`` in THIS transaction.
 
         No commit here: the caller commits, so the membership/group mutation and
         the pending mark land together. The durable ``pending`` reconcile loop
         converges regardless of any push.
         """
-        await mark_live_sandboxes_pending(
+        sandbox_ids = await mark_live_sandboxes_pending(
             self.db,
             project_id=project_id,
+            source_type="credential_group",
+            source_id=str(group_id),
+        )
+        self._queue_network_policy_refresh(
+            sandbox_ids,
+            project_id=project_id,
+            reason=reason,
             source_type="credential_group",
             source_id=str(group_id),
         )

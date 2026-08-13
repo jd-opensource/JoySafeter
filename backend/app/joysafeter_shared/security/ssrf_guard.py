@@ -190,4 +190,8 @@ def validate_url_scheme(url: str | None) -> str | None:
         raise ValueError(f"URL must use http:// or https:// scheme, got '{parsed.scheme}://'")
     if not parsed.hostname:
         raise ValueError("URL must have a valid hostname")
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ValueError("URL must have a valid port") from exc
     return url

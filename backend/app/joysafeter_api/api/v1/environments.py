@@ -9,6 +9,7 @@ from app.joysafeter_api.api.v1.network_policy_refresh import (
     refresh_live_limited_sandbox_network_policies,
 )
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
+from app.joysafeter_domain.schemas.joysafeter_credential import CredentialKind
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
     EnvironmentConfig,
@@ -16,7 +17,6 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
     UpdateEnvironmentRequest,
     extract_environment_secret_references,
 )
-from app.joysafeter_domain.schemas.joysafeter_credential import CredentialKind
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
 from app.joysafeter_shared.common.app_errors import (
@@ -213,6 +213,10 @@ async def _validate_secret_refs(
         )
 
     credential_svc = CredentialService(db)
+    await credential_svc.lock_credentials(
+        [reference.credential_id for reference in references],
+        project_id=project_id,
+    )
     for reference in references:
         cred = await credential_svc.get(reference.credential_id, project_id=project_id)
         if cred is None or cred.archived_at is not None:

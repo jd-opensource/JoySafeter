@@ -19,13 +19,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from sqlalchemy import and_, delete, or_, select, tuple_, update
+from sqlalchemy import and_, or_, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.joysafeter_api.api.v1.network_policy_refresh import mark_live_sandboxes_pending
-from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredential
+from app.joysafeter_api.api.v1.network_policy_refresh import (
+    mark_live_sandboxes_pending,
+    nudge_sandbox_network_policy_refreshes,
+)
+from app.joysafeter_domain.models.joysafeter_credential import (
+    JoySafeterCredential,
+    JoySafeterCredentialGroup,
+)
 from app.joysafeter_domain.schemas.joysafeter_credential import (
     CREDENTIAL_DATA_MAX_FIELDS,
     CREDENTIAL_DATA_MAX_KEY_LENGTH,
@@ -34,12 +40,17 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     CredentialKind,
     UpdateCredentialRequest,
 )
+from app.joysafeter_domain.services.joysafeter_credential_group_invariants import (
+    credential_group_url_conflict,
+    is_credential_group_url_integrity_error,
+    reject_member_url_conflict_for_bound_sessions,
+)
 from app.joysafeter_shared.common.app_errors import (
     InvalidRequestError,
     NotFoundError,
     ResourceConflictError,
 )
-from app.joysafeter_shared.ids import CredentialId
+from app.joysafeter_shared.ids import CredentialGroupId, CredentialId, SandboxId
 from app.joysafeter_shared.mcp_url import normalize_mcp_url
 from app.joysafeter_shared.security.credential_cipher import CredentialCipher
 from app.joysafeter_shared.utils.datetime import utc_now
@@ -153,9 +164,48 @@ class CredentialDependencies:
 
 
 class CredentialService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, *, auto_commit: bool = True):
         self.db = db
+        self._auto_commit = auto_commit
+        self._pending_network_policy_refreshes: list[
+            tuple[list[SandboxId], str, str, str, str]
+        ] = []
         self._cipher = _get_cipher()
+
+    async def _finish_write(self) -> None:
+        if self._auto_commit:
+            await self.db.commit()
+            await self.nudge_pending_network_policy_refreshes()
+        else:
+            await self.db.flush()
+
+    def _queue_network_policy_refresh(
+        self,
+        sandbox_ids: list[SandboxId],
+        *,
+        project_id: str,
+        reason: str,
+        source_type: str,
+        source_id: str,
+    ) -> None:
+        if sandbox_ids:
+            self._pending_network_policy_refreshes.append(
+                (sandbox_ids, project_id, reason, source_type, source_id)
+            )
+
+    async def nudge_pending_network_policy_refreshes(self) -> None:
+        pending, self._pending_network_policy_refreshes = (
+            self._pending_network_policy_refreshes,
+            [],
+        )
+        for sandbox_ids, project_id, reason, source_type, source_id in pending:
+            await nudge_sandbox_network_policy_refreshes(
+                sandbox_ids,
+                project_id=project_id,
+                reason=reason,
+                source_type=source_type,
+                source_id=source_id,
+            )
 
     # --- data contract / crypto / masking ---------------------------------------
 
@@ -199,6 +249,18 @@ class CredentialService:
                 )
             clean[key] = value
         return clean
+
+    @staticmethod
+    def _validate_mcp_static_bearer_data(data: dict[str, str]) -> dict[str, str]:
+        token_value = data.get("token_value", "").strip()
+        if not token_value:
+            raise InvalidRequestError(
+                code="CREDENTIAL_FIELD_MISSING",
+                message="MCP static bearer credentials require data.token_value",
+                data={"field": "data.token_value"},
+                user_action="fix_input",
+            )
+        return {**data, "token_value": token_value}
 
     def encrypt_data_for_storage(self, data: dict[str, str] | None) -> dict[str, str]:
         return {str(key): self._cipher.encrypt(str(value)) for key, value in (data or {}).items()}
@@ -353,19 +415,18 @@ class CredentialService:
     async def create(self, req: CreateCredentialRequest, project_id: str) -> JoySafeterCredential:
         self._validate_kind_identity_create(req)
         plaintext = self._validate_data_contract(req.data)
-
-        # Purge any soft-deleted row that would collide on the (project,kind,name)
-        # partial unique index so re-creating a deleted name succeeds.
-        await self.db.execute(
-            delete(JoySafeterCredential).where(
-                JoySafeterCredential.project_id == project_id,
-                JoySafeterCredential.kind == req.kind.value,
-                JoySafeterCredential.name == req.name,
-                JoySafeterCredential.deleted_at.is_not(None),
-            )
-        )
+        if req.kind is CredentialKind.MCP:
+            plaintext = self._validate_mcp_static_bearer_data(plaintext)
 
         normalized_url = normalize_mcp_url(req.mcp_server_url) if req.kind is CredentialKind.MCP else None
+        if req.kind is CredentialKind.MCP:
+            await self.lock_credential_group(req.group_id, project_id=project_id)
+            await reject_member_url_conflict_for_bound_sessions(
+                self.db,
+                group_id=req.group_id,
+                normalized_url=normalized_url,
+                project_id=project_id,
+            )
         if req.kind is CredentialKind.MODEL and req.is_default:
             await self._clear_default(project_id=project_id, protocol=req.protocol or "")
 
@@ -379,13 +440,31 @@ class CredentialService:
             is_default=req.is_default,
             mcp_server_url=req.mcp_server_url,
             normalized_mcp_server_url=normalized_url,
+            credential_type="static_bearer" if req.kind is CredentialKind.MCP else None,
             group_id=req.group_id,
         )
         self.db.add(cred)
         try:
-            await self.db.commit()
+            await self.db.flush()
+            if req.kind is CredentialKind.MCP:
+                sandbox_ids = await mark_live_sandboxes_pending(
+                    self.db,
+                    project_id=project_id,
+                    source_type="credential_group",
+                    source_id=str(req.group_id),
+                )
+                self._queue_network_policy_refresh(
+                    sandbox_ids,
+                    project_id=project_id,
+                    reason="credential_group_member_created",
+                    source_type="credential_group",
+                    source_id=str(req.group_id),
+                )
+            await self._finish_write()
         except IntegrityError as exc:
             await self.db.rollback()
+            if is_credential_group_url_integrity_error(exc):
+                raise credential_group_url_conflict(normalized_url or "") from exc
             if self._is_name_integrity_error(exc):
                 raise self._name_conflict(req.name) from exc
             raise
@@ -489,6 +568,7 @@ class CredentialService:
         req: UpdateCredentialRequest,
         project_id: str,
     ) -> JoySafeterCredential:
+        await self.lock_credential_scope(cred_id, project_id=project_id)
         cred = await self._get_or_raise(cred_id, project_id=project_id)
 
         if req.is_default is not None and req.is_default and cred.kind != CredentialKind.MODEL.value:
@@ -507,6 +587,8 @@ class CredentialService:
         if req.data is not None:
             merged = self.merge_update_plaintext(cred.data, req.data)
             merged = self._validate_data_contract(merged)
+            if cred.kind == CredentialKind.MCP.value:
+                merged = self._validate_mcp_static_bearer_data(merged)
             cred.data = self.encrypt_data_for_storage(merged)
 
         if req.is_default is not None and cred.kind == CredentialKind.MODEL.value:
@@ -515,9 +597,9 @@ class CredentialService:
             cred.is_default = req.is_default
 
         cred.updated_at = utc_now()
-        await self._mark_sandboxes_pending_for(cred)
+        await self._mark_sandboxes_pending_for(cred, reason="credential_updated")
         try:
-            await self.db.commit()
+            await self._finish_write()
         except IntegrityError as exc:
             await self.db.rollback()
             if req.name is not None and self._is_name_integrity_error(exc):
@@ -528,7 +610,9 @@ class CredentialService:
 
     # --- default (model only) ----------------------------------------------------
 
-    async def _mark_sandboxes_pending_for(self, cred: JoySafeterCredential) -> None:
+    async def _mark_sandboxes_pending_for(
+        self, cred: JoySafeterCredential, *, reason: str
+    ) -> None:
         """Mark live limited-networking sandboxes ``pending`` in THIS transaction.
 
         Called by the mutation methods that change already-referenced material
@@ -539,12 +623,19 @@ class CredentialService:
 
         No commit and no Redis nudge here: the caller commits, and the durable
         ``pending`` reconcile loop converges regardless. Post-commit nudging is
-        left to the route/wrapper. ``create`` is intentionally excluded — a
-        brand-new credential is not yet referenced by any live sandbox.
+        left to the route/wrapper. New model/service credentials are excluded;
+        MCP member creation refreshes through its credential-group scope.
         """
-        await mark_live_sandboxes_pending(
+        sandbox_ids = await mark_live_sandboxes_pending(
             self.db,
             project_id=cred.project_id,
+            source_type="credential",
+            source_id=str(cred.id),
+        )
+        self._queue_network_policy_refresh(
+            sandbox_ids,
+            project_id=cred.project_id,
+            reason=reason,
             source_type="credential",
             source_id=str(cred.id),
         )
@@ -566,6 +657,7 @@ class CredentialService:
         await self.db.flush()
 
     async def set_default(self, cred_id: CredentialId, project_id: str) -> JoySafeterCredential:
+        await self.lock_credential_scope(cred_id, project_id=project_id)
         cred = await self._get_or_raise(cred_id, project_id=project_id)
         if cred.kind != CredentialKind.MODEL.value or not cred.protocol:
             raise InvalidRequestError(
@@ -574,19 +666,27 @@ class CredentialService:
                 data={"credential_id": str(cred_id), "kind": cred.kind},
                 user_action="fix_input",
             )
+        if cred.archived_at is not None:
+            raise ResourceConflictError(
+                code="CREDENTIAL_ARCHIVED",
+                message="Archived credentials cannot be selected as defaults",
+                data={"credential_id": str(cred_id)},
+                user_action="refresh",
+            )
         await self._clear_default(project_id=project_id, protocol=cred.protocol)
         cred.is_default = True
         cred.updated_at = utc_now()
-        await self._mark_sandboxes_pending_for(cred)
-        await self.db.commit()
+        await self._mark_sandboxes_pending_for(cred, reason="credential_default_set")
+        await self._finish_write()
         await self.db.refresh(cred)
         return cred
 
     async def clear_default(self, cred_id: CredentialId, project_id: str) -> JoySafeterCredential:
+        await self.lock_credential_scope(cred_id, project_id=project_id)
         cred = await self._get_or_raise(cred_id, project_id=project_id)
         cred.is_default = False
         cred.updated_at = utc_now()
-        await self.db.commit()
+        await self._finish_write()
         await self.db.refresh(cred)
         return cred
 
@@ -700,47 +800,126 @@ class CredentialService:
     # FK RESTRICT only guards a physical delete, so the service enforces the rest.
 
     async def archive(self, cred_id: CredentialId, project_id: str) -> JoySafeterCredential:
+        await self.lock_credential_scope(cred_id, project_id=project_id)
         cred = await self._get_or_raise(cred_id, project_id=project_id)
         await self._reject_if_in_use(cred, project_id, verb="archived")
         cred.archived_at = utc_now()
         if cred.is_default:
             cred.is_default = False
         cred.updated_at = utc_now()
-        await self._mark_sandboxes_pending_for(cred)
-        await self.db.commit()
+        await self._mark_sandboxes_pending_for(cred, reason="credential_archived")
+        await self._finish_write()
         await self.db.refresh(cred)
         return cred
 
     async def restore(self, cred_id: CredentialId, project_id: str) -> JoySafeterCredential:
+        await self.lock_credential_scope(cred_id, project_id=project_id)
         cred = await self._get_or_raise(cred_id, project_id=project_id)
+        if cred.kind == CredentialKind.MCP.value:
+            await reject_member_url_conflict_for_bound_sessions(
+                self.db,
+                group_id=cred.group_id,
+                normalized_url=cred.normalized_mcp_server_url or "",
+                project_id=project_id,
+            )
         cred.archived_at = None
         cred.updated_at = utc_now()
-        await self.db.commit()
+        if cred.kind == CredentialKind.MCP.value:
+            sandbox_ids = await mark_live_sandboxes_pending(
+                self.db,
+                project_id=project_id,
+                source_type="credential_group",
+                source_id=str(cred.group_id),
+            )
+            self._queue_network_policy_refresh(
+                sandbox_ids,
+                project_id=project_id,
+                reason="credential_group_member_restored",
+                source_type="credential_group",
+                source_id=str(cred.group_id),
+            )
+        await self._finish_write()
         await self.db.refresh(cred)
         return cred
 
     async def soft_delete(self, cred_id: CredentialId, project_id: str) -> JoySafeterCredential:
+        await self.lock_credential_scope(cred_id, project_id=project_id)
         cred = await self._get_or_raise(cred_id, project_id=project_id)
         await self._reject_if_in_use(cred, project_id, verb="deleted")
         cred.deleted_at = utc_now()
         if cred.is_default:
             cred.is_default = False
         cred.updated_at = utc_now()
-        await self._mark_sandboxes_pending_for(cred)
-        await self.db.commit()
+        await self._mark_sandboxes_pending_for(cred, reason="credential_deleted")
+        await self._finish_write()
         await self.db.refresh(cred)
         return cred
 
     # --- concurrency lock --------------------------------------------------------
 
-    async def lock_credential(self, cred_id: CredentialId) -> None:
+    async def lock_credentials(
+        self,
+        cred_ids: list[CredentialId],
+        *,
+        project_id: str | None = None,
+    ) -> list[CredentialId]:
+        """Lock credential rows in stable id order within the current transaction."""
+        ordered_ids = sorted(set(cred_ids), key=str)
+        if not ordered_ids:
+            return []
+        conditions = [JoySafeterCredential.id.in_(ordered_ids)]
+        if project_id is not None:
+            conditions.append(JoySafeterCredential.project_id == project_id)
+        result = await self.db.execute(
+            select(JoySafeterCredential.id)
+            .where(and_(*conditions))
+            .order_by(JoySafeterCredential.id)
+            .with_for_update()
+        )
+        return list(result.scalars().all())
+
+    async def lock_credential_group(
+        self,
+        group_id: CredentialGroupId | None,
+        *,
+        project_id: str | None = None,
+    ) -> None:
+        if group_id is None:
+            return
+        conditions = [JoySafeterCredentialGroup.id == group_id]
+        if project_id is not None:
+            conditions.append(JoySafeterCredentialGroup.project_id == project_id)
+        await self.db.execute(
+            select(JoySafeterCredentialGroup.id)
+            .where(and_(*conditions))
+            .with_for_update()
+        )
+
+    async def lock_credential_scope(
+        self,
+        cred_id: CredentialId,
+        *,
+        project_id: str,
+    ) -> None:
+        result = await self.db.execute(
+            select(JoySafeterCredential.group_id).where(
+                JoySafeterCredential.id == cred_id,
+                JoySafeterCredential.project_id == project_id,
+            )
+        )
+        group_id = result.scalar_one_or_none()
+        await self.lock_credential_group(group_id, project_id=project_id)
+        await self.lock_credential(cred_id, project_id=project_id)
+
+    async def lock_credential(
+        self,
+        cred_id: CredentialId,
+        *,
+        project_id: str | None = None,
+    ) -> None:
         """Acquire a row-level ``SELECT ... FOR UPDATE`` lock on the credential.
 
         Used by later concurrency-sensitive tasks (e.g. grant issuance) to
         serialize writers against a single credential row within a transaction.
         """
-        await self.db.execute(
-            select(JoySafeterCredential.id)
-            .where(JoySafeterCredential.id == cred_id)
-            .with_for_update()
-        )
+        await self.lock_credentials([cred_id], project_id=project_id)

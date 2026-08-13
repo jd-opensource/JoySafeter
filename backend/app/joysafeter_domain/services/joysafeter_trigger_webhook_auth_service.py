@@ -87,7 +87,7 @@ class WebhookAuthService:
         context: dict[str, Any] = {"webhook_auth_credential_id": str(webhook_auth_credential_id)}
         if trigger_id is not None:
             context["trigger_id"] = str(trigger_id)
-        if credential is None:
+        if credential is None or credential.archived_at is not None:
             raise NotFoundError(
                 code="TRIGGER_SECRET_NOT_FOUND",
                 message=f"Credential not found: {webhook_auth_credential_id}",

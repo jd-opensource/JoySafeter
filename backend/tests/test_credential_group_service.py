@@ -166,17 +166,36 @@ async def test_add_credential_creates_mcp_member_with_normalized_url(db_session,
         AddGroupCredentialRequest(
             name="m1",
             mcp_server_url="HTTPS://Example.com:443/mcp/",
-            data={"AUTH_TOKEN": "t"},
+            data={"token_value": "t"},
         ),
         project_id=project_id,
     )
     assert cred.kind == "mcp"
+    assert cred.credential_type == "static_bearer"
     assert cred.group_id == group.id
     assert cred.mcp_server_url == "HTTPS://Example.com:443/mcp/"
     assert cred.normalized_mcp_server_url == "https://example.com/mcp"
 
     members = await svc.list_members(group.id, project_id=project_id)
     assert [m.id for m in members] == [cred.id]
+
+
+@pytest.mark.asyncio
+async def test_add_credential_requires_static_bearer_token(db_session, project_id):
+    svc = CredentialGroupService(db_session)
+    group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
+
+    with pytest.raises(AppError) as exc:
+        await svc.add_credential(
+            group.id,
+            AddGroupCredentialRequest(
+                name="missing-token",
+                mcp_server_url="https://a.com/mcp",
+            ),
+            project_id=project_id,
+        )
+
+    assert exc.value.code == "CREDENTIAL_FIELD_MISSING"
 
 
 @pytest.mark.asyncio
@@ -190,7 +209,9 @@ async def test_add_credential_marks_sandbox_pending(db_session, project_id):
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     await svc.add_credential(
         group.id,
-        AddGroupCredentialRequest(name="m1", mcp_server_url="https://a.com/mcp"),
+        AddGroupCredentialRequest(
+            name="m1", mcp_server_url="https://a.com/mcp", data={"token_value": "t"}
+        ),
         project_id=project_id,
     )
     assert await _sandbox_status(db_session, sandbox_id) == "pending"
@@ -202,14 +223,20 @@ async def test_add_duplicate_normalized_url_in_same_group_conflicts(db_session, 
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     await svc.add_credential(
         group.id,
-        AddGroupCredentialRequest(name="m1", mcp_server_url="https://example.com/mcp"),
+        AddGroupCredentialRequest(
+            name="m1", mcp_server_url="https://example.com/mcp", data={"token_value": "t"}
+        ),
         project_id=project_id,
     )
     # Different raw URL, SAME normalized url -> conflict.
     with pytest.raises(AppError) as exc:
         await svc.add_credential(
             group.id,
-            AddGroupCredentialRequest(name="m2", mcp_server_url="HTTPS://Example.com:443/mcp/"),
+            AddGroupCredentialRequest(
+                name="m2",
+                mcp_server_url="HTTPS://Example.com:443/mcp/",
+                data={"token_value": "t"},
+            ),
             project_id=project_id,
         )
     assert exc.value.code == "CREDENTIAL_GROUP_URL_CONFLICT"
@@ -223,7 +250,9 @@ async def test_add_credential_to_group_in_other_project_rejected(db_session, pro
     with pytest.raises(AppError) as exc:
         await svc.add_credential(
             group.id,
-            AddGroupCredentialRequest(name="m1", mcp_server_url="https://a.com/mcp"),
+            AddGroupCredentialRequest(
+                name="m1", mcp_server_url="https://a.com/mcp", data={"token_value": "t"}
+            ),
             project_id=other_project_id,
         )
     assert exc.value.code == "CREDENTIAL_GROUP_NOT_FOUND"
@@ -235,7 +264,9 @@ async def test_remove_credential_soft_deletes(db_session, project_id):
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     cred = await svc.add_credential(
         group.id,
-        AddGroupCredentialRequest(name="m1", mcp_server_url="https://a.com/mcp"),
+        AddGroupCredentialRequest(
+            name="m1", mcp_server_url="https://a.com/mcp", data={"token_value": "t"}
+        ),
         project_id=project_id,
     )
     await svc.remove_credential(group.id, cred.id, project_id=project_id)
@@ -245,7 +276,9 @@ async def test_remove_credential_soft_deletes(db_session, project_id):
     # Soft-deleting frees the (group, normalized_url) slot for re-add.
     again = await svc.add_credential(
         group.id,
-        AddGroupCredentialRequest(name="m1-again", mcp_server_url="https://a.com/mcp"),
+        AddGroupCredentialRequest(
+            name="m1-again", mcp_server_url="https://a.com/mcp", data={"token_value": "t"}
+        ),
         project_id=project_id,
     )
     assert again.normalized_mcp_server_url == "https://a.com/mcp"
@@ -257,7 +290,9 @@ async def test_remove_credential_marks_sandbox_pending(db_session, project_id):
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     cred = await svc.add_credential(
         group.id,
-        AddGroupCredentialRequest(name="m1", mcp_server_url="https://a.com/mcp"),
+        AddGroupCredentialRequest(
+            name="m1", mcp_server_url="https://a.com/mcp", data={"token_value": "t"}
+        ),
         project_id=project_id,
     )
 
@@ -267,6 +302,44 @@ async def test_remove_credential_marks_sandbox_pending(db_session, project_id):
     sandbox_id = sandbox.id
 
     await svc.remove_credential(group.id, cred.id, project_id=project_id)
+    assert await _sandbox_status(db_session, sandbox_id) == "pending"
+
+
+@pytest.mark.asyncio
+async def test_archive_credential_marks_pending_and_preserves_member_history(
+    db_session, project_id
+):
+    svc = CredentialGroupService(db_session)
+    group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
+    cred = await svc.add_credential(
+        group.id,
+        AddGroupCredentialRequest(
+            name="m1", mcp_server_url="https://a.com/mcp", data={"token_value": "t"}
+        ),
+        project_id=project_id,
+    )
+
+    sandbox = _limited_sandbox(project_id)
+    db_session.add(sandbox)
+    await db_session.commit()
+    sandbox_id = sandbox.id
+
+    archived = await svc.archive_credential(group.id, cred.id, project_id=project_id)
+
+    assert archived.archived_at is not None
+    assert archived.deleted_at is None
+    assert cred.id in {
+        member.id
+        for member in await svc.list_members(
+            group.id, project_id=project_id, include_archived=True
+        )
+    }
+    assert cred.id not in {
+        member.id
+        for member in await svc.list_members(
+            group.id, project_id=project_id, include_archived=False
+        )
+    }
     assert await _sandbox_status(db_session, sandbox_id) == "pending"
 
 
@@ -290,10 +363,18 @@ async def test_check_url_conflict_for_session_disjoint_ok(db_session, project_id
     g1 = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     g2 = await svc.create(CreateCredentialGroupRequest(name="g2"), project_id=project_id)
     await svc.add_credential(
-        g1.id, AddGroupCredentialRequest(name="a", mcp_server_url="https://a.com/mcp"), project_id=project_id
+        g1.id,
+        AddGroupCredentialRequest(
+            name="a", mcp_server_url="https://a.com/mcp", data={"token_value": "t"}
+        ),
+        project_id=project_id,
     )
     await svc.add_credential(
-        g2.id, AddGroupCredentialRequest(name="b", mcp_server_url="https://b.com/mcp"), project_id=project_id
+        g2.id,
+        AddGroupCredentialRequest(
+            name="b", mcp_server_url="https://b.com/mcp", data={"token_value": "t"}
+        ),
+        project_id=project_id,
     )
     # Disjoint urls across the two groups -> no conflict.
     await svc.check_url_conflict_for_session([g1.id, g2.id], project_id=project_id)
@@ -305,12 +386,20 @@ async def test_check_url_conflict_for_session_shared_url_conflicts(db_session, p
     g1 = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     g2 = await svc.create(CreateCredentialGroupRequest(name="g2"), project_id=project_id)
     await svc.add_credential(
-        g1.id, AddGroupCredentialRequest(name="a", mcp_server_url="https://dup.com/mcp"), project_id=project_id
+        g1.id,
+        AddGroupCredentialRequest(
+            name="a", mcp_server_url="https://dup.com/mcp", data={"token_value": "t"}
+        ),
+        project_id=project_id,
     )
     # Same normalized url lives in a DIFFERENT group -> nondeterministic at bind.
     await svc.add_credential(
         g2.id,
-        AddGroupCredentialRequest(name="b", mcp_server_url="HTTPS://Dup.com:443/mcp/"),
+        AddGroupCredentialRequest(
+            name="b",
+            mcp_server_url="HTTPS://Dup.com:443/mcp/",
+            data={"token_value": "t"},
+        ),
         project_id=project_id,
     )
     with pytest.raises(AppError) as exc:
@@ -323,7 +412,11 @@ async def test_check_url_conflict_single_group_ok(db_session, project_id):
     svc = CredentialGroupService(db_session)
     g1 = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     await svc.add_credential(
-        g1.id, AddGroupCredentialRequest(name="a", mcp_server_url="https://a.com/mcp"), project_id=project_id
+        g1.id,
+        AddGroupCredentialRequest(
+            name="a", mcp_server_url="https://a.com/mcp", data={"token_value": "t"}
+        ),
+        project_id=project_id,
     )
     # A single group can never conflict with itself.
     await svc.check_url_conflict_for_session([g1.id], project_id=project_id)

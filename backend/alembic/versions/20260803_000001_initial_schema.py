@@ -352,7 +352,7 @@ def upgrade() -> None:
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.CheckConstraint("(kind = 'model' AND provider IS NOT NULL AND protocol IS NOT NULL AND mcp_server_url IS NULL AND group_id IS NULL) OR (kind = 'mcp' AND mcp_server_url IS NOT NULL AND group_id IS NOT NULL AND provider IS NULL AND protocol IS NULL AND is_default = false) OR (kind = 'service' AND provider IS NULL AND protocol IS NULL AND mcp_server_url IS NULL AND group_id IS NULL AND is_default = false)", name='ck_joysafeter_credentials_kind_identity'),
+    sa.CheckConstraint("(kind = 'model' AND provider IS NOT NULL AND protocol IS NOT NULL AND mcp_server_url IS NULL AND normalized_mcp_server_url IS NULL AND credential_type IS NULL AND oauth_config IS NULL AND group_id IS NULL) OR (kind = 'mcp' AND mcp_server_url IS NOT NULL AND normalized_mcp_server_url IS NOT NULL AND credential_type IS NOT NULL AND group_id IS NOT NULL AND provider IS NULL AND protocol IS NULL AND is_default = false) OR (kind = 'service' AND provider IS NULL AND protocol IS NULL AND mcp_server_url IS NULL AND normalized_mcp_server_url IS NULL AND credential_type IS NULL AND oauth_config IS NULL AND group_id IS NULL AND is_default = false)", name='ck_joysafeter_credentials_kind_identity'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_joysafeter_credentials'))
     )
     op.create_index(op.f('ix_joysafeter_credentials_project_id'), 'joysafeter_credentials', ['project_id'], unique=False)

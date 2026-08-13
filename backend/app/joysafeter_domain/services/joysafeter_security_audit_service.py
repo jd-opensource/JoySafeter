@@ -25,6 +25,7 @@ class SecurityAuditService(BaseService):
         event_type: str,
         event_status: str,
         ip_address: str,
+        commit: bool = True,
         user_id: Optional[str] = None,
         user_email: Optional[str] = None,
         user_agent: Optional[str] = None,
@@ -61,7 +62,10 @@ class SecurityAuditService(BaseService):
         )
 
         self.db.add(log_entry)
-        await self.commit()
+        if commit:
+            await self.commit()
+        else:
+            await self.db.flush()
         await self.db.refresh(log_entry)
         return log_entry
 

@@ -612,6 +612,7 @@ export interface Secret {
   data?: Record<string, string>
   mcp_server_url?: string | null
   group_id?: import('./entity-id').CredentialGroupId | null
+  archived_at: string | null
   created_at: string
   updated_at: string
 }

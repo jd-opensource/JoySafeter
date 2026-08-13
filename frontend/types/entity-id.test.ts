@@ -7,13 +7,11 @@ import {
   isEntityId,
   parseAnyEntityId,
   parseAgentId,
+  parseCredentialId,
   parseEnvironmentId,
   parseEventId,
-  parseSecretId,
   parseSessionId,
   parseTaskId,
-  parseVaultId,
-  parseCredentialId,
   parseSandboxId,
   parseMemoryStoreId,
   parseMemoryId,
@@ -39,8 +37,6 @@ describe('typed entity ids', () => {
     expect(parseSessionId(`sess_${UUID}`)).toBe(`sess_${UUID}`)
     expect(parseTaskId(`task_${UUID}`)).toBe(`task_${UUID}`)
     expect(parseEnvironmentId(`env_${UUID}`)).toBe(`env_${UUID}`)
-    expect(parseSecretId(`secret_${UUID}`)).toBe(`secret_${UUID}`)
-    expect(parseVaultId(`vault_${UUID}`)).toBe(`vault_${UUID}`)
     expect(parseCredentialId(`cred_${UUID}`)).toBe(`cred_${UUID}`)
     expect(parseSandboxId(`sbx_${UUID}`)).toBe(`sbx_${UUID}`)
     expect(parseMemoryStoreId(`memstore_${UUID}`)).toBe(`memstore_${UUID}`)
@@ -62,9 +58,6 @@ describe('typed entity ids', () => {
     expect(() => parseAgentId(`sess_${UUID}`)).toThrow(TypeError)
     expect(() => parseSessionId(`task_${UUID}`)).toThrow(TypeError)
     expect(() => parseEnvironmentId(`agent_${UUID}`)).toThrow(TypeError)
-    expect(() => parseSecretId(UUID)).toThrow(TypeError)
-    expect(() => parseSecretId(`env_${UUID}`)).toThrow(TypeError)
-    expect(() => parseVaultId(UUID)).toThrow(TypeError)
     expect(() => parseCredentialId(`vault_${UUID}`)).toThrow(TypeError)
     expect(() => parseSandboxId(UUID)).toThrow(TypeError)
     expect(() => parseSandboxId(`task_${UUID}`)).toThrow(TypeError)
@@ -115,6 +108,10 @@ describe('typed entity ids', () => {
   it('rejects bare and stacked entity ids', () => {
     expect(() => parseAnyEntityId(UUID)).toThrow(TypeError)
     expect(() => parseAnyEntityId(`agent_sess_${UUID}`)).toThrow(TypeError)
+    expect(() => parseAnyEntityId(`secret_${UUID}`)).toThrow(TypeError)
+    expect(() => parseAnyEntityId(`vault_${UUID}`)).toThrow(TypeError)
+    expect(ENTITY_ID_PREFIXES).not.toHaveProperty('secret')
+    expect(ENTITY_ID_PREFIXES).not.toHaveProperty('vault')
   })
 
   it('formats validated entity ids for display only', () => {

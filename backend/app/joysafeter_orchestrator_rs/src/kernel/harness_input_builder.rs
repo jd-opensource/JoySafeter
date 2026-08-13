@@ -392,7 +392,7 @@ impl HarnessInputBuilder {
         let secret = sqlx::query_as::<_, SecretRow>(
             r#"
             SELECT kind, provider, protocol, data FROM joysafeter_credentials
-            WHERE id = $1 AND deleted_at IS NULL
+            WHERE id = $1 AND archived_at IS NULL AND deleted_at IS NULL
               AND ($2::text IS NULL OR project_id = $2)
             "#,
         )
@@ -728,7 +728,10 @@ impl HarnessInputBuilder {
                    COALESCE(data->>'token_value', '') AS token_value,
                    credential_type, oauth_config
             FROM joysafeter_credentials
-            WHERE group_id = ANY($1) AND kind = 'mcp' AND deleted_at IS NULL
+            WHERE group_id = ANY($1)
+              AND kind = 'mcp'
+              AND archived_at IS NULL
+              AND deleted_at IS NULL
             "#,
         )
         .bind(&group_ids)

@@ -19,6 +19,7 @@ const rawSecret = () => ({
   compatible_engine_ids: ['codex', 'native', 'pi'],
   is_default: true,
   data: { OPENAI_API_KEY: '********', OPENAI_MODEL: 'gpt-5' },
+  archived_at: null,
   created_at: '2026-08-06T00:00:00Z',
   updated_at: '2026-08-06T00:00:00Z',
 })
@@ -44,6 +45,7 @@ describe('secret response parsers', () => {
       model: 'gpt-5',
       is_default: true,
       compatible_engine_ids: ['codex', 'native', 'pi'],
+      archived_at: null,
     })
     expect(() => parseSecretResponse({ ...rawSecret(), kind: 'engine' })).toThrow()
   })

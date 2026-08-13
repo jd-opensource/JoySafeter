@@ -64,6 +64,66 @@ async def mark_live_sandboxes_pending(
     return [row[0] for row in marked.all()]
 
 
+async def nudge_sandbox_network_policy_refreshes(
+    sandbox_ids: list[SandboxId],
+    *,
+    project_id: Optional[str],
+    reason: str,
+    source_type: str,
+    source_id: str,
+) -> int:
+    """Best-effort post-commit acceleration for durable pending refreshes."""
+    if not sandbox_ids:
+        return 0
+
+    semaphore = asyncio.Semaphore(10)
+
+    async def _nudge(sandbox_id: SandboxId) -> bool:
+        async with semaphore:
+            try:
+                return await publish_to_sandbox_owner_via_redis(
+                    sandbox_id,
+                    command={
+                        "type": "network_policy_refresh",
+                        "reason": reason,
+                        "source_type": source_type,
+                        "source_id": source_id,
+                    },
+                    boundary="network_policy_refresh",
+                    operation="refresh_sandbox_network_policy",
+                    failure_code="NETWORK_POLICY_REFRESH_RELAY_FAILED",
+                    failure_message="Failed to relay network policy refresh command",
+                    data={
+                        "project_id": project_id,
+                        "source_type": source_type,
+                        "source_id": source_id,
+                    },
+                    require_ack=False,
+                )
+            except Exception:
+                logger.debug(
+                    "network policy refresh nudge failed; relying on reconcile loop",
+                    extra={"sandbox_id": str(sandbox_id)},
+                    exc_info=True,
+                )
+                return False
+
+    nudge_results = await asyncio.gather(*(_nudge(sandbox_id) for sandbox_id in sandbox_ids))
+    nudged = sum(1 for ok in nudge_results if ok)
+    logger.info(
+        "Marked sandboxes for network policy refresh",
+        extra={
+            "project_id": project_id,
+            "reason": reason,
+            "source_type": source_type,
+            "source_id": source_id,
+            "sandbox_count": len(sandbox_ids),
+            "nudged_now": nudged,
+        },
+    )
+    return nudged
+
+
 async def refresh_live_limited_sandbox_network_policies(
     db: AsyncSession,
     *,
@@ -111,54 +171,11 @@ async def refresh_live_limited_sandbox_network_policies(
     if not sandbox_ids:
         return 0
 
-    # Best-effort acceleration: nudge each owner orchestrator to reconcile now
-    # instead of waiting for the next loop tick. Fire-and-forget — no ACK wait,
-    # so a slow/absent owner never blocks the API. Delivery failures are benign
-    # because the 'pending' marker above will be reconciled regardless.
-    semaphore = asyncio.Semaphore(10)
-
-    async def _nudge(sandbox_id) -> bool:
-        async with semaphore:
-            try:
-                return await publish_to_sandbox_owner_via_redis(
-                    sandbox_id,
-                    command={
-                        "type": "network_policy_refresh",
-                        "reason": reason,
-                        "source_type": source_type,
-                        "source_id": source_id,
-                    },
-                    boundary="network_policy_refresh",
-                    operation="refresh_sandbox_network_policy",
-                    failure_code="NETWORK_POLICY_REFRESH_RELAY_FAILED",
-                    failure_message="Failed to relay network policy refresh command",
-                    data={
-                        "project_id": project_id,
-                        "source_type": source_type,
-                        "source_id": source_id,
-                    },
-                    require_ack=False,
-                )
-            except Exception:
-                # Never let a nudge failure surface — the pending marker converges.
-                logger.debug(
-                    "network policy refresh nudge failed; relying on reconcile loop",
-                    extra={"sandbox_id": str(sandbox_id)},
-                    exc_info=True,
-                )
-                return False
-
-    nudge_results = await asyncio.gather(*(_nudge(sid) for sid in sandbox_ids))
-    nudged = sum(1 for ok in nudge_results if ok)
-    logger.info(
-        "Marked sandboxes for network policy refresh",
-        extra={
-            "project_id": project_id,
-            "reason": reason,
-            "source_type": source_type,
-            "source_id": source_id,
-            "sandbox_count": len(sandbox_ids),
-            "nudged_now": nudged,
-        },
+    await nudge_sandbox_network_policy_refreshes(
+        sandbox_ids,
+        project_id=project_id,
+        reason=reason,
+        source_type=source_type,
+        source_id=source_id,
     )
     return len(sandbox_ids)

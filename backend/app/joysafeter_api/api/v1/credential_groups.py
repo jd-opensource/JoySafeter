@@ -25,6 +25,7 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     CredentialGroupResponse,
     CredentialKind,
     CredentialResponse,
+    UpdateCredentialGroupRequest,
 )
 from app.joysafeter_domain.services.joysafeter_credential_group_service import (
     CredentialGroupService,
@@ -79,7 +80,7 @@ async def create_credential_group(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialGroupResponse:
-    svc = CredentialGroupService(db)
+    svc = CredentialGroupService(db, auto_commit=False)
     group = await svc.create(req, project_id=auth_ctx.project_id)
     await audit_joysafeter_event(
         db,
@@ -89,7 +90,11 @@ async def create_credential_group(
         target_type="credential_group",
         target_id=str(group.id),
         details={"name": group.name},
+        commit=False,
+        best_effort=False,
     )
+    await db.commit()
+    await svc.nudge_pending_network_policy_refreshes()
     return _group_response(group)
 
 
@@ -97,12 +102,16 @@ async def create_credential_group(
 async def list_credential_groups(
     limit: int = Query(20, ge=1, le=100),
     after_id: Optional[CredentialGroupId] = Query(None),
+    include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
     svc = CredentialGroupService(db)
     groups, has_more = await svc.list(
-        project_id=auth_ctx.project_id, limit=limit, after_id=after_id
+        project_id=auth_ctx.project_id,
+        limit=limit,
+        after_id=after_id,
+        include_archived=include_archived,
     )
     items = [_group_response(g) for g in groups]
     return {
@@ -124,6 +133,32 @@ async def get_credential_group(
     return _group_response(group)
 
 
+@router.patch("/{group_id}")
+async def update_credential_group(
+    req: UpdateCredentialGroupRequest,
+    request: Request,
+    group_id: CredentialGroupId,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> CredentialGroupResponse:
+    svc = CredentialGroupService(db, auto_commit=False)
+    group = await svc.update(group_id, req, project_id=auth_ctx.project_id)
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="credential_group.updated",
+        target_type="credential_group",
+        target_id=str(group.id),
+        details={"name": group.name},
+        commit=False,
+        best_effort=False,
+    )
+    await db.commit()
+    await svc.nudge_pending_network_policy_refreshes()
+    return _group_response(group)
+
+
 @router.delete("/{group_id}", status_code=204)
 async def delete_credential_group(
     request: Request,
@@ -131,7 +166,7 @@ async def delete_credential_group(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:
-    svc = CredentialGroupService(db)
+    svc = CredentialGroupService(db, auto_commit=False)
     # soft_delete raises CREDENTIAL_IN_USE (409) when bound to an active session.
     group = await svc.soft_delete(group_id, project_id=auth_ctx.project_id)
     await audit_joysafeter_event(
@@ -142,7 +177,11 @@ async def delete_credential_group(
         target_type="credential_group",
         target_id=str(group.id),
         details={"name": group.name},
+        commit=False,
+        best_effort=False,
     )
+    await db.commit()
+    await svc.nudge_pending_network_policy_refreshes()
 
 
 @router.post("/{group_id}/archive")
@@ -152,7 +191,7 @@ async def archive_credential_group(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialGroupResponse:
-    svc = CredentialGroupService(db)
+    svc = CredentialGroupService(db, auto_commit=False)
     # archive raises CREDENTIAL_IN_USE (409) when bound to an active session.
     group = await svc.archive(group_id, project_id=auth_ctx.project_id)
     await audit_joysafeter_event(
@@ -163,7 +202,11 @@ async def archive_credential_group(
         target_type="credential_group",
         target_id=str(group.id),
         details={"name": group.name},
+        commit=False,
+        best_effort=False,
     )
+    await db.commit()
+    await svc.nudge_pending_network_policy_refreshes()
     return _group_response(group)
 
 
@@ -173,13 +216,18 @@ async def archive_credential_group(
 @router.get("/{group_id}/members")
 async def list_credential_group_members(
     group_id: CredentialGroupId,
+    include_archived: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
     svc = CredentialGroupService(db)
     # Confirm the group exists / is visible in this project before listing.
     await svc.get_or_raise(group_id, project_id=auth_ctx.project_id)
-    members = await svc.list_members(group_id, project_id=auth_ctx.project_id)
+    members = await svc.list_members(
+        group_id,
+        project_id=auth_ctx.project_id,
+        include_archived=include_archived,
+    )
     cred_svc = CredentialService(db)
     items = [_member_response(m, cred_svc) for m in members]
     return {"data": [item.model_dump(mode="json") for item in items]}
@@ -193,7 +241,7 @@ async def add_credential_group_member(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
-    svc = CredentialGroupService(db)
+    svc = CredentialGroupService(db, auto_commit=False)
     cred = await svc.add_credential(group_id, req, project_id=auth_ctx.project_id)
     await audit_joysafeter_event(
         db,
@@ -208,7 +256,45 @@ async def add_credential_group_member(
             "mcp_server_url": cred.mcp_server_url,
             "keys": sorted((cred.data or {}).keys()),
         },
+        commit=False,
+        best_effort=False,
     )
+    await db.commit()
+    await svc.nudge_pending_network_policy_refreshes()
+    return _member_response(cred, CredentialService(db))
+
+
+@router.post("/{group_id}/members/{credential_id}/archive")
+async def archive_credential_group_member(
+    request: Request,
+    group_id: CredentialGroupId,
+    credential_id: CredentialId,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> CredentialResponse:
+    svc = CredentialGroupService(db, auto_commit=False)
+    cred = await svc.archive_credential(
+        group_id,
+        credential_id,
+        project_id=auth_ctx.project_id,
+    )
+    await audit_joysafeter_event(
+        db,
+        request,
+        auth_ctx,
+        event_type="credential_group.member_archived",
+        target_type="credential",
+        target_id=str(credential_id),
+        details={
+            "credential_group_id": str(group_id),
+            "name": cred.name,
+            "mcp_server_url": cred.mcp_server_url,
+        },
+        commit=False,
+        best_effort=False,
+    )
+    await db.commit()
+    await svc.nudge_pending_network_policy_refreshes()
     return _member_response(cred, CredentialService(db))
 
 
@@ -220,7 +306,7 @@ async def remove_credential_group_member(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:
-    svc = CredentialGroupService(db)
+    svc = CredentialGroupService(db, auto_commit=False)
     cred = await svc.remove_credential(group_id, credential_id, project_id=auth_ctx.project_id)
     await audit_joysafeter_event(
         db,
@@ -234,4 +320,8 @@ async def remove_credential_group_member(
             "name": cred.name,
             "mcp_server_url": cred.mcp_server_url,
         },
+        commit=False,
+        best_effort=False,
     )
+    await db.commit()
+    await svc.nudge_pending_network_policy_refreshes()

@@ -14,6 +14,7 @@ const secretBaseSchema = z
     is_default: z.boolean(),
     mcp_server_url: z.string().nullable().optional(),
     group_id: z.string().nullable().optional(),
+    archived_at: z.string().nullable(),
     created_at: z.string(),
     updated_at: z.string(),
   })

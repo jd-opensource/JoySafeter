@@ -9,8 +9,12 @@ import uuid
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
 
-from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredentialGroup
+from app.joysafeter_domain.models.joysafeter_credential import (
+    JoySafeterCredential,
+    JoySafeterCredentialGroup,
+)
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.schemas.joysafeter_credential import (
@@ -208,6 +212,41 @@ async def test_set_and_clear_default(db_session, project_id):
 
 
 @pytest.mark.asyncio
+async def test_set_default_rejects_archived_credential_without_clearing_active_default(
+    db_session, project_id
+):
+    svc = CredentialService(db_session)
+    active = await svc.create(
+        CreateCredentialRequest(
+            kind="model",
+            name="active",
+            provider="openai",
+            protocol="openai",
+            data={"API_KEY": "1"},
+        ),
+        project_id=project_id,
+    )
+    archived = await svc.create(
+        CreateCredentialRequest(
+            kind="model",
+            name="archived",
+            provider="openai",
+            protocol="openai",
+            data={"API_KEY": "2"},
+        ),
+        project_id=project_id,
+    )
+    await svc.set_default(active.id, project_id=project_id)
+    await svc.archive(archived.id, project_id=project_id)
+
+    with pytest.raises(AppError) as exc:
+        await svc.set_default(archived.id, project_id=project_id)
+
+    assert exc.value.code == "CREDENTIAL_ARCHIVED"
+    assert (await svc.get(active.id, project_id=project_id)).is_default is True
+
+
+@pytest.mark.asyncio
 async def test_lifecycle_archive_restore_soft_delete(db_session, project_id):
     svc = CredentialService(db_session)
     cred = await svc.create(
@@ -226,6 +265,32 @@ async def test_lifecycle_archive_restore_soft_delete(db_session, project_id):
 
 
 @pytest.mark.asyncio
+async def test_recreate_soft_deleted_name_preserves_history(db_session, project_id):
+    svc = CredentialService(db_session)
+    deleted = await svc.create(
+        CreateCredentialRequest(kind="service", name="reusable", data={"TOKEN": "old"}),
+        project_id=project_id,
+    )
+    await svc.soft_delete(deleted.id, project_id=project_id)
+
+    replacement = await svc.create(
+        CreateCredentialRequest(kind="service", name="reusable", data={"TOKEN": "new"}),
+        project_id=project_id,
+    )
+
+    rows = await db_session.execute(
+        select(JoySafeterCredential).where(
+            JoySafeterCredential.project_id == project_id,
+            JoySafeterCredential.kind == "service",
+            JoySafeterCredential.name == "reusable",
+        )
+    )
+    credentials = list(rows.scalars().all())
+    assert {credential.id for credential in credentials} == {deleted.id, replacement.id}
+    assert next(credential for credential in credentials if credential.id == deleted.id).deleted_at is not None
+
+
+@pytest.mark.asyncio
 async def test_create_mcp_sets_normalized_url(db_session, project_id):
     group = JoySafeterCredentialGroup(project_id=project_id, name=f"grp-{uuid.uuid4()}")
     db_session.add(group)
@@ -239,10 +304,40 @@ async def test_create_mcp_sets_normalized_url(db_session, project_id):
             name="mcp1",
             mcp_server_url="HTTPS://Example.com:443/mcp/",
             group_id=group.id,
-            data={"AUTH_TOKEN": "t"},
+            data={"token_value": "t"},
         ),
         project_id=project_id,
     )
     assert cred.kind == "mcp"
+    assert cred.credential_type == "static_bearer"
     assert cred.mcp_server_url == "HTTPS://Example.com:443/mcp/"
     assert cred.normalized_mcp_server_url == "https://example.com/mcp"
+
+
+@pytest.mark.asyncio
+async def test_update_mcp_rejects_clearing_static_bearer_token(db_session, project_id):
+    group = JoySafeterCredentialGroup(project_id=project_id, name=f"grp-{uuid.uuid4()}")
+    db_session.add(group)
+    await db_session.commit()
+    await db_session.refresh(group)
+
+    svc = CredentialService(db_session)
+    cred = await svc.create(
+        CreateCredentialRequest(
+            kind="mcp",
+            name="mcp1",
+            mcp_server_url="https://example.com/mcp",
+            group_id=group.id,
+            data={"token_value": "t"},
+        ),
+        project_id=project_id,
+    )
+
+    with pytest.raises(AppError) as exc:
+        await svc.update(
+            cred.id,
+            UpdateCredentialRequest(data={"token_value": ""}),
+            project_id=project_id,
+        )
+
+    assert exc.value.code == "CREDENTIAL_FIELD_MISSING"

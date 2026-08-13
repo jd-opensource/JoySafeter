@@ -208,7 +208,11 @@ class JoySafeterAgentService:
             )
 
     async def _validate_model_credential_ref(
-        self, model_credential_id: Optional[CredentialId], project_id: Optional[str]
+        self,
+        model_credential_id: Optional[CredentialId],
+        project_id: Optional[str],
+        *,
+        acquire_lock: bool = True,
     ) -> None:
         """Ensure an agent's model_credential_id references a usable model credential.
 
@@ -227,7 +231,13 @@ class JoySafeterAgentService:
             )
         from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 
-        cred = await CredentialService(self.db).get(model_credential_id, project_id=project_id)
+        credential_service = CredentialService(self.db)
+        if acquire_lock:
+            await credential_service.lock_credential(
+                model_credential_id,
+                project_id=project_id,
+            )
+        cred = await credential_service.get(model_credential_id, project_id=project_id)
         if cred is None or cred.archived_at is not None:
             raise NotFoundError(
                 code="CREDENTIAL_NOT_FOUND",
@@ -438,7 +448,23 @@ class JoySafeterAgentService:
             agent.environment_ref = req.environment_ref
             changed = True
         if "model_credential_id" in req.model_fields_set and req.model_credential_id != agent.model_credential_id:
-            await self._validate_model_credential_ref(req.model_credential_id, project_id)
+            from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
+
+            credential_ids = [
+                credential_id
+                for credential_id in (agent.model_credential_id, req.model_credential_id)
+                if credential_id is not None
+            ]
+            if project_id is not None:
+                await CredentialService(self.db).lock_credentials(
+                    credential_ids,
+                    project_id=project_id,
+                )
+            await self._validate_model_credential_ref(
+                req.model_credential_id,
+                project_id,
+                acquire_lock=False,
+            )
             agent.model_credential_id = req.model_credential_id
             changed = True
 

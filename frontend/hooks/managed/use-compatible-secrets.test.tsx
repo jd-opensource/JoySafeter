@@ -47,6 +47,7 @@ function secret(id: string, name: string, isDefault = false) {
     compatible_engine_ids: ['codex', 'native', 'pi'],
     is_default: isDefault,
     data: { OPENAI_API_KEY: 'sk-test' },
+    archived_at: null,
     created_at: '2026-08-07T00:00:00Z',
     updated_at: '2026-08-07T00:00:00Z',
   }

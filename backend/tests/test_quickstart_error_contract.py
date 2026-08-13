@@ -18,6 +18,7 @@ from error_contract_helpers import handled_app_error_payload
 from app.joysafeter_api.api.v1.quickstart import (
     QuickstartChatRequest,
     QuickstartMessage,
+    _generate_curl,
     _upstream_connection_error_event,
     _upstream_error_event,
     _upstream_stream_error_event,
@@ -82,6 +83,12 @@ def test_quickstart_schema_uses_model_credential_id_not_secret_ref():
     fields = QuickstartChatRequest.model_fields
     assert "model_credential_id" in fields
     assert "secret_ref" not in fields
+
+
+def test_quickstart_vault_curl_uses_credential_group_endpoint():
+    curl = _generate_curl("generate_vault_config", {"name": "mcp credentials"})
+    assert "/v1/credential-groups" in curl
+    assert "/v1/vaults" not in curl
 
 
 def test_quickstart_upstream_status_error_event_is_structured():

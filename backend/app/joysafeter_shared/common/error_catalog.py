@@ -52,6 +52,12 @@ CATALOG: dict[str, CatalogEntry] = {
         default_message="Credential is still referenced and cannot be archived or deleted",
         user_action="fix_input",
     ),
+    "CREDENTIAL_ARCHIVED": CatalogEntry(
+        code="CREDENTIAL_ARCHIVED",
+        error_class=ResourceConflictError,
+        default_message="Credential is archived",
+        user_action="refresh",
+    ),
     "CREDENTIAL_FIELD_MISSING": CatalogEntry(
         code="CREDENTIAL_FIELD_MISSING",
         error_class=InvalidRequestError,

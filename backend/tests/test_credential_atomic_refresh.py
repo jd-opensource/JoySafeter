@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -28,8 +28,13 @@ from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.schemas.joysafeter_credential import (
+    AddGroupCredentialRequest,
+    CreateCredentialGroupRequest,
     CreateCredentialRequest,
     UpdateCredentialRequest,
+)
+from app.joysafeter_domain.services.joysafeter_credential_group_service import (
+    CredentialGroupService,
 )
 from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 
@@ -121,6 +126,30 @@ async def test_update_marks_sandbox_pending_atomically(db_session, postgres_url,
 
 
 @pytest.mark.asyncio
+async def test_generic_mcp_create_marks_sandbox_pending(db_session, project_id):
+    sandbox = _limited_sandbox(project_id)
+    db_session.add(sandbox)
+    await db_session.commit()
+    sandbox_id = sandbox.id
+
+    group = await CredentialGroupService(db_session).create(
+        CreateCredentialGroupRequest(name="mcp-group"), project_id=project_id
+    )
+    await CredentialService(db_session).create(
+        CreateCredentialRequest(
+            kind="mcp",
+            name="mcp-member",
+            mcp_server_url="https://mcp.example.com/sse",
+            group_id=group.id,
+            data={"token_value": "t"},
+        ),
+        project_id=project_id,
+    )
+
+    assert await _sandbox_status(db_session, sandbox_id) == "pending"
+
+
+@pytest.mark.asyncio
 async def test_mark_live_sandboxes_pending_does_not_commit(db_session, project_id):
     """The primitive itself must NOT commit: after calling it and rolling back,
     the sandbox flag must NOT have persisted."""
@@ -173,6 +202,45 @@ async def test_archive_soft_delete_set_default_mark_pending(db_session, project_
         sandbox.networking_status = "ready"
         db_session.add(sandbox)
         await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_restore_mcp_member_marks_sandbox_pending(db_session, project_id):
+    sandbox = _limited_sandbox(project_id)
+    db_session.add(sandbox)
+    await db_session.commit()
+    sandbox_id = sandbox.id
+
+    group_service = CredentialGroupService(db_session)
+    group = await group_service.create(
+        CreateCredentialGroupRequest(name="mcp-restore-group"),
+        project_id=project_id,
+    )
+    credential = await group_service.add_credential(
+        group.id,
+        AddGroupCredentialRequest(
+            name="mcp-restore-member",
+            mcp_server_url="https://mcp.example.com/sse",
+            data={"token_value": "t"},
+        ),
+        project_id=project_id,
+    )
+    await group_service.archive_credential(
+        group.id,
+        credential.id,
+        project_id=project_id,
+    )
+    await db_session.execute(
+        update(JoySafeterSandbox)
+        .where(JoySafeterSandbox.id == sandbox_id)
+        .values(networking_status="ready")
+    )
+    await db_session.commit()
+    assert await _sandbox_status(db_session, sandbox_id) == "ready"
+
+    await CredentialService(db_session).restore(credential.id, project_id=project_id)
+
+    assert await _sandbox_status(db_session, sandbox_id) == "pending"
 
 
 @pytest.mark.asyncio

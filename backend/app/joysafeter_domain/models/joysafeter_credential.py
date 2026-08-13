@@ -31,11 +31,16 @@ class JoySafeterCredential(JoySafeterBaseModel):
     __table_args__ = (
         CheckConstraint(
             "(kind = 'model' AND provider IS NOT NULL AND protocol IS NOT NULL "
-            "AND mcp_server_url IS NULL AND group_id IS NULL) OR "
-            "(kind = 'mcp' AND mcp_server_url IS NOT NULL AND group_id IS NOT NULL "
+            "AND mcp_server_url IS NULL AND normalized_mcp_server_url IS NULL "
+            "AND credential_type IS NULL AND oauth_config IS NULL AND group_id IS NULL) OR "
+            "(kind = 'mcp' AND mcp_server_url IS NOT NULL "
+            "AND normalized_mcp_server_url IS NOT NULL AND credential_type IS NOT NULL "
+            "AND group_id IS NOT NULL "
             "AND provider IS NULL AND protocol IS NULL AND is_default = false) OR "
             "(kind = 'service' AND provider IS NULL AND protocol IS NULL "
-            "AND mcp_server_url IS NULL AND group_id IS NULL AND is_default = false)",
+            "AND mcp_server_url IS NULL AND normalized_mcp_server_url IS NULL "
+            "AND credential_type IS NULL AND oauth_config IS NULL "
+            "AND group_id IS NULL AND is_default = false)",
             name="kind_identity",
         ),
         Index(

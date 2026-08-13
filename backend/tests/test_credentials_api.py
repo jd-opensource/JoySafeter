@@ -26,15 +26,20 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 from starlette.testclient import TestClient
 
+from app.joysafeter_api.api.v1 import network_policy_refresh
 from app.joysafeter_api.api.v1.credential_groups import router as credential_groups_router
 from app.joysafeter_api.api.v1.credentials import router as credentials_router
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredential
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
+from app.joysafeter_domain.services.joysafeter_security_audit_service import SecurityAuditService
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
@@ -175,6 +180,37 @@ def test_credential_create_list_get_masked_default_archive_restore(client) -> No
     assert resp.status_code == 404
 
 
+def test_credential_create_rolls_back_when_audit_write_fails(client, monkeypatch) -> None:
+    api, project_id, session_factory = client
+
+    async def fail_log_event(self, **kwargs):
+        raise RuntimeError("audit db unavailable")
+
+    monkeypatch.setattr(SecurityAuditService, "log_event", fail_log_event)
+
+    with pytest.raises(RuntimeError, match="audit db unavailable"):
+        api.post(
+            "/credentials",
+            json={
+                "kind": "service",
+                "name": "must-rollback",
+                "data": {"TOKEN": "secret"},
+            },
+        )
+
+    async def load_credential():
+        async with session_factory() as session:
+            result = await session.execute(
+                select(JoySafeterCredential.id).where(
+                    JoySafeterCredential.project_id == project_id,
+                    JoySafeterCredential.name == "must-rollback",
+                )
+            )
+            return result.scalar_one_or_none()
+
+    assert asyncio.get_event_loop().run_until_complete(load_credential()) is None
+
+
 def test_credential_list_filters_and_compat_fields(client) -> None:
     """The list endpoint restores the old /secrets server-side filters
     (compatible_engine / provider / protocol / name) and the response carries the
@@ -262,6 +298,55 @@ def test_credential_update_preserves_masked_value(client) -> None:
     assert "supersecret" not in resp.json()["data"]["TOKEN"]
 
 
+def test_credential_update_nudges_live_sandbox_after_commit(client, monkeypatch) -> None:
+    api, project_id, session_factory = client
+    response = api.post(
+        "/credentials",
+        json={
+            "kind": "model",
+            "name": "nudge-model",
+            "provider": "openai",
+            "protocol": "openai",
+            "data": {"API_KEY": "sk-old"},
+        },
+    )
+    assert response.status_code == 201, response.text
+    credential_id = response.json()["id"]
+
+    async def create_sandbox():
+        async with session_factory() as session:
+            sandbox = JoySafeterSandbox(
+                project_id=project_id,
+                image="test-image:latest",
+                status="running",
+                networking_status="ready",
+                config={"fingerprint": {"networking": {"type": "limited"}}},
+            )
+            session.add(sandbox)
+            await session.commit()
+            return str(sandbox.id)
+
+    sandbox_id = asyncio.get_event_loop().run_until_complete(create_sandbox())
+    nudged: list[str] = []
+
+    async def record_nudge(target_sandbox_id, **kwargs):
+        nudged.append(str(target_sandbox_id))
+        return True
+
+    monkeypatch.setattr(
+        network_policy_refresh,
+        "publish_to_sandbox_owner_via_redis",
+        record_nudge,
+    )
+
+    response = api.patch(
+        f"/credentials/{credential_id}",
+        json={"data": {"API_KEY": "sk-new"}},
+    )
+    assert response.status_code == 200, response.text
+    assert nudged == [sandbox_id]
+
+
 def test_delete_credential_in_use_returns_409(client) -> None:
     """A credential referenced by a live agent cannot be soft-deleted (409)."""
     api, project_id, session_factory = client
@@ -310,7 +395,7 @@ def test_group_create_add_member_list_and_delete(client) -> None:
         json={
             "name": "m1",
             "mcp_server_url": "https://a.com/mcp",
-            "data": {"AUTH_TOKEN": "tok-supersecret"},
+            "data": {"token_value": "tok-supersecret"},
         },
     )
     assert resp.status_code == 201, resp.text
@@ -318,14 +403,14 @@ def test_group_create_add_member_list_and_delete(client) -> None:
     member_id = member["id"]
     assert member["kind"] == "mcp"
     assert member["group_id"] == group_id
-    assert "supersecret" not in member["data"]["AUTH_TOKEN"]
+    assert "supersecret" not in member["data"]["token_value"]
 
     # list members (masked)
     resp = api.get(f"/credential-groups/{group_id}/members")
     assert resp.status_code == 200, resp.text
     members = resp.json()["data"]
     assert [m["id"] for m in members] == [member_id]
-    assert "supersecret" not in members[0]["data"]["AUTH_TOKEN"]
+    assert "supersecret" not in members[0]["data"]["token_value"]
 
     # get group + list groups
     assert api.get(f"/credential-groups/{group_id}").status_code == 200
@@ -344,6 +429,85 @@ def test_group_create_add_member_list_and_delete(client) -> None:
     assert api.get(f"/credential-groups/{group_id}").status_code == 404
 
 
+def test_group_update_name_and_description(client) -> None:
+    api, _project_id, _factory = client
+    response = api.post(
+        "/credential-groups",
+        json={"name": "before", "description": "old"},
+    )
+    assert response.status_code == 201, response.text
+    group_id = response.json()["id"]
+
+    response = api.patch(
+        f"/credential-groups/{group_id}",
+        json={"name": "after", "description": "new"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["name"] == "after"
+    assert response.json()["description"] == "new"
+
+
+def test_group_list_filters_archived_before_pagination(client) -> None:
+    api, _project_id, _factory = client
+    archived = api.post("/credential-groups", json={"name": "archived-group"})
+    assert archived.status_code == 201, archived.text
+    archived_id = archived.json()["id"]
+    assert api.post(f"/credential-groups/{archived_id}/archive").status_code == 200
+
+    active = api.post("/credential-groups", json={"name": "active-group"})
+    assert active.status_code == 201, active.text
+    active_id = active.json()["id"]
+
+    response = api.get("/credential-groups", params={"limit": 1})
+    assert response.status_code == 200, response.text
+    assert [group["id"] for group in response.json()["data"]] == [active_id]
+    assert response.json()["has_more"] is False
+
+    response = api.get(
+        "/credential-groups",
+        params={"limit": 2, "include_archived": True},
+    )
+    assert response.status_code == 200, response.text
+    assert {group["id"] for group in response.json()["data"]} == {
+        active_id,
+        archived_id,
+    }
+
+
+def test_group_member_create_rolls_back_when_audit_write_fails(client, monkeypatch) -> None:
+    api, project_id, session_factory = client
+    response = api.post("/credential-groups", json={"name": "atomic-group"})
+    assert response.status_code == 201, response.text
+    group_id = response.json()["id"]
+
+    async def fail_log_event(self, **kwargs):
+        raise RuntimeError("audit db unavailable")
+
+    monkeypatch.setattr(SecurityAuditService, "log_event", fail_log_event)
+
+    with pytest.raises(RuntimeError, match="audit db unavailable"):
+        api.post(
+            f"/credential-groups/{group_id}/members",
+            json={
+                "name": "member-must-rollback",
+                "mcp_server_url": "https://atomic.example.com/mcp",
+                "data": {"token_value": "secret"},
+            },
+        )
+
+    async def load_credential():
+        async with session_factory() as session:
+            result = await session.execute(
+                select(JoySafeterCredential.id).where(
+                    JoySafeterCredential.project_id == project_id,
+                    JoySafeterCredential.name == "member-must-rollback",
+                )
+            )
+            return result.scalar_one_or_none()
+
+    assert asyncio.get_event_loop().run_until_complete(load_credential()) is None
+
+
 def test_group_add_member_duplicate_url_conflicts_409(client) -> None:
     api, _project_id, _factory = client
     resp = api.post("/credential-groups", json={"name": "g-dup"})
@@ -352,13 +516,57 @@ def test_group_add_member_duplicate_url_conflicts_409(client) -> None:
 
     resp = api.post(
         f"/credential-groups/{group_id}/members",
-        json={"name": "m1", "mcp_server_url": "https://example.com/mcp"},
+        json={
+            "name": "m1",
+            "mcp_server_url": "https://example.com/mcp",
+            "data": {"token_value": "t"},
+        },
     )
     assert resp.status_code == 201, resp.text
 
     # Same normalized url in the SAME group -> CREDENTIAL_GROUP_URL_CONFLICT (409).
     resp = api.post(
         f"/credential-groups/{group_id}/members",
-        json={"name": "m2", "mcp_server_url": "HTTPS://Example.com:443/mcp/"},
+        json={
+            "name": "m2",
+            "mcp_server_url": "HTTPS://Example.com:443/mcp/",
+            "data": {"token_value": "t"},
+        },
     )
     assert resp.status_code == 409, resp.text
+
+
+def test_group_add_member_rejects_non_http_url(client) -> None:
+    api, _project_id, _factory = client
+    response = api.post("/credential-groups", json={"name": "g-url-scheme"})
+    assert response.status_code == 201, response.text
+    group_id = response.json()["id"]
+
+    response = api.post(
+        f"/credential-groups/{group_id}/members",
+        json={
+            "name": "bad-url",
+            "mcp_server_url": "file:///etc/passwd",
+            "data": {"token_value": "t"},
+        },
+    )
+
+    assert response.status_code == 422, response.text
+
+
+def test_group_add_member_rejects_invalid_url_port(client) -> None:
+    api, _project_id, _factory = client
+    response = api.post("/credential-groups", json={"name": "g-url-port"})
+    assert response.status_code == 201, response.text
+    group_id = response.json()["id"]
+
+    response = api.post(
+        f"/credential-groups/{group_id}/members",
+        json={
+            "name": "bad-port",
+            "mcp_server_url": "https://example.com:not-a-port/mcp",
+            "data": {"token_value": "t"},
+        },
+    )
+
+    assert response.status_code == 422, response.text

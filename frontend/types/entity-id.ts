@@ -8,8 +8,6 @@ export const ENTITY_ID_PREFIXES = {
   task: 'task_',
   trigger: 'trig_',
   environment: 'env_',
-  secret: 'secret_',
-  vault: 'vault_',
   credential: 'cred_',
   credentialGroup: 'credgrp_',
   sandbox: 'sbx_',
@@ -42,8 +40,6 @@ export type SessionId = EntityId<'sess_'>
 export type TaskId = EntityId<'task_'>
 export type TriggerId = EntityId<'trig_'>
 export type EnvironmentId = EntityId<'env_'>
-export type SecretId = EntityId<'secret_'>
-export type VaultId = EntityId<'vault_'>
 export type CredentialId = EntityId<'cred_'>
 export type CredentialGroupId = EntityId<'credgrp_'>
 export type SandboxId = EntityId<'sbx_'>
@@ -134,18 +130,6 @@ export function parseEnvironmentId(value: string): EnvironmentId {
 
 export function tryParseEnvironmentId(value: string | null | undefined): EnvironmentId | null {
   return value && isEntityId(value, 'environment') ? value : null
-}
-
-export function parseSecretId(value: string): SecretId {
-  return parseEntityId(value, 'secret')
-}
-
-export function parseVaultId(value: string): VaultId {
-  return parseEntityId(value, 'vault')
-}
-
-export function tryParseVaultId(value: string | null | undefined): VaultId | null {
-  return value && isEntityId(value, 'vault') ? value : null
 }
 
 export function parseCredentialId(value: string): CredentialId {
