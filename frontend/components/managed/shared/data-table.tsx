@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
   useReactTable,
   getCoreRowModel,
@@ -292,6 +292,18 @@ export function DataTable<T>({
                   <tr
                     key={row.id}
                     onClick={() => onRowClick?.(row.original)}
+                    {...(onRowClick
+                      ? {
+                          role: 'button',
+                          tabIndex: 0,
+                          onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              onRowClick(row.original)
+                            }
+                          },
+                        }
+                      : {})}
                     className={`border-b border-border transition-colors last:border-b-0 ${
                       onRowClick ? 'cursor-pointer hover:bg-accent/50' : ''
                     }`}
