@@ -523,17 +523,20 @@ async def _store_agent_identity_context(
     The Rust orchestrator reads this during sandbox resolution to obtain
     BotToken (via createBotToken or exchangeBotToken(authCode)).
     """
-    # Quick check: does the agent have identity config?
-    agent_metadata = getattr(agent, "metadata_", None) or getattr(agent, "metadata", None)
-    if not agent_metadata or not isinstance(agent_metadata, dict):
-        return
-    if "agent_identity" not in agent_metadata:
-        return
-    identity_config = agent_metadata["agent_identity"]
-    if not identity_config.get("enabled", True):
-        return
-
+    # Global mode: capture identity context for all agents when the identity
+    # platform is configured. Per-agent opt-out is still honored if an agent
+    # explicitly sets agent_identity.enabled = false.
     import os
+
+    if not os.environ.get("JD_AGENT_IDENTITY_BASE_URL", "").strip():
+        return  # Identity platform not configured — nothing to capture
+
+    agent_metadata = getattr(agent, "metadata_", None) or getattr(agent, "metadata", None)
+    if isinstance(agent_metadata, dict):
+        identity_config = agent_metadata.get("agent_identity")
+        if isinstance(identity_config, dict) and not identity_config.get("enabled", True):
+            return  # Explicit per-agent opt-out
+
     import json
     from datetime import datetime, timezone
     from sqlalchemy import select, text

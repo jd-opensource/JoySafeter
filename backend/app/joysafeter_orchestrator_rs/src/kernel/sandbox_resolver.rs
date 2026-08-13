@@ -1865,15 +1865,18 @@ impl SandboxResolver {
 
         let agent = agent?;
         if !self.identity_provider.has_config(agent.metadata.as_ref()) {
-            debug!(agent_id = %agent.id, "agent identity: no agent_identity config, skipping");
+            debug!(agent_id = %agent.id, "agent identity: provider disabled, skipping");
             return None;
         }
 
+        // Provider config is optional (global mode); pass agent_identity block if
+        // present, otherwise an empty object.
         let provider_config = agent
             .metadata
-            .as_ref()?
-            .get("agent_identity")?
-            .clone();
+            .as_ref()
+            .and_then(|m| m.get("agent_identity"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
 
         // Load identity context (encrypted identity_token or auth_code + user_name)
         let identity_ctx = match self.load_identity_context(session_id).await {

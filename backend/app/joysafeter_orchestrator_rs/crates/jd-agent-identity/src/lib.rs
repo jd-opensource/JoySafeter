@@ -647,19 +647,22 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
         true
     }
 
-    fn has_config(&self, agent_metadata: Option<&JsonValue>) -> bool {
-        agent_metadata
-            .and_then(|m| m.get("agent_identity"))
-            .and_then(|c| JdIdentityConfig::from_json(c))
-            .is_some()
+    fn has_config(&self, _agent_metadata: Option<&JsonValue>) -> bool {
+        // Global mode: identity injection applies to ALL agents when the
+        // provider is enabled (JD_AGENT_IDENTITY_BASE_URL set). No per-agent
+        // opt-in via metadata is required.
+        true
     }
 
     async fn resolve(
         &self,
         context: &IdentityResolveContext,
     ) -> anyhow::Result<AgentIdentityInjection> {
+        // Config is optional now; parse if present, else use defaults.
         let config = JdIdentityConfig::from_json(&context.provider_config)
-            .ok_or_else(|| anyhow!("invalid agent_identity config"))?;
+            .unwrap_or(JdIdentityConfig {
+                tenant_code: String::new(),
+            });
 
         // 1. Get BotToken — two paths:
         //    a) API scenario: auth_code → exchangeBotToken(authCode) → botToken
