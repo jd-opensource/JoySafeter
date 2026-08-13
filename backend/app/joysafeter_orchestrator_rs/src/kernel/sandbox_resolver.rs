@@ -91,6 +91,8 @@ pub struct SandboxResolver {
     /// Without this broadcast the sandbox's egress socket is never created on
     /// nodes whose Envoy happens to be connected to a different replica.
     xds_store: Option<Arc<dyn XdsStateStore>>,
+    /// Pluggable agent identity provider for outbound credential injection.
+    identity_provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
 }
 
 impl SandboxResolver {
@@ -103,7 +105,19 @@ impl SandboxResolver {
             network_policy_ready: dashmap::DashMap::new(),
             pool_replenish_notify: None,
             xds_store: None,
+            identity_provider: Arc::new(
+                crate::kernel::agent_identity_provider::NoopAgentIdentityProvider,
+            ),
         }
+    }
+
+    /// Set the agent identity provider.
+    pub fn with_identity_provider(
+        mut self,
+        provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
+    ) -> Self {
+        self.identity_provider = provider;
+        self
     }
 
     /// Set the pool replenish notify (called from scheduler setup).
@@ -916,6 +930,19 @@ impl SandboxResolver {
                 )
                 .await,
             );
+
+            // Agent identity injection (provider-based, fail-open).
+            // Resolves agentToken + user identity (SSO/ME) via the configured
+            // provider, then converts to EgressCredentialRoutes for Envoy injection.
+            if self.identity_provider.enabled() {
+                if let Some(identity_routes) = self
+                    .resolve_identity_egress_routes(agent.as_ref(), session_id)
+                    .await
+                {
+                    routes.extend(identity_routes);
+                }
+            }
+
             credentials = SandboxCredentials {
                 routes,
                 proxy_auth_token: None,
@@ -1810,6 +1837,109 @@ impl SandboxResolver {
         routes
     }
 
+    /// Resolve agent identity egress routes via the pluggable provider.
+    ///
+    /// Loads the triggering user's encrypted identity from session metadata,
+    /// calls the provider to exchange tokens, and converts the result into
+    /// `EgressCredentialRoute`s for Envoy injection.
+    ///
+    /// Returns None on any failure (fail-open: sandbox works without identity).
+    async fn resolve_identity_egress_routes(
+        &self,
+        agent: Option<&JoySafeterAgent>,
+        session_id: Option<Uuid>,
+    ) -> Option<Vec<EgressCredentialRoute>> {
+        use crate::kernel::agent_identity_provider::IdentityResolveContext;
+
+        let agent = agent?;
+        if !self.identity_provider.has_config(agent.metadata.as_ref()) {
+            return None;
+        }
+
+        let provider_config = agent
+            .metadata
+            .as_ref()?
+            .get("agent_identity")?
+            .clone();
+
+        // Load identity context (encrypted identity_token + user_name from session)
+        let (identity_token, user_name) = self
+            .load_identity_context(session_id)
+            .await?;
+
+        let context = IdentityResolveContext {
+            agent_id: agent.id.to_string(),
+            session_id: session_id.map(|id| id.to_string()).unwrap_or_default(),
+            task_id: agent.id.to_string(),
+            identity_token,
+            user_name,
+            provider_config,
+        };
+
+        match self.identity_provider.resolve(&context).await {
+            Ok(injection) if !injection.targets.is_empty() => {
+                let routes = injection
+                    .targets
+                    .into_iter()
+                    .map(|target| EgressCredentialRoute {
+                        id: format!("agent-identity:{}", target.host),
+                        kind: EgressKind::AgentIdentity,
+                        exposure: EgressExposure::Transparent,
+                        match_host: target.host.clone(),
+                        match_prefix: "/".to_string(),
+                        exact_path: false,
+                        upstream_host: target.host,
+                        upstream_port: target.port,
+                        upstream_prefix: "/".to_string(),
+                        upstream_tls: target.tls,
+                        cluster_name: String::new(),
+                        inject_headers: target.inject_headers,
+                        remove_headers: target.remove_headers,
+                    })
+                    .collect();
+                Some(routes)
+            }
+            Ok(_) => None,
+            Err(e) => {
+                warn!(
+                    agent_id = %agent.id,
+                    error = %e,
+                    "Agent identity resolve failed (sandbox continues without identity)"
+                );
+                None
+            }
+        }
+    }
+
+    /// Load triggering user's identity context from session metadata.
+    ///
+    /// The API layer stores `agent_identity_context` in session.metadata when
+    /// a task is created, containing the encrypted identity_token and user_name.
+    async fn load_identity_context(
+        &self,
+        session_id: Option<Uuid>,
+    ) -> Option<(String, String)> {
+        let session_id = session_id?;
+
+        let row: Option<(Option<serde_json::Value>,)> = sqlx::query_as(
+            "SELECT metadata FROM joysafeter_sessions WHERE id = $1",
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await
+        .ok()
+        .flatten();
+
+        let metadata = row?.0?;
+        let ctx = metadata.get("agent_identity_context")?;
+        let identity_token = ctx.get("identity_token")?.as_str()?.to_string();
+        let user_name = ctx.get("user_name")?.as_str()?.to_string();
+
+        // Decrypt if encrypted (VaultCipher handles enc: prefix transparently)
+        let cipher = VaultCipher::from_env();
+        let decrypted = cipher.decrypt_or_passthrough(&identity_token).ok()?;
+        Some((decrypted, user_name))
+    }
     async fn load_secret_data(
         pool: &PgPool,
         secret_ref: &str,

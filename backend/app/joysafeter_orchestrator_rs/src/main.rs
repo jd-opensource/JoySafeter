@@ -116,7 +116,6 @@ async fn main() -> anyhow::Result<()> {
             Arc::new(kernel::agent_identity_provider::NoopAgentIdentityProvider)
         }
     };
-    let _ = &identity_provider; // suppress unused warning until Task 4 wires it
 
     // Initialize runtime config (hot-reloadable)
     let runtime_config = Arc::new(runtime_config::RuntimeConfig::from_config(&config));
@@ -376,6 +375,7 @@ async fn main() -> anyhow::Result<()> {
         config.clone(),
         Some(sandbox_controller.pool_replenish_notify.clone()),
         Some(ha.xds_store.clone()),
+        identity_provider.clone(),
     );
     info!("Task scheduler started");
 
