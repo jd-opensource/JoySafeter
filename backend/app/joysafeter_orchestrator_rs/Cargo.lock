@@ -2156,6 +2156,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "gethostname",
  "md5",
  "redis",
  "reqwest",

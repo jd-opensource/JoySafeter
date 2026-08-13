@@ -147,16 +147,78 @@ fn json_str_array(v: &JsonValue, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Collect basic environment info for the envInfo field.
-/// In production this would mirror EnvInfoUtils.collectMap() from the Java SDK.
+/// Collect environment info matching Java SDK's EnvInfoUtils.collectMap().
+///
+/// Fields: sdkVersion, os, osVersion, arch, hostname, username, homeDir, uid,
+/// ips, macs, cpuCount, cpuModel, memTotalMB, timezone, utcOffset, locale,
+/// pid, timestamp, inContainer, inKubernetes, k8sNamespace, jdos.
 fn collect_env_info() -> HashMap<String, serde_json::Value> {
+    use serde_json::json;
+
     let mut info = HashMap::new();
-    info.insert("os".to_string(), serde_json::json!(std::env::consts::OS));
-    info.insert("arch".to_string(), serde_json::json!(std::env::consts::ARCH));
-    info.insert("runtime".to_string(), serde_json::json!("rust"));
-    if let Ok(hostname) = std::env::var("HOSTNAME") {
-        info.insert("hostname".to_string(), serde_json::json!(hostname));
+    info.insert("sdkVersion".to_string(), json!("rust-0.1.0"));
+    info.insert("os".to_string(), json!(std::env::consts::OS));
+    info.insert("osVersion".to_string(), json!(""));
+    info.insert("arch".to_string(), json!(std::env::consts::ARCH));
+
+    let hostname = std::env::var("HOSTNAME")
+        .or_else(|_| gethostname::gethostname().into_string().map_err(|_| std::env::VarError::NotPresent))
+        .unwrap_or_default();
+    info.insert("hostname".to_string(), json!(hostname));
+
+    let username = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_default();
+    info.insert("username".to_string(), json!(username));
+
+    let home_dir = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
+    info.insert("homeDir".to_string(), json!(home_dir));
+    info.insert("uid".to_string(), json!(""));
+
+    info.insert("ips".to_string(), json!([]));
+    info.insert("macs".to_string(), json!([]));
+
+    let cpu_count = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    info.insert("cpuCount".to_string(), json!(cpu_count));
+    info.insert("cpuModel".to_string(), json!(""));
+    info.insert("memTotalMB".to_string(), json!(0));
+
+    let tz = std::env::var("TZ").unwrap_or_else(|_| "UTC".to_string());
+    info.insert("timezone".to_string(), json!(tz));
+    info.insert("utcOffset".to_string(), json!(""));
+    info.insert("locale".to_string(), json!(""));
+
+    info.insert("pid".to_string(), json!(std::process::id()));
+    info.insert("timestamp".to_string(), json!(chrono::Utc::now().to_rfc3339()));
+
+    // Container / K8s detection
+    let in_k8s = std::env::var("KUBERNETES_SERVICE_HOST").is_ok();
+    let in_container = in_k8s
+        || std::path::Path::new("/.dockerenv").exists()
+        || std::path::Path::new("/run/.containerenv").exists();
+    info.insert("inContainer".to_string(), json!(in_container));
+    info.insert("inKubernetes".to_string(), json!(in_k8s));
+
+    let k8s_namespace = std::env::var("POD_NAMESPACE")
+        .or_else(|_| std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace"))
+        .unwrap_or_default();
+    info.insert("k8sNamespace".to_string(), json!(k8s_namespace));
+
+    // JDOS env
+    let mut jdos = HashMap::new();
+    for key in ["JDOS_APP_NAME", "JDOS_ENV", "JDOS_IDC", "JDOS_CLUSTER"] {
+        if let Ok(val) = std::env::var(key) {
+            jdos.insert(key.to_string(), json!(val));
+        }
     }
+    if !jdos.is_empty() {
+        info.insert("jdos".to_string(), json!(jdos));
+    }
+
     info
 }
 
