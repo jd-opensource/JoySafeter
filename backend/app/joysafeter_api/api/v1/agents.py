@@ -460,6 +460,9 @@ async def delete_agent(
     if not agent:
         raise _agent_not_found_error(agent_id)
 
+    # Cleanup agent identity credentials (Redis cache + identity platform)
+    await _cleanup_agent_identity(str(agent_id))
+
     if not force:
         # Check for active tasks before soft delete
         active_tasks = await svc.list_active_tasks_for_agent(agent_id, project_id=auth_ctx.project_id)
@@ -660,6 +663,81 @@ async def _destroy_sandboxes_for_agent(
                 retryable=True,
                 user_action="retry",
             )
+
+
+async def _cleanup_agent_identity(agent_id: str) -> None:
+    """Cleanup cached BotTokens for a deleted agent.
+
+    Scans Redis for all BotToken cache keys matching this agent, calls the
+    identity platform's destroyBotToken API for each, and removes from cache.
+    Non-fatal: errors are logged but don't block agent deletion.
+    """
+    import os
+    import time
+
+    import aiohttp
+
+    base_url = os.environ.get("AGENT_IDENTITY_BASE_URL", "").strip()
+    if not base_url:
+        return
+
+    redis_url = os.environ.get("REDIS_URL", "")
+    if not redis_url:
+        # Try building from REDIS_HOST
+        redis_host = os.environ.get("REDIS_HOST", "")
+        if not redis_host:
+            return
+        redis_port = os.environ.get("REDIS_PORT", "6379")
+        redis_password = os.environ.get("REDIS_PASSWORD", "")
+        if redis_password:
+            redis_url = f"redis://:{redis_password}@{redis_host}:{redis_port}/0"
+        else:
+            redis_url = f"redis://{redis_host}:{redis_port}/0"
+
+    try:
+        import redis.asyncio as aioredis
+
+        client = aioredis.from_url(redis_url)
+        pattern = f"joysafeter:bot_token:*:{agent_id}:*"
+        keys = []
+        async for key in client.scan_iter(match=pattern, count=100):
+            keys.append(key)
+
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=5)
+        ) as session:
+            for key in keys:
+                bot_token = await client.get(key)
+                if bot_token:
+                    token_str = (
+                        bot_token.decode()
+                        if isinstance(bot_token, bytes)
+                        else bot_token
+                    )
+                    try:
+                        await session.post(
+                            f"{base_url.rstrip('/')}/api/v1/bot-token/destroy",
+                            json={
+                                "traceId": str(uuid.uuid4()),
+                                "botToken": token_str,
+                                "timestamp": int(time.time() * 1000),
+                            },
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"destroyBotToken failed for agent {agent_id}: {e}"
+                        )
+                await client.delete(key)
+
+        await client.aclose()
+        if keys:
+            logger.info(
+                f"Cleaned up {len(keys)} BotToken cache entries for agent {agent_id}"
+            )
+    except Exception as e:
+        logger.warning(
+            f"Agent identity cleanup failed for {agent_id} (non-fatal): {e}"
+        )
 
 
 @router.post("/{agent_id}/archive", status_code=200)
