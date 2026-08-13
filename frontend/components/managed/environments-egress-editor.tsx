@@ -408,7 +408,7 @@ export function EgressServicesEditor({
                       emptyText={t('managed.environments.egressNoCredentialFound')}
                       createText={t('managed.environments.egressCreateSecretOption')}
                       invalid={Boolean(errors[index]?.credentialRef)}
-                      onCreate={() => window.open('/managed/secrets?create=custom', '_blank')}
+                      onCreate={() => window.open('/managed/credentials?tab=services&create=service', '_blank')}
                       onChange={(value) => {
                         const secret = customSecrets.find((item) => item.id === value)
                         changeService(

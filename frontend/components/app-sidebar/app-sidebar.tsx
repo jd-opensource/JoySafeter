@@ -39,7 +39,6 @@ import {
   Database,
   Network,
   FolderCode,
-  Lock,
   Sparkles,
   Shield,
   LogOut,
@@ -69,7 +68,6 @@ const buildItems: NavItem[] = [
   { to: '/managed/agents', labelKey: 'nav.agents', icon: Bot },
   { to: '/managed/sessions', labelKey: 'nav.sessions', icon: MessageSquare },
   { to: '/managed/environments', labelKey: 'nav.environments', icon: Server },
-  { to: '/managed/vaults', labelKey: 'nav.vaults', icon: KeyRound },
 ]
 
 const automationItems: NavItem[] = [
@@ -85,7 +83,7 @@ const resourceItems: NavItem[] = [
   { to: '/managed/files', labelKey: 'nav.files', icon: FileText },
   { to: '/managed/storage-volumes', labelKey: 'nav.storageGrants', icon: Database },
   { to: '/managed/skills', labelKey: 'nav.resourceSkills', icon: Sparkles },
-  { to: '/managed/secrets', labelKey: 'nav.secrets', icon: Lock },
+  { to: '/managed/credentials', labelKey: 'nav.credentials', icon: KeyRound },
   { to: '/managed/memory-stores', labelKey: 'nav.memory', icon: Brain },
 ]
 

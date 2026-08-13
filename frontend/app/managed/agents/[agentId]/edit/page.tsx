@@ -640,7 +640,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
                   setSecretRef(value)
                   markDirty()
                 }}
-                onCreateRequested={() => window.open('/managed/secrets?create=llm', '_blank')}
+                onCreateRequested={() => window.open('/managed/credentials?tab=models&create=model', '_blank')}
               />
               {secretConflict ? (
                 <div className="flex flex-wrap gap-2">

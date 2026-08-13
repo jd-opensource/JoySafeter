@@ -1440,7 +1440,7 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
           vault={vaultDetail}
           credentials={vaultCredentials?.data || []}
           onClose={() => setActiveDrawer(null)}
-          onGoToVault={() => router.push(`/managed/vaults/${vaultDetail.id}`)}
+          onGoToVault={() => router.push(`/managed/credentials/mcp/${vaultDetail.id}`)}
         />
       )}
       {activeDrawer === 'files' && (

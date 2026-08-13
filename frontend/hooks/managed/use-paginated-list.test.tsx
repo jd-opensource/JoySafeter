@@ -750,7 +750,7 @@ describe('usePaginatedList query option', () => {
 
   it('isolates cache/cursor between two kinds sharing queryKey AND a single QueryClient', async () => {
     managedGetMock.mockImplementation(async (url: string) => ({
-      data: [{ id: (url as string).includes('kind=model') ? 'cred_model' : 'cred_service' }],
+      data: [{ id: (url as string).includes('kind=model') ? 'model-row' : 'service-row' }],
       has_more: false,
     }))
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -767,7 +767,7 @@ describe('usePaginatedList query option', () => {
     )
     await waitFor(() => expect(model.result.current.data.length).toBe(1))
     await waitFor(() => expect(service.result.current.data.length).toBe(1))
-    expect(model.result.current.data[0].id).toBe('cred_model')
-    expect(service.result.current.data[0].id).toBe('cred_service')
+    expect(model.result.current.data[0].id).toBe('model-row')
+    expect(service.result.current.data[0].id).toBe('service-row')
   })
 })

@@ -750,11 +750,11 @@ function numeric(sessionId) {
       ['app/managed/environments/page.tsx', 'parseCursor: parseEnvironmentId'],
       ['app/managed/environments/page.tsx', 'parseCursor: parseCredentialId'],
       ['app/managed/environments/[envId]/page.tsx', 'parseCursor: parseCredentialId'],
-      ['app/managed/secrets/page.tsx', 'parseCursor: parseCredentialId'],
+      ['components/managed/credentials/model-connection-list.tsx', 'parseCursor: parseCredentialId'],
       ['app/managed/memory-stores/page.tsx', 'parseCursor: parseMemoryStoreId'],
       ['app/managed/skills/page.tsx', 'parseCursor: parseSkillId'],
       ['app/managed/files/page.tsx', 'parseCursor: parseFileId'],
-      ['app/managed/vaults/page.tsx', 'parseCursor: parseCredentialGroupId'],
+      ['components/managed/credentials/mcp-vault-list.tsx', 'parseCursor: parseCredentialGroupId'],
       ['lib/managed/triggers.ts', 'parseCursor: parseTaskId'],
       [
         'components/managed/storage-volumes/storage-volumes-page.tsx',
@@ -783,25 +783,27 @@ function numeric(sessionId) {
   })
 
   it('keeps secret routes and response data typed end-to-end', () => {
-    const listPage = readProjectFile('app/managed/secrets/page.tsx')
-    const detailPage = readProjectFile('app/managed/secrets/[secretId]/page.tsx')
+    const listPage = readProjectFile('components/managed/credentials/model-connection-list.tsx')
+    const detailPage = readProjectFile('app/managed/credentials/[credentialId]/page.tsx')
+    const detailComponent = readProjectFile('components/managed/credentials/credential-detail.tsx')
     const parsers = readProjectFile('lib/managed/secret-response-parsers.ts')
 
     expect(listPage).toContain('parseItem: parseSecretResponse')
-    expect(detailPage).toContain('const secretId = parseCredentialId(rawSecretId)')
-    expect(detailPage).toContain('.then(parseSecretDetailResponse)')
+    expect(detailPage).toContain('parseCredentialId(credentialId)')
+    expect(detailComponent).toContain('parseSecretDetailResponse(res)')
     expect(parsers).toContain('id: parseCredentialId(raw.id)')
     expect(readProjectFile('lib/managed/api-paths.ts')).toContain('parseAnyEntityId')
   })
 
   it('keeps vault and credential routes typed end-to-end', () => {
-    const listPage = readProjectFile('app/managed/vaults/page.tsx')
-    const detailPage = readProjectFile('app/managed/vaults/[vaultId]/page.tsx')
+    const listPage = readProjectFile('components/managed/credentials/mcp-vault-list.tsx')
+    const detailPage = readProjectFile('app/managed/credentials/mcp/[credentialGroupId]/page.tsx')
+    const detailComponent = readProjectFile('components/managed/credentials/mcp-vault-detail.tsx')
     const parsers = readProjectFile('lib/managed/vault-response-parsers.ts')
 
     expect(listPage).toContain('parseItem: parseVaultResponse')
-    expect(detailPage).toContain('const vaultId = parseCredentialGroupId(rawVaultId)')
-    expect(detailPage).toContain('parseVaultCredentialListResponse(response.data)')
+    expect(detailPage).toContain('parseCredentialGroupId(credentialGroupId)')
+    expect(detailComponent).toContain('parseVaultCredentialListResponse(response.data)')
     expect(parsers).toContain('id: parseCredentialId(raw.id)')
     expect(parsers).toContain('group_id: parseCredentialGroupId(raw.group_id)')
     expect(readProjectFile('lib/managed/api-paths.ts')).toContain('parseAnyEntityId')

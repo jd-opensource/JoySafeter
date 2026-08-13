@@ -790,7 +790,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                   {t('managed.sessions.create.vaults')}
                 </FormFieldLabel>
                 <button
-                  onClick={() => router.push('/managed/vaults')}
+                  onClick={() => router.push('/managed/credentials?tab=mcp')}
                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                 >
                   {t('managed.sessions.create.manageVaults')} <ExternalLink className="h-3 w-3" />
@@ -876,7 +876,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                     )}
                     <button
                       type="button"
-                      onClick={() => router.push('/managed/vaults?create=1')}
+                      onClick={() => router.push('/managed/credentials?tab=mcp&create=vault')}
                       className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-sm text-primary hover:bg-muted/50"
                     >
                       <Plus className="h-3.5 w-3.5" />

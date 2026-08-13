@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 describe('MCP credential member lifecycle', () => {
   it('archives members without deleting their history', () => {
     const source = readFileSync(
-      path.join(process.cwd(), 'app/managed/vaults/[vaultId]/page.tsx'),
+      path.join(process.cwd(), 'components/managed/credentials/mcp-vault-detail.tsx'),
       'utf8',
     )
 
