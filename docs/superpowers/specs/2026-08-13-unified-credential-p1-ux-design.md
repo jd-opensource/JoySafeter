@@ -1,92 +1,188 @@
 # Unified Credential P1 — "Models & Credentials" UX merge (design)
 
-Date: 2026-08-13
-Depends on: P0 (unified `/credentials` + `/credential-groups` by-id API; frontend migrated) — committed.
+Date: 2026-08-13 (rev 2 — resolves review Blockers B1–B4, Highs H1–H6, and follow-ups)
+Depends on: P0 + post-P0 hardening (commit `802fc986`) — unified `/credentials` +
+`/credential-groups` by-id API; frontend migrated; suites green.
 Umbrella: `docs/superpowers/specs/2026-08-11-unified-credential-architecture-design.md` §4 (P1) + §3.12.
 
-## 1. Goal & guardrails
+## 1. Goal, guardrails, capability-equivalence, error boundaries
 
-P1 is a **pure product-experience refactor**: land the §3.12 vocabulary end-state and
-collapse today's two credential nav entries into one "Models & Credentials" surface with a
-kind-filtered list, an MCP credential-vault sub-view, and a unified creation entry.
+P1 is a **frontend-only product-experience refactor**: collapse the two credential nav entries
+into one "Models & Credentials" surface with kind tabs, an MCP credential-vault master-detail
+sub-view, and a unified creation entry, landing the §3.12 vocabulary. **No backend/API/runtime/
+schema change.**
 
-Hard guardrails (define what P1 is NOT):
-- **No backend API or contract change.** P0's `/credentials` + `/credential-groups` endpoints
-  and response shapes are frozen. P1 is frontend-only.
-- **No runtime-semantic change.** Model/MCP/service resolution, locking, audit, archive
-  lifecycle are untouched (that was P0 + the post-P0 hardening commit `802fc986`).
-- **No new backend files, no schema/migration change.**
+**Capability-equivalence rule (non-negotiable):** P1 must not shrink any capability that exists
+today on `/managed/secrets` or `/managed/vaults`. The §6 parity matrix is the acceptance gate.
 
-## 2. Information architecture
+**Independent error boundaries (H3):** each tab and each detail view owns its own
+loading/error/empty state. The LLM catalog dependency is scoped to the **Model** surfaces only:
+- Model list + Model detail: MAY gate on `useLlmCatalog()` (as today) for compatibility labels.
+- Service list/detail and MCP list/detail: MUST NOT depend on the LLM catalog.
+- A failure in one tab (catalog down, list error) must not blank the page or other tabs.
 
-- **New page** `app/managed/credentials/` — the single "Models & Credentials" entry, with three
-  tabs: **Model Connections** | **MCP** | **Service Credentials**.
-- **Tab state = query param** `?tab=models|mcp|services` (default `models`). Rationale: linkable /
-  bookmarkable, back-button friendly, and it adds ONE route dir (not three nested segment dirs) —
-  minimizing churn to the i18n `sourceFileCount` guard. (Rejected alternative: nested route
-  segments `/credentials/[tab]` — more dirs, more redirect surface, no UX gain.)
-- **Sidebar**: the two current entries (`nav.secrets` "Connections & Credentials",
-  `nav.vaults` "MCP Credential Vault") collapse into **one** entry → `/managed/credentials`.
-- **Redirects**: old routes `/managed/secrets`, `/managed/vaults` (+ their list pages) redirect
-  into the new page/tab so existing links/bookmarks keep working. Detail pages:
-  `/managed/credentials/[credentialId]` (model/service detail) and the MCP vault detail reachable
-  from the MCP tab; old detail routes redirect to the new equivalents.
-- **Implementation = relocation + a tab shell**, reusing the existing list/detail/create
-  components rather than rewriting them. Behaviour is identical; only the container + nav change.
+## 2. Information architecture — canonical routes, redirects, query semantics
 
-## 3. Tab contents (reuse existing components)
+### 2.1 Canonical routes (B1)
+| Surface | Route |
+|---|---|
+| Page (tabs) | `/managed/credentials?tab=models\|services\|mcp` (default `models`) |
+| Model detail | `/managed/credentials/[credentialId]` (kind=model) |
+| Service detail | `/managed/credentials/[credentialId]` (kind=service) |
+| **MCP vault detail** | `/managed/credentials/mcp/[credentialGroupId]` (static `mcp` segment) |
 
-- **Model Connections** (`kind=model`): flat list — existing model/LLM list columns
-  (provider / protocol / model / default + compatibility). Reuses today's secrets model list.
-- **Service Credentials** (`kind=service`): flat list — today's generic/service list.
-- **MCP** (`kind=mcp`): **master-detail** — lists credential **vaults** (groups); drilling into a
-  vault shows its members (today's `vaults/[vaultId]` view, incl. the P0-hardening member archive
-  lifecycle). Preserves MCP's natural two-level structure. (Confirmed brainstorm choice: "kind
-  tabs, MCP stays 2-level".)
+The static `mcp` segment (B1) keeps the group-id route from colliding with the
+`[credentialId]` entity type and makes the MCP master-detail a real, linkable route (mobile-safe —
+no same-page split required). "Master-detail" = **list at the tab, detail at its own route**.
 
-## 4. Unified creation entry
+### 2.2 Redirect + deep-link compat matrix (B4)
+Old routes become **pure redirect shells** (H1); their query params map explicitly:
+| Old | New |
+|---|---|
+| `/managed/secrets` | `/managed/credentials?tab=models` |
+| `/managed/secrets?create=llm` | `/managed/credentials?tab=models&create=model` |
+| `/managed/secrets?create=generic` or `?create=custom` | `/managed/credentials?tab=services&create=service` |
+| `/managed/secrets/[id]` | `/managed/credentials/[id]` |
+| `/managed/vaults` | `/managed/credentials?tab=mcp` |
+| `/managed/vaults?create=1` | `/managed/credentials?tab=mcp&create=vault` |
+| `/managed/vaults/[groupId]` | `/managed/credentials/mcp/[groupId]` |
 
-- A single primary **"New"** action on the page opens a **kind chooser** (Model Connection /
-  MCP Credential Vault / Service Credential), then routes into the existing kind-specific create
-  flow (LLM configurator for model; group + member for MCP; generic form for service).
-- Each tab also exposes a contextual **"Add"** defaulting to that tab's kind (skips the chooser).
-- No new create logic — this is a router over the existing create dialogs.
+**Callers are updated to point at the new URLs directly** (not rely on the redirect):
+- `components/managed/environments-egress-editor.tsx` (`/secrets?create=custom` → `…?tab=services&create=service`)
+- `app/managed/agents/[agentId]/edit/page.tsx` + create-agent-dialog (`/secrets?create=llm` → `…?tab=models&create=model`)
+- `app/managed/sessions/components/create-session-dialog.tsx` (`/vaults?create=1` → `…?tab=mcp&create=vault`)
+- `app/managed/sessions/[sessionId]/page.tsx` (`/vaults/[vaultId]` → `/credentials/mcp/[groupId]`)
+Old routes remain only as compatibility fallback.
 
-## 5. Vocabulary (§3.12) + i18n reconciliation
+### 2.3 Query-param semantics
+- Illegal/unknown `?tab=` → normalize to `models` via `router.replace` (no history entry).
+- User tab click → `router.push` (preserves back-button).
+- `create=*` is consumed once: on open, the create flow launches; on close/success, **only** the
+  `create` param is stripped, `tab` and any other params are preserved.
+- Detail back / breadcrumb returns to the correct tab by the credential's kind
+  (model/service → its tab; mcp vault detail → `?tab=mcp`).
+- Each tab keeps its own independent search / pageSize / cursor state (§3).
 
-- Land the §3.12 end-state user-facing strings (already largely present in the i18n catalog):
-  entry "Models & Credentials", the three tab labels, "MCP Credential Vault", "Service
-  Credential", "Model Connection". Converge any leftover "secret/vault" user-facing drift into
-  the new vocabulary. Do NOT rename backend `kind` values (model/mcp/service) or i18n KEY names —
-  only user-visible copy.
-- **P1 owns reconciling `lib/i18n/credential-terminology.test.ts`** (the inventory-count snapshot:
-  `sourceFileCount`, `counts`, `templateAdditions`, `finiteAdditions`). It was pre-existing red
-  before P0's frontend work and drifts further as P1 legitimately adds the new page + adjusts
-  copy. P1 updates the snapshot to the true post-P1 reality; the semantic vocabulary assertions
-  (specific keys present) must still pass — they are the real regression detector, the counts are
-  just the snapshot. Rationale: P1 is exactly the vocabulary/IA phase, so it is the correct owner
-  of this reconciliation rather than leaving a chronically-red guard.
+## 3. Data flow — kind filtering, query keys, pagination (B2)
 
-## 6. Testing
+**Kind is filtered server-side, before pagination. Client-side `filter(kind)` after a page load is
+forbidden** (it breaks cursor pagination — a page can look empty while later pages hold matches,
+and model/service become unreachable through a shared cursor).
 
-- `bun run type-check` clean; `bun run lint` exit 0; `bun run test` (vitest) green — including the
-  reconciled `credential-terminology.test.ts`.
-- New/updated tests: tab routing + default tab; redirect from `/managed/secrets` + `/managed/vaults`
-  (and old detail routes) to the new page/tab; the kind chooser routes to the correct create flow;
-  each tab renders its kind's list; MCP tab master-detail drill-in.
-- Architecture guards (`entity-id-architecture.test.ts`, `api-paths.test.ts`) updated for any moved
-  route-page `parseCursor`/route-parse assertions.
+| Concern | Rule |
+|---|---|
+| List request | `apiCollectionPath('credentials', { kind })` → `GET /credentials?kind=model\|service` |
+| MCP list | `GET /credential-groups` (unchanged) |
+| React Query key | MUST include `kind` (e.g. `['credentials', scopeKey, kind]`) so tabs never share cache |
+| Pagination cursor scope | cursor / sessionStorage key MUST include `kind`; model & service pagination are isolated |
+| Prefetch key | includes `kind` |
 
-## 7. Non-goals (later phases)
+`usePaginatedList` currently takes no kind/query arg (`hooks/managed/use-paginated-list.ts`); P1
+extends it (or wraps it) to thread `kind` into the path AND into the queryKey/cursor scope. This is
+the one shared-hook change; it is frontend-only and covered by a pagination-isolation test (§6).
 
-- Unified cross-flow credential picker (agent/trigger/session/env pickers) → **P2C**.
-- Trigger credential grants → **P2A**. MCP OAuth security → **P2B**.
-- Any backend/runtime change.
+## 4. Creation flows + role/lifecycle behavior
 
-## 8. Open items resolved (for the record)
+### 4.1 Unified create — single-layer kind selection (H4)
+- One primary **"New credential"** opens a **`CredentialKindChooser`** (Model Connection / MCP
+  Credential Vault / Service Credential). Choosing a kind opens that kind's create flow **with the
+  kind locked** — the existing `CreateSecretDialog`'s internal LLM/Generic tab is **removed/hidden**
+  when launched from the chooser (no triple decision).
+- Per-tab contextual **"Add"** skips the chooser and opens directly with that tab's kind locked.
+- `create=model|service|vault` deep-links open the corresponding flow directly (kind locked).
 
-- Tab state: **query param** (§2).
-- i18n snapshot reconciliation: **owned by P1** (§5).
-- Material name for a model connection's access key (umbrella §7 open item): out of P1's critical
-  path — P1 uses the existing i18n label; renaming the material string, if desired, is a copy-only
-  tweak that can ride along without structural impact.
+### 4.2 MCP create closure (B3) — RESOLVED: create-then-continue
+Creating an MCP Credential Vault is a **closed loop**:
+1. `CreateVaultDialog` creates the empty group (existing behavior).
+2. On success, navigate to `/managed/credentials/mcp/[groupId]` (the new vault detail) and
+   **auto-open its "Add Credential" (add-member) dialog**, so the user immediately adds the first
+   member.
+The contradictory "group + member in one dialog" wording is removed. A vault may legitimately have
+zero members until the user adds one; the flow just guides them there.
+
+### 4.3 Role / lifecycle behavior (carried from P0, must be preserved in the merged UI)
+- **Reader** (no write scope): sees masked list/detail across all tabs; **no** create/edit/delete/
+  archive controls rendered.
+- **Archived project**: all create/edit/archive/delete actions blocked (as today).
+- **Model detail**: edit data, test connection, set-default, delete/archive.
+- **Service detail**: edit masked fields (add/remove/update keys), delete/archive.
+- **MCP vault**: create / archive / delete group; **member**: add / archive (not delete — archive
+  preserves history per P0 hardening) / show-archived toggle.
+
+## 5. Vocabulary (§3.12) + i18n (corrected baseline — H6)
+
+- Land the §3.12 user-facing strings (already present in the catalog): "Models & Credentials"
+  entry, tab labels (Model Connections / MCP / Service Credentials), "MCP Credential Vault",
+  "Service Credential", "Model Connection". Converge leftover user-visible "secret/vault" drift.
+  Do NOT rename backend `kind` values or i18n KEY names — user-visible copy only.
+- **Baseline is GREEN** as of HEAD (`credential-terminology.test.ts` 375 passed;
+  `entity-id-architecture.test.ts` 26; `api-paths.test.ts` 4 — 405 total). The earlier
+  "pre-existing red" note was stale and is retracted.
+- `sourceFileCount` counts **production `.ts/.tsx` files** (not route dirs) — so P1 adding the new
+  page + extracted components (§8) WILL change it. P1 updates the snapshot to the **true** new
+  count and the true translation-leaf counts, accounting only for P1's real additions — never a
+  mechanical bump justified by "it was red". Any new user-facing vocabulary gets a matching
+  **semantic** assertion in the terminology test (the semantic assertions, not the raw counts, are
+  the real regression detector).
+
+## 6. Testing — capability-parity matrix (H5)
+
+Beyond render/route tests, P1 must add behavior-parity tests proving no capability regressed:
+- **Model**: edit data · test-connection · set-default · delete/archive.
+- **Service**: edit masked fields · add/remove field · delete/archive.
+- **MCP Vault**: create · archive · delete.
+- **MCP Member**: add · archive · archived shown (toggle).
+- **Role**: reader sees masked info but **no** write controls; archived project blocks all writes.
+- **Isolation**: after project switch, stale requests must not populate the new project; each tab
+  has independent loading/error/empty/pagination; MCP credentials never appear in Model/Service tabs.
+- **Routing**: default tab; illegal `?tab=` normalization (replace); tab click pushes history;
+  `create=*` consumed leaves `tab` intact; kind-correct back/breadcrumb.
+- **Deep-link parity**: every `create=*` and old detail deep-link (§2.2) lands on the right
+  tab/flow with the create action intact.
+- **Detail kind-invariant** (H2, see §8).
+- Guards: `type-check` clean, `lint` exit 0, full `vitest` green incl. the reconciled terminology
+  snapshot; `entity-id-architecture.test.ts` / `api-paths.test.ts` updated for moved route pages.
+
+## 7. Non-goals + P0 constraints to respect
+
+- Later phases: unified cross-flow credential picker → **P2C**; trigger grants → **P2A**; MCP
+  OAuth → **P2B**. No backend/runtime change in P1.
+- **P0 API limits P1 must NOT paper over:**
+  - `GET /credentials` has **no `include_archived`** (only `/credential-groups` does). So P1 does
+    **not** add a model/service archived-list + restore UI (that would need a backend change =
+    guardrail relaxation, out of P1 scope). P1 keeps current model/service list behavior (active
+    only). MCP vault archived-filter stays as P0 provides it.
+  - List `name`/created-time filtering is **per-cursor-page**, not global search. P1 must not
+    present it as global search; the search box scope matches today's behavior.
+
+## 8. Component architecture, invariants, a11y (H1/H2/H3 + follow-ups)
+
+### 8.1 Extraction (H1) — old pages are full routes with their own header/create/pagination; do NOT nest them. Extract embeddable units:
+`CredentialManagementShell` (tabs + query-state), `ModelConnectionList`, `ServiceCredentialList`,
+`CredentialDetail` (kind-dispatching), `McpVaultList`, `McpVaultDetail`, `CredentialKindChooser`.
+Old `secrets/` + `vaults/` route pages reduce to **redirect shells** with no business logic.
+(Note: extraction changes the frontend source-file set → drives the §5 snapshot update.)
+
+### 8.2 Detail kind-invariant (H2) — `/credentials/[credentialId]` must dispatch by fetched kind:
+- `model` → Model Connection detail.
+- `service` → Service Credential detail.
+- `mcp` (has `group_id`) → **redirect** to `/credentials/mcp/[group_id]`.
+- orphan/unknown → explicit error state; **never** fall through to the generic/service editor.
+
+### 8.3 Catalog fault isolation (H3) — only Model surfaces gate on `useLlmCatalog()`; Service + MCP
+render independently of catalog success.
+
+### 8.4 Accessibility / responsive
+- Radix Tabs keyboard nav; `CredentialKindChooser` sets initial focus and restores focus on close.
+- Mobile: tabs scroll horizontally (or equivalent); MCP list→detail routes degrade naturally on
+  mobile (separate routes, no split-pane requirement).
+- Table rows are keyboard-actionable (not mouse-only); destructive actions keep their confirm dialog.
+
+## 9. Resolved decisions (for the record)
+- Tab state: query param (`?tab=`), replace-on-normalize / push-on-click (§2.3).
+- MCP detail route: `/credentials/mcp/[groupId]` static segment (B1).
+- Kind filtering: server-side + kind-scoped pagination/cache (B2, §3).
+- MCP create: create-vault → vault detail → auto-open Add-Credential (B3, §4.2).
+- Create chooser: single-layer, kind locked; dialog inner tab hidden (H4, §4.1).
+- i18n: baseline green; snapshot updated to true post-P1 reality only (H6, §5).
+- Archived model/service list/restore: **out of scope** (needs backend change) (§7).
