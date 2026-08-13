@@ -1865,6 +1865,7 @@ impl SandboxResolver {
 
         let agent = agent?;
         if !self.identity_provider.has_config(agent.metadata.as_ref()) {
+            debug!(agent_id = %agent.id, "agent identity: no agent_identity config, skipping");
             return None;
         }
 
@@ -1875,9 +1876,24 @@ impl SandboxResolver {
             .clone();
 
         // Load identity context (encrypted identity_token or auth_code + user_name)
-        let identity_ctx = self.load_identity_context(session_id).await?;
+        let identity_ctx = match self.load_identity_context(session_id).await {
+            Some(ctx) => ctx,
+            None => {
+                debug!(
+                    agent_id = %agent.id,
+                    session_id = ?session_id,
+                    "agent identity: no identity context in session.metadata, skipping"
+                );
+                return None;
+            }
+        };
 
         let egress_hosts = Self::extract_agent_egress_hosts(agent);
+        debug!(
+            agent_id = %agent.id,
+            egress_hosts = ?egress_hosts,
+            "agent identity: resolving with egress hosts"
+        );
 
         let context = IdentityResolveContext {
             agent_id: agent.id.to_string(),
@@ -1914,7 +1930,13 @@ impl SandboxResolver {
                     .collect();
                 Some(routes)
             }
-            Ok(_) => None,
+            Ok(_) => {
+                debug!(
+                    agent_id = %agent.id,
+                    "agent identity: provider returned no injection targets (no egress hosts?), skipping"
+                );
+                None
+            }
             Err(e) => {
                 warn!(
                     agent_id = %agent.id,

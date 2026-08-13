@@ -125,7 +125,7 @@ class JoySafeterCreateAgentRequest(BaseModel):
     model: Union[str, JoySafeterModelConfig, None] = None
     system: Optional[str] = Field(default=None, alias="system_prompt")
     description: Optional[str] = None
-    metadata: dict[str, str] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     env: dict[str, str] = Field(default_factory=dict)
     mcp_servers: list[McpServerConfig] = Field(default_factory=list)
     skills: list[SkillEntry] = Field(default_factory=list)
@@ -160,7 +160,7 @@ class JoySafeterUpdateAgentRequest(BaseModel):
     model: Union[str, JoySafeterModelConfig, None] = None
     system: Optional[str] = Field(default=None, alias="system_prompt")
     description: Optional[str] = None
-    metadata: Optional[dict[str, str]] = None
+    metadata: Optional[dict[str, Any]] = None
     env: Optional[dict[str, str]] = None
     mcp_servers: Optional[list[McpServerConfig]] = None
     skills: Optional[list[SkillEntry]] = None
@@ -196,7 +196,7 @@ class JoySafeterAgentResponse(BaseModel):
     model: Optional[JoySafeterModelConfig] = None
     system: Optional[str] = None
     description: Optional[str] = None
-    metadata: dict[str, str] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     env: dict[str, str] = Field(default_factory=dict)
     mcp_servers: list[McpServerConfig] = Field(default_factory=list)
     skills: list[SkillEntry] = Field(default_factory=list)
