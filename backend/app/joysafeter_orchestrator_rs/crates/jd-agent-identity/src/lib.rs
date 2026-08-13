@@ -286,11 +286,10 @@ impl JdAgentIdentityProvider {
 
     /// Generate signature: getSign(clientSecret, signParam, timestamp, traceId)
     ///
-    /// TODO: Confirm exact algorithm with identity platform team.
-    /// Current implementation: MD5(signParam + timestamp + traceId + clientSecret)
+    /// Implementation: MD5Hex(clientSecret + signParam + timestamp + traceId)
     fn get_sign(&self, sign_param: &str, timestamp: i64, trace_id: &str) -> String {
         use std::fmt::Write;
-        let input = format!("{}{}{}{}", sign_param, timestamp, trace_id, self.sign_secret);
+        let input = format!("{}{}{}{}", self.sign_secret, sign_param, timestamp, trace_id);
         let digest = md5::compute(input.as_bytes());
         let mut hex = String::with_capacity(32);
         for byte in digest.iter() {
