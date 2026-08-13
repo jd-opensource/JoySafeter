@@ -287,7 +287,7 @@ impl JdAgentIdentityProvider {
 
     /// 2.7 销毁智能体身份 BotToken
     async fn api_destroy_bot_token(&self, bot_token: &str) -> anyhow::Result<()> {
-        let url = format!("{}/ai/identity/sec/api/destroyBotToken", self.base_url);
+        let url = format!("{}/ai/identity/sec/api/revokeBotToken", self.base_url);
         let body = serde_json::json!({
             "traceId": uuid::Uuid::new_v4().to_string(),
             "botToken": bot_token,
