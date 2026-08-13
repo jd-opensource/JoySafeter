@@ -12,6 +12,7 @@
 //! All derived tokens (agentToken, SSO ticket, ME token) are short-lived and
 //! ONLY injected via Envoy headers — never stored or passed to the sandbox.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context};
@@ -39,13 +40,20 @@ struct CreateBotTokenRequest {
     agent_id: String,
     session_id: String,
     request_id: String,
-    scope: Vec<String>,
+    scope: String,  // comma-separated domain list
     tenant_code: String,
     auth_type: String,
     identity_type: String,
     identity_token: String,
     agent_scene: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    env_info: Option<HashMap<String, serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    headers_map: Option<HashMap<String, String>>,
     timestamp: i64,
+    signature: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extensions: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,12 +93,7 @@ struct UserIdentityData {
 
 #[derive(Debug, Clone)]
 struct JdIdentityConfig {
-    platform_id: String,
-    client_id: String,
     tenant_code: String,
-    agent_scene: String,
-    auth_type: String,
-    identity_type: String,
     /// Hosts requiring SSO ticket + agentToken injection.
     sso_targets: Vec<String>,
     /// Hosts requiring ME token + agentToken injection.
@@ -106,12 +109,7 @@ impl JdIdentityConfig {
             return None;
         }
         Some(Self {
-            platform_id: json_str(config, "platform_id", "joysafeter"),
-            client_id: json_str(config, "client_id", "joysafeter"),
             tenant_code: json_str(config, "tenant_code", ""),
-            agent_scene: json_str(config, "agent_scene", "default"),
-            auth_type: json_str(config, "auth_type", "sso"),
-            identity_type: json_str(config, "identity_type", "cookie"),
             sso_targets: json_str_array(config, "sso_targets"),
             me_targets: json_str_array(config, "me_targets"),
             agent_token_targets: json_str_array(config, "agent_token_targets"),
@@ -149,6 +147,19 @@ fn json_str_array(v: &JsonValue, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Collect basic environment info for the envInfo field.
+/// In production this would mirror EnvInfoUtils.collectMap() from the Java SDK.
+fn collect_env_info() -> HashMap<String, serde_json::Value> {
+    let mut info = HashMap::new();
+    info.insert("os".to_string(), serde_json::json!(std::env::consts::OS));
+    info.insert("arch".to_string(), serde_json::json!(std::env::consts::ARCH));
+    info.insert("runtime".to_string(), serde_json::json!("rust"));
+    if let Ok(hostname) = std::env::var("HOSTNAME") {
+        info.insert("hostname".to_string(), serde_json::json!(hostname));
+    }
+    info
+}
+
 // ---------------------------------------------------------------------------
 // Provider implementation
 // ---------------------------------------------------------------------------
@@ -164,6 +175,14 @@ fn json_str_array(v: &JsonValue, key: &str) -> Vec<String> {
 pub struct JdAgentIdentityProvider {
     http: reqwest::Client,
     base_url: String,
+    /// Signing secret for getSign() — env AGENT_IDENTITY_SIGN_SECRET
+    sign_secret: String,
+    /// Fixed platform params from environment variables
+    client_id: String,
+    platform_id: String,
+    auth_type: String,
+    identity_type: String,
+    agent_scene: String,
     redis_client: redis::Client,
 }
 
@@ -171,6 +190,15 @@ impl JdAgentIdentityProvider {
     /// Create from environment variables + a Redis client.
     ///
     /// Returns None if `AGENT_IDENTITY_BASE_URL` is not set (feature disabled).
+    ///
+    /// Required env vars:
+    /// - AGENT_IDENTITY_BASE_URL: API base URL
+    /// - AGENT_IDENTITY_SIGN_SECRET: signing secret for getSign()
+    /// - AGENT_IDENTITY_CLIENT_ID: 申请的应用标识
+    /// - AGENT_IDENTITY_PLATFORM_ID: 智能体平台ID
+    /// - AGENT_IDENTITY_AUTH_TYPE: 用户身份认证方式 (e.g. "sso")
+    /// - AGENT_IDENTITY_IDENTITY_TYPE: 用户身份凭证类型 (e.g. "cookie")
+    /// - AGENT_IDENTITY_AGENT_SCENE: 智能体业务场景
     pub fn from_env(redis_client: redis::Client) -> Option<Self> {
         let base_url = std::env::var("AGENT_IDENTITY_BASE_URL").ok()?;
         if base_url.trim().is_empty() {
@@ -182,8 +210,59 @@ impl JdAgentIdentityProvider {
                 .build()
                 .expect("build reqwest client"),
             base_url: base_url.trim_end_matches('/').to_string(),
+            sign_secret: std::env::var("AGENT_IDENTITY_SIGN_SECRET").unwrap_or_default(),
+            client_id: std::env::var("AGENT_IDENTITY_CLIENT_ID").unwrap_or_default(),
+            platform_id: std::env::var("AGENT_IDENTITY_PLATFORM_ID").unwrap_or_default(),
+            auth_type: std::env::var("AGENT_IDENTITY_AUTH_TYPE").unwrap_or_else(|_| "sso".to_string()),
+            identity_type: std::env::var("AGENT_IDENTITY_IDENTITY_TYPE").unwrap_or_else(|_| "cookie".to_string()),
+            agent_scene: std::env::var("AGENT_IDENTITY_AGENT_SCENE").unwrap_or_else(|_| "cloud_sandbox_skill".to_string()),
             redis_client,
         })
+    }
+
+    // --- Signature ------------------------------------------------------------
+
+    /// Generate signature: getSign(signParam, secret)
+    /// The signing algorithm details are provider-specific (TBD: MD5/HMAC-SHA256).
+    /// For now this is a placeholder that concatenates signParam + secret and hashes.
+    fn sign(&self, sign_param: &str) -> String {
+        // TODO: Replace with actual getSign() implementation once algorithm is confirmed
+        // Current placeholder: MD5(signParam + secret)
+        use std::fmt::Write;
+        let input = format!("{}{}", sign_param, self.sign_secret);
+        let digest = md5::compute(input.as_bytes());
+        let mut hex = String::with_capacity(32);
+        for byte in digest.iter() {
+            let _ = write!(hex, "{:02x}", byte);
+        }
+        hex
+    }
+
+    /// signParam for createBotToken: platformId + agentId + authType + identityType + identityToken
+    fn sign_create_bot_token(&self, agent_id: &str, identity_token: &str) -> String {
+        let sign_param = format!(
+            "{}{}{}{}{}",
+            self.platform_id, agent_id, self.auth_type, self.identity_type, identity_token
+        );
+        self.sign(&sign_param)
+    }
+
+    /// signParam for exchangeUserToken: platformId + agentId + authType + identityType + botToken
+    fn sign_exchange_user_token(&self, agent_id: &str, bot_token: &str) -> String {
+        let sign_param = format!(
+            "{}{}{}{}{}",
+            self.platform_id, agent_id, self.auth_type, self.identity_type, bot_token
+        );
+        self.sign(&sign_param)
+    }
+
+    /// signParam for exchangeAgentToken: platformId + agentId + botToken
+    fn sign_exchange_agent_token(&self, agent_id: &str, bot_token: &str) -> String {
+        let sign_param = format!(
+            "{}{}{}",
+            self.platform_id, agent_id, bot_token
+        );
+        self.sign(&sign_param)
     }
 
     // --- API calls -----------------------------------------------------------
@@ -211,15 +290,31 @@ impl JdAgentIdentityProvider {
     }
 
     /// 2.3 BotToken 兑换 AgentToken
+    ///
+    /// signParam = platformId + agentId + botToken
     async fn api_exchange_agent_token(
         &self,
         bot_token: &str,
+        agent_id: &str,
+        session_id: &str,
+        request_id: &str,
+        domain: &str,
     ) -> anyhow::Result<AgentTokenData> {
         let url = format!("{}/ai/identity/sec/api/exchangeAgentToken", self.base_url);
+        let timestamp = chrono::Utc::now().timestamp_millis();
+        let signature = self.sign_exchange_agent_token(agent_id, bot_token);
         let body = serde_json::json!({
             "traceId": uuid::Uuid::new_v4().to_string(),
+            "clientId": self.client_id,
+            "platformId": self.platform_id,
+            "agentId": agent_id,
+            "sessionId": session_id,
+            "requestId": request_id,
             "botToken": bot_token,
-            "timestamp": chrono::Utc::now().timestamp_millis(),
+            "domain": domain,
+            "envInfo": collect_env_info(),
+            "timestamp": timestamp,
+            "signature": signature,
         });
         let resp: ApiResponse<AgentTokenData> = self
             .http
@@ -243,20 +338,36 @@ impl JdAgentIdentityProvider {
     }
 
     /// 2.2 BotToken 兑换用户身份 (SSO / ME)
-    async fn api_exchange_user_identity(
+    ///
+    /// signParam = platformId + agentId + authType + identityType + botToken
+    async fn api_exchange_user_token(
         &self,
         bot_token: &str,
-        target_type: &str,
+        agent_id: &str,
+        session_id: &str,
+        request_id: &str,
+        domain: &str,
     ) -> anyhow::Result<UserIdentityData> {
         let url = format!(
             "{}/ai/identity/sec/api/exchangeUserToken",
             self.base_url
         );
+        let timestamp = chrono::Utc::now().timestamp_millis();
+        let signature = self.sign_exchange_user_token(agent_id, bot_token);
         let body = serde_json::json!({
             "traceId": uuid::Uuid::new_v4().to_string(),
+            "clientId": self.client_id,
+            "platformId": self.platform_id,
+            "agentId": agent_id,
+            "sessionId": session_id,
+            "requestId": request_id,
             "botToken": bot_token,
-            "targetType": target_type,
-            "timestamp": chrono::Utc::now().timestamp_millis(),
+            "authType": self.auth_type,
+            "identityType": self.identity_type,
+            "domain": domain,
+            "envInfo": collect_env_info(),
+            "timestamp": timestamp,
+            "signature": signature,
         });
         let resp: ApiResponse<UserIdentityData> = self
             .http
@@ -264,25 +375,18 @@ impl JdAgentIdentityProvider {
             .json(&body)
             .send()
             .await
-            .with_context(|| {
-                format!("exchangeUserIdentity({target_type}) request failed")
-            })?
+            .context("exchangeUserToken request failed")?
             .json()
             .await
-            .with_context(|| {
-                format!("exchangeUserIdentity({target_type}) parse failed")
-            })?;
+            .context("exchangeUserToken response parse failed")?;
         if resp.code != 0 {
             anyhow::bail!(
-                "exchangeUserIdentity({}): code={}, msg={}",
-                target_type,
+                "exchangeUserToken: code={}, msg={}",
                 resp.code,
                 resp.message
             );
         }
-        resp.data.ok_or_else(|| {
-            anyhow!("exchangeUserIdentity({target_type}): no data")
-        })
+        resp.data.ok_or_else(|| anyhow!("exchangeUserToken: no data"))
     }
 
     /// 2.7 销毁智能体身份 BotToken
@@ -397,9 +501,9 @@ impl JdAgentIdentityProvider {
         ctx: &IdentityResolveContext,
     ) -> anyhow::Result<String> {
         let key = Self::cache_key(
-            &config.platform_id,
+            &self.platform_id,
             &ctx.agent_id,
-            &config.auth_type,
+            &self.auth_type,
             &ctx.user_name,
         );
 
@@ -411,20 +515,26 @@ impl JdAgentIdentityProvider {
 
         // Cache miss → call createBotToken
         debug!(cache_key = %key, "BotToken cache miss, creating");
+        let scope_str = config.all_scope_hosts().join(",");
+        let signature = self.sign_create_bot_token(&ctx.agent_id, &ctx.identity_token);
         let req = CreateBotTokenRequest {
             trace_id: uuid::Uuid::new_v4().to_string(),
-            client_id: config.client_id.clone(),
-            platform_id: config.platform_id.clone(),
+            client_id: self.client_id.clone(),
+            platform_id: self.platform_id.clone(),
             agent_id: ctx.agent_id.clone(),
             session_id: ctx.session_id.clone(),
             request_id: ctx.task_id.clone(),
-            scope: config.all_scope_hosts(),
+            scope: scope_str,
             tenant_code: config.tenant_code.clone(),
-            auth_type: config.auth_type.clone(),
-            identity_type: config.identity_type.clone(),
+            auth_type: self.auth_type.clone(),
+            identity_type: self.identity_type.clone(),
             identity_token: ctx.identity_token.clone(),
-            agent_scene: config.agent_scene.clone(),
+            agent_scene: self.agent_scene.clone(),
+            env_info: Some(collect_env_info()),
+            headers_map: None,
             timestamp: chrono::Utc::now().timestamp_millis(),
+            signature,
+            extensions: None,
         };
         let data = self.api_create_bot_token(&req).await?;
 
@@ -552,9 +662,9 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
             let data = self.api_exchange_bot_token_from_auth_code(auth_code).await?;
             // Cache the resulting botToken for subsequent tasks in this session
             let cache_key = Self::cache_key(
-                &config.platform_id,
+                &self.platform_id,
                 &context.agent_id,
-                &config.auth_type,
+                &self.auth_type,
                 &context.user_name,
             );
             let ttl = data.expires_in.saturating_sub(60).max(60);
@@ -571,12 +681,33 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
             self.get_or_create_bot_token(&config, context).await?
         };
 
+        // For exchange calls, use the first configured target as `domain`
+        let primary_domain = config.all_scope_hosts().into_iter().next().unwrap_or_default();
+
         // 2. Exchange BotToken → AgentToken (always, short-lived)
-        let agent_token_data = self.api_exchange_agent_token(&bot_token).await?;
+        let agent_token_data = self
+            .api_exchange_agent_token(
+                &bot_token,
+                &context.agent_id,
+                &context.session_id,
+                &context.task_id,
+                &primary_domain,
+            )
+            .await?;
 
         // 3. Exchange BotToken → SSO ticket (if configured)
         let sso_ticket = if !config.sso_targets.is_empty() {
-            match self.api_exchange_user_identity(&bot_token, "sso").await {
+            let domain = config.sso_targets.first().cloned().unwrap_or_default();
+            match self
+                .api_exchange_user_token(
+                    &bot_token,
+                    &context.agent_id,
+                    &context.session_id,
+                    &context.task_id,
+                    &domain,
+                )
+                .await
+            {
                 Ok(data) => Some(data.token),
                 Err(e) => {
                     warn!(error = %e, "SSO ticket exchange failed (non-fatal)");
@@ -589,7 +720,17 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
 
         // 4. Exchange BotToken → ME token (if configured)
         let me_token = if !config.me_targets.is_empty() {
-            match self.api_exchange_user_identity(&bot_token, "me").await {
+            let domain = config.me_targets.first().cloned().unwrap_or_default();
+            match self
+                .api_exchange_user_token(
+                    &bot_token,
+                    &context.agent_id,
+                    &context.session_id,
+                    &context.task_id,
+                    &domain,
+                )
+                .await
+            {
                 Ok(data) => Some(data.token),
                 Err(e) => {
                     warn!(error = %e, "ME token exchange failed (non-fatal)");
