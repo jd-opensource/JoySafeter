@@ -68,7 +68,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'Search connections and credentials by name or ID',
     '按名称或 ID 搜索模型与凭据',
   ],
-  ['model and service', 'managed.llm.modelConfiguration', 'Model Connection', '模型接入'],
+  ['model and service', 'managed.llm.modelConfiguration', 'Model Connection', '模型连接'],
   ['model and service', 'managed.llm.genericSecret', 'Service Credential', '服务凭据'],
   ['agent model connection', 'agents.edit.secretRef', 'Model Connection', '模型接入'],
   [
@@ -1262,5 +1262,21 @@ describe('credential domain terminology', () => {
 
   it('keeps hard-coded production copy free of legacy credential nouns', () => {
     expect(findHardCodedLegacyCredentialCopy()).toEqual([])
+  })
+})
+
+describe('unified credentials surface vocabulary (P1, §3.12)', () => {
+  it('lands the merged menu + tab labels as Model Connection (not 模型接入)', () => {
+    expect(en.translation.nav.credentials).toBe('Models & Credentials')
+    expect(zh.translation.nav.credentials).toBe('模型与凭据')
+    expect(en.translation.managed.credentials.tabs.models).toBe('Model Connections')
+    expect(zh.translation.managed.credentials.tabs.models).toBe('模型连接')
+    expect(zh.translation.managed.llm.modelConfiguration).toBe('模型连接')
+  })
+  it('uses a neutral create action, not a "credential" umbrella', () => {
+    expect(en.translation.managed.credentials.new).toBe('New')
+    expect(en.translation.managed.credentials.chooser.description).toBe('Choose what to create.')
+    expect(en.translation.managed.credentials.chooser.model).toBe('Model Connection')
+    expect(en.translation.managed.credentials.chooser.vault).toBe('MCP Credential Vault')
   })
 })
