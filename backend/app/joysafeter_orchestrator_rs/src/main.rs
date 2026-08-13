@@ -105,7 +105,7 @@ async fn main() -> anyhow::Result<()> {
                     Arc::new(provider)
                 }
                 None => {
-                    info!("Agent identity provider: noop (AGENT_IDENTITY_BASE_URL not set)");
+                    info!("Agent identity provider: noop (JD_AGENT_IDENTITY_BASE_URL not set)");
                     Arc::new(kernel::agent_identity_provider::NoopAgentIdentityProvider)
                 }
             }

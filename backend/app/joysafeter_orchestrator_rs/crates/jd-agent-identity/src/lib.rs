@@ -237,7 +237,7 @@ fn collect_env_info() -> HashMap<String, serde_json::Value> {
 pub struct JdAgentIdentityProvider {
     http: reqwest::Client,
     base_url: String,
-    /// Signing secret for getSign() — env AGENT_IDENTITY_CLIENT_SECRET
+    /// Signing secret for getSign() — env JD_AGENT_IDENTITY_CLIENT_SECRET
     sign_secret: String,
     /// Fixed platform params from environment variables
     client_id: String,
@@ -251,18 +251,18 @@ pub struct JdAgentIdentityProvider {
 impl JdAgentIdentityProvider {
     /// Create from environment variables + a Redis client.
     ///
-    /// Returns None if `AGENT_IDENTITY_BASE_URL` is not set (feature disabled).
+    /// Returns None if `JD_AGENT_IDENTITY_BASE_URL` is not set (feature disabled).
     ///
     /// Required env vars:
-    /// - AGENT_IDENTITY_BASE_URL: API base URL
-    /// - AGENT_IDENTITY_CLIENT_SECRET: signing secret for getSign()
-    /// - AGENT_IDENTITY_CLIENT_ID: 申请的应用标识
-    /// - AGENT_IDENTITY_PLATFORM_ID: 智能体平台ID
-    /// - AGENT_IDENTITY_AUTH_TYPE: 用户身份认证方式 (e.g. "sso")
-    /// - AGENT_IDENTITY_IDENTITY_TYPE: 用户身份凭证类型 (e.g. "cookie")
-    /// - AGENT_IDENTITY_AGENT_SCENE: 智能体业务场景
+    /// - JD_AGENT_IDENTITY_BASE_URL: API base URL
+    /// - JD_AGENT_IDENTITY_CLIENT_SECRET: signing secret for getSign()
+    /// - JD_AGENT_IDENTITY_CLIENT_ID: 申请的应用标识
+    /// - JD_AGENT_IDENTITY_PLATFORM_ID: 智能体平台ID
+    /// - JD_AGENT_IDENTITY_AUTH_TYPE: 用户身份认证方式 (e.g. "sso")
+    /// - JD_AGENT_IDENTITY_IDENTITY_TYPE: 用户身份凭证类型 (e.g. "cookie")
+    /// - JD_AGENT_IDENTITY_AGENT_SCENE: 智能体业务场景
     pub fn from_env(redis_client: redis::Client) -> Option<Self> {
-        let base_url = std::env::var("AGENT_IDENTITY_BASE_URL").ok()?;
+        let base_url = std::env::var("JD_AGENT_IDENTITY_BASE_URL").ok()?;
         if base_url.trim().is_empty() {
             return None;
         }
@@ -272,12 +272,12 @@ impl JdAgentIdentityProvider {
                 .build()
                 .expect("build reqwest client"),
             base_url: base_url.trim_end_matches('/').to_string(),
-            sign_secret: std::env::var("AGENT_IDENTITY_CLIENT_SECRET").unwrap_or_default(),
-            client_id: std::env::var("AGENT_IDENTITY_CLIENT_ID").unwrap_or_default(),
-            platform_id: std::env::var("AGENT_IDENTITY_PLATFORM_ID").unwrap_or_default(),
-            auth_type: std::env::var("AGENT_IDENTITY_AUTH_TYPE").unwrap_or_else(|_| "sso".to_string()),
-            identity_type: std::env::var("AGENT_IDENTITY_IDENTITY_TYPE").unwrap_or_else(|_| "cookie".to_string()),
-            agent_scene: std::env::var("AGENT_IDENTITY_AGENT_SCENE").unwrap_or_else(|_| "cloud_sandbox_skill".to_string()),
+            sign_secret: std::env::var("JD_AGENT_IDENTITY_CLIENT_SECRET").unwrap_or_default(),
+            client_id: std::env::var("JD_AGENT_IDENTITY_CLIENT_ID").unwrap_or_default(),
+            platform_id: std::env::var("JD_AGENT_IDENTITY_PLATFORM_ID").unwrap_or_default(),
+            auth_type: std::env::var("JD_AGENT_IDENTITY_AUTH_TYPE").unwrap_or_else(|_| "sso".to_string()),
+            identity_type: std::env::var("JD_AGENT_IDENTITY_IDENTITY_TYPE").unwrap_or_else(|_| "cookie".to_string()),
+            agent_scene: std::env::var("JD_AGENT_IDENTITY_AGENT_SCENE").unwrap_or_else(|_| "cloud_sandbox_skill".to_string()),
             redis_client,
         })
     }
@@ -333,6 +333,12 @@ impl JdAgentIdentityProvider {
         req: &CreateBotTokenRequest,
     ) -> anyhow::Result<BotTokenData> {
         let url = format!("{}/ai/identity/sec/api/createBotToken", self.base_url);
+        debug!(
+            trace_id = %req.trace_id,
+            agent_id = %req.agent_id,
+            scope = %req.scope,
+            "createBotToken request"
+        );
         let resp: ApiResponse<BotTokenData> = self
             .http
             .post(&url)
@@ -344,8 +350,15 @@ impl JdAgentIdentityProvider {
             .await
             .context("createBotToken response parse failed")?;
         if resp.code != 0 {
+            warn!(
+                trace_id = %req.trace_id,
+                code = resp.code,
+                msg = %resp.message,
+                "createBotToken failed"
+            );
             anyhow::bail!("createBotToken: code={}, msg={}", resp.code, resp.message);
         }
+        debug!(trace_id = %req.trace_id, "createBotToken success");
         resp.data.ok_or_else(|| anyhow!("createBotToken: no data"))
     }
 
@@ -377,6 +390,12 @@ impl JdAgentIdentityProvider {
             "timestamp": timestamp,
             "signature": signature,
         });
+        debug!(
+            trace_id = %trace_id,
+            agent_id = agent_id,
+            domain = domain,
+            "exchangeAgentToken request"
+        );
         let resp: ApiResponse<AgentTokenData> = self
             .http
             .post(&url)
@@ -388,12 +407,19 @@ impl JdAgentIdentityProvider {
             .await
             .context("exchangeAgentToken response parse failed")?;
         if resp.code != 0 {
+            warn!(
+                trace_id = %trace_id,
+                code = resp.code,
+                msg = %resp.message,
+                "exchangeAgentToken failed"
+            );
             anyhow::bail!(
                 "exchangeAgentToken: code={}, msg={}",
                 resp.code,
                 resp.message
             );
         }
+        debug!(trace_id = %trace_id, "exchangeAgentToken success");
         resp.data
             .ok_or_else(|| anyhow!("exchangeAgentToken: no data"))
     }
@@ -431,6 +457,12 @@ impl JdAgentIdentityProvider {
             "timestamp": timestamp,
             "signature": signature,
         });
+        debug!(
+            trace_id = %trace_id,
+            agent_id = agent_id,
+            domain = domain,
+            "exchangeUserToken request"
+        );
         let resp: ApiResponse<UserIdentityData> = self
             .http
             .post(&url)
@@ -442,12 +474,19 @@ impl JdAgentIdentityProvider {
             .await
             .context("exchangeUserToken response parse failed")?;
         if resp.code != 0 {
+            warn!(
+                trace_id = %trace_id,
+                code = resp.code,
+                msg = %resp.message,
+                "exchangeUserToken failed"
+            );
             anyhow::bail!(
                 "exchangeUserToken: code={}, msg={}",
                 resp.code,
                 resp.message
             );
         }
+        debug!(trace_id = %trace_id, "exchangeUserToken success");
         resp.data.ok_or_else(|| anyhow!("exchangeUserToken: no data"))
     }
 
