@@ -94,12 +94,6 @@ struct UserIdentityData {
 #[derive(Debug, Clone)]
 struct JdIdentityConfig {
     tenant_code: String,
-    /// Hosts requiring SSO ticket + agentToken injection.
-    sso_targets: Vec<String>,
-    /// Hosts requiring ME token + agentToken injection.
-    me_targets: Vec<String>,
-    /// Hosts requiring only agentToken injection (UIM gateway etc).
-    agent_token_targets: Vec<String>,
 }
 
 impl JdIdentityConfig {
@@ -110,20 +104,7 @@ impl JdIdentityConfig {
         }
         Some(Self {
             tenant_code: json_str(config, "tenant_code", ""),
-            sso_targets: json_str_array(config, "sso_targets"),
-            me_targets: json_str_array(config, "me_targets"),
-            agent_token_targets: json_str_array(config, "agent_token_targets"),
         })
-    }
-
-    fn all_scope_hosts(&self) -> Vec<String> {
-        let mut all = Vec::new();
-        all.extend(self.sso_targets.iter().cloned());
-        all.extend(self.me_targets.iter().cloned());
-        all.extend(self.agent_token_targets.iter().cloned());
-        all.sort();
-        all.dedup();
-        all
     }
 }
 
@@ -134,6 +115,7 @@ fn json_str(v: &JsonValue, key: &str, default: &str) -> String {
         .to_string()
 }
 
+#[allow(dead_code)]
 fn json_str_array(v: &JsonValue, key: &str) -> Vec<String> {
     v.get(key)
         .and_then(|v| v.as_array())
@@ -427,6 +409,7 @@ impl JdAgentIdentityProvider {
     /// 2.2 BotToken 兑换用户身份 (SSO / ME)
     ///
     /// signParam = platformId + agentId + authType + identityType + botToken
+    #[allow(dead_code)]
     async fn api_exchange_user_token(
         &self,
         bot_token: &str,
@@ -652,85 +635,6 @@ impl JdAgentIdentityProvider {
 
         Ok(data.bot_token)
     }
-
-    /// Build injection targets from resolved tokens.
-    fn build_targets(
-        config: &JdIdentityConfig,
-        agent_token: &str,
-        sso_ticket: Option<&str>,
-        me_token: Option<&str>,
-    ) -> Vec<IdentityEgressTarget> {
-        let mut targets = Vec::new();
-        let remove_all = vec![
-            "x-security-agenttoken".to_string(),
-            "cookie".to_string(),
-        ];
-        let remove_token_only = vec!["x-security-agenttoken".to_string()];
-
-        // SSO targets: agentToken + sso ticket as Cookie
-        if let Some(ticket) = sso_ticket {
-            for host in &config.sso_targets {
-                targets.push(IdentityEgressTarget {
-                    host: host.clone(),
-                    port: 443,
-                    tls: true,
-                    inject_headers: vec![
-                        (
-                            "X-Security-AgentToken".to_string(),
-                            agent_token.to_string(),
-                        ),
-                        (
-                            "Cookie".to_string(),
-                            format!("ssguestId={ticket}"),
-                        ),
-                    ],
-                    remove_headers: remove_all.clone(),
-                });
-            }
-        }
-
-        // ME targets: agentToken + me token as Cookie
-        if let Some(token) = me_token {
-            for host in &config.me_targets {
-                targets.push(IdentityEgressTarget {
-                    host: host.clone(),
-                    port: 443,
-                    tls: true,
-                    inject_headers: vec![
-                        (
-                            "X-Security-AgentToken".to_string(),
-                            agent_token.to_string(),
-                        ),
-                        (
-                            "Cookie".to_string(),
-                            format!("TP_AGENT={token}"),
-                        ),
-                    ],
-                    remove_headers: remove_all.clone(),
-                });
-            }
-        }
-
-        // agentToken-only targets (skip if already covered by SSO/ME)
-        for host in &config.agent_token_targets {
-            if config.sso_targets.contains(host) || config.me_targets.contains(host)
-            {
-                continue;
-            }
-            targets.push(IdentityEgressTarget {
-                host: host.clone(),
-                port: 443,
-                tls: true,
-                inject_headers: vec![(
-                    "X-Security-AgentToken".to_string(),
-                    agent_token.to_string(),
-                )],
-                remove_headers: remove_token_only.clone(),
-            });
-        }
-
-        targets
-    }
 }
 
 #[async_trait]
@@ -798,66 +702,27 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
             )
             .await?;
 
-        // 3. Exchange BotToken → SSO ticket (if configured)
-        let sso_ticket = if !config.sso_targets.is_empty() {
-            let domain = config.sso_targets.first().cloned().unwrap_or_default();
-            match self
-                .api_exchange_user_token(
-                    &bot_token,
-                    &context.agent_id,
-                    &context.session_id,
-                    &context.task_id,
-                    &domain,
-                )
-                .await
-            {
-                Ok(data) => Some(data.token),
-                Err(e) => {
-                    warn!(error = %e, "SSO ticket exchange failed (non-fatal)");
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
-        // 4. Exchange BotToken → ME token (if configured)
-        let me_token = if !config.me_targets.is_empty() {
-            let domain = config.me_targets.first().cloned().unwrap_or_default();
-            match self
-                .api_exchange_user_token(
-                    &bot_token,
-                    &context.agent_id,
-                    &context.session_id,
-                    &context.task_id,
-                    &domain,
-                )
-                .await
-            {
-                Ok(data) => Some(data.token),
-                Err(e) => {
-                    warn!(error = %e, "ME token exchange failed (non-fatal)");
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
-        // 5. Build injection targets
-        let targets = Self::build_targets(
-            &config,
-            &agent_token_data.agent_token,
-            sso_ticket.as_deref(),
-            me_token.as_deref(),
-        );
+        // 3. Build injection targets: all egress hosts get X-Security-AgentToken
+        let remove_headers = vec!["x-security-agenttoken".to_string()];
+        let targets: Vec<IdentityEgressTarget> = context
+            .egress_hosts
+            .iter()
+            .map(|host| IdentityEgressTarget {
+                host: host.clone(),
+                port: 443,
+                tls: true,
+                inject_headers: vec![(
+                    "X-Security-AgentToken".to_string(),
+                    agent_token_data.agent_token.clone(),
+                )],
+                remove_headers: remove_headers.clone(),
+            })
+            .collect();
 
         info!(
             agent_id = %context.agent_id,
             targets = targets.len(),
-            sso = sso_ticket.is_some(),
-            me = me_token.is_some(),
-            "Agent identity tokens resolved"
+            "Agent identity resolved — X-Security-AgentToken injected for all egress hosts"
         );
 
         Ok(AgentIdentityInjection { targets })
