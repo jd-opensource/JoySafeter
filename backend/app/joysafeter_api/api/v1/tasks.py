@@ -6,7 +6,7 @@ import time
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Header, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, Query, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.services import JoySafeterAgentService as AgentService
@@ -311,6 +311,7 @@ async def _validate_idempotent_task_environment_replay(
 @router.post("", status_code=202, response_model=CreateTaskResponse)
 async def create_task(
     req: CreateTaskRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
@@ -496,7 +497,118 @@ async def create_task(
         auto_created_session_id=auto_created_session_id,
         enforce_user_quota=auth_ctx.principal_type == "user",
     )
+
+    # Store agent identity context if the agent has identity config.
+    # This captures the user's raw credential (encrypted) so the Rust
+    # orchestrator can bootstrap BotToken creation during sandbox resolve.
+    await _store_agent_identity_context(db, chat_session_id, request, auth_ctx, agent)
+
     return CreateTaskResponse(id=task.id, status=task.status)
+
+
+async def _store_agent_identity_context(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    request: Request,
+    auth_ctx,
+    agent,
+) -> None:
+    """Capture and encrypt the triggering user's identity for agent delegation.
+
+    If the agent has `metadata.agent_identity` configured, extracts the user's
+    raw credential (from Cookie or Authorization header), encrypts it with
+    VaultCipher, and stores it in `session.metadata.agent_identity_context`.
+
+    The Rust orchestrator reads this during sandbox resolution to bootstrap
+    the identity token exchange flow (createBotToken → exchangeAgentToken).
+    """
+    # Quick check: does the agent have identity config?
+    agent_metadata = getattr(agent, "metadata_", None) or getattr(agent, "metadata", None)
+    if not agent_metadata or not isinstance(agent_metadata, dict):
+        return
+    if "agent_identity" not in agent_metadata:
+        return
+    identity_config = agent_metadata["agent_identity"]
+    if not identity_config.get("enabled", True):
+        return
+
+    # Extract raw identity token from request
+    from app.joysafeter_shared.config.settings import settings as app_settings
+    from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
+
+    identity_token = None
+    try:
+        identity_token = extract_token_from_cookies(request.cookies)
+    except Exception:
+        pass
+    if not identity_token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            identity_token = auth_header[7:]
+    if not identity_token:
+        return  # No credential available — identity injection won't work for this task
+
+    # Encrypt before storing (same JOYSAFETER_VAULT_ENCRYPTION_KEY as Rust VaultCipher)
+    import os
+    vault_key = os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", "")
+    if vault_key:
+        try:
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+            key_bytes = bytes.fromhex(vault_key) if len(vault_key) == 64 else __import__("base64").b64decode(vault_key)
+            nonce = os.urandom(12)
+            aesgcm = AESGCM(key_bytes)
+            ciphertext = aesgcm.encrypt(nonce, identity_token.encode(), None)
+            import base64
+            encrypted = "enc:" + base64.b64encode(nonce + ciphertext).decode()
+            identity_token = encrypted
+        except Exception:
+            pass  # Store plaintext if encryption fails (Rust will handle either)
+
+    # Get user email for cache keying
+    from sqlalchemy import select
+    from app.joysafeter_domain.models.joysafeter_auth import AuthUser
+
+    user_name = auth_ctx.user_id
+    try:
+        result = await db.execute(
+            select(AuthUser.email).where(AuthUser.id == auth_ctx.user_id).limit(1)
+        )
+        email = result.scalar_one_or_none()
+        if email:
+            user_name = email
+    except Exception:
+        pass
+
+    # Store in session.metadata (merge with existing metadata)
+    import json
+    from datetime import datetime, timezone
+    from sqlalchemy import text
+
+    context_data = {
+        "agent_identity_context": {
+            "identity_token": identity_token,
+            "user_name": user_name,
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+        }
+    }
+    try:
+        await db.execute(
+            text("""
+                UPDATE joysafeter_sessions
+                SET metadata = COALESCE(metadata, '{}'::jsonb) || :ctx::jsonb
+                WHERE id = :sid
+            """),
+            {"ctx": json.dumps(context_data), "sid": str(session_id)},
+        )
+        await db.commit()
+    except Exception:
+        # Non-fatal: if this fails, agent identity won't work for this task
+        # but the task itself will still run.
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
 
 @router.get("")
