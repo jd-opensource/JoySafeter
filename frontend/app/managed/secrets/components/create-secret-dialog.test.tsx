@@ -31,6 +31,13 @@ describe('CreateSecretDialog', () => {
     expect(screen.getByTestId('llm-configurator')).toBeTruthy()
   })
 
+  it('hides the kind tablist when lockKind is set', () => {
+    const { queryByRole } = render(
+      <CreateSecretDialog open onOpenChange={() => {}} onCreated={() => {}} initialKind="generic" lockKind />,
+    )
+    expect(queryByRole('tablist')).toBeNull()
+  })
+
   it('creates an explicit service credential without provider or protocol', async () => {
     managedPostMock.mockResolvedValueOnce({
       id: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',

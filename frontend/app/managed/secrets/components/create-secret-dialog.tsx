@@ -28,6 +28,7 @@ interface CreateSecretDialogProps {
   onOpenChange: (open: boolean) => void
   onCreated: (secret: SecretDetail) => void
   initialKind?: CreateSecretKind
+  lockKind?: boolean
 }
 
 interface GenericPair {
@@ -40,6 +41,7 @@ export function CreateSecretDialog({
   onOpenChange,
   onCreated,
   initialKind = 'llm',
+  lockKind = false,
 }: CreateSecretDialogProps) {
   const { t } = useTranslation()
   const managedScope = useManagedRequestScope()
@@ -105,32 +107,34 @@ export function CreateSecretDialog({
           <DialogDescription>{t('managed.llm.createDialogDescription')}</DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted p-1" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={kind === 'llm'}
-            onClick={() => setKind('llm')}
-            className={cn(
-              'rounded-md px-3 py-2 text-sm font-medium transition-colors',
-              kind === 'llm' ? 'bg-background shadow-sm' : 'text-muted-foreground',
-            )}
-          >
-            {t('managed.llm.modelConfiguration')}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={kind === 'generic'}
-            onClick={() => setKind('generic')}
-            className={cn(
-              'rounded-md px-3 py-2 text-sm font-medium transition-colors',
-              kind === 'generic' ? 'bg-background shadow-sm' : 'text-muted-foreground',
-            )}
-          >
-            {t('managed.llm.genericSecret')}
-          </button>
-        </div>
+        {lockKind ? null : (
+          <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted p-1" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={kind === 'llm'}
+              onClick={() => setKind('llm')}
+              className={cn(
+                'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                kind === 'llm' ? 'bg-background shadow-sm' : 'text-muted-foreground',
+              )}
+            >
+              {t('managed.llm.modelConfiguration')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={kind === 'generic'}
+              onClick={() => setKind('generic')}
+              className={cn(
+                'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                kind === 'generic' ? 'bg-background shadow-sm' : 'text-muted-foreground',
+              )}
+            >
+              {t('managed.llm.genericSecret')}
+            </button>
+          </div>
+        )}
 
         {kind === 'llm' ? (
           <LlmSecretConfigurator
