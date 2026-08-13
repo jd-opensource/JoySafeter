@@ -1877,6 +1877,8 @@ impl SandboxResolver {
         // Load identity context (encrypted identity_token or auth_code + user_name)
         let identity_ctx = self.load_identity_context(session_id).await?;
 
+        let egress_hosts = Self::extract_agent_egress_hosts(agent);
+
         let context = IdentityResolveContext {
             agent_id: agent.id.to_string(),
             session_id: session_id.map(|id| id.to_string()).unwrap_or_default(),
@@ -1886,6 +1888,7 @@ impl SandboxResolver {
             user_name: identity_ctx.user_name,
             provider_config,
             headers_map: identity_ctx.headers_map,
+            egress_hosts,
         };
 
         match self.identity_provider.resolve(&context).await {
@@ -1983,6 +1986,30 @@ impl SandboxResolver {
             headers_map,
         })
     }
+
+    /// Extract egress hostnames from agent's mcp_configs URLs.
+    /// These become the `scope` for the identity platform (domains the agent is allowed to access).
+    fn extract_agent_egress_hosts(agent: &JoySafeterAgent) -> Vec<String> {
+        let mut hosts = Vec::new();
+
+        // Extract from mcp_configs[].url
+        if let Some(mcp_configs) = agent.mcp_configs.as_ref().and_then(|v| v.as_array()) {
+            for cfg in mcp_configs {
+                if let Some(url_str) = cfg.get("url").and_then(|v| v.as_str()) {
+                    if let Ok(url) = Url::parse(url_str) {
+                        if let Some(host) = url.host_str() {
+                            hosts.push(host.to_lowercase());
+                        }
+                    }
+                }
+            }
+        }
+
+        hosts.sort();
+        hosts.dedup();
+        hosts
+    }
+
     async fn load_secret_data(
         pool: &PgPool,
         secret_ref: &str,

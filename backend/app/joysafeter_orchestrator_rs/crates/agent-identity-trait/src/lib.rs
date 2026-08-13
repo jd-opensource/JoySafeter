@@ -66,6 +66,9 @@ pub struct IdentityResolveContext {
     /// Original request headers from the triggering user's HTTP request.
     /// Used by createBotToken's headersMap field.
     pub headers_map: Option<std::collections::HashMap<String, String>>,
+    /// Auto-extracted egress hostnames from agent's MCP servers + environment
+    /// egress services. Used as the `scope` parameter for identity platform.
+    pub egress_hosts: Vec<String>,
 }
 
 /// Context for cleanup operations.

@@ -616,7 +616,7 @@ impl JdAgentIdentityProvider {
 
         // Cache miss → call createBotToken
         debug!(cache_key = %key, "BotToken cache miss, creating");
-        let scope_str = config.all_scope_hosts().join(",");
+        let scope_str = ctx.egress_hosts.join(",");
         let trace_id = uuid::Uuid::new_v4().to_string();
         let timestamp = chrono::Utc::now().timestamp_millis();
         let signature = self.sign_create_bot_token(&ctx.agent_id, &ctx.identity_token, timestamp, &trace_id);
@@ -784,8 +784,8 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
             self.get_or_create_bot_token(&config, context).await?
         };
 
-        // For exchange calls, use the first configured target as `domain`
-        let primary_domain = config.all_scope_hosts().into_iter().next().unwrap_or_default();
+        // For exchange calls, use the first egress host as `domain`
+        let primary_domain = context.egress_hosts.first().cloned().unwrap_or_default();
 
         // 2. Exchange BotToken → AgentToken (always, short-lived)
         let agent_token_data = self
