@@ -595,7 +595,7 @@ impl JdAgentIdentityProvider {
             identity_token: ctx.identity_token.clone(),
             agent_scene: self.agent_scene.clone(),
             env_info: Some(collect_env_info()),
-            headers_map: None,
+            headers_map: ctx.headers_map.clone(),
             timestamp,
             signature,
             extensions: None,

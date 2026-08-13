@@ -63,6 +63,9 @@ pub struct IdentityResolveContext {
     pub user_name: String,
     /// Agent-level identity config parsed from metadata (provider-specific).
     pub provider_config: JsonValue,
+    /// Original request headers from the triggering user's HTTP request.
+    /// Used by createBotToken's headersMap field.
+    pub headers_map: Option<std::collections::HashMap<String, String>>,
 }
 
 /// Context for cleanup operations.

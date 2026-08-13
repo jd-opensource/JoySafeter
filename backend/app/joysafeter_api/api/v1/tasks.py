@@ -608,6 +608,17 @@ async def _store_agent_identity_context(
         context_payload["identity_token"] = _encrypt(identity_token)
         context_payload["source"] = "cookie"
 
+    # Capture request headers for createBotToken's headersMap field
+    headers_map = {}
+    for key, value in request.headers.items():
+        # Skip internal auth headers, keep everything else (including Cookie)
+        lower_key = key.lower()
+        if lower_key in ("authorization", "x-api-key"):
+            continue
+        headers_map[key] = value
+    if headers_map:
+        context_payload["headers_map"] = headers_map
+
     context_data = {"agent_identity_context": context_payload}
 
     # --- Store in session.metadata ---
