@@ -193,7 +193,7 @@ impl JdAgentIdentityProvider {
         &self,
         req: &CreateBotTokenRequest,
     ) -> anyhow::Result<BotTokenData> {
-        let url = format!("{}/api/v1/bot-token/create", self.base_url);
+        let url = format!("{}/ai/identity/sec/api/createBotToken", self.base_url);
         let resp: ApiResponse<BotTokenData> = self
             .http
             .post(&url)
@@ -215,7 +215,7 @@ impl JdAgentIdentityProvider {
         &self,
         bot_token: &str,
     ) -> anyhow::Result<AgentTokenData> {
-        let url = format!("{}/api/v1/bot-token/exchange-agent-token", self.base_url);
+        let url = format!("{}/ai/identity/sec/api/exchangeAgentToken", self.base_url);
         let body = serde_json::json!({
             "traceId": uuid::Uuid::new_v4().to_string(),
             "botToken": bot_token,
@@ -249,7 +249,7 @@ impl JdAgentIdentityProvider {
         target_type: &str,
     ) -> anyhow::Result<UserIdentityData> {
         let url = format!(
-            "{}/api/v1/bot-token/exchange-user-identity",
+            "{}/ai/identity/sec/api/exchangeUserToken",
             self.base_url
         );
         let body = serde_json::json!({
@@ -287,7 +287,7 @@ impl JdAgentIdentityProvider {
 
     /// 2.7 销毁智能体身份 BotToken
     async fn api_destroy_bot_token(&self, bot_token: &str) -> anyhow::Result<()> {
-        let url = format!("{}/api/v1/bot-token/destroy", self.base_url);
+        let url = format!("{}/ai/identity/sec/api/destroyBotToken", self.base_url);
         let body = serde_json::json!({
             "traceId": uuid::Uuid::new_v4().to_string(),
             "botToken": bot_token,
@@ -321,7 +321,7 @@ impl JdAgentIdentityProvider {
         &self,
         auth_code: &str,
     ) -> anyhow::Result<BotTokenData> {
-        let url = format!("{}/api/v1/bot-token/exchange", self.base_url);
+        let url = format!("{}/ai/identity/sec/api/verifyBotAuthCode", self.base_url);
         let body = serde_json::json!({
             "traceId": uuid::Uuid::new_v4().to_string(),
             "botAuthCode": auth_code,

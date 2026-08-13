@@ -716,7 +716,7 @@ async def _cleanup_agent_identity(agent_id: str) -> None:
                     )
                     try:
                         await session.post(
-                            f"{base_url.rstrip('/')}/api/v1/bot-token/destroy",
+                            f"{base_url.rstrip('/')}/ai/identity/sec/api/destroyBotToken",
                             json={
                                 "traceId": str(uuid.uuid4()),
                                 "botToken": token_str,
