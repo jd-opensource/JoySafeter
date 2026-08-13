@@ -175,7 +175,7 @@ fn collect_env_info() -> HashMap<String, serde_json::Value> {
 pub struct JdAgentIdentityProvider {
     http: reqwest::Client,
     base_url: String,
-    /// Signing secret for getSign() — env AGENT_IDENTITY_SIGN_SECRET
+    /// Signing secret for getSign() — env AGENT_IDENTITY_CLIENT_SECRET
     sign_secret: String,
     /// Fixed platform params from environment variables
     client_id: String,
@@ -193,7 +193,7 @@ impl JdAgentIdentityProvider {
     ///
     /// Required env vars:
     /// - AGENT_IDENTITY_BASE_URL: API base URL
-    /// - AGENT_IDENTITY_SIGN_SECRET: signing secret for getSign()
+    /// - AGENT_IDENTITY_CLIENT_SECRET: signing secret for getSign()
     /// - AGENT_IDENTITY_CLIENT_ID: 申请的应用标识
     /// - AGENT_IDENTITY_PLATFORM_ID: 智能体平台ID
     /// - AGENT_IDENTITY_AUTH_TYPE: 用户身份认证方式 (e.g. "sso")
@@ -210,7 +210,7 @@ impl JdAgentIdentityProvider {
                 .build()
                 .expect("build reqwest client"),
             base_url: base_url.trim_end_matches('/').to_string(),
-            sign_secret: std::env::var("AGENT_IDENTITY_SIGN_SECRET").unwrap_or_default(),
+            sign_secret: std::env::var("AGENT_IDENTITY_CLIENT_SECRET").unwrap_or_default(),
             client_id: std::env::var("AGENT_IDENTITY_CLIENT_ID").unwrap_or_default(),
             platform_id: std::env::var("AGENT_IDENTITY_PLATFORM_ID").unwrap_or_default(),
             auth_type: std::env::var("AGENT_IDENTITY_AUTH_TYPE").unwrap_or_else(|_| "sso".to_string()),
@@ -222,14 +222,13 @@ impl JdAgentIdentityProvider {
 
     // --- Signature ------------------------------------------------------------
 
-    /// Generate signature: getSign(signParam, secret)
-    /// The signing algorithm details are provider-specific (TBD: MD5/HMAC-SHA256).
-    /// For now this is a placeholder that concatenates signParam + secret and hashes.
-    fn sign(&self, sign_param: &str) -> String {
-        // TODO: Replace with actual getSign() implementation once algorithm is confirmed
-        // Current placeholder: MD5(signParam + secret)
+    /// Generate signature: getSign(clientSecret, signParam, timestamp, traceId)
+    ///
+    /// TODO: Confirm exact algorithm with identity platform team.
+    /// Current implementation: MD5(signParam + timestamp + traceId + clientSecret)
+    fn get_sign(&self, sign_param: &str, timestamp: i64, trace_id: &str) -> String {
         use std::fmt::Write;
-        let input = format!("{}{}", sign_param, self.sign_secret);
+        let input = format!("{}{}{}{}", sign_param, timestamp, trace_id, self.sign_secret);
         let digest = md5::compute(input.as_bytes());
         let mut hex = String::with_capacity(32);
         for byte in digest.iter() {
@@ -239,30 +238,30 @@ impl JdAgentIdentityProvider {
     }
 
     /// signParam for createBotToken: platformId + agentId + authType + identityType + identityToken
-    fn sign_create_bot_token(&self, agent_id: &str, identity_token: &str) -> String {
+    fn sign_create_bot_token(&self, agent_id: &str, identity_token: &str, timestamp: i64, trace_id: &str) -> String {
         let sign_param = format!(
             "{}{}{}{}{}",
             self.platform_id, agent_id, self.auth_type, self.identity_type, identity_token
         );
-        self.sign(&sign_param)
+        self.get_sign(&sign_param, timestamp, trace_id)
     }
 
     /// signParam for exchangeUserToken: platformId + agentId + authType + identityType + botToken
-    fn sign_exchange_user_token(&self, agent_id: &str, bot_token: &str) -> String {
+    fn sign_exchange_user_token(&self, agent_id: &str, bot_token: &str, timestamp: i64, trace_id: &str) -> String {
         let sign_param = format!(
             "{}{}{}{}{}",
             self.platform_id, agent_id, self.auth_type, self.identity_type, bot_token
         );
-        self.sign(&sign_param)
+        self.get_sign(&sign_param, timestamp, trace_id)
     }
 
     /// signParam for exchangeAgentToken: platformId + agentId + botToken
-    fn sign_exchange_agent_token(&self, agent_id: &str, bot_token: &str) -> String {
+    fn sign_exchange_agent_token(&self, agent_id: &str, bot_token: &str, timestamp: i64, trace_id: &str) -> String {
         let sign_param = format!(
             "{}{}{}",
             self.platform_id, agent_id, bot_token
         );
-        self.sign(&sign_param)
+        self.get_sign(&sign_param, timestamp, trace_id)
     }
 
     // --- API calls -----------------------------------------------------------
@@ -301,10 +300,11 @@ impl JdAgentIdentityProvider {
         domain: &str,
     ) -> anyhow::Result<AgentTokenData> {
         let url = format!("{}/ai/identity/sec/api/exchangeAgentToken", self.base_url);
+        let trace_id = uuid::Uuid::new_v4().to_string();
         let timestamp = chrono::Utc::now().timestamp_millis();
-        let signature = self.sign_exchange_agent_token(agent_id, bot_token);
+        let signature = self.sign_exchange_agent_token(agent_id, bot_token, timestamp, &trace_id);
         let body = serde_json::json!({
-            "traceId": uuid::Uuid::new_v4().to_string(),
+            "traceId": trace_id,
             "clientId": self.client_id,
             "platformId": self.platform_id,
             "agentId": agent_id,
@@ -352,10 +352,11 @@ impl JdAgentIdentityProvider {
             "{}/ai/identity/sec/api/exchangeUserToken",
             self.base_url
         );
+        let trace_id = uuid::Uuid::new_v4().to_string();
         let timestamp = chrono::Utc::now().timestamp_millis();
-        let signature = self.sign_exchange_user_token(agent_id, bot_token);
+        let signature = self.sign_exchange_user_token(agent_id, bot_token, timestamp, &trace_id);
         let body = serde_json::json!({
-            "traceId": uuid::Uuid::new_v4().to_string(),
+            "traceId": trace_id,
             "clientId": self.client_id,
             "platformId": self.platform_id,
             "agentId": agent_id,
@@ -516,9 +517,11 @@ impl JdAgentIdentityProvider {
         // Cache miss → call createBotToken
         debug!(cache_key = %key, "BotToken cache miss, creating");
         let scope_str = config.all_scope_hosts().join(",");
-        let signature = self.sign_create_bot_token(&ctx.agent_id, &ctx.identity_token);
+        let trace_id = uuid::Uuid::new_v4().to_string();
+        let timestamp = chrono::Utc::now().timestamp_millis();
+        let signature = self.sign_create_bot_token(&ctx.agent_id, &ctx.identity_token, timestamp, &trace_id);
         let req = CreateBotTokenRequest {
-            trace_id: uuid::Uuid::new_v4().to_string(),
+            trace_id,
             client_id: self.client_id.clone(),
             platform_id: self.platform_id.clone(),
             agent_id: ctx.agent_id.clone(),
@@ -532,7 +535,7 @@ impl JdAgentIdentityProvider {
             agent_scene: self.agent_scene.clone(),
             env_info: Some(collect_env_info()),
             headers_map: None,
-            timestamp: chrono::Utc::now().timestamp_millis(),
+            timestamp,
             signature,
             extensions: None,
         };
