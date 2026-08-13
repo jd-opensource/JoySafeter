@@ -313,6 +313,41 @@ impl JdAgentIdentityProvider {
         Ok(())
     }
 
+    /// BotAuthCode 兑换 BotToken（API 调用场景）
+    ///
+    /// 调用方已从身份平台获取了一次性 BotAuthCode，JoySafeter 用它直接
+    /// 兑换 BotToken。BotAuthCode 用后即失效。
+    async fn api_exchange_bot_token_from_auth_code(
+        &self,
+        auth_code: &str,
+    ) -> anyhow::Result<BotTokenData> {
+        let url = format!("{}/api/v1/bot-token/exchange", self.base_url);
+        let body = serde_json::json!({
+            "traceId": uuid::Uuid::new_v4().to_string(),
+            "botAuthCode": auth_code,
+            "timestamp": chrono::Utc::now().timestamp_millis(),
+        });
+        let resp: ApiResponse<BotTokenData> = self
+            .http
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .context("exchangeBotToken(authCode) request failed")?
+            .json()
+            .await
+            .context("exchangeBotToken(authCode) response parse failed")?;
+        if resp.code != 0 {
+            anyhow::bail!(
+                "exchangeBotToken(authCode): code={}, msg={}",
+                resp.code,
+                resp.message
+            );
+        }
+        resp.data
+            .ok_or_else(|| anyhow!("exchangeBotToken(authCode): no data"))
+    }
+
     // --- Redis cache ---------------------------------------------------------
 
     fn cache_key(
@@ -509,8 +544,32 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
         let config = JdIdentityConfig::from_json(&context.provider_config)
             .ok_or_else(|| anyhow!("invalid agent_identity config"))?;
 
-        // 1. Get or create BotToken (cached in Redis)
-        let bot_token = self.get_or_create_bot_token(&config, context).await?;
+        // 1. Get BotToken — two paths:
+        //    a) API scenario: auth_code → exchangeBotToken(authCode) → botToken
+        //    b) Web SSO scenario: identityToken → createBotToken → botToken (cached)
+        let bot_token = if let Some(ref auth_code) = context.auth_code {
+            // Path A: one-time auth code from API caller
+            let data = self.api_exchange_bot_token_from_auth_code(auth_code).await?;
+            // Cache the resulting botToken for subsequent tasks in this session
+            let cache_key = Self::cache_key(
+                &config.platform_id,
+                &context.agent_id,
+                &config.auth_type,
+                &context.user_name,
+            );
+            let ttl = data.expires_in.saturating_sub(60).max(60);
+            self.cache_bot_token(&cache_key, &data.bot_token, ttl).await;
+            info!(
+                agent_id = %context.agent_id,
+                source = "auth_code",
+                expires_in = data.expires_in,
+                "Obtained BotToken via BotAuthCode"
+            );
+            data.bot_token
+        } else {
+            // Path B: Web SSO — create with identityToken (or use cache)
+            self.get_or_create_bot_token(&config, context).await?
+        };
 
         // 2. Exchange BotToken → AgentToken (always, short-lived)
         let agent_token_data = self.api_exchange_agent_token(&bot_token).await?;

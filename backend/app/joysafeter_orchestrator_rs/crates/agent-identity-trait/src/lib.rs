@@ -53,7 +53,12 @@ pub struct IdentityResolveContext {
     pub task_id: String,
     /// Triggering user's raw identity credential (decrypted from storage).
     /// Provider uses this to bootstrap its token exchange flow.
+    /// Empty when `auth_code` is provided instead.
     pub identity_token: String,
+    /// One-time authorization code for token exchange (API-key scenario).
+    /// When present, the provider should use this to obtain the long-lived
+    /// credential instead of `identity_token`.
+    pub auth_code: Option<String>,
     /// Triggering user's display name / email (for cache keying).
     pub user_name: String,
     /// Agent-level identity config parsed from metadata (provider-specific).

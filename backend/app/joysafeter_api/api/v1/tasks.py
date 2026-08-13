@@ -501,7 +501,7 @@ async def create_task(
     # Store agent identity context if the agent has identity config.
     # This captures the user's raw credential (encrypted) so the Rust
     # orchestrator can bootstrap BotToken creation during sandbox resolve.
-    await _store_agent_identity_context(db, chat_session_id, request, auth_ctx, agent)
+    await _store_agent_identity_context(db, chat_session_id, request, auth_ctx, agent, req)
 
     return CreateTaskResponse(id=task.id, status=task.status)
 
@@ -512,15 +512,16 @@ async def _store_agent_identity_context(
     request: Request,
     auth_ctx,
     agent,
+    req=None,
 ) -> None:
     """Capture and encrypt the triggering user's identity for agent delegation.
 
-    If the agent has `metadata.agent_identity` configured, extracts the user's
-    raw credential (from Cookie or Authorization header), encrypts it with
-    VaultCipher, and stores it in `session.metadata.agent_identity_context`.
+    Two paths:
+    - Web SSO: extracts user's Cookie → stores as identity_token
+    - API (bot_auth_code): stores the one-time auth code for Rust to exchange
 
-    The Rust orchestrator reads this during sandbox resolution to bootstrap
-    the identity token exchange flow (createBotToken → exchangeAgentToken).
+    The Rust orchestrator reads this during sandbox resolution to obtain
+    BotToken (via createBotToken or exchangeBotToken(authCode)).
     """
     # Quick check: does the agent have identity config?
     agent_metadata = getattr(agent, "metadata_", None) or getattr(agent, "metadata", None)
@@ -532,43 +533,55 @@ async def _store_agent_identity_context(
     if not identity_config.get("enabled", True):
         return
 
-    # Extract raw identity token from request
-    from app.joysafeter_shared.config.settings import settings as app_settings
-    from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
-
-    identity_token = None
-    try:
-        identity_token = extract_token_from_cookies(request.cookies)
-    except Exception:
-        pass
-    if not identity_token:
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            identity_token = auth_header[7:]
-    if not identity_token:
-        return  # No credential available — identity injection won't work for this task
-
-    # Encrypt before storing (same JOYSAFETER_VAULT_ENCRYPTION_KEY as Rust VaultCipher)
     import os
-    vault_key = os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", "")
-    if vault_key:
-        try:
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
-            key_bytes = bytes.fromhex(vault_key) if len(vault_key) == 64 else __import__("base64").b64decode(vault_key)
-            nonce = os.urandom(12)
-            aesgcm = AESGCM(key_bytes)
-            ciphertext = aesgcm.encrypt(nonce, identity_token.encode(), None)
-            import base64
-            encrypted = "enc:" + base64.b64encode(nonce + ciphertext).decode()
-            identity_token = encrypted
-        except Exception:
-            pass  # Store plaintext if encryption fails (Rust will handle either)
-
-    # Get user email for cache keying
-    from sqlalchemy import select
+    import json
+    from datetime import datetime, timezone
+    from sqlalchemy import select, text
     from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 
+    # --- Determine source: bot_auth_code (API) or Cookie (Web SSO) ---
+    bot_auth_code = getattr(req, "bot_auth_code", None) if req else None
+    identity_token = None
+
+    if not bot_auth_code:
+        # Web SSO path: extract from Cookie / Authorization header
+        from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
+
+        try:
+            identity_token = extract_token_from_cookies(request.cookies)
+        except Exception:
+            pass
+        if not identity_token:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                identity_token = auth_header[7:]
+
+    if not bot_auth_code and not identity_token:
+        return  # No credential available — identity injection won't work
+
+    # --- Encrypt sensitive values ---
+    vault_key = os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", "")
+
+    def _encrypt(value: str) -> str:
+        if not vault_key or not value:
+            return value
+        try:
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            import base64
+
+            key_bytes = (
+                bytes.fromhex(vault_key)
+                if len(vault_key) == 64
+                else base64.b64decode(vault_key)
+            )
+            nonce = os.urandom(12)
+            aesgcm = AESGCM(key_bytes)
+            ciphertext = aesgcm.encrypt(nonce, value.encode(), None)
+            return "enc:" + base64.b64encode(nonce + ciphertext).decode()
+        except Exception:
+            return value  # plaintext fallback
+
+    # --- Get user email for cache keying ---
     user_name = auth_ctx.user_id
     try:
         result = await db.execute(
@@ -580,18 +593,24 @@ async def _store_agent_identity_context(
     except Exception:
         pass
 
-    # Store in session.metadata (merge with existing metadata)
-    import json
-    from datetime import datetime, timezone
-    from sqlalchemy import text
-
-    context_data = {
-        "agent_identity_context": {
-            "identity_token": identity_token,
-            "user_name": user_name,
-            "captured_at": datetime.now(timezone.utc).isoformat(),
-        }
+    # --- Build context data ---
+    context_payload: dict = {
+        "user_name": user_name,
+        "captured_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    if bot_auth_code:
+        # API path: store encrypted auth_code
+        context_payload["auth_code"] = _encrypt(bot_auth_code)
+        context_payload["source"] = "bot_auth_code"
+    else:
+        # Web SSO path: store encrypted identity_token
+        context_payload["identity_token"] = _encrypt(identity_token)
+        context_payload["source"] = "cookie"
+
+    context_data = {"agent_identity_context": context_payload}
+
+    # --- Store in session.metadata ---
     try:
         await db.execute(
             text("""
@@ -603,8 +622,6 @@ async def _store_agent_identity_context(
         )
         await db.commit()
     except Exception:
-        # Non-fatal: if this fails, agent identity won't work for this task
-        # but the task itself will still run.
         try:
             await db.rollback()
         except Exception:

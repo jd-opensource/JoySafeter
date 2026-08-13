@@ -26,6 +26,9 @@ class JoySafeterCreateTaskRequest(BaseModel):
     environment_ref: Optional[str] = None
     timeout_sec: int = Field(default=7200, ge=1)
     max_retries: int = Field(default=2, ge=0)
+    # Agent identity: one-time auth code for API callers (optional).
+    # When provided, JoySafeter exchanges it for a BotToken server-side.
+    bot_auth_code: Optional[str] = None
 
 
 class JoySafeterCreateTaskResponse(BaseModel):

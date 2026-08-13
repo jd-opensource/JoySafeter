@@ -28,6 +28,16 @@ use super::llm_providers::{
     llm_provider_registry, CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OPENAI_API_KEY,
 };
 
+/// Identity context loaded from session.metadata.agent_identity_context.
+struct LoadedIdentityContext {
+    /// User's SSO cookie (Web scenario). Empty if auth_code is used.
+    identity_token: String,
+    /// One-time BotAuthCode (API scenario). None if identity_token is used.
+    auth_code: Option<String>,
+    /// User name / email for cache keying.
+    user_name: String,
+}
+
 /// Hard client-side bound on a provider networking setup/refresh call (Envoy
 /// socket prep + xDS push + ACK/socket-readiness wait). The individual steps are
 /// bounded, but this outer bound guarantees the sandbox-provisioning path can
@@ -1862,17 +1872,16 @@ impl SandboxResolver {
             .get("agent_identity")?
             .clone();
 
-        // Load identity context (encrypted identity_token + user_name from session)
-        let (identity_token, user_name) = self
-            .load_identity_context(session_id)
-            .await?;
+        // Load identity context (encrypted identity_token or auth_code + user_name)
+        let identity_ctx = self.load_identity_context(session_id).await?;
 
         let context = IdentityResolveContext {
             agent_id: agent.id.to_string(),
             session_id: session_id.map(|id| id.to_string()).unwrap_or_default(),
             task_id: agent.id.to_string(),
-            identity_token,
-            user_name,
+            identity_token: identity_ctx.identity_token,
+            auth_code: identity_ctx.auth_code,
+            user_name: identity_ctx.user_name,
             provider_config,
         };
 
@@ -1914,11 +1923,14 @@ impl SandboxResolver {
     /// Load triggering user's identity context from session metadata.
     ///
     /// The API layer stores `agent_identity_context` in session.metadata when
-    /// a task is created, containing the encrypted identity_token and user_name.
+    /// a task is created, containing either:
+    /// - `identity_token` (Web SSO: encrypted user cookie)
+    /// - `auth_code` (API: one-time BotAuthCode)
+    /// Plus `user_name` for cache keying.
     async fn load_identity_context(
         &self,
         session_id: Option<Uuid>,
-    ) -> Option<(String, String)> {
+    ) -> Option<LoadedIdentityContext> {
         let session_id = session_id?;
 
         let row: Option<(Option<serde_json::Value>,)> = sqlx::query_as(
@@ -1932,13 +1944,31 @@ impl SandboxResolver {
 
         let metadata = row?.0?;
         let ctx = metadata.get("agent_identity_context")?;
-        let identity_token = ctx.get("identity_token")?.as_str()?.to_string();
         let user_name = ctx.get("user_name")?.as_str()?.to_string();
-
-        // Decrypt if encrypted (VaultCipher handles enc: prefix transparently)
         let cipher = VaultCipher::from_env();
-        let decrypted = cipher.decrypt_or_passthrough(&identity_token).ok()?;
-        Some((decrypted, user_name))
+
+        // Two paths: auth_code (API scenario) or identity_token (Web SSO)
+        let auth_code = ctx
+            .get("auth_code")
+            .and_then(|v| v.as_str())
+            .and_then(|v| cipher.decrypt_or_passthrough(v).ok());
+
+        let identity_token = ctx
+            .get("identity_token")
+            .and_then(|v| v.as_str())
+            .and_then(|v| cipher.decrypt_or_passthrough(v).ok())
+            .unwrap_or_default();
+
+        // Need at least one of them
+        if auth_code.is_none() && identity_token.is_empty() {
+            return None;
+        }
+
+        Some(LoadedIdentityContext {
+            identity_token,
+            auth_code,
+            user_name,
+        })
     }
     async fn load_secret_data(
         pool: &PgPool,
