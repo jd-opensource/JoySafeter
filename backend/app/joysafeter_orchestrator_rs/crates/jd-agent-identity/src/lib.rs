@@ -321,7 +321,7 @@ impl JdAgentIdentityProvider {
         &self,
         auth_code: &str,
     ) -> anyhow::Result<BotTokenData> {
-        let url = format!("{}/ai/identity/sec/api/verifyBotAuthCode", self.base_url);
+        let url = format!("{}/ai/identity/sec/api/exchangeBotToken", self.base_url);
         let body = serde_json::json!({
             "traceId": uuid::Uuid::new_v4().to_string(),
             "botAuthCode": auth_code,
