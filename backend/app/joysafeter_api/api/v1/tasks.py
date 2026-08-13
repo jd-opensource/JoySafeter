@@ -547,17 +547,14 @@ async def _store_agent_identity_context(
     identity_token = None
 
     if not bot_auth_code:
-        # Web SSO path: extract from Cookie / Authorization header
-        from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
-
-        try:
-            identity_token = extract_token_from_cookies(request.cookies)
-        except Exception:
-            pass
-        if not identity_token:
-            auth_header = request.headers.get("Authorization", "")
-            if auth_header.startswith("Bearer "):
-                identity_token = auth_header[7:]
+        # Web SSO path: extract the internal SSO ticket cookie (e.g. "sso.jd.com").
+        # This is the user's internal identity credential the JD identity platform
+        # needs — NOT JoySafeter's own login cookie.
+        # The cookie name is configurable; defaults match the JD SSO scheme.
+        identity_cookie_name = os.environ.get(
+            "JD_AGENT_IDENTITY_COOKIE_NAME", "sso.jd.com"
+        ).strip()
+        identity_token = request.cookies.get(identity_cookie_name)
 
     if not bot_auth_code and not identity_token:
         return  # No credential available — identity injection won't work
