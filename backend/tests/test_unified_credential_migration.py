@@ -415,6 +415,7 @@ def test_migration_rejects_malformed_reference_json_before_creating_tables(
     agent_id = uuid4()
     environment_id = uuid4()
     session_id = uuid4()
+    malformed_secret_ref_session_id = uuid4()
     with _connect(migration_database) as connection:
         _seed_project(connection)
         _seed_agent(connection, agent_id=agent_id, name="malformed-json-agent")
@@ -440,6 +441,19 @@ def test_migration_rejects_malformed_reference_json_before_creating_tables(
                 Jsonb([{"secret_ref": "legacy-secret-name"}]),
             ),
         )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_sessions
+                (id, project_id, agent_id, status, agent_snapshot)
+            VALUES (%s, %s, %s, 'idle', %s)
+            """,
+            (
+                malformed_secret_ref_session_id,
+                PROJECT_ID,
+                agent_id,
+                Jsonb({"secret_ref": {"name": "legacy-secret-name"}}),
+            ),
+        )
         connection.commit()
 
     result = _upgrade_head(migration_database)
@@ -449,11 +463,50 @@ def test_migration_rejects_malformed_reference_json_before_creating_tables(
     assert "malformed legacy credential reference JSON" in output
     assert str(environment_id) in output
     assert str(session_id) in output
+    assert str(malformed_secret_ref_session_id) in output
+    assert "agent_snapshot.secret_ref must be a string or null" in output
     with _connect(migration_database) as connection:
         target_exists = connection.execute(
             "SELECT to_regclass('joysafeter_credentials')"
         ).fetchone()[0]
     assert target_exists is None
+
+
+@pytest.mark.parametrize("secret_ref", [None, "", "   "])
+def test_migration_accepts_empty_snapshot_secret_ref(
+    migration_database: MigrationDatabase,
+    secret_ref: str | None,
+) -> None:
+    agent_id = uuid4()
+    session_id = uuid4()
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        _seed_agent(connection, agent_id=agent_id, name="empty-snapshot-secret-agent")
+        connection.execute(
+            """
+            INSERT INTO joysafeter_sessions
+                (id, project_id, agent_id, status, agent_snapshot)
+            VALUES (%s, %s, %s, 'idle', %s)
+            """,
+            (
+                session_id,
+                PROJECT_ID,
+                agent_id,
+                Jsonb({"secret_ref": secret_ref}),
+            ),
+        )
+        connection.commit()
+
+    result = _upgrade_head(migration_database)
+    assert result.returncode == 0, result.stderr
+
+    with _connect(migration_database) as connection:
+        snapshot = connection.execute(
+            "SELECT agent_snapshot FROM joysafeter_sessions WHERE id = %s",
+            (session_id,),
+        ).fetchone()[0]
+
+    assert "secret_ref" not in snapshot
 
 
 def test_migration_rejects_secret_consumed_as_both_model_and_service(

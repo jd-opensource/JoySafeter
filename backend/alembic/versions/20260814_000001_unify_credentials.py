@@ -345,12 +345,10 @@ def _abort_on_malformed_reference_json(conn) -> None:
             snapshot = _json_value(row.agent_snapshot, None)
             if not isinstance(snapshot, dict):
                 issues.append("agent_snapshot must be a JSON object")
-            elif (
-                "secret_ref" in snapshot
-                and not snapshot.get("model_credential_id")
-                and _reference(snapshot["secret_ref"]) is None
-            ):
-                issues.append("agent_snapshot.secret_ref must be a non-empty string")
+            elif "secret_ref" in snapshot:
+                secret_ref = snapshot["secret_ref"]
+                if secret_ref is not None and not isinstance(secret_ref, str):
+                    issues.append("agent_snapshot.secret_ref must be a string or null")
 
         if issues:
             problems.setdefault("sessions", []).append(
@@ -913,16 +911,24 @@ def _rewrite_session_snapshots(conn) -> None:
     ).fetchall()
     for r in rows:
         snap = r.agent_snapshot if isinstance(r.agent_snapshot, dict) else json.loads(r.agent_snapshot or "{}")
+        if "secret_ref" not in snap:
+            continue
+
         secret_ref = snap.get("secret_ref")
-        if isinstance(secret_ref, str) and secret_ref.strip():
+        if (
+            not snap.get("model_credential_id")
+            and isinstance(secret_ref, str)
+            and secret_ref.strip()
+        ):
             cid = _credential_id_for(conn, "model", r.project_id, secret_ref)
             if cid:
                 snap["model_credential_id"] = cid
-                snap.pop("secret_ref", None)
-                conn.execute(
-                    sa.text("UPDATE joysafeter_sessions SET agent_snapshot = CAST(:s AS JSONB) WHERE id = :id"),
-                    {"s": json.dumps(snap), "id": r.id},
-                )
+
+        snap.pop("secret_ref", None)
+        conn.execute(
+            sa.text("UPDATE joysafeter_sessions SET agent_snapshot = CAST(:s AS JSONB) WHERE id = :id"),
+            {"s": json.dumps(snap), "id": r.id},
+        )
 
 
 # --------------------------------------------------------------------------- #
