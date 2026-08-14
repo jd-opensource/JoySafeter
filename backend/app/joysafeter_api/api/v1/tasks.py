@@ -498,9 +498,9 @@ async def create_task(
         enforce_user_quota=auth_ctx.principal_type == "user",
     )
 
-    # Store agent identity context if the agent has identity config.
-    # This captures the user's raw credential (encrypted) so the Rust
-    # orchestrator can bootstrap BotToken creation during sandbox resolve.
+    # Capture the triggering user's identity credential (encrypted) into the
+    # session so the orchestrator's identity provider can consume it during
+    # sandbox resolution. Provider-agnostic; no-op when identity is disabled.
     from app.joysafeter_api.api.v1.agent_identity_capture import store_agent_identity_context
 
     await store_agent_identity_context(
@@ -509,7 +509,7 @@ async def create_task(
         request,
         auth_ctx,
         agent,
-        bot_auth_code=getattr(req, "bot_auth_code", None),
+        identity_auth_code=getattr(req, "identity_auth_code", None),
     )
 
     return CreateTaskResponse(id=task.id, status=task.status)

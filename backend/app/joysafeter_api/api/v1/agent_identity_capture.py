@@ -1,16 +1,26 @@
-"""Agent identity context capture.
+"""Agent identity context capture (provider-agnostic).
 
-Shared helper for capturing the triggering user's identity credential
-(internal SSO cookie or one-time bot_auth_code) and storing it encrypted
-in ``session.metadata.agent_identity_context``.
+Shared helper that captures the triggering user's identity credential and
+stores it encrypted in ``session.metadata.agent_identity_context``. This is a
+generic bridge: the API layer can access the user's HTTP request (cookies /
+headers) but does not perform any identity-provider protocol itself — the
+orchestrator's pluggable identity provider consumes this context later.
 
-The Rust orchestrator reads this during sandbox resolution to obtain a
-BotToken from the JD identity platform (createBotToken / exchangeBotToken),
-then exchanges it for a short-lived agentToken injected via Envoy.
+What gets captured (whichever is available):
+  - an identity credential from a configured request cookie (browser flow), or
+  - a one-time identity auth code supplied by an API caller.
 
-This lives in its own module (not tasks.py) so BOTH the task-creation path
-(POST /tasks) and the session-message path (POST /sessions/{id}/events) can
-call it without a circular import.
+Enablement and the cookie name are entirely env-driven, so this module carries
+no provider-specific values. It lives in its own module (not tasks.py) so both
+the task-creation path (POST /tasks) and the session-message path
+(POST /sessions/{id}/events) can call it without a circular import.
+
+Environment variables:
+  - AGENT_IDENTITY_ENABLED / AGENT_IDENTITY_BASE_URL: when neither is set,
+    capture is a no-op (feature disabled).
+  - AGENT_IDENTITY_COOKIE_NAME: name of the request cookie holding the user's
+    identity credential. Required for the browser flow; if unset, only the
+    auth-code path works.
 """
 
 import base64
@@ -26,8 +36,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 
+def _identity_enabled() -> bool:
+    """Whether identity capture is active (env-driven, provider-agnostic)."""
+    if os.environ.get("AGENT_IDENTITY_ENABLED", "").strip().lower() in ("1", "true", "yes"):
+        return True
+    return bool(os.environ.get("AGENT_IDENTITY_BASE_URL", "").strip())
+
+
 def _encrypt(value: str, vault_key: str) -> str:
-    """AES-256-GCM encrypt, matching the Rust VaultCipher ``enc:`` format."""
+    """AES-256-GCM encrypt, matching the orchestrator's VaultCipher ``enc:`` format."""
     if not vault_key or not value:
         return value
     try:
@@ -39,7 +56,7 @@ def _encrypt(value: str, vault_key: str) -> str:
         ciphertext = aesgcm.encrypt(nonce, value.encode(), None)
         return "enc:" + base64.b64encode(nonce + ciphertext).decode()
     except Exception:
-        return value  # plaintext fallback (Rust decrypt_or_passthrough handles it)
+        return value  # plaintext fallback (orchestrator decrypt_or_passthrough handles it)
 
 
 async def store_agent_identity_context(
@@ -48,15 +65,15 @@ async def store_agent_identity_context(
     request: Request,
     auth_ctx,
     agent,
-    bot_auth_code: str | None = None,
+    identity_auth_code: str | None = None,
 ) -> None:
     """Capture and encrypt the triggering user's identity into session.metadata.
 
-    Global mode: applies to all agents when JD_AGENT_IDENTITY_BASE_URL is set,
-    unless the agent explicitly opts out via metadata.agent_identity.enabled=false.
+    Applies to all agents when identity capture is enabled, unless the agent
+    explicitly opts out via ``metadata.agent_identity.enabled = false``.
     """
-    if not os.environ.get("JD_AGENT_IDENTITY_BASE_URL", "").strip():
-        return  # Identity platform not configured
+    if not _identity_enabled():
+        return  # Identity capture disabled
 
     agent_metadata = getattr(agent, "metadata_", None) or getattr(agent, "metadata", None)
     if isinstance(agent_metadata, dict):
@@ -64,25 +81,24 @@ async def store_agent_identity_context(
         if isinstance(identity_config, dict) and not identity_config.get("enabled", True):
             return  # Explicit per-agent opt-out
 
-    # --- Resolve credential: bot_auth_code (API) or SSO cookie (Web) ---
+    # --- Resolve credential: auth code (API) or request cookie (browser) ---
+    cookie_name = os.environ.get("AGENT_IDENTITY_COOKIE_NAME", "").strip()
     identity_token = None
-    if not bot_auth_code:
-        identity_cookie_name = os.environ.get(
-            "JD_AGENT_IDENTITY_COOKIE_NAME", "sso.jd.com"
-        ).strip()
-        identity_token = request.cookies.get(identity_cookie_name)
+    if not identity_auth_code and cookie_name:
+        identity_token = request.cookies.get(cookie_name)
 
-    if not bot_auth_code and not identity_token:
+    if not identity_auth_code and not identity_token:
         logger.info(
-            "[agent-identity] no SSO credential for session=%s (cookie '%s' absent, no bot_auth_code)",
+            "[agent-identity] no identity credential for session=%s "
+            "(auth_code absent, cookie '%s' absent)",
             session_id,
-            os.environ.get("JD_AGENT_IDENTITY_COOKIE_NAME", "sso.jd.com"),
+            cookie_name or "<unset>",
         )
         return
 
     vault_key = os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", "")
 
-    # --- User email for cache keying ---
+    # --- Resolve user account name for downstream cache keying ---
     user_name = auth_ctx.user_id
     try:
         from app.joysafeter_domain.models.joysafeter_auth import AuthUser
@@ -101,17 +117,17 @@ async def store_agent_identity_context(
         "user_name": user_name,
         "captured_at": datetime.now(timezone.utc).isoformat(),
     }
-    if bot_auth_code:
-        context_payload["auth_code"] = _encrypt(bot_auth_code, vault_key)
-        context_payload["source"] = "bot_auth_code"
+    if identity_auth_code:
+        context_payload["auth_code"] = _encrypt(identity_auth_code, vault_key)
+        context_payload["source"] = "auth_code"
     else:
         context_payload["identity_token"] = _encrypt(identity_token, vault_key)
         context_payload["source"] = "cookie"
 
-    # NOTE: We deliberately do NOT persist the request headers/cookies. They
+    # NOTE: We deliberately do NOT persist the raw request headers/cookies. They
     # contain the user's full credential set and must not sit in the DB. The
-    # orchestrator reconstructs a minimal headersMap from the (encrypted)
-    # identity_token at exchange time instead.
+    # orchestrator reconstructs any provider-required headers from the
+    # (encrypted) identity_token at exchange time instead.
 
     context_data = {"agent_identity_context": context_payload}
 

@@ -668,14 +668,19 @@ async def _destroy_sandboxes_for_agent(
 async def _cleanup_agent_identity(agent_id: str) -> None:
     """Clear cached agent identity tokens from Redis on agent deletion.
 
-    Only removes the Redis cache entries. The actual revocation of tokens
-    on the identity platform is handled by the Rust-side provider.cleanup()
-    (which is triggered via the orchestrator's sandbox lifecycle).
+    Only removes the cache entries. Any real revocation on the identity
+    platform is handled by the orchestrator's identity provider; cached
+    credentials also carry a TTL and expire naturally.
 
-    BotTokens have a TTL and will also expire naturally if not revoked.
+    The cache key prefix is provider-defined and supplied via
+    ``AGENT_IDENTITY_CACHE_PREFIX``; when unset, cleanup is skipped.
     Non-fatal: errors are logged but don't block agent deletion.
     """
     import os
+
+    cache_prefix = os.environ.get("AGENT_IDENTITY_CACHE_PREFIX", "").strip()
+    if not cache_prefix:
+        return  # No cache-key convention configured — nothing to clear
 
     redis_url = os.environ.get("REDIS_URL", "")
     if not redis_url:
@@ -693,7 +698,7 @@ async def _cleanup_agent_identity(agent_id: str) -> None:
         import redis.asyncio as aioredis
 
         client = aioredis.from_url(redis_url)
-        pattern = f"joysafeter:bot_token:*:{agent_id}:*"
+        pattern = f"{cache_prefix}:*:{agent_id}:*"
         deleted = 0
         async for key in client.scan_iter(match=pattern, count=100):
             await client.delete(key)

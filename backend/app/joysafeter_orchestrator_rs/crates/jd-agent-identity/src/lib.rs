@@ -628,8 +628,13 @@ impl JdAgentIdentityProvider {
         let headers_map = if ctx.identity_token.is_empty() {
             None
         } else {
-            let cookie_name = std::env::var("JD_AGENT_IDENTITY_COOKIE_NAME")
-                .unwrap_or_else(|_| "sso.jd.com".to_string());
+            // Cookie name must match what the API layer captured with. The API
+            // uses AGENT_IDENTITY_COOKIE_NAME (provider-agnostic); fall back to
+            // the JD default only if unset.
+            let cookie_name = std::env::var("AGENT_IDENTITY_COOKIE_NAME")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .unwrap_or_else(|| "sso.jd.com".to_string());
             Some(HashMap::from([(
                 "Cookie".to_string(),
                 format!("{}={}", cookie_name, ctx.identity_token),

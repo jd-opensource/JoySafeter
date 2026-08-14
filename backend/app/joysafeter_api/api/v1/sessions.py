@@ -1683,9 +1683,9 @@ async def send_event(
                 emit_user_message=False,  # event already persisted by this endpoint
             )
 
-            # Capture the user's SSO identity so the orchestrator can obtain a
-            # BotToken during sandbox resolve. Web flow posts here (not /tasks),
-            # so the capture must live on this path too.
+            # Capture the user's identity credential so the orchestrator's
+            # identity provider can consume it during sandbox resolve. The web
+            # flow posts here (not /tasks), so capture must live on this path too.
             try:
                 from app.joysafeter_api.api.v1.agent_identity_capture import (
                     store_agent_identity_context,
