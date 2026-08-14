@@ -229,7 +229,7 @@ class CreateSessionRequest(BaseModel):
     agent_id: Optional[AgentId] = None
     agent_name: Optional[str] = None
     title: Optional[str] = None
-    metadata: dict[str, str] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     credential_group_ids: list[CredentialGroupId] = Field(default_factory=list)
     environment_id: Optional[str] = None
     resources: list[SessionResourceRequest] = Field(default_factory=list)
@@ -307,7 +307,7 @@ class SessionResponse(BaseModel):
     status: str
     stop_reason: Optional[Dict[str, Any]] = None
     title: Optional[str] = None
-    metadata: dict[str, str] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     credential_group_ids: list[CredentialGroupId] = Field(default_factory=list)
     resources: list[SessionResourceResponse] = Field(default_factory=list)
     repo_resources: list[SessionRepoResourceResponse] = Field(default_factory=list)

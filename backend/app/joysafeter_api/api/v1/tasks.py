@@ -5,7 +5,7 @@ import logging
 import time
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Header, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, Query, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
@@ -310,6 +310,7 @@ async def _validate_idempotent_task_environment_replay(
 @router.post("", status_code=202, response_model=CreateTaskResponse)
 async def create_task(
     req: CreateTaskRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
@@ -495,6 +496,21 @@ async def create_task(
         auto_created_session_id=auto_created_session_id,
         enforce_user_quota=auth_ctx.principal_type == "user",
     )
+
+    # Capture the triggering user's identity credential (encrypted) into the
+    # session so the orchestrator's identity provider can consume it during
+    # sandbox resolution. Provider-agnostic; no-op when identity is disabled.
+    from app.joysafeter_api.api.v1.agent_identity_capture import store_agent_identity_context
+
+    await store_agent_identity_context(
+        db,
+        chat_session_id,
+        request,
+        auth_ctx,
+        agent,
+        identity_auth_code=getattr(req, "identity_auth_code", None),
+    )
+
     return CreateTaskResponse(id=task.id, status=task.status)
 
 

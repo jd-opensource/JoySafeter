@@ -367,6 +367,9 @@ async def delete_agent(
     if not agent:
         raise _agent_not_found_error(agent_id)
 
+    # Cleanup agent identity credentials (Redis cache + identity platform)
+    await _cleanup_agent_identity(str(agent_id))
+
     if not force:
         # Check for active tasks before soft delete
         active_tasks = await svc.list_active_tasks_for_agent(agent_id, project_id=auth_ctx.project_id)
@@ -572,6 +575,55 @@ async def _destroy_sandboxes_for_agent(
                 retryable=True,
                 user_action="retry",
             )
+
+
+async def _cleanup_agent_identity(agent_id: AgentId) -> None:
+    """Clear cached agent identity tokens from Redis on agent deletion.
+
+    Only removes the cache entries. Any real revocation on the identity
+    platform is handled by the orchestrator's identity provider; cached
+    credentials also carry a TTL and expire naturally.
+
+    The cache key prefix is provider-defined and supplied via
+    ``AGENT_IDENTITY_CACHE_PREFIX``; when unset, cleanup is skipped.
+    Non-fatal: errors are logged but don't block agent deletion.
+    """
+    import os
+
+    cache_prefix = os.environ.get("AGENT_IDENTITY_CACHE_PREFIX", "").strip()
+    if not cache_prefix:
+        return  # No cache-key convention configured — nothing to clear
+
+    redis_url = os.environ.get("REDIS_URL", "")
+    if not redis_url:
+        redis_host = os.environ.get("REDIS_HOST", "")
+        if not redis_host:
+            return
+        redis_port = os.environ.get("REDIS_PORT", "6379")
+        redis_password = os.environ.get("REDIS_PASSWORD", "")
+        if redis_password:
+            redis_url = f"redis://:{redis_password}@{redis_host}:{redis_port}/0"
+        else:
+            redis_url = f"redis://{redis_host}:{redis_port}/0"
+
+    try:
+        import redis.asyncio as aioredis
+
+        client = aioredis.from_url(redis_url)
+        pattern = f"{cache_prefix}:*:{agent_id}:*"
+        deleted = 0
+        async for key in client.scan_iter(match=pattern, count=100):
+            await client.delete(key)
+            deleted += 1
+        await client.aclose()
+        if deleted:
+            logger.info(
+                f"Cleared {deleted} agent identity cache entries for agent {agent_id}"
+            )
+    except Exception as e:
+        logger.warning(
+            f"Agent identity cache cleanup failed for {agent_id} (non-fatal): {e}"
+        )
 
 
 @router.post("/{agent_id}/archive", status_code=200)

@@ -1,0 +1,19 @@
+[package]
+name = "jd-agent-identity"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+agent-identity-trait = { path = "../agent-identity-trait" }
+anyhow = "1"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+gethostname = "0.5"
+md5 = "0.7"
+redis = { version = "0.27", features = ["tokio-comp", "aio"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }

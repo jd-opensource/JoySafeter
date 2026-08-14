@@ -226,6 +226,18 @@ async def _load_session_storage_mounts(db: AsyncSession, session_id: SessionId, 
     return list(result.scalars().all())
 
 
+def _public_session_metadata(metadata) -> dict:
+    """Strip internal-only keys before returning session metadata to clients.
+
+    ``agent_identity_context`` holds the encrypted user credential + request
+    headers used server-side for JD identity token exchange. It must never be
+    exposed to the client.
+    """
+    if not isinstance(metadata, dict):
+        return {}
+    return {k: v for k, v in metadata.items() if k != "agent_identity_context"}
+
+
 def _session_to_response(
     session, agent=None, resources=None, repo_resources=None, storage_mounts=None, credential_group_ids=None
 ) -> SessionResponse:
@@ -287,7 +299,7 @@ def _session_to_response(
         status=session.status,
         stop_reason=session.stop_reason,
         title=session.title,
-        metadata=session.metadata_,
+        metadata=_public_session_metadata(session.metadata_),
         credential_group_ids=credential_group_ids or [],
         resources=resource_responses,
         repo_resources=repo_responses,
@@ -1477,6 +1489,7 @@ async def _replay_pending_control_inputs(
 @router.post("/{session_id}/events", status_code=201)
 async def send_event(
     req: SendEventRequest,
+    request: Request,
     session_id: SessionId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
@@ -1670,6 +1683,27 @@ async def send_event(
                 enforce_user_quota=auth_ctx.principal_type == "user",
                 emit_user_message=False,  # event already persisted by this endpoint
             )
+
+            # Capture the user's identity credential so the orchestrator's
+            # identity provider can consume it during sandbox resolve. The web
+            # flow posts here (not /tasks), so capture must live on this path too.
+            try:
+                from app.joysafeter_api.api.v1.agent_identity_capture import (
+                    store_agent_identity_context,
+                )
+                from app.joysafeter_api.services import JoySafeterAgentService
+
+                agent_obj = await JoySafeterAgentService(db).get_agent(
+                    session.agent_id, project_id=auth_ctx.project_id
+                )
+                if agent_obj is not None:
+                    await store_agent_identity_context(
+                        db, session_id, request, auth_ctx, agent_obj
+                    )
+            except Exception:
+                logger.exception(
+                    "[agent-identity] capture failed on session events path (non-fatal)"
+                )
             if broadcaster:
                 running_event = await svc.find_status_running_event_for_task(
                     session_id,

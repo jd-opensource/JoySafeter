@@ -33,6 +33,16 @@ use super::llm_providers::credential_profile_spec;
 #[cfg(test)]
 use super::llm_providers::{CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OPENAI_API_KEY};
 
+/// Identity context loaded from session.metadata.agent_identity_context.
+struct LoadedIdentityContext {
+    /// User's SSO cookie (Web scenario). Empty if auth_code is used.
+    identity_token: String,
+    /// One-time BotAuthCode (API scenario). None if identity_token is used.
+    auth_code: Option<String>,
+    /// User name / email for cache keying.
+    user_name: String,
+}
+
 /// Hard client-side bound on a provider networking setup/refresh call (Envoy
 /// socket prep + xDS push + ACK/socket-readiness wait). The individual steps are
 /// bounded, but this outer bound guarantees the sandbox-provisioning path can
@@ -115,6 +125,8 @@ pub struct SandboxResolver {
     /// Without this broadcast the sandbox's egress socket is never created on
     /// nodes whose Envoy happens to be connected to a different replica.
     xds_store: Option<Arc<dyn XdsStateStore>>,
+    /// Pluggable agent identity provider for outbound credential injection.
+    identity_provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
 }
 
 impl SandboxResolver {
@@ -127,7 +139,19 @@ impl SandboxResolver {
             network_policy_ready: dashmap::DashMap::new(),
             pool_replenish_notify: None,
             xds_store: None,
+            identity_provider: Arc::new(
+                crate::kernel::agent_identity_provider::NoopAgentIdentityProvider,
+            ),
         }
+    }
+
+    /// Set the agent identity provider.
+    pub fn with_identity_provider(
+        mut self,
+        provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
+    ) -> Self {
+        self.identity_provider = provider;
+        self
     }
 
     /// Set the pool replenish notify (called from scheduler setup).
@@ -940,6 +964,19 @@ impl SandboxResolver {
                 )
                 .await,
             );
+
+            // Agent identity injection (provider-based, fail-open).
+            // Resolves agentToken + user identity (SSO/ME) via the configured
+            // provider, then converts to EgressCredentialRoutes for Envoy injection.
+            if self.identity_provider.enabled() {
+                if let Some(identity_routes) = self
+                    .resolve_identity_egress_routes(agent.as_ref(), session_id)
+                    .await
+                {
+                    routes.extend(identity_routes);
+                }
+            }
+
             credentials = SandboxCredentials {
                 routes,
                 proxy_auth_token: None,
@@ -1865,6 +1902,180 @@ impl SandboxResolver {
             }
         }
         routes
+    }
+
+    /// Resolve agent identity egress routes via the pluggable provider.
+    ///
+    /// Loads the triggering user's encrypted identity from session metadata,
+    /// calls the provider to exchange tokens, and converts the result into
+    /// `EgressCredentialRoute`s for Envoy injection.
+    ///
+    /// Returns None on any failure (fail-open: sandbox works without identity).
+    async fn resolve_identity_egress_routes(
+        &self,
+        agent: Option<&JoySafeterAgent>,
+        session_id: Option<SessionId>,
+    ) -> Option<Vec<EgressCredentialRoute>> {
+        use crate::kernel::agent_identity_provider::IdentityResolveContext;
+
+        let agent = agent?;
+        if !self.identity_provider.has_config(agent.metadata.as_ref()) {
+            debug!(agent_id = %agent.id, "agent identity: provider disabled, skipping");
+            return None;
+        }
+
+        // Provider config is optional (global mode); pass agent_identity block if
+        // present, otherwise an empty object.
+        let provider_config = agent
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("agent_identity"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+
+        // Load identity context (encrypted identity_token or auth_code + user_name)
+        let identity_ctx = match self.load_identity_context(session_id).await {
+            Some(ctx) => ctx,
+            None => {
+                debug!(
+                    agent_id = %agent.id,
+                    session_id = ?session_id,
+                    "agent identity: no identity context in session.metadata, skipping"
+                );
+                return None;
+            }
+        };
+
+        let egress_hosts = Self::extract_agent_egress_hosts(agent);
+        debug!(
+            agent_id = %agent.id,
+            egress_hosts = ?egress_hosts,
+            "agent identity: resolving with egress hosts"
+        );
+
+        let context = IdentityResolveContext {
+            agent_id: agent.id.to_string(),
+            session_id: session_id.map(|id| id.to_string()).unwrap_or_default(),
+            task_id: agent.id.to_string(),
+            identity_token: identity_ctx.identity_token,
+            auth_code: identity_ctx.auth_code,
+            user_name: identity_ctx.user_name,
+            provider_config,
+            egress_hosts,
+        };
+
+        match self.identity_provider.resolve(&context).await {
+            Ok(injection) if !injection.targets.is_empty() => {
+                let routes = injection
+                    .targets
+                    .into_iter()
+                    .map(|target| EgressCredentialRoute {
+                        id: format!("agent-identity:{}", target.host),
+                        kind: EgressKind::AgentIdentity,
+                        exposure: EgressExposure::Transparent,
+                        match_host: target.host.clone(),
+                        match_prefix: "/".to_string(),
+                        exact_path: false,
+                        upstream_host: target.host,
+                        upstream_port: target.port,
+                        upstream_prefix: "/".to_string(),
+                        upstream_tls: target.tls,
+                        cluster_name: String::new(),
+                        inject_headers: target.inject_headers,
+                        remove_headers: target.remove_headers,
+                    })
+                    .collect();
+                Some(routes)
+            }
+            Ok(_) => {
+                debug!(
+                    agent_id = %agent.id,
+                    "agent identity: provider returned no injection targets (no egress hosts?), skipping"
+                );
+                None
+            }
+            Err(e) => {
+                warn!(
+                    agent_id = %agent.id,
+                    error = %e,
+                    "Agent identity resolve failed (sandbox continues without identity)"
+                );
+                None
+            }
+        }
+    }
+
+    /// Load triggering user's identity context from session metadata.
+    ///
+    /// The API layer stores `agent_identity_context` in session.metadata when
+    /// a task is created, containing either:
+    /// - `identity_token` (Web SSO: encrypted user cookie)
+    /// - `auth_code` (API: one-time BotAuthCode)
+    /// Plus `user_name` for cache keying.
+    async fn load_identity_context(
+        &self,
+        session_id: Option<SessionId>,
+    ) -> Option<LoadedIdentityContext> {
+        let session_id = session_id?;
+
+        let row: Option<(Option<serde_json::Value>,)> =
+            sqlx::query_as("SELECT metadata FROM joysafeter_sessions WHERE id = $1")
+                .bind(session_id)
+                .fetch_optional(&self.pool)
+                .await
+                .ok()
+                .flatten();
+
+        let metadata = row?.0?;
+        let ctx = metadata.get("agent_identity_context")?;
+        let user_name = ctx.get("user_name")?.as_str()?.to_string();
+        let cipher = VaultCipher::from_env();
+
+        // Two paths: auth_code (API scenario) or identity_token (Web SSO)
+        let auth_code = ctx
+            .get("auth_code")
+            .and_then(|v| v.as_str())
+            .and_then(|v| cipher.decrypt_or_passthrough(v).ok());
+
+        let identity_token = ctx
+            .get("identity_token")
+            .and_then(|v| v.as_str())
+            .and_then(|v| cipher.decrypt_or_passthrough(v).ok())
+            .unwrap_or_default();
+
+        // Need at least one of them
+        if auth_code.is_none() && identity_token.is_empty() {
+            return None;
+        }
+
+        Some(LoadedIdentityContext {
+            identity_token,
+            auth_code,
+            user_name,
+        })
+    }
+
+    /// Extract egress hostnames from agent's mcp_servers URLs.
+    /// These become the `scope` for the identity platform (domains the agent is allowed to access).
+    fn extract_agent_egress_hosts(agent: &JoySafeterAgent) -> Vec<String> {
+        let mut hosts = Vec::new();
+
+        // Extract from mcp_servers[].url
+        if let Some(mcp_servers) = agent.mcp_servers.as_ref().and_then(|v| v.as_array()) {
+            for cfg in mcp_servers {
+                if let Some(url_str) = cfg.get("url").and_then(|v| v.as_str()) {
+                    if let Ok(url) = Url::parse(url_str) {
+                        if let Some(host) = url.host_str() {
+                            hosts.push(host.to_lowercase());
+                        }
+                    }
+                }
+            }
+        }
+
+        hosts.sort();
+        hosts.dedup();
+        hosts
     }
 
     async fn load_secret_data(
