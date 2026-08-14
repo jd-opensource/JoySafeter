@@ -36,8 +36,6 @@ struct LoadedIdentityContext {
     auth_code: Option<String>,
     /// User name / email for cache keying.
     user_name: String,
-    /// Original request headers from the triggering user (for createBotToken headersMap).
-    headers_map: Option<HashMap<String, String>>,
 }
 
 /// Hard client-side bound on a provider networking setup/refresh call (Envoy
@@ -1906,7 +1904,6 @@ impl SandboxResolver {
             auth_code: identity_ctx.auth_code,
             user_name: identity_ctx.user_name,
             provider_config,
-            headers_map: identity_ctx.headers_map,
             egress_hosts,
         };
 
@@ -1995,20 +1992,10 @@ impl SandboxResolver {
             return None;
         }
 
-        let headers_map = ctx
-            .get("headers_map")
-            .and_then(|v| v.as_object())
-            .map(|obj| {
-                obj.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                    .collect()
-            });
-
         Some(LoadedIdentityContext {
             identity_token,
             auth_code,
             user_name,
-            headers_map,
         })
     }
 

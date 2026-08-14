@@ -108,13 +108,10 @@ async def store_agent_identity_context(
         context_payload["identity_token"] = _encrypt(identity_token, vault_key)
         context_payload["source"] = "cookie"
 
-    headers_map = {
-        key: value
-        for key, value in request.headers.items()
-        if key.lower() not in ("authorization", "x-api-key")
-    }
-    if headers_map:
-        context_payload["headers_map"] = headers_map
+    # NOTE: We deliberately do NOT persist the request headers/cookies. They
+    # contain the user's full credential set and must not sit in the DB. The
+    # orchestrator reconstructs a minimal headersMap from the (encrypted)
+    # identity_token at exchange time instead.
 
     context_data = {"agent_identity_context": context_payload}
 

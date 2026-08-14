@@ -603,6 +603,21 @@ impl JdAgentIdentityProvider {
         let trace_id = uuid::Uuid::new_v4().to_string();
         let timestamp = chrono::Utc::now().timestamp_millis();
         let signature = self.sign_create_bot_token(&ctx.agent_id, &ctx.identity_token, timestamp, &trace_id);
+        // Reconstruct a minimal headersMap containing only the SSO cookie the
+        // identity platform needs. The user's full request headers are NOT
+        // persisted anywhere (privacy); we rebuild just the Cookie here from the
+        // decrypted identity_token.
+        let headers_map = if ctx.identity_token.is_empty() {
+            None
+        } else {
+            let cookie_name = std::env::var("JD_AGENT_IDENTITY_COOKIE_NAME")
+                .unwrap_or_else(|_| "sso.jd.com".to_string());
+            Some(HashMap::from([(
+                "Cookie".to_string(),
+                format!("{}={}", cookie_name, ctx.identity_token),
+            )]))
+        };
+
         let req = CreateBotTokenRequest {
             trace_id,
             client_id: self.client_id.clone(),
@@ -617,7 +632,7 @@ impl JdAgentIdentityProvider {
             identity_token: ctx.identity_token.clone(),
             agent_scene: self.agent_scene.clone(),
             env_info: Some(collect_env_info()),
-            headers_map: ctx.headers_map.clone(),
+            headers_map,
             timestamp,
             signature,
             extensions: None,

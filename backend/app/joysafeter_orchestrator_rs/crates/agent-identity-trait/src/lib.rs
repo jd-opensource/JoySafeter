@@ -63,9 +63,6 @@ pub struct IdentityResolveContext {
     pub user_name: String,
     /// Agent-level identity config parsed from metadata (provider-specific).
     pub provider_config: JsonValue,
-    /// Original request headers from the triggering user's HTTP request.
-    /// Used by createBotToken's headersMap field.
-    pub headers_map: Option<std::collections::HashMap<String, String>>,
     /// Auto-extracted egress hostnames from agent's MCP servers + environment
     /// egress services. Used as the `scope` parameter for identity platform.
     pub egress_hosts: Vec<String>,
