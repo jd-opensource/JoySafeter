@@ -1,7 +1,7 @@
 'use client'
 
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, Plus, Star } from 'lucide-react'
+import { Archive, Check, Plus, RotateCcw, Star } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
 
@@ -13,49 +13,105 @@ import {
   MonoId,
   RelativeTime,
   ResourceErrorState,
+  StatusBadge,
   type Column,
   type FilterDef,
 } from '@/components/managed/shared'
 import { CompatibleEngineBadges } from '@/components/managed/shared/compatible-engine-badges'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { useCurrentProjectReadOnly } from '@/hooks/managed/use-current-project-read-only'
+import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { managedDelete, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
-import { managedRequestOptions, useManagedRequestScope } from '@/lib/managed/request-scope'
+import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { parseSecretResponse } from '@/lib/managed/secret-response-parsers'
 import { parseCredentialId } from '@/types/entity-id'
 import type { Secret } from '@/types/managed'
 
 function displayId(value: string | null) {
   if (!value) return '—'
-  return value.split('_').map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ')
+  return value
+    .split('_')
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+    .join(' ')
 }
 
-export function ModelConnectionList({ onCreate }: { onCreate: () => void }) {
+export interface ModelConnectionListState {
+  searchQuery: string
+  createdFilter: string
+  showArchived: boolean
+  pageSize: number
+}
+
+const DEFAULT_MODEL_LIST_STATE: ModelConnectionListState = {
+  searchQuery: '',
+  createdFilter: 'all',
+  showArchived: false,
+  pageSize: 10,
+}
+
+export function ModelConnectionList({
+  onCreate,
+  state,
+  onStateChange,
+}: {
+  onCreate: () => void
+  state?: ModelConnectionListState
+  onStateChange?: (state: ModelConnectionListState) => void
+}) {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const managedScope = useManagedRequestScope()
-  const projectReadOnly = useCurrentProjectReadOnly()
   const catalogQuery = useLlmCatalog()
   const catalogVersion = catalogQuery.data?.version ?? ''
   const catalogReady = catalogQuery.isSuccess && Boolean(catalogVersion)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [createdFilter, setCreatedFilter] = useState('all')
+  const [localState, setLocalState] = useState(DEFAULT_MODEL_LIST_STATE)
+  const listState = state ?? localState
+  const updateListState = (patch: Partial<ModelConnectionListState>) => {
+    const next = { ...listState, ...patch }
+    if (state && onStateChange) onStateChange(next)
+    else setLocalState(next)
+  }
+  const { searchQuery, createdFilter, showArchived } = listState
+  const setSearchQuery = (value: string) => updateListState({ searchQuery: value })
+  const setCreatedFilter = (value: string) => updateListState({ createdFilter: value })
+  const setShowArchived = (value: boolean) => updateListState({ showArchived: value })
   const [deleteTarget, setDeleteTarget] = useState<Secret | null>(null)
+  const [lifecycleTarget, setLifecycleTarget] = useState<{
+    credential: Secret
+    action: 'archive' | 'restore'
+  } | null>(null)
+  const [mutationPending, setMutationPending] = useState(false)
+  const {
+    scope: managedScope,
+    readOnly: projectReadOnly,
+    beginAction,
+    isCurrentAction,
+    scopeIsActive,
+    bumpRun,
+  } = useScopedActions({
+    onReset: () => {
+      setDeleteTarget(null)
+      setLifecycleTarget(null)
+      setMutationPending(false)
+    },
+  })
 
   const list = usePaginatedList<Secret>({
     queryKey: 'credentials',
     path: '/credentials',
     query: { kind: 'model' },
+    includeArchived: showArchived,
     cacheVersion: catalogVersion || undefined,
     enabled: catalogReady,
+    pageSize: listState.pageSize,
+    onPageSizeChange: (pageSize) => updateListState({ pageSize }),
     parseItem: parseSecretResponse,
     parseCursor: parseCredentialId,
   })
@@ -64,35 +120,110 @@ export function ModelConnectionList({ onCreate }: { onCreate: () => void }) {
     () =>
       list.data.filter(
         (s) =>
+          (showArchived || !s.archived_at) &&
           filterByCreatedTime(s.created_at, createdFilter) &&
-          matchesSearch(searchQuery, [s.id, s.name, s.provider ?? '', s.protocol ?? '', s.model ?? '']),
+          matchesSearch(searchQuery, [
+            s.id,
+            s.name,
+            s.provider ?? '',
+            s.protocol ?? '',
+            s.model ?? '',
+          ]),
       ),
-    [createdFilter, list.data, searchQuery],
+    [createdFilter, list.data, searchQuery, showArchived],
   )
-  const filters: FilterDef[] = [{ ...createCreatedTimeFilter(t), value: createdFilter, onChange: setCreatedFilter }]
+  const filters: FilterDef[] = [
+    { ...createCreatedTimeFilter(t), value: createdFilter, onChange: setCreatedFilter },
+  ]
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })
-    queryClient.invalidateQueries({ queryKey: ['compatible-secrets', managedScope.key] })
+  const invalidate = (scope: string) => {
+    queryClient.invalidateQueries({ queryKey: ['credentials', scope] })
+    queryClient.invalidateQueries({ queryKey: ['compatible-secrets', scope] })
   }
   const handleSetDefault = async (s: Secret) => {
-    if (s.kind !== 'model' || projectReadOnly) return
+    if (projectReadOnly || mutationPending) return
+    const current = list.data.find((item) => item.id === s.id)
+    if (!current || current.kind !== 'model' || current.archived_at || current.is_default) return
+    const action = beginAction()
+    if (!action) return
+    setMutationPending(true)
     try {
-      await managedPost(apiResourcePath('credentials', s.id, 'default'), {}, managedRequestOptions(managedScope))
-      invalidate()
+      await managedPost(
+        apiResourcePath('credentials', current.id, 'default'),
+        {},
+        managedRequestOptions(action.requestScope),
+      )
+      if (!isCurrentAction(action.runId, action.scope)) return
+      invalidate(action.scope)
     } catch (error) {
+      if (!isCurrentAction(action.runId, action.scope)) return
       toastOperationError(t, error, 'common.operationFailed')
+    } finally {
+      if (isCurrentAction(action.runId, action.scope)) setMutationPending(false)
     }
   }
   const handleDelete = async () => {
-    if (!deleteTarget || projectReadOnly) return
+    if (!deleteTarget || projectReadOnly || mutationPending) return
+    const current = list.data.find((item) => item.id === deleteTarget.id)
+    if (!current) {
+      setDeleteTarget(null)
+      return
+    }
+    const action = beginAction()
+    if (!action) {
+      setDeleteTarget(null)
+      return
+    }
+    setMutationPending(true)
     try {
-      await managedDelete(apiResourcePath('credentials', deleteTarget.id), managedRequestOptions(managedScope))
-      invalidate()
+      await managedDelete(
+        apiResourcePath('credentials', current.id),
+        managedRequestOptions(action.requestScope),
+      )
+      if (!isCurrentAction(action.runId, action.scope)) return
+      invalidate(action.scope)
     } catch (error) {
+      if (!isCurrentAction(action.runId, action.scope)) return
       toastOperationError(t, error, 'common.operationFailed')
     } finally {
-      setDeleteTarget(null)
+      if (isCurrentAction(action.runId, action.scope)) {
+        setMutationPending(false)
+        setDeleteTarget(null)
+      }
+    }
+  }
+  const handleLifecycle = async () => {
+    if (!lifecycleTarget || projectReadOnly || mutationPending) return
+    const target = lifecycleTarget
+    const current = list.data.find((item) => item.id === target.credential.id)
+    const statusMatches =
+      target.action === 'restore' ? Boolean(current?.archived_at) : !current?.archived_at
+    if (!current || !statusMatches) {
+      setLifecycleTarget(null)
+      return
+    }
+    const action = beginAction()
+    if (!action) {
+      setLifecycleTarget(null)
+      return
+    }
+    setMutationPending(true)
+    try {
+      await managedPost(
+        apiResourcePath('credentials', current.id, target.action),
+        {},
+        managedRequestOptions(action.requestScope),
+      )
+      if (!isCurrentAction(action.runId, action.scope)) return
+      invalidate(action.scope)
+    } catch (error) {
+      if (!isCurrentAction(action.runId, action.scope)) return
+      toastOperationError(t, error, 'common.operationFailed')
+    } finally {
+      if (isCurrentAction(action.runId, action.scope)) {
+        setMutationPending(false)
+        setLifecycleTarget(null)
+      }
     }
   }
 
@@ -129,23 +260,37 @@ export function ModelConnectionList({ onCreate }: { onCreate: () => void }) {
     {
       key: 'engines',
       header: t('managed.llm.compatibleEngines'),
-      render: (s) => <CompatibleEngineBadges engineIds={s.compatible_engine_ids} catalog={catalogQuery.data} />,
+      render: (s) => (
+        <CompatibleEngineBadges engineIds={s.compatible_engine_ids} catalog={catalogQuery.data} />
+      ),
     },
     {
       key: 'created_at',
       header: t('managed.table.created'),
-      render: (s) => <span className="text-xs text-muted-foreground"><RelativeTime date={s.created_at} /></span>,
+      render: (s) => (
+        <span className="text-xs text-muted-foreground">
+          <RelativeTime date={s.created_at} />
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: t('managed.table.status'),
+      render: (s) => <StatusBadge status={s.archived_at ? 'archived' : 'active'} />,
     },
   ]
 
-  if (catalogQuery.isError) return <LlmCatalogPageState state="error" onRetry={() => catalogQuery.refetch()} />
+  if (catalogQuery.isError)
+    return <LlmCatalogPageState state="error" onRetry={() => catalogQuery.refetch()} />
   if (!catalogReady) return <LlmCatalogPageState state="loading" />
   if (list.isError)
     return (
       <ResourceErrorState
         error={list.error}
         resource="secret"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })}
+        onRetry={() =>
+          queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })
+        }
       />
     )
 
@@ -153,7 +298,13 @@ export function ModelConnectionList({ onCreate }: { onCreate: () => void }) {
     <div>
       {projectReadOnly ? null : (
         <div className="mb-3 flex justify-end">
-          <Button size="sm" onClick={onCreate}>
+          <Button
+            size="sm"
+            onClick={() => {
+              if (!scopeIsActive() || !currentProjectAllowsWrite()) return
+              onCreate()
+            }}
+          >
             <Plus className="h-4 w-4" />
             {t('managed.credentials.addModelConnection')}
           </Button>
@@ -164,21 +315,59 @@ export function ModelConnectionList({ onCreate }: { onCreate: () => void }) {
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
         filters={filters}
+        showArchived={showArchived}
+        onArchivedChange={setShowArchived}
       />
       <DataTable
         columns={columns}
         data={filtered}
         loading={list.isLoading}
         fetching={list.isFetching}
-        onRowClick={(s) => router.push(`/managed/credentials/${s.id}`)}
+        onRowClick={(s) => {
+          if (scopeIsActive()) router.push(`/managed/credentials/${s.id}`)
+        }}
         actionMenu={(s) =>
-          projectReadOnly
+          projectReadOnly || mutationPending
             ? []
             : [
-                ...(s.kind === 'model' && !s.is_default
-                  ? [{ label: t('managed.secrets.setDefault'), icon: <Star className="h-4 w-4" />, onClick: () => handleSetDefault(s) }]
+                ...(s.kind === 'model' && !s.archived_at && !s.is_default
+                  ? [
+                      {
+                        label: t('managed.secrets.setDefault'),
+                        icon: <Star className="h-4 w-4" />,
+                        onClick: () => handleSetDefault(s),
+                      },
+                    ]
                   : []),
-                { label: t('common.delete'), onClick: () => setDeleteTarget(s), destructive: true },
+                ...(s.archived_at
+                  ? [
+                      {
+                        label: t('common.restore'),
+                        icon: <RotateCcw className="h-4 w-4" />,
+                        onClick: () => {
+                          bumpRun()
+                          setLifecycleTarget({ credential: s, action: 'restore' as const })
+                        },
+                      },
+                    ]
+                  : [
+                      {
+                        label: t('common.archive'),
+                        icon: <Archive className="h-4 w-4" />,
+                        onClick: () => {
+                          bumpRun()
+                          setLifecycleTarget({ credential: s, action: 'archive' as const })
+                        },
+                      },
+                    ]),
+                {
+                  label: t('common.delete'),
+                  onClick: () => {
+                    bumpRun()
+                    setDeleteTarget(s)
+                  },
+                  destructive: true,
+                },
               ]
         }
         pagination={{
@@ -195,13 +384,38 @@ export function ModelConnectionList({ onCreate }: { onCreate: () => void }) {
         emptyMessage={t('managed.credentials.emptyModels')}
       />
       <ConfirmDialog
+        open={!projectReadOnly && Boolean(lifecycleTarget)}
+        title={t(
+          lifecycleTarget?.action === 'restore'
+            ? 'managed.secrets.restoreTitle'
+            : 'managed.secrets.archiveTitle',
+        )}
+        description={t(
+          lifecycleTarget?.action === 'restore'
+            ? 'managed.secrets.restoreDescription'
+            : 'managed.secrets.archiveDescription',
+          { name: lifecycleTarget?.credential.name },
+        )}
+        confirmLabel={t(
+          lifecycleTarget?.action === 'restore' ? 'common.restore' : 'common.archive',
+        )}
+        onConfirm={handleLifecycle}
+        onCancel={() => {
+          bumpRun()
+          setLifecycleTarget(null)
+        }}
+      />
+      <ConfirmDialog
         open={!projectReadOnly && Boolean(deleteTarget)}
         title={t('managed.secrets.deleteTitle')}
         description={t('managed.secrets.deleteDescription', { name: deleteTarget?.name })}
         confirmLabel={t('common.delete')}
         destructive
         onConfirm={handleDelete}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => {
+          bumpRun()
+          setDeleteTarget(null)
+        }}
       />
     </div>
   )

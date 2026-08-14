@@ -81,9 +81,11 @@ describe('useServiceCredentials', () => {
     const { result } = renderHook(() => useServiceCredentials(), { wrapper })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(managedGetMock.mock.calls[0][0]).toBe('/credentials?limit=100&kind=service')
+    expect(managedGetMock.mock.calls[0][0]).toBe(
+      '/credentials?limit=100&kind=service&include_archived=false',
+    )
     expect(managedGetMock.mock.calls[1][0]).toBe(
-      `/credentials?limit=100&kind=service&after_id=${SECRET_ID_A}`,
+      `/credentials?limit=100&kind=service&include_archived=false&after_id=${SECRET_ID_A}`,
     )
     expect(result.current.data).toEqual([
       expect.objectContaining({ id: SECRET_ID_A, name: 'service-a', data: { TOKEN: 'v' } }),

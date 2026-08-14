@@ -25,6 +25,8 @@ interface UsePaginatedListOptions<T extends { id?: string }> {
   query?: Record<string, string | number | boolean | null | undefined>
   cacheVersion?: string
   limit?: number
+  pageSize?: number
+  onPageSizeChange?: (pageSize: number) => void
   pageSizeOptions?: number[]
   enabled?: boolean
   includeArchived?: boolean
@@ -124,14 +126,14 @@ async function apiPage<T extends { id?: string }>(
   scope: ManagedRequestScope,
   cursor?: string,
   limit = 10,
-  includeArchived = false,
+  includeArchived?: boolean,
   parseItem?: (item: unknown) => T,
   parseCursor?: (cursor: string) => string,
 ): Promise<PageResult<T>> {
   const url = apiCollectionPath(path, {
     limit,
     after_id: cursor ? (parseCursor ? parseCursor(cursor) : cursor) : undefined,
-    include_archived: includeArchived || undefined,
+    include_archived: includeArchived,
   })
 
   const res = await managedGet<
@@ -155,9 +157,11 @@ export function usePaginatedList<T extends { id?: string }>({
   query,
   cacheVersion,
   limit = 10,
+  pageSize: controlledPageSize,
+  onPageSizeChange,
   pageSizeOptions = [10, 25, 50],
   enabled = true,
-  includeArchived = false,
+  includeArchived,
   parseItem,
   parseCursor,
   refetchInterval,
@@ -171,8 +175,11 @@ export function usePaginatedList<T extends { id?: string }>({
     [path, queryScope],
   )
   const defaultPageSize = pageSizeOptions.includes(limit) ? limit : pageSizeOptions[0]
-  const [pageSize, setPageSizeState] = useState(defaultPageSize)
-  const effectivePageSize = pageSizeOptions.includes(pageSize) ? pageSize : defaultPageSize
+  const [internalPageSize, setInternalPageSize] = useState(defaultPageSize)
+  const requestedPageSize = controlledPageSize ?? internalPageSize
+  const effectivePageSize = pageSizeOptions.includes(requestedPageSize)
+    ? requestedPageSize
+    : defaultPageSize
   const listScope = `${queryKey}:${scopedPath}:${managedScope.key}:${includeArchived}:${effectivePageSize}:${cacheVersion ?? ''}`
   const [cursorState, setCursorState] = useState<CursorState>(() =>
     loadCursorState(listScope, parseCursor),
@@ -323,9 +330,13 @@ export function usePaginatedList<T extends { id?: string }>({
     [cursorStack, listScope],
   )
 
-  const setPageSize = useCallback((nextPageSize: number) => {
-    setPageSizeState(nextPageSize)
-  }, [])
+  const setPageSize = useCallback(
+    (nextPageSize: number) => {
+      if (controlledPageSize === undefined) setInternalPageSize(nextPageSize)
+      onPageSizeChange?.(nextPageSize)
+    },
+    [controlledPageSize, onPageSizeChange],
+  )
 
   const reset = useCallback(() => {
     setCursorState({ scope: listScope, cursor: undefined, stack: [] })

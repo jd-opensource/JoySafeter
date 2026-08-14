@@ -1,7 +1,7 @@
 'use client'
 
 import { Plus, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { LlmSecretConfigurator } from '@/components/managed/llm/llm-secret-configurator'
 import { FormFieldError, FormFieldLabel } from '@/components/managed/shared'
@@ -14,9 +14,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-import { managedRequestOptions, useManagedRequestScope } from '@/lib/managed/request-scope'
+import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { parseSecretDetailResponse } from '@/lib/managed/secret-response-parsers'
 import { cn } from '@/lib/utils'
 import type { SecretDetail } from '@/types/managed'
@@ -44,21 +45,29 @@ export function CreateSecretDialog({
   lockKind = false,
 }: CreateSecretDialogProps) {
   const { t } = useTranslation()
-  const managedScope = useManagedRequestScope()
   const [kind, setKind] = useState<CreateSecretKind>(initialKind)
   const [name, setName] = useState('')
   const [pairs, setPairs] = useState<GenericPair[]>([{ key: '', value: '' }])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!open) return
+  const resetForm = useCallback(() => {
     setKind(initialKind)
     setName('')
     setPairs([{ key: '', value: '' }])
     setSubmitting(false)
     setError(null)
-  }, [initialKind, open])
+  }, [initialKind])
+  const { readOnly, beginAction, isCurrentAction, bumpRun } = useScopedActions({
+    onReset: () => {
+      resetForm()
+      onOpenChange(false)
+    },
+  })
+
+  useEffect(() => {
+    if (!open) return
+    resetForm()
+  }, [open, resetForm])
 
   const genericData = useMemo(
     () =>
@@ -77,6 +86,12 @@ export function CreateSecretDialog({
       setError(t('managed.llm.genericPairRequired'))
       return
     }
+    const action = beginAction()
+    if (!action) {
+      resetForm()
+      onOpenChange(false)
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
@@ -88,22 +103,41 @@ export function CreateSecretDialog({
           data: genericData,
           is_default: false,
         },
-        managedRequestOptions(managedScope),
+        managedRequestOptions(action.requestScope),
       )
+      if (!isCurrentAction(action.runId, action.scope)) return
       onCreated(parseSecretDetailResponse(response))
       onOpenChange(false)
     } catch (requestError) {
+      if (!isCurrentAction(action.runId, action.scope)) return
       setError(requestError instanceof Error ? requestError.message : t('common.operationFailed'))
     } finally {
-      setSubmitting(false)
+      if (isCurrentAction(action.runId, action.scope)) setSubmitting(false)
     }
   }
 
+  const handleOpenChange = (next: boolean) => {
+    if (next && readOnly) return
+    if (!next) {
+      bumpRun()
+      resetForm()
+    }
+    onOpenChange(next)
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{t('managed.secrets.new')}</DialogTitle>
+          <DialogTitle>
+            {t(
+              lockKind
+                ? kind === 'llm'
+                  ? 'managed.credentials.createModelConnection'
+                  : 'managed.credentials.createServiceCredential'
+                : 'managed.secrets.new',
+            )}
+          </DialogTitle>
           <DialogDescription>{t('managed.llm.createDialogDescription')}</DialogDescription>
         </DialogHeader>
 
@@ -140,9 +174,9 @@ export function CreateSecretDialog({
           <LlmSecretConfigurator
             onCreated={(secret) => {
               onCreated(secret)
-              onOpenChange(false)
+              handleOpenChange(false)
             }}
-            onCancel={() => onOpenChange(false)}
+            onCancel={() => handleOpenChange(false)}
           />
         ) : (
           <div className="space-y-5">
@@ -154,6 +188,7 @@ export function CreateSecretDialog({
                 id="generic-secret-name"
                 aria-label={t('managed.llm.configurationName')}
                 value={name}
+                disabled={readOnly}
                 onChange={(event) => setName(event.target.value)}
               />
             </div>
@@ -164,6 +199,7 @@ export function CreateSecretDialog({
                   <Input
                     aria-label={t('managed.llm.genericKey')}
                     value={pair.key}
+                    disabled={readOnly}
                     placeholder={t('managed.llm.genericKeyPlaceholder')}
                     onChange={(event) =>
                       setPairs((current) =>
@@ -178,6 +214,7 @@ export function CreateSecretDialog({
                     type="password"
                     autoComplete="new-password"
                     value={pair.value}
+                    disabled={readOnly}
                     placeholder={t('managed.llm.genericValuePlaceholder')}
                     onChange={(event) =>
                       setPairs((current) =>
@@ -191,7 +228,7 @@ export function CreateSecretDialog({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    disabled={pairs.length === 1}
+                    disabled={readOnly || pairs.length === 1}
                     onClick={() =>
                       setPairs((current) => current.filter((_, itemIndex) => itemIndex !== index))
                     }
@@ -205,6 +242,7 @@ export function CreateSecretDialog({
                 type="button"
                 variant="outline"
                 size="sm"
+                disabled={readOnly}
                 onClick={() => setPairs((current) => [...current, { key: '', value: '' }])}
               >
                 <Plus className="mr-1 h-4 w-4" />
@@ -214,10 +252,10 @@ export function CreateSecretDialog({
 
             <FormFieldError message={error ?? undefined} />
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
                 {t('common.cancel')}
               </Button>
-              <Button type="button" onClick={createGeneric} disabled={submitting}>
+              <Button type="button" onClick={createGeneric} disabled={submitting || readOnly}>
                 {submitting ? t('common.loading') : t('common.create')}
               </Button>
             </div>

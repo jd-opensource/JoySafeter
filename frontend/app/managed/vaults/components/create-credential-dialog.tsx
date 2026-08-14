@@ -1,31 +1,27 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { useTranslation } from '@/lib/i18n'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { managedPost } from '@/lib/api-client'
-import { apiResourcePath } from '@/lib/managed/api-paths'
-import { toastOperationError } from '@/lib/managed/errors'
-import { parseVaultCredentialResponse } from '@/lib/managed/vault-response-parsers'
-import {
-  managedRequestOptions,
-  managedScopeKey,
-  type ManagedRequestScope,
-  useManagedRequestScope,
-} from '@/lib/managed/request-scope'
-import { validateUrlScheme } from '@/lib/utils/url-validation'
-import { useProjectStore } from '@/stores/managed/project-store'
-import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
-import type { CredentialGroupId } from '@/types/entity-id'
+import { useCallback, useState } from 'react'
+
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
+import { managedPost } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
+import { apiResourcePath } from '@/lib/managed/api-paths'
+import { toastOperationError } from '@/lib/managed/errors'
+import { managedRequestOptions } from '@/lib/managed/request-scope'
+import type { ManagedRequestScope } from '@/lib/managed/request-scope'
+import { parseVaultCredentialResponse } from '@/lib/managed/vault-response-parsers'
+import { validateUrlScheme } from '@/lib/utils/url-validation'
+import type { CredentialGroupId } from '@/types/entity-id'
 
 interface CreateCredentialDialogProps {
   open: boolean
@@ -56,80 +52,57 @@ export function CreateCredentialDialog({
   canSubmit,
 }: CreateCredentialDialogProps) {
   const { t } = useTranslation()
-  const managedScope = useManagedRequestScope()
-  const operationScope = `${managedScope.key}:${vaultId}`
-  const createRunRef = useRef(0)
-  const operationScopeRef = useRef(operationScope)
-  const requestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const [name, setName] = useState('')
   const [mcpServerUrl, setMcpServerUrl] = useState('')
   const [tokenValue, setTokenValue] = useState('')
   const queryClient = useQueryClient()
-
-  const getCurrentOperationScope = () => {
-    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return `${managedScopeKey(orgId, projectId)}:${vaultId}`
-  }
-
-  const currentOperationScopeIsActive = (scope = operationScopeRef.current) =>
-    operationScopeRef.current === scope && getCurrentOperationScope() === scope
+  const resetFields = useCallback(() => {
+    setName('')
+    setMcpServerUrl('')
+    setTokenValue('')
+  }, [])
+  const { readOnly, beginAction, isCurrentAction, scopeIsActive, bumpRun } = useScopedActions({
+    onReset: () => {
+      resetFields()
+      onOpenChange(false)
+    },
+  })
 
   const mutation = useMutation({
-    mutationFn: ({ vaultId, payload, scope, requestScope }: CreateCredentialVariables) => {
-      if (!currentOperationScopeIsActive(scope) || !currentProjectAllowsWrite()) {
+    mutationFn: ({
+      vaultId: actionVaultId,
+      payload,
+      runId,
+      scope,
+      requestScope,
+    }: CreateCredentialVariables) => {
+      if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale vault credential create ignored')
       }
       return managedPost<unknown>(
-        apiResourcePath('credential-groups', vaultId, 'members'),
+        apiResourcePath('credential-groups', actionVaultId, 'members'),
         payload,
         managedRequestOptions(requestScope),
       ).then(parseVaultCredentialResponse)
     },
     onSuccess: (_data, { queryKey, runId, scope }) => {
-      if (
-        createRunRef.current !== runId ||
-        !currentOperationScopeIsActive(scope) ||
-        !currentProjectAllowsWrite()
-      )
-        return
+      if (!isCurrentAction(runId, scope)) return
+      if (canSubmit && !canSubmit()) return
       queryClient.invalidateQueries({ queryKey })
-      resetForm()
+      resetFields()
       onOpenChange(false)
     },
     onError: (error, { runId, scope }) => {
-      if (
-        createRunRef.current !== runId ||
-        !currentOperationScopeIsActive(scope) ||
-        !currentProjectAllowsWrite()
-      )
-        return
+      if (!isCurrentAction(runId, scope)) return
+      if (canSubmit && !canSubmit()) return
       toastOperationError(t, error, 'managed.vaults.cred.createFailed')
     },
   })
 
-  const resetForm = () => {
-    setName('')
-    setMcpServerUrl('')
-    setTokenValue('')
+  const resetForm = useCallback(() => {
+    resetFields()
     mutation.reset()
-  }
-
-  useEffect(() => {
-    if (operationScopeRef.current !== operationScope) {
-      createRunRef.current += 1
-      operationScopeRef.current = operationScope
-      requestScopeRef.current = managedScope
-    }
-    if (open) resetForm()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [operationScope])
-
-  useEffect(
-    () => () => {
-      createRunRef.current += 1
-    },
-    [],
-  )
+  }, [mutation, resetFields])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -141,17 +114,12 @@ export function CreateCredentialDialog({
       alert(urlError)
       return
     }
-    if (
-      !currentOperationScopeIsActive() ||
-      !currentProjectAllowsWrite() ||
-      (canSubmit && !canSubmit())
-    ) {
+    const action = beginAction()
+    if (!action || (canSubmit && !canSubmit())) {
       resetForm()
       onOpenChange(false)
       return
     }
-    const runId = createRunRef.current + 1
-    createRunRef.current = runId
     mutation.mutate({
       vaultId,
       queryKey,
@@ -160,16 +128,14 @@ export function CreateCredentialDialog({
         mcp_server_url: trimmedMcpServerUrl,
         data: { token_value: trimmedTokenValue },
       },
-      runId,
-      scope: operationScopeRef.current,
-      requestScope: requestScopeRef.current,
+      ...action,
     })
   }
 
   const handleOpenChange = (next: boolean) => {
-    if (next && !currentProjectAllowsWrite()) return
+    if (next && (readOnly || !scopeIsActive())) return
     if (!next) {
-      createRunRef.current += 1
+      bumpRun()
       resetForm()
     }
     onOpenChange(next)
@@ -195,6 +161,7 @@ export function CreateCredentialDialog({
               id="cred-name"
               placeholder={t('managed.vaults.cred.namePlaceholder')}
               value={name}
+              disabled={readOnly}
               onChange={(e) => setName(e.target.value)}
               autoFocus
             />
@@ -208,6 +175,7 @@ export function CreateCredentialDialog({
               id="cred-url"
               placeholder="https://mcp.example.com"
               value={mcpServerUrl}
+              disabled={readOnly}
               onChange={(e) => setMcpServerUrl(e.target.value)}
             />
           </div>
@@ -221,6 +189,7 @@ export function CreateCredentialDialog({
               type="password"
               placeholder={t('managed.vaults.cred.tokenPlaceholder')}
               value={tokenValue}
+              disabled={readOnly}
               onChange={(e) => setTokenValue(e.target.value)}
             />
           </div>
@@ -228,11 +197,11 @@ export function CreateCredentialDialog({
           <div className="flex justify-end">
             <Button
               type="submit"
-              disabled={!mcpServerUrl.trim() || !tokenValue.trim() || mutation.isPending}
+              disabled={
+                !mcpServerUrl.trim() || !tokenValue.trim() || mutation.isPending || readOnly
+              }
             >
-              {mutation.isPending
-                ? t('managed.vaults.cred.adding')
-                : t('managed.vaults.cred.add')}
+              {mutation.isPending ? t('managed.vaults.cred.adding') : t('managed.vaults.cred.add')}
             </Button>
           </div>
         </form>

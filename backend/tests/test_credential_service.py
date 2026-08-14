@@ -265,6 +265,44 @@ async def test_lifecycle_archive_restore_soft_delete(db_session, project_id):
 
 
 @pytest.mark.asyncio
+async def test_list_filters_archived_before_pagination_and_keeps_default_compatibility(db_session, project_id):
+    svc = CredentialService(db_session)
+    active = await svc.create(
+        CreateCredentialRequest(kind="service", name="active-list-item", data={"TOKEN": "a"}),
+        project_id=project_id,
+    )
+    archived = await svc.create(
+        CreateCredentialRequest(kind="service", name="archived-list-item", data={"TOKEN": "b"}),
+        project_id=project_id,
+    )
+    await svc.archive(archived.id, project_id=project_id)
+
+    active_only, has_more = await svc.list(
+        project_id=project_id,
+        kind="service",
+        include_archived=False,
+        limit=1,
+    )
+    assert [credential.id for credential in active_only] == [active.id]
+    assert has_more is False
+
+    explicit_all, _ = await svc.list(
+        project_id=project_id,
+        kind="service",
+        include_archived=True,
+        limit=2,
+    )
+    assert {credential.id for credential in explicit_all} == {active.id, archived.id}
+
+    compatible_default, _ = await svc.list(
+        project_id=project_id,
+        kind="service",
+        limit=2,
+    )
+    assert {credential.id for credential in compatible_default} == {active.id, archived.id}
+
+
+@pytest.mark.asyncio
 async def test_recreate_soft_deleted_name_preserves_history(db_session, project_id):
     svc = CredentialService(db_session)
     deleted = await svc.create(

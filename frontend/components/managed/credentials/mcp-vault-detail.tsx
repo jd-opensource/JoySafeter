@@ -67,6 +67,7 @@ export function McpVaultDetail({
   const projectReadOnly = useCurrentProjectReadOnly()
   const operationScope = `${managedScope.key}:${id ?? ''}`
   const actionRunRef = useRef(0)
+  const operationScopeInitializedRef = useRef(false)
   const operationScopeRef = useRef(operationScope)
   const managedRequestScopeRef = useRef(managedScope)
   const [showArchivedCredentials, setShowArchivedCredentials] = useState(false)
@@ -87,10 +88,15 @@ export function McpVaultDetail({
     onConfirm: () => {},
   })
 
+  managedRequestScopeRef.current = managedScope
+
   useEffect(() => {
+    if (!operationScopeInitializedRef.current) {
+      operationScopeInitializedRef.current = true
+      return
+    }
     actionRunRef.current += 1
     operationScopeRef.current = operationScope
-    managedRequestScopeRef.current = managedScope
     setCreateCredOpen(false)
     setConfirmDialog({
       open: false,
@@ -100,7 +106,7 @@ export function McpVaultDetail({
       destructive: false,
       onConfirm: () => {},
     })
-  }, [operationScope, managedScope])
+  }, [operationScope])
 
   useEffect(
     () => () => {
@@ -145,9 +151,25 @@ export function McpVaultDetail({
     enabled: !!id && hasManagedRequestScope(managedScope),
   })
 
+  useEffect(() => {
+    if (!projectReadOnly && !vault?.archived_at) return
+    actionRunRef.current += 1
+    setCreateCredOpen(false)
+    setConfirmDialog({
+      open: false,
+      title: '',
+      description: '',
+      confirmLabel: '',
+      destructive: false,
+      onConfirm: () => {},
+    })
+  }, [projectReadOnly, vault?.archived_at])
+
   const credentials = (credsRes?.data || []).filter(
     (c) => showArchivedCredentials || !c.archived_at,
   )
+  const credentialsRef = useRef(credentials)
+  credentialsRef.current = credentials
 
   const getCurrentOperationScope = () => {
     const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
@@ -268,11 +290,7 @@ export function McpVaultDetail({
   const findCurrentCredential = (credId: CredentialId) =>
     currentOperationScopeIsActive() &&
     currentProjectAllowsWrite() &&
-    queryClient
-      .getQueriesData<{ data?: VaultCredential[] }>({
-        queryKey: ['vault-credentials', managedScope.key, id],
-      })
-      .some(([, page]) => page?.data?.some((credential) => credential.id === credId))
+    credentialsRef.current.some((credential) => credential.id === credId && !credential.archived_at)
 
   const handleArchiveVault = () => {
     if (!currentVaultIsActive()) return
@@ -443,7 +461,7 @@ export function McpVaultDetail({
         loading={credsLoading}
         fetching={credsFetching}
         actionMenu={(c) =>
-          projectReadOnly || c.archived_at
+          !canWriteVault || c.archived_at
             ? []
             : [
                 {
@@ -455,16 +473,19 @@ export function McpVaultDetail({
         emptyMessage={t('managed.vaults.noCredentials')}
       />
 
-      <CreateCredentialDialog
-        open={canWriteVault && createCredOpen}
-        onOpenChange={(open) => {
-          if (open && (!currentOperationScopeIsActive() || !currentProjectAllowsWrite())) return
-          setCreateCredOpen(open)
-        }}
-        vaultId={vaultId}
-        queryKey={['vault-credentials', managedScope.key, id]}
-        canSubmit={currentVaultIsActive}
-      />
+      {canWriteVault && createCredOpen ? (
+        <CreateCredentialDialog
+          key={`${managedScope.key}:${vaultId}`}
+          open
+          onOpenChange={(open) => {
+            if (open && (!currentOperationScopeIsActive() || !currentProjectAllowsWrite())) return
+            setCreateCredOpen(open)
+          }}
+          vaultId={vaultId}
+          queryKey={['vault-credentials', managedScope.key, id]}
+          canSubmit={currentVaultIsActive}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={confirmDialog.open}

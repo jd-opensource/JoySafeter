@@ -4,9 +4,9 @@
  * This file adds NO product code. It is the single gate proving that the split
  * `/managed/credentials` surface (models / services / mcp) preserves every
  * capability of the legacy secrets+vaults pages and enforces kind isolation,
- * using the REV2-CORRECTED capability set (do NOT assert capabilities that were
- * never part of P1: no archive/test-connection on the model list, no
- * set-default/archive on the service list, etc.).
+ * using the rev4 lifecycle/list-filter capability set. Archived Model/Service
+ * rows are hidden by default and become actionable only after the tab's
+ * show-archived toggle is enabled.
  *
  * Guardrails honoured:
  *  - EVERY next/navigation useRouter mock returns a STABLE module-level object
@@ -159,10 +159,7 @@ vi.mock('@/components/managed/shared', () => {
   }) => (
     <div data-testid="filter-bar">
       {onArchivedChange ? (
-        <button
-          data-testid="show-archived-toggle"
-          onClick={() => onArchivedChange(!showArchived)}
-        >
+        <button data-testid="show-archived-toggle" onClick={() => onArchivedChange(!showArchived)}>
           toggle-archived
         </button>
       ) : null}
@@ -361,7 +358,9 @@ describe('isolation', () => {
   it('McpVaultList lists /credential-groups and never the LLM catalog', async () => {
     managedGetMock.mockResolvedValue({ data: [], has_more: false })
     await renderList(<McpVaultList onCreate={() => {}} />)
-    await waitFor(() => expect(credUrls().some((u) => u.startsWith('/credential-groups'))).toBe(true))
+    await waitFor(() =>
+      expect(credUrls().some((u) => u.startsWith('/credential-groups'))).toBe(true),
+    )
     expect(calledCatalog()).toBe(false)
   })
 })
@@ -415,10 +414,10 @@ describe('reader role', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Per-kind capability sets (REV2-corrected — assert presence AND absence)
+// Per-kind capability sets (REV3 — assert legal active/archived actions)
 // ─────────────────────────────────────────────────────────────────────────────
 describe('model capability', () => {
-  it('non-default model row: set-default + delete; NO archive / test-connection', async () => {
+  it('active non-default model row exposes set-default + archive + delete, but no test-connection', async () => {
     managedGetMock.mockResolvedValue({
       data: [secretBase({ kind: 'model', is_default: false })],
       has_more: false,
@@ -428,9 +427,9 @@ describe('model capability', () => {
       1,
     )
     expect(getByTestId('action-managed.secrets.setDefault')).toBeTruthy()
+    expect(getByTestId('action-common.archive')).toBeTruthy()
     expect(getByTestId('action-common.delete')).toBeTruthy()
     expect(queryByTestId('action-managed.vaults.archiveVault')).toBeNull()
-    expect(queryByTestId('action-common.archive')).toBeNull()
     // No test-connection action of any label form.
     expect(
       queryAllByTestId(/^action-/).some((n) =>
@@ -451,10 +450,27 @@ describe('model capability', () => {
     expect(queryByTestId('action-managed.secrets.setDefault')).toBeNull()
     expect(getByTestId('action-common.delete')).toBeTruthy()
   })
+
+  it('archived model row exposes restore + delete and never set-default', async () => {
+    managedGetMock.mockResolvedValue({
+      data: [secretBase({ kind: 'model', archived_at: '2026-08-12T00:00:00Z' })],
+      has_more: false,
+    })
+    const { getByTestId, queryByTestId } = await renderList(
+      <ModelConnectionList onCreate={() => {}} />,
+    )
+    expect(getByTestId('datatable').getAttribute('data-rows')).toBe('0')
+    fireEvent.click(getByTestId('show-archived-toggle'))
+    await waitFor(() => expect(getByTestId('datatable').getAttribute('data-rows')).toBe('1'))
+    expect(getByTestId('action-common.restore')).toBeTruthy()
+    expect(getByTestId('action-common.delete')).toBeTruthy()
+    expect(queryByTestId('action-managed.secrets.setDefault')).toBeNull()
+    expect(queryByTestId('action-common.archive')).toBeNull()
+  })
 })
 
 describe('service capability', () => {
-  it('service row: delete present; NO set-default / archive', async () => {
+  it('active service row exposes archive + delete and no set-default', async () => {
     managedGetMock.mockResolvedValue({
       data: [secretBase({ kind: 'service' })],
       has_more: false,
@@ -463,10 +479,26 @@ describe('service capability', () => {
       <ServiceCredentialList onCreate={() => {}} />,
       1,
     )
+    expect(getByTestId('action-common.archive')).toBeTruthy()
     expect(getByTestId('action-common.delete')).toBeTruthy()
     expect(queryByTestId('action-managed.secrets.setDefault')).toBeNull()
-    expect(queryByTestId('action-common.archive')).toBeNull()
     expect(queryByTestId('action-managed.vaults.archiveVault')).toBeNull()
+  })
+
+  it('archived service row exposes restore + delete and no archive', async () => {
+    managedGetMock.mockResolvedValue({
+      data: [secretBase({ kind: 'service', archived_at: '2026-08-12T00:00:00Z' })],
+      has_more: false,
+    })
+    const { getByTestId, queryByTestId } = await renderList(
+      <ServiceCredentialList onCreate={() => {}} />,
+    )
+    expect(getByTestId('datatable').getAttribute('data-rows')).toBe('0')
+    fireEvent.click(getByTestId('show-archived-toggle'))
+    await waitFor(() => expect(getByTestId('datatable').getAttribute('data-rows')).toBe('1'))
+    expect(getByTestId('action-common.restore')).toBeTruthy()
+    expect(getByTestId('action-common.delete')).toBeTruthy()
+    expect(queryByTestId('action-common.archive')).toBeNull()
   })
 })
 
@@ -519,9 +551,7 @@ describe('mcp capability', () => {
     // Add-Credential control (writer, active vault).
     await waitFor(() => expect(getByText('managed.vaults.addCredential')).toBeTruthy())
     // Member row exposes the credential-archive action.
-    await waitFor(() =>
-      expect(getByTestId('action-managed.vaults.credArchiveTitle')).toBeTruthy(),
-    )
+    await waitFor(() => expect(getByTestId('action-managed.vaults.credArchiveTitle')).toBeTruthy())
     // Show-archived toggle present.
     expect(getByTestId('show-archived-toggle')).toBeTruthy()
   })
@@ -616,7 +646,9 @@ describe('kind-correct back', () => {
   it('ModelConnectionDetail breadcrumb back target is ?tab=models', async () => {
     const { getAllByTestId } = render(
       <Wrap>
-        <ModelConnectionDetail credential={secretDetail({ kind: 'model', provider: null, protocol: null })} />
+        <ModelConnectionDetail
+          credential={secretDetail({ kind: 'model', provider: null, protocol: null })}
+        />
       </Wrap>,
     )
     await waitFor(() =>
@@ -645,9 +677,7 @@ describe('kind-correct back', () => {
 
   it('McpVaultDetail breadcrumb back target is ?tab=mcp', async () => {
     managedGetMock.mockImplementation(async (url: string) =>
-      url.includes('/members')
-        ? { data: [], has_more: false }
-        : vaultBase({ archived_at: null }),
+      url.includes('/members') ? { data: [], has_more: false } : vaultBase({ archived_at: null }),
     )
     const { getAllByTestId } = render(
       <Wrap>

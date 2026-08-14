@@ -109,6 +109,7 @@ function renderDialog(
   return (
     <QueryClientProvider client={queryClient}>
       <CreateCredentialDialog
+        key={vaultId}
         open
         onOpenChange={onOpenChange}
         vaultId={vaultId}
@@ -158,6 +159,31 @@ describe('CreateCredentialDialog object lifecycle', () => {
       projects: [],
     })
     localStorage.clear()
+  })
+
+  it('closes and clears credential data when the current project becomes archived', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const onOpenChange = vi.fn()
+    const view = render(renderDialog(vaultAId, queryClient, onOpenChange))
+
+    fireEvent.input(view.getByPlaceholderText('https://mcp.example.com'), {
+      target: { value: 'https://mcp-a.example.com' },
+    })
+    fireEvent.input(view.getByPlaceholderText('managed.vaults.cred.tokenPlaceholder'), {
+      target: { value: 'bearer-token' },
+    })
+
+    act(() => {
+      useProjectStore.setState((state) => ({
+        currentProject: state.currentProject
+          ? { ...state.currentProject, archived_at: '2026-08-14T00:00:00Z' }
+          : null,
+      }))
+    })
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(view.getByPlaceholderText('https://mcp.example.com')).toHaveValue('')
+    expect(view.getByPlaceholderText('managed.vaults.cred.tokenPlaceholder')).toHaveValue('')
   })
 
   it('does not submit credential draft data to a different vault after vault id changes', async () => {

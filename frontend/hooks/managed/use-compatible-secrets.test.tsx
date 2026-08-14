@@ -86,6 +86,7 @@ describe('useCompatibleSecrets', () => {
     ])
     expect(managedGetMock.mock.calls[0][0]).toContain('kind=model')
     expect(managedGetMock.mock.calls[0][0]).toContain('compatible_engine=codex')
+    expect(managedGetMock.mock.calls[0][0]).toContain('include_archived=false')
     expect(managedGetMock.mock.calls[1][0]).toContain(`after_id=cred_${UUID_A}`)
   })
 
@@ -140,5 +141,6 @@ describe('useCompatibleSecrets', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(managedGetMock.mock.calls[0][0]).toContain('kind=model')
     expect(managedGetMock.mock.calls[0][0]).toContain('protocol=openai_responses')
+    expect(managedGetMock.mock.calls[0][0]).toContain('include_archived=false')
   })
 })

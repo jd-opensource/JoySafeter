@@ -748,6 +748,27 @@ describe('usePaginatedList query option', () => {
     expect(url).toContain('limit=')
   })
 
+  it('preserves an explicit includeArchived=false query parameter', async () => {
+    managedGetMock.mockResolvedValue({ data: [], has_more: false })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrap = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    renderHook(
+      () =>
+        usePaginatedList<{ id: string }>({
+          queryKey: 'credentials',
+          path: '/credentials',
+          query: { kind: 'model' },
+          includeArchived: false,
+        }),
+      { wrapper: wrap },
+    )
+
+    await waitFor(() => expect(managedGetMock).toHaveBeenCalled())
+    expect(managedGetMock.mock.calls[0][0]).toContain('include_archived=false')
+  })
+
   it('isolates cache/cursor between two kinds sharing queryKey AND a single QueryClient', async () => {
     managedGetMock.mockImplementation(async (url: string) => ({
       data: [{ id: (url as string).includes('kind=model') ? 'model-row' : 'service-row' }],
@@ -758,16 +779,54 @@ describe('usePaginatedList query option', () => {
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     )
     const model = renderHook(
-      () => usePaginatedList<{ id: string }>({ queryKey: 'credentials', path: '/credentials', query: { kind: 'model' } }),
+      () =>
+        usePaginatedList<{ id: string }>({
+          queryKey: 'credentials',
+          path: '/credentials',
+          query: { kind: 'model' },
+        }),
       { wrapper: wrap },
     )
     const service = renderHook(
-      () => usePaginatedList<{ id: string }>({ queryKey: 'credentials', path: '/credentials', query: { kind: 'service' } }),
+      () =>
+        usePaginatedList<{ id: string }>({
+          queryKey: 'credentials',
+          path: '/credentials',
+          query: { kind: 'service' },
+        }),
       { wrapper: wrap },
     )
     await waitFor(() => expect(model.result.current.data.length).toBe(1))
     await waitFor(() => expect(service.result.current.data.length).toBe(1))
     expect(model.result.current.data[0].id).toBe('model-row')
     expect(service.result.current.data[0].id).toBe('service-row')
+  })
+
+  it('supports a controlled page size without losing the change on remount', async () => {
+    managedGetMock.mockResolvedValue({ data: [], has_more: false })
+    const onPageSizeChange = vi.fn()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrap = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    const view = renderHook(
+      ({ pageSize }) =>
+        usePaginatedList<{ id: string }>({
+          queryKey: 'controlled-items',
+          path: '/items',
+          pageSize,
+          onPageSizeChange,
+        }),
+      { wrapper: wrap, initialProps: { pageSize: 25 } },
+    )
+
+    await waitFor(() => expect(managedGetMock).toHaveBeenCalled())
+    expect(view.result.current.pageSize).toBe(25)
+    expect(managedGetMock.mock.calls.at(-1)?.[0]).toContain('limit=25')
+
+    act(() => view.result.current.setPageSize(50))
+    expect(onPageSizeChange).toHaveBeenCalledWith(50)
+    view.rerender({ pageSize: 50 })
+    expect(view.result.current.pageSize).toBe(50)
   })
 })

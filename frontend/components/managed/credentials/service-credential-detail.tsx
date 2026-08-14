@@ -1,19 +1,26 @@
 'use client'
 
 import { useQueryClient } from '@tanstack/react-query'
-import { Eye, EyeOff, Plus, Save, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { Archive, Eye, EyeOff, Plus, RotateCcw, Save, Trash2 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { useRef, useState } from 'react'
 
-import { MonoId, PageHeader, RelativeTime } from '@/components/managed/shared'
+import {
+  ConfirmDialog,
+  MonoId,
+  PageHeader,
+  RelativeTime,
+  StatusBadge,
+} from '@/components/managed/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useCurrentProjectReadOnly } from '@/hooks/managed/use-current-project-read-only'
-import { managedPatch } from '@/lib/api-client'
+import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
+import { managedDelete, managedPatch, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
-import { managedRequestOptions, useManagedRequestScope } from '@/lib/managed/request-scope'
+import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { isSecretValueMaskedKey } from '@/lib/managed/secret-keys'
 import { parseSecretDetailResponse } from '@/lib/managed/secret-response-parsers'
 import type { SecretDetail } from '@/types/managed'
@@ -25,18 +32,44 @@ interface GenericPair {
 
 export function ServiceCredentialDetail({ credential }: { credential: SecretDetail }) {
   const { t } = useTranslation()
+  const router = useRouter()
   const queryClient = useQueryClient()
-  const managedScope = useManagedRequestScope()
-  const projectReadOnly = useCurrentProjectReadOnly()
+  const sourceDataRef = useRef(credential.data)
   const [pairs, setPairs] = useState<GenericPair[]>(
     Object.entries(credential.data).map(([key, value]) => ({ key, value })),
   )
   const [showValues, setShowValues] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<'archive' | 'restore' | 'delete' | null>(null)
+  const [lifecyclePending, setLifecyclePending] = useState(false)
+  const {
+    readOnly: projectReadOnly,
+    beginAction,
+    isCurrentAction,
+    bumpRun,
+  } = useScopedActions({
+    onReset: () => {
+      setDirty(false)
+      setShowValues(false)
+      setSaving(false)
+      setLifecyclePending(false)
+      setConfirmAction(null)
+    },
+  })
+  const credentialReadOnly = projectReadOnly || Boolean(credential.archived_at)
+  const mutationPending = saving || lifecyclePending
+  const formReadOnly = credentialReadOnly || mutationPending
+
+  if (!dirty && sourceDataRef.current !== credential.data) {
+    sourceDataRef.current = credential.data
+    setPairs(Object.entries(credential.data).map(([key, value]) => ({ key, value })))
+  }
 
   const save = async () => {
-    if (projectReadOnly) return
+    if (credentialReadOnly || mutationPending) return
+    const action = beginAction()
+    if (!action) return
     const data = Object.fromEntries(
       pairs.map((p) => [p.key.trim(), p.value] as const).filter(([k]) => Boolean(k)),
     )
@@ -45,17 +78,68 @@ export function ServiceCredentialDetail({ credential }: { credential: SecretDeta
       const response = await managedPatch<unknown>(
         apiResourcePath('credentials', credential.id),
         { data },
-        managedRequestOptions(managedScope),
+        managedRequestOptions(action.requestScope),
       )
+      if (!isCurrentAction(action.runId, action.scope)) return
       const updated = parseSecretDetailResponse(response)
-      queryClient.setQueryData(['credential-detail', managedScope.key, credential.id], updated)
-      queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })
+      queryClient.setQueryData(['credential-detail', action.scope, credential.id], updated)
+      queryClient.invalidateQueries({ queryKey: ['credentials', action.scope] })
+      sourceDataRef.current = updated.data
       setPairs(Object.entries(updated.data).map(([key, value]) => ({ key, value })))
       setDirty(false)
     } catch (error) {
+      if (!isCurrentAction(action.runId, action.scope)) return
       toastOperationError(t, error, 'common.operationFailed')
     } finally {
-      setSaving(false)
+      if (isCurrentAction(action.runId, action.scope)) setSaving(false)
+    }
+  }
+
+  const invalidate = (scope: string) => {
+    queryClient.invalidateQueries({ queryKey: ['credential-detail', scope, credential.id] })
+    queryClient.invalidateQueries({ queryKey: ['credentials', scope] })
+  }
+
+  const confirmLifecycle = async () => {
+    if (!confirmAction || projectReadOnly || mutationPending) return
+    if (confirmAction === 'archive' && credential.archived_at) return
+    if (confirmAction === 'restore' && !credential.archived_at) return
+    const action = confirmAction
+    const scopedAction = beginAction()
+    if (!scopedAction) {
+      setConfirmAction(null)
+      return
+    }
+    setLifecyclePending(true)
+    try {
+      if (action === 'delete') {
+        await managedDelete(
+          apiResourcePath('credentials', credential.id),
+          managedRequestOptions(scopedAction.requestScope),
+        )
+        if (!isCurrentAction(scopedAction.runId, scopedAction.scope)) return
+        queryClient.removeQueries({
+          queryKey: ['credential-detail', scopedAction.scope, credential.id],
+        })
+        queryClient.invalidateQueries({ queryKey: ['credentials', scopedAction.scope] })
+        router.push('/managed/credentials?tab=services')
+      } else {
+        await managedPost(
+          apiResourcePath('credentials', credential.id, action),
+          {},
+          managedRequestOptions(scopedAction.requestScope),
+        )
+        if (!isCurrentAction(scopedAction.runId, scopedAction.scope)) return
+        invalidate(scopedAction.scope)
+      }
+    } catch (error) {
+      if (!isCurrentAction(scopedAction.runId, scopedAction.scope)) return
+      toastOperationError(t, error, 'common.operationFailed')
+    } finally {
+      if (isCurrentAction(scopedAction.runId, scopedAction.scope)) {
+        setLifecyclePending(false)
+        setConfirmAction(null)
+      }
     }
   }
 
@@ -64,16 +148,55 @@ export function ServiceCredentialDetail({ credential }: { credential: SecretDeta
       <PageHeader
         title={credential.name}
         breadcrumb={[
-          { label: t('managed.credentials.tabs.services'), to: '/managed/credentials?tab=services' },
+          {
+            label: t('managed.credentials.tabs.services'),
+            to: '/managed/credentials?tab=services',
+          },
           { label: credential.name },
         ]}
-        titleExtra={<Badge variant="outline">{t('managed.llm.genericSecret')}</Badge>}
+        titleExtra={
+          <div className="flex items-center gap-2">
+            <Badge variant="outline">{t('managed.llm.genericSecret')}</Badge>
+            <StatusBadge status={credential.archived_at ? 'archived' : 'active'} />
+          </div>
+        }
         action={
           projectReadOnly ? null : (
-            <Button onClick={save} disabled={!dirty || saving}>
-              <Save className="mr-1 h-4 w-4" />
-              {saving ? t('common.loading') : t('common.save')}
-            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {!credential.archived_at ? (
+                <>
+                  <Button onClick={save} disabled={!dirty || mutationPending}>
+                    <Save className="mr-1 h-4 w-4" />
+                    {saving ? t('common.loading') : t('common.save')}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setConfirmAction('archive')}
+                    disabled={mutationPending}
+                  >
+                    <Archive className="mr-1 h-4 w-4" />
+                    {t('common.archive')}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={() => setConfirmAction('restore')}
+                  disabled={mutationPending}
+                >
+                  <RotateCcw className="mr-1 h-4 w-4" />
+                  {t('common.restore')}
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => setConfirmAction('delete')}
+                disabled={mutationPending}
+              >
+                <Trash2 className="mr-1 h-4 w-4" />
+                {t('common.delete')}
+              </Button>
+            </div>
           )
         }
       />
@@ -102,16 +225,18 @@ export function ServiceCredentialDetail({ credential }: { credential: SecretDeta
             <div key={index} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
               <Input
                 value={pair.key}
-                disabled={projectReadOnly}
+                disabled={formReadOnly}
                 onChange={(e) => {
-                  setPairs((c) => c.map((it, i) => (i === index ? { ...it, key: e.target.value } : it)))
+                  setPairs((c) =>
+                    c.map((it, i) => (i === index ? { ...it, key: e.target.value } : it)),
+                  )
                   setDirty(true)
                 }}
               />
               <Input
                 type={isSecretValueMaskedKey(pair.key) && !showValues ? 'password' : 'text'}
                 value={pair.value}
-                disabled={projectReadOnly}
+                disabled={formReadOnly}
                 onChange={(e) => {
                   setPairs((c) =>
                     c.map((it, i) => (i === index ? { ...it, value: e.target.value } : it)),
@@ -123,7 +248,7 @@ export function ServiceCredentialDetail({ credential }: { credential: SecretDeta
                 type="button"
                 variant="ghost"
                 size="icon"
-                disabled={projectReadOnly}
+                disabled={formReadOnly}
                 onClick={() => {
                   setPairs((c) => c.filter((_, i) => i !== index))
                   setDirty(true)
@@ -133,11 +258,12 @@ export function ServiceCredentialDetail({ credential }: { credential: SecretDeta
               </Button>
             </div>
           ))}
-          {!projectReadOnly ? (
+          {!credentialReadOnly ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
+              disabled={formReadOnly}
               onClick={() => {
                 setPairs((c) => [...c, { key: '', value: '' }])
                 setDirty(true)
@@ -149,6 +275,37 @@ export function ServiceCredentialDetail({ credential }: { credential: SecretDeta
           ) : null}
         </div>
       </section>
+      <ConfirmDialog
+        open={Boolean(confirmAction)}
+        title={t(
+          confirmAction === 'delete'
+            ? 'managed.secrets.deleteTitle'
+            : confirmAction === 'restore'
+              ? 'managed.secrets.restoreTitle'
+              : 'managed.secrets.archiveTitle',
+        )}
+        description={t(
+          confirmAction === 'delete'
+            ? 'managed.secrets.deleteDescription'
+            : confirmAction === 'restore'
+              ? 'managed.secrets.restoreDescription'
+              : 'managed.secrets.archiveDescription',
+          { name: credential.name },
+        )}
+        confirmLabel={t(
+          confirmAction === 'delete'
+            ? 'common.delete'
+            : confirmAction === 'restore'
+              ? 'common.restore'
+              : 'common.archive',
+        )}
+        destructive={confirmAction === 'delete'}
+        onConfirm={confirmLifecycle}
+        onCancel={() => {
+          bumpRun()
+          setConfirmAction(null)
+        }}
+      />
     </div>
   )
 }

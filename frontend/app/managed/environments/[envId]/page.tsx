@@ -138,6 +138,7 @@ function EnvironmentDetailPageInner({ params }: { params: Promise<{ envId: strin
   const { data: secrets } = usePaginatedList<Secret>({
     queryKey: 'service-credentials',
     path: '/credentials?kind=service',
+    includeArchived: false,
     limit: 50,
     parseItem: parseSecretResponse,
     parseCursor: parseCredentialId,

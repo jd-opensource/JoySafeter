@@ -1,15 +1,17 @@
 'use client'
 
-import { useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
-  useReactTable,
-  getCoreRowModel,
   flexRender,
+  getCoreRowModel,
   type ColumnDef,
   type ColumnResizeMode,
+  useReactTable,
 } from '@tanstack/react-table'
-import { useTranslation } from '@/lib/i18n'
+import { useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
+
 import { Pagination } from '@/components/ui/pagination'
+import { useTranslation } from '@/lib/i18n'
+
 import { ActionMenu, type MenuItem } from './action-menu'
 
 // ── Public API (unchanged — all 15 consumers keep working) ─────────────
@@ -297,6 +299,7 @@ export function DataTable<T>({
                           role: 'button',
                           tabIndex: 0,
                           onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
+                            if (event.target !== event.currentTarget) return
                             if (event.key === 'Enter' || event.key === ' ') {
                               event.preventDefault()
                               onRowClick(row.original)
