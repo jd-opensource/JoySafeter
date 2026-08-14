@@ -74,10 +74,9 @@ async def store_agent_identity_context(
 
     if not bot_auth_code and not identity_token:
         logger.info(
-            "[agent-identity] no SSO cookie '%s' and no bot_auth_code for session=%s (cookies=%s)",
-            os.environ.get("JD_AGENT_IDENTITY_COOKIE_NAME", "sso.jd.com"),
+            "[agent-identity] no SSO credential for session=%s (cookie '%s' absent, no bot_auth_code)",
             session_id,
-            list(request.cookies.keys()),
+            os.environ.get("JD_AGENT_IDENTITY_COOKIE_NAME", "sso.jd.com"),
         )
         return
 
