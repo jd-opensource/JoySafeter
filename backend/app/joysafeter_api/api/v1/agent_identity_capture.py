@@ -119,19 +119,27 @@ async def store_agent_identity_context(
     context_data = {"agent_identity_context": context_payload}
 
     # --- Persist ---
+    # Use CAST(... AS jsonb) instead of the ``::jsonb`` shorthand: with asyncpg
+    # the ``:name::jsonb`` form makes the driver misparse ``::`` against the
+    # ``:name`` bind marker, raising "syntax error at or near :". CAST avoids it.
     try:
         await db.execute(
             text(
                 """
                 UPDATE joysafeter_sessions
-                SET metadata = COALESCE(metadata, '{}'::jsonb) || :ctx::jsonb
-                WHERE id = :sid
+                SET metadata = COALESCE(metadata, CAST('{}' AS jsonb))
+                               || CAST(:ctx AS jsonb)
+                WHERE id = CAST(:sid AS uuid)
                 """
             ),
             {"ctx": json.dumps(context_data), "sid": str(session_id)},
         )
         await db.commit()
-        logger.info("[agent-identity] stored identity context for session=%s source=%s", session_id, context_payload["source"])
+        logger.info(
+            "[agent-identity] stored identity context for session=%s source=%s",
+            session_id,
+            context_payload["source"],
+        )
     except Exception:
         logger.exception("[agent-identity] failed to store identity context for session=%s", session_id)
         try:
