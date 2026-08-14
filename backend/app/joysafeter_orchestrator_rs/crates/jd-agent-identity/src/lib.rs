@@ -56,18 +56,34 @@ struct CreateBotTokenRequest {
     extensions: Option<HashMap<String, serde_json::Value>>,
 }
 
+/// Standard response envelope from the JD identity platform.
+///
+/// Note: `code` is a STRING ("200" = success), and there is a top-level
+/// `success` boolean. `message` may be absent on success.
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct ApiResponse<T> {
-    code: i32,
+    #[serde(default)]
+    success: bool,
+    #[serde(default)]
+    code: String,
+    #[serde(default)]
     message: String,
     data: Option<T>,
+}
+
+impl<T> ApiResponse<T> {
+    /// A response is OK when success=true or code=="200".
+    fn is_ok(&self) -> bool {
+        self.success || self.code == "200"
+    }
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BotTokenData {
     bot_token: String,
+    /// Credential validity in seconds.
+    #[serde(default)]
     expires_in: u64,
 }
 
@@ -76,6 +92,7 @@ struct BotTokenData {
 struct AgentTokenData {
     agent_token: String,
     #[allow(dead_code)]
+    #[serde(default)]
     expires_in: u64,
 }
 
@@ -84,6 +101,7 @@ struct AgentTokenData {
 struct UserIdentityData {
     token: String,
     #[allow(dead_code)]
+    #[serde(default)]
     expires_in: u64,
 }
 
@@ -331,10 +349,10 @@ impl JdAgentIdentityProvider {
             .json()
             .await
             .context("createBotToken response parse failed")?;
-        if resp.code != 0 {
+        if !resp.is_ok() {
             warn!(
                 trace_id = %req.trace_id,
-                code = resp.code,
+                code = %resp.code,
                 msg = %resp.message,
                 "createBotToken failed"
             );
@@ -388,10 +406,10 @@ impl JdAgentIdentityProvider {
             .json()
             .await
             .context("exchangeAgentToken response parse failed")?;
-        if resp.code != 0 {
+        if !resp.is_ok() {
             warn!(
                 trace_id = %trace_id,
-                code = resp.code,
+                code = %resp.code,
                 msg = %resp.message,
                 "exchangeAgentToken failed"
             );
@@ -456,10 +474,10 @@ impl JdAgentIdentityProvider {
             .json()
             .await
             .context("exchangeUserToken response parse failed")?;
-        if resp.code != 0 {
+        if !resp.is_ok() {
             warn!(
                 trace_id = %trace_id,
-                code = resp.code,
+                code = %resp.code,
                 msg = %resp.message,
                 "exchangeUserToken failed"
             );
@@ -491,9 +509,9 @@ impl JdAgentIdentityProvider {
             .json()
             .await
             .context("destroyBotToken response parse failed")?;
-        if resp.code != 0 {
+        if !resp.is_ok() {
             warn!(
-                code = resp.code,
+                code = %resp.code,
                 msg = %resp.message,
                 "destroyBotToken non-zero (non-fatal)"
             );
@@ -525,7 +543,7 @@ impl JdAgentIdentityProvider {
             .json()
             .await
             .context("exchangeBotToken(authCode) response parse failed")?;
-        if resp.code != 0 {
+        if !resp.is_ok() {
             anyhow::bail!(
                 "exchangeBotToken(authCode): code={}, msg={}",
                 resp.code,
