@@ -501,142 +501,18 @@ async def create_task(
     # Store agent identity context if the agent has identity config.
     # This captures the user's raw credential (encrypted) so the Rust
     # orchestrator can bootstrap BotToken creation during sandbox resolve.
-    await _store_agent_identity_context(db, chat_session_id, request, auth_ctx, agent, req)
+    from app.joysafeter_api.api.v1.agent_identity_capture import store_agent_identity_context
+
+    await store_agent_identity_context(
+        db,
+        chat_session_id,
+        request,
+        auth_ctx,
+        agent,
+        bot_auth_code=getattr(req, "bot_auth_code", None),
+    )
 
     return CreateTaskResponse(id=task.id, status=task.status)
-
-
-async def _store_agent_identity_context(
-    db: AsyncSession,
-    session_id: uuid.UUID,
-    request: Request,
-    auth_ctx,
-    agent,
-    req=None,
-) -> None:
-    """Capture and encrypt the triggering user's identity for agent delegation.
-
-    Two paths:
-    - Web SSO: extracts user's Cookie → stores as identity_token
-    - API (bot_auth_code): stores the one-time auth code for Rust to exchange
-
-    The Rust orchestrator reads this during sandbox resolution to obtain
-    BotToken (via createBotToken or exchangeBotToken(authCode)).
-    """
-    # Global mode: capture identity context for all agents when the identity
-    # platform is configured. Per-agent opt-out is still honored if an agent
-    # explicitly sets agent_identity.enabled = false.
-    import os
-
-    if not os.environ.get("JD_AGENT_IDENTITY_BASE_URL", "").strip():
-        return  # Identity platform not configured — nothing to capture
-
-    agent_metadata = getattr(agent, "metadata_", None) or getattr(agent, "metadata", None)
-    if isinstance(agent_metadata, dict):
-        identity_config = agent_metadata.get("agent_identity")
-        if isinstance(identity_config, dict) and not identity_config.get("enabled", True):
-            return  # Explicit per-agent opt-out
-
-    import json
-    from datetime import datetime, timezone
-    from sqlalchemy import select, text
-    from app.joysafeter_domain.models.joysafeter_auth import AuthUser
-
-    # --- Determine source: bot_auth_code (API) or Cookie (Web SSO) ---
-    bot_auth_code = getattr(req, "bot_auth_code", None) if req else None
-    identity_token = None
-
-    if not bot_auth_code:
-        # Web SSO path: extract the internal SSO ticket cookie (e.g. "sso.jd.com").
-        # This is the user's internal identity credential the JD identity platform
-        # needs — NOT JoySafeter's own login cookie.
-        # The cookie name is configurable; defaults match the JD SSO scheme.
-        identity_cookie_name = os.environ.get(
-            "JD_AGENT_IDENTITY_COOKIE_NAME", "sso.jd.com"
-        ).strip()
-        identity_token = request.cookies.get(identity_cookie_name)
-
-    if not bot_auth_code and not identity_token:
-        return  # No credential available — identity injection won't work
-
-    # --- Encrypt sensitive values ---
-    vault_key = os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", "")
-
-    def _encrypt(value: str) -> str:
-        if not vault_key or not value:
-            return value
-        try:
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-            import base64
-
-            key_bytes = (
-                bytes.fromhex(vault_key)
-                if len(vault_key) == 64
-                else base64.b64decode(vault_key)
-            )
-            nonce = os.urandom(12)
-            aesgcm = AESGCM(key_bytes)
-            ciphertext = aesgcm.encrypt(nonce, value.encode(), None)
-            return "enc:" + base64.b64encode(nonce + ciphertext).decode()
-        except Exception:
-            return value  # plaintext fallback
-
-    # --- Get user email for cache keying ---
-    user_name = auth_ctx.user_id
-    try:
-        result = await db.execute(
-            select(AuthUser.email).where(AuthUser.id == auth_ctx.user_id).limit(1)
-        )
-        email = result.scalar_one_or_none()
-        if email:
-            user_name = email
-    except Exception:
-        pass
-
-    # --- Build context data ---
-    context_payload: dict = {
-        "user_name": user_name,
-        "captured_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-    if bot_auth_code:
-        # API path: store encrypted auth_code
-        context_payload["auth_code"] = _encrypt(bot_auth_code)
-        context_payload["source"] = "bot_auth_code"
-    else:
-        # Web SSO path: store encrypted identity_token
-        context_payload["identity_token"] = _encrypt(identity_token)
-        context_payload["source"] = "cookie"
-
-    # Capture request headers for createBotToken's headersMap field
-    headers_map = {}
-    for key, value in request.headers.items():
-        # Skip internal auth headers, keep everything else (including Cookie)
-        lower_key = key.lower()
-        if lower_key in ("authorization", "x-api-key"):
-            continue
-        headers_map[key] = value
-    if headers_map:
-        context_payload["headers_map"] = headers_map
-
-    context_data = {"agent_identity_context": context_payload}
-
-    # --- Store in session.metadata ---
-    try:
-        await db.execute(
-            text("""
-                UPDATE joysafeter_sessions
-                SET metadata = COALESCE(metadata, '{}'::jsonb) || :ctx::jsonb
-                WHERE id = :sid
-            """),
-            {"ctx": json.dumps(context_data), "sid": str(session_id)},
-        )
-        await db.commit()
-    except Exception:
-        try:
-            await db.rollback()
-        except Exception:
-            pass
 
 
 @router.get("")

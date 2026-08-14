@@ -1476,6 +1476,7 @@ async def _replay_pending_control_inputs(
 @router.post("/{session_id}/events", status_code=201)
 async def send_event(
     req: SendEventRequest,
+    request: Request,
     session_id: uuid.UUID = Depends(_parse_session_id),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
@@ -1669,6 +1670,27 @@ async def send_event(
                 enforce_user_quota=auth_ctx.principal_type == "user",
                 emit_user_message=False,  # event already persisted by this endpoint
             )
+
+            # Capture the user's SSO identity so the orchestrator can obtain a
+            # BotToken during sandbox resolve. Web flow posts here (not /tasks),
+            # so the capture must live on this path too.
+            try:
+                from app.joysafeter_api.api.v1.agent_identity_capture import (
+                    store_agent_identity_context,
+                )
+                from app.joysafeter_api.services import JoySafeterAgentService
+
+                agent_obj = await JoySafeterAgentService(db).get_agent(
+                    session.agent_id, project_id=auth_ctx.project_id
+                )
+                if agent_obj is not None:
+                    await store_agent_identity_context(
+                        db, session_id, request, auth_ctx, agent_obj
+                    )
+            except Exception:
+                logger.exception(
+                    "[agent-identity] capture failed on session events path (non-fatal)"
+                )
             if broadcaster:
                 running_event = await svc.find_status_running_event_for_task(
                     session_id,
