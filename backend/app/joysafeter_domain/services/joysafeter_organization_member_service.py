@@ -27,7 +27,7 @@ NON_OWNER_ASSIGNABLE_ROLES = frozenset(r.value for r in JoySafeterRole if r is n
 @dataclass(frozen=True)
 class MemberWithUser:
     member: Member
-    user: AuthUser | None
+    user: AuthUser
 
 
 def _permission_error(
@@ -199,7 +199,7 @@ class OrganizationMemberService:
     async def list_members(self, organization_id: str) -> list[MemberWithUser]:
         result = await self.db.execute(
             select(Member, AuthUser)
-            .outerjoin(AuthUser, Member.user_id == AuthUser.id)
+            .join(AuthUser, Member.user_id == AuthUser.id)
             .where(Member.organization_id == organization_id)
             .order_by(Member.created_at)
         )
@@ -215,7 +215,7 @@ class OrganizationMemberService:
     ) -> tuple[list[MemberWithUser], bool]:
         query = (
             select(Member, AuthUser)
-            .outerjoin(AuthUser, Member.user_id == AuthUser.id)
+            .join(AuthUser, Member.user_id == AuthUser.id)
             .where(Member.organization_id == organization_id)
         )
         if q.strip():

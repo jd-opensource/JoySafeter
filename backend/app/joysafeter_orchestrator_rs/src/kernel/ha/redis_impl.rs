@@ -184,7 +184,10 @@ impl BridgeStore for RedisBridgeStore {
             let _: Vec<redis::Value> = re_register_pipe.query_async(&mut conn).await?;
         }
 
-        debug!(total = bridges.len(), "Bridge heartbeat complete (pipeline)");
+        debug!(
+            total = bridges.len(),
+            "Bridge heartbeat complete (pipeline)"
+        );
         Ok(())
     }
 }
@@ -259,11 +262,14 @@ impl TaskDispatcher for RedisTaskDispatcher {
                 let owner: Option<String> = conn.get(&bridge_key).await?;
                 match owner {
                     Some(o) => {
-                        self.owner_cache.insert(sandbox_id, (o.clone(), std::time::Instant::now()));
+                        self.owner_cache
+                            .insert(sandbox_id, (o.clone(), std::time::Instant::now()));
                         o
                     }
                     None => {
-                        return Err(anyhow!("sandbox {sandbox_id} not registered on any instance"));
+                        return Err(anyhow!(
+                            "sandbox {sandbox_id} not registered on any instance"
+                        ));
                     }
                 }
             }
@@ -271,11 +277,14 @@ impl TaskDispatcher for RedisTaskDispatcher {
             let owner: Option<String> = conn.get(&bridge_key).await?;
             match owner {
                 Some(o) => {
-                    self.owner_cache.insert(sandbox_id, (o.clone(), std::time::Instant::now()));
+                    self.owner_cache
+                        .insert(sandbox_id, (o.clone(), std::time::Instant::now()));
                     o
                 }
                 None => {
-                    return Err(anyhow!("sandbox {sandbox_id} not registered on any instance"));
+                    return Err(anyhow!(
+                        "sandbox {sandbox_id} not registered on any instance"
+                    ));
                 }
             }
         };
@@ -291,18 +300,10 @@ impl TaskDispatcher for RedisTaskDispatcher {
 
         // Serialize command and relay via target's inbox stream
         let (cmd_type, payload) = match &command {
-            DispatchCommand::Cancel { reason } => {
-                ("cancel", json!({"reason": reason}))
-            }
-            DispatchCommand::SendInput { content } => {
-                ("send_input", json!({"content": content}))
-            }
-            DispatchCommand::Shutdown { reason } => {
-                ("shutdown", json!({"reason": reason}))
-            }
-            DispatchCommand::TaskWakeup => {
-                ("task_wakeup", json!({}))
-            }
+            DispatchCommand::Cancel { reason } => ("cancel", json!({"reason": reason})),
+            DispatchCommand::SendInput { content } => ("send_input", json!({"content": content})),
+            DispatchCommand::Shutdown { reason } => ("shutdown", json!({"reason": reason})),
+            DispatchCommand::TaskWakeup => ("task_wakeup", json!({})),
         };
 
         let inbox_key = format!("{INBOX_KEY_PREFIX}{target}");
@@ -420,10 +421,7 @@ pub async fn inbox_consumer_loop(
 }
 
 /// Handle a single inbox message by dispatching to the local bridge.
-async fn handle_inbox_message(
-    bridge_store: &Arc<dyn BridgeStore>,
-    fields: &[(String, String)],
-) {
+async fn handle_inbox_message(bridge_store: &Arc<dyn BridgeStore>, fields: &[(String, String)]) {
     let mut cmd_type = "";
     let mut sandbox_id_str = "";
     let mut payload_str = "";
@@ -608,4 +606,3 @@ pub async fn xds_notify_consumer_loop(
         }
     }
 }
-

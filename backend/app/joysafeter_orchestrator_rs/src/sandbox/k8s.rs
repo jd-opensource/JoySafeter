@@ -9,7 +9,7 @@ use kube::Client;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use tokio::io::AsyncReadExt;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::lds_backend::{DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend, SandboxCredentials};
@@ -70,15 +70,13 @@ impl K8sProvider {
                 Arc::new(FilesystemLds::new(config.envoy_config_dir.clone()))
             };
             Some(Arc::new(EnvoyManager::new(
-                // K8s provider doesn't need Docker client for Envoy (DaemonSet
-                // manages its own container). Pass a dummy client — EnvoyManager
-                // only uses it for prepare_socket_dir_in_volume (which we skip
-                // via initContainer) and health_check (which we skip via K8s
-                // livenessProbe on the DaemonSet).
-                Arc::new(
-                    bollard::Docker::connect_with_local_defaults()
-                        .unwrap_or_else(|_| panic!("bollard dummy client init failed")),
-                ),
+                // K8s provider doesn't need a Docker client for Envoy (DaemonSet
+                // manages its own container). EnvoyManager only uses Docker for
+                // prepare_socket_dir_in_volume (skipped via initContainer) and
+                // health_check (skipped via K8s livenessProbe on the DaemonSet),
+                // so pass None — constructing a real bollard client here would
+                // panic in a pod that has no Docker socket.
+                None,
                 EnvoyConfig {
                     envoy_image: config.envoy_image.clone(),
                     socket_volume: config.envoy_socket_volume.clone(),
@@ -109,6 +107,18 @@ impl K8sProvider {
         // Start PodWatcher — background Watch stream keeps local pod cache synced.
         // status() and list_active() read from this cache (zero API calls).
         let pod_watcher = PodWatcher::new(client.clone(), &config.k8s_namespace);
+
+        // pids_limit has no per-pod equivalent in the K8s pod spec (it is a
+        // node-level kubelet setting, `podPidsLimit`). Warn once so operators
+        // know the JOYSAFETER_SANDBOX_PIDS_LIMIT knob is not enforced here and
+        // must be configured on the kubelet instead.
+        if config.sandbox_pids_limit > 0 {
+            warn!(
+                pids_limit = config.sandbox_pids_limit,
+                "JOYSAFETER_SANDBOX_PIDS_LIMIT is set but K8s pods have no per-pod PID limit; \
+                 configure kubelet `podPidsLimit` on the nodes to enforce it"
+            );
+        }
 
         info!(
             namespace = %config.k8s_namespace,
@@ -165,7 +175,7 @@ impl K8sProvider {
             sandbox_uuid.to_string(),
         );
 
-        let env: Vec<Value> = config
+        let mut env: Vec<Value> = config
             .env
             .iter()
             .map(|(name, value)| json!({ "name": name, "value": value }))
@@ -218,6 +228,16 @@ impl K8sProvider {
         // do it remotely since it may be on a different node).
         let has_egress = config.network.as_deref() == Some("none") && self.envoy_manager.is_some();
         if has_egress {
+            // Tell the runner where Envoy's per-sandbox HTTP egress pipe lives so
+            // it starts the in-process proxy bridge (127.0.0.1:3128 → this socket).
+            // Without this the runner has no unix:// hint (orch_url is TCP in K8s),
+            // never starts the bridge, and the agent's HTTP_PROXY points at a dead
+            // port → all egress hangs. Matches the LDS pipe path and the mount below.
+            env.push(json!({
+                "name": "JOYSAFETER_EGRESS_HTTP_SOCKET_PATH",
+                "value": format!("/sockets/{}/http.sock", config.sandbox_id)
+            }));
+
             let socket_host_dir = self
                 .config
                 .envoy_socket_host_dir
@@ -238,10 +258,13 @@ impl K8sProvider {
             }));
 
             // initContainer: create per-sandbox socket directory with correct perms.
-            // Uses the envoy image (already pulled on the node, has sh).
+            // Reuse the sandbox image itself (same image as the runner container →
+            // already pulled / IfNotPresent, has sh). Avoids depending on a separate
+            // envoy image (which may be an unreachable docker.io default).
             init_containers.push(json!({
                 "name": "create-socket-dir",
-                "image": self.config.envoy_image,
+                "image": config.image,
+                "imagePullPolicy": "IfNotPresent",
                 "command": ["sh", "-c", format!(
                     "mkdir -p /sockets/{sid} && chmod 777 /sockets/{sid}",
                     sid = sandbox_uuid
@@ -256,20 +279,47 @@ impl K8sProvider {
             }));
         }
 
+        // Sandbox hardening — honor the same JOYSAFETER_SANDBOX_* config the
+        // Docker provider uses, instead of hardcoding. Default config is
+        // drop_all_caps=true, no_new_privileges=true, run_as_user="1000:1000",
+        // so the default rendered spec is identical to before.
+        let no_new_priv = self.config.sandbox_no_new_privileges;
+        let drop_caps = self.config.sandbox_drop_all_caps;
+        // run_as_user is "uid:gid"; empty = use the image's default USER.
+        let (run_as_uid, run_as_gid): (Option<i64>, Option<i64>) = {
+            let raw = self.config.sandbox_run_as_user.trim();
+            if raw.is_empty() {
+                (None, None)
+            } else {
+                let mut parts = raw.splitn(2, ':');
+                let uid = parts.next().and_then(|u| u.trim().parse::<i64>().ok());
+                let gid = parts.next().and_then(|g| g.trim().parse::<i64>().ok());
+                (uid, gid.or(uid))
+            }
+        };
+
+        let mut container_sec_ctx = json!({
+            "allowPrivilegeEscalation": !no_new_priv,
+            "readOnlyRootFilesystem": false,
+        });
+        if drop_caps {
+            container_sec_ctx["capabilities"] = json!({ "drop": ["ALL"] });
+        }
+        if let Some(uid) = run_as_uid {
+            container_sec_ctx["runAsUser"] = json!(uid);
+            container_sec_ctx["runAsNonRoot"] = json!(uid != 0);
+        }
+        if let Some(gid) = run_as_gid {
+            container_sec_ctx["runAsGroup"] = json!(gid);
+        }
+
         let mut container = json!({
             "name": "runner",
             "image": config.image,
             "imagePullPolicy": "IfNotPresent",
             "workingDir": "/workspace",
             "env": env,
-            "securityContext": {
-                "allowPrivilegeEscalation": false,
-                "readOnlyRootFilesystem": false,
-                "runAsNonRoot": true,
-                "runAsUser": 1000,
-                "runAsGroup": 1000,
-                "capabilities": { "drop": ["ALL"] }
-            },
+            "securityContext": container_sec_ctx,
             "resources": {
                 "requests": {},
                 "limits": {}
@@ -283,20 +333,32 @@ impl K8sProvider {
             container["resources"]["limits"]["memory"] = json!(format!("{memory_mb}Mi"));
         }
 
+        let mut pod_security_context = json!({
+            "seccompProfile": { "type": "RuntimeDefault" },
+            "fsGroupChangePolicy": "OnRootMismatch"
+        });
+        // fsGroup follows the configured gid so mounted volumes are group-owned
+        // by the same gid the container runs as. Falls back to 1000 (prior default).
+        pod_security_context["fsGroup"] = json!(run_as_gid.unwrap_or(1000));
+
         let mut pod_spec = json!({
             "restartPolicy": "Never",
             "automountServiceAccountToken": false,
             "enableServiceLinks": false,
-            "securityContext": {
-                "seccompProfile": { "type": "RuntimeDefault" },
-                "fsGroup": 1000,
-                "fsGroupChangePolicy": "OnRootMismatch"
-            },
+            "securityContext": pod_security_context,
             "containers": [container],
             "volumes": volumes
         });
         if !init_containers.is_empty() {
             pod_spec["initContainers"] = json!(init_containers);
+        }
+        if !self.config.k8s_image_pull_secrets.is_empty() {
+            pod_spec["imagePullSecrets"] = json!(self
+                .config
+                .k8s_image_pull_secrets
+                .iter()
+                .map(|name| json!({ "name": name }))
+                .collect::<Vec<_>>());
         }
 
         Ok(json!({
@@ -434,14 +496,17 @@ impl SandboxProvider for K8sProvider {
                     if let Some(node) = self.pod_watcher.node_name(&pod_info.name).await {
                         if let Some(id_str) = pod_info.labels.get("joysafeter.sandbox_id") {
                             if let Ok(sandbox_id) = id_str.parse::<uuid::Uuid>() {
-                                xds.set_sandbox_node(sandbox_id, node);
+                                xds.set_sandbox_node(SandboxId::from_uuid(sandbox_id), node);
                                 mapped += 1;
                             }
                         }
                     }
                 }
                 if mapped > 0 {
-                    info!(mapped, "Rebuilt sandbox→node mappings from PodWatcher cache");
+                    info!(
+                        mapped,
+                        "Rebuilt sandbox→node mappings from PodWatcher cache"
+                    );
                 }
             }
 
@@ -462,12 +527,32 @@ impl SandboxProvider for K8sProvider {
         credentials: SandboxCredentials,
     ) -> anyhow::Result<()> {
         if let Some(ref manager) = self.envoy_manager {
-            // Register sandbox→node mapping for node-aware xDS filtering.
-            // The PodWatcher cache has the pod's nodeName once it's scheduled.
+            // Register sandbox→node mapping BEFORE pushing the listener, so
+            // node-aware xDS filtering sends it only to the Envoy on the
+            // sandbox's node. With restrictive filtering, a missing mapping
+            // means the listener is withheld from all Envoys — so we must wait
+            // for the PodWatcher cache to learn the pod's nodeName (it may lag
+            // pod creation by a moment). Bounded wait; if it never resolves the
+            // periodic networking reconcile loop retries later.
             let pod_name = Self::pod_name(sandbox_id);
             if let Some(ref xds) = self.xds_service {
-                if let Some(node) = self.pod_watcher.node_name(&pod_name).await {
-                    xds.set_sandbox_node(sandbox_id.as_uuid(), node);
+                let mut node = self.pod_watcher.node_name(&pod_name).await;
+                if node.is_none() {
+                    for _ in 0..25 {
+                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                        node = self.pod_watcher.node_name(&pod_name).await;
+                        if node.is_some() {
+                            break;
+                        }
+                    }
+                }
+                match node {
+                    Some(node) => xds.set_sandbox_node(sandbox_id, node),
+                    None => warn!(
+                        sandbox_id = %sandbox_id,
+                        "node name not known yet for sandbox; listener will be delivered once the \
+                         networking reconcile loop resolves the node mapping"
+                    ),
                 }
             }
             // In K8s mode, prepare_socket_dir is handled by the pod's
@@ -498,7 +583,7 @@ impl SandboxProvider for K8sProvider {
         }
         // Remove sandbox→node mapping
         if let Some(ref xds) = self.xds_service {
-            xds.remove_sandbox_node(sandbox_id.as_uuid());
+            xds.remove_sandbox_node(sandbox_id);
         }
         Ok(())
     }

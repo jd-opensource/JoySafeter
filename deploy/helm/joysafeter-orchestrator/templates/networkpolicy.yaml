@@ -1,9 +1,102 @@
 {{- if .Values.networkPolicy.enabled }}
-# Sandbox Pod 网络隔离: 只允许连 Orchestrator(gRPC) + DNS
+{{- if eq .Values.networkPolicy.type "cilium" }}
+# =============================================================================
+# CiliumNetworkPolicy (CNI = Cilium)
+# =============================================================================
+---
+# Sandbox Pod: 默认拒绝所有出站,只放行 Orchestrator gRPC + DNS
+# 外网出口必须走 Envoy (hostPath UDS,不经网络栈,CNP 管不到 → 天然只能走 Envoy)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: joysafeter-sandbox-egress
+  namespace: {{ .Values.namespace }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: joysafeter-sandbox
+  # 白名单式: 只有下面列出的允许,其余全 deny (Cilium 默认行为)
+  egress:
+  # 1. Orchestrator gRPC (控制面)
+  - toEndpoints:
+    - matchLabels:
+        app: joysafeter-orchestrator
+    toPorts:
+    - ports:
+      - port: "{{ .Values.orchestrator.grpc.port }}"
+        protocol: TCP
+  # 2. DNS (kube-dns) — 必须,否则连 Service 域名都解析不了
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      - port: "53"
+        protocol: TCP
+      rules:
+        dns:
+        - matchPattern: "*"
+  # 入站: 不接受任何连接
+  ingressDeny:
+  - fromEntities:
+    - all
+
+---
+# Envoy DaemonSet: 允许连 Orchestrator ADS + DNS + 外网 (代理沙箱出口)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: joysafeter-envoy-egress
+  namespace: {{ .Values.namespace }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app: joysafeter-envoy
+  egress:
+  # 1. Orchestrator ADS (xDS 控制面)
+  - toEndpoints:
+    - matchLabels:
+        app: joysafeter-orchestrator
+    toPorts:
+    - ports:
+      - port: "{{ .Values.orchestrator.grpc.port }}"
+        protocol: TCP
+  # 2. DNS
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      - port: "53"
+        protocol: TCP
+      rules:
+        dns:
+        - matchPattern: "*"
+  # 3. 外网 (LLM/MCP API 出口)
+  - toEntities:
+    - world
+    toPorts:
+    - ports:
+      - port: "443"
+        protocol: TCP
+      - port: "80"
+        protocol: TCP
+
+{{- else }}
+# =============================================================================
+# 标准 K8s NetworkPolicy (通用 CNI)
+# =============================================================================
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: joysafeter-sandbox-isolation
+  name: joysafeter-sandbox-deny-egress
   namespace: {{ .Values.namespace }}
 spec:
   podSelector:
@@ -33,7 +126,6 @@ spec:
       protocol: TCP
 
 ---
-# Envoy 出口: 允许连 Orchestrator(ADS) + DNS + 外网 80/443
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -75,4 +167,5 @@ spec:
       protocol: TCP
     - port: 80
       protocol: TCP
+{{- end }}
 {{- end }}

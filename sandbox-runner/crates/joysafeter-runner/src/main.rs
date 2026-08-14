@@ -291,16 +291,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         } else {
             match tonic::transport::Channel::from_shared(orch_url.clone()) {
-                Ok(endpoint) => match endpoint.connect().await {
-                    Ok(ch) => ch,
-                    Err(e) => {
-                        error!(error = %e, "Failed to connect to orchestrator");
-                        if handle_retry(&mut retry_count, &surviving_task).await {
-                            continue;
+                Ok(endpoint) => {
+                    // HTTP/2 keepalive on the long-lived bidirectional `session`
+                    // stream. Without it, K8s kube-proxy/conntrack (and any LB in
+                    // between) evict the idle-ish TCP flow after its idle timeout,
+                    // surfacing as `h2 protocol error: error reading a body` and
+                    // reaping in-flight tasks. Frequent PINGs keep the flow alive
+                    // and detect a dead orchestrator quickly.
+                    let endpoint = endpoint
+                        .connect_timeout(Duration::from_secs(5))
+                        .http2_keep_alive_interval(Duration::from_secs(20))
+                        .keep_alive_timeout(Duration::from_secs(10))
+                        .keep_alive_while_idle(true)
+                        .tcp_keepalive(Some(Duration::from_secs(20)));
+                    match endpoint.connect().await {
+                        Ok(ch) => ch,
+                        Err(e) => {
+                            error!(error = %e, "Failed to connect to orchestrator");
+                            if handle_retry(&mut retry_count, &surviving_task).await {
+                                continue;
+                            }
+                            break;
                         }
-                        break;
                     }
-                },
+                }
                 Err(e) => {
                     error!(error = %e, "Invalid orchestrator URL");
                     break;

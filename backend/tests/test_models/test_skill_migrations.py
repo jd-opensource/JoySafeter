@@ -1,25 +1,8 @@
-"""Alembic smoke tests for the pre-release initial schema.
-
-These don't touch a real database — they exercise alembic's
-``--sql`` mode (offline) to confirm:
-
-  1. The migration directory contains one linear chain with a single head.
-  2. ``base -> head`` creates the current schema directly.
-  3. ``head -> base`` removes the current schema.
-
-Running this in CI catches the most common alembic mistake — a new
-revision file with the wrong ``down_revision`` — before it lands in a
-deployed DB.
-
-We don't shell out to ``alembic`` because alembic is importable; using
-the Python API keeps the test self-contained and CI-friendly.
-"""
+"""Alembic chain and policy tests plus current Skill schema checks."""
 
 from __future__ import annotations
 
-import io
 import uuid
-from contextlib import redirect_stdout
 from itertools import pairwise
 from pathlib import Path
 
@@ -58,58 +41,17 @@ def test_chain_is_linear_with_single_head():
 
 
 @pytest.mark.no_db
-def test_upgrade_sql_creates_current_schema():
+def test_upgrade_sql_rejects_the_online_only_unified_credential_migration():
     cfg = _config()
-    buf = io.StringIO()
-    with redirect_stdout(buf):
+    with pytest.raises(RuntimeError, match="online-only"):
         command.upgrade(cfg, "base:head", sql=True)
-    sql = buf.getvalue()
-
-    assert "CREATE SEQUENCE joysafeter_task_owner_epoch_seq" in sql
-    assert "CREATE TABLE joysafeter_cluster_members" in sql
-    assert "CREATE TABLE joysafeter_tasks" in sql
-    assert "CREATE TABLE joysafeter_sessions" in sql
-    assert "CREATE TABLE joysafeter_triggers" in sql
-    assert "CREATE TABLE joysafeter_skills" in sql
-    assert "CREATE TABLE joysafeter_skill_versions" in sql
-    assert "CREATE TABLE joysafeter_skill_usage_log" in sql
-    usage_log_sql = sql.split("CREATE TABLE joysafeter_skill_usage_log", 1)[1].split(";", 1)[0]
-    assert "session_id UUID" in usage_log_sql
-    assert "agent_id UUID" in usage_log_sql
-    assert "org_version_id UUID" in sql
-    assert "public_version_id UUID" in sql
-    assert "review_target_visibility VARCHAR(16)" in sql
-    assert "artifact_hash VARCHAR(64)" in sql
-    assert "skill_usage_log_session_created_idx" in sql
-    assert "skill_usage_log_skill_created_idx" in sql
-    assert "skill_usage_log_project_artifact_created_idx" in sql
-    assert "skill_usage_log_project_target_created_idx" in sql
-    assert "skill_usage_log_project_scan_created_idx" in sql
-    assert "uq_joysafeter_triggers_global_name" in sql
-    assert "uq_joysafeter_triggers_project_name" in sql
-    trigger_sql = sql.split("CREATE TABLE joysafeter_triggers", 1)[1].split(";", 1)[0]
-    assert "system_prompt" not in trigger_sql
-    assert "joysafeter_schedules" not in sql
-    assert "root_path" not in sql
-    assert "is_public" not in sql
 
 
 @pytest.mark.no_db
-def test_downgrade_sql_removes_current_schema():
+def test_downgrade_sql_rejects_the_irreversible_unified_credential_migration():
     cfg = _config()
-    buf = io.StringIO()
-    with redirect_stdout(buf):
+    with pytest.raises(NotImplementedError, match="not supported"):
         command.downgrade(cfg, "head:base", sql=True)
-    sql = buf.getvalue()
-
-    assert "DROP TABLE joysafeter_skill_usage_log" in sql
-    assert "DROP TABLE joysafeter_skill_versions" in sql
-    assert "DROP TABLE joysafeter_skills" in sql
-    assert "DROP TABLE joysafeter_triggers" in sql
-    assert "DROP TABLE joysafeter_sessions" in sql
-    assert "DROP TABLE joysafeter_tasks" in sql
-    assert "DROP TABLE joysafeter_cluster_members" in sql
-    assert "DROP SEQUENCE joysafeter_task_owner_epoch_seq" in sql
 
 
 # ---------------------------------------------------------------------------

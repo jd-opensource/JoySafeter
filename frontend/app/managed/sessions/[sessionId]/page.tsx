@@ -55,6 +55,7 @@ import {
   getEventType,
   getLatestSessionStatusEvent,
   getMaxSeq,
+  getMinSeq,
   isRequiresActionIdle,
   mergeSessionEvents,
   sortSessionEvents,
@@ -77,6 +78,10 @@ import {
   parseSessionRepoResourceResponse,
   parseSessionResourceListResponse,
 } from '@/lib/managed/file-response-parsers'
+import {
+  getCachedSessionEventState,
+  setCachedSessionEventState,
+} from '@/lib/managed/session-event-cache'
 import type {
   Agent,
   Environment,
@@ -233,7 +238,7 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
   // new events auto-scroll into view; when the user scrolls up to read history,
   // we stop yanking them back down.
   const stickToBottomRef = useRef(true)
-  const { events: streamEvents, connected: sseConnected } = useSessionStream(id, true)
+  const pendingPrependScrollHeightRef = useRef<number | null>(null)
 
   const openSessionFiles = useCallback(() => {
     setActiveDrawer('files')
@@ -350,20 +355,37 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
     [sessionResources],
   )
 
-  const [loadedEvents, setLoadedEvents] = useState<SessionEvent[]>([])
-  const [hasMoreEvents, setHasMoreEvents] = useState(true)
+  const initialCachedEvents = getCachedSessionEventState(sessionScope)
+  const [loadedEvents, setLoadedEvents] = useState<SessionEvent[]>(
+    () => initialCachedEvents?.events ?? [],
+  )
+  const [hasMoreEvents, setHasMoreEvents] = useState(initialCachedEvents?.hasMoreOlder ?? true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
-  const eventsLoadedRef = useRef(false)
+  const [eventsInitialized, setEventsInitialized] = useState(!!initialCachedEvents)
+  const [streamAfterSeq, setStreamAfterSeq] = useState(() =>
+    getMaxSeq(initialCachedEvents?.events ?? []),
+  )
+  const eventsLoadedRef = useRef(!!initialCachedEvents)
+  const { events: streamEvents, connected: sseConnected } = useSessionStream(
+    id,
+    !!id && eventsInitialized,
+    { initialAfterSeq: streamAfterSeq },
+  )
 
   useEffect(() => {
     if (sessionScopeRef.current === sessionScope) return
     sessionScopeRef.current = sessionScope
     managedRequestScopeRef.current = managedScope
     actionRunRef.current += 1
-    eventsLoadedRef.current = false
-    setLoadedEvents([])
-    setHasMoreEvents(true)
+    const cached = getCachedSessionEventState(sessionScope)
+    const cachedEvents = cached?.events ?? []
+    eventsLoadedRef.current = !!cached
+    setLoadedEvents(cachedEvents)
+    setHasMoreEvents(cached?.hasMoreOlder ?? true)
+    setEventsInitialized(!!cached)
+    setStreamAfterSeq(getMaxSeq(cachedEvents))
     setIsLoadingMore(false)
+    pendingPrependScrollHeightRef.current = null
     setSelectedEvent(null)
     setActiveDrawer(null)
     setMsgInput('')
@@ -395,29 +417,48 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
   }, [currentSessionScopeIsActive, id, queryClient])
 
   const loadEvents = useCallback(
-    async (afterSeq?: number) => {
+    async (
+      cursor?: number,
+      mode: 'latest' | 'older' | 'newer' = cursor == null ? 'latest' : 'newer',
+    ) => {
       if (!id) return
       const actionScope = sessionScopeRef.current
       const requestScope = managedRequestScopeRef.current
       if (!currentSessionScopeIsActive(actionScope)) return
       setIsLoadingMore(true)
       try {
+        const query: Record<string, string | number> = {
+          limit: 100,
+          order: mode === 'latest' || mode === 'older' ? 'desc' : 'asc',
+        }
+        if (mode === 'older' && cursor != null) query.before_seq = cursor
+        if (mode === 'newer' && cursor != null) query.after_seq = cursor
+
         const res = await managedGet<unknown[] | { data: unknown[]; has_more: boolean }>(
-          apiResourceSubpath('sessions', id, ['events'], {
-            limit: 100,
-            after_seq: afterSeq,
-          }),
+          apiResourceSubpath('sessions', id, ['events'], query),
           managedRequestOptions(requestScope),
         )
         if (!currentSessionScopeIsActive(actionScope)) return
-        const newEvents = parseSessionEventListResponse(Array.isArray(res) ? res : res.data)
-        const hasMore = Array.isArray(res) ? newEvents.length >= 100 : res.has_more
-        setLoadedEvents((prev) =>
-          sortSessionEvents(afterSeq != null ? [...prev, ...newEvents] : newEvents),
+        const newEvents = sortSessionEvents(
+          parseSessionEventListResponse(Array.isArray(res) ? res : res.data),
         )
-        setHasMoreEvents(hasMore)
+        const hasMore = Array.isArray(res) ? newEvents.length >= 100 : res.has_more
+
+        setLoadedEvents((prev) =>
+          mode === 'latest' ? newEvents : mergeSessionEvents(prev, newEvents),
+        )
+        if (mode === 'latest') {
+          setHasMoreEvents(hasMore)
+          setStreamAfterSeq(getMaxSeq(newEvents))
+          setEventsInitialized(true)
+        } else if (mode === 'older') {
+          setHasMoreEvents(hasMore)
+        }
       } catch {
-        // silently fail
+        if (mode === 'latest' && currentSessionScopeIsActive(actionScope)) {
+          setStreamAfterSeq(0)
+          setEventsInitialized(true)
+        }
       } finally {
         if (currentSessionScopeIsActive(actionScope)) {
           setIsLoadingMore(false)
@@ -430,14 +471,16 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
   useEffect(() => {
     if (id && !eventsLoadedRef.current) {
       eventsLoadedRef.current = true
-      loadEvents()
+      loadEvents(undefined, 'latest')
     }
-  }, [id, loadEvents])
+  }, [id, loadEvents, sessionScope])
 
   const loadMoreEvents = useCallback(() => {
     if (!hasMoreEvents || isLoadingMore || loadedEvents.length === 0) return
-    const lastSeq = getMaxSeq(loadedEvents)
-    loadEvents(lastSeq)
+    const firstSeq = getMinSeq(loadedEvents)
+    if (!firstSeq) return
+    pendingPrependScrollHeightRef.current = scrollContainerRef.current?.scrollHeight ?? null
+    loadEvents(firstSeq, 'older')
   }, [hasMoreEvents, isLoadingMore, loadedEvents, loadEvents])
 
   const isRunning = session?.status === 'running'
@@ -469,9 +512,6 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
     if (streamForced && wasRunningRef.current && !isRunning) {
       setStreamForced(false)
       wasRunningRef.current = false
-      eventsLoadedRef.current = false
-      setLoadedEvents([])
-      loadEvents()
     }
   }, [isRunning, streamForced, id, queryClient])
 
@@ -506,9 +546,6 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
       )
       if (!isCurrentAction(runId, actionScope)) return
       queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
-      eventsLoadedRef.current = false
-      setLoadedEvents([])
-      loadEvents()
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -553,9 +590,6 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
         )
         if (!isCurrentAction(runId, actionScope)) return
         queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
-        eventsLoadedRef.current = false
-        setLoadedEvents([])
-        loadEvents()
       } catch (e) {
         if (!isCurrentAction(runId, actionScope)) return
         toastOperationError(t, e, 'common.operationFailed')
@@ -565,7 +599,7 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
         }
       }
     },
-    [id, queryClient, loadEvents, t, isCurrentAction, currentSessionDetail],
+    [id, queryClient, t, isCurrentAction, currentSessionDetail],
   )
 
   const handleArchiveSession = async () => {
@@ -612,9 +646,6 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
       )
       if (!isCurrentAction(runId, actionScope)) return
       queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
-      eventsLoadedRef.current = false
-      setLoadedEvents([])
-      loadEvents()
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -638,6 +669,21 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
   const allEvents = useMemo(() => {
     return mergeSessionEvents(loadedEvents, streamEvents)
   }, [loadedEvents, streamEvents])
+
+  useEffect(() => {
+    if (!id || !eventsInitialized) return
+    setCachedSessionEventState(sessionScope, allEvents, hasMoreEvents)
+  }, [allEvents, eventsInitialized, hasMoreEvents, id, sessionScope])
+
+  useEffect(() => {
+    const previousHeight = pendingPrependScrollHeightRef.current
+    if (previousHeight == null) return
+    const el = scrollContainerRef.current
+    pendingPrependScrollHeightRef.current = null
+    if (!el) return
+    const delta = el.scrollHeight - previousHeight
+    if (delta > 0) el.scrollTop += delta
+  }, [loadedEvents.length])
 
   // Pending tool-confirmation approvals (always_ask): control_request events
   // that have no matching user.tool_confirmation reply yet.
@@ -897,8 +943,6 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
   }, [allEvents, tab, debugFilter, searchText])
 
   useEffect(() => {
-    // Skip auto-loading more events when SSE is connected — SSE pushes live events
-    if (sseConnected) return
     if (
       tab !== 'transcript' ||
       searchText ||
@@ -919,7 +963,6 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
     loadedEvents.length,
     filteredEvents.length,
     loadMoreEvents,
-    sseConnected,
   ])
 
   // Auto-scroll to the newest event when the transcript grows, but only while
@@ -1277,11 +1320,16 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
             // Pin to bottom only when the user is within 80px of it, so live events
             // keep following; scrolling up to read history releases the pin.
             stickToBottomRef.current = distanceFromBottom < 80
-            if (distanceFromBottom < 100 && hasMoreEvents && !isLoadingMore) {
+            if (el.scrollTop < 100 && hasMoreEvents && !isLoadingMore) {
               loadMoreEvents()
             }
           }}
         >
+          {isLoadingMore && (
+            <div className="flex justify-center py-3">
+              <span className="text-xs text-muted-foreground">{t('common.loading')}</span>
+            </div>
+          )}
           <EventList
             events={filteredEvents}
             sessionStart={sessionStart}
@@ -1289,11 +1337,6 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
             onSelect={setSelectedEvent}
             mode={tab}
           />
-          {isLoadingMore && (
-            <div className="flex justify-center py-3">
-              <span className="text-xs text-muted-foreground">{t('common.loading')}</span>
-            </div>
-          )}
         </div>
 
         {selectedEvent && (

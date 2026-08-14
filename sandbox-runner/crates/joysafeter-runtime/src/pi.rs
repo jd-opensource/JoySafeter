@@ -521,7 +521,6 @@ fn accumulate_usage_and_output(
     usage: &Arc<std::sync::Mutex<joysafeter_types::token_usage::TokenUsage>>,
     output: &Arc<std::sync::Mutex<String>>,
 ) {
-    use joysafeter_types::token_usage::ModelUsage;
     match v.get("type").and_then(|t| t.as_str()) {
         Some("message_update") => {
             if let Some(ame) = v.get("assistantMessageEvent") {
@@ -550,10 +549,7 @@ fn accumulate_usage_and_output(
                 acc.output_tokens += g("output");
                 acc.cache_read_tokens += g("cacheRead");
                 acc.cache_write_tokens += g("cacheWrite");
-                let e = acc
-                    .by_model
-                    .entry(model)
-                    .or_insert_with(ModelUsage::default);
+                let e = acc.by_model.entry(model).or_default();
                 e.input_tokens += g("input");
                 e.output_tokens += g("output");
                 e.cache_read_tokens += g("cacheRead");

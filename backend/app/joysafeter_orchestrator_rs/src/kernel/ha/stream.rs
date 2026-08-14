@@ -11,7 +11,9 @@ use tracing::warn;
 ///
 /// XREAD returns: `[[stream_name, [[entry_id, [field, value, ...]], ...]]]`
 /// We only read one stream at a time, so we take the first stream's entries.
-pub fn parse_xread_response(value: &[redis::Value]) -> Option<Vec<(String, Vec<(String, String)>)>> {
+pub fn parse_xread_response(
+    value: &[redis::Value],
+) -> Option<Vec<(String, Vec<(String, String)>)>> {
     let stream = value.first()?;
     let stream_arr = match stream {
         redis::Value::Array(arr) => arr,

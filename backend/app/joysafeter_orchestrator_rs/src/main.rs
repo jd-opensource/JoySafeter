@@ -23,6 +23,13 @@ async fn main() -> anyhow::Result<()> {
     // Load .env if present
     let _ = dotenvy::dotenv();
 
+    // Install the rustls process-level CryptoProvider before any TLS is used.
+    // rustls 0.23 panics on first TLS use if it cannot auto-select a provider,
+    // which happens when both ring and aws-lc-rs are in the dependency graph
+    // (sqlx PG SSL, redis rediss://, reqwest HTTPS, kube). Install aws-lc-rs
+    // explicitly so cloud TLS connections work. Err = already installed → ignore.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -208,6 +215,33 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // ── xDS leader (K8s multi mode only) ──────────────────────────────────
+    // Task scheduling in multi mode is leaderless (all replicas active), but the
+    // Envoy xDS control plane is stateful and must converge to a single source.
+    // Elect a dedicated xDS leader and label its pod so the leader-only Service
+    // routes every Envoy DaemonSet to one replica. No-op unless multi + k8s +
+    // xDS enabled (Docker/standalone/leader already have a single xDS source).
+    let mut xds_leader_handle = None;
+    if config.ha_mode == "multi" && config.sandbox_provider == "k8s" && xds_service.is_some() {
+        let kube_client = kube::Client::try_default().await.map_err(|error| {
+            anyhow::anyhow!(
+                "multi+k8s gRPC xDS requires K8s leader coordination, but client init failed: {error}"
+            )
+        })?;
+        let pod_name = std::env::var("POD_NAME").map_err(|_| {
+            anyhow::anyhow!("multi+k8s gRPC xDS requires POD_NAME for leader label coordination")
+        })?;
+        xds_leader_handle = Some(kernel::xds_leader::spawn(
+            kube_client,
+            config.k8s_namespace.clone(),
+            pod_name,
+            config.xds_leader_lease_name.clone(),
+            config.leader_identity.clone(),
+            std::time::Duration::from_secs(config.leader_lease_duration_sec),
+            std::time::Duration::from_secs(config.leader_renew_interval_sec),
+        ));
+    }
+
     // Health server — expose readiness/liveness for K8s probes.
     // Starts early (both leader and standby expose /healthz/live).
     // ready_flag is set to true only after services are fully started.
@@ -313,6 +347,7 @@ async fn main() -> anyhow::Result<()> {
         sandbox_provider.clone(),
         config.clone(),
         Some(sandbox_controller.pool_replenish_notify.clone()),
+        Some(ha.xds_store.clone()),
     );
     info!("Task scheduler started");
 
@@ -426,6 +461,15 @@ async fn main() -> anyhow::Result<()> {
     ready_flag.store(false, Ordering::Release);
     info!("Marked not-ready; draining in-flight work...");
 
+    // Hand off xDS leadership up front: drop our pod label (Envoy xDS Service
+    // stops routing to us) and release the Lease so a peer wins within seconds
+    // instead of waiting for lease expiry. Without this, the terminating pod
+    // keeps the label through its whole grace period, leaving a ~lease-duration
+    // gap with no xDS leader during rolling upgrades.
+    if let Some(ref xh) = xds_leader_handle {
+        xh.shutdown().await;
+    }
+
     // Stop scheduler immediately (no new tasks claimed).
     scheduler_handle.abort();
 
@@ -442,8 +486,22 @@ async fn main() -> anyhow::Result<()> {
         tokio::time::sleep(DRAIN_TIMEOUT).await;
     }
 
-    // Send shutdown to remaining connected runners
-    bridge_store.shutdown_all().await;
+    // Send shutdown to remaining connected runners — ONLY in standalone mode.
+    //
+    // In standalone the only orchestrator is going away, so runners must exit
+    // (nothing to reconnect to). In multi/leader modes this replica is one of
+    // several: on a rolling restart the runner's gRPC stream simply breaks and
+    // it reconnects to a surviving replica via the Service (bridge state is in
+    // Redis). Sending an explicit Shutdown here would needlessly kill every
+    // running sandbox on each orchestrator deploy, defeating HA.
+    if ha.mode.as_str() == "standalone" {
+        bridge_store.shutdown_all().await;
+    } else {
+        info!(
+            ha_mode = %ha.mode.as_str(),
+            "Skipping runner shutdown broadcast; runners will reconnect to a surviving replica"
+        );
+    }
 
     // Stop remaining background tasks
     grpc_handle.abort();

@@ -663,10 +663,7 @@ async fn download_file_refs(
         let sem = semaphore.clone();
 
         join_set.spawn(async move {
-            let _permit = sem
-                .acquire()
-                .await
-                .map_err(|e| format!("semaphore: {e}"))?;
+            let _permit = sem.acquire().await.map_err(|e| format!("semaphore: {e}"))?;
             download_single_file_ref(&url, &path, &filename).await
         });
     }

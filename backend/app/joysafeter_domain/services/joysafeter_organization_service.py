@@ -160,7 +160,7 @@ class OrganizationService:
         for resource_name, model in PROJECT_RESOURCE_BLOCKERS:
             query = select(model.id).where(model.project_id.in_(project_ids))
             if model in soft_delete_models:
-                query = query.where(model.deleted_at.is_(None))
+                query = query.where(getattr(model, "deleted_at").is_(None))
             result = await self.db.execute(query.limit(1))
             if result.scalar_one_or_none() is not None:
                 blockers.append(resource_name)

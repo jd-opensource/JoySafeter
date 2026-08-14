@@ -1058,6 +1058,8 @@ const en = {
         creating: 'Creating...',
         empty: 'No MCP credential vaults yet.',
         archiveVault: 'Archive MCP Credential Vault',
+        actionUnavailable:
+          'This MCP credential vault cannot be modified right now. Refresh the page or confirm the correct project is selected, then retry.',
         archiveTitle: 'Archive MCP Credential Vault',
         archiveDescription:
           'Are you sure you want to archive "{{name}}"? Credentials in this MCP credential vault will no longer be available to agents.',

@@ -6,6 +6,7 @@ tool calls, streaming text deltas and config updates back to the frontend.
 
 import json
 import logging
+from collections.abc import AsyncIterator, Callable
 from typing import Literal, Optional, cast
 
 import httpx
@@ -768,7 +769,7 @@ async def quickstart_chat(
 
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
 
-    stream_provider = _stream_anthropic
+    stream_provider: Callable[..., AsyncIterator[str]] = _stream_anthropic
     stream_kwargs = {}
 
     if protocol == "anthropic_messages":

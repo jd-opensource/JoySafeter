@@ -65,7 +65,7 @@ def _catalog_identity(cred: JoySafeterCredential) -> tuple[str | None, list[str]
     longer in the catalog) resolve to ``(None, [])``.
     """
     profile = resolve_credential_profile(cred)
-    if profile is None:
+    if profile is None or cred.provider is None or cred.protocol is None:
         return None, []
     return profile.model_key, compatible_engine_ids(cred.provider, cred.protocol)
 

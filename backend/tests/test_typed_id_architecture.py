@@ -79,6 +79,10 @@ REVIEWED_ADAPTER_CATEGORIES = {
 # Each key is emitted by the scanner below. Values are (reviewed categories, exact count).
 # A new call, parse, file, function, or count is therefore unclassified and fails the guard.
 REVIEWED_ENTITY_UUID_ADAPTERS = {
+    "rust:app/joysafeter_orchestrator_rs/src/kernel/ha/redis_impl.rs::as_uuid": (
+        ("redis_queue_channel_payloads",),
+        8,
+    ),
     "python:app/joysafeter_api/api/v1/memory_stores.py::_broadcast_memory_update::as_uuid_call": (
         ("sql_uuid_bind_result", "redis_queue_channel_payloads"),
         2,

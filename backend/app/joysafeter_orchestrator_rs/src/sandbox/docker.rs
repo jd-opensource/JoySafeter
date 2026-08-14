@@ -149,7 +149,7 @@ impl DockerProvider {
                 Arc::new(FilesystemLds::new(config.envoy_config_dir.clone()))
             };
             Some(Arc::new(EnvoyManager::new(
-                docker.clone(),
+                Some(docker.clone()),
                 EnvoyConfig {
                     envoy_image: config.envoy_image.clone(),
                     socket_volume: config.envoy_socket_volume.clone(),

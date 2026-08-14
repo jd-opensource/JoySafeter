@@ -13,3 +13,36 @@ spec:
   - port: 9091
     targetPort: health
     name: health
+
+{{- if eq .Values.haMode "multi" }}
+---
+# Leader-only xDS Service (multi mode). Selects only the pod the current xDS
+# leader has labeled joysafeter-xds-leader=true, so every Envoy DaemonSet
+# connects to a single authoritative xDS source (kube-scheduler pattern).
+# Runner bridges keep using the load-balanced Service above (all replicas).
+apiVersion: v1
+kind: Service
+metadata:
+  name: joysafeter-orchestrator-xds
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: joysafeter-orchestrator
+    joysafeter-xds-leader: "true"
+  ports:
+  - port: {{ .Values.orchestrator.grpc.port }}
+    targetPort: grpc
+    name: grpc
+{{- end }}
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: joysafeter-orchestrator
+  namespace: {{ .Values.namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: joysafeter-orchestrator

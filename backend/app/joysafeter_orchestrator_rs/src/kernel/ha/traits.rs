@@ -57,9 +57,15 @@ pub trait BridgeStore: Send + Sync + 'static {
 /// Command types that can be dispatched to a runner.
 #[derive(Debug, Clone)]
 pub enum DispatchCommand {
-    Cancel { reason: String },
-    SendInput { content: String },
-    Shutdown { reason: String },
+    Cancel {
+        reason: String,
+    },
+    SendInput {
+        content: String,
+    },
+    Shutdown {
+        reason: String,
+    },
     /// Wake the multi_task_loop to claim a newly-assigned task.
     /// Only used in multi mode when scheduler and bridge are on different replicas.
     TaskWakeup,

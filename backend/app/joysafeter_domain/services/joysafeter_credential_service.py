@@ -16,6 +16,7 @@ catalog registration (Task 11).
 
 from __future__ import annotations
 
+import builtins
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -418,8 +419,11 @@ class CredentialService:
         if req.kind is CredentialKind.MCP:
             plaintext = self._validate_mcp_static_bearer_data(plaintext)
 
-        normalized_url = normalize_mcp_url(req.mcp_server_url) if req.kind is CredentialKind.MCP else None
+        normalized_url = None
         if req.kind is CredentialKind.MCP:
+            assert req.mcp_server_url is not None
+            assert req.group_id is not None
+            normalized_url = normalize_mcp_url(req.mcp_server_url)
             await self.lock_credential_group(req.group_id, project_id=project_id)
             await reject_member_url_conflict_for_bound_sessions(
                 self.db,
@@ -819,10 +823,12 @@ class CredentialService:
         await self.lock_credential_scope(cred_id, project_id=project_id)
         cred = await self._get_or_raise(cred_id, project_id=project_id)
         if cred.kind == CredentialKind.MCP.value:
+            assert cred.group_id is not None
+            assert cred.normalized_mcp_server_url is not None
             await reject_member_url_conflict_for_bound_sessions(
                 self.db,
                 group_id=cred.group_id,
-                normalized_url=cred.normalized_mcp_server_url or "",
+                normalized_url=cred.normalized_mcp_server_url,
                 project_id=project_id,
             )
         cred.archived_at = None
@@ -862,15 +868,17 @@ class CredentialService:
 
     async def lock_credentials(
         self,
-        cred_ids: list[CredentialId],
+        cred_ids: builtins.list[CredentialId],
         *,
         project_id: str | None = None,
-    ) -> list[CredentialId]:
+    ) -> builtins.list[CredentialId]:
         """Lock credential rows in stable id order within the current transaction."""
-        ordered_ids = sorted(set(cred_ids), key=str)
+        ordered_ids: builtins.list[CredentialId] = sorted(set(cred_ids), key=str)
         if not ordered_ids:
             return []
-        conditions = [JoySafeterCredential.id.in_(ordered_ids)]
+        conditions: builtins.list[ColumnElement[bool]] = [
+            JoySafeterCredential.id.in_(ordered_ids)
+        ]
         if project_id is not None:
             conditions.append(JoySafeterCredential.project_id == project_id)
         result = await self.db.execute(

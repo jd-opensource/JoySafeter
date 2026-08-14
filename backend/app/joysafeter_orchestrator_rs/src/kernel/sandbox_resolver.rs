@@ -108,6 +108,13 @@ pub struct SandboxResolver {
     network_policy_ready: dashmap::DashMap<SandboxId, String>,
     /// Optional notify to trigger immediate pool replenishment after a claim.
     pool_replenish_notify: Option<Arc<tokio::sync::Notify>>,
+    /// Optional xDS state store. In multi mode, the initial setup_networking on
+    /// the sandbox-start path pushes the LDS listener into THIS replica's local
+    /// xDS server only; peers must be told to reconcile so the Envoy that lands
+    /// on their ADS stream (Service load-balanced) also receives the listener.
+    /// Without this broadcast the sandbox's egress socket is never created on
+    /// nodes whose Envoy happens to be connected to a different replica.
+    xds_store: Option<Arc<dyn XdsStateStore>>,
 }
 
 impl SandboxResolver {
@@ -119,12 +126,21 @@ impl SandboxResolver {
             session_locks: dashmap::DashMap::new(),
             network_policy_ready: dashmap::DashMap::new(),
             pool_replenish_notify: None,
+            xds_store: None,
         }
     }
 
     /// Set the pool replenish notify (called from scheduler setup).
     pub fn with_pool_replenish_notify(mut self, notify: Arc<tokio::sync::Notify>) -> Self {
         self.pool_replenish_notify = Some(notify);
+        self
+    }
+
+    /// Set the xDS state store so the initial networking push broadcasts a
+    /// cross-replica reconcile notification (multi mode). No-op store in
+    /// standalone/leader modes, so this is safe to always wire up.
+    pub fn with_xds_store(mut self, xds_store: Arc<dyn XdsStateStore>) -> Self {
+        self.xds_store = Some(xds_store);
         self
     }
 
@@ -282,6 +298,18 @@ impl SandboxResolver {
                                     info!(sandbox_id = %sandbox.id, "Restarted stopped sandbox");
                                     return Ok((sandbox.id, ext_id.clone()));
                                 }
+                                // Restart failed (e.g. pod deleted in K8s). Destroy the
+                                // stale DB record so the unique-session constraint is freed
+                                // and a fresh sandbox can be created below.
+                                if !self
+                                    .destroy_observed_sandbox(&sandbox, "stopped restart failed")
+                                    .await?
+                                {
+                                    anyhow::bail!(
+                                        "stopped sandbox {} changed state before cleanup after failed restart",
+                                        sandbox.id
+                                    );
+                                }
                             }
                         }
                         "error" => {
@@ -333,6 +361,17 @@ impl SandboxResolver {
                     if self.restart_stopped_sandbox(sandbox.id, ext_id).await? {
                         info!(sandbox_id = %sandbox.id, "Restarted stopped sandbox for session");
                         return Ok((sandbox.id, ext_id.clone()));
+                    }
+                    // Restart failed — destroy stale record to free the unique-session
+                    // constraint so a fresh sandbox can be created below.
+                    if !self
+                        .destroy_observed_sandbox(&sandbox, "stopped restart failed (session)")
+                        .await?
+                    {
+                        anyhow::bail!(
+                            "stopped sandbox {} changed state before cleanup after failed restart",
+                            sandbox.id
+                        );
                     }
                 }
             }
@@ -431,11 +470,7 @@ impl SandboxResolver {
                             // the session's credentials and push the Envoy policy.
                             if context.is_limited_networking() {
                                 if let Err(err) = self
-                                    .setup_pool_sandbox_networking(
-                                        sandbox.id,
-                                        ext_id,
-                                        &context,
-                                    )
+                                    .setup_pool_sandbox_networking(sandbox.id, ext_id, &context)
                                     .await
                                 {
                                     warn!(
@@ -542,6 +577,10 @@ impl SandboxResolver {
         // api.anthropic.com and telemetry attempts just produce NR 404 noise.
         env.entry("DISABLE_TELEMETRY".to_string())
             .or_insert_with(|| "1".to_string());
+        if !self.config.sandbox_timezone.trim().is_empty() {
+            env.entry("TZ".to_string())
+                .or_insert_with(|| self.config.sandbox_timezone.clone());
+        }
 
         let grpc_url = self.provider.orchestrator_url(self.config.grpc_port);
         env.insert("JOYSAFETER_ORCHESTRATOR_URL".to_string(), grpc_url.clone());
@@ -769,6 +808,17 @@ impl SandboxResolver {
                 if self.config.envoy_xds_mode != "grpc" {
                     let _ =
                         queries::mark_sandbox_network_policy_acked(&self.pool, sandbox_db_id).await;
+                }
+                // Multi mode: tell peer replicas to reconcile so the Envoy landing
+                // on their ADS stream also gets this sandbox's listener. The
+                // initial push above only populated THIS replica's local xDS.
+                if let Some(ref store) = self.xds_store {
+                    if let Err(e) = store.notify_change(sandbox_db_id, XdsAction::Upsert).await {
+                        warn!(
+                            sandbox_id = %sandbox_db_id,
+                            "Failed to broadcast xDS upsert to peers: {e}"
+                        );
+                    }
                 }
             }
         }
@@ -1062,10 +1112,7 @@ impl SandboxResolver {
                 sandbox_id,
                 external_id,
                 context.networking.as_ref(),
-                context
-                    .credentials
-                    .clone()
-                    .with_proxy_auth_token(None), // token injected after runner re-auths
+                context.credentials.clone().with_proxy_auth_token(None), // token injected after runner re-auths
             ),
         )
         .await
@@ -1089,6 +1136,16 @@ impl SandboxResolver {
             .insert(sandbox_id, context.expected.egress_policy_hash.clone());
         if self.config.envoy_xds_mode != "grpc" {
             let _ = queries::mark_sandbox_network_policy_acked(&self.pool, sandbox_id).await;
+        }
+        // Multi mode: broadcast so peer replicas reconcile this sandbox's
+        // listener into their local xDS (see with_xds_store docs).
+        if let Some(ref store) = self.xds_store {
+            if let Err(e) = store.notify_change(sandbox_id, XdsAction::Upsert).await {
+                warn!(
+                    sandbox_id = %sandbox_id,
+                    "Failed to broadcast xDS upsert to peers (pool claim): {e}"
+                );
+            }
         }
         info!(
             sandbox_id = %sandbox_id,
@@ -1980,6 +2037,47 @@ impl SandboxResolver {
             anyhow::bail!("stopped sandbox {sandbox_id} changed state during restart");
         }
 
+        // Verify the runtime still exists. In K8s, pods cannot be "restarted"
+        // once deleted; provider.start() is a no-op and the pod will never come
+        // back. Without this check the sandbox transitions to provisioning and
+        // waits indefinitely for a runner that never connects. Return false so
+        // the caller falls through to create a fresh sandbox instead.
+        use crate::sandbox::provider::SandboxStatus;
+        match self.provider.status(external_id).await {
+            Ok(SandboxStatus::NotFound | SandboxStatus::Unknown(_)) => {
+                // Pod/container doesn't exist — can't restart.
+                let _ = queries::restore_stopped_sandbox_after_restart_start_failure(
+                    &self.pool,
+                    sandbox_id,
+                    external_id,
+                )
+                .await;
+                debug!(
+                    sandbox_id = %sandbox_id,
+                    "Cannot restart stopped sandbox — runtime gone (pod deleted); will create new"
+                );
+                return Ok(false);
+            }
+            Ok(SandboxStatus::Running) => {
+                // Still alive somehow (unusual for "stopped" in DB) — proceed.
+            }
+            Ok(SandboxStatus::Stopped) => {
+                // Docker: container stopped but exists, can be restarted.
+                // K8s: shouldn't reach here (deleted pods are NotFound).
+                // Proceed with start() attempt.
+            }
+            Err(_) => {
+                // Provider check failed — be conservative, don't restart.
+                let _ = queries::restore_stopped_sandbox_after_restart_start_failure(
+                    &self.pool,
+                    sandbox_id,
+                    external_id,
+                )
+                .await;
+                return Ok(false);
+            }
+        }
+
         if self.provider.start(external_id).await.is_err() {
             let _ = queries::restore_stopped_sandbox_after_restart_start_failure(
                 &self.pool,
@@ -2064,6 +2162,9 @@ impl SandboxResolver {
             sandbox_db_id.as_uuid().to_string(),
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
+        if !self.config.sandbox_timezone.trim().is_empty() {
+            env.insert("TZ".to_string(), self.config.sandbox_timezone.clone());
+        }
 
         let grpc_url = self.provider.orchestrator_url(self.config.grpc_port);
         env.insert("JOYSAFETER_ORCHESTRATOR_URL".to_string(), grpc_url.clone());
@@ -2369,7 +2470,18 @@ pub(crate) async fn reconcile_sandbox_networking(
         .await;
         return Err(e);
     }
-    queries::mark_sandbox_network_policy_acked(pool, sandbox_id).await?;
+    // In grpc (Delta xDS) mode the real Envoy ACK/NACK arrives asynchronously
+    // and is persisted by persist_ack/persist_nack — do NOT optimistically mark
+    // ready here, or the reconcile loop's query stops selecting a sandbox whose
+    // push actually NACK'd (e.g. socket dir not yet created), leaving it stuck
+    // with no listener. Only the filesystem backend applies synchronously, so we
+    // mark ready immediately there.
+    let is_grpc_xds = std::env::var("JOYSAFETER_ENVOY_XDS_MODE")
+        .map(|m| m == "grpc")
+        .unwrap_or(false);
+    if !is_grpc_xds {
+        queries::mark_sandbox_network_policy_acked(pool, sandbox_id).await?;
+    }
 
     // Notify other instances so their Envoy DaemonSets pick up the change
     if let Some(store) = xds_store {

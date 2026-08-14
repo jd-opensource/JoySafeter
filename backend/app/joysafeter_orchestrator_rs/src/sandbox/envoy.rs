@@ -29,7 +29,11 @@ use super::lds_backend::{
 /// backends; a per-sandbox JSON file is still written under
 /// `/envoy-config/sandboxes/` purely for crash-recovery/debugging visibility.
 pub struct EnvoyManager {
-    docker: Arc<Docker>,
+    /// Docker client for managing the Envoy container. `None` in K8s mode,
+    /// where Envoy runs as a DaemonSet and its container lifecycle is not
+    /// managed by the orchestrator (socket dir prep and health checks are
+    /// skipped). Only the Docker-container paths dereference it.
+    docker: Option<Arc<Docker>>,
     config: EnvoyConfig,
     lds: Arc<dyn LdsBackend>,
     sandbox_apply_locks: Mutex<HashMap<SandboxId, Arc<Mutex<()>>>>,
@@ -68,13 +72,22 @@ impl EnvoyConfig {
 }
 
 impl EnvoyManager {
-    pub fn new(docker: Arc<Docker>, config: EnvoyConfig, lds: Arc<dyn LdsBackend>) -> Self {
+    pub fn new(docker: Option<Arc<Docker>>, config: EnvoyConfig, lds: Arc<dyn LdsBackend>) -> Self {
         Self {
             docker,
             config,
             lds,
             sandbox_apply_locks: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Returns the Docker client, or an error in K8s mode where it is absent.
+    /// Only Docker-container lifecycle paths (socket dir prep, health check,
+    /// restart) call this; those paths are not exercised in K8s mode.
+    fn docker(&self) -> anyhow::Result<&Docker> {
+        self.docker
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Docker client unavailable (K8s mode)"))
     }
 
     async fn sandbox_apply_lock(&self, sandbox_id: SandboxId) -> Arc<Mutex<()>> {
@@ -96,7 +109,6 @@ impl EnvoyManager {
         }
     }
 
-    /// Ensure the per-sandbox socket directory exists before either Envoy creates
     /// Ensure the per-sandbox socket directory exists before Envoy binds its
     /// listener pipes there and before the sandbox mounts it.
     ///
@@ -125,7 +137,7 @@ impl EnvoyManager {
         let sandbox_uuid = sandbox_id.as_uuid();
         let helper_name = format!("joysafeter-envoy-socket-init-{sandbox_uuid}");
         let _ = self
-            .docker
+            .docker()?
             .remove_container(
                 &helper_name,
                 Some(RemoveContainerOptions {
@@ -154,7 +166,7 @@ impl EnvoyManager {
             }),
             ..Default::default()
         };
-        self.docker
+        self.docker()?
             .create_container(
                 Some(CreateContainerOptions {
                     name: helper_name.as_str(),
@@ -163,17 +175,17 @@ impl EnvoyManager {
                 container_config,
             )
             .await?;
-        self.docker
+        self.docker()?
             .start_container(&helper_name, None::<StartContainerOptions<String>>)
             .await?;
         let wait = self
-            .docker
+            .docker()?
             .wait_container(&helper_name, None::<WaitContainerOptions<String>>)
             .try_collect::<Vec<_>>()
             .await?;
         let status_code = wait.first().map(|result| result.status_code).unwrap_or(1);
         let _ = self
-            .docker
+            .docker()?
             .remove_container(
                 &helper_name,
                 Some(RemoveContainerOptions {
@@ -266,7 +278,7 @@ impl EnvoyManager {
 
     async fn health_check(&self) -> anyhow::Result<()> {
         let info = self
-            .docker
+            .docker()?
             .inspect_container(&self.config.container_name, None)
             .await?;
         let state = info.state.as_ref();
@@ -288,7 +300,7 @@ impl EnvoyManager {
         llm_egress_allowed_hosts: &[String],
     ) -> anyhow::Result<()> {
         warn!("Restarting Envoy container after failed health checks");
-        self.docker
+        self.docker()?
             .restart_container(
                 &self.config.container_name,
                 Some(RestartContainerOptions { t: 10 }),

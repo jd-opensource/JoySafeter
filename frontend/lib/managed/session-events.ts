@@ -34,6 +34,14 @@ export function getMaxSeq(events: SessionEvent[]) {
   return events.reduce((maxSeq, event) => Math.max(maxSeq, event.seq ?? 0), 0)
 }
 
+export function getMinSeq(events: SessionEvent[]) {
+  let minSeq = Number.MAX_SAFE_INTEGER
+  for (const event of events) {
+    if (event.seq != null && event.seq < minSeq) minSeq = event.seq
+  }
+  return minSeq === Number.MAX_SAFE_INTEGER ? 0 : minSeq
+}
+
 export function getEventIdentity(event: SessionEvent) {
   const eventType = getEventType(event)
   if (event.seq != null) return `seq:${event.seq}:${eventType}`

@@ -267,7 +267,7 @@ async def authoring_chat(
         data = svc.get_credential_data(cred)
         validate_credential_data(cred.provider, cred.protocol, data)
     except LlmCompatibilityError as exc:
-        if exc.code == "LLM_SECRET_CREDENTIALS_INCOMPLETE" and exc.data.get(
+        if exc.code == "LLM_SECRET_CREDENTIALS_INCOMPLETE" and (exc.data or {}).get(
             "required_fields"
         ) == ["OPENAI_API_KEY"]:
             raise InvalidRequestError(

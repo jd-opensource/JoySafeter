@@ -788,6 +788,8 @@ class SessionService:
         limit: int = 50,
         after_seq: Optional[int] = None,
         project_id: Optional[str] = None,
+        before_seq: Optional[int] = None,
+        order: str = "asc",
     ) -> tuple[list[JoySafeterSessionEvent], bool]:
         q = select(JoySafeterSessionEvent).where(JoySafeterSessionEvent.session_id == session_id)
         if project_id is not None:
@@ -801,7 +803,14 @@ class SessionService:
             )
         if after_seq is not None:
             q = q.where(JoySafeterSessionEvent.seq > after_seq)
-        q = q.order_by(JoySafeterSessionEvent.seq.asc(), JoySafeterSessionEvent.id.asc()).limit(limit + 1)
+        if before_seq is not None:
+            q = q.where(JoySafeterSessionEvent.seq < before_seq)
+
+        if order == "desc":
+            q = q.order_by(JoySafeterSessionEvent.seq.desc(), JoySafeterSessionEvent.id.desc())
+        else:
+            q = q.order_by(JoySafeterSessionEvent.seq.asc(), JoySafeterSessionEvent.id.asc())
+        q = q.limit(limit + 1)
         result = await self.db.execute(q)
         events = list(result.scalars().all())
         has_more = len(events) > limit

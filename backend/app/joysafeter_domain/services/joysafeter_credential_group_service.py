@@ -29,11 +29,13 @@ route (matching how ``api/v1/secrets.py`` audits at the route layer).
 
 from __future__ import annotations
 
+import builtins
 from typing import Optional
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.joysafeter_api.api.v1.network_policy_refresh import (
     mark_live_sandboxes_pending,
@@ -198,7 +200,9 @@ class CredentialGroupService:
         ordered_ids = sorted(set(group_ids), key=str)
         if not ordered_ids:
             return []
-        conditions = [JoySafeterCredentialGroup.id.in_(ordered_ids)]
+        conditions: list[ColumnElement[bool]] = [
+            JoySafeterCredentialGroup.id.in_(ordered_ids)
+        ]
         if project_id is not None:
             conditions.append(JoySafeterCredentialGroup.project_id == project_id)
         result = await self.db.execute(
@@ -463,7 +467,7 @@ class CredentialGroupService:
         project_id: str,
         *,
         include_archived: bool = True,
-    ) -> list[JoySafeterCredential]:
+    ) -> builtins.list[JoySafeterCredential]:
         query = select(JoySafeterCredential).where(
             JoySafeterCredential.project_id == project_id,
             JoySafeterCredential.group_id == group_id,
@@ -507,7 +511,7 @@ class CredentialGroupService:
     # --- cross-group url conflict (session bind) ---------------------------------
 
     async def check_url_conflict_for_session(
-        self, group_ids: list[CredentialGroupId], project_id: str
+        self, group_ids: builtins.list[CredentialGroupId], project_id: str
     ) -> None:
         """Reject a session binding that would map one normalized url to two groups.
 
@@ -517,7 +521,7 @@ class CredentialGroupService:
         reject at bind time with ``CREDENTIAL_GROUP_URL_CONFLICT``. Called by Task
         9's session-bind path.
         """
-        unique_ids = list(dict.fromkeys(group_ids))
+        unique_ids: builtins.list[CredentialGroupId] = builtins.list(dict.fromkeys(group_ids))
         if len(unique_ids) < 2:
             return
 

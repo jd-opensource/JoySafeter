@@ -126,7 +126,11 @@ impl LocalXdsStateStore {
 
 #[async_trait]
 impl XdsStateStore for LocalXdsStateStore {
-    async fn notify_change(&self, _sandbox_id: SandboxId, _action: XdsAction) -> anyhow::Result<()> {
+    async fn notify_change(
+        &self,
+        _sandbox_id: SandboxId,
+        _action: XdsAction,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
 }

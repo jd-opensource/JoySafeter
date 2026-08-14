@@ -743,6 +743,12 @@ CATALOG: dict[str, CatalogEntry] = {
     "SESSION_EVENTS_EMPTY": CatalogEntry(
         code="SESSION_EVENTS_EMPTY", error_class=InvalidRequestError, default_message="No events provided"
     ),
+    "SESSION_EVENT_CURSOR_CONFLICT": CatalogEntry(
+        code="SESSION_EVENT_CURSOR_CONFLICT",
+        error_class=InvalidRequestError,
+        default_message="Use either after_seq or before_seq, not both",
+        user_action="fix_input",
+    ),
     "SESSION_ENVIRONMENT_NOT_FOUND": CatalogEntry(
         code="SESSION_ENVIRONMENT_NOT_FOUND",
         error_class=RequestValidationAppError,

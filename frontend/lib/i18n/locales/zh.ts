@@ -1113,6 +1113,7 @@ const zh = {
         creating: '创建中...',
         empty: '暂无 MCP 凭据库。',
         archiveVault: '归档 MCP 凭据库',
+        actionUnavailable: '当前无法操作该 MCP 凭据库，请刷新页面或确认已选择正确的项目后重试。',
         archiveTitle: '归档 MCP 凭据库',
         archiveDescription: '确定要归档 "{{name}}" 吗？此 MCP 凭据库中的凭据将不再对智能体可用。',
         deleteTitle: '删除 MCP 凭据库',

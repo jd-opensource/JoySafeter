@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Iterable, Union
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.

@@ -35,6 +35,7 @@ pub struct LeaderElection {
     lease_duration: Duration,
     renew_interval: Duration,
     leading: Arc<AtomicBool>,
+    stopped: Arc<AtomicBool>,
     acquired: Arc<Notify>,
     lost: Arc<Notify>,
 }
@@ -56,6 +57,7 @@ impl LeaderElection {
             lease_duration,
             renew_interval,
             leading: Arc::new(AtomicBool::new(false)),
+            stopped: Arc::new(AtomicBool::new(false)),
             acquired: Arc::new(Notify::new()),
             lost: Arc::new(Notify::new()),
         }
@@ -84,7 +86,9 @@ impl LeaderElection {
     /// Graceful release — call on SIGTERM. Clears holderIdentity so standby
     /// can acquire immediately (no need to wait TTL expiry).
     pub async fn release(&self) {
+        self.stopped.store(true, Ordering::Release);
         if !self.leading.swap(false, Ordering::Release) {
+            self.lost.notify_waiters();
             return; // already not leader
         }
         info!(identity = %self.identity, "Releasing leadership (graceful shutdown)");
@@ -116,9 +120,15 @@ impl LeaderElection {
 
     async fn run(&self) {
         loop {
+            if self.stopped.load(Ordering::Acquire) {
+                return;
+            }
             if self.is_leader() {
                 // Renew loop
                 tokio::time::sleep(self.renew_interval).await;
+                if self.stopped.load(Ordering::Acquire) {
+                    return;
+                }
                 match self.try_renew().await {
                     Ok(true) => {
                         debug!(identity = %self.identity, "Lease renewed");
@@ -134,6 +144,11 @@ impl LeaderElection {
                 // Candidate: try to acquire
                 match self.try_acquire().await {
                     Ok(true) => {
+                        if self.stopped.load(Ordering::Acquire) {
+                            self.leading.store(true, Ordering::Release);
+                            self.release().await;
+                            return;
+                        }
                         info!(identity = %self.identity, "Acquired leadership");
                         self.leading.store(true, Ordering::Release);
                         self.acquired.notify_waiters();

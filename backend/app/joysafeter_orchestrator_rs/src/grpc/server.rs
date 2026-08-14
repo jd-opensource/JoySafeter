@@ -33,10 +33,10 @@ use crate::ids::{
     AgentId, EventId, FileId, MemoryId, MemoryStoreId, MemoryVersionId, SandboxId, SessionId,
     SessionResourceId, TaskId,
 };
+use crate::kernel::ha::BridgeStore;
 use crate::kernel::harness_input_builder::HarnessInputBuilder;
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::queue::TaskQueue;
-use crate::kernel::ha::BridgeStore;
 use crate::kernel::sandbox_bridge::SandboxBridge;
 use crate::runtime_config::RuntimeConfig;
 use crate::sandbox::provider::SandboxProvider;

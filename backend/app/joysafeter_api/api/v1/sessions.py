@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import uuid
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, Query, Request
@@ -1869,7 +1869,17 @@ async def list_events(
     after_seq: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+    before_seq: Optional[int] = Query(None),
+    order: Literal["asc", "desc"] = Query("asc"),
 ) -> PaginatedResponse[SessionEventResponse]:
+    if after_seq is not None and before_seq is not None:
+        raise InvalidRequestError(
+            code="SESSION_EVENT_CURSOR_CONFLICT",
+            message="Use either after_seq or before_seq, not both",
+            data={"after_seq": after_seq, "before_seq": before_seq},
+            user_action="fix_input",
+        )
+
     svc = SessionService(db)
     session = await svc.get_session(session_id, project_id=auth_ctx.project_id)
     if not session:
@@ -1879,7 +1889,14 @@ async def list_events(
             data={"session_id": str(session_id)},
             user_action="refresh",
         )
-    events, has_more = await svc.list_events(session_id, limit, after_seq, project_id=auth_ctx.project_id)
+    events, has_more = await svc.list_events(
+        session_id,
+        limit,
+        after_seq=after_seq,
+        before_seq=before_seq,
+        order=order,
+        project_id=auth_ctx.project_id,
+    )
     data = [SessionEventResponse.model_validate(e) for e in events]
     return PaginatedResponse(
         data=data,

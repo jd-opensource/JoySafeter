@@ -3,6 +3,12 @@ kind: ServiceAccount
 metadata:
   name: joysafeter-orchestrator
   namespace: {{ .Values.namespace }}
+{{- with .Values.image.imagePullSecrets }}
+imagePullSecrets:
+  {{- range . }}
+  - name: {{ . }}
+  {{- end }}
+{{- end }}
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -13,14 +19,16 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["pods", "pods/exec", "pods/log", "pods/attach"]
-  verbs: ["get", "list", "watch", "create", "delete"]
+  verbs: ["get", "list", "watch", "create", "delete", "patch"]
 - apiGroups: [""]
   resources: ["persistentvolumeclaims"]
   verbs: ["get", "list", "create", "delete"]
 - apiGroups: ["networking.k8s.io"]
   resources: ["networkpolicies"]
   verbs: ["get", "list", "create", "delete"]
-{{- if eq .Values.haMode "leader" }}
+{{- if or (eq .Values.haMode "leader") (eq .Values.haMode "multi") }}
+# leases: scheduling leader election (haMode=leader) or xDS leader election
+# (haMode=multi — Envoy control plane converges to one replica).
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
   verbs: ["get", "create", "update"]

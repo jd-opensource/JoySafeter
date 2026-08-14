@@ -42,7 +42,6 @@ pub struct JoySafeterConfig {
     pub sandbox_cpu: Option<f64>,
     pub sandbox_memory_mb: Option<u64>,
     pub sandbox_disk_mb: Option<u64>,
-
     // -- Sandbox container hardening (P0.1) -----------------------------------
     // Matches the Python `Settings.sandbox_*` block of the same name. See
     // backend/app/joysafeter_shared/config/settings.py for the full rationale.
@@ -158,6 +157,7 @@ pub struct JoySafeterConfig {
     pub k8s_namespace: String,
     pub k8s_kubectl_path: String,
     pub k8s_orchestrator_url: Option<String>,
+    pub k8s_image_pull_secrets: Vec<String>,
 
     // Leader Election (K8s Lease-based HA)
     pub leader_election_enabled: bool,
@@ -165,6 +165,11 @@ pub struct JoySafeterConfig {
     pub leader_lease_duration_sec: u64,
     pub leader_renew_interval_sec: u64,
     pub leader_identity: String,
+
+    /// Dedicated Lease name for xDS leader election in K8s multi mode. Separate
+    /// from `leader_lease_name` — task scheduling stays leaderless (all replicas
+    /// active); only the Envoy xDS control plane converges to one leader.
+    pub xds_leader_lease_name: String,
 
     // HA mode
     pub ha_mode: String,
@@ -220,7 +225,6 @@ impl JoySafeterConfig {
             sandbox_disk_mb: env::var("JOYSAFETER_SANDBOX_DISK_MB")
                 .ok()
                 .and_then(|v| v.parse().ok()),
-
             // Hardening defaults — keep the secure defaults; only flip these
             // off for targeted debugging. See settings.py for rationale.
             sandbox_drop_all_caps: env_bool("JOYSAFETER_SANDBOX_DROP_ALL_CAPS", true),
@@ -330,6 +334,7 @@ impl JoySafeterConfig {
             k8s_orchestrator_url: env::var("JOYSAFETER_K8S_ORCHESTRATOR_URL")
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
+            k8s_image_pull_secrets: env_list("JOYSAFETER_K8S_IMAGE_PULL_SECRETS"),
 
             leader_election_enabled: env_bool("JOYSAFETER_LEADER_ELECTION_ENABLED", false),
             leader_lease_name: env_str(
@@ -341,6 +346,11 @@ impl JoySafeterConfig {
             leader_identity: env::var("POD_NAME")
                 .or_else(|_| env::var("HOSTNAME"))
                 .unwrap_or_else(|_| format!("orch-{}", uuid::Uuid::now_v7())),
+
+            xds_leader_lease_name: env_str(
+                "JOYSAFETER_XDS_LEADER_LEASE_NAME",
+                "joysafeter-orchestrator-xds-leader",
+            ),
 
             ha_mode: env_str("JOYSAFETER_HA_MODE", "standalone"),
 
@@ -389,8 +399,20 @@ impl JoySafeterConfig {
             );
         }
         if self.ha_mode == "multi" && self.redis_url.is_none() {
+            anyhow::bail!("JOYSAFETER_HA_MODE=multi requires Redis. Set REDIS_URL or REDIS_HOST.");
+        }
+        let uses_k8s_lease = self.leader_election_enabled
+            || (self.ha_mode == "multi"
+                && matches!(self.sandbox_provider.as_str(), "k8s" | "kubernetes")
+                && self.envoy_enabled
+                && self.envoy_xds_mode == "grpc");
+        if uses_k8s_lease
+            && (self.leader_renew_interval_sec == 0
+                || self.leader_lease_duration_sec == 0
+                || self.leader_renew_interval_sec >= self.leader_lease_duration_sec)
+        {
             anyhow::bail!(
-                "JOYSAFETER_HA_MODE=multi requires Redis. Set REDIS_URL or REDIS_HOST."
+                "JOYSAFETER_LEADER_RENEW_INTERVAL_SEC must be > 0 and lower than JOYSAFETER_LEADER_LEASE_DURATION_SEC"
             );
         }
         Ok(())
@@ -770,6 +792,24 @@ mod tests {
             cfg.image_for_provider("claude").unwrap(),
             "joysafeter-claudecode:latest"
         );
+    }
+
+    #[test]
+    fn multi_k8s_xds_rejects_unsafe_lease_timing() {
+        let mut cfg = JoySafeterConfig::from_env();
+        cfg.ha_mode = "multi".to_string();
+        cfg.leader_election_enabled = false;
+        cfg.redis_url = Some("redis://localhost:6379/0".to_string());
+        cfg.sandbox_provider = "k8s".to_string();
+        cfg.envoy_enabled = true;
+        cfg.envoy_xds_mode = "grpc".to_string();
+        cfg.leader_lease_duration_sec = 3;
+        cfg.leader_renew_interval_sec = 3;
+
+        let error = cfg
+            .validate()
+            .expect_err("renew interval must be below lease duration");
+        assert!(error.to_string().contains("RENEW_INTERVAL"));
     }
 
     #[test]

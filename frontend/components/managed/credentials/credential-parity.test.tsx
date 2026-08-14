@@ -119,9 +119,9 @@ vi.mock('@/components/managed/shared', () => {
               <span data-testid={`row-${i}-no-actions`} />
             ) : (
               actions.map((a) => (
-                <span key={a.label} data-testid={`action-${a.label}`}>
+                <button key={a.label} data-testid={`action-${a.label}`} onClick={a.onClick}>
                   {a.label}
-                </span>
+                </button>
               ))
             )}
           </div>
@@ -178,7 +178,8 @@ vi.mock('@/components/managed/shared', () => {
         error
       </button>
     ),
-    ConfirmDialog: () => null,
+    ConfirmDialog: ({ open, title }: { open: boolean; title: string }) =>
+      open ? <div data-testid={`dialog-${title}`} /> : null,
     FormFieldLabel: passthrough,
   }
 })
@@ -511,6 +512,20 @@ describe('mcp capability', () => {
     const { getByTestId } = await renderList(<McpVaultList onCreate={() => {}} />, 1)
     expect(getByTestId('action-managed.vaults.archiveVault')).toBeTruthy()
     expect(getByTestId('action-common.delete')).toBeTruthy()
+  })
+
+  it('opens the archive dialog even when the paginated query cache lookup misses the row', async () => {
+    managedGetMock.mockResolvedValue({
+      data: [vaultBase({ archived_at: null })],
+      has_more: false,
+    })
+    const { getByTestId } = await renderList(<McpVaultList onCreate={() => {}} />, 1)
+    const cacheSpy = vi.spyOn(QueryClient.prototype, 'getQueriesData').mockReturnValue([])
+
+    fireEvent.click(getByTestId('action-managed.vaults.archiveVault'))
+
+    expect(getByTestId('dialog-managed.vaults.archiveTitle')).toBeTruthy()
+    cacheSpy.mockRestore()
   })
 
   it('archived vault row is hidden by default and exposes no actions', async () => {

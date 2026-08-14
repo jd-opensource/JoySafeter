@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol, TypeVar
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -10,6 +10,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 class LlmCatalogError(ValueError):
     pass
+
+
+class _CatalogItem(Protocol):
+    id: str
+
+
+_CatalogItemT = TypeVar("_CatalogItemT", bound=_CatalogItem)
 
 
 class CredentialField(BaseModel):
@@ -158,7 +165,7 @@ class LlmCatalog(BaseModel):
         return self._lookup("credential profile", profile_id, self.credential_profiles)
 
     @staticmethod
-    def _lookup(kind: str, item_id: str, items):
+    def _lookup(kind: str, item_id: str, items: list[_CatalogItemT]) -> _CatalogItemT:
         for item in items:
             if item.id == item_id:
                 return item

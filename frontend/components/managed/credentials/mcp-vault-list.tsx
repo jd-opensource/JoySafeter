@@ -27,6 +27,7 @@ import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { managedRequestOptions, type ManagedRequestScope } from '@/lib/managed/request-scope'
 import { parseVaultResponse } from '@/lib/managed/vault-response-parsers'
+import { toastError } from '@/lib/utils/toast'
 import { parseCredentialGroupId } from '@/types/entity-id'
 import type { Vault } from '@/types/managed'
 
@@ -91,17 +92,14 @@ export function McpVaultList({
     },
   })
 
-  const currentVaultIsActive = (vault: Vault, scope: string) =>
-    scopeIsActive(scope) &&
-    currentProjectAllowsWrite() &&
-    queryClient
-      .getQueriesData<{
-        data?: Vault[]
-      }>({ queryKey: ['credential-groups', scope, '/credential-groups'] })
-      .some(([, page]) => page?.data?.some((v) => v.id === vault.id && !v.archived_at))
+  const currentVaultIsActive = (_vault: Vault, scope: string) =>
+    scopeIsActive(scope) && currentProjectAllowsWrite()
 
   const openArchiveDialog = (vault: Vault) => {
-    if (!currentVaultIsActive(vault, managedScopeRef.current)) return
+    if (!currentVaultIsActive(vault, managedScopeRef.current)) {
+      toastError(t('managed.vaults.actionUnavailable'))
+      return
+    }
     bumpRun()
     setArchiveTarget(vault)
   }
@@ -110,7 +108,10 @@ export function McpVaultList({
     setArchiveTarget(null)
   }
   const openDeleteDialog = (vault: Vault) => {
-    if (!currentVaultIsActive(vault, managedScopeRef.current)) return
+    if (!currentVaultIsActive(vault, managedScopeRef.current)) {
+      toastError(t('managed.vaults.actionUnavailable'))
+      return
+    }
     bumpRun()
     setDeleteTarget(vault)
   }

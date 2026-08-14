@@ -18,8 +18,14 @@ globalThis.document = dom.window.document
 globalThis.navigator = dom.window.navigator
 globalThis.HTMLElement = dom.window.HTMLElement
 
-function HookHarness({ sessionId }: { sessionId: SessionId }) {
-  const { events } = useSessionStream(sessionId, true)
+function HookHarness({
+  sessionId,
+  initialAfterSeq,
+}: {
+  sessionId: SessionId
+  initialAfterSeq?: number
+}) {
+  const { events } = useSessionStream(sessionId, true, { initialAfterSeq })
   return <div data-testid="events">{events.map((event) => event.id).join(',')}</div>
 }
 
@@ -108,6 +114,22 @@ describe('useSessionStream', () => {
     )
     expect(getByTestId('events').textContent).toContain(OTHER_EVENT_ID)
     expect(getByTestId('events').textContent).not.toContain(EVENT_ID)
+  })
+
+  it('starts the stream after the cached event sequence', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(openSseResponse()))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    render(<HookHarness sessionId={SESSION_ID} initialAfterSeq={37} />)
+
+    await act(async () => {
+      await wait(20)
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      `/sessions/${SESSION_ID}/events/stream?after_seq=37`,
+    )
   })
 
   it('reconnects the stream when managed project context changes', async () => {

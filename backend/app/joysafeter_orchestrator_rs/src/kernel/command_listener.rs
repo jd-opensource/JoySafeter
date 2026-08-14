@@ -209,13 +209,19 @@ impl CommandListener {
                 // Bridge not local — try cross-instance dispatch via TaskDispatcher
                 let dispatch_cmd = match cmd_type {
                     "cancel" => DispatchCommand::Cancel {
-                        reason: cmd["reason"].as_str().unwrap_or("cancelled by remote").to_string(),
+                        reason: cmd["reason"]
+                            .as_str()
+                            .unwrap_or("cancelled by remote")
+                            .to_string(),
                     },
                     "input" => DispatchCommand::SendInput {
                         content: cmd["content"].as_str().unwrap_or("").to_string(),
                     },
                     "shutdown" => DispatchCommand::Shutdown {
-                        reason: cmd["reason"].as_str().unwrap_or("remote shutdown").to_string(),
+                        reason: cmd["reason"]
+                            .as_str()
+                            .unwrap_or("remote shutdown")
+                            .to_string(),
                     },
                     _ => {
                         debug!("No local bridge for sandbox {sandbox_id}, ignoring unknown command {cmd_type}");
@@ -223,7 +229,11 @@ impl CommandListener {
                         return Ok(());
                     }
                 };
-                match self.task_dispatcher.dispatch_command(sandbox_id, dispatch_cmd).await {
+                match self
+                    .task_dispatcher
+                    .dispatch_command(sandbox_id, dispatch_cmd)
+                    .await
+                {
                     Ok(()) => {
                         self.publish_ack(&cmd, true).await;
                         info!(sandbox_id = %sandbox_id, cmd_type = cmd_type, "Dispatched command via TaskDispatcher (cross-instance)");
@@ -749,8 +759,9 @@ mod tests {
 
     fn command_listener(pool: PgPool, provider: Arc<dyn SandboxProvider>) -> CommandListener {
         let bridge_store: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
-        let task_dispatcher: Arc<dyn crate::kernel::ha::TaskDispatcher> =
-            Arc::new(crate::kernel::ha::LocalTaskDispatcher::new(bridge_store.clone()));
+        let task_dispatcher: Arc<dyn crate::kernel::ha::TaskDispatcher> = Arc::new(
+            crate::kernel::ha::LocalTaskDispatcher::new(bridge_store.clone()),
+        );
         CommandListener::new(
             redis::Client::open("redis://127.0.0.1:1/").expect("redis url"),
             "test-instance",
