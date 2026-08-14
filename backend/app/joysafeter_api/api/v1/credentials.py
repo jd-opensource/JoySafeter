@@ -350,6 +350,7 @@ async def test_credential(
 async def list_credentials(
     limit: int = Query(20, ge=1, le=100),
     after_id: Optional[CredentialId] = Query(None),
+    include_archived: Optional[bool] = Query(None),
     kind: Optional[CredentialKind] = Query(None),
     name: Optional[str] = Query(None),
     provider: Optional[str] = Query(None),
@@ -367,6 +368,7 @@ async def list_credentials(
         provider=provider,
         protocol=protocol,
         compatible_engine=compatible_engine,
+        include_archived=include_archived,
         limit=limit,
         after_id=after_id,
     )

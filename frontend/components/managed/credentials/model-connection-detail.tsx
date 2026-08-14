@@ -1,24 +1,32 @@
 'use client'
 
 import { useQueryClient } from '@tanstack/react-query'
-import { Eye, EyeOff, Save } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Archive, Eye, EyeOff, RotateCcw, Save, Star, Trash2 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { useMemo, useRef, useState } from 'react'
 
 import { LlmCatalogPageState } from '@/components/managed/llm/llm-catalog-page-state'
-import { FormFieldLabel, MonoId, PageHeader, RelativeTime } from '@/components/managed/shared'
+import {
+  ConfirmDialog,
+  FormFieldLabel,
+  MonoId,
+  PageHeader,
+  RelativeTime,
+  StatusBadge,
+} from '@/components/managed/shared'
 import { CompatibleEngineBadges } from '@/components/managed/shared/compatible-engine-badges'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useCurrentProjectReadOnly } from '@/hooks/managed/use-current-project-read-only'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
-import { managedPatch } from '@/lib/api-client'
+import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
+import { managedDelete, managedPatch, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { findCredentialProfileForBinding } from '@/lib/managed/llm-catalog'
-import { managedRequestOptions, useManagedRequestScope } from '@/lib/managed/request-scope'
+import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { parseSecretDetailResponse } from '@/lib/managed/secret-response-parsers'
 import type { LlmCredentialField } from '@/types/llm'
 import type { SecretDetail } from '@/types/managed'
@@ -31,16 +39,40 @@ function inputType(field: LlmCredentialField, showValues: boolean) {
 
 export function ModelConnectionDetail({ credential }: { credential: SecretDetail }) {
   const { t } = useTranslation()
+  const router = useRouter()
   const queryClient = useQueryClient()
-  const managedScope = useManagedRequestScope()
-  const projectReadOnly = useCurrentProjectReadOnly()
   const catalogQuery = useLlmCatalog()
   const catalogVersion = catalogQuery.data?.version ?? ''
   const catalogReady = catalogQuery.isSuccess && Boolean(catalogVersion)
+  const sourceDataRef = useRef(credential.data)
   const [values, setValues] = useState<Record<string, string>>(credential.data)
   const [showValues, setShowValues] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<'archive' | 'restore' | 'delete' | null>(null)
+  const [lifecyclePending, setLifecyclePending] = useState(false)
+  const {
+    readOnly: projectReadOnly,
+    beginAction,
+    isCurrentAction,
+    bumpRun,
+  } = useScopedActions({
+    onReset: () => {
+      setDirty(false)
+      setShowValues(false)
+      setSaving(false)
+      setLifecyclePending(false)
+      setConfirmAction(null)
+    },
+  })
+  const credentialReadOnly = projectReadOnly || Boolean(credential.archived_at)
+  const mutationPending = saving || lifecyclePending
+  const formReadOnly = credentialReadOnly || mutationPending
+
+  if (!dirty && sourceDataRef.current !== credential.data) {
+    sourceDataRef.current = credential.data
+    setValues(credential.data)
+  }
 
   const profile = useMemo(() => {
     if (!catalogQuery.data || !credential.provider || !credential.protocol) return null
@@ -53,24 +85,100 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
   const catalogIdentityUnavailable = catalogQuery.isSuccess && !profile
 
   const save = async () => {
-    if (projectReadOnly) return
+    if (credentialReadOnly || mutationPending) return
+    const action = beginAction()
+    if (!action) return
     setSaving(true)
     try {
       const response = await managedPatch<unknown>(
         apiResourcePath('credentials', credential.id),
         { data: values },
-        managedRequestOptions(managedScope),
+        managedRequestOptions(action.requestScope),
       )
+      if (!isCurrentAction(action.runId, action.scope)) return
       const updated = parseSecretDetailResponse(response)
-      queryClient.setQueryData(['credential-detail', managedScope.key, credential.id], updated)
-      queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })
-      queryClient.invalidateQueries({ queryKey: ['compatible-secrets', managedScope.key] })
+      queryClient.setQueryData(['credential-detail', action.scope, credential.id], updated)
+      queryClient.invalidateQueries({ queryKey: ['credentials', action.scope] })
+      queryClient.invalidateQueries({ queryKey: ['compatible-secrets', action.scope] })
+      sourceDataRef.current = updated.data
       setValues(updated.data)
       setDirty(false)
     } catch (error) {
+      if (!isCurrentAction(action.runId, action.scope)) return
       toastOperationError(t, error, 'common.operationFailed')
     } finally {
-      setSaving(false)
+      if (isCurrentAction(action.runId, action.scope)) setSaving(false)
+    }
+  }
+
+  const invalidate = (scope: string) => {
+    queryClient.invalidateQueries({ queryKey: ['credential-detail', scope, credential.id] })
+    queryClient.invalidateQueries({ queryKey: ['credentials', scope] })
+    queryClient.invalidateQueries({ queryKey: ['compatible-secrets', scope] })
+  }
+
+  const setDefault = async () => {
+    if (credentialReadOnly || credential.is_default || mutationPending) return
+    const action = beginAction()
+    if (!action) return
+    setLifecyclePending(true)
+    try {
+      await managedPost(
+        apiResourcePath('credentials', credential.id, 'default'),
+        {},
+        managedRequestOptions(action.requestScope),
+      )
+      if (!isCurrentAction(action.runId, action.scope)) return
+      invalidate(action.scope)
+    } catch (error) {
+      if (!isCurrentAction(action.runId, action.scope)) return
+      toastOperationError(t, error, 'common.operationFailed')
+    } finally {
+      if (isCurrentAction(action.runId, action.scope)) setLifecyclePending(false)
+    }
+  }
+
+  const confirmLifecycle = async () => {
+    if (!confirmAction || projectReadOnly || mutationPending) return
+    if (confirmAction === 'archive' && credential.archived_at) return
+    if (confirmAction === 'restore' && !credential.archived_at) return
+    const action = confirmAction
+    const scopedAction = beginAction()
+    if (!scopedAction) {
+      setConfirmAction(null)
+      return
+    }
+    setLifecyclePending(true)
+    try {
+      if (action === 'delete') {
+        await managedDelete(
+          apiResourcePath('credentials', credential.id),
+          managedRequestOptions(scopedAction.requestScope),
+        )
+        if (!isCurrentAction(scopedAction.runId, scopedAction.scope)) return
+        queryClient.removeQueries({
+          queryKey: ['credential-detail', scopedAction.scope, credential.id],
+        })
+        queryClient.invalidateQueries({ queryKey: ['credentials', scopedAction.scope] })
+        queryClient.invalidateQueries({ queryKey: ['compatible-secrets', scopedAction.scope] })
+        router.push('/managed/credentials?tab=models')
+      } else {
+        await managedPost(
+          apiResourcePath('credentials', credential.id, action),
+          {},
+          managedRequestOptions(scopedAction.requestScope),
+        )
+        if (!isCurrentAction(scopedAction.runId, scopedAction.scope)) return
+        invalidate(scopedAction.scope)
+      }
+    } catch (error) {
+      if (!isCurrentAction(scopedAction.runId, scopedAction.scope)) return
+      toastOperationError(t, error, 'common.operationFailed')
+    } finally {
+      if (isCurrentAction(scopedAction.runId, scopedAction.scope)) {
+        setLifecyclePending(false)
+        setConfirmAction(null)
+      }
     }
   }
 
@@ -87,13 +195,58 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
           { label: t('managed.credentials.tabs.models'), to: '/managed/credentials?tab=models' },
           { label: credential.name },
         ]}
-        titleExtra={<Badge variant="default">{t('managed.llm.modelConfiguration')}</Badge>}
+        titleExtra={
+          <div className="flex items-center gap-2">
+            <Badge variant="default">{t('managed.llm.modelConfiguration')}</Badge>
+            <StatusBadge status={credential.archived_at ? 'archived' : 'active'} />
+          </div>
+        }
         action={
           projectReadOnly ? null : (
-            <Button onClick={save} disabled={!dirty || saving || catalogIdentityUnavailable}>
-              <Save className="mr-1 h-4 w-4" />
-              {saving ? t('common.loading') : t('common.save')}
-            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {!credential.archived_at ? (
+                <>
+                  <Button
+                    onClick={save}
+                    disabled={!dirty || mutationPending || catalogIdentityUnavailable}
+                  >
+                    <Save className="mr-1 h-4 w-4" />
+                    {saving ? t('common.loading') : t('common.save')}
+                  </Button>
+                  {!credential.is_default ? (
+                    <Button variant="outline" onClick={setDefault} disabled={mutationPending}>
+                      <Star className="mr-1 h-4 w-4" />
+                      {t('managed.secrets.setDefault')}
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="outline"
+                    onClick={() => setConfirmAction('archive')}
+                    disabled={mutationPending}
+                  >
+                    <Archive className="mr-1 h-4 w-4" />
+                    {t('common.archive')}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={() => setConfirmAction('restore')}
+                  disabled={mutationPending}
+                >
+                  <RotateCcw className="mr-1 h-4 w-4" />
+                  {t('common.restore')}
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => setConfirmAction('delete')}
+                disabled={mutationPending}
+              >
+                <Trash2 className="mr-1 h-4 w-4" />
+                {t('common.delete')}
+              </Button>
+            </div>
           )
         }
       />
@@ -117,9 +270,7 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
           </p>
         </div>
         <div className="sm:col-span-2 lg:col-span-4">
-          <p className="mb-2 text-xs text-muted-foreground">
-            {t('managed.llm.compatibleEngines')}
-          </p>
+          <p className="mb-2 text-xs text-muted-foreground">{t('managed.llm.compatibleEngines')}</p>
           <CompatibleEngineBadges
             engineIds={credential.compatible_engine_ids}
             catalog={catalogQuery.data}
@@ -150,7 +301,7 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
                   <select
                     id={`secret-${field.key}`}
                     value={values[field.key] ?? ''}
-                    disabled={projectReadOnly}
+                    disabled={formReadOnly}
                     onChange={(e) => {
                       setValues((c) => ({ ...c, [field.key]: e.target.value }))
                       setDirty(true)
@@ -169,7 +320,7 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
                     id={`secret-${field.key}`}
                     type={inputType(field, showValues)}
                     value={values[field.key] ?? ''}
-                    disabled={projectReadOnly}
+                    disabled={formReadOnly}
                     onChange={(e) => {
                       setValues((c) => ({ ...c, [field.key]: e.target.value }))
                       setDirty(true)
@@ -186,6 +337,37 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
           </Alert>
         )}
       </section>
+      <ConfirmDialog
+        open={Boolean(confirmAction)}
+        title={t(
+          confirmAction === 'delete'
+            ? 'managed.secrets.deleteTitle'
+            : confirmAction === 'restore'
+              ? 'managed.secrets.restoreTitle'
+              : 'managed.secrets.archiveTitle',
+        )}
+        description={t(
+          confirmAction === 'delete'
+            ? 'managed.secrets.deleteDescription'
+            : confirmAction === 'restore'
+              ? 'managed.secrets.restoreDescription'
+              : 'managed.secrets.archiveDescription',
+          { name: credential.name },
+        )}
+        confirmLabel={t(
+          confirmAction === 'delete'
+            ? 'common.delete'
+            : confirmAction === 'restore'
+              ? 'common.restore'
+              : 'common.archive',
+        )}
+        destructive={confirmAction === 'delete'}
+        onConfirm={confirmLifecycle}
+        onCancel={() => {
+          bumpRun()
+          setConfirmAction(null)
+        }}
+      />
     </div>
   )
 }

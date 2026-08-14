@@ -1,36 +1,227 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const scopedActionControl = { allowBegin: true }
+const scopeMock = { orgId: 'o', projectId: 'p', key: 'o:p' }
 
 vi.mock('@/lib/i18n', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
-vi.mock('@/lib/api-client', () => ({ managedGet: vi.fn(), managedDelete: vi.fn() }))
+vi.mock('@/lib/api-client', () => ({
+  managedGet: vi.fn(),
+  managedPost: vi.fn(),
+  managedDelete: vi.fn(),
+}))
+vi.mock('@/components/managed/shared', () => ({
+  ConfirmDialog: ({
+    open,
+    confirmLabel,
+    onConfirm,
+  }: {
+    open: boolean
+    confirmLabel: string
+    onConfirm: () => void
+  }) => (open ? <button onClick={onConfirm}>confirm:{confirmLabel}</button> : null),
+  DataTable: ({
+    data,
+    actionMenu,
+  }: {
+    data: Array<{ id: string; name: string }>
+    actionMenu: (row: { id: string; name: string }) => Array<{ label: string; onClick: () => void }>
+  }) => (
+    <div>
+      {data.map((row) => (
+        <div key={row.id} data-testid={row.id}>
+          <span>{row.name}</span>
+          {actionMenu(row).map((item) => (
+            <button key={item.label} onClick={item.onClick}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  ),
+  FilterBar: ({
+    showArchived,
+    onArchivedChange,
+  }: {
+    showArchived?: boolean
+    onArchivedChange?: (value: boolean) => void
+  }) =>
+    onArchivedChange ? (
+      <button onClick={() => onArchivedChange(!showArchived)}>
+        show-archived:{String(showArchived)}
+      </button>
+    ) : null,
+  MonoId: ({ id }: { id: string }) => <span>{id}</span>,
+  RelativeTime: ({ date }: { date: string }) => <span>{date}</span>,
+  ResourceErrorState: () => null,
+}))
 vi.mock('@/lib/managed/request-scope', () => ({
-  useManagedRequestScope: () => ({ orgId: 'o', projectId: 'p', key: 'o:p' }),
+  useManagedRequestScope: () => scopeMock,
   managedRequestOptions: () => ({}),
   hasManagedRequestScope: () => true,
 }))
-vi.mock('@/hooks/managed/use-current-project-read-only', () => ({ useCurrentProjectReadOnly: () => false }))
+vi.mock('@/hooks/managed/use-current-project-read-only', () => ({
+  useCurrentProjectReadOnly: () => false,
+  currentProjectAllowsWrite: () => true,
+}))
+vi.mock('@/hooks/managed/use-scoped-actions', () => ({
+  useScopedActions: () => ({
+    scopeRef: { current: scopeMock.key },
+    requestScopeRef: { current: scopeMock },
+    scope: scopeMock,
+    readOnly: false,
+    beginAction: () =>
+      scopedActionControl.allowBegin
+        ? { runId: 1, scope: scopeMock.key, requestScope: scopeMock }
+        : null,
+    isCurrentAction: () => true,
+    scopeIsActive: () => scopedActionControl.allowBegin,
+    bumpRun: () => {},
+  }),
+}))
 
-import { managedGet } from '@/lib/api-client'
+import { managedGet, managedPost } from '@/lib/api-client'
 
 import { ServiceCredentialList } from './service-credential-list'
 
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
+const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
+const ACTIVE_ID = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f051'
+const ARCHIVED_ID = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f052'
+
+function serviceCredential(id: string, archivedAt: string | null) {
+  return {
+    id,
+    name: archivedAt ? 'Archived service' : 'Active service',
+    kind: 'service',
+    provider: null,
+    protocol: null,
+    model: null,
+    compatible_engine_ids: [],
+    is_default: false,
+    archived_at: archivedAt,
+    created_at: '2026-08-13T00:00:00Z',
+    updated_at: '2026-08-13T00:00:00Z',
+  }
+}
 function Wrap({ children }: { children: ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
 }
 
 describe('ServiceCredentialList', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    scopedActionControl.allowBegin = true
+  })
+
   it('requests only kind=service and never touches the LLM catalog', async () => {
     managedGetMock.mockResolvedValue({ data: [], has_more: false })
-    render(<Wrap><ServiceCredentialList onCreate={() => {}} /></Wrap>)
+    render(
+      <Wrap>
+        <ServiceCredentialList onCreate={() => {}} />
+      </Wrap>,
+    )
     await waitFor(() => {
       const cred = managedGetMock.mock.calls.find(([u]) => (u as string).startsWith('/credentials'))
       expect(cred![0]).toContain('kind=service')
+      expect(cred![0]).toContain('include_archived=false')
     })
-    expect(managedGetMock.mock.calls.some(([u]) => (u as string).startsWith('/llm/catalog'))).toBe(false)
+    expect(managedGetMock.mock.calls.some(([u]) => (u as string).startsWith('/llm/catalog'))).toBe(
+      false,
+    )
+  })
+
+  it('hides archived service credentials by default and reveals them through the toggle', async () => {
+    managedGetMock.mockResolvedValue({
+      data: [
+        serviceCredential(ACTIVE_ID, null),
+        serviceCredential(ARCHIVED_ID, '2026-08-12T00:00:00Z'),
+      ],
+      has_more: false,
+    })
+    render(
+      <Wrap>
+        <ServiceCredentialList onCreate={() => {}} />
+      </Wrap>,
+    )
+
+    await screen.findByTestId(ACTIVE_ID)
+    expect(screen.queryByTestId(ARCHIVED_ID)).toBeNull()
+    fireEvent.click(screen.getByText('show-archived:false'))
+
+    expect(await screen.findByTestId(ARCHIVED_ID)).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        managedGetMock.mock.calls.some(([url]) =>
+          (url as string).includes('include_archived=true'),
+        ),
+      ).toBe(true),
+    )
+  })
+
+  it('archives active service credentials and restores archived ones', async () => {
+    managedGetMock.mockResolvedValue({
+      data: [
+        serviceCredential(ACTIVE_ID, null),
+        serviceCredential(ARCHIVED_ID, '2026-08-12T00:00:00Z'),
+      ],
+      has_more: false,
+    })
+    managedPostMock.mockResolvedValue({})
+    render(
+      <Wrap>
+        <ServiceCredentialList
+          onCreate={() => {}}
+          state={{ searchQuery: '', createdFilter: 'all', showArchived: true, pageSize: 10 }}
+          onStateChange={() => {}}
+        />
+      </Wrap>,
+    )
+
+    const activeRow = await screen.findByTestId(ACTIVE_ID)
+    fireEvent.click(within(activeRow).getByText('common.archive'))
+    fireEvent.click(screen.getByText('confirm:common.archive'))
+    await waitFor(() =>
+      expect(managedPostMock).toHaveBeenCalledWith(
+        `/credentials/${ACTIVE_ID}/archive`,
+        {},
+        expect.anything(),
+      ),
+    )
+
+    const archivedRow = screen.getByTestId(ARCHIVED_ID)
+    fireEvent.click(within(archivedRow).getByText('common.restore'))
+    fireEvent.click(screen.getByText('confirm:common.restore'))
+    await waitFor(() =>
+      expect(managedPostMock).toHaveBeenCalledWith(
+        `/credentials/${ARCHIVED_ID}/restore`,
+        {},
+        expect.anything(),
+      ),
+    )
+  })
+
+  it('does not submit an old lifecycle target after the managed scope changes', async () => {
+    managedGetMock.mockResolvedValue({
+      data: [serviceCredential(ACTIVE_ID, null)],
+      has_more: false,
+    })
+    render(
+      <Wrap>
+        <ServiceCredentialList onCreate={() => {}} />
+      </Wrap>,
+    )
+
+    const activeRow = await screen.findByTestId(ACTIVE_ID)
+    fireEvent.click(within(activeRow).getByText('common.archive'))
+    scopedActionControl.allowBegin = false
+    fireEvent.click(screen.getByText('confirm:common.archive'))
+
+    expect(managedPostMock).not.toHaveBeenCalled()
   })
 })

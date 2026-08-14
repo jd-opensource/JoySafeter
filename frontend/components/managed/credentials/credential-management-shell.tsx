@@ -3,27 +3,36 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { CreateSecretDialog } from '@/app/managed/secrets/components/create-secret-dialog'
 import { CreateVaultDialog } from '@/app/managed/vaults/components/create-vault-dialog'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useCurrentProjectReadOnly } from '@/hooks/managed/use-current-project-read-only'
+import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
+import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { useTranslation } from '@/lib/i18n'
-import { useManagedRequestScope } from '@/lib/managed/request-scope'
 
 import { CredentialKindChooser, type CredentialKindChoice } from './credential-kind-chooser'
-import { McpVaultList } from './mcp-vault-list'
-import { ModelConnectionList } from './model-connection-list'
-import { ServiceCredentialList } from './service-credential-list'
+import { McpVaultList, type McpVaultListState } from './mcp-vault-list'
+import { ModelConnectionList, type ModelConnectionListState } from './model-connection-list'
+import { ServiceCredentialList, type ServiceCredentialListState } from './service-credential-list'
 
 type CredentialTab = 'models' | 'services' | 'mcp'
 const TABS: CredentialTab[] = ['models', 'services', 'mcp']
-const KIND_TO_TAB: Record<CredentialKindChoice, CredentialTab> = { model: 'models', service: 'services', vault: 'mcp' }
+const KIND_TO_TAB: Record<CredentialKindChoice, CredentialTab> = {
+  model: 'models',
+  service: 'services',
+  vault: 'mcp',
+}
 
 function normalizeTab(raw: string | null): CredentialTab {
   return TABS.includes(raw as CredentialTab) ? (raw as CredentialTab) : 'models'
+}
+
+function parseCreateKind(raw: string | null): CredentialKindChoice | null {
+  if (raw === 'model' || raw === 'service' || raw === 'vault') return raw
+  return null
 }
 
 export function CredentialManagementShell() {
@@ -31,15 +40,46 @@ export function CredentialManagementShell() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
-  const managedScope = useManagedRequestScope()
-  const projectReadOnly = useCurrentProjectReadOnly()
+  const {
+    scope: managedScope,
+    readOnly: projectReadOnly,
+    scopeIsActive,
+  } = useScopedActions({
+    onReset: () => {
+      setChooserOpen(false)
+      setSecretDialog((state) => ({ ...state, open: false }))
+      setVaultDialogOpen(false)
+    },
+  })
 
   const rawTab = searchParams.get('tab')
   const tab = normalizeTab(rawTab)
+  const consumedCreateRequestRef = useRef<string | null>(null)
 
   const [chooserOpen, setChooserOpen] = useState(false)
-  const [secretDialog, setSecretDialog] = useState<{ open: boolean; kind: 'llm' | 'generic' }>({ open: false, kind: 'llm' })
+  const [secretDialog, setSecretDialog] = useState<{ open: boolean; kind: 'llm' | 'generic' }>({
+    open: false,
+    kind: 'llm',
+  })
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false)
+  const [modelListState, setModelListState] = useState<ModelConnectionListState>({
+    searchQuery: '',
+    createdFilter: 'all',
+    showArchived: false,
+    pageSize: 10,
+  })
+  const [serviceListState, setServiceListState] = useState<ServiceCredentialListState>({
+    searchQuery: '',
+    createdFilter: 'all',
+    showArchived: false,
+    pageSize: 10,
+  })
+  const [mcpListState, setMcpListState] = useState<McpVaultListState>({
+    searchQuery: '',
+    createdFilter: 'all',
+    showArchived: false,
+    pageSize: 10,
+  })
 
   // Normalize illegal ?tab= to models (replace, no history).
   useEffect(() => {
@@ -62,23 +102,33 @@ export function CredentialManagementShell() {
 
   const openForKind = useCallback(
     (kind: CredentialKindChoice) => {
+      if (!scopeIsActive() || !currentProjectAllowsWrite()) {
+        setChooserOpen(false)
+        return
+      }
       goToTab(KIND_TO_TAB[kind])
       if (kind === 'model') setSecretDialog({ open: true, kind: 'llm' })
       else if (kind === 'service') setSecretDialog({ open: true, kind: 'generic' })
       else setVaultDialogOpen(true)
     },
-    [goToTab],
+    [goToTab, scopeIsActive, setChooserOpen, setSecretDialog, setVaultDialogOpen],
   )
 
   // Consume create=* once: permission-gate, open the flow, normalize tab, strip create.
   useEffect(() => {
     const create = searchParams.get('create')
-    if (!create) return
-    const kind: CredentialKindChoice | null =
-      create === 'model' ? 'model' : create === 'service' ? 'service' : create === 'vault' ? 'vault' : null
+    if (!create) {
+      consumedCreateRequestRef.current = null
+      return
+    }
+    const createRequest = searchParams.toString()
+    if (consumedCreateRequestRef.current === createRequest) return
+    consumedCreateRequestRef.current = createRequest
+
+    const kind = parseCreateKind(create)
     const next = new URLSearchParams(searchParams.toString())
     next.delete('create')
-    if (kind && !projectReadOnly) {
+    if (kind && !projectReadOnly && currentProjectAllowsWrite()) {
       next.set('tab', KIND_TO_TAB[kind])
       if (kind === 'model') setSecretDialog({ open: true, kind: 'llm' })
       else if (kind === 'service') setSecretDialog({ open: true, kind: 'generic' })
@@ -92,11 +142,13 @@ export function CredentialManagementShell() {
   }, [tab, openForKind])
 
   const onSecretCreated = useCallback(() => {
+    if (!scopeIsActive() || !currentProjectAllowsWrite()) return
     queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })
-    if (secretDialog.kind === 'llm') queryClient.invalidateQueries({ queryKey: ['compatible-secrets', managedScope.key] })
+    if (secretDialog.kind === 'llm')
+      queryClient.invalidateQueries({ queryKey: ['compatible-secrets', managedScope.key] })
     goToTab(secretDialog.kind === 'llm' ? 'models' : 'services')
     setSecretDialog((s) => ({ ...s, open: false }))
-  }, [queryClient, managedScope.key, secretDialog.kind, goToTab])
+  }, [queryClient, managedScope.key, secretDialog.kind, goToTab, scopeIsActive, setSecretDialog])
 
   return (
     <div>
@@ -111,31 +163,65 @@ export function CredentialManagementShell() {
           </Tabs>
         </div>
         {projectReadOnly ? null : (
-          <Button size="sm" onClick={() => setChooserOpen(true)}>
+          <Button
+            size="sm"
+            onClick={() => {
+              if (!scopeIsActive() || !currentProjectAllowsWrite()) return
+              setChooserOpen(true)
+            }}
+          >
             <Plus className="h-4 w-4" />
             {t('managed.credentials.new')}
           </Button>
         )}
       </div>
 
-      {tab === 'models' ? <ModelConnectionList onCreate={perTabAdd} /> : null}
-      {tab === 'services' ? <ServiceCredentialList onCreate={perTabAdd} /> : null}
-      {tab === 'mcp' ? <McpVaultList onCreate={perTabAdd} /> : null}
+      {tab === 'models' ? (
+        <ModelConnectionList
+          onCreate={perTabAdd}
+          state={modelListState}
+          onStateChange={setModelListState}
+        />
+      ) : null}
+      {tab === 'services' ? (
+        <ServiceCredentialList
+          onCreate={perTabAdd}
+          state={serviceListState}
+          onStateChange={setServiceListState}
+        />
+      ) : null}
+      {tab === 'mcp' ? (
+        <McpVaultList onCreate={perTabAdd} state={mcpListState} onStateChange={setMcpListState} />
+      ) : null}
 
-      <CredentialKindChooser open={chooserOpen} onOpenChange={setChooserOpen} onChoose={openForKind} />
+      <CredentialKindChooser
+        open={chooserOpen}
+        onOpenChange={(open) => {
+          if (open && (!scopeIsActive() || !currentProjectAllowsWrite())) return
+          setChooserOpen(open)
+        }}
+        onChoose={openForKind}
+      />
 
       <CreateSecretDialog
         open={secretDialog.open}
         initialKind={secretDialog.kind}
         lockKind
-        onOpenChange={(open) => setSecretDialog((s) => ({ ...s, open }))}
+        onOpenChange={(open) => {
+          if (open && (!scopeIsActive() || !currentProjectAllowsWrite())) return
+          setSecretDialog((state) => ({ ...state, open }))
+        }}
         onCreated={onSecretCreated}
       />
 
       <CreateVaultDialog
         open={vaultDialogOpen}
-        onOpenChange={setVaultDialogOpen}
+        onOpenChange={(open) => {
+          if (open && (!scopeIsActive() || !currentProjectAllowsWrite())) return
+          setVaultDialogOpen(open)
+        }}
         onCreated={(vault) => {
+          if (!scopeIsActive() || !currentProjectAllowsWrite()) return
           setVaultDialogOpen(false)
           router.push(`/managed/credentials/mcp/${vault.id}?add=1`)
         }}

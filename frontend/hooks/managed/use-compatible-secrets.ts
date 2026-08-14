@@ -50,6 +50,7 @@ async function fetchAllLlmSecrets(
         limit: PAGE_SIZE,
         after_id: afterId,
         kind: 'model',
+        include_archived: false,
         ...filter,
       }),
       managedRequestOptions(managedScope),

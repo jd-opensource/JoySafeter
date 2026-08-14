@@ -1,16 +1,18 @@
 # Unified Credential P1 — "Models & Credentials" UX merge (design)
 
-Date: 2026-08-13 (rev 2 — resolves review Blockers B1–B4, Highs H1–H6, and follow-ups)
+Date: 2026-08-14 (rev 4 — adds compatible archived filtering before pagination and reconciles implementation)
 Depends on: P0 + post-P0 hardening (commit `802fc986`) — unified `/credentials` +
 `/credential-groups` by-id API; frontend migrated; suites green.
 Umbrella: `docs/superpowers/specs/2026-08-11-unified-credential-architecture-design.md` §4 (P1) + §3.12.
 
 ## 1. Goal, guardrails, capability-equivalence, error boundaries
 
-P1 is a **frontend-only product-experience refactor**: collapse the two credential nav entries
+P1 is primarily a **frontend product-experience refactor**: collapse the two credential nav entries
 into one "Models & Credentials" surface with kind tabs, an MCP credential-vault master-detail
-sub-view, and a unified creation entry, landing the §3.12 vocabulary. **No backend/API/runtime/
-schema change.**
+sub-view, and a unified creation entry, landing the §3.12 vocabulary. It makes no schema,
+response-shape, or credential-runtime change. The only API extension is an optional,
+backward-compatible `GET /credentials?include_archived=` query parameter required to filter archived
+rows before cursor pagination.
 
 **Capability-equivalence rule (non-negotiable):** P1 must not shrink any capability that exists
 today on `/managed/secrets` or `/managed/vaults`. The §6 parity matrix is the acceptance gate.
@@ -61,7 +63,8 @@ Old routes remain only as compatibility fallback.
   `create` param is stripped, `tab` and any other params are preserved.
 - Detail back / breadcrumb returns to the correct tab by the credential's kind
   (model/service → its tab; mcp vault detail → `?tab=mcp`).
-- Each tab keeps its own independent search / pageSize / cursor state (§3).
+- Each tab keeps its own independent search / created-time filter / show-archived / pageSize /
+  cursor state (§3).
 
 ## 3. Data flow — kind filtering, query keys, pagination (B2)
 
@@ -71,20 +74,23 @@ and model/service become unreachable through a shared cursor).
 
 | Concern | Rule |
 |---|---|
-| List request | `apiCollectionPath('credentials', { kind })` → `GET /credentials?kind=model\|service` |
+| List request | `apiCollectionPath('credentials', { kind })` plus explicit `include_archived=false\|true` |
 | MCP list | `GET /credential-groups` (unchanged) |
 | React Query key | MUST include `kind` (e.g. `['credentials', scopeKey, kind]`) so tabs never share cache |
 | Pagination cursor scope | cursor / sessionStorage key MUST include `kind`; model & service pagination are isolated |
 | Prefetch key | includes `kind` |
+| Archived filtering | Model/Service default to `false`; the toggle sends `true`; filtering happens in SQL before `limit`/cursor |
+| Binding selectors | Model/Service pickers always send `include_archived=false`, because Agent/Environment writes reject archived credential references |
 
-`usePaginatedList` currently takes no kind/query arg (`hooks/managed/use-paginated-list.ts`); P1
-extends it (or wraps it) to thread `kind` into the path AND into the queryKey/cursor scope. This is
-the one shared-hook change; it is frontend-only and covered by a pagination-isolation test (§6).
+`usePaginatedList` threads `kind` into the path AND into the queryKey/cursor scope, and preserves an
+explicit `includeArchived: false` instead of collapsing it to `undefined`. Client filtering remains
+a defensive rendering fallback only; it MUST NOT carry pagination correctness. Tests cover kind
+isolation, explicit-false serialization, and archived filtering before pagination (§6).
 
 ## 4. Creation flows + role/lifecycle behavior
 
 ### 4.1 Unified create — single-layer kind selection (H4)
-- One primary **"New credential"** opens a **`CredentialKindChooser`** (Model Connection / MCP
+- One primary **"New"** opens a **`CredentialKindChooser`** (Model Connection / MCP
   Credential Vault / Service Credential). Choosing a kind opens that kind's create flow **with the
   kind locked** — the existing `CreateSecretDialog`'s internal LLM/Generic tab is **removed/hidden**
   when launched from the chooser (no triple decision).
@@ -104,8 +110,15 @@ zero members until the user adds one; the flow just guides them there.
 - **Reader** (no write scope): sees masked list/detail across all tabs; **no** create/edit/delete/
   archive controls rendered.
 - **Archived project**: all create/edit/archive/delete actions blocked (as today).
-- **Model detail**: edit data, test connection, set-default, delete/archive.
-- **Service detail**: edit masked fields (add/remove/update keys), delete/archive.
+- **Project/scope lifecycle**: switching project, archiving the current project, closing a dialog,
+  or unmounting invalidates in-flight create/mutation results; stale completions must not close,
+  invalidate, navigate, or populate the newly active project.
+- **Model list/detail**: active rows support set-default, archive, and delete; archived rows are
+  visibly marked, read-only, and support restore + delete. Detail supports edit-data/save while
+  active. **Detail test-connection is intentionally absent**: detail GET data is masked while
+  `POST /credentials/test` requires full plaintext. Test-connection remains available at create time.
+- **Service list/detail**: active rows support archive + delete; archived rows are visibly marked,
+  read-only, and support restore + delete. Active detail supports masked-field add/remove/update/save.
 - **MCP vault**: create / archive / delete group; **member**: add / archive (not delete — archive
   preserves history per P0 hardening) / show-archived toggle.
 
@@ -128,13 +141,17 @@ zero members until the user adds one; the flow just guides them there.
 ## 6. Testing — capability-parity matrix (H5)
 
 Beyond render/route tests, P1 must add behavior-parity tests proving no capability regressed:
-- **Model**: edit data · test-connection · set-default · delete/archive.
-- **Service**: edit masked fields · add/remove field · delete/archive.
+- **Model**: edit data · create-time test-connection · set-default · archive/restore · delete ·
+  archived detail read-only.
+- **Service**: edit masked fields · add/remove field · archive/restore · delete · archived detail
+  read-only.
 - **MCP Vault**: create · archive · delete.
 - **MCP Member**: add · archive · archived shown (toggle).
 - **Role**: reader sees masked info but **no** write controls; archived project blocks all writes.
 - **Isolation**: after project switch, stale requests must not populate the new project; each tab
   has independent loading/error/empty/pagination; MCP credentials never appear in Model/Service tabs.
+- **Tab continuity**: switching tabs must preserve that tab's search, created-time filter,
+  show-archived state where applicable, cursor, and page size without mounting all tabs concurrently.
 - **Routing**: default tab; illegal `?tab=` normalization (replace); tab click pushes history;
   `create=*` consumed leaves `tab` intact; kind-correct back/breadcrumb.
 - **Deep-link parity**: every `create=*` and old detail deep-link (§2.2) lands on the right
@@ -146,12 +163,19 @@ Beyond render/route tests, P1 must add behavior-parity tests proving no capabili
 ## 7. Non-goals + P0 constraints to respect
 
 - Later phases: unified cross-flow credential picker → **P2C**; trigger grants → **P2A**; MCP
-  OAuth → **P2B**. No backend/runtime change in P1.
-- **P0 API limits P1 must NOT paper over:**
-  - `GET /credentials` has **no `include_archived`** (only `/credential-groups` does). So P1 does
-    **not** add a model/service archived-list + restore UI (that would need a backend change =
-    guardrail relaxation, out of P1 scope). P1 keeps current model/service list behavior (active
-    only). MCP vault archived-filter stays as P0 provides it.
+  OAuth → **P2B**. P1 has no schema, response-shape, or credential-runtime change beyond the
+  compatible list query parameter below.
+- **P0 API facts P1 relies on:**
+  - `GET /credentials` excludes deleted rows and historically returns active + archived credentials
+    when `include_archived` is omitted. Rev4 preserves that default for existing callers.
+  - `include_archived=false` excludes archived rows in the database query before cursor/limit;
+    `include_archived=true` returns active + archived. Model/Service lists always send one of these
+    explicit values, while legacy callers may omit the parameter without behavior change.
+  - Binding/authoring selectors (`useCompatibleSecrets`, protocol-model pickers,
+    `useServiceCredentials`, and Environment egress editors) explicitly send `false`; archived
+    credentials are lifecycle-visible in management UI but are not valid new runtime references.
+  - Existing `POST /credentials/{id}/archive` and `/restore` endpoints continue to provide the
+    lifecycle mutations; no new mutation endpoint or response shape is introduced.
   - List `name`/created-time filtering is **per-cursor-page**, not global search. P1 must not
     present it as global search; the search box scope matches today's behavior.
 
@@ -177,6 +201,8 @@ render independently of catalog success.
 - Mobile: tabs scroll horizontally (or equivalent); MCP list→detail routes degrade naturally on
   mobile (separate routes, no split-pane requirement).
 - Table rows are keyboard-actionable (not mouse-only); destructive actions keep their confirm dialog.
+- Row keyboard activation handles only events targeted at the row itself; Enter/Space on nested
+  buttons or action menus must not trigger row navigation.
 
 ## 9. Resolved decisions (for the record)
 - Tab state: query param (`?tab=`), replace-on-normalize / push-on-click (§2.3).
@@ -185,4 +211,7 @@ render independently of catalog success.
 - MCP create: create-vault → vault detail → auto-open Add-Credential (B3, §4.2).
 - Create chooser: single-layer, kind locked; dialog inner tab hidden (H4, §4.1).
 - i18n: baseline green; snapshot updated to true post-P1 reality only (H6, §5).
-- Archived model/service list/restore: **out of scope** (needs backend change) (§7).
+- Archived Model/Service lifecycle: **in scope** using existing archive/restore endpoints plus the
+  backward-compatible list filter; archived detail is read-only (§4.3, §7).
+- Detail test-connection: **out of scope** because detail data is masked; create-time testing remains.
+- Per-tab UI state: retained in the shell while only the active list is mounted.

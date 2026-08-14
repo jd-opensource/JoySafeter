@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { managedPost } from '@/lib/api-client'
+import { useProjectStore } from '@/stores/managed/project-store'
 
 import { LlmSecretConfigurator } from './llm-secret-configurator'
 
@@ -117,10 +118,6 @@ vi.mock('@/hooks/managed/use-llm-catalog', () => ({
   useLlmCatalog: () => ({ data: catalog, isLoading: false, isError: false, refetch: vi.fn() }),
 }))
 vi.mock('@/lib/api-client', () => ({ managedPost: vi.fn() }))
-vi.mock('@/lib/managed/request-scope', () => ({
-  managedRequestOptions: () => ({}),
-  useManagedRequestScope: () => ({ orgId: 'org-a', projectId: 'project-a', key: 'scope' }),
-}))
 vi.mock('@/lib/i18n', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 vi.mock('@/components/ui/select', () => ({
   Select: ({ value, onValueChange, children }: any) => (
@@ -136,8 +133,48 @@ vi.mock('@/components/ui/select', () => ({
 
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+function setProject(id: string, archivedAt: string | null = null) {
+  useProjectStore.setState({
+    currentOrgId: 'org-a',
+    currentProjectId: id,
+    currentProject: {
+      id,
+      org_id: 'org-a',
+      name: id,
+      slug: id,
+      is_default: true,
+      archived_at: archivedAt,
+      capability: 'write',
+    },
+    organizations: [],
+    projects: [],
+  })
+}
+
+function fillModelForm() {
+  fireEvent.change(screen.getByLabelText('managed.llm.provider'), { target: { value: 'openai' } })
+  fireEvent.change(screen.getByLabelText('managed.llm.protocol'), {
+    target: { value: 'openai_responses' },
+  })
+  fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'sk-test' } })
+  fireEvent.change(screen.getByPlaceholderText('managed.llm.configurationNamePlaceholder'), {
+    target: { value: 'Primary model' },
+  })
+}
+
 describe('LlmSecretConfigurator', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    setProject('project-a')
+  })
 
   it('does not render an engine selector', () => {
     render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
@@ -170,5 +207,49 @@ describe('LlmSecretConfigurator', () => {
     await waitFor(() => expect(screen.getByText('managed.llm.connectionVerified')).toBeTruthy())
     fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-5' } })
     expect(screen.getByText('managed.llm.connectionTestStale')).toBeTruthy()
+  })
+
+  it('does not create a model connection after the project becomes archived', async () => {
+    render(<LlmSecretConfigurator initialEngineId="native" onCreated={vi.fn()} />)
+    fillModelForm()
+
+    await act(async () => {
+      setProject('project-a', '2026-08-13T01:00:00Z')
+      fireEvent.click(screen.getByRole('button', { name: 'managed.llm.createConfiguration' }))
+      await Promise.resolve()
+    })
+
+    expect(managedPostMock).not.toHaveBeenCalled()
+  })
+
+  it('ignores a model create completion after the project changes', async () => {
+    const create = deferred<unknown>()
+    managedPostMock.mockReturnValueOnce(create.promise)
+    const onCreated = vi.fn()
+    render(<LlmSecretConfigurator initialEngineId="native" onCreated={onCreated} />)
+    fillModelForm()
+    fireEvent.click(screen.getByRole('button', { name: 'managed.llm.createConfiguration' }))
+    await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
+
+    await act(async () => {
+      setProject('project-b')
+      create.resolve({
+        id: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f098',
+        name: 'Primary model',
+        kind: 'model',
+        provider: 'openai',
+        protocol: 'openai_responses',
+        model: null,
+        compatible_engine_ids: ['native'],
+        is_default: false,
+        data: { OPENAI_API_KEY: '********' },
+        archived_at: null,
+        created_at: '2026-08-13T00:00:00Z',
+        updated_at: '2026-08-13T00:00:00Z',
+      })
+      await create.promise
+    })
+
+    expect(onCreated).not.toHaveBeenCalled()
   })
 })

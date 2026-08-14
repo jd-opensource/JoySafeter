@@ -37,13 +37,43 @@ interface VaultActionVariables {
   requestScope: ManagedRequestScope
 }
 
-export function McpVaultList({ onCreate }: { onCreate: () => void }) {
+export interface McpVaultListState {
+  searchQuery: string
+  createdFilter: string
+  showArchived: boolean
+  pageSize: number
+}
+
+const DEFAULT_MCP_LIST_STATE: McpVaultListState = {
+  searchQuery: '',
+  createdFilter: 'all',
+  showArchived: false,
+  pageSize: 10,
+}
+
+export function McpVaultList({
+  onCreate,
+  state,
+  onStateChange,
+}: {
+  onCreate: () => void
+  state?: McpVaultListState
+  onStateChange?: (state: McpVaultListState) => void
+}) {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const [showArchived, setShowArchived] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [createdFilter, setCreatedFilter] = useState('all')
+  const [localState, setLocalState] = useState(DEFAULT_MCP_LIST_STATE)
+  const listState = state ?? localState
+  const updateListState = (patch: Partial<McpVaultListState>) => {
+    const next = { ...listState, ...patch }
+    if (state && onStateChange) onStateChange(next)
+    else setLocalState(next)
+  }
+  const { showArchived, searchQuery, createdFilter } = listState
+  const setShowArchived = (value: boolean) => updateListState({ showArchived: value })
+  const setSearchQuery = (value: string) => updateListState({ searchQuery: value })
+  const setCreatedFilter = (value: string) => updateListState({ createdFilter: value })
   const [archiveTarget, setArchiveTarget] = useState<Vault | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Vault | null>(null)
   const {
@@ -65,7 +95,9 @@ export function McpVaultList({ onCreate }: { onCreate: () => void }) {
     scopeIsActive(scope) &&
     currentProjectAllowsWrite() &&
     queryClient
-      .getQueriesData<{ data?: Vault[] }>({ queryKey: ['credential-groups', scope, '/credential-groups'] })
+      .getQueriesData<{
+        data?: Vault[]
+      }>({ queryKey: ['credential-groups', scope, '/credential-groups'] })
       .some(([, page]) => page?.data?.some((v) => v.id === vault.id && !v.archived_at))
 
   const openArchiveDialog = (vault: Vault) => {
@@ -87,20 +119,40 @@ export function McpVaultList({ onCreate }: { onCreate: () => void }) {
     setDeleteTarget(null)
   }
 
-  const { data, isLoading, isFetching, isError, error, hasNext, hasPrev, page, pageSize, pageSizeOptions, goNext, goPrev, goToPage, setPageSize } =
-    usePaginatedList<Vault>({
-      queryKey: 'credential-groups',
-      path: '/credential-groups',
-      includeArchived: showArchived,
-      parseItem: parseVaultResponse,
-      parseCursor: parseCredentialGroupId,
-    })
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    hasNext,
+    hasPrev,
+    page,
+    pageSize,
+    pageSizeOptions,
+    goNext,
+    goPrev,
+    goToPage,
+    setPageSize,
+  } = usePaginatedList<Vault>({
+    queryKey: 'credential-groups',
+    path: '/credential-groups',
+    includeArchived: showArchived,
+    pageSize: listState.pageSize,
+    onPageSizeChange: (pageSize) => updateListState({ pageSize }),
+    parseItem: parseVaultResponse,
+    parseCursor: parseCredentialGroupId,
+  })
 
   const archiveMutation = useMutation({
     mutationFn: ({ vault, runId, scope, requestScope }: VaultActionVariables) => {
       if (!isCurrentAction(runId, scope)) throw new Error('Stale vault archive ignored')
       if (!currentProjectAllowsWrite()) throw new Error('Archived project vault archive ignored')
-      return managedPost(apiResourcePath('credential-groups', vault.id, 'archive'), {}, managedRequestOptions(requestScope))
+      return managedPost(
+        apiResourcePath('credential-groups', vault.id, 'archive'),
+        {},
+        managedRequestOptions(requestScope),
+      )
     },
     onSuccess: (_d, { runId, scope }) => {
       if (!isCurrentAction(runId, scope)) return
@@ -116,7 +168,10 @@ export function McpVaultList({ onCreate }: { onCreate: () => void }) {
     mutationFn: ({ vault, runId, scope, requestScope }: VaultActionVariables) => {
       if (!isCurrentAction(runId, scope)) throw new Error('Stale vault delete ignored')
       if (!currentProjectAllowsWrite()) throw new Error('Archived project vault delete ignored')
-      return managedDelete(apiResourcePath('credential-groups', vault.id), managedRequestOptions(requestScope))
+      return managedDelete(
+        apiResourcePath('credential-groups', vault.id),
+        managedRequestOptions(requestScope),
+      )
     },
     onSuccess: (_d, { runId, scope }) => {
       if (!isCurrentAction(runId, scope)) return
@@ -135,7 +190,9 @@ export function McpVaultList({ onCreate }: { onCreate: () => void }) {
       filterByCreatedTime(v.created_at, createdFilter) &&
       matchesSearch(searchQuery, [v.id, v.name, v.archived_at ? 'archived' : 'active']),
   )
-  const filters: FilterDef[] = [{ ...createCreatedTimeFilter(t), value: createdFilter, onChange: setCreatedFilter }]
+  const filters: FilterDef[] = [
+    { ...createCreatedTimeFilter(t), value: createdFilter, onChange: setCreatedFilter },
+  ]
 
   useEffect(() => {
     const activeById = new Map(data.filter((v) => !v.archived_at).map((v) => [v.id, v]))
@@ -156,12 +213,24 @@ export function McpVaultList({ onCreate }: { onCreate: () => void }) {
 
   const columns: Column<Vault>[] = [
     { key: 'id', header: t('managed.table.id'), render: (v) => <MonoId id={v.id} /> },
-    { key: 'name', header: t('managed.table.name'), render: (v) => <span className="font-medium text-foreground">{v.name}</span> },
-    { key: 'status', header: t('managed.table.status'), render: (v) => <StatusBadge status={v.archived_at ? 'archived' : 'active'} /> },
+    {
+      key: 'name',
+      header: t('managed.table.name'),
+      render: (v) => <span className="font-medium text-foreground">{v.name}</span>,
+    },
+    {
+      key: 'status',
+      header: t('managed.table.status'),
+      render: (v) => <StatusBadge status={v.archived_at ? 'archived' : 'active'} />,
+    },
     {
       key: 'created_at',
       header: t('managed.table.created'),
-      render: (v) => <span className="text-xs text-muted-foreground"><RelativeTime date={v.created_at} /></span>,
+      render: (v) => (
+        <span className="text-xs text-muted-foreground">
+          <RelativeTime date={v.created_at} />
+        </span>
+      ),
     },
   ]
 
@@ -170,7 +239,9 @@ export function McpVaultList({ onCreate }: { onCreate: () => void }) {
       <ResourceErrorState
         error={error}
         resource="vault"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['credential-groups', managedScope.key] })}
+        onRetry={() =>
+          queryClient.invalidateQueries({ queryKey: ['credential-groups', managedScope.key] })
+        }
       />
     )
 
@@ -210,7 +281,12 @@ export function McpVaultList({ onCreate }: { onCreate: () => void }) {
             ? []
             : [
                 { label: t('managed.vaults.archiveVault'), onClick: () => openArchiveDialog(v) },
-                { label: t('common.delete'), destructive: true, icon: <Trash2 className="h-3.5 w-3.5" />, onClick: () => openDeleteDialog(v) },
+                {
+                  label: t('common.delete'),
+                  destructive: true,
+                  icon: <Trash2 className="h-3.5 w-3.5" />,
+                  onClick: () => openDeleteDialog(v),
+                },
               ]
         }
         pagination={{
@@ -247,7 +323,12 @@ export function McpVaultList({ onCreate }: { onCreate: () => void }) {
               closeArchiveDialog()
               return
             }
-            archiveMutation.mutate({ vault: archiveTarget, runId: action.runId, scope: action.scope, requestScope: action.requestScope })
+            archiveMutation.mutate({
+              vault: archiveTarget,
+              runId: action.runId,
+              scope: action.scope,
+              requestScope: action.requestScope,
+            })
           }
         }}
         onCancel={closeArchiveDialog}
@@ -273,7 +354,12 @@ export function McpVaultList({ onCreate }: { onCreate: () => void }) {
               closeDeleteDialog()
               return
             }
-            deleteMutation.mutate({ vault: deleteTarget, runId: action.runId, scope: action.scope, requestScope: action.requestScope })
+            deleteMutation.mutate({
+              vault: deleteTarget,
+              runId: action.runId,
+              scope: action.scope,
+              requestScope: action.requestScope,
+            })
           }
         }}
         onCancel={closeDeleteDialog}

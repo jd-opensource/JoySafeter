@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
+import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import {
@@ -16,10 +17,10 @@ import {
   getProviderProtocolOptions,
   stableConnectionFingerprint,
 } from '@/lib/managed/llm-catalog'
-import { managedRequestOptions, useManagedRequestScope } from '@/lib/managed/request-scope'
+import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { parseSecretDetailResponse } from '@/lib/managed/secret-response-parsers'
 import { cn } from '@/lib/utils'
-import type { LlmCredentialField, LlmProviderProtocolOption } from '@/types/llm'
+import type { LlmCredentialField } from '@/types/llm'
 import type { SecretDetail } from '@/types/managed'
 
 interface LlmSecretConfiguratorProps {
@@ -65,7 +66,6 @@ export function LlmSecretConfigurator({
   className,
 }: LlmSecretConfiguratorProps) {
   const { t } = useTranslation()
-  const managedScope = useManagedRequestScope()
   const catalogQuery = useLlmCatalog()
   const engineId = initialEngineId ?? ''
   const [providerId, setProviderId] = useState('')
@@ -80,6 +80,16 @@ export function LlmSecretConfigurator({
   const [testMessage, setTestMessage] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [creating, setCreating] = useState(false)
+  const { readOnly, beginAction, isCurrentAction, bumpRun } = useScopedActions({
+    onReset: () => {
+      setTesting(false)
+      setCreating(false)
+      setValidationError(null)
+      setRequestError(null)
+      setTestMessage(null)
+      onCancel?.()
+    },
+  })
 
   const options = useMemo(() => {
     if (!catalogQuery.data) return []
@@ -188,6 +198,11 @@ export function LlmSecretConfigurator({
 
   const testConnection = async () => {
     if (!runValidation()) return
+    const action = beginAction()
+    if (!action) {
+      onCancel?.()
+      return
+    }
     const fingerprint = currentFingerprint
     setTesting(true)
     setRequestError(null)
@@ -196,8 +211,9 @@ export function LlmSecretConfigurator({
       const result = await managedPost<{ ok: boolean; message: string }>(
         '/credentials/test',
         { provider: providerId, protocol: protocolId, data: values },
-        managedRequestOptions(managedScope),
+        managedRequestOptions(action.requestScope),
       )
+      if (!isCurrentAction(action.runId, action.scope)) return
       if (!result.ok) {
         setRequestError(result.message || t('managed.llm.connectionFailed'))
         return
@@ -205,9 +221,10 @@ export function LlmSecretConfigurator({
       setTestedFingerprint(fingerprint)
       setTestMessage(result.message)
     } catch (error) {
+      if (!isCurrentAction(action.runId, action.scope)) return
       setRequestError(error instanceof Error ? error.message : t('managed.llm.connectionFailed'))
     } finally {
-      setTesting(false)
+      if (isCurrentAction(action.runId, action.scope)) setTesting(false)
     }
   }
 
@@ -217,6 +234,11 @@ export function LlmSecretConfigurator({
       return
     }
     if (!runValidation()) return
+    const action = beginAction()
+    if (!action) {
+      onCancel?.()
+      return
+    }
     setCreating(true)
     setRequestError(null)
     try {
@@ -230,13 +252,15 @@ export function LlmSecretConfigurator({
           data: values,
           is_default: isDefault,
         },
-        managedRequestOptions(managedScope),
+        managedRequestOptions(action.requestScope),
       )
+      if (!isCurrentAction(action.runId, action.scope)) return
       onCreated(parseSecretDetailResponse(response))
     } catch (error) {
+      if (!isCurrentAction(action.runId, action.scope)) return
       setRequestError(error instanceof Error ? error.message : t('managed.llm.createFailed'))
     } finally {
-      setCreating(false)
+      if (isCurrentAction(action.runId, action.scope)) setCreating(false)
     }
   }
 
@@ -251,6 +275,7 @@ export function LlmSecretConfigurator({
             id="llm-provider"
             aria-label={t('managed.llm.provider')}
             value={providerId}
+            disabled={readOnly}
             onChange={(event) => {
               const nextProvider = event.target.value
               const nextProtocols = options.filter((option) => option.providerId === nextProvider)
@@ -277,6 +302,7 @@ export function LlmSecretConfigurator({
               id="llm-protocol"
               aria-label={t('managed.llm.protocol')}
               value={protocolId}
+              disabled={readOnly}
               onChange={(event) => setProtocolId(event.target.value)}
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
             >
@@ -307,6 +333,7 @@ export function LlmSecretConfigurator({
                     id={`llm-field-${field.key}`}
                     aria-label={field.label}
                     value={values[field.key] ?? ''}
+                    disabled={readOnly}
                     onChange={(event) =>
                       setValues((current) => ({ ...current, [field.key]: event.target.value }))
                     }
@@ -325,6 +352,7 @@ export function LlmSecretConfigurator({
                     aria-label={field.label}
                     type={fieldInputType(field)}
                     value={values[field.key] ?? ''}
+                    disabled={readOnly}
                     placeholder={field.placeholder ?? undefined}
                     autoComplete={field.type === 'secret' ? 'new-password' : undefined}
                     onChange={(event) =>
@@ -346,6 +374,7 @@ export function LlmSecretConfigurator({
               type="button"
               variant="ghost"
               size="sm"
+              disabled={readOnly}
               onClick={() => setShowAdvanced((value) => !value)}
             >
               {showAdvanced ? t('managed.llm.hideAdvanced') : t('managed.llm.showAdvanced')}
@@ -362,6 +391,7 @@ export function LlmSecretConfigurator({
           <Input
             id="llm-secret-name"
             value={name}
+            disabled={readOnly}
             onChange={(event) => setName(event.target.value)}
             placeholder={t('managed.llm.configurationNamePlaceholder')}
           />
@@ -370,6 +400,7 @@ export function LlmSecretConfigurator({
           <input
             type="checkbox"
             checked={isDefault}
+            disabled={readOnly}
             onChange={(event) => setIsDefault(event.target.checked)}
           />
           {t('managed.llm.setAsProtocolDefault')}
@@ -398,7 +429,15 @@ export function LlmSecretConfigurator({
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         {onCancel ? (
-          <Button type="button" variant="outline" onClick={onCancel} disabled={testing || creating}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              bumpRun()
+              onCancel()
+            }}
+            disabled={testing || creating}
+          >
             {t('common.cancel')}
           </Button>
         ) : null}
@@ -406,11 +445,11 @@ export function LlmSecretConfigurator({
           type="button"
           variant="outline"
           onClick={testConnection}
-          disabled={testing || creating}
+          disabled={testing || creating || readOnly}
         >
           {testing ? t('managed.llm.testing') : t('managed.llm.testConnection')}
         </Button>
-        <Button type="button" onClick={createSecret} disabled={testing || creating}>
+        <Button type="button" onClick={createSecret} disabled={testing || creating || readOnly}>
           {creating ? t('managed.llm.creating') : t('managed.llm.createConfiguration')}
         </Button>
       </div>

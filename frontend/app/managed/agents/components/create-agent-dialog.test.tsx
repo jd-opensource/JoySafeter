@@ -251,7 +251,7 @@ function managedOptions(projectId = 'project-a') {
 }
 
 function compatibleSecretsPath(engineId = 'claude') {
-  return `/credentials?limit=100&kind=model&compatible_engine=${engineId}`
+  return `/credentials?limit=100&kind=model&include_archived=false&compatible_engine=${engineId}`
 }
 
 function credentialIdForName(name: string): string {

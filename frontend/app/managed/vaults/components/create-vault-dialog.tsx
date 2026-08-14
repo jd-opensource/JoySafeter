@@ -1,30 +1,26 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { useTranslation } from '@/lib/i18n'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { TriangleAlert } from 'lucide-react'
-import { managedPost } from '@/lib/api-client'
-import { toastOperationError } from '@/lib/managed/errors'
-import { parseVaultResponse } from '@/lib/managed/vault-response-parsers'
-import {
-  managedRequestOptions,
-  managedScopeKey,
-  useManagedRequestScope,
-} from '@/lib/managed/request-scope'
-import type { ManagedRequestScope } from '@/lib/managed/request-scope'
-import type { Vault } from '@/types/managed'
-import { useProjectStore } from '@/stores/managed/project-store'
-import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
+import { useState } from 'react'
+
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
+import { managedPost } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
+import { toastOperationError } from '@/lib/managed/errors'
+import { managedRequestOptions } from '@/lib/managed/request-scope'
+import type { ManagedRequestScope } from '@/lib/managed/request-scope'
+import { parseVaultResponse } from '@/lib/managed/vault-response-parsers'
+import type { Vault } from '@/types/managed'
 
 const MAX_NAME_LENGTH = 50
 
@@ -43,40 +39,23 @@ interface CreateVaultVariables {
 
 export function CreateVaultDialog({ open, onOpenChange, onCreated }: CreateVaultDialogProps) {
   const { t } = useTranslation()
-  const managedScope = useManagedRequestScope()
-  const createRunRef = useRef(0)
-  const managedScopeRef = useRef(managedScope.key)
-  const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const [name, setName] = useState('')
   const queryClient = useQueryClient()
-
-  const getCurrentManagedScope = () => {
-    const { currentOrgId: orgId, currentProjectId: projectId } = useProjectStore.getState()
-    return managedScopeKey(orgId, projectId)
-  }
-
-  const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
-    getCurrentManagedScope() === scope
-
-  const isCurrentCreateRun = (runId: number, scope: string) =>
-    createRunRef.current === runId &&
-    managedScopeRef.current === scope &&
-    currentManagedScopeIsActive(scope) &&
-    currentProjectAllowsWrite()
 
   const resetForm = () => {
     setName('')
     mutation.reset()
   }
+  const { readOnly, beginAction, isCurrentAction, scopeIsActive, bumpRun } = useScopedActions({
+    onReset: () => {
+      resetForm()
+      onOpenChange(false)
+    },
+  })
 
   const mutation = useMutation({
-    mutationFn: ({ vaultName, scope, requestScope }: CreateVaultVariables) => {
-      if (!currentManagedScopeIsActive(scope)) {
-        throw new Error('stale managed scope')
-      }
-      if (!currentProjectAllowsWrite()) {
-        throw new Error('Archived project vault create ignored')
-      }
+    mutationFn: ({ vaultName, runId, scope, requestScope }: CreateVaultVariables) => {
+      if (!isCurrentAction(runId, scope)) throw new Error('Stale vault create ignored')
       return managedPost<unknown>(
         '/credential-groups',
         { name: vaultName },
@@ -84,58 +63,35 @@ export function CreateVaultDialog({ open, onOpenChange, onCreated }: CreateVault
       ).then(parseVaultResponse)
     },
     onSuccess: (data, { runId, scope }) => {
-      if (!isCurrentCreateRun(runId, scope)) return
+      if (!isCurrentAction(runId, scope)) return
       queryClient.invalidateQueries({ queryKey: ['credential-groups', scope] })
       onCreated?.(data)
       setName('')
       onOpenChange(false)
     },
     onError: (error, { runId, scope }) => {
-      if (!isCurrentCreateRun(runId, scope)) return
+      if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, error, 'managed.vaults.createFailed')
     },
   })
-
-  useEffect(() => {
-    if (managedScopeRef.current === managedScope.key) return
-    managedScopeRef.current = managedScope.key
-    managedRequestScopeRef.current = managedScope
-    createRunRef.current += 1
-    resetForm()
-    onOpenChange(false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [managedScope.key])
-
-  useEffect(
-    () => () => {
-      createRunRef.current += 1
-    },
-    [],
-  )
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed || trimmed.length > MAX_NAME_LENGTH) return
-    if (!currentManagedScopeIsActive()) return
-    if (!currentProjectAllowsWrite()) {
+    const action = beginAction()
+    if (!action) {
       resetForm()
       onOpenChange(false)
       return
     }
-    const requestScope = managedRequestScopeRef.current
-    const scope = requestScope.key
-    if (!currentManagedScopeIsActive(scope)) return
-    const runId = createRunRef.current + 1
-    createRunRef.current = runId
-    mutation.mutate({ vaultName: trimmed, runId, scope, requestScope })
+    mutation.mutate({ vaultName: trimmed, ...action })
   }
 
   const handleOpenChange = (next: boolean) => {
-    if (next && !currentProjectAllowsWrite()) return
-    if (next && !currentManagedScopeIsActive()) return
+    if (next && (readOnly || !scopeIsActive())) return
     if (!next) {
-      createRunRef.current += 1
+      bumpRun()
       resetForm()
     }
     onOpenChange(next)
@@ -171,6 +127,7 @@ export function CreateVaultDialog({ open, onOpenChange, onCreated }: CreateVault
               id="vault-name"
               placeholder={t('managed.vaults.namePlaceholder')}
               value={name}
+              disabled={readOnly}
               onChange={(e) => setName(e.target.value.slice(0, MAX_NAME_LENGTH))}
               maxLength={MAX_NAME_LENGTH}
               autoFocus
@@ -183,7 +140,7 @@ export function CreateVaultDialog({ open, onOpenChange, onCreated }: CreateVault
           </div>
 
           <div className="flex justify-end">
-            <Button type="submit" disabled={!name.trim() || mutation.isPending}>
+            <Button type="submit" disabled={!name.trim() || mutation.isPending || readOnly}>
               {mutation.isPending ? t('managed.vaults.creating') : t('common.create')}
             </Button>
           </div>

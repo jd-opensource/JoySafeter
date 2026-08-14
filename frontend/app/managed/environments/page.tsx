@@ -160,6 +160,7 @@ export default function EnvironmentListPage() {
   const { data: secrets } = usePaginatedList<Secret>({
     queryKey: 'service-credentials',
     path: '/credentials?kind=service',
+    includeArchived: false,
     limit: 50,
     parseItem: parseSecretResponse,
     parseCursor: parseCredentialId,

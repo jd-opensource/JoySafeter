@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { JSDOM } from 'jsdom'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -10,9 +10,7 @@ vi.mock('@/lib/i18n', async () => {
     i18n: { language: 'en' },
     useTranslation: () => ({
       t: (key: string, _params?: unknown) =>
-        key === 'managed.vaults.sharedWarning'
-          ? en.translation.managed.vaults.sharedWarning
-          : key,
+        key === 'managed.vaults.sharedWarning' ? en.translation.managed.vaults.sharedWarning : key,
     }),
   }
 })
@@ -226,6 +224,41 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
       expect.anything(),
       managedOptions(),
     )
+  })
+
+  it('closes and clears the form when the current project becomes archived', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const onOpenChange = vi.fn()
+
+    const { getByPlaceholderText } = render(
+      <QueryClientProvider client={queryClient}>
+        <CreateVaultDialog open onOpenChange={onOpenChange} />
+      </QueryClientProvider>,
+    )
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('managed.vaults.namePlaceholder'), {
+        target: { value: 'Must not survive archive' },
+      })
+    })
+
+    await act(async () => {
+      useProjectStore.setState((state) => ({
+        currentProject: state.currentProject
+          ? { ...state.currentProject, archived_at: '2026-08-14T00:00:00Z' }
+          : null,
+      }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(getByPlaceholderText('managed.vaults.namePlaceholder')).toHaveValue('')
   })
 
   it('does not invalidate from a create completion after the managed project changes', async () => {

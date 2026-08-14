@@ -180,6 +180,49 @@ def test_credential_create_list_get_masked_default_archive_restore(client) -> No
     assert resp.status_code == 404
 
 
+def test_credential_list_filters_archived_before_pagination_without_changing_default(client) -> None:
+    api, _project_id, _factory = client
+    active = api.post(
+        "/credentials",
+        json={"kind": "service", "name": "active-service", "data": {"TOKEN": "active"}},
+    )
+    assert active.status_code == 201, active.text
+    active_id = active.json()["id"]
+
+    archived = api.post(
+        "/credentials",
+        json={"kind": "service", "name": "archived-service", "data": {"TOKEN": "old"}},
+    )
+    assert archived.status_code == 201, archived.text
+    archived_id = archived.json()["id"]
+    assert api.post(f"/credentials/{archived_id}/archive").status_code == 200
+
+    response = api.get(
+        "/credentials",
+        params={"kind": "service", "limit": 1, "include_archived": False},
+    )
+    assert response.status_code == 200, response.text
+    assert [credential["id"] for credential in response.json()["data"]] == [active_id]
+    assert response.json()["has_more"] is False
+
+    response = api.get(
+        "/credentials",
+        params={"kind": "service", "limit": 2, "include_archived": True},
+    )
+    assert response.status_code == 200, response.text
+    assert {credential["id"] for credential in response.json()["data"]} == {
+        active_id,
+        archived_id,
+    }
+
+    response = api.get("/credentials", params={"kind": "service", "limit": 2})
+    assert response.status_code == 200, response.text
+    assert {credential["id"] for credential in response.json()["data"]} == {
+        active_id,
+        archived_id,
+    }
+
+
 def test_credential_create_rolls_back_when_audit_write_fails(client, monkeypatch) -> None:
     api, project_id, session_factory = client
 

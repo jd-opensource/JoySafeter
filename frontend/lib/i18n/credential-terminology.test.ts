@@ -30,7 +30,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'connections and credentials',
     'managed.secrets.subtitle',
     'Manage model connections and service credentials for this project.',
-    '管理当前项目的模型接入与服务凭据。',
+    '管理当前项目的模型连接与服务凭据。',
   ],
   [
     'connections and credentials',
@@ -38,12 +38,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'New Connection or Credential',
     '新建连接或凭据',
   ],
-  [
-    'connections and credentials',
-    'managed.secrets.dataLabel',
-    'Credential Fields',
-    '凭据字段',
-  ],
+  ['connections and credentials', 'managed.secrets.dataLabel', 'Credential Fields', '凭据字段'],
   [
     'connections and credentials',
     'managed.secrets.backToList',
@@ -54,7 +49,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'connections and credentials',
     'managed.secrets.empty',
     'No model connections or service credentials yet.',
-    '暂无模型接入或服务凭据。',
+    '暂无模型连接或服务凭据。',
   ],
   [
     'connections and credentials',
@@ -70,91 +65,86 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   ['model and service', 'managed.llm.modelConfiguration', 'Model Connection', '模型连接'],
   ['model and service', 'managed.llm.genericSecret', 'Service Credential', '服务凭据'],
-  ['agent model connection', 'agents.edit.secretRef', 'Model Connection', '模型接入'],
+  ['agent model connection', 'agents.edit.secretRef', 'Model Connection', '模型连接'],
   [
     'agent model connection',
     'managed.agents.engineKindDesc',
     'The engine determines the supported API protocols. Model Connections are filtered to compatible Provider and Protocol combinations.',
-    '引擎决定支持哪些 API 协议；模型接入会按兼容的 Provider 与 Protocol 组合自动筛选。',
+    '引擎决定支持哪些 API 协议；模型连接会按兼容的 Provider 与 Protocol 组合自动筛选。',
   ],
-  [
-    'agent model connection',
-    'managed.agents.edit.secretRef',
-    'Model Connection',
-    '模型接入',
-  ],
+  ['agent model connection', 'managed.agents.edit.secretRef', 'Model Connection', '模型连接'],
   [
     'model connection states',
     'managed.llm.catalogIdentityUnavailable',
     'This Model Connection references a provider or protocol that is no longer available in the current catalog. Create a new Model Connection before using it.',
-    '该模型接入引用的供应商或协议已不在当前目录中，现为只读状态。请新建可用的模型接入后再替换使用。',
+    '该模型连接引用的供应商或协议已不在当前目录中，现为只读状态。请新建可用的模型连接后再替换使用。',
   ],
   [
     'model connection states',
     'managed.llm.chooseEngineFirst',
     'Choose an engine first to see compatible Model Connections.',
-    '请先选择引擎，再查看兼容的模型接入。',
+    '请先选择引擎，再查看兼容的模型连接。',
   ],
-  ['model connection states', 'managed.llm.configuration', 'Model Connection', '模型接入'],
+  ['model connection states', 'managed.llm.configuration', 'Model Connection', '模型连接'],
   [
     'model connection states',
     'managed.llm.configurationLoadFailed',
     'Failed to load compatible Model Connections.',
-    '加载兼容模型接入失败。',
+    '加载兼容模型连接失败。',
   ],
   [
     'model connection states',
     'managed.llm.createConfiguration',
     'Create Model Connection',
-    '创建模型接入',
+    '创建模型连接',
   ],
   [
     'model connection states',
     'managed.llm.createDialogDescription',
     'Create a Model Connection or Service Credential for this project.',
-    '为当前项目创建模型接入或服务凭据。',
+    '为当前项目创建模型连接或服务凭据。',
   ],
   [
     'model connection states',
     'managed.llm.createFailed',
     'Failed to create the Model Connection.',
-    '创建模型接入失败。',
+    '创建模型连接失败。',
   ],
   [
     'model connection states',
     'managed.llm.incompatibleWithSelectedEngine',
     'The current Model Connection does not support the selected engine.',
-    '当前模型接入不支持所选引擎。',
+    '当前模型连接不支持所选引擎。',
   ],
   [
     'model connection states',
     'managed.llm.loadingConfigurations',
     'Loading compatible Model Connections...',
-    '正在加载兼容模型接入...',
+    '正在加载兼容模型连接...',
   ],
   [
     'model connection states',
     'managed.llm.noCompatibleConfigurations',
     'No compatible Model Connections',
-    '暂无兼容的模型接入',
+    '暂无兼容的模型连接',
   ],
   [
     'model connection states',
     'managed.llm.previousConfigurationIncompatible',
     'The previous Model Connection is not compatible with this engine and was cleared. Choose another Model Connection or create one.',
-    '原模型接入不兼容当前引擎，已为你清空。请选择其他模型接入或新建模型接入。',
+    '原模型连接不兼容当前引擎，已为你清空。请选择其他模型连接或新建模型连接。',
   ],
   [
     'model connection states',
     'managed.llm.reselectConfiguration',
     'Choose another Model Connection',
-    '重新选择模型接入',
+    '重新选择模型连接',
   ],
   [
     'model connection states',
     'managed.llm.noConfigurationHint',
     'Do not bind a Model Connection. The agent will not receive model credentials from Connections & Credentials.',
-    '不绑定模型接入；系统不会从模型与凭据中向该智能体注入模型凭据。',
+    '不绑定模型连接；系统不会从模型与凭据中向该智能体注入模型凭据。',
   ],
   [
     'MCP credential vault errors',
@@ -192,24 +182,9 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'We could not load this MCP credential vault right now. Please retry or check your connection.',
     '暂时无法加载此 MCP 凭据库。请重试，或检查网络连接。',
   ],
-  [
-    'MCP credential vaults',
-    'managed.vaults.title',
-    'MCP Credential Vaults',
-    'MCP 凭据库',
-  ],
-  [
-    'MCP credential vaults',
-    'managed.vaults.new',
-    'New MCP Credential Vault',
-    '新建 MCP 凭据库',
-  ],
-  [
-    'MCP credential vaults',
-    'managed.vaults.credentials',
-    'MCP Credentials',
-    'MCP 凭据',
-  ],
+  ['MCP credential vaults', 'managed.vaults.title', 'MCP Credential Vaults', 'MCP 凭据库'],
+  ['MCP credential vaults', 'managed.vaults.new', 'New MCP Credential Vault', '新建 MCP 凭据库'],
+  ['MCP credential vaults', 'managed.vaults.credentials', 'MCP Credentials', 'MCP 凭据'],
   [
     'MCP credential vaults',
     'managed.vaults.addCredential',
@@ -300,12 +275,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'Search MCP credential vaults by name, ID, or status',
     '按名称、ID 或状态搜索 MCP 凭据库',
   ],
-  [
-    'project access tokens',
-    'managed.apiKeys.title',
-    'Project Access Tokens',
-    '项目访问令牌',
-  ],
+  ['project access tokens', 'managed.apiKeys.title', 'Project Access Tokens', '项目访问令牌'],
   [
     'project access tokens',
     'managed.apiKeys.subtitle',
@@ -326,12 +296,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     '撤销项目访问令牌',
   ],
   ['project access tokens', 'managed.apiKeys.revoke', 'Revoke Token', '撤销令牌'],
-  [
-    'project access tokens',
-    'manage.apiKeys.title',
-    'Project Access Tokens',
-    '项目访问令牌',
-  ],
+  ['project access tokens', 'manage.apiKeys.title', 'Project Access Tokens', '项目访问令牌'],
   [
     'project access tokens',
     'manage.apiKeys.subtitle',
@@ -358,12 +323,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'Search project access tokens by name, prefix, or role',
     '按名称、前缀或角色搜索项目访问令牌',
   ],
-  [
-    'triggers',
-    'managed.triggers.serviceCredential',
-    'Service Credential',
-    '服务凭据',
-  ],
+  ['triggers', 'managed.triggers.serviceCredential', 'Service Credential', '服务凭据'],
   [
     'triggers',
     'managed.triggers.serviceCredentialPlaceholder',
@@ -433,36 +393,21 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'Use this address in your skill; authentication derived from the selected Service Credential is applied automatically.',
     '在 skill 中使用此地址访问；平台会自动应用基于所选服务凭据生成的认证信息。',
   ],
-  [
-    'environments',
-    'managed.environments.egressCredential',
-    'Service Credential',
-    '服务凭据',
-  ],
+  ['environments', 'managed.environments.egressCredential', 'Service Credential', '服务凭据'],
   [
     'environments',
     'managed.environments.egressCredentialTooltip',
     'Name of the saved service credential. The real token or cookie never enters the sandbox.',
     '平台里保存的服务凭据名称；真实 token 或 cookie 不会进入沙箱。',
   ],
-  [
-    'environments',
-    'managed.environments.egressAuthType',
-    'Authentication Method',
-    '认证方式',
-  ],
+  ['environments', 'managed.environments.egressAuthType', 'Authentication Method', '认证方式'],
   [
     'environments',
     'managed.environments.egressAuthHint',
     'How the platform uses a credential field to authenticate the outbound request.',
     '平台如何使用凭据字段为出站请求生成认证信息。',
   ],
-  [
-    'environments',
-    'managed.environments.egressSecretKey',
-    'Credential Field',
-    '凭据字段',
-  ],
+  ['environments', 'managed.environments.egressSecretKey', 'Credential Field', '凭据字段'],
   [
     'environments',
     'managed.environments.egressSelectSecretKey',
@@ -523,12 +468,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'Runtime environment, MCP credential vaults, resources, memory, Git',
     '运行环境、MCP 凭据库、文件资源、Memory、Git',
   ],
-  [
-    'sessions',
-    'managed.sessions.create.vaults',
-    'MCP Credential Vaults',
-    'MCP 凭据库',
-  ],
+  ['sessions', 'managed.sessions.create.vaults', 'MCP Credential Vaults', 'MCP 凭据库'],
   [
     'sessions',
     'managed.sessions.create.manageVaults',
@@ -559,18 +499,8 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'No matching MCP credential vaults',
     '没有匹配的 MCP 凭据库',
   ],
-  [
-    'sessions',
-    'managed.sessions.goToVault',
-    'Go to MCP Credential Vault',
-    '前往 MCP 凭据库',
-  ],
-  [
-    'quickstart',
-    'managed.quickstart.resourceKindEnvironment',
-    'Environment',
-    '环境',
-  ],
+  ['sessions', 'managed.sessions.goToVault', 'Go to MCP Credential Vault', '前往 MCP 凭据库'],
+  ['quickstart', 'managed.quickstart.resourceKindEnvironment', 'Environment', '环境'],
   [
     'quickstart',
     'managed.quickstart.resourceKindMcpCredentialSet',
@@ -578,53 +508,48 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'MCP 凭据库',
   ],
   ['quickstart', 'managed.quickstart.resourceKindAgent', 'Agent', '智能体'],
-  [
-    'quickstart',
-    'managed.quickstart.step.chooseSecret',
-    'Choose Model Connection',
-    '选择模型接入',
-  ],
+  ['quickstart', 'managed.quickstart.step.chooseSecret', 'Choose Model Connection', '选择模型连接'],
   [
     'quickstart',
     'managed.quickstart.noApiKey',
     'No Model Connection selected...',
-    '尚未选择模型接入...',
+    '尚未选择模型连接...',
   ],
   [
     'quickstart',
     'managed.quickstart.chooseSecret',
     'Complete Step 2 above: choose or create a Model Connection',
-    '请在上方完成第二步：选择或创建模型接入',
+    '请在上方完成第二步：选择或创建模型连接',
   ],
   [
     'quickstart',
     'managed.quickstart.noCompatibleSecret',
     'No compatible Model Connection for this engine',
-    '当前引擎没有兼容的模型接入',
+    '当前引擎没有兼容的模型连接',
   ],
   [
     'quickstart',
     'managed.quickstart.secretQuestion',
     'Step 2: Choose a Model Connection',
-    '第二步：选择模型接入',
+    '第二步：选择模型连接',
   ],
   [
     'quickstart',
     'managed.quickstart.templateAppliedMessage',
     'Template ready. First, choose a runtime engine below. Then choose a Model Connection before creating the agent.',
-    '模板已准备好。第一步，请在下方选择运行引擎；第二步选择模型接入，然后即可创建智能体。',
+    '模板已准备好。第一步，请在下方选择运行引擎；第二步选择模型连接，然后即可创建智能体。',
   ],
   [
     'quickstart',
     'managed.quickstart.engineHint',
     'The runtime engine determines how the agent runs. Choosing one opens Model Connection next.',
-    '运行引擎决定智能体由哪种运行时执行。选择后会进入模型接入。',
+    '运行引擎决定智能体由哪种运行时执行。选择后会进入模型连接。',
   ],
   [
     'quickstart',
     'managed.quickstart.secretHint',
     'A Model Connection contains the model and its credentials. Create one here if no compatible Model Connection exists.',
-    '模型接入包含模型和访问凭据。如果还没有兼容模型接入，可以在这里立即创建。',
+    '模型连接包含模型和访问凭据。如果还没有兼容模型连接，可以在这里立即创建。',
   ],
   [
     'quickstart',
@@ -725,12 +650,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   ['Vault static Bearer', 'managed.vaults.cred.adding', 'Adding…', '添加中…'],
   ['Vault static Bearer', 'managed.vaults.cred.add', 'Add Credential', '添加凭据'],
-  [
-    'MCP credentials',
-    'managed.vaults.credArchiveTitle',
-    'Archive MCP Credential',
-    '归档 MCP 凭据',
-  ],
+  ['MCP credentials', 'managed.vaults.credArchiveTitle', 'Archive MCP Credential', '归档 MCP 凭据'],
   [
     'MCP credentials',
     'managed.vaults.cred.createFailed',
@@ -741,94 +661,84 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'agent model connection',
     'agents.edit.selectSecret',
     'Select a Model Connection',
-    '选择模型接入',
+    '选择模型连接',
   ],
   [
     'agent model connection',
     'agents.edit.searchSecret',
     'Search Model Connections',
-    '搜索模型接入',
+    '搜索模型连接',
   ],
   [
     'agent model connection',
     'agents.edit.noSecretMatch',
     'No matching Model Connections',
-    '没有匹配的模型接入',
+    '没有匹配的模型连接',
   ],
   [
     'agent model connection',
     'agents.edit.createSecret',
     'Create Model Connection…',
-    '新建模型接入…',
+    '新建模型连接…',
   ],
   [
     'agent model connection',
     'managed.agents.edit.selectSecret',
     'Select a Model Connection',
-    '选择模型接入',
+    '选择模型连接',
   ],
   [
     'agent model connection',
     'managed.agents.edit.searchSecret',
     'Search Model Connections',
-    '搜索模型接入',
+    '搜索模型连接',
   ],
   [
     'agent model connection',
     'managed.agents.edit.noSecretMatch',
     'No matching Model Connections',
-    '没有匹配的模型接入',
+    '没有匹配的模型连接',
   ],
   [
     'agent model connection',
     'managed.agents.edit.createSecret',
     'Create Model Connection…',
-    '新建模型接入…',
+    '新建模型连接…',
   ],
   [
     'agent model connection',
     'managed.agents.basicSettingsDesc',
     'Set the agent name, model connection, engine, and system prompt.',
-    '设置智能体名称、模型接入、引擎和系统提示词。',
+    '设置智能体名称、模型连接、引擎和系统提示词。',
   ],
   [
     'agent model connection',
     'managed.skills.aiAuthor.noSecrets',
     'No model connections available',
-    '暂无可用模型接入',
+    '暂无可用模型连接',
   ],
-  [
-    'model connection states',
-    'managed.llm.configurationName',
-    'Name',
-    '名称',
-  ],
+  ['model connection states', 'managed.llm.configurationName', 'Name', '名称'],
   ['model connection states', 'managed.llm.configurationType', 'Type', '类型'],
   ['model connection states', 'managed.llm.nameRequired', 'Enter a name.', '请输入名称。'],
   [
     'model connection states',
     'managed.llm.engineFilterHint',
     'Used only to filter compatible protocols; it does not bind this Model Connection to one engine.',
-    '仅用于筛选兼容协议，不会把此模型接入绑定到单个引擎。',
+    '仅用于筛选兼容协议，不会把此模型连接绑定到单个引擎。',
   ],
   [
     'model connection states',
     'managed.llm.noCompatibleConfigurationsHint',
     'Create one here using a provider and protocol supported by this engine.',
-    '可在此使用该引擎支持的供应商与协议创建模型接入。',
+    '可在此使用该引擎支持的供应商与协议创建模型连接。',
   ],
   [
     'model connection states',
     'managed.llm.setAsProtocolDefault',
     'Set as default for this protocol',
-    '设为该协议的默认模型接入',
+    '设为该协议的默认模型连接',
   ],
-  [
-    'service credential fields',
-    'managed.llm.genericKey',
-    'Credential Field',
-    '凭据字段',
-  ],
+  ['service credential fields', 'managed.llm.genericKey', 'Credential Field', '凭据字段'],
   [
     'service credential fields',
     'managed.llm.genericPairRequired',
@@ -925,12 +835,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'We could not load project access tokens right now. Please retry or check your connection.',
     '暂时无法加载项目访问令牌，请稍后重试。',
   ],
-  [
-    'project access tokens',
-    'manage.apiKeys.namePlaceholder',
-    'Enter token name',
-    '输入令牌名称',
-  ],
+  ['project access tokens', 'manage.apiKeys.namePlaceholder', 'Enter token name', '输入令牌名称'],
   [
     'project access tokens',
     'manage.apiKeys.newKeyWarning',
@@ -943,12 +848,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'This project access token will be immediately invalidated. All requests using it will be rejected. This cannot be undone.',
     '撤销后此项目访问令牌将立即失效，使用该令牌的所有请求将被拒绝。此操作不可撤销。',
   ],
-  [
-    'sessions',
-    'managed.sessions.credentials',
-    'MCP Credentials',
-    'MCP 凭据',
-  ],
+  ['sessions', 'managed.sessions.credentials', 'MCP Credentials', 'MCP 凭据'],
   [
     'sessions',
     'managed.sessions.noCredentials',
@@ -971,7 +871,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'quickstart',
     'managed.quickstart.stepComplete.secretSelected',
     'Model Connection Selected',
-    '模型接入已选择',
+    '模型连接已选择',
   ],
   [
     'quickstart',
@@ -1102,8 +1002,8 @@ describe('credential domain terminology', () => {
       0,
     )
 
-    expect(inventory.counts).toEqual({ direct: 1287, dynamic: 391, total: 1678 })
-    expect(templateAdditions).toBe(344)
+    expect(inventory.counts).toEqual({ direct: 1286, dynamic: 398, total: 1684 })
+    expect(templateAdditions).toBe(351)
     expect(finiteAdditions).toBe(47)
     expect(inventory.templateDynamicLeaves).toContain(
       'managed.skills.aiAuthor.scan.status.not_scanned',
@@ -1222,10 +1122,13 @@ describe('credential domain terminology', () => {
     },
   )
 
-  it.each(apiKeyFields)('keeps managed and production API token copy synchronized for %s', (field) => {
-    expect(en.translation.managed.apiKeys[field]).toBe(en.translation.manage.apiKeys[field])
-    expect(zh.translation.managed.apiKeys[field]).toBe(zh.translation.manage.apiKeys[field])
-  })
+  it.each(apiKeyFields)(
+    'keeps managed and production API token copy synchronized for %s',
+    (field) => {
+      expect(en.translation.managed.apiKeys[field]).toBe(en.translation.manage.apiKeys[field])
+      expect(zh.translation.managed.apiKeys[field]).toBe(zh.translation.manage.apiKeys[field])
+    },
+  )
 
   it.each(quickstartModelConnectionPaths)(
     'removes legacy model-configuration nouns from Quickstart %s',

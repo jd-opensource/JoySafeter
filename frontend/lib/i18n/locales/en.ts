@@ -2000,6 +2000,8 @@ const en = {
           mcp: 'MCP Credential Vaults',
         },
         new: 'New',
+        createModelConnection: 'New Model Connection',
+        createServiceCredential: 'New Service Credential',
         addModelConnection: 'Add Model Connection',
         addServiceCredential: 'Add Service Credential',
         newMcpVault: 'New MCP Credential Vault',
@@ -2062,6 +2064,11 @@ const en = {
         deleteTitle: 'Delete Connection or Credential',
         deleteDescription:
           'Are you sure you want to permanently delete "{{name}}"? This cannot be undone.',
+        archiveTitle: 'Archive Connection or Credential',
+        archiveDescription:
+          'Archive "{{name}}"? It will become read-only and unavailable for new use until restored.',
+        restoreTitle: 'Restore Connection or Credential',
+        restoreDescription: 'Restore "{{name}}" and make it available for use again?',
         backToList: 'Back to Connections & Credentials',
       },
       memoryStores: {

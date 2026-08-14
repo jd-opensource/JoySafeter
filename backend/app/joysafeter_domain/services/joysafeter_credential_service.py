@@ -498,6 +498,7 @@ class CredentialService:
         provider: str | None = None,
         protocol: str | None = None,
         compatible_engine: str | None = None,
+        include_archived: bool | None = None,
         limit: int = 20,
         after_id: Optional[CredentialId] = None,
     ) -> tuple[list[JoySafeterCredential], bool]:
@@ -505,6 +506,8 @@ class CredentialService:
             JoySafeterCredential.project_id == project_id,
             JoySafeterCredential.deleted_at.is_(None),
         )
+        if include_archived is False:
+            q = q.where(JoySafeterCredential.archived_at.is_(None))
         if kind is not None:
             kind_value = kind.value if isinstance(kind, CredentialKind) else kind
             q = q.where(JoySafeterCredential.kind == kind_value)
