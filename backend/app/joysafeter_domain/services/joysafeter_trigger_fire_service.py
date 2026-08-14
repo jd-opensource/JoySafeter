@@ -136,6 +136,7 @@ class TriggerFireService:
                 session_key=render_session_key(trigger.session_key, payload),
                 trigger_id=trigger.id,
                 metadata=metadata,
+                system_prompt=getattr(trigger, "system_prompt", None),
             ),
             enforce_user_quota=enforce_user_quota,
         )

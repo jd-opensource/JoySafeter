@@ -357,6 +357,7 @@ export interface Vault {
   id: CredentialGroupId
   name: string
   description?: string
+  metadata?: Record<string, string>
   created_at: string
   updated_at: string
   archived_at?: string | null

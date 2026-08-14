@@ -62,6 +62,7 @@ class JoySafeterTrigger(JoySafeterBaseModel):
     type: Mapped[str] = mapped_column(String(16), nullable=False, default="webhook")
     agent_id: Mapped[AgentId] = mapped_column(EntityIdType(AgentId), ForeignKey("joysafeter_agents.id"), nullable=False)
     prompt_template: Mapped[str] = mapped_column(Text, nullable=False)
+    system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     environment_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     session_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="fresh", server_default="fresh")

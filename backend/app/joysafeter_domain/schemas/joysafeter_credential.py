@@ -94,6 +94,7 @@ class CreateCredentialGroupRequest(BaseModel):
 
     name: str
     description: str = ""
+    metadata: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("name")
     @classmethod
@@ -151,6 +152,7 @@ class CredentialGroupResponse(BaseModel):
     id: CredentialGroupId
     name: str
     description: str = ""
+    metadata: dict[str, str] = Field(default_factory=dict)
     archived_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
@@ -161,6 +163,7 @@ class UpdateCredentialGroupRequest(BaseModel):
 
     name: Optional[str] = None
     description: Optional[str] = None
+    metadata: Optional[dict[str, str]] = None
 
     @field_validator("name")
     @classmethod

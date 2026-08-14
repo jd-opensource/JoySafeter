@@ -428,9 +428,17 @@ def test_delete_credential_in_use_returns_409(client) -> None:
 def test_group_create_add_member_list_and_delete(client) -> None:
     api, _project_id, _factory = client
     # create group
-    resp = api.post("/credential-groups", json={"name": "g1", "description": "first"})
+    resp = api.post(
+        "/credential-groups",
+        json={
+            "name": "g1",
+            "description": "first",
+            "metadata": {"owner": "platform"},
+        },
+    )
     assert resp.status_code == 201, resp.text
     group_id = resp.json()["id"]
+    assert resp.json()["metadata"] == {"owner": "platform"}
 
     # add mcp member
     resp = api.post(
@@ -483,11 +491,16 @@ def test_group_update_name_and_description(client) -> None:
 
     response = api.patch(
         f"/credential-groups/{group_id}",
-        json={"name": "after", "description": "new"},
+        json={
+            "name": "after",
+            "description": "new",
+            "metadata": {"purpose": "mcp"},
+        },
     )
     assert response.status_code == 200, response.text
     assert response.json()["name"] == "after"
     assert response.json()["description"] == "new"
+    assert response.json()["metadata"] == {"purpose": "mcp"}
 
 
 def test_group_list_filters_archived_before_pagination(client) -> None:

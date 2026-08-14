@@ -77,6 +77,7 @@ def test_credential_groups_table_shape() -> None:
         "project_id",
         "name",
         "description",
+        "metadata",
         "archived_at",
         "deleted_at",
         "created_at",

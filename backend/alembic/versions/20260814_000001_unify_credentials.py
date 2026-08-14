@@ -24,7 +24,8 @@ This migration is the prod-safe alternative: a FORWARD delta whose
      mcp credentials, secrets -> model/service credentials, and rewrites every
      name-based reference to an id-based one (agents, triggers, sessions,
      environment config JSON, active-session agent_snapshot JSON),
-  4. drops the legacy columns and tables.
+  4. preserves vault metadata and legacy trigger system prompts while dropping
+     only the credential-specific legacy columns and tables.
 
 Encrypted material (``token_value`` and secret ``data``) is carried over
 verbatim: CredentialCipher reads the legacy no-version ``enc:`` envelope, so no
@@ -51,6 +52,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from typing import Optional, Union
+from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
@@ -73,6 +75,12 @@ def _create_tables() -> None:
         sa.Column("project_id", sa.String(length=255), nullable=False),
         sa.Column("name", sa.Text(), nullable=False),
         sa.Column("description", sa.Text(), nullable=False, server_default=""),
+        sa.Column(
+            "metadata",
+            postgresql.JSONB(astext_type=sa.Text()),
+            server_default="{}",
+            nullable=False,
+        ),
         sa.Column("archived_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("id", sa.UUID(), nullable=False),
@@ -262,6 +270,20 @@ def _reference(value) -> Optional[str]:
     return value or None
 
 
+def _vault_reference(value) -> Optional[str]:
+    reference = _reference(value)
+    if reference is None:
+        return None
+    for prefix in ("vlt_", "vault_"):
+        if reference.startswith(prefix):
+            reference = reference.removeprefix(prefix)
+            break
+    try:
+        return str(UUID(reference))
+    except ValueError:
+        return None
+
+
 def _secret_is_model(is_default, project_id, name, provider, model_reference_names) -> bool:
     # Single source of truth for kind inference, shared by the pre-flight guard
     # and the backfill so they can never disagree (a divergence here silently
@@ -282,6 +304,25 @@ def _abort_on_null_project(conn) -> None:
             "Cannot migrate: the new credential tables require project_id NOT NULL, "
             "but these legacy rows have a NULL project_id. Assign a project to them "
             f"and re-run. Offending rows: {problems}"
+        )
+
+
+def _abort_on_cross_table_credential_id_collisions(conn) -> None:
+    rows = conn.execute(
+        sa.text(
+            """
+            SELECT s.id
+            FROM joysafeter_secrets s
+            JOIN joysafeter_vault_credentials vc ON vc.id = s.id
+            ORDER BY s.id
+            """
+        )
+    ).fetchall()
+    if rows:
+        raise RuntimeError(
+            "Cannot migrate: legacy secrets and vault credentials share the same id, "
+            "but the unified credential table requires globally unique ids. "
+            f"Resolve these collisions before retrying: {[str(row.id) for row in rows]}"
         )
 
 
@@ -338,8 +379,10 @@ def _abort_on_malformed_reference_json(conn) -> None:
             vault_ids = _json_value(row.vault_ids, None)
             if not isinstance(vault_ids, list):
                 issues.append("vault_ids must be a JSON array")
-            elif any(_reference(value) is None for value in vault_ids):
-                issues.append("vault_ids entries must be non-empty UUID strings")
+            elif any(_vault_reference(value) is None for value in vault_ids):
+                issues.append(
+                    "vault_ids entries must be UUID strings with an optional vault_/vlt_ prefix"
+                )
 
         if row.agent_snapshot is not None:
             snapshot = _json_value(row.agent_snapshot, None)
@@ -367,8 +410,8 @@ def _abort_on_mcp_normalization_conflicts(conn) -> None:
     invalid_urls = []
     rows = conn.execute(
         sa.text(
-            "SELECT id, vault_id, mcp_server_url FROM joysafeter_vault_credentials "
-            "WHERE deleted_at IS NULL ORDER BY vault_id, id"
+            "SELECT id, vault_id, mcp_server_url, deleted_at "
+            "FROM joysafeter_vault_credentials ORDER BY vault_id, id"
         )
     ).fetchall()
     for row in rows:
@@ -384,7 +427,8 @@ def _abort_on_mcp_normalization_conflicts(conn) -> None:
                 }
             )
             continue
-        credentials_by_endpoint[(str(row.vault_id), normalized_url)].append(str(row.id))
+        if row.deleted_at is None:
+            credentials_by_endpoint[(str(row.vault_id), normalized_url)].append(str(row.id))
 
     collisions = [
         {
@@ -464,7 +508,7 @@ def _collect_legacy_references(conn):
         vault_ids = _json_value(row.vault_ids, [])
         if isinstance(vault_ids, list):
             for value in vault_ids:
-                ref = _reference(value)
+                ref = _vault_reference(value)
                 if ref:
                     vault_references.append(("sessions.vault_ids", str(row.id), row.project_id, ref))
 
@@ -631,7 +675,7 @@ def _align_skill_usage_id_types() -> None:
         type_=sa.UUID(),
         existing_nullable=True,
         postgresql_using=(
-            "CASE WHEN session_id LIKE 'sess_%' THEN substring(session_id FROM 6)::uuid "
+            "CASE WHEN session_id ILIKE 'sess_%' THEN substring(session_id FROM 6)::uuid "
             "ELSE session_id::uuid END"
         ),
     )
@@ -642,7 +686,7 @@ def _align_skill_usage_id_types() -> None:
         type_=sa.UUID(),
         existing_nullable=True,
         postgresql_using=(
-            "CASE WHEN agent_id LIKE 'agent_%' THEN substring(agent_id FROM 7)::uuid "
+            "CASE WHEN agent_id ILIKE 'agent_%' THEN substring(agent_id FROM 7)::uuid "
             "ELSE agent_id::uuid END"
         ),
     )
@@ -657,8 +701,10 @@ def _backfill(conn) -> None:
         sa.text(
             """
             INSERT INTO joysafeter_credential_groups
-                (id, project_id, name, description, archived_at, deleted_at, created_at, updated_at)
+                (id, project_id, name, description, metadata,
+                 archived_at, deleted_at, created_at, updated_at)
             SELECT id, project_id, name, COALESCE(description, ''),
+                   COALESCE(metadata, '{}'::jsonb),
                    archived_at, deleted_at, created_at, updated_at
             FROM joysafeter_vaults
             """
@@ -805,7 +851,7 @@ def _backfill(conn) -> None:
             SET model_credential_id = c.id
             FROM joysafeter_credentials c
             WHERE c.kind = 'model' AND c.deleted_at IS NULL
-              AND c.name = a.secret_ref
+              AND c.name = btrim(a.secret_ref)
               AND c.project_id IS NOT DISTINCT FROM a.project_id
               AND a.secret_ref IS NOT NULL AND btrim(a.secret_ref) <> ''
             """
@@ -821,7 +867,7 @@ def _backfill(conn) -> None:
                 webhook_auth_field = t.secret_key
             FROM joysafeter_credentials c
             WHERE c.kind = 'service' AND c.deleted_at IS NULL
-              AND c.name = t.secret_ref
+              AND c.name = btrim(t.secret_ref)
               AND c.project_id IS NOT DISTINCT FROM t.project_id
               AND t.secret_ref IS NOT NULL AND btrim(t.secret_ref) <> ''
             """
@@ -834,11 +880,24 @@ def _backfill(conn) -> None:
         sa.text(
             """
             INSERT INTO joysafeter_session_credential_groups (session_id, credential_group_id)
-            SELECT s.id, (elem)::uuid
+            SELECT s.id,
+                   CASE
+                       WHEN btrim(ref.value) LIKE 'vault_%' THEN substr(btrim(ref.value), 7)
+                       WHEN btrim(ref.value) LIKE 'vlt_%' THEN substr(btrim(ref.value), 5)
+                       ELSE btrim(ref.value)
+                   END::uuid
             FROM joysafeter_sessions s
-            CROSS JOIN LATERAL jsonb_array_elements_text(s.vault_ids) AS elem
+            CROSS JOIN LATERAL jsonb_array_elements_text(s.vault_ids) AS ref(value)
             WHERE s.vault_ids IS NOT NULL AND jsonb_typeof(s.vault_ids) = 'array'
-              AND EXISTS (SELECT 1 FROM joysafeter_credential_groups g WHERE g.id = (elem)::uuid)
+              AND EXISTS (
+                  SELECT 1
+                  FROM joysafeter_credential_groups g
+                  WHERE g.id = CASE
+                      WHEN btrim(ref.value) LIKE 'vault_%' THEN substr(btrim(ref.value), 7)
+                      WHEN btrim(ref.value) LIKE 'vlt_%' THEN substr(btrim(ref.value), 5)
+                      ELSE btrim(ref.value)
+                  END::uuid
+              )
             ON CONFLICT DO NOTHING
             """
         )
@@ -852,13 +911,14 @@ def _backfill(conn) -> None:
 
 
 def _credential_id_for(conn, kind: str, project_id: Optional[str], name: str) -> Optional[str]:
+    normalized_name = name.strip()
     row = conn.execute(
         sa.text(
             "SELECT id FROM joysafeter_credentials WHERE kind=:kind AND deleted_at IS NULL "
             "AND name=:name AND project_id IS NOT DISTINCT FROM :pid "
             "ORDER BY created_at DESC, id DESC LIMIT 1"
         ),
-        {"kind": kind, "name": name, "pid": project_id},
+        {"kind": kind, "name": normalized_name, "pid": project_id},
     ).fetchone()
     return str(row[0]) if row else None
 
@@ -888,7 +948,12 @@ def _rewrite_environment_config(conn) -> None:
         services = config.get("egress_services")
         if isinstance(services, list):
             for svc in services:
-                if isinstance(svc, dict) and svc.get("credential_ref") and "service_credential_id" not in svc:
+                if not isinstance(svc, dict):
+                    continue
+                if svc.get("service_credential_id") and "credential_ref" in svc:
+                    svc.pop("credential_ref", None)
+                    changed = True
+                elif svc.get("credential_ref"):
                     cid = _credential_id_for(conn, "service", r.project_id, svc["credential_ref"])
                     if cid:
                         svc["service_credential_id"] = cid
@@ -931,6 +996,147 @@ def _rewrite_session_snapshots(conn) -> None:
         )
 
 
+def _assert_backfill_complete(conn) -> None:
+    problems = {}
+    for key, query in (
+        (
+            "credential_groups",
+            """
+            SELECT v.id
+            FROM joysafeter_vaults v
+            LEFT JOIN joysafeter_credential_groups g ON g.id = v.id
+            WHERE g.id IS NULL
+            """,
+        ),
+        (
+            "mcp_credentials",
+            """
+            SELECT vc.id
+            FROM joysafeter_vault_credentials vc
+            LEFT JOIN joysafeter_credentials c ON c.id = vc.id
+            WHERE c.id IS NULL
+            """,
+        ),
+        (
+            "secret_credentials",
+            """
+            SELECT s.id
+            FROM joysafeter_secrets s
+            LEFT JOIN joysafeter_credentials c ON c.id = s.id
+            WHERE c.id IS NULL
+            """,
+        ),
+        (
+            "agents.model_credential_id",
+            """
+            SELECT id
+            FROM joysafeter_agents
+            WHERE secret_ref IS NOT NULL AND btrim(secret_ref) <> ''
+              AND model_credential_id IS NULL
+            """,
+        ),
+        (
+            "triggers.webhook_auth_credential_id",
+            """
+            SELECT id
+            FROM joysafeter_triggers
+            WHERE secret_ref IS NOT NULL AND btrim(secret_ref) <> ''
+              AND webhook_auth_credential_id IS NULL
+            """,
+        ),
+    ):
+        missing_ids = [str(row.id) for row in conn.execute(sa.text(query)).fetchall()]
+        if missing_ids:
+            problems[key] = missing_ids
+
+    actual_groups = defaultdict(set)
+    for row in conn.execute(
+        sa.text(
+            "SELECT session_id, credential_group_id FROM joysafeter_session_credential_groups"
+        )
+    ).fetchall():
+        actual_groups[str(row.session_id)].add(str(row.credential_group_id))
+    missing_session_groups = []
+    for row in conn.execute(
+        sa.text(
+            "SELECT id, vault_ids FROM joysafeter_sessions WHERE vault_ids IS NOT NULL"
+        )
+    ).fetchall():
+        expected = {
+            reference
+            for value in (_json_value(row.vault_ids, []) or [])
+            if (reference := _vault_reference(value)) is not None
+        }
+        missing = sorted(expected - actual_groups[str(row.id)])
+        if missing:
+            missing_session_groups.append({"session_id": str(row.id), "group_ids": missing})
+    if missing_session_groups:
+        problems["sessions.vault_ids"] = missing_session_groups
+
+    service_ids = {
+        (row.project_id, str(row.id))
+        for row in conn.execute(
+            sa.text(
+                "SELECT id, project_id FROM joysafeter_credentials "
+                "WHERE kind = 'service' AND deleted_at IS NULL"
+            )
+        ).fetchall()
+    }
+    environment_issues = []
+    for row in conn.execute(
+        sa.text(
+            "SELECT id, project_id, config FROM joysafeter_environments "
+            "WHERE config IS NOT NULL"
+        )
+    ).fetchall():
+        config = _json_value(row.config, {})
+        if not isinstance(config, dict):
+            continue
+        issues = []
+        refs = config.get("secret_refs")
+        if isinstance(refs, list):
+            invalid_refs = [
+                value
+                for value in refs
+                if not isinstance(value, str) or (row.project_id, value) not in service_ids
+            ]
+            if invalid_refs:
+                issues.append({"secret_refs": invalid_refs})
+        services = config.get("egress_services")
+        if isinstance(services, list):
+            for index, service in enumerate(services):
+                if not isinstance(service, dict):
+                    continue
+                credential_id = service.get("service_credential_id")
+                if "credential_ref" in service or (
+                    credential_id is not None
+                    and (row.project_id, str(credential_id)) not in service_ids
+                ):
+                    issues.append({f"egress_services[{index}]": service})
+        if issues:
+            environment_issues.append({"environment_id": str(row.id), "issues": issues})
+    if environment_issues:
+        problems["environments.config"] = environment_issues
+
+    snapshot_ids = [
+        str(row.id)
+        for row in conn.execute(
+            sa.text(
+                "SELECT id FROM joysafeter_sessions "
+                "WHERE agent_snapshot IS NOT NULL AND agent_snapshot ? 'secret_ref'"
+            )
+        ).fetchall()
+    ]
+    if snapshot_ids:
+        problems["sessions.agent_snapshot"] = snapshot_ids
+
+    if problems:
+        raise RuntimeError(
+            "Credential backfill is incomplete; refusing to drop legacy data. "
+            f"The transaction will roll back. Problems: {problems}"
+        )
+
+
 # --------------------------------------------------------------------------- #
 # teardown of legacy surface
 # --------------------------------------------------------------------------- #
@@ -938,7 +1144,6 @@ def _drop_legacy() -> None:
     op.drop_column("joysafeter_agents", "secret_ref")
     op.drop_column("joysafeter_triggers", "secret_ref")
     op.drop_column("joysafeter_triggers", "secret_key")
-    op.drop_column("joysafeter_triggers", "system_prompt")
     op.drop_column("joysafeter_sessions", "vault_ids")
     op.drop_table("joysafeter_vault_credentials")
     op.drop_table("joysafeter_vaults")
@@ -952,6 +1157,7 @@ def upgrade() -> None:
         )
     conn = op.get_bind()
     _abort_on_null_project(conn)
+    _abort_on_cross_table_credential_id_collisions(conn)
     _abort_on_mcp_normalization_conflicts(conn)
     _abort_on_malformed_reference_json(conn)
     _abort_on_ambiguous_or_unresolved_references(conn)
@@ -962,6 +1168,7 @@ def upgrade() -> None:
     _create_tables()
     _add_reference_columns()
     _backfill(conn)
+    _assert_backfill_complete(conn)
     _add_foreign_keys()
     _drop_legacy()
 

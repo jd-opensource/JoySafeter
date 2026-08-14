@@ -35,6 +35,8 @@ class _FakeDb:
 
 
 class _FakeSubmission:
+    last_kwargs = None
+
     def __init__(self, db):
         self.db = db
 
@@ -42,6 +44,7 @@ class _FakeSubmission:
         return None
 
     async def create_and_dispatch(self, **kwargs):
+        type(self).last_kwargs = kwargs
         task = SimpleNamespace(id=TaskId.new(), status="pending", chat_session_id=kwargs["chat_session_id"])
         return task, True
 
@@ -94,6 +97,7 @@ def _config(agent, **overrides):
 
 @pytest.fixture(autouse=True)
 def patch_executor_dependencies(monkeypatch):
+    _FakeSubmission.last_kwargs = None
     state = {"sessions": {}, "created": []}
 
     class FakeSessionService:
@@ -124,6 +128,17 @@ def patch_executor_dependencies(monkeypatch):
         lambda *args, **kwargs: {"snapshot": True},
     )
     return state
+
+
+@pytest.mark.asyncio
+async def test_legacy_trigger_system_prompt_is_forwarded(patch_executor_dependencies):
+    agent = _agent()
+
+    await AgentTriggerExecutor(_FakeDb()).run(
+        _config(agent, system_prompt="Preserve legacy instructions"),
+    )
+
+    assert _FakeSubmission.last_kwargs["system_prompt"] == "Preserve legacy instructions"
 
 
 @pytest.mark.asyncio

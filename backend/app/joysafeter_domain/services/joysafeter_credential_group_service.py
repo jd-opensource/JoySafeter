@@ -152,6 +152,7 @@ class CredentialGroupService:
             project_id=project_id,
             name=req.name,
             description=req.description,
+            metadata_=req.metadata,
         )
         self.db.add(group)
         try:
@@ -273,6 +274,8 @@ class CredentialGroupService:
             group.name = req.name
         if req.description is not None:
             group.description = req.description
+        if req.metadata is not None:
+            group.metadata_ = req.metadata
 
         group.updated_at = utc_now()
         try:

@@ -161,13 +161,14 @@ def _seed_vault(
     *,
     vault_id: UUID,
     name: str,
+    metadata: dict[str, str] | None = None,
 ) -> None:
     connection.execute(
         """
-        INSERT INTO joysafeter_vaults (id, project_id, name, description)
-        VALUES (%s, %s, %s, '')
+        INSERT INTO joysafeter_vaults (id, project_id, name, description, metadata)
+        VALUES (%s, %s, %s, '', %s)
         """,
-        (vault_id, PROJECT_ID, name),
+        (vault_id, PROJECT_ID, name, Jsonb(metadata or {})),
     )
 
 
@@ -267,6 +268,45 @@ def test_migration_rejects_normalized_mcp_url_collisions_before_creating_tables(
     assert target_exists is None
 
 
+def test_migration_rejects_cross_table_credential_id_collisions_before_creating_tables(
+    migration_database: MigrationDatabase,
+) -> None:
+    vault_id = uuid4()
+    shared_credential_id = uuid4()
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        _seed_vault(connection, vault_id=vault_id, name="id-collision-vault")
+        _seed_vault_credential(
+            connection,
+            credential_id=shared_credential_id,
+            vault_id=vault_id,
+            name="id-collision-mcp",
+            url="https://collision.example.test",
+            token="enc:mcp",
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_secrets
+                (id, project_id, name, provider, protocol, data, is_default)
+            VALUES (%s, %s, 'id-collision-secret', 'custom', 'custom', '{}'::jsonb, false)
+            """,
+            (shared_credential_id, PROJECT_ID),
+        )
+        connection.commit()
+
+    result = _upgrade_head(migration_database)
+    output = result.stdout + result.stderr
+
+    assert result.returncode != 0
+    assert "share the same id" in output
+    assert str(shared_credential_id) in output
+    with _connect(migration_database) as connection:
+        target_exists = connection.execute(
+            "SELECT to_regclass('joysafeter_credentials')"
+        ).fetchone()[0]
+    assert target_exists is None
+
+
 def test_migration_renames_duplicate_mcp_names_without_data_loss(
     migration_database: MigrationDatabase,
 ) -> None:
@@ -315,6 +355,104 @@ def test_migration_renames_duplicate_mcp_names_without_data_loss(
         (older_credential_id, f"shared-name (migrated-dup {older_credential_id})", "enc:older"),
         (newer_credential_id, "shared-name", "enc:newer"),
     ]
+
+
+def test_migration_preserves_vault_metadata_and_prefixed_session_references(
+    migration_database: MigrationDatabase,
+) -> None:
+    first_vault_id = uuid4()
+    second_vault_id = uuid4()
+    session_id = uuid4()
+    agent_id = uuid4()
+    metadata = {"owner": "platform", "purpose": "legacy-mcp"}
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        _seed_agent(connection, agent_id=agent_id, name="prefixed-vault-agent")
+        _seed_vault(
+            connection,
+            vault_id=first_vault_id,
+            name="metadata-vault",
+            metadata=metadata,
+        )
+        _seed_vault(connection, vault_id=second_vault_id, name="second-vault")
+        connection.execute(
+            """
+            INSERT INTO joysafeter_sessions
+                (id, project_id, agent_id, status, vault_ids)
+            VALUES (%s, %s, %s, 'idle', %s)
+            """,
+            (
+                session_id,
+                PROJECT_ID,
+                agent_id,
+                Jsonb(
+                    [
+                        f"vault_{first_vault_id}",
+                        f"vlt_{second_vault_id}",
+                        str(first_vault_id),
+                    ]
+                ),
+            ),
+        )
+        connection.commit()
+
+    result = _upgrade_head(migration_database)
+    assert result.returncode == 0, result.stderr
+
+    with _connect(migration_database) as connection:
+        stored_metadata = connection.execute(
+            "SELECT metadata FROM joysafeter_credential_groups WHERE id = %s",
+            (first_vault_id,),
+        ).fetchone()[0]
+        group_ids = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT credential_group_id
+                FROM joysafeter_session_credential_groups
+                WHERE session_id = %s
+                """,
+                (session_id,),
+            ).fetchall()
+        }
+
+    assert stored_metadata == metadata
+    assert group_ids == {first_vault_id, second_vault_id}
+
+
+def test_migration_preserves_legacy_trigger_system_prompt(
+    migration_database: MigrationDatabase,
+) -> None:
+    agent_id = uuid4()
+    trigger_id = uuid4()
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        _seed_agent(connection, agent_id=agent_id, name="legacy-system-prompt-agent")
+        connection.execute(
+            """
+            INSERT INTO joysafeter_triggers
+                (id, project_id, name, type, agent_id, prompt_template, system_prompt)
+            VALUES (%s, %s, 'legacy-system-prompt-trigger', 'webhook', %s, 'Run', %s)
+            """,
+            (
+                trigger_id,
+                PROJECT_ID,
+                agent_id,
+                "Preserve these historical system instructions.",
+            ),
+        )
+        connection.commit()
+
+    result = _upgrade_head(migration_database)
+    assert result.returncode == 0, result.stderr
+
+    with _connect(migration_database) as connection:
+        stored_prompt = connection.execute(
+            "SELECT system_prompt FROM joysafeter_triggers WHERE id = %s",
+            (trigger_id,),
+        ).fetchone()[0]
+
+    assert stored_prompt == "Preserve these historical system instructions."
 
 
 def test_migration_rejects_soft_deleted_null_project_before_creating_tables(

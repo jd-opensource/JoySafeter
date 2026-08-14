@@ -70,11 +70,16 @@ async def _sandbox_status(db_session, sandbox_id) -> str:
 async def test_create_get_list_group(db_session, project_id):
     svc = CredentialGroupService(db_session)
     group = await svc.create(
-        CreateCredentialGroupRequest(name="g1", description="first"),
+        CreateCredentialGroupRequest(
+            name="g1",
+            description="first",
+            metadata={"owner": "platform"},
+        ),
         project_id=project_id,
     )
     assert group.name == "g1"
     assert group.description == "first"
+    assert group.metadata_ == {"owner": "platform"}
 
     fetched = await svc.get(group.id, project_id=project_id)
     assert fetched is not None
@@ -119,11 +124,16 @@ async def test_update_group(db_session, project_id):
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     updated = await svc.update(
         group.id,
-        UpdateCredentialGroupRequest(name="g1-renamed", description="new"),
+        UpdateCredentialGroupRequest(
+            name="g1-renamed",
+            description="new",
+            metadata={"purpose": "mcp"},
+        ),
         project_id=project_id,
     )
     assert updated.name == "g1-renamed"
     assert updated.description == "new"
+    assert updated.metadata_ == {"purpose": "mcp"}
 
 
 @pytest.mark.asyncio

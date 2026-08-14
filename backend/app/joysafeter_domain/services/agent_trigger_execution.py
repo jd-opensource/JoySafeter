@@ -102,6 +102,7 @@ class AgentTriggerRunConfig:
     session_key: Optional[str] = None  # rendered key for keyed session mode
     trigger_id: Optional[TriggerId] = None
     metadata: Optional[dict[str, Any]] = None
+    system_prompt: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -244,7 +245,7 @@ class AgentTriggerExecutor:
         task, created = await submission.create_and_dispatch(
             agent_id=config.agent.id,
             prompt=config.prompt,
-            system_prompt=None,
+            system_prompt=config.system_prompt,
             chat_session_id=session.id,
             session_svc=session_svc,
             timeout_sec=config.timeout_sec,

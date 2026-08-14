@@ -475,6 +475,7 @@ class SchedulerLoop:
                     session_key=render_session_key(getattr(trigger, "session_key", None), payload),
                     trigger_id=trigger.id,
                     metadata={"trigger_id": str(trigger.id), "trigger_type": "cron"},
+                    system_prompt=getattr(trigger, "system_prompt", None),
                 ),
                 enforce_user_quota=False,
             )

@@ -47,6 +47,7 @@ def _group_response(group: JoySafeterCredentialGroup) -> CredentialGroupResponse
         id=group.id,
         name=group.name,
         description=group.description,
+        metadata=group.metadata_,
         archived_at=group.archived_at,
         created_at=group.created_at,
         updated_at=group.updated_at,
