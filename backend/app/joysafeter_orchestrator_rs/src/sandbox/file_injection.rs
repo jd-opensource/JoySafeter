@@ -3,7 +3,8 @@ use sqlx::PgPool;
 use std::path::{Component, Path};
 
 use tracing::{debug, info, warn};
-use uuid::Uuid;
+
+use crate::ids::SessionId;
 
 /// Strategy-based file injection into sandbox containers — full Python parity.
 ///
@@ -36,7 +37,7 @@ pub enum InjectionStrategy {
 /// File injection context (matches Python FileInjectionContext).
 #[derive(Debug, Clone)]
 pub struct FileInjectionContext {
-    pub session_id: Uuid,
+    pub session_id: SessionId,
     #[allow(dead_code)]
     pub external_id: String,
     pub workspace_path: Option<String>,
@@ -47,7 +48,7 @@ pub struct FileInjectionContext {
 /// Load session files from DB (JOIN joysafeter_session_files + joysafeter_files).
 pub async fn load_session_files(
     pool: &PgPool,
-    session_id: Uuid,
+    session_id: SessionId,
 ) -> anyhow::Result<Vec<FileToInject>> {
     let rows: Vec<SessionFileRow> = sqlx::query_as(
         r#"

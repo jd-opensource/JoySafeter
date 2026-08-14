@@ -59,7 +59,7 @@ function extractSafeUserInfo(user: AuthUser | null): SafeUserInfo | null {
  * 1. Token is no longer persisted to localStorage (prevent XSS attack theft)
  * 2. Authentication state is managed via HttpOnly Cookie (set by server)
  * 3. Only persist non-sensitive user display information
- * 4. Use sessionStorage instead of localStorage (auto-clear on tab close)
+ * 4. Persist only non-sensitive display information
  */
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -102,18 +102,6 @@ export const useAuthStore = create<AuthState>()(
         user: extractSafeUserInfo(state.user) as AuthUser | null,
         // token is not persisted - managed by HttpOnly Cookie
       }),
-      // Version control for migrating old data
-      version: 2,
-      migrate: (persistedState: unknown, version: number) => {
-        if (version < 2) {
-          // Migrate from old version: clear possibly stored token
-          return {
-            ...(persistedState as Record<string, unknown>),
-            token: null, // Clear old token
-          }
-        }
-        return persistedState as AuthState
-      },
     },
   ),
 )

@@ -8,6 +8,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
+from app.joysafeter_shared.security import hash_security_token
 
 from .base import BaseRepository
 
@@ -30,7 +31,7 @@ class AuthUserRepository(BaseRepository[AuthUser]):
         """Get a user by password reset token."""
         result = await self.db.execute(
             select(AuthUser).where(
-                AuthUser.password_reset_token == token,
+                AuthUser.password_reset_token == hash_security_token(token),
                 AuthUser.is_active == True,  # noqa: E712
             )
         )
@@ -40,7 +41,7 @@ class AuthUserRepository(BaseRepository[AuthUser]):
         """Get a user by email verification token."""
         result = await self.db.execute(
             select(AuthUser).where(
-                AuthUser.email_verify_token == token,
+                AuthUser.email_verify_token == hash_security_token(token),
                 AuthUser.is_active == True,  # noqa: E712
             )
         )

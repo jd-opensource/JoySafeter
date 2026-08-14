@@ -15,6 +15,7 @@ import {
   type Column,
   ConfirmDialog,
   CopyButton,
+  withEntityRouteGuard,
 } from '@/components/managed/shared'
 import { CreateTriggerDialog } from '@/components/managed/triggers/create-trigger-dialog'
 import { Button } from '@/components/ui/button'
@@ -25,7 +26,6 @@ import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { useTranslation } from '@/lib/i18n'
 import { describeCron } from '@/lib/managed/cron'
 import { toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
 import {
   fireResultToastMessage,
   formatRunOnce,
@@ -42,10 +42,17 @@ import {
   type TriggerRun,
 } from '@/lib/managed/triggers'
 import { toastSuccess } from '@/lib/utils/toast'
+import { parseTriggerId } from '@/types/entity-id'
 
-export default function TriggerDetailPage({ params }: { params: Promise<{ triggerId: string }> }) {
+export default withEntityRouteGuard(TriggerDetailPageInner, {
+  kind: 'trigger',
+  paramKey: 'triggerId',
+  backTo: '/managed/triggers',
+})
+
+function TriggerDetailPageInner({ params }: { params: Promise<{ triggerId: string }> }) {
   const { triggerId: rawId } = React.use(params)
-  const triggerId = stripIdPrefix(rawId || '')
+  const triggerId = parseTriggerId(rawId)
   const { t } = useTranslation()
   const locale = (t('_locale') === 'zh' ? 'zh' : 'en') as 'en' | 'zh'
   const router = useRouter()
@@ -277,8 +284,8 @@ export default function TriggerDetailPage({ params }: { params: Promise<{ trigge
   if (trigger.type === 'webhook') {
     summary.push({
       label: t('managed.triggers.signing'),
-      value: trigger.secret_ref
-        ? t('managed.triggers.signedVia', { secret: trigger.secret_ref })
+      value: trigger.webhook_auth_credential_id
+        ? t('managed.triggers.signedVia', { secret: trigger.webhook_auth_credential_id })
         : t('managed.triggers.unsigned'),
     })
   }

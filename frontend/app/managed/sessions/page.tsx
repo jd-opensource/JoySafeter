@@ -14,6 +14,7 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
+import { isEntityId, parseSessionId } from '@/types/entity-id'
 import type { Session } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/managed/shared'
@@ -25,6 +26,8 @@ import { RelativeTime } from '@/components/managed/shared'
 import { ResourceErrorState } from '@/components/managed/shared'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { toastOperationError } from '@/lib/managed/errors'
+import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
+import { getSessionDisplayTitle } from '@/lib/managed/session-display'
 import { CreateSessionDialog } from './components/create-session-dialog'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
@@ -66,6 +69,8 @@ export default function SessionListPage() {
     queryKey: 'sessions',
     path: '/sessions',
     includeArchived: showArchived,
+    parseItem: parseSessionResponse,
+    parseCursor: parseSessionId,
   })
 
   const getEngineKindLabel = (engineKind?: string | null) => {
@@ -77,6 +82,8 @@ export default function SessionListPage() {
         return 'Codex'
       case 'native':
         return 'Native'
+      case 'pi':
+        return 'Pi'
       default:
         return engineKind || '-'
     }
@@ -91,6 +98,7 @@ export default function SessionListPage() {
         s.status,
         s.agent?.name,
         s.agent?.id,
+        s.agent?.model?.id,
         s.agent?.engine_kind,
         getEngineKindLabel(s.agent?.engine_kind),
       ]),
@@ -120,7 +128,11 @@ export default function SessionListPage() {
     {
       key: 'name',
       header: t('managed.table.name'),
-      render: (s) => <span className="text-foreground">{s.title || '-'}</span>,
+      render: (s) => (
+        <span className="text-foreground">
+          {getSessionDisplayTitle(s.title, t('managed.sessions.untitledSession'))}
+        </span>
+      ),
     },
     {
       key: 'status',
@@ -128,18 +140,16 @@ export default function SessionListPage() {
       render: (s) => <StatusBadge status={s.status} />,
     },
     {
-      key: 'engine_kind',
-      header: t('managed.table.engineKind'),
-      render: (s) => (
-        <span className="whitespace-nowrap text-muted-foreground">
-          {getEngineKindLabel(s.agent?.engine_kind)}
-        </span>
-      ),
-    },
-    {
       key: 'agent',
-      header: t('managed.table.agent'),
-      render: (s) => <span className="text-xs text-muted-foreground">{s.agent?.name || '-'}</span>,
+      header: `${t('managed.table.agent')} / ${t('managed.agents.engineKind')}`,
+      render: (s) => (
+        <div className="min-w-0">
+          <div className="truncate text-foreground">{s.agent?.name || '-'}</div>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            {t('managed.agents.engineKind')}: {getEngineKindLabel(s.agent?.engine_kind)}
+          </div>
+        </div>
+      ),
     },
     {
       key: 'created_at',
@@ -249,7 +259,9 @@ export default function SessionListPage() {
         searchPlaceholder={t('managed.search.sessions')}
         searchValue={searchQuery}
         onSearchChange={setSearchQuery}
-        onSearch={(id) => router.push(`/managed/sessions/${id}`)}
+        onSearch={(value) => {
+          if (isEntityId(value, 'session')) router.push(`/managed/sessions/${value}`)
+        }}
         filters={filters}
         showArchived={showArchived}
         onArchivedChange={setShowArchived}

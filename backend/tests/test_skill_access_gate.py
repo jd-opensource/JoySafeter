@@ -4,7 +4,7 @@ Phase 2 of the skills single-axis redesign replaces the per-skill
 collaborator ACL with a SINGLE-AXIS project-capability gate:
 
   ``check_skill_access(db, skill, user_id, required, *,
-                       caller_org_role, active_org_id=None)``
+                       caller_org_role, active_org_id)``
 
 The gate derives WRITE/ADMIN capability SOLELY from the caller's
 effective capability on the skill's PROJECT (via
@@ -85,9 +85,9 @@ def test_effective_visibility_prefers_column():
     assert _effective_visibility(s) == "public"
 
 
-def test_effective_visibility_falls_back_to_project_when_null():
-    s = _skill(visibility="")
-    assert _effective_visibility(s) == "project"
+def test_effective_visibility_uses_persisted_value():
+    s = _skill(visibility="organization")
+    assert _effective_visibility(s) == "organization"
 
 
 @pytest.mark.parametrize("v", ["project", "organization", "public"])

@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime
 from typing import Any, Optional
 
@@ -17,14 +16,15 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_platform_admin,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import SandboxId, SessionId, TaskId
 
 router = APIRouter(tags=["joysafeter-network-policies"])
 
 
 class NetworkPolicyStatusResponse(BaseModel):
-    sandbox_id: uuid.UUID
-    session_id: Optional[uuid.UUID] = None
-    task_id: Optional[uuid.UUID] = None
+    sandbox_id: SandboxId
+    session_id: Optional[SessionId] = None
+    task_id: Optional[TaskId] = None
     project_id: Optional[str] = None
     session_title: Optional[str] = None
     agent_name: Optional[str] = None
@@ -73,24 +73,21 @@ def _row_to_response(row: Any) -> NetworkPolicyStatusResponse:
 
 
 def _latest_policy_subquery():
-    return (
-        select(
-            JoySafeterSandboxNetworkPolicy.sandbox_id.label("sandbox_id"),
-            JoySafeterSandboxNetworkPolicy.task_id.label("task_id"),
-            JoySafeterSandboxNetworkPolicy.status.label("latest_policy_status"),
-            JoySafeterSandboxNetworkPolicy.last_error.label("latest_policy_error"),
-            JoySafeterSandboxNetworkPolicy.last_nack_reason.label("latest_policy_nack_reason"),
-            JoySafeterSandboxNetworkPolicy.rendered_summary_json.label("rendered_summary"),
-            JoySafeterSandboxNetworkPolicy.updated_at.label("latest_policy_updated_at"),
-            func.row_number()
-            .over(
-                partition_by=JoySafeterSandboxNetworkPolicy.sandbox_id,
-                order_by=JoySafeterSandboxNetworkPolicy.policy_version.desc(),
-            )
-            .label("rn"),
+    return select(
+        JoySafeterSandboxNetworkPolicy.sandbox_id.label("sandbox_id"),
+        JoySafeterSandboxNetworkPolicy.task_id.label("task_id"),
+        JoySafeterSandboxNetworkPolicy.status.label("latest_policy_status"),
+        JoySafeterSandboxNetworkPolicy.last_error.label("latest_policy_error"),
+        JoySafeterSandboxNetworkPolicy.last_nack_reason.label("latest_policy_nack_reason"),
+        JoySafeterSandboxNetworkPolicy.rendered_summary_json.label("rendered_summary"),
+        JoySafeterSandboxNetworkPolicy.updated_at.label("latest_policy_updated_at"),
+        func.row_number()
+        .over(
+            partition_by=JoySafeterSandboxNetworkPolicy.sandbox_id,
+            order_by=JoySafeterSandboxNetworkPolicy.policy_version.desc(),
         )
-        .subquery()
-    )
+        .label("rn"),
+    ).subquery()
 
 
 def _base_status_query(project_id: Optional[str] = None):
@@ -172,7 +169,7 @@ async def list_network_policy_diagnostics(
 
 @router.get("/sessions/{session_id}")
 async def get_session_network_policy_status(
-    session_id: uuid.UUID,
+    session_id: SessionId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> Optional[NetworkPolicyStatusResponse]:

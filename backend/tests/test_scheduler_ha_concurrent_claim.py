@@ -1,7 +1,7 @@
 """Distributed HA of the cron scheduler control plane (multi-worker safety).
 
 The scheduler runs inside the worker service, which is deployed as N replicas
-(see deploy/HA.md). Correctness under >1 worker relies on the Postgres claim
+Correctness under more than one worker relies on the Postgres claim
 semantics in ``JoySafeterTriggerService.claim_due_cron_triggers``:
 
 - ``FOR UPDATE SKIP LOCKED`` + freshly-set ``locked_by``/``locked_at`` means two

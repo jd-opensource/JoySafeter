@@ -16,6 +16,10 @@ const ALERT_DETAIL_SLUG: Record<string, string> = {
   zombie_session: 'zombieSession',
 }
 
+export const ALERT_DETAIL_KEYS = [...Object.values(ALERT_DETAIL_SLUG), 'unknown'].map(
+  (slug) => `analytics.alerts.detail.${slug}`,
+)
+
 /** Alert type → i18n key for its localized detail line. Unknown types fall back to a generic key. */
 export function alertDetailKey(type: string): string {
   const slug = ALERT_DETAIL_SLUG[type] || 'unknown'
@@ -28,6 +32,10 @@ const SUGGESTION_SLUG: Record<string, string> = {
   high_output_ratio: 'highOutputRatio',
   high_queue_wait: 'highQueueWait',
 }
+
+export const SUGGESTION_MESSAGE_KEYS = [...Object.values(SUGGESTION_SLUG), 'unknown'].map(
+  (slug) => `analytics.tokenSummary.suggestionMessages.${slug}`,
+)
 
 /** Suggestion type → i18n key for its localized message. Unknown types fall back to a generic key. */
 export function suggestionMessageKey(type: string): string {

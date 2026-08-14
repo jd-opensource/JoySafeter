@@ -150,12 +150,8 @@ async fn create_environment(client: &JoysafeterClient) -> anyhow::Result<()> {
 
     let mut allowed_hosts: Vec<String> = Vec::new();
     if net_type == "limited" {
-        loop {
-            if let Some(host) = input_optional("Allowed host (Enter to finish)")? {
-                allowed_hosts.push(host);
-            } else {
-                break;
-            }
+        while let Some(host) = input_optional("Allowed host (Enter to finish)")? {
+            allowed_hosts.push(host);
         }
     }
 

@@ -7,6 +7,8 @@ import remarkGfm from 'remark-gfm'
 import { X, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
+import { entityIdUuid, shortEntityId } from '@/lib/managed/id'
+import { parseEventId } from '@/types/entity-id'
 import { RoleBadge } from './role-badge'
 
 interface EventDetailProps {
@@ -21,12 +23,12 @@ export function EventDetail({ event, mode, sessionStart, onClose }: EventDetailP
   const contentRef = useRef<HTMLDivElement>(null)
   const copiedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [copied, setCopied] = useState(false)
-  const eventType = event.type || event.event_type || ''
+  const eventType = event.type
   const typeLabel = getTypeLabel(eventType, t)
   const elapsed = sessionStart
     ? getElapsedTime(sessionStart, event.created_at || event.id || '')
     : null
-  const shortId = event.id ? event.id.slice(0, 16) : ''
+  const shortId = event.id ? shortEntityId(event.id, 'event', 12) : ''
 
   useEffect(
     () => () => {
@@ -242,7 +244,7 @@ function TranscriptContent({ event }: { event: SessionEvent }) {
 
 function extractText(event: SessionEvent): string | null {
   // Background sub-agent — render a structured markdown card with all known fields
-  const eventTypeForBg = event.type || event.event_type || ''
+  const eventTypeForBg = event.type
   if (
     eventTypeForBg === 'agent.bg_task_started' ||
     eventTypeForBg === 'agent.bg_task_progress' ||
@@ -293,7 +295,7 @@ function extractText(event: SessionEvent): string | null {
   if (typeof event.content === 'string') {
     return event.content
   }
-  const eventType = event.type || event.event_type || ''
+  const eventType = event.type
   if (eventType.includes('tool') && event.input) {
     return renderToolInputMarkdown(event)
   }
@@ -317,23 +319,12 @@ function extractText(event: SessionEvent): string | null {
  * Bold/headings are avoided — they over-format what should read like
  * a terminal command echo. Falls back to fenced JSON for unknown tools.
  *
- * Handles two payload shapes — input may be a parsed object (current) or a
- * doubly-encoded JSON string (legacy events from before orchestrator-rs
- * mapping.rs parsed input_json server-side).
  */
 function renderToolInputMarkdown(event: SessionEvent): string {
-  let raw = event.input as unknown
-  if (typeof raw === 'string') {
-    try {
-      raw = JSON.parse(raw)
-    } catch {
-      return '```\n' + (raw as string) + '\n```'
-    }
-  }
-  if (!raw || typeof raw !== 'object') {
+  if (!event.input || typeof event.input !== 'object') {
     return '```json\n' + JSON.stringify(event.input, null, 2) + '\n```'
   }
-  const input = raw as Record<string, unknown>
+  const input = event.input as Record<string, unknown>
   const toolName = String(event.tool || event.tool_name || event.name || '')
 
   // Bash — claude-code shows the command text plain. Use a bash fence
@@ -498,7 +489,12 @@ function parseEventTime(value: string): number {
   if (!value) return NaN
   const d = new Date(value).getTime()
   if (!isNaN(d)) return d
-  const hex = value.replace(/^evt_/, '').replace(/-/g, '')
+  let hex: string
+  try {
+    hex = entityIdUuid(parseEventId(value), 'event').replace(/-/g, '')
+  } catch {
+    return NaN
+  }
   if (hex.length >= 12) {
     const ts = parseInt(hex.slice(0, 12), 16)
     if (ts > 1_000_000_000_000 && ts < 2_000_000_000_000) return ts

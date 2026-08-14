@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 
-import { SecretKeySelect } from '@/components/managed/shared'
+import { ServiceCredentialSelect } from '@/components/managed/shared'
 import { CronEditor } from '@/components/managed/triggers/cron-editor'
 import { Button } from '@/components/ui/button'
 import {
@@ -20,6 +20,7 @@ import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -29,6 +30,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
+import { useServiceCredentials } from '@/hooks/managed/use-service-credentials'
 import { managedGet } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourceId } from '@/lib/managed/api-paths'
@@ -44,27 +46,51 @@ import {
   type TriggerType,
   type WebhookAuthMethod,
 } from '@/lib/managed/triggers'
+import {
+  parseAgentId,
+  parseCredentialId,
+  parseEnvironmentId,
+  parseSessionId,
+  type AgentId,
+  type EnvironmentId,
+  type SessionId,
+} from '@/types/entity-id'
 
 interface AgentOption {
-  id: string
+  id: AgentId
   name: string
   engine_kind?: string | null
   model?: { id?: string } | null
   archived_at?: string | null
 }
 
+function parseAgentOption(value: unknown): AgentOption {
+  const raw = value as Omit<AgentOption, 'id'> & { id: string }
+  return { ...raw, id: parseAgentId(raw.id) }
+}
+
 interface EnvironmentOption {
-  id: string
+  id: EnvironmentId
   name: string
   config?: { type?: string; networking?: { type?: string } } | null
   archived_at?: string | null
 }
 
+function parseEnvironmentOption(value: unknown): EnvironmentOption {
+  const raw = value as Omit<EnvironmentOption, 'id'> & { id: string }
+  return { ...raw, id: parseEnvironmentId(raw.id) }
+}
+
 interface SessionOption {
-  id: string
+  id: SessionId
   title?: string | null
   status?: string | null
   archived_at?: string | null
+}
+
+function parseSessionOption(value: unknown): SessionOption {
+  const raw = value as Omit<SessionOption, 'id'> & { id: string }
+  return { ...raw, id: parseSessionId(raw.id) }
 }
 
 type TriggerKind = TriggerType
@@ -120,6 +146,10 @@ function isWebhookAuthMethod(value: unknown): value is WebhookAuthMethod {
   return typeof value === 'string' && AUTH_METHODS.includes(value as WebhookAuthMethod)
 }
 
+function usableCredentialFields(fields: readonly string[] | undefined): string[] {
+  return (fields ?? []).filter((field) => field.trim().length > 0)
+}
+
 // Sentinel Select value for "no explicit environment" — radix Select cannot use
 // an empty-string item value, so we map this to `environment_ref = null`.
 const FOLLOW_AGENT_ENV = '__agent_default__'
@@ -133,7 +163,7 @@ interface TriggerFormState {
   type: TriggerKind
   name: string
   description: string
-  agentId: string
+  agentId: AgentId | ''
   environmentRef: string
   prompt: string
   agentSearch: string
@@ -142,7 +172,7 @@ interface TriggerFormState {
   maxRetries: number
   enabled: boolean
   sessionMode: TriggerSessionMode
-  pinnedSessionId: string
+  pinnedSessionId: SessionId | ''
   sessionKey: string
   scheduleMode: 'repeats' | 'once'
   cron: string
@@ -221,7 +251,7 @@ function triggerToFormState(trigger?: AgentTrigger | null): TriggerFormState {
     type: trigger.type,
     name: trigger.name,
     description: trigger.description ?? '',
-    agentId: apiResourceId(trigger.agent_id),
+    agentId: trigger.agent_id,
     environmentRef: trigger.environment_ref ?? '',
     prompt: trigger.prompt_template,
     agentSearch: '',
@@ -230,15 +260,15 @@ function triggerToFormState(trigger?: AgentTrigger | null): TriggerFormState {
     maxRetries: trigger.max_retries,
     enabled: trigger.enabled,
     sessionMode: trigger.session_mode || 'fresh',
-    pinnedSessionId: trigger.pinned_session_id ? apiResourceId(trigger.pinned_session_id) : '',
+    pinnedSessionId: trigger.pinned_session_id ?? '',
     sessionKey: trigger.session_key ?? '',
     scheduleMode: trigger.run_at ? 'once' : 'repeats',
     cron: trigger.cron_expr || '0 9 * * *',
     tz: trigger.timezone || 'UTC',
     runAt: isoToLocalInput(trigger.run_at),
     policy: (trigger.concurrency_policy ?? 'allow') as TriggerConcurrencyPolicy,
-    secretRef: trigger.secret_ref ?? '',
-    secretKey: trigger.secret_key ?? DEFAULT_SECRET_KEY,
+    secretRef: trigger.webhook_auth_credential_id ?? '',
+    secretKey: trigger.webhook_auth_field ?? DEFAULT_SECRET_KEY,
     authMethods: Array.isArray(cfgAuth) ? cfgAuth.filter(isWebhookAuthMethod) : [...AUTH_METHODS],
     dedupeHeader: (trigger.config?.dedupe_header as string) ?? DEFAULT_DEDUPE_HEADER,
     filterRows: filterToRows(trigger.filter),
@@ -296,12 +326,58 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
   const [dedupeHeader, setDedupeHeader] = useState(initialForm.dedupeHeader)
   const [filterRows, setFilterRows] = useState<FilterRow[]>(initialForm.filterRows)
 
+  const serviceCredentialsQuery = useServiceCredentials({ enabled: open && type === 'webhook' })
+  const serviceCredentials = useMemo(
+    () => serviceCredentialsQuery.data ?? [],
+    [serviceCredentialsQuery.data],
+  )
+  const selectedCredential = useMemo(
+    () => serviceCredentials.find((credential) => credential.id === secretRef),
+    [secretRef, serviceCredentials],
+  )
+  const credentialFields = useMemo(
+    () => usableCredentialFields(Object.keys(selectedCredential?.data ?? {})),
+    [selectedCredential],
+  )
+  const missingCredential = useMemo(
+    () =>
+      !serviceCredentialsQuery.isLoading &&
+      !serviceCredentialsQuery.isError &&
+      Boolean(secretRef) &&
+      !selectedCredential,
+    [
+      secretRef,
+      selectedCredential,
+      serviceCredentialsQuery.isError,
+      serviceCredentialsQuery.isLoading,
+    ],
+  )
+  const missingCredentialField = useMemo(
+    () =>
+      !serviceCredentialsQuery.isLoading &&
+      !serviceCredentialsQuery.isError &&
+      Boolean(selectedCredential) &&
+      Boolean(secretKey) &&
+      !credentialFields.includes(secretKey),
+    [
+      credentialFields,
+      secretKey,
+      selectedCredential,
+      serviceCredentialsQuery.isError,
+      serviceCredentialsQuery.isLoading,
+    ],
+  )
+
   const agentsQuery = useQuery({
     queryKey: ['agents', scope.key, 'for-trigger'],
     queryFn: () =>
-      managedGet<AgentOption[] | { data: AgentOption[] }>(
+      managedGet<unknown[] | { data: unknown[] }>(
         '/agents?limit=100',
         managedRequestOptions(scope),
+      ).then((response) =>
+        Array.isArray(response)
+          ? response.map(parseAgentOption)
+          : { ...response, data: response.data.map(parseAgentOption) },
       ),
     enabled: open && hasManagedRequestScope(scope),
   })
@@ -324,9 +400,13 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
   const environmentsQuery = useQuery({
     queryKey: ['environments', scope.key, 'for-trigger'],
     queryFn: () =>
-      managedGet<EnvironmentOption[] | { data: EnvironmentOption[] }>(
+      managedGet<unknown[] | { data: unknown[] }>(
         '/environments?limit=100',
         managedRequestOptions(scope),
+      ).then((response) =>
+        Array.isArray(response)
+          ? response.map(parseEnvironmentOption)
+          : { ...response, data: response.data.map(parseEnvironmentOption) },
       ),
     enabled: open && hasManagedRequestScope(scope),
   })
@@ -344,9 +424,13 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
   const sessionsQuery = useQuery({
     queryKey: ['agent-sessions', scope.key, agentId, 'for-trigger'],
     queryFn: () =>
-      managedGet<{ data: SessionOption[] } | SessionOption[]>(
+      managedGet<{ data: unknown[] } | unknown[]>(
         `/agents/${agentId}/sessions?limit=100`,
         managedRequestOptions(scope),
+      ).then((response) =>
+        Array.isArray(response)
+          ? response.map(parseSessionOption)
+          : { ...response, data: response.data.map(parseSessionOption) },
       ),
     enabled: open && !!agentId && hasManagedRequestScope(scope),
   })
@@ -386,6 +470,13 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
     (row) => Boolean(row.path.trim()) === Boolean(row.value.trim()),
   )
 
+  const webhookCredentialValid =
+    !serviceCredentialsQuery.isLoading &&
+    !serviceCredentialsQuery.isError &&
+    Boolean(selectedCredential) &&
+    Boolean(secretKey) &&
+    credentialFields.includes(secretKey)
+
   const canSubmit =
     name.trim().length > 0 &&
     !!agentId &&
@@ -401,7 +492,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
         ? runAtIsFuture || isUnchangedCompletedOneOff
         : isValidCron(cron)
       : type === 'webhook'
-        ? !!secretRef && authMethods.length > 0 && filterRowsValid
+        ? webhookCredentialValid && authMethods.length > 0 && filterRowsValid
         : true)
 
   const pending = createMut.isPending || updateMut.isPending
@@ -424,7 +515,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
       prompt_template: prompt.trim(),
       environment_ref: environmentRef || null,
       session_mode: sessionMode,
-      pinned_session_id: sessionMode === 'pinned' ? pinnedSessionId : null,
+      pinned_session_id: sessionMode === 'pinned' ? parseSessionId(pinnedSessionId) : null,
       session_key: sessionMode === 'keyed' ? sessionKey.trim() : null,
       timeout_sec: timeoutSec,
       max_retries: maxRetries,
@@ -450,8 +541,8 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
             }
         : type === 'webhook'
           ? {
-              secret_ref: secretRef,
-              secret_key: secretKey || DEFAULT_SECRET_KEY,
+              webhook_auth_credential_id: secretRef ? parseCredentialId(secretRef) : null,
+              webhook_auth_field: secretKey,
               auth_methods: authMethods,
               dedupe_header: dedupeHeader.trim() || DEFAULT_DEDUPE_HEADER,
               filter: rowsToFilter(filterRows),
@@ -467,7 +558,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
       } else {
         await createMut.mutateAsync({
           type,
-          agent_id: agentId,
+          agent_id: parseAgentId(agentId),
           ...sharedBody,
           ...typeBody,
         })
@@ -491,6 +582,13 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
     setAuthMethods((prev) =>
       prev.includes(method) ? prev.filter((m) => m !== method) : [...prev, method],
     )
+  }
+
+  const handleServiceCredentialChange = (value: string) => {
+    const credential = serviceCredentials.find((item) => item.id === value)
+    const fields = usableCredentialFields(Object.keys(credential?.data ?? {}))
+    setSecretRef(value)
+    setSecretKey(fields.includes(DEFAULT_SECRET_KEY) ? DEFAULT_SECRET_KEY : (fields[0] ?? ''))
   }
 
   return (
@@ -544,7 +642,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
               <Select
                 value={agentId}
                 onValueChange={(value) => {
-                  setAgentId(value)
+                  setAgentId(parseAgentId(value))
                   setPinnedSessionId('')
                 }}
                 disabled={isEdit}
@@ -751,24 +849,57 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
             <div className="space-y-3 rounded-md border p-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>{t('managed.triggers.secretRef')}</Label>
-                  <SecretKeySelect
+                  <Label>{t('managed.triggers.serviceCredential')}</Label>
+                  <ServiceCredentialSelect
                     value={secretRef}
-                    onChange={setSecretRef}
-                    placeholder={t('managed.triggers.secretRefPlaceholder')}
+                    onChange={handleServiceCredentialChange}
+                    credentials={serviceCredentials}
+                    loading={serviceCredentialsQuery.isLoading}
+                    ariaLabel={t('managed.triggers.serviceCredential')}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="trig-secret-key">{t('managed.triggers.secretKey')}</Label>
-                  <Input
-                    id="trig-secret-key"
+                  <Label>{t('managed.triggers.credentialField')}</Label>
+                  <Select
                     value={secretKey}
-                    onChange={(e) => setSecretKey(e.target.value)}
-                    className="font-mono"
-                    placeholder={DEFAULT_SECRET_KEY}
-                  />
+                    onValueChange={setSecretKey}
+                    disabled={!selectedCredential || credentialFields.length === 0}
+                  >
+                    <SelectTrigger aria-label={t('managed.triggers.credentialField')}>
+                      <SelectValue
+                        placeholder={t('managed.triggers.credentialFieldPlaceholder')}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {credentialFields.map((field) => (
+                          <SelectItem key={field} value={field}>
+                            {field}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
+
+              {serviceCredentialsQuery.isError ? (
+                <p className="text-xs text-destructive">
+                  {t('managed.triggers.serviceCredentialLoadFailed')}
+                </p>
+              ) : missingCredential ? (
+                <p className="text-xs text-destructive">
+                  {t('managed.triggers.serviceCredentialUnavailable')}
+                </p>
+              ) : selectedCredential && credentialFields.length === 0 ? (
+                <p className="text-xs text-destructive">
+                  {t('managed.triggers.credentialFieldEmpty')}
+                </p>
+              ) : missingCredentialField ? (
+                <p className="text-xs text-destructive">
+                  {t('managed.triggers.credentialFieldUnavailable')}
+                </p>
+              ) : null}
 
               <div className="space-y-1.5">
                 <Label>{t('managed.triggers.authMethods')}</Label>
@@ -938,7 +1069,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
                 <Label>{t('managed.triggers.pinnedSessionId')}</Label>
                 <Select
                   value={pinnedSessionId}
-                  onValueChange={setPinnedSessionId}
+                  onValueChange={(value) => setPinnedSessionId(parseSessionId(value))}
                   disabled={!agentId || sessionsQuery.isLoading}
                 >
                   <SelectTrigger>
@@ -946,7 +1077,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
                   </SelectTrigger>
                   <SelectContent>
                     {sessions.map((session) => (
-                      <SelectItem key={session.id} value={apiResourceId(session.id)}>
+                      <SelectItem key={session.id} value={session.id}>
                         {session.title?.trim() || session.id}
                       </SelectItem>
                     ))}

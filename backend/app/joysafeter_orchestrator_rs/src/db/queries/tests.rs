@@ -13,6 +13,7 @@ use crate::events::envelope::EventEnvelope;
 use crate::events::persist::EventPersister;
 use crate::events::session_state::SessionStateSubscriber;
 use crate::events::stream_publisher::EventStreamPublisher;
+use crate::ids::{AgentId, EventId, SandboxId, SessionId, TaskId};
 use crate::runtime_config::RuntimeConfig;
 
 fn database_url() -> Option<String> {
@@ -36,9 +37,9 @@ async fn test_pool() -> Option<PgPool> {
     )
 }
 
-async fn create_agent_and_session(pool: &PgPool, status: &str) -> (Uuid, Uuid) {
-    let agent_id = Uuid::now_v7();
-    let session_id = Uuid::now_v7();
+async fn create_agent_and_session(pool: &PgPool, status: &str) -> (AgentId, SessionId) {
+    let agent_id = AgentId::from_uuid(Uuid::now_v7());
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
     let agent_name = format!("rust-status-scenario-{agent_id}");
 
     sqlx::query(
@@ -69,7 +70,7 @@ async fn create_agent_and_session(pool: &PgPool, status: &str) -> (Uuid, Uuid) {
     (agent_id, session_id)
 }
 
-async fn cleanup(pool: &PgPool, agent_id: Uuid, session_id: Uuid) {
+async fn cleanup(pool: &PgPool, agent_id: AgentId, session_id: SessionId) {
     let _ = sqlx::query("DELETE FROM joysafeter_tasks WHERE chat_session_id = $1 OR agent_id = $2")
         .bind(session_id)
         .bind(agent_id)
@@ -89,8 +90,13 @@ async fn cleanup(pool: &PgPool, agent_id: Uuid, session_id: Uuid) {
         .await;
 }
 
-async fn create_task(pool: &PgPool, agent_id: Uuid, session_id: Uuid, status: &str) -> Uuid {
-    let task_id = Uuid::now_v7();
+async fn create_task(
+    pool: &PgPool,
+    agent_id: AgentId,
+    session_id: SessionId,
+    status: &str,
+) -> TaskId {
+    let task_id = TaskId::from_uuid(Uuid::now_v7());
     sqlx::query(
         r#"
         INSERT INTO joysafeter_tasks (
@@ -301,7 +307,7 @@ async fn observed_owner_epoch_transition_does_not_mutate_reclaimed_task() {
         .bind(null_owner_task)
         .execute(&pool)
         .await
-        .expect("simulate reclaim after legacy null-owner observation");
+        .expect("simulate reclaim after null-owner observation");
 
         let stale_null_transition = transition_task_cas_observed_owner_epoch(
             &pool,
@@ -427,7 +433,7 @@ async fn lease_renewal_matches_task_id_and_owner_epoch_pair() {
                 .expect("renew matching leases");
         assert_eq!(renewed, 1);
 
-        let rows: Vec<(Uuid, bool)> = sqlx::query_as(
+        let rows: Vec<(TaskId, bool)> = sqlx::query_as(
             r#"
             SELECT id, lease_expires_at > NOW() AS renewed
             FROM joysafeter_tasks
@@ -456,7 +462,7 @@ async fn complete_sandbox_task_returns_running_sandbox_to_idle() {
     };
     let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
     let task_id = create_task(&pool, agent_id, session_id, "running").await;
-    let sandbox_id = Uuid::now_v7();
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
     let result = async {
         create_sandbox(
@@ -472,10 +478,10 @@ async fn complete_sandbox_task_returns_running_sandbox_to_idle() {
         )
         .await
         .expect("create running completion sandbox");
-        transition_sandbox(&pool, sandbox_id, "idle")
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
             .await
             .expect("sandbox idle");
-        transition_sandbox(&pool, sandbox_id, "running")
+        transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
             .await
             .expect("sandbox running");
         sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
@@ -519,7 +525,7 @@ async fn complete_sandbox_task_does_not_resurrect_error_sandbox() {
     };
     let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
     let task_id = create_task(&pool, agent_id, session_id, "running").await;
-    let sandbox_id = Uuid::now_v7();
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
     let result = async {
         create_sandbox(
@@ -583,7 +589,7 @@ async fn transition_sandbox_rejects_invalid_error_to_idle_resurrection() {
         return;
     };
     let (agent_id, session_id) = create_agent_and_session(&pool, "idle").await;
-    let sandbox_id = Uuid::now_v7();
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
     let result = async {
         create_sandbox(
@@ -603,7 +609,7 @@ async fn transition_sandbox_rejects_invalid_error_to_idle_resurrection() {
             .await
             .expect("mark sandbox error");
 
-        let transitioned = transition_sandbox(&pool, sandbox_id, "idle")
+        let transitioned = transition_sandbox_cas(&pool, sandbox_id, "error", "idle")
             .await
             .expect("attempt invalid transition");
         assert!(!transitioned);
@@ -640,7 +646,7 @@ async fn mark_sandbox_error_does_not_clear_active_task_binding() {
     };
     let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
     let task_id = create_task(&pool, agent_id, session_id, "running").await;
-    let sandbox_id = Uuid::now_v7();
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
     let result = async {
         create_sandbox(
@@ -656,7 +662,7 @@ async fn mark_sandbox_error_does_not_clear_active_task_binding() {
         )
         .await
         .expect("create active sandbox");
-        transition_sandbox(&pool, sandbox_id, "idle")
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
             .await
             .expect("sandbox idle");
         sqlx::query("UPDATE joysafeter_tasks SET sandbox_id = $2 WHERE id = $1")
@@ -676,7 +682,7 @@ async fn mark_sandbox_error_does_not_clear_active_task_binding() {
             .expect("attempt late sandbox error");
         assert!(!marked);
 
-        let sandbox: (String, Option<Uuid>, Option<String>) = sqlx::query_as(
+        let sandbox: (String, Option<TaskId>, Option<String>) = sqlx::query_as(
             "SELECT status, last_task_id, config->>'setup_error' FROM joysafeter_sandboxes WHERE id = $1",
         )
         .bind(sandbox_id)
@@ -687,7 +693,7 @@ async fn mark_sandbox_error_does_not_clear_active_task_binding() {
         assert_eq!(sandbox.1, Some(task_id));
         assert_eq!(sandbox.2, None);
 
-        let task: (String, Option<Uuid>) =
+        let task: (String, Option<SandboxId>) =
             sqlx::query_as("SELECT status, sandbox_id FROM joysafeter_tasks WHERE id = $1")
                 .bind(task_id)
                 .fetch_one(&pool)
@@ -712,7 +718,7 @@ async fn atomic_session_status_helper_writes_status_event_and_canonical_seq() {
         return;
     };
     let (agent_id, session_id) = create_agent_and_session(&pool, "idle").await;
-    let task_id = Uuid::now_v7();
+    let task_id = TaskId::from_uuid(Uuid::now_v7());
 
     let result = async {
         let running_payload = json!({"task_id": task_id.to_string()});
@@ -739,7 +745,7 @@ async fn atomic_session_status_helper_writes_status_event_and_canonical_seq() {
         assert_eq!(session_row.0, "running");
         assert_eq!(session_row.1, None);
 
-        let running_event: (Uuid, String, serde_json::Value, i64) = sqlx::query_as(
+        let running_event: (EventId, String, serde_json::Value, i64) = sqlx::query_as(
             "SELECT id, event_type, payload, seq FROM joysafeter_session_events WHERE session_id = $1",
         )
         .bind(session_id)
@@ -896,7 +902,7 @@ async fn db_persisted_status_envelope_does_not_reenter_event_bus_db_persister() 
         return;
     };
     let (agent_id, session_id) = create_agent_and_session(&pool, "idle").await;
-    let task_id = Uuid::now_v7();
+    let task_id = TaskId::from_uuid(Uuid::now_v7());
 
     let result = async {
         let payload = json!({"task_id": task_id.to_string()});
@@ -928,7 +934,7 @@ async fn db_persisted_status_envelope_does_not_reenter_event_bus_db_persister() 
         event_bus.publish(envelope).await;
         event_bus.flush().await;
 
-        let rows: Vec<(Uuid, String, i64)> = sqlx::query_as(
+        let rows: Vec<(EventId, String, i64)> = sqlx::query_as(
             r#"
             SELECT id, event_type, seq
             FROM joysafeter_session_events
@@ -979,7 +985,7 @@ async fn event_bus_persists_runner_event_with_canonical_db_seq_not_runner_seq() 
         event_bus.publish(envelope).await;
         event_bus.flush().await;
 
-        let row: (Uuid, String, serde_json::Value, i64) = sqlx::query_as(
+        let row: (EventId, String, serde_json::Value, i64) = sqlx::query_as(
             r#"
             SELECT id, event_type, payload, seq
             FROM joysafeter_session_events
@@ -995,6 +1001,64 @@ async fn event_bus_persists_runner_event_with_canonical_db_seq_not_runner_seq() 
         assert_eq!(row.1, "agent.message");
         assert_eq!(row.2, payload);
         assert_eq!(row.3, 1, "DB canonical seq must not reuse runner seq");
+    }
+    .await;
+
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
+async fn running_status_with_preserved_terminal_reason_does_not_emit_duplicate_event() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
+    let task_id = create_task(&pool, agent_id, session_id, "running").await;
+
+    let result = async {
+        let previous_reason = json!({"type": "end_turn"});
+        sqlx::query("UPDATE joysafeter_sessions SET stop_reason = $2 WHERE id = $1")
+            .bind(session_id)
+            .bind(&previous_reason)
+            .execute(&pool)
+            .await
+            .expect("seed preserved terminal stop reason");
+
+        let payload = json!({"task_id": task_id.to_string()});
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_session_events (id, session_id, event_type, payload, seq, created_at)
+            VALUES ($1, $2, 'session.status_running', $3, 1, NOW())
+            "#,
+        )
+        .bind(EventId::from_uuid(Uuid::now_v7()))
+        .bind(session_id)
+        .bind(&payload)
+        .execute(&pool)
+        .await
+        .expect("seed original running event");
+
+        let inserted = update_session_status_and_insert_event(
+            &pool,
+            session_id,
+            "running",
+            None,
+            "session.status_running",
+            &payload,
+        )
+        .await
+        .expect("repeat running transition");
+
+        assert_eq!(inserted, None);
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM joysafeter_session_events WHERE session_id = $1 AND event_type = 'session.status_running'",
+        )
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count running events");
+        assert_eq!(count, 1);
     }
     .await;
 
@@ -1028,7 +1092,7 @@ async fn event_bus_stream_primary_falls_back_to_db_before_flush_immediate_return
         let event_id = envelope.event_id.expect("new envelope has event id");
         event_bus.publish(envelope).await;
 
-        let row: (Uuid, String, serde_json::Value, i64) = sqlx::query_as(
+        let row: (EventId, String, serde_json::Value, i64) = sqlx::query_as(
             r#"
             SELECT id, event_type, payload, seq
             FROM joysafeter_session_events
@@ -1052,7 +1116,7 @@ async fn event_bus_stream_primary_falls_back_to_db_before_flush_immediate_return
 }
 
 #[tokio::test]
-async fn event_bus_stream_primary_without_fallback_does_not_direct_write_to_db() {
+async fn event_bus_stream_mode_keeps_ordered_direct_db_durability_mirror() {
     let Some(pool) = test_pool().await else {
         return;
     };
@@ -1089,9 +1153,96 @@ async fn event_bus_stream_primary_without_fallback_does_not_direct_write_to_db()
         .expect("count events after stream publish failure without fallback");
 
         assert_eq!(
-            count, 0,
-            "stream-enabled EventBus must not use the direct DB persister as a second primary path"
+            count, 1,
+            "stream mode must keep the ordered DB mirror so status events cannot overtake agent output"
         );
+    }
+    .await;
+
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
+async fn event_bus_flush_persists_all_agent_output_before_atomic_idle_status() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
+    let task_id = create_task(&pool, agent_id, session_id, "running").await;
+
+    let result = async {
+        let mut config = JoySafeterConfig::from_env();
+        config.event_stream_enabled = true;
+        config.event_stream_fallback_to_db = false;
+        config.event_batch_max_size = 100;
+        config.event_batch_max_delay_ms = 60_000;
+        let runtime_config = Arc::new(RuntimeConfig::from_config(&config));
+        let redis_client =
+            redis::Client::open("redis://127.0.0.1:1/").expect("construct redis client");
+        let event_bus = EventBus::new(pool.clone(), &config, runtime_config, redis_client);
+
+        for (event_type, payload) in [
+            ("agent.message", json!({"content": "first"})),
+            ("agent.message", json!({"content": "second"})),
+            (
+                "span.model_request_end",
+                json!({"model": "test-model", "usage": {"output_tokens": 2}}),
+            ),
+        ] {
+            event_bus
+                .publish(EventEnvelope::new(session_id, event_type, payload).with_task(task_id))
+                .await;
+        }
+        event_bus.flush().await;
+
+        let transitioned = transition_task_cas(&pool, task_id, "running", "completed", None, None)
+            .await
+            .expect("complete test task");
+        assert!(transitioned);
+
+        let stop_reason = json!({"type": "end_turn"});
+        let idle_payload =
+            json!({"task_id": task_id.to_string(), "stop_reason": stop_reason.clone()});
+        let (_, idle_seq) = update_session_status_if_no_active_tasks_and_insert_event(
+            &pool,
+            session_id,
+            "idle",
+            Some(&stop_reason),
+            "session.status_idle",
+            &idle_payload,
+        )
+        .await
+        .expect("idle transition succeeds")
+        .expect("idle transition inserts event");
+
+        let rows: Vec<(String, serde_json::Value, i64)> = sqlx::query_as(
+            r#"
+            SELECT event_type, payload, seq
+            FROM joysafeter_session_events
+            WHERE session_id = $1
+            ORDER BY seq ASC
+            "#,
+        )
+        .bind(session_id)
+        .fetch_all(&pool)
+        .await
+        .expect("load persisted output and idle boundary");
+
+        assert_eq!(
+            rows.iter()
+                .map(|(event_type, _, seq)| (event_type.as_str(), *seq))
+                .collect::<Vec<_>>(),
+            vec![
+                ("agent.message", 1),
+                ("agent.message", 2),
+                ("span.model_request_end", 3),
+                ("session.status_idle", 4),
+            ]
+        );
+        assert_eq!(rows[0].1, json!({"content": "first"}));
+        assert_eq!(rows[1].1, json!({"content": "second"}));
+        assert!(rows[..3].iter().all(|(_, _, seq)| *seq < idle_seq));
     }
     .await;
 
@@ -1116,8 +1267,8 @@ async fn event_persister_redelivered_event_id_does_not_consume_next_db_seq() {
             "rust-event-persister-test".to_string(),
         );
 
-        let redelivered_id = Uuid::now_v7();
-        let next_id = Uuid::now_v7();
+        let redelivered_id = EventId::from_uuid(Uuid::now_v7());
+        let next_id = EventId::from_uuid(Uuid::now_v7());
         persister
             .push(
                 redelivered_id,
@@ -1149,7 +1300,7 @@ async fn event_persister_redelivered_event_id_does_not_consume_next_db_seq() {
             .await;
         persister.flush().await;
 
-        let rows: Vec<(Uuid, serde_json::Value, i64)> = sqlx::query_as(
+        let rows: Vec<(EventId, serde_json::Value, i64)> = sqlx::query_as(
             r#"
             SELECT id, payload, seq
             FROM joysafeter_session_events
@@ -1196,14 +1347,14 @@ async fn event_persister_skips_session_status_events_even_when_called_directly()
 
         persister
             .push(
-                Uuid::now_v7(),
+                EventId::from_uuid(Uuid::now_v7()),
                 session_id,
                 "session.status_idle",
                 &json!({"task_id": Uuid::now_v7().to_string(), "stop_reason": {"type": "end_turn"}}),
                 None,
             )
             .await;
-        let message_id = Uuid::now_v7();
+        let message_id = EventId::from_uuid(Uuid::now_v7());
         persister
             .push(
                 message_id,
@@ -1215,7 +1366,7 @@ async fn event_persister_skips_session_status_events_even_when_called_directly()
             .await;
         persister.flush().await;
 
-        let rows: Vec<(Uuid, String, serde_json::Value, i64)> = sqlx::query_as(
+        let rows: Vec<(EventId, String, serde_json::Value, i64)> = sqlx::query_as(
             r#"
             SELECT id, event_type, payload, seq
             FROM joysafeter_session_events
@@ -1546,7 +1697,7 @@ async fn provisioning_progress_update_does_not_resurrect_error_sandbox() {
         return;
     };
     let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
-    let sandbox_id = Uuid::now_v7();
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
     let result = async {
         create_sandbox(
@@ -1622,7 +1773,7 @@ async fn start_sandbox_task_binds_healthy_sandbox_to_task() {
     };
     let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
     let task_id = create_task(&pool, agent_id, session_id, "running").await;
-    let sandbox_id = Uuid::now_v7();
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
     let result = async {
         create_sandbox(
@@ -1638,7 +1789,7 @@ async fn start_sandbox_task_binds_healthy_sandbox_to_task() {
         )
         .await
         .expect("create dispatch sandbox");
-        transition_sandbox(&pool, sandbox_id, "idle")
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
             .await
             .expect("sandbox idle");
 
@@ -1647,14 +1798,17 @@ async fn start_sandbox_task_binds_healthy_sandbox_to_task() {
             .expect("start sandbox task");
         assert!(started);
 
-        let sandbox: (String, Option<Uuid>, Option<chrono::DateTime<chrono::Utc>>) =
-            sqlx::query_as(
-                "SELECT status, last_task_id, idle_since FROM joysafeter_sandboxes WHERE id = $1",
-            )
-            .bind(sandbox_id)
-            .fetch_one(&pool)
-            .await
-            .expect("load started sandbox");
+        let sandbox: (
+            String,
+            Option<TaskId>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        ) = sqlx::query_as(
+            "SELECT status, last_task_id, idle_since FROM joysafeter_sandboxes WHERE id = $1",
+        )
+        .bind(sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load started sandbox");
         assert_eq!(sandbox.0, "running");
         assert_eq!(sandbox.1, Some(task_id));
         assert!(sandbox.2.is_none());
@@ -1676,7 +1830,7 @@ async fn start_sandbox_task_does_not_resurrect_error_sandbox() {
     };
     let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
     let task_id = create_task(&pool, agent_id, session_id, "running").await;
-    let sandbox_id = Uuid::now_v7();
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
     let result = async {
         create_sandbox(
@@ -1735,7 +1889,7 @@ async fn mark_sandbox_stopped_if_active_stops_running_sandbox() {
     };
     let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
     let task_id = create_task(&pool, agent_id, session_id, "running").await;
-    let sandbox_id = Uuid::now_v7();
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
     let result = async {
         create_sandbox(
@@ -1751,7 +1905,7 @@ async fn mark_sandbox_stopped_if_active_stops_running_sandbox() {
         )
         .await
         .expect("create running stop sandbox");
-        transition_sandbox(&pool, sandbox_id, "idle")
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
             .await
             .expect("sandbox idle before start");
         assert!(start_sandbox_task(&pool, sandbox_id, task_id)
@@ -1763,14 +1917,17 @@ async fn mark_sandbox_stopped_if_active_stops_running_sandbox() {
             .expect("mark active sandbox stopped");
         assert!(stopped);
 
-        let sandbox: (String, Option<Uuid>, Option<chrono::DateTime<chrono::Utc>>) =
-            sqlx::query_as(
-                "SELECT status, last_task_id, idle_since FROM joysafeter_sandboxes WHERE id = $1",
-            )
-            .bind(sandbox_id)
-            .fetch_one(&pool)
-            .await
-            .expect("load stopped sandbox");
+        let sandbox: (
+            String,
+            Option<TaskId>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        ) = sqlx::query_as(
+            "SELECT status, last_task_id, idle_since FROM joysafeter_sandboxes WHERE id = $1",
+        )
+        .bind(sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load stopped sandbox");
         assert_eq!(sandbox.0, "stopped");
         assert_eq!(sandbox.1, Some(task_id));
         assert!(sandbox.2.is_none());
@@ -1791,7 +1948,7 @@ async fn mark_sandbox_stopped_if_active_does_not_overwrite_error_sandbox() {
         return;
     };
     let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
-    let sandbox_id = Uuid::now_v7();
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
     let result = async {
         create_sandbox(
@@ -1841,7 +1998,7 @@ async fn mark_pool_sandbox_ready_finalizes_creating_pool_sandbox() {
     let Some(pool) = test_pool().await else {
         return;
     };
-    let sandbox_id = Uuid::now_v7();
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
     let result = async {
         create_sandbox(
@@ -1889,7 +2046,7 @@ async fn mark_pool_sandbox_ready_accepts_runner_ready_idle_race() {
     let Some(pool) = test_pool().await else {
         return;
     };
-    let sandbox_id = Uuid::now_v7();
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
     let result = async {
         create_sandbox(
@@ -1905,7 +2062,7 @@ async fn mark_pool_sandbox_ready_accepts_runner_ready_idle_race() {
         )
         .await
         .expect("create warm pool sandbox");
-        transition_sandbox(&pool, sandbox_id, "idle")
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
             .await
             .expect("simulate fast runner ready before pool finalization");
 
@@ -1936,7 +2093,7 @@ async fn mark_pool_sandbox_ready_does_not_resurrect_error_sandbox() {
     let Some(pool) = test_pool().await else {
         return;
     };
-    let sandbox_id = Uuid::now_v7();
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
     let result = async {
         create_sandbox(

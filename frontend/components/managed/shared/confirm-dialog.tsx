@@ -1,6 +1,7 @@
 'use client'
 
-import { useTranslation } from '@/lib/i18n'
+import { useEffect, useRef } from 'react'
+
 import {
   AlertDialog,
   AlertDialogContent,
@@ -11,6 +12,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog'
+import { useTranslation } from '@/lib/i18n'
 
 interface ConfirmDialogProps {
   open: boolean
@@ -32,12 +34,22 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const { t } = useTranslation()
+  const confirmedRef = useRef(false)
+
+  useEffect(() => {
+    if (open) confirmedRef.current = false
+  }, [open])
 
   return (
     <AlertDialog
       open={open}
       onOpenChange={(v) => {
-        if (!v) onCancel()
+        if (v) return
+        if (confirmedRef.current) {
+          confirmedRef.current = false
+          return
+        }
+        onCancel()
       }}
     >
       <AlertDialogContent>
@@ -48,9 +60,12 @@ export function ConfirmDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={onCancel}>{t('common.cancel')}</AlertDialogCancel>
+          <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
           <AlertDialogAction
-            onClick={onConfirm}
+            onClick={() => {
+              confirmedRef.current = true
+              onConfirm()
+            }}
             className={
               destructive
                 ? 'bg-red-600 text-white hover:bg-red-700'

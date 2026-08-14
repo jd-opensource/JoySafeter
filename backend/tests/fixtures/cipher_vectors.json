@@ -1,0 +1,26 @@
+{
+  "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  "envelope": "enc:v1:",
+  "vectors": [
+    {
+      "plaintext": "",
+      "ciphertext": "enc:v1:6P93UAYP1it0sGWjYT2nrGkIzON0rJmpPatx+Q=="
+    },
+    {
+      "plaintext": "hello-world",
+      "ciphertext": "enc:v1:VzniG9ulG62e3VZZD1jujN8lxiW1h/6a0Hdj1jIlJC/Wl9Rvvk7D"
+    },
+    {
+      "plaintext": "sk-proj-ABC123_secret-token",
+      "ciphertext": "enc:v1:Cd5m56sRxp1fFa7eILrD11q0kE8Nn30aYc5BrMBV6H99wYFHBQqYcbs82LNCFwUvbtE3ak+9nA=="
+    },
+    {
+      "plaintext": "{\"client_secret\": \"enc:looks-like-prefix\"}",
+      "ciphertext": "enc:v1:VLmWm2sXxy/fUfRGB0Q6EMhs/LI8euVrRCQ2rHfvQwUiOpXJqai52RYM7PY/WFVytpCNz/wCjwCNGB3cqW5eu+7DJVaBEw=="
+    },
+    {
+      "plaintext": "unicode: 中文 🔐 café",
+      "ciphertext": "enc:v1:14tPY+mT4eSTS7x6YpBKE/CYxpXT50r1onbL786lM1rNm+4GLDh3H3j9j4mJygclS07uHMS7"
+    }
+  ]
+}

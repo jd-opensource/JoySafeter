@@ -51,18 +51,21 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 import { managedGet } from '@/lib/api-client'
-import { stripIdPrefix } from '@/lib/managed/id'
+import { useProtocolSecrets } from '@/hooks/managed/use-compatible-secrets'
 import {
   useSkillAuthoring,
   type SkillDraft,
   type SkillDraftFile,
 } from '@/hooks/managed/use-skill-authoring'
 import { useQuery } from '@tanstack/react-query'
-import { FileTreeNode, buildFileTree } from '@/components/managed/skills/skill-workspace'
+import {
+  FileTreeNode,
+  buildFileTree,
+  type SkillWorkspaceFile,
+} from '@/components/managed/skills/skill-workspace'
 import { SkillCodeEditor } from '@/components/managed/skills/skill-code-editor'
 import { downloadDraftZip } from '@/lib/managed/skill-draft-zip'
 import { severityLabelKey } from '@/lib/managed/skill-severity'
-import type { SkillFileRecord } from '@/types/managed'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -72,9 +75,6 @@ import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
-
-type SecretRecord = { id: string; name: string; is_default?: boolean }
-type SecretsResponse = { data?: SecretRecord[] } | SecretRecord[]
 
 // Sentinel ids used by the tab bar. Preview / Editor / Metadata are pinned
 // pseudo-files; everything else is keyed by its draft path.
@@ -88,23 +88,16 @@ const TAB_METADATA = '__metadata__'
 // ``{path, content}`` pairs. We synthesize the missing fields so the shared
 // tree builder Just Works — the id is the draft path itself so callbacks
 // round-trip cleanly.
-function adaptDraftFiles(files: SkillDraftFile[]): SkillFileRecord[] {
+function adaptDraftFiles(files: SkillDraftFile[]): SkillWorkspaceFile[] {
   return files.map((f, idx) => {
     const slashIdx = f.path.lastIndexOf('/')
     const dir = slashIdx >= 0 ? f.path.slice(0, slashIdx + 1) : ''
     const name = slashIdx >= 0 ? f.path.slice(slashIdx + 1) : f.path
     return {
       id: f.path || `__draft_${idx}__`,
-      skill_id: '',
       path: dir,
       file_name: name,
-      file_type: inferFileType(name),
-      content: f.content,
-      storage_type: 'database' as const,
-      storage_key: null,
       size: f.content?.length || 0,
-      created_at: '',
-      updated_at: '',
     }
   })
 }
@@ -165,21 +158,13 @@ export default function SkillAiAuthoringPage() {
   const [activeTab, setActiveTab] = useState<string>(TAB_EDITOR)
   const [activeFilePath, setActiveFilePath] = useState<string>('SKILL.md')
 
-  const { data: secretsRes } = useQuery({
-    queryKey: ['secrets', managedScope.key],
-    queryFn: () => managedGet<SecretsResponse>('/secrets', managedRequestOptions(managedScope)),
-    enabled: hasManagedRequestScope(managedScope),
-  })
-  const secrets = useMemo<SecretRecord[]>(() => {
-    if (!secretsRes) return []
-    return Array.isArray(secretsRes) ? secretsRes : secretsRes.data || []
-  }, [secretsRes])
+  const { data: secrets = [] } = useProtocolSecrets({ protocolId: 'openai_responses' })
 
   const effectiveSecretRef = useMemo(() => {
     if (!secrets.length) return ''
-    const secretNames = new Set(secrets.map((secret) => secret.name))
-    if (secretRef && secretNames.has(secretRef)) return secretRef
-    return (secrets.find((s) => s.is_default) || secrets[0]).name
+    const secretIds = new Set<string>(secrets.map((secret) => secret.id))
+    if (secretRef && secretIds.has(secretRef)) return secretRef
+    return (secrets.find((s) => s.is_default) || secrets[0]).id
   }, [secretRef, secrets])
 
   useEffect(() => {
@@ -427,7 +412,7 @@ export default function SkillAiAuthoringPage() {
     }
     toast({ title: t('managed.skills.aiAuthor.publishedToast') })
     reset()
-    router.push(`/managed/skills?selected=${stripIdPrefix(skillId)}`)
+    router.push(`/managed/skills?selected=${encodeURIComponent(skillId)}`)
   }
 
   // The active file for the Editor tab's right-hand side.

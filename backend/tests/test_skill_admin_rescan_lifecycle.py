@@ -64,7 +64,7 @@ async def test_admin_batch_rescan_skips_archived_skills_without_marking_scanning
         auth_ctx=_admin_ctx(project_id, org_id),
     )
 
-    assert response["scheduled"] == [f"skill_{active_skill.id}"]
+    assert response["scheduled"] == [str(active_skill.id)]
     assert response["count"] == 1
 
     rows = (

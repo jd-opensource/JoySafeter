@@ -1,0 +1,114 @@
+version: "2026-08-07.1"
+
+protocols:
+  - id: anthropic_messages
+    display_name: Anthropic Messages API
+    description: Anthropic Messages request and streaming response contract.
+  - id: openai_responses
+    display_name: OpenAI Responses API
+    description: OpenAI Responses request and event stream contract.
+  - id: chat_completions
+    display_name: Chat Completions API
+    description: OpenAI-compatible Chat Completions contract.
+
+engines:
+  - id: claude
+    display_name: Claude Code
+    supported_protocol_ids: [anthropic_messages]
+    preferred_protocol_ids: [anthropic_messages]
+  - id: codex
+    display_name: Codex
+    supported_protocol_ids: [openai_responses]
+    preferred_protocol_ids: [openai_responses]
+  - id: native
+    display_name: Native
+    supported_protocol_ids: [anthropic_messages, openai_responses, chat_completions]
+    preferred_protocol_ids: [anthropic_messages, openai_responses, chat_completions]
+  - id: pi
+    display_name: Pi
+    supported_protocol_ids: [anthropic_messages, openai_responses, chat_completions]
+    preferred_protocol_ids: [chat_completions, anthropic_messages, openai_responses]
+
+credential_profiles:
+  - id: anthropic_standard
+    fields:
+      - key: ANTHROPIC_API_KEY
+        label: API Key
+        type: secret
+        help_text: Anthropic API key.
+      - key: ANTHROPIC_AUTH_TOKEN
+        label: Auth Token
+        type: secret
+        help_text: Bearer token for an Anthropic-compatible gateway.
+        advanced: true
+      - key: ANTHROPIC_BASE_URL
+        label: Base URL
+        type: url
+        placeholder: https://api.anthropic.com
+        advanced: true
+      - key: ANTHROPIC_MODEL
+        label: Model
+        type: text
+        placeholder: claude-sonnet-4-5
+    required_any_of:
+      - [ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN]
+    base_url_key: ANTHROPIC_BASE_URL
+    model_key: ANTHROPIC_MODEL
+  - id: openai_bearer
+    fields:
+      - key: OPENAI_API_KEY
+        label: API Key
+        type: secret
+        required: true
+      - key: OPENAI_BASE_URL
+        label: Base URL
+        type: url
+        placeholder: https://api.openai.com/v1
+        advanced: true
+      - key: OPENAI_MODEL
+        label: Model
+        type: text
+        placeholder: gpt-5
+      - key: OPENAI_REASONING_EFFORT
+        label: Reasoning Effort
+        type: select
+        options: [minimal, low, medium, high]
+        advanced: true
+    base_url_key: OPENAI_BASE_URL
+    model_key: OPENAI_MODEL
+
+providers:
+  - id: anthropic
+    display_name: Anthropic
+    protocol_bindings:
+      - protocol_id: anthropic_messages
+        credential_profile_id: anthropic_standard
+        default_base_url: https://api.anthropic.com
+        model_suggestions: [claude-sonnet-4-5]
+  - id: openai
+    display_name: OpenAI
+    protocol_bindings:
+      - protocol_id: openai_responses
+        credential_profile_id: openai_bearer
+        default_base_url: https://api.openai.com/v1
+        model_suggestions: [gpt-5]
+      - protocol_id: chat_completions
+        credential_profile_id: openai_bearer
+        default_base_url: https://api.openai.com/v1
+        model_suggestions: [gpt-5]
+  - id: deepseek
+    display_name: DeepSeek
+    protocol_bindings:
+      - protocol_id: chat_completions
+        credential_profile_id: openai_bearer
+        default_base_url: https://api.deepseek.com
+        model_suggestions: [deepseek-chat, deepseek-reasoner]
+  - id: custom
+    display_name: Custom Compatible Service
+    protocol_bindings:
+      - protocol_id: anthropic_messages
+        credential_profile_id: anthropic_standard
+      - protocol_id: openai_responses
+        credential_profile_id: openai_bearer
+      - protocol_id: chat_completions
+        credential_profile_id: openai_bearer

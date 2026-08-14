@@ -1,0 +1,11 @@
+*
+
+!proto/
+!proto/**
+!backend/
+!backend/app/
+!backend/app/joysafeter_orchestrator_rs/
+!backend/app/joysafeter_orchestrator_rs/**
+
+**/target/
+**/.git/

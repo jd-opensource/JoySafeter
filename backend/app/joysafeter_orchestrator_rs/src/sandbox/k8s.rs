@@ -1,15 +1,15 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use crate::ids::SandboxId;
 use async_trait::async_trait;
 use k8s_openapi::api::core::v1::Pod;
-use kube::api::{Api, AttachParams, DeleteParams, ListParams, PostParams};
+use kube::api::{Api, AttachParams, DeleteParams, PostParams};
 use kube::Client;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use tokio::io::AsyncReadExt;
-use tracing::{info, warn};
-use uuid::Uuid;
+use tracing::info;
 
 use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::lds_backend::{DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend, SandboxCredentials};
@@ -136,8 +136,8 @@ impl K8sProvider {
         Api::namespaced(self.client.clone(), &self.namespace)
     }
 
-    fn pod_name(sandbox_id: Uuid) -> String {
-        format!("joysafeter-{sandbox_id}")
+    fn pod_name(sandbox_id: SandboxId) -> String {
+        format!("joysafeter-{}", sandbox_id.as_uuid())
     }
 
     fn build_pod(&self, config: &SandboxCreateConfig, pod_name: &str) -> anyhow::Result<Pod> {
@@ -151,6 +151,7 @@ impl K8sProvider {
         config: &SandboxCreateConfig,
         pod_name: &str,
     ) -> anyhow::Result<Value> {
+        let sandbox_uuid = config.sandbox_id.as_uuid();
         let mut labels = BTreeMap::new();
         for (key, value) in &config.labels {
             labels.insert(sanitize_label_key(key), value.clone());
@@ -161,7 +162,7 @@ impl K8sProvider {
         );
         labels.insert(
             "joysafeter.sandbox_id".to_string(),
-            config.sandbox_id.to_string(),
+            sandbox_uuid.to_string(),
         );
 
         let env: Vec<Value> = config
@@ -232,8 +233,8 @@ impl K8sProvider {
             }));
             volume_mounts.push(json!({
                 "name": "envoy-sockets",
-                "mountPath": format!("/sockets/{}", config.sandbox_id),
-                "subPath": config.sandbox_id.to_string()
+                "mountPath": format!("/sockets/{sandbox_uuid}"),
+                "subPath": sandbox_uuid.to_string()
             }));
 
             // initContainer: create per-sandbox socket directory with correct perms.
@@ -243,7 +244,7 @@ impl K8sProvider {
                 "image": self.config.envoy_image,
                 "command": ["sh", "-c", format!(
                     "mkdir -p /sockets/{sid} && chmod 777 /sockets/{sid}",
-                    sid = config.sandbox_id
+                    sid = sandbox_uuid
                 )],
                 "securityContext": {
                     "runAsUser": 0
@@ -359,7 +360,6 @@ impl SandboxProvider for K8sProvider {
     }
 
     async fn status(&self, external_id: &str) -> anyhow::Result<SandboxStatus> {
-        // Read from PodWatcher cache — zero K8s API calls.
         Ok(self.pod_watcher.status(external_id).await)
     }
 
@@ -381,7 +381,6 @@ impl SandboxProvider for K8sProvider {
     }
 
     async fn list_active(&self) -> anyhow::Result<Vec<ProviderSandboxInfo>> {
-        // Read from PodWatcher cache — zero K8s API calls.
         Ok(self.pod_watcher.list_active().await)
     }
 
@@ -416,16 +415,13 @@ impl SandboxProvider for K8sProvider {
             }
             // In K8s mode, Envoy DaemonSet manages its own bootstrap (embedded).
             // We only reset in-memory xDS state and recover listeners from DB.
-            if let Err(e) = manager.init_xds_only().await {
-                warn!("EnvoyManager xDS init failed: {e}");
-                return Ok(());
-            }
-            if let Err(e) = manager
+            // Fail-closed: if xDS cannot reset or the live sandboxes' listeners
+            // cannot be recovered, abort startup instead of serving them without
+            // egress enforcement.
+            manager.init_xds_only().await?;
+            manager
                 .recover_from_db(pool, &self.config.llm_egress_allowed_hosts)
-                .await
-            {
-                warn!("EnvoyManager LDS recovery from DB failed: {e}");
-            }
+                .await?;
 
             // Rebuild sandbox→node mappings from PodWatcher cache so that
             // node-aware xDS filtering works immediately after restart (before
@@ -460,7 +456,7 @@ impl SandboxProvider for K8sProvider {
 
     async fn setup_networking(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         _sandbox_external_id: &str,
         networking: Option<&serde_json::Value>,
         credentials: SandboxCredentials,
@@ -471,7 +467,7 @@ impl SandboxProvider for K8sProvider {
             let pod_name = Self::pod_name(sandbox_id);
             if let Some(ref xds) = self.xds_service {
                 if let Some(node) = self.pod_watcher.node_name(&pod_name).await {
-                    xds.set_sandbox_node(sandbox_id, node);
+                    xds.set_sandbox_node(sandbox_id.as_uuid(), node);
                 }
             }
             // In K8s mode, prepare_socket_dir is handled by the pod's
@@ -487,7 +483,7 @@ impl SandboxProvider for K8sProvider {
 
     async fn refresh_networking(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         sandbox_external_id: &str,
         networking: Option<&serde_json::Value>,
         credentials: SandboxCredentials,
@@ -496,13 +492,13 @@ impl SandboxProvider for K8sProvider {
             .await
     }
 
-    async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+    async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         if let Some(ref manager) = self.envoy_manager {
             manager.teardown_for_sandbox(sandbox_id).await?;
         }
         // Remove sandbox→node mapping
         if let Some(ref xds) = self.xds_service {
-            xds.remove_sandbox_node(sandbox_id);
+            xds.remove_sandbox_node(sandbox_id.as_uuid());
         }
         Ok(())
     }

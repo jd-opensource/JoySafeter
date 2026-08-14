@@ -216,8 +216,7 @@ def extract_metadata_from_frontmatter(frontmatter: Dict[str, Any]) -> Dict[str, 
     # Parse allowed_tools from space-delimited string (per spec)
     allowed_tools = []
     if frontmatter.get("allowed-tools"):
-        # Support both "allowed-tools" (with hyphen) and "allowed_tools" (with underscore)
-        allowed_tools_str = frontmatter.get("allowed-tools") or frontmatter.get("allowed_tools", "")
+        allowed_tools_str = frontmatter.get("allowed-tools", "")
         if isinstance(allowed_tools_str, str):
             allowed_tools = [tool.strip() for tool in allowed_tools_str.split() if tool.strip()]
         elif isinstance(allowed_tools_str, list):
@@ -238,7 +237,4 @@ def extract_metadata_from_frontmatter(frontmatter: Dict[str, Any]) -> Dict[str, 
         "compatibility": frontmatter.get("compatibility"),
         "metadata": metadata,
         "allowed_tools": allowed_tools,
-        # Backward-compatible fields
-        "version": frontmatter.get("version"),
-        "author": frontmatter.get("author"),
     }

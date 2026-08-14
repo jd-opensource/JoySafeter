@@ -1,4 +1,4 @@
-# Root build context is only used by claudecode/codex runtime images.
+# Root build context is used by the Rust orchestrator and agent runtime images.
 # Keep it small so Docker does not send frontend node_modules, backend venv,
 # local Rust targets, logs, or other large development artifacts.
 *
@@ -23,14 +23,9 @@
 **/logs/
 **/*.log
 
-# Runtime images copy the prebuilt runner binary from repo-root target/.
-!target/
-!target/x86_64-unknown-linux-gnu/
-!target/x86_64-unknown-linux-gnu/release/
+# Runtime/orchestrator images copy prebuilt Rust binaries from repo-root
+# target/. Ship ONLY those binaries — never the multi-GB incremental build tree.
 !target/x86_64-unknown-linux-gnu/release/joysafeter-runner
-!target/aarch64-unknown-linux-gnu/
-!target/aarch64-unknown-linux-gnu/release/
+!target/x86_64-unknown-linux-gnu/release/joysafeter-orchestrator
 !target/aarch64-unknown-linux-gnu/release/joysafeter-runner
-!target/aarch64-unknown-linux-musl/
-!target/aarch64-unknown-linux-musl/release/
-!target/aarch64-unknown-linux-musl/release/joysafeter-runner
+!target/aarch64-unknown-linux-gnu/release/joysafeter-orchestrator

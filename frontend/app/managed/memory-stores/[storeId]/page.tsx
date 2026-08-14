@@ -30,6 +30,12 @@ import {
   type ManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
+import {
+  parseMemoryListResponse,
+  parseMemoryStoreResponse,
+  type MemoryRecord,
+} from '@/lib/managed/memory-response-parsers'
+import { parseMemoryStoreId, type MemoryId, type MemoryStoreId } from '@/types/entity-id'
 import type { MemoryStore } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -54,6 +60,7 @@ import {
   RelativeTime,
   ConfirmDialog,
   ResourceErrorState,
+  withEntityRouteGuard,
 } from '@/components/managed/shared'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
@@ -65,19 +72,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-interface Memory {
-  id: string
-  path: string
-  content: string
-  content_size_bytes: number
-  version?: number
-  memory_version_id?: string
-  metadata: Record<string, string>
-  created_at: string
-  updated_at: string
-}
-
-type MemoryListResponse = Memory[] | { data?: Memory[] }
+type Memory = MemoryRecord
 
 interface TreeNode {
   name: string
@@ -91,18 +86,13 @@ interface TreeNode {
 type ViewMode = 'view' | 'code' | 'edit'
 
 interface MemoryStoreActionVariables {
-  storeId: string
+  storeId: MemoryStoreId
   rawId: string
-  memId?: string
+  memId?: MemoryId
   runId: number
   scope: string
   scopeKey: string
   requestScope: ManagedRequestScope
-}
-
-function normalizeMemoriesResponse(response: MemoryListResponse | undefined): Memory[] {
-  if (!response) return []
-  return Array.isArray(response) ? response : response.data || []
 }
 
 // ---------------------------------------------------------------------------
@@ -436,11 +426,13 @@ function ContentPane({
 // Main page
 // ---------------------------------------------------------------------------
 
-export default function MemoryStoreDetailPage({
-  params,
-}: {
-  params: Promise<{ storeId: string }>
-}) {
+export default withEntityRouteGuard(MemoryStoreDetailPageInner, {
+  kind: 'memoryStore',
+  paramKey: 'storeId',
+  backTo: '/managed/memory-stores',
+})
+
+function MemoryStoreDetailPageInner({ params }: { params: Promise<{ storeId: string }> }) {
   const { storeId: rawId } = React.use(params)
   const { t } = useTranslation()
   const router = useRouter()
@@ -474,7 +466,7 @@ export default function MemoryStoreDetailPage({
     onConfirm: () => {},
   })
 
-  const storeId = apiResourceId(rawId || '')
+  const storeId = parseMemoryStoreId(rawId || '')
   const operationScope = `${managedScope.key}:${rawId ?? ''}`
   const actionRunRef = useRef(0)
   const operationScopeRef = useRef(operationScope)
@@ -489,10 +481,10 @@ export default function MemoryStoreDetailPage({
   } = useQuery({
     queryKey: ['memory-store', managedScope.key, rawId],
     queryFn: () =>
-      managedGet<MemoryStore>(
+      managedGet<unknown>(
         apiResourcePath('memory_stores', storeId),
         managedRequestOptions(managedScope),
-      ),
+      ).then(parseMemoryStoreResponse),
     enabled: !!rawId && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
@@ -501,17 +493,17 @@ export default function MemoryStoreDetailPage({
   const { data: memoriesRes, isLoading: memLoading } = useQuery({
     queryKey: ['memory-store-memories', managedScope.key, rawId],
     queryFn: () =>
-      managedGet<MemoryListResponse>(
+      managedGet<unknown>(
         apiResourceSubpath('memory_stores', storeId, ['memories'], {
           limit: 100,
           view: 'full',
         }),
         managedRequestOptions(managedScope),
-      ),
+      ).then(parseMemoryListResponse),
     enabled: !!rawId && hasManagedRequestScope(managedScope),
   })
 
-  const memories = normalizeMemoriesResponse(memoriesRes)
+  const memories = memoriesRes ?? []
 
   // Build file tree
   const tree = useMemo(() => buildTree(memories), [memories])
@@ -598,15 +590,11 @@ export default function MemoryStoreDetailPage({
     }
   }
 
-  const findCurrentMemory = (memId: string) =>
+  const findCurrentMemory = (memId: MemoryId) =>
     currentOperationScopeIsActive()
-      ? normalizeMemoriesResponse(
-          queryClient.getQueryData<MemoryListResponse>([
-            'memory-store-memories',
-            managedScope.key,
-            rawId,
-          ]),
-        ).find((mem) => mem.id === memId)
+      ? queryClient
+          .getQueryData<Memory[]>(['memory-store-memories', managedScope.key, rawId])
+          ?.find((mem) => mem.id === memId)
       : undefined
 
   const currentStoreIsActive = () => {
@@ -685,7 +673,7 @@ export default function MemoryStoreDetailPage({
         throw new Error('Archived project memory delete ignored')
       }
       return managedDelete(
-        apiResourcePath('memory_stores', storeId, 'memories', apiResourceId(memId!)),
+        apiResourcePath('memory_stores', storeId, 'memories', memId!),
         managedRequestOptions(requestScope),
       )
     },
@@ -767,7 +755,7 @@ export default function MemoryStoreDetailPage({
     setEditLoading(true)
     try {
       await managedPost(
-        apiResourcePath('memory_stores', storeId, 'memories', apiResourceId(memId)),
+        apiResourcePath('memory_stores', storeId, 'memories', memId),
         {
           content,
         },
@@ -778,7 +766,7 @@ export default function MemoryStoreDetailPage({
         queryKey: ['memory-store-memories', requestScope.key, rawId],
       })
       // Update the selected memory content in place
-      setSelectedMemory((prev) => (prev?.id === memId ? { ...prev, content } : prev))
+      setSelectedMemory((prev) => (prev && prev.id === memId ? { ...prev, content } : prev))
       setViewMode('view')
     } catch (error) {
       if (!isCurrentAction(runId, scope)) return

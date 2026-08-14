@@ -39,9 +39,9 @@ import {
   managedPatch,
   managedPost,
 } from '@/lib/api-client'
-import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
+import { apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
+import { shortEntityId } from '@/lib/managed/id'
 import { generateUUID } from '@/lib/utils/uuid'
 import {
   hasManagedRequestScope,
@@ -60,6 +60,23 @@ import {
   sortSessionEvents,
 } from '@/lib/managed/session-events'
 import { useSessionStream } from '@/lib/managed/sse'
+import { parseSessionId, tryParseEnvironmentId, type SessionId } from '@/types/entity-id'
+import { parseEnvironmentResponse } from '@/lib/managed/environment-response-parsers'
+import {
+  parseVaultCredentialListResponse,
+  parseVaultResponse,
+} from '@/lib/managed/vault-response-parsers'
+import { parseSkillUsageListResponse } from '@/lib/managed/skill-response-parsers'
+import { parseSessionEventListResponse } from '@/lib/managed/event-response-parsers'
+import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
+import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
+import { getSessionDisplayTitle } from '@/lib/managed/session-display'
+import {
+  parseFileListResponse,
+  parseSessionFileResourceResponse,
+  parseSessionRepoResourceResponse,
+  parseSessionResourceListResponse,
+} from '@/lib/managed/file-response-parsers'
 import type {
   Agent,
   Environment,
@@ -80,7 +97,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
-import { StatusBadge, MonoId, ResourceErrorState, PageHeader } from '@/components/managed/shared'
+import {
+  StatusBadge,
+  MonoId,
+  ResourceErrorState,
+  PageHeader,
+  withEntityRouteGuard,
+} from '@/components/managed/shared'
 import { EventList, EventDetail, EventFilter, EventTimeline } from '@/components/managed/session'
 import { RelativeTime } from '@/components/managed/shared'
 import {
@@ -175,8 +198,15 @@ const ENGINE_KIND_LABELS: Record<string, string> = {
   native: 'Native',
 }
 
-export default function SessionDetailPage({ params }: { params: Promise<{ sessionId: string }> }) {
-  const { sessionId: id } = React.use(params)
+export default withEntityRouteGuard(SessionDetailPageInner, {
+  kind: 'session',
+  paramKey: 'sessionId',
+  backTo: '/managed/sessions',
+})
+
+function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: string }> }) {
+  const { sessionId: rawSessionId } = React.use(params)
+  const id = parseSessionId(rawSessionId)
   const { t } = useTranslation()
   const router = useRouter()
   const [tab, setTab] = useState<'transcript' | 'debug'>('transcript')
@@ -203,7 +233,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   // new events auto-scroll into view; when the user scrolls up to read history,
   // we stop yanking them back down.
   const stickToBottomRef = useRef(true)
-  const { events: streamEvents, connected: sseConnected } = useSessionStream(id || '', !!id)
+  const { events: streamEvents, connected: sseConnected } = useSessionStream(id, true)
 
   const openSessionFiles = useCallback(() => {
     setActiveDrawer('files')
@@ -217,7 +247,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   } = useQuery({
     queryKey: ['session', sessionScope],
     queryFn: () =>
-      managedGet<Session>(apiResourcePath('sessions', id), managedRequestOptions(managedScope)),
+      managedGet<unknown>(
+        apiResourcePath('sessions', id),
+        managedRequestOptions(managedScope),
+      ).then(parseSessionResponse),
     enabled: !!id && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
     refetchInterval: (query) => {
@@ -232,55 +265,67 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const { data: agentDetail } = useQuery({
     queryKey: ['agent', sessionScope, agentId],
     queryFn: () =>
-      managedGet<Agent>(apiResourcePath('agents', agentId!), managedRequestOptions(managedScope)),
+      managedGet<unknown>(
+        apiResourcePath('agents', agentId!),
+        managedRequestOptions(managedScope),
+      ).then(parseAgentResponse),
     enabled: !!agentId && activeDrawer === 'agent' && hasManagedRequestScope(managedScope),
   })
 
-  const envId = session?.environment_id
+  const envId = tryParseEnvironmentId(session?.environment_id)
   const { data: envDetail } = useQuery({
     queryKey: ['environment', sessionScope, envId],
     queryFn: () =>
       managedGet<Environment>(
         apiResourcePath('environments', envId!),
         managedRequestOptions(managedScope),
-      ),
+      ).then(parseEnvironmentResponse),
     enabled: !!envId && hasManagedRequestScope(managedScope),
   })
 
-  const vaultId = session?.vault_ids?.[0]
+  const vaultId = session?.credential_group_ids?.[0]
   const { data: vaultDetail } = useQuery({
     queryKey: ['vault', sessionScope, vaultId],
     queryFn: () =>
-      managedGet<Vault>(apiResourcePath('vaults', vaultId!), managedRequestOptions(managedScope)),
+      managedGet<unknown>(
+        apiResourcePath('credential-groups', vaultId!),
+        managedRequestOptions(managedScope),
+      ).then(parseVaultResponse),
     enabled: !!vaultId && hasManagedRequestScope(managedScope),
   })
 
   const { data: vaultCredentials } = useQuery({
     queryKey: ['vault-credentials', sessionScope, vaultId],
     queryFn: () =>
-      managedGet<{ data: VaultCredential[] }>(
-        apiResourceSubpath('vaults', vaultId!, ['credentials'], { limit: 100 }),
+      managedGet<{ data: unknown[] }>(
+        apiResourceSubpath('credential-groups', vaultId!, ['members'], { limit: 100 }),
         managedRequestOptions(managedScope),
-      ),
+      ).then((response) => ({
+        ...response,
+        data: parseVaultCredentialListResponse(response.data),
+      })),
     enabled: !!vaultId && activeDrawer === 'vault' && hasManagedRequestScope(managedScope),
   })
 
   const { data: sessionResources } = useQuery({
     queryKey: ['session-resources', sessionScope],
     queryFn: () =>
-      managedGet<{ data: SessionResource[] }>(
+      managedGet<{ data: unknown[] }>(
         apiResourcePath('sessions', id, 'resources'),
         managedRequestOptions(managedScope),
-      ),
+      ).then((response) => ({
+        ...response,
+        data: parseSessionResourceListResponse(response.data),
+      })),
     enabled: !!id && hasManagedRequestScope(managedScope),
   })
   const { data: sessionSkillUsage } = useQuery({
     queryKey: ['session-skill-usage', sessionScope],
     queryFn: () =>
-      managedGet<{ data: SessionSkillUsage[] }>(
+      managedGet<unknown>(
         apiResourcePath('sessions', id, 'skill-usage'),
         managedRequestOptions(managedScope),
-      ),
+      ).then((response) => ({ data: parseSkillUsageListResponse(response) })),
     enabled: !!id && hasManagedRequestScope(managedScope),
   })
 
@@ -288,7 +333,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     queryKey: ['session-network-policy', sessionScope],
     queryFn: () =>
       managedGet<NetworkPolicyStatus | null>(
-        apiResourceSubpath('network-policies', 'sessions', [apiResourceId(id)]),
+        `/network-policies/sessions/${encodeURIComponent(id)}`,
         managedRequestOptions(managedScope),
       ),
     enabled: !!id && hasManagedRequestScope(managedScope),
@@ -357,7 +402,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       if (!currentSessionScopeIsActive(actionScope)) return
       setIsLoadingMore(true)
       try {
-        const res = await managedGet<{ data: SessionEvent[]; has_more: boolean }>(
+        const res = await managedGet<unknown[] | { data: unknown[]; has_more: boolean }>(
           apiResourceSubpath('sessions', id, ['events'], {
             limit: 100,
             after_seq: afterSeq,
@@ -365,7 +410,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
           managedRequestOptions(requestScope),
         )
         if (!currentSessionScopeIsActive(actionScope)) return
-        const newEvents = Array.isArray(res) ? res : res.data
+        const newEvents = parseSessionEventListResponse(Array.isArray(res) ? res : res.data)
         const hasMore = Array.isArray(res) ? newEvents.length >= 100 : res.has_more
         setLoadedEvents((prev) =>
           sortSessionEvents(afterSeq != null ? [...prev, ...newEvents] : newEvents),
@@ -403,12 +448,12 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const wasRunningRef = useRef(false)
 
   // Update session status from live SSE events only. Initial SSE replay can contain
-  // legacy/out-of-order status events, while the session query is DB-authoritative.
+  // out-of-order status events, while the session query is DB-authoritative.
   useEffect(() => {
     if (!sseConnected || streamEvents.length === 0) return
     const sessionUpdatedAt = session?.updated_at ? new Date(session.updated_at).getTime() : 0
     const statusEvents = streamEvents.filter((e) => {
-      const t = e.type || e.event_type || ''
+      const t = e.type
       if (!t.startsWith('session.status_')) return false
       const eventCreatedAt = e.created_at ? new Date(e.created_at).getTime() : 0
       return !sessionUpdatedAt || !eventCreatedAt || eventCreatedAt >= sessionUpdatedAt
@@ -599,7 +644,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const pendingApprovals = useMemo(() => {
     const confirmed = new Set<string>()
     for (const evt of allEvents) {
-      const t = evt.type || evt.event_type || ''
+      const t = evt.type
       if (t === 'user.tool_confirmation') {
         const cid =
           (evt as { call_id?: string; tool_use_id?: string }).call_id ||
@@ -609,7 +654,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     }
     const pending: Array<{ callId: string; tool: string; input: unknown; evt: SessionEvent }> = []
     for (const evt of allEvents) {
-      const t = evt.type || evt.event_type || ''
+      const t = evt.type
       if (t !== 'agent.tool_use') continue
       const e = evt as SessionEvent & { is_control_request?: boolean; _call_id?: string }
       if (!e.is_control_request) continue
@@ -641,7 +686,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   const availableTypes = useMemo(() => {
     const types = new Set<string>()
     for (const e of allEvents) {
-      const t = e.type || e.event_type || ''
+      const t = e.type
       if (t) types.add(t)
     }
     return Array.from(types).sort()
@@ -651,7 +696,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     let events = allEvents
 
     if (tab === 'transcript') {
-      events = events.filter((e) => TRANSCRIPT_TYPES.has(e.type || e.event_type || ''))
+      events = events.filter((e) => TRANSCRIPT_TYPES.has(e.type))
       // Hide stdio-protocol noise that the approval banner already covers:
       // - claude's --permission-prompt-tool emits an extra agent.tool_use
       //   with is_control_request:true alongside the real LLM tool_use
@@ -660,20 +705,20 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       // - user.tool_confirmation is just the protocol ack of the approval
       //   button; the banner already represents the UX.
       events = events.filter((e) => {
-        const t = e.type || e.event_type || ''
+        const t = e.type
         if (t === 'user.tool_confirmation') return false
         if (t !== 'agent.tool_use') return true
         return !(e as { is_control_request?: boolean }).is_control_request
       })
     } else {
-      events = events.filter((e) => debugFilter.has(e.type || e.event_type || ''))
+      events = events.filter((e) => debugFilter.has(e.type))
     }
 
     if (searchText) {
       const lower = searchText.toLowerCase()
       events = events.filter((e) => {
         const full = JSON.stringify(e).toLowerCase()
-        return full.includes(lower) || (e.type || e.event_type || '').includes(lower)
+        return full.includes(lower) || e.type.includes(lower)
       })
     }
 
@@ -687,9 +732,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         return ''
       }
       for (const evt of events) {
-        const t = evt.type || evt.event_type || ''
+        const t = evt.type
         const prev = step1[step1.length - 1]
-        const prevType = prev ? prev.type || prev.event_type || '' : ''
+        const prevType = prev?.type || ''
         if (t === 'agent.thinking' && prevType === t) {
           const combined = extractDbgText(prev) + extractDbgText(evt)
           step1[step1.length - 1] = { ...prev, content: [{ type: 'text', text: combined }] }
@@ -702,7 +747,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       const resultsByCallId = new Map<string, SessionEvent>()
       const seenResultCallIds = new Set<string>()
       for (const evt of step1) {
-        const t = evt.type || evt.event_type || ''
+        const t = evt.type
         const callId = evt._call_id || evt.call_id || evt.tool_use_id || ''
         if (
           (t === 'agent.tool_result' || t === 'agent.mcp_tool_result') &&
@@ -718,7 +763,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       const debugMerged: typeof events = []
       const seenUseCallIds = new Set<string>()
       for (const evt of step1) {
-        const t = evt.type || evt.event_type || ''
+        const t = evt.type
 
         // Skip tool_results -- they'll be inserted after matching tool_use
         if (t === 'agent.tool_result' || t === 'agent.mcp_tool_result') continue
@@ -775,9 +820,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     }
     let toolUseStartTime = 0
     for (const evt of events) {
-      const t = evt.type || evt.event_type || ''
+      const t = evt.type
       const prev = merged[merged.length - 1]
-      const prevType = prev ? prev.type || prev.event_type || '' : ''
+      const prevType = prev?.type || ''
 
       // Merge consecutive agent.message or agent.thinking
       if ((t === 'agent.message' || t === 'agent.thinking') && prevType === t) {
@@ -795,7 +840,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
         if (resultCallId) {
           for (let j = merged.length - 1; j >= 0; j--) {
             const candidate = merged[j]
-            const candidateType = candidate.type || candidate.event_type || ''
+            const candidateType = candidate.type
             if (!TOOL_USE_TYPES_SET.has(candidateType)) continue
             const useCallId = candidate._call_id || candidate.call_id || ''
             if (useCallId === resultCallId) {
@@ -899,14 +944,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
       if (ts > lastEventMs) lastEventMs = ts
     }
     const statusEvts = allEvents.filter((e) => {
-      const t2 = e.type || e.event_type || ''
+      const t2 = e.type
       return t2 === 'session.status_running' || t2 === 'session.status_idle'
     })
     if (statusEvts.length >= 2) {
       let total = 0
       let runningAt: number | null = null
       for (const evt of statusEvts) {
-        const t2 = evt.type || evt.event_type || ''
+        const t2 = evt.type
         const ts = evt.created_at ? new Date(evt.created_at).getTime() : null
         if (!ts) continue
         if (t2 === 'session.status_running') {
@@ -961,20 +1006,24 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
   if (session.environment_id) {
     metaItems.push({
       icon: <Globe className="h-3.5 w-3.5" />,
-      label: envDetail?.name || stripIdPrefix(session.environment_id).slice(0, 12),
+      label:
+        envDetail?.name ||
+        (envId ? shortEntityId(envId, 'environment', 12) : session.environment_id),
       tooltip: envDetail?.name || session.environment_id,
       onClick: () => setActiveDrawer('env'),
     })
   }
-  if (session.vault_ids && session.vault_ids.length > 0) {
+  if (session.credential_group_ids && session.credential_group_ids.length > 0) {
     metaItems.push({
       icon: <KeyRound className="h-3.5 w-3.5" />,
       label:
         vaultDetail?.name ||
-        (session.vault_ids.length > 1
-          ? `${session.vault_ids.length} vaults`
-          : stripIdPrefix(session.vault_ids[0]).slice(0, 12)),
-      tooltip: vaultDetail?.name || session.vault_ids[0],
+        (session.credential_group_ids.length > 1
+          ? t('managed.sessions.mcpCredentialSetCount', {
+              count: session.credential_group_ids.length,
+            })
+          : shortEntityId(session.credential_group_ids[0], 'credentialGroup', 12)),
+      tooltip: vaultDetail?.name || session.credential_group_ids[0],
       onClick: () => setActiveDrawer('vault'),
     })
   }
@@ -1033,7 +1082,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
     label: formatRelativeTime(session.created_at),
   })
 
-  const sessionDisplayName = formatSessionId(session.id)
+  const sessionDisplayName = getSessionDisplayTitle(
+    session.title,
+    t('managed.sessions.untitledSession'),
+  )
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
@@ -1081,8 +1133,12 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
           }
         />
 
+        <div className="-mt-3 mb-2 text-sm text-muted-foreground">
+          <MonoId id={session.id} truncate={false} />
+        </div>
+
         {/* Metadata bar - own line */}
-        <div className="-mt-3 mb-4 flex items-center gap-1 text-sm text-muted-foreground">
+        <div className="mb-4 flex items-center gap-1 text-sm text-muted-foreground">
           {metaItems.map((item, i) => (
             <span key={i} className="contents">
               {i > 0 && <span className="mx-1.5">&middot;</span>}
@@ -1112,7 +1168,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
             <>
               <Badge variant="outline">{networkPolicyStatus.networking_status}</Badge>
               <span className="text-muted-foreground">
-                {t('managed.sessions.networkPolicy.version', { version: networkPolicyStatus.networking_policy_version || 0 })}
+                {t('managed.sessions.networkPolicy.version', {
+                  version: networkPolicyStatus.networking_policy_version || 0,
+                })}
               </span>
               {networkPolicyStatus.networking_policy_hash ? (
                 <code className="rounded bg-background px-1.5 py-0.5 text-[11px]">
@@ -1121,17 +1179,23 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
               ) : null}
               {networkPolicyStatus.networking_ready_at ? (
                 <span className="text-muted-foreground">
-                  {t('managed.sessions.networkPolicy.readyAt')} <RelativeTime date={networkPolicyStatus.networking_ready_at} />
+                  {t('managed.sessions.networkPolicy.readyAt')}{' '}
+                  <RelativeTime date={networkPolicyStatus.networking_ready_at} />
                 </span>
               ) : null}
               {networkPolicyStatus.networking_last_error ? (
-                <span className="min-w-0 flex-1 truncate text-destructive" title={networkPolicyStatus.networking_last_error}>
+                <span
+                  className="min-w-0 flex-1 truncate text-destructive"
+                  title={networkPolicyStatus.networking_last_error}
+                >
                   {networkPolicyStatus.networking_last_error}
                 </span>
               ) : null}
             </>
           ) : (
-            <span className="text-muted-foreground">{t('managed.sessions.networkPolicy.empty')}</span>
+            <span className="text-muted-foreground">
+              {t('managed.sessions.networkPolicy.empty')}
+            </span>
           )}
         </div>
       </div>
@@ -1376,7 +1440,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ sessio
           vault={vaultDetail}
           credentials={vaultCredentials?.data || []}
           onClose={() => setActiveDrawer(null)}
-          onGoToVault={() => router.push(`/managed/vaults/${vaultDetail.id}`)}
+          onGoToVault={() => router.push(`/managed/credentials/mcp/${vaultDetail.id}`)}
         />
       )}
       {activeDrawer === 'files' && (
@@ -1437,17 +1501,16 @@ function AgentDrawer({
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
   const [versionDropdownOpen, setVersionDropdownOpen] = useState(false)
 
-  const agentId = agent?.id || session.agent?.id
-  const rawAgentId = agentId ? apiResourceId(agentId) : null
+  const agentId = agent?.id || session.agent?.id || null
 
   const { data: versionsData } = useQuery({
-    queryKey: ['agent-versions', queryScope, rawAgentId],
+    queryKey: ['agent-versions', queryScope, agentId],
     queryFn: () =>
       managedGet<{ data: AgentVersionEntry[] }>(
-        apiResourcePath('agents', rawAgentId, 'versions'),
+        apiResourcePath('agents', agentId!, 'versions'),
         managedRequestOptions(requestScope),
       ),
-    enabled: !!rawAgentId && hasManagedRequestScope(requestScope),
+    enabled: !!agentId && hasManagedRequestScope(requestScope),
   })
 
   const rawVersions = versionsData?.data || []
@@ -1578,7 +1641,7 @@ function AgentDrawer({
               </section>
 
               {/* System prompt */}
-              {(displayAgent.system || displayAgent.system_prompt) && (
+              {displayAgent.system && (
                 <section>
                   <button
                     type="button"
@@ -1592,7 +1655,7 @@ function AgentDrawer({
                   </button>
                   {promptExpanded && (
                     <pre className="max-h-[300px] overflow-x-auto overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">
-                      {displayAgent.system || displayAgent.system_prompt}
+                      {displayAgent.system}
                     </pre>
                   )}
                 </section>
@@ -2051,7 +2114,10 @@ function EnvDrawer({
               <div className="space-y-1.5">
                 {Object.entries(env.config.env_vars).map(([key, value]) => (
                   <div key={key} className="flex items-start text-sm">
-                    <code className="w-36 shrink-0 truncate font-mono text-xs text-muted-foreground" title={key}>
+                    <code
+                      className="w-36 shrink-0 truncate font-mono text-xs text-muted-foreground"
+                      title={key}
+                    >
                       {key}
                     </code>
                     <code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
@@ -2074,16 +2140,18 @@ function EnvDrawer({
             </h3>
             {env.config?.egress_services && env.config.egress_services.length > 0 ? (
               <div className="space-y-2">
-                {env.config.egress_services.map((svc: { name?: string; base_url?: string }, i: number) => (
-                  <div key={i} className="rounded border border-border/60 px-3 py-2">
-                    {svc.name && (
-                      <div className="text-sm font-medium text-foreground">{svc.name}</div>
-                    )}
-                    {svc.base_url && (
-                      <code className="text-xs text-muted-foreground">{svc.base_url}</code>
-                    )}
-                  </div>
-                ))}
+                {env.config.egress_services.map(
+                  (svc: { name?: string; base_url?: string }, i: number) => (
+                    <div key={i} className="border-border/60 rounded border px-3 py-2">
+                      {svc.name && (
+                        <div className="text-sm font-medium text-foreground">{svc.name}</div>
+                      )}
+                      {svc.base_url && (
+                        <code className="text-xs text-muted-foreground">{svc.base_url}</code>
+                      )}
+                    </div>
+                  ),
+                )}
               </div>
             ) : (
               <p className="text-sm italic text-muted-foreground">
@@ -2099,12 +2167,18 @@ function EnvDrawer({
             </h3>
             {env.config?.storage_volumes && env.config.storage_volumes.length > 0 ? (
               <div className="space-y-2">
-                {env.config.storage_volumes.map((vol: { name?: string; mount_path?: string; volume_id?: string }, i: number) => (
-                  <div key={i} className="flex items-center text-sm">
-                    <span className="w-28 shrink-0 text-muted-foreground">{vol.name || vol.volume_id || `vol-${i}`}</span>
-                    <code className="font-mono text-xs text-foreground">{vol.mount_path || '-'}</code>
-                  </div>
-                ))}
+                {env.config.storage_volumes.map(
+                  (vol: { name?: string; mount_path?: string; volume_id?: string }, i: number) => (
+                    <div key={i} className="flex items-center text-sm">
+                      <span className="w-28 shrink-0 text-muted-foreground">
+                        {vol.name || vol.volume_id || `vol-${i}`}
+                      </span>
+                      <code className="font-mono text-xs text-foreground">
+                        {vol.mount_path || '-'}
+                      </code>
+                    </div>
+                  ),
+                )}
               </div>
             ) : (
               <p className="text-sm italic text-muted-foreground">
@@ -2181,20 +2255,6 @@ function VaultDrawer({
                   <div className="font-mono text-xs text-muted-foreground">
                     {cred.mcp_server_url}
                   </div>
-                  {cred.oauth_config?.expires_at && (
-                    <div className="flex items-center text-xs text-muted-foreground">
-                      <span className="w-16 shrink-0">{t('managed.sessions.expires')}</span>
-                      <span>
-                        {new Date(cred.oauth_config.expires_at).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                    </div>
-                  )}
                   <div className="flex items-center text-xs text-muted-foreground">
                     <span className="w-16 shrink-0">ID</span>
                     <span className="font-mono">{cred.id}</span>
@@ -2237,7 +2297,7 @@ function SandboxFilesPanel({
   sessionId,
   requestScope,
 }: {
-  sessionId: string
+  sessionId: SessionId
   requestScope: ManagedRequestScope
 }) {
   const { t } = useTranslation()
@@ -2369,7 +2429,7 @@ function SandboxDirectoryTree({
   onPreview,
   onDownload,
 }: {
-  sessionId: string
+  sessionId: SessionId
   requestScope: ManagedRequestScope
   path: string
   name: string
@@ -2489,7 +2549,7 @@ function FilesDrawer({
   onClose,
   onChanged,
 }: {
-  sessionId: string
+  sessionId: SessionId
   operationScope: string
   requestScope: ManagedRequestScope
   files: SessionFileResource[]
@@ -2540,7 +2600,9 @@ function FilesDrawer({
   const filesForAddQuery = useQuery({
     queryKey: ['files-for-add', operationScope],
     queryFn: () =>
-      managedGet<{ data: FileRecord[] }>('/files?limit=100', managedRequestOptions(requestScope)),
+      managedGet<{ data: unknown[] }>('/files?limit=100', managedRequestOptions(requestScope)).then(
+        (response) => ({ ...response, data: parseFileListResponse(response.data) }),
+      ),
     enabled: pickerOpen && hasManagedRequestScope(requestScope),
     retry: false,
   })
@@ -2558,7 +2620,7 @@ function FilesDrawer({
       scope: string
     }) => {
       if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
-      return managedPost(
+      return managedPost<unknown>(
         apiResourcePath('sessions', sessionId, 'resources'),
         {
           type: 'file',
@@ -2566,7 +2628,7 @@ function FilesDrawer({
           mount_path: `/workspace/${file.filename}`,
         },
         managedRequestOptions(requestScopeRef.current),
-      )
+      ).then(parseSessionFileResourceResponse)
     },
     onSuccess: (_data, vars) => {
       if (!isCurrentMutation(vars.runId, vars.scope)) return
@@ -2789,7 +2851,7 @@ function ReposDrawer({
   onClose,
   onChanged,
 }: {
-  sessionId: string
+  sessionId: SessionId
   operationScope: string
   requestScope: ManagedRequestScope
   repos: SessionRepoResource[]
@@ -2846,20 +2908,20 @@ function ReposDrawer({
       draftVersion,
     }: {
       resourceId: string
-      sessionId: string
+      sessionId: SessionId
       token: string
       draftVersion: number
       runId: number
       scope: string
     }) => {
       if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
-      return managedPatch(
+      return managedPatch<unknown>(
         apiResourcePath('sessions', sessionId, 'resources', resourceId),
         {
           authorization_token: token,
         },
         managedRequestOptions(requestScope),
-      )
+      ).then(parseSessionRepoResourceResponse)
     },
     onSuccess: (_data, vars) => {
       if (!isCurrentMutation(vars.runId, vars.scope)) return
@@ -2997,10 +3059,6 @@ function formatRelativeTime(dateStr: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
-}
-
-function formatSessionId(id: string): string {
-  return id.startsWith('sess_') ? id : `sess_${stripIdPrefix(id)}`
 }
 
 function getDownloadFilename(response: Response, path: string, archive: boolean): string {

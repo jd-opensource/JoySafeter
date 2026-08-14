@@ -95,12 +95,16 @@ export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps)
               </MetadataRow>
               <MetadataRow label={t('analytics.calls.columns.model')}>{call.model}</MetadataRow>
               <MetadataRow label={t('analytics.calls.columns.session')}>
-                <Link
-                  href={`/managed/sessions/${call.session_id}`}
-                  className="transition-colors hover:text-foreground"
-                >
-                  <MonoId id={call.session_id} />
-                </Link>
+                {call.session_id ? (
+                  <Link
+                    href={`/managed/sessions/${call.session_id}`}
+                    className="transition-colors hover:text-foreground"
+                  >
+                    <MonoId id={call.session_id} />
+                  </Link>
+                ) : (
+                  '—'
+                )}
               </MetadataRow>
               <MetadataRow label={t('analytics.calls.columns.time')}>
                 {new Date(call.started_at).toLocaleString()}
@@ -159,14 +163,16 @@ export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps)
             )}
 
             {/* View Session */}
-            <div className="border-t border-border px-5 py-4">
-              <Link
-                href={`/managed/sessions/${call.session_id}`}
-                className="flex w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/50"
-              >
-                {t('analytics.callDetail.viewSession')}
-              </Link>
-            </div>
+            {call.session_id && (
+              <div className="border-t border-border px-5 py-4">
+                <Link
+                  href={`/managed/sessions/${call.session_id}`}
+                  className="flex w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/50"
+                >
+                  {t('analytics.callDetail.viewSession')}
+                </Link>
+              </div>
+            )}
           </div>
         )}
       </div>

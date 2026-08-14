@@ -43,7 +43,6 @@ import { managedGet, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourceId } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
-import { stripIdPrefix } from '@/lib/managed/id'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -53,10 +52,22 @@ import {
 } from '@/lib/managed/request-scope'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
+import {
+  parseSessionId,
+  type CredentialGroupId,
+  type FileId,
+  type MemoryStoreId,
+  type SessionId,
+} from '@/types/entity-id'
+import { parseAgentListResponse } from '@/lib/managed/agent-response-parsers'
+import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
+import { parseVaultListResponse } from '@/lib/managed/vault-response-parsers'
+import { parseMemoryStoreResponse } from '@/lib/managed/memory-response-parsers'
+import { parseFileListResponse } from '@/lib/managed/file-response-parsers'
 import type { Agent, Environment, Vault, FileRecord, PaginatedResponse } from '@/types/managed'
 
 interface SelectedFile {
-  file_id: string
+  file_id: FileId
   filename: string
   mount_path: string
 }
@@ -70,7 +81,7 @@ interface SelectedRepo {
 }
 
 interface MemoryStoreOption {
-  id: string
+  id: MemoryStoreId
   name: string
   description?: string
   archived_at?: string | null
@@ -79,7 +90,7 @@ interface MemoryStoreOption {
 interface CreateSessionDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreated?: (sessionId: string) => void
+  onCreated?: (sessionId: SessionId) => void
 }
 
 interface CreateSessionMutationInput {
@@ -109,14 +120,14 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const [agentSearch, setAgentSearch] = useState('')
   const [envId, setEnvId] = useState('')
   const [envSearch, setEnvSearch] = useState('')
-  const [selectedVaultIds, setSelectedVaultIds] = useState<string[]>([])
+  const [selectedVaultIds, setSelectedVaultIds] = useState<CredentialGroupId[]>([])
   const [vaultSearch, setVaultSearch] = useState('')
   const [showVaultDropdown, setShowVaultDropdown] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
   const [fileSearch, setFileSearch] = useState('')
   const [showFileDropdown, setShowFileDropdown] = useState(false)
   const [selectedRepos, setSelectedRepos] = useState<SelectedRepo[]>([])
-  const [selectedMemoryStores, setSelectedMemoryStores] = useState<string[]>([])
+  const [selectedMemoryStores, setSelectedMemoryStores] = useState<MemoryStoreId[]>([])
   const [memoryStoreSearch, setMemoryStoreSearch] = useState('')
   const [showMemoryStoreDropdown, setShowMemoryStoreDropdown] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -124,11 +135,11 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const { data: agents = [] } = useQuery({
     queryKey: ['agents-for-session', managedScope.key],
     queryFn: async () => {
-      const res = await managedGet<PaginatedResponse<Agent>>(
+      const res = await managedGet<{ data: unknown[] }>(
         '/agents',
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return parseAgentListResponse(res.data || [])
     },
     enabled: open && hasManagedRequestScope(managedScope),
   })
@@ -140,14 +151,17 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
         '/environments',
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return parseEnvironmentListResponse(res.data || [])
     },
     enabled: open && hasManagedRequestScope(managedScope),
   })
 
   const { data: vaultsRes } = useQuery({
-    queryKey: ['vaults-for-session', managedScope.key],
-    queryFn: () => managedGet<{ data: Vault[] }>('/vaults', managedRequestOptions(managedScope)),
+    queryKey: ['credential-groups-for-session', managedScope.key],
+    queryFn: () =>
+      managedGet<{ data: unknown[] }>('/credential-groups', managedRequestOptions(managedScope)).then(
+        (response) => ({ ...response, data: parseVaultListResponse(response.data) }),
+      ),
     enabled: open && hasManagedRequestScope(managedScope),
   })
   const vaults = useMemo(() => vaultsRes?.data || [], [vaultsRes])
@@ -155,7 +169,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const { data: filesResp } = useQuery({
     queryKey: ['files-for-session', managedScope.key],
     queryFn: () =>
-      managedGet<{ data: FileRecord[] }>('/files?limit=100', managedRequestOptions(managedScope)),
+      managedGet<{ data: unknown[] }>('/files?limit=100', managedRequestOptions(managedScope)).then(
+        (response) => ({ ...response, data: parseFileListResponse(response.data) }),
+      ),
     enabled: open && hasManagedRequestScope(managedScope),
   })
   const files = useMemo(() => {
@@ -166,10 +182,10 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const { data: memoryStoresResp } = useQuery({
     queryKey: ['memory-stores-for-session', managedScope.key],
     queryFn: () =>
-      managedGet<{ data: MemoryStoreOption[] }>(
+      managedGet<{ data: unknown[] }>(
         '/memory_stores?limit=100',
         managedRequestOptions(managedScope),
-      ),
+      ).then((response) => ({ ...response, data: response.data.map(parseMemoryStoreResponse) })),
     enabled: open && hasManagedRequestScope(managedScope),
   })
   const memoryStores = useMemo(() => {
@@ -191,11 +207,13 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
           return 'Codex'
         case 'native':
           return 'Native'
+        case 'pi':
+          return 'Pi'
         default:
           return k || 'Other'
       }
     }
-    const order = ['Claude Code', 'Codex', 'Native']
+    const order = ['Claude Code', 'Codex', 'Native', 'Pi']
     const q = agentSearch.trim().toLowerCase()
     const buckets = new Map<string, typeof activeAgents>()
     for (const a of activeAgents) {
@@ -258,10 +276,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const selectedAgentDefaultEnv = useMemo(() => {
     const ref = selectedAgent?.environment_ref
     if (!ref) return null
-    return (
-      activeEnvs.find((env) => env.id === ref || stripIdPrefix(env.id) === stripIdPrefix(ref)) ||
-      null
-    )
+    return activeEnvs.find((env) => env.id === ref) || null
   }, [activeEnvs, selectedAgent])
 
   const availableFiles = useMemo(
@@ -315,7 +330,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project session create ignored')
       }
-      return managedPost<{ id: string }>('/sessions', body, managedRequestOptions(scope))
+      return managedPost<{ id: string }>('/sessions', body, managedRequestOptions(scope)).then(
+        (response) => ({ ...response, id: parseSessionId(response.id) }),
+      )
     },
     onSuccess: (res, input) => {
       if (!isCurrentCreateRun(input.runId, input.scope.key)) return
@@ -382,7 +399,8 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     const currentEnvironments =
       queryClient.getQueryData<Environment[]>(['envs-for-session', scope]) ?? environments
     const currentVaults =
-      queryClient.getQueryData<{ data?: Vault[] }>(['vaults-for-session', scope])?.data ?? vaults
+      queryClient.getQueryData<{ data?: Vault[] }>(['credential-groups-for-session', scope])?.data ??
+      vaults
     const currentFiles =
       queryClient.getQueryData<{ data?: FileRecord[] }>(['files-for-session', scope])?.data ?? files
     const currentMemoryStores =
@@ -392,11 +410,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     const currentActiveEnvs = currentEnvironments.filter((environment) => !environment.archived_at)
     const currentActiveVaults = currentVaults.filter((vault) => !vault.archived_at)
     const currentActiveMemoryStores = currentMemoryStores.filter((store) => !store.archived_at)
-    const currentAgentId =
-      agentId && currentActiveAgents.some((agent) => agent.id === agentId) ? agentId : ''
+    const currentAgentId = currentActiveAgents.find((agent) => agent.id === agentId)?.id
     if (!currentAgentId) return null
-    const currentEnvId =
-      envId && currentActiveEnvs.some((environment) => environment.id === envId) ? envId : ''
+    const currentEnvId = currentActiveEnvs.find((environment) => environment.id === envId)?.id
     const currentVaultIds = new Set(currentActiveVaults.map((vault) => vault.id))
     const currentSelectedVaultIds = selectedVaultIds.filter((id) => currentVaultIds.has(id))
     const currentFileIds = new Set(currentFiles.map((file) => file.id))
@@ -411,7 +427,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     if (title.trim()) body.title = title.trim()
     if (currentEnvId) body.environment_id = apiResourceId(currentEnvId)
     if (currentSelectedVaultIds.length > 0) {
-      body.vault_ids = currentSelectedVaultIds.map(apiResourceId)
+      body.credential_group_ids = currentSelectedVaultIds.map(apiResourceId)
     }
     if (currentSelectedFiles.length > 0) {
       body.file_resources = currentSelectedFiles.map((f) => ({
@@ -422,7 +438,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     }
     if (currentSelectedMemoryStores.length > 0) {
       body.resources = currentSelectedMemoryStores.map((id) => ({
-        memory_store_id: apiResourceId(id),
+        memory_store_id: id,
         access: 'read_write',
       }))
     }
@@ -475,7 +491,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     }
   }
 
-  const toggleVault = (id: string) => {
+  const toggleVault = (id: CredentialGroupId) => {
     setSelectedVaultIds((prev) =>
       prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id],
     )
@@ -490,11 +506,11 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     setShowFileDropdown(false)
   }
 
-  const removeFile = (fileId: string) => {
+  const removeFile = (fileId: FileId) => {
     setSelectedFiles((prev) => prev.filter((f) => f.file_id !== fileId))
   }
 
-  const updateMountPath = (fileId: string, mountPath: string) => {
+  const updateMountPath = (fileId: FileId, mountPath: string) => {
     setSelectedFiles((prev) =>
       prev.map((f) => (f.file_id === fileId ? { ...f, mount_path: mountPath } : f)),
     )
@@ -677,7 +693,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
             title={t('managed.sessions.create.advancedOptions', '高级选项')}
             summary={t(
               'managed.sessions.create.advancedSummary',
-              '运行环境、凭证库、文件资源、Memory、Git',
+              '运行环境、MCP 凭据库、文件资源、Memory、Git',
             )}
           >
             {/* Environment */}
@@ -774,7 +790,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                   {t('managed.sessions.create.vaults')}
                 </FormFieldLabel>
                 <button
-                  onClick={() => router.push('/managed/vaults')}
+                  onClick={() => router.push('/managed/credentials?tab=mcp')}
                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                 >
                   {t('managed.sessions.create.manageVaults')} <ExternalLink className="h-3 w-3" />
@@ -860,7 +876,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                     )}
                     <button
                       type="button"
-                      onClick={() => router.push('/managed/vaults?create=1')}
+                      onClick={() => router.push('/managed/credentials?tab=mcp&create=vault')}
                       className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-sm text-primary hover:bg-muted/50"
                     >
                       <Plus className="h-3.5 w-3.5" />

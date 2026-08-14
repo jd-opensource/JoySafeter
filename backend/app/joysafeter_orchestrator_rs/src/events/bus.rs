@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use sqlx::PgPool;
-use tokio::sync::broadcast;
-use tracing::debug;
+use tokio::sync::{broadcast, mpsc, oneshot};
+use tracing::{debug, warn};
 
 use super::envelope::EventEnvelope;
 use super::persist::EventPersister;
@@ -20,11 +20,99 @@ use crate::runtime_config::RuntimeConfig;
 pub struct EventBus {
     /// Broadcast channel for subscribers to receive events.
     tx: broadcast::Sender<Arc<EventEnvelope>>,
-    /// Registered event sinks (exactly one active: either stream or db).
-    sinks: Vec<Arc<dyn EventSink>>,
+    /// Ordered persistence sinks (DB only, or DB mirror plus Redis Stream).
+    sinks: Vec<OrderedSink>,
     /// Keep a reference to the DB persister for spawn_flush_timer() and
     /// direct flush access.
     persister: Arc<EventPersister>,
+}
+
+enum SinkCommand {
+    Publish {
+        envelope: Arc<EventEnvelope>,
+        completion: Option<oneshot::Sender<()>>,
+    },
+    Flush {
+        completion: oneshot::Sender<()>,
+    },
+}
+
+#[derive(Clone)]
+struct OrderedSink {
+    name: String,
+    tx: mpsc::Sender<SinkCommand>,
+}
+
+impl OrderedSink {
+    fn new(sink: Arc<dyn EventSink>) -> Self {
+        let name = sink.name().to_string();
+        let (tx, mut rx) = mpsc::channel::<SinkCommand>(4096);
+        tokio::spawn(async move {
+            while let Some(command) = rx.recv().await {
+                match command {
+                    SinkCommand::Publish {
+                        envelope,
+                        completion,
+                    } => {
+                        sink.publish(&envelope).await;
+                        if envelope.flush_immediately {
+                            sink.flush().await;
+                        }
+                        if let Some(completion) = completion {
+                            let _ = completion.send(());
+                        }
+                    }
+                    SinkCommand::Flush { completion } => {
+                        sink.flush().await;
+                        let _ = completion.send(());
+                    }
+                }
+            }
+        });
+        Self { name, tx }
+    }
+
+    async fn publish(&self, envelope: Arc<EventEnvelope>, wait: bool) {
+        let (completion, receiver) = if wait {
+            let (completion, receiver) = oneshot::channel();
+            (Some(completion), Some(receiver))
+        } else {
+            (None, None)
+        };
+        if self
+            .tx
+            .send(SinkCommand::Publish {
+                envelope,
+                completion,
+            })
+            .await
+            .is_err()
+        {
+            warn!(sink = %self.name, "event sink worker stopped");
+            return;
+        }
+        if let Some(receiver) = receiver {
+            if receiver.await.is_err() {
+                warn!(sink = %self.name, "event sink completion dropped");
+            }
+        }
+    }
+
+    async fn flush(&self) {
+        let (completion, receiver) = oneshot::channel();
+        if self
+            .tx
+            .send(SinkCommand::Flush { completion })
+            .await
+            .is_err()
+        {
+            warn!(sink = %self.name, "event sink worker stopped before flush");
+            return;
+        }
+        if receiver.await.is_err() {
+            warn!(sink = %self.name, "event sink flush completion dropped");
+        }
+    }
 }
 
 impl EventBus {
@@ -44,13 +132,14 @@ impl EventBus {
             config.instance_id.clone(),
         ));
 
-        // Build persist sinks. Redis Stream + Worker remains the async fanout
-        // path when enabled, but we also keep the direct DB batch persister as
-        // a durability fallback. The session event primary key is the event_id,
-        // so worker redelivery later becomes a no-op instead of duplicating
-        // rows. This prevents a stuck/missing worker from making agent events
-        // invisible in the UI.
-        let sinks: Vec<Arc<dyn EventSink>> = if config.event_stream_enabled {
+        // Stream mode keeps an ordered direct-DB durability mirror before the
+        // Redis Stream publisher. Both paths use the same event_id, so whichever
+        // persists first wins and the other becomes an idempotent no-op. The
+        // per-sink FIFO workers below are essential: without them, the mirror's
+        // concurrent pushes reordered token chunks. Keeping the mirror lets a
+        // task-result flush persist all agent output before the atomic idle
+        // status event assigns the next canonical DB sequence number.
+        let sinks: Vec<OrderedSink> = if config.event_stream_enabled {
             let stream_publisher = Arc::new(EventStreamPublisher::new(
                 redis_client.clone(),
                 &config.event_stream_key,
@@ -58,9 +147,12 @@ impl EventBus {
                 Some(persister.clone()),
                 config.event_stream_fallback_to_db,
             ));
-            vec![stream_publisher, persister.clone()]
+            vec![
+                OrderedSink::new(persister.clone()),
+                OrderedSink::new(stream_publisher),
+            ]
         } else {
-            vec![persister.clone()]
+            vec![OrderedSink::new(persister.clone())]
         };
 
         Self {
@@ -80,11 +172,10 @@ impl EventBus {
 
         // Phase 1: Persist.
         //
-        // Ordinary events keep the previous fire-and-forget behavior so live
-        // fanout is not coupled to batch DB latency. `flush_immediately`
-        // events are different: callers use that flag for durability-sensitive
-        // boundaries (for example control/HITL requests), so persistence must
-        // complete before `publish` returns.
+        // Each sink has one FIFO worker. Ordinary events enqueue without waiting
+        // for I/O, while `flush_immediately` waits for the queued publish+flush
+        // barrier. This keeps live fanout decoupled from persistence latency
+        // without reordering events through one tokio task per event.
         // Session status events are state transitions, not ordinary log events:
         // they must be persisted by the atomic status helper or by
         // SessionStateSubscriber so the session row and replay event agree.
@@ -92,15 +183,7 @@ impl EventBus {
         // persisted upstream (`db_persisted`) are skipped as well.
         if !shared.db_persisted && !shared.is_status_change {
             for sink in &self.sinks {
-                if shared.flush_immediately {
-                    sink.publish(&shared).await;
-                } else {
-                    let sink = sink.clone();
-                    let envelope = shared.clone();
-                    tokio::spawn(async move {
-                        sink.publish(&envelope).await;
-                    });
-                }
+                sink.publish(shared.clone(), shared.flush_immediately).await;
             }
         }
 
@@ -127,5 +210,87 @@ impl EventBus {
         for sink in &self.sinks {
             sink.flush().await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use async_trait::async_trait;
+    use serde_json::json;
+    use sqlx::postgres::PgPoolOptions;
+    use tokio::sync::Mutex;
+
+    use super::*;
+    use crate::ids::SessionId;
+
+    struct DelayedRecordingSink {
+        seen: Arc<Mutex<Vec<u64>>>,
+    }
+
+    #[async_trait]
+    impl EventSink for DelayedRecordingSink {
+        fn name(&self) -> &str {
+            "delayed_recording"
+        }
+
+        async fn publish(&self, envelope: &EventEnvelope) {
+            let ordinal = envelope
+                .payload
+                .get("ordinal")
+                .and_then(|value| value.as_u64())
+                .expect("test event ordinal");
+            if ordinal == 1 {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            self.seen.lock().await.push(ordinal);
+        }
+
+        async fn flush(&self) {}
+    }
+
+    #[tokio::test]
+    async fn ordinary_sink_delivery_preserves_publish_order() {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:postgres@127.0.0.1/unused")
+            .expect("construct lazy test pool");
+        let redis_client =
+            redis::Client::open("redis://127.0.0.1:1/").expect("construct redis client");
+        let persister = Arc::new(EventPersister::new(
+            pool,
+            100,
+            60_000,
+            None,
+            redis_client,
+            "event-order-test".to_string(),
+        ));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<dyn EventSink> = Arc::new(DelayedRecordingSink { seen: seen.clone() });
+        let (tx, _) = broadcast::channel(8);
+        let event_bus = EventBus {
+            tx,
+            sinks: vec![OrderedSink::new(sink)],
+            persister,
+        };
+        let session_id = SessionId::from_uuid(uuid::Uuid::now_v7());
+
+        event_bus
+            .publish(EventEnvelope::new(
+                session_id,
+                "agent.message",
+                json!({"ordinal": 1}),
+            ))
+            .await;
+        event_bus
+            .publish(EventEnvelope::new(
+                session_id,
+                "agent.message",
+                json!({"ordinal": 2}),
+            ))
+            .await;
+
+        event_bus.flush().await;
+        assert_eq!(*seen.lock().await, vec![1, 2]);
     }
 }

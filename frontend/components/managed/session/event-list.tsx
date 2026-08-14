@@ -13,7 +13,7 @@ interface EventListProps {
 }
 
 function getEventKey(event: SessionEvent, index: number): string {
-  const type = event.type || event.event_type || 'event'
+  const type = event.type || 'event'
   const stablePart =
     event.id ||
     (event.seq != null ? `seq_${event.seq}` : '') ||

@@ -55,9 +55,7 @@ fn resolve_workspace_path(raw: &str) -> anyhow::Result<(PathBuf, PathBuf)> {
         bail!("path contains NUL byte");
     }
     let root = fs::canonicalize(workspace_root()).context("workspace root not found")?;
-    let candidate = if raw.trim().is_empty() {
-        root.clone()
-    } else if raw == WORKSPACE_ROOT {
+    let candidate = if raw.trim().is_empty() || raw == WORKSPACE_ROOT {
         root.clone()
     } else if let Some(rest) = raw.strip_prefix("/workspace/") {
         root.join(rest)
@@ -405,8 +403,11 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    static TEST_WORKSPACE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     #[tokio::test(flavor = "current_thread")]
     async fn lists_reads_and_archives_workspace_files() {
+        let _guard = TEST_WORKSPACE_LOCK.lock().await;
         let temp = tempdir().expect("temp workspace");
         std::env::set_var("JOYSAFETER_TEST_WORKSPACE_ROOT", temp.path());
         fs::write(temp.path().join("hello.txt"), b"hello artifact").expect("write file");
@@ -463,6 +464,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn rejects_workspace_escape_and_oversized_downloads() {
+        let _guard = TEST_WORKSPACE_LOCK.lock().await;
         let temp = tempdir().expect("temp workspace");
         std::env::set_var("JOYSAFETER_TEST_WORKSPACE_ROOT", temp.path());
         let outside = tempdir().expect("outside");

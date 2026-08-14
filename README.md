@@ -193,14 +193,9 @@ Claude Managed Agents, only **self-hosted and security-specialized**:
 </tr>
 </table>
 
-> How these blocks compare to the Claude Managed Agents feature set — and what's on the
-> roadmap — is tracked in [Managed-Agent Parity & Roadmap](#managed-agent-parity--roadmap).
-
 ---
 
 ## Quick Start
-
-### Docker Compose (recommended)
 
 ```bash
 cd deploy
@@ -208,73 +203,20 @@ cd deploy
 ./deploy.sh local
 ```
 
-`doctor` performs local environment checks without starting containers. `local` creates
-missing `.env` files, auto-detects the Docker daemon CPU architecture, configures
-multi-arch base images, prepares SkillSpector sources, runs database migrations, and then
-starts the full local stack.
+This is the only supported full-stack installation path. `local` selects the Docker daemon's
+`amd64` or `arm64` architecture, builds the core services and default Claude Code runtime,
+runs database migrations, and starts the complete stack.
 
 Access points:
 
 | Service | URL |
 |---------|-----|
 | Frontend | http://localhost:3000 |
-| Backend API | http://localhost:8000 |
+| API | http://localhost:8000 |
 | API Docs | http://localhost:8000/docs |
 
-The backend runs as two Python services plus the Rust orchestrator, deployed as separate
-containers:
-
-- `api` — REST `/api/v1/*`, SSE event stream, notification WebSocket, auth
-  (`JOYSAFETER_SERVICE_ROLE=api`).
-- `orchestrator-rs` — task scheduler, gRPC `AgentBridge`, and sandbox lifecycle.
-- `worker` — consumes the Redis event stream and persists events to Postgres
-  (`JOYSAFETER_SERVICE_ROLE=worker`).
-
-Supporting infrastructure: PostgreSQL, Redis, Envoy (per-sandbox egress proxy), and
-skillspector (skill security scanner). The bundled Redis service is behind the `local-redis`
-profile; for cloud Redis, leave that profile off and set `REDIS_URL` in `deploy/.env`.
-The Python orchestrator package has been removed. Use the Rust orchestrator
-profile for local and containerized orchestration.
-
-Runtime collaboration:
-
-| Actor | Responsibility |
-|-------|----------------|
-| Frontend | Product UI, REST commands, SSE subscriptions |
-| API | Auth/RBAC, CRUD, task creation, SkillSpector write-time scans, SSE replay/live bridge |
-| Rust `orchestrator-rs` | DB-authoritative scheduling, task leases, sandbox lifecycle, runner gRPC, event emission |
-| Sandbox runner | In-container Claude/Codex/native harness execution through `AgentBridge` |
-| Worker | Redis Stream consumption, event `seq` assignment, durable event persistence |
-| PostgreSQL / Redis | PostgreSQL is scheduling/state truth; Redis provides wakeups, Streams, Pub/Sub, and command relay |
-
-Primary data flow: browser command → API → PostgreSQL task row + Redis wakeup → Rust
-orchestrator claim → sandbox runner execution → Redis Stream/Pub/Sub events → Worker durable
-write + API SSE delivery → browser. Full topology, ownership, and failure routing are in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
-### Local test one-command startup
-
-```bash
-cd deploy
-./local-test.sh
-```
-
-Use this only when you want Python/Node processes running directly on the host while
-Docker provides PostgreSQL and Redis. For normal containerized local deployment, use
-`./deploy.sh local`.
-
-### Common deployment commands
-
-```bash
-cd deploy
-./deploy.sh doctor                         # preflight local Docker/Compose/env setup
-./deploy.sh local                          # full local Docker Compose deployment
-./deploy.sh local --arch arm64             # force a target platform
-./deploy.sh build                          # build core deployment images
-./deploy.sh build --all                    # build core + agent runtime images
-```
-
-> **Prerequisites:** Docker + Docker Compose. See [deploy/README.md](deploy/README.md) for deployment details.
+See [INSTALL.md](INSTALL.md) for installation, [deploy/README.md](deploy/README.md) for builds and
+deployment, and [DEVELOPMENT.md](DEVELOPMENT.md) for host-based development.
 
 ---
 
@@ -345,82 +287,17 @@ flowchart LR
 
 ---
 
-## What's New
-
-> Full history: [CHANGELOG.md](CHANGELOG.md)
-
-| Tag | Feature | What it means |
-|-----|---------|---------------|
-| **NEW** | **Split Runtime Architecture** | The monolith was split into Python `api` / `worker` services and the Rust `orchestrator-rs`, deployed as separate containers |
-| **NEW** | **Redis-Backed Event Bus** | A two-phase bus fans out to Redis Streams (durable, Worker-consumed) and Redis Pub/Sub (live SSE), replacing the old in-process WebSocket bus |
-| **NEW** | **SSE Live Event Stream** | The browser subscribes to `GET /api/v1/sessions/{id}/events/stream` with `?after_seq` replay; WebSocket is reserved for notifications |
-| **NEW** | **Sandboxed gRPC Execution** | A Rust `sandbox-runner` runs the harness inside a per-session container and speaks the gRPC `AgentBridge` protocol back to the orchestrator |
-| **NEW** | **Pluggable Engines** | `claude` (Claude Code CLI), `codex` (Codex app-server), and `native` (self-developed `ccb`), selected per agent |
-| **NEW** | **Pluggable Sandboxes** | Docker (default, hardened), E2B, and Daytona providers behind one SPI |
-| **NEW** | **AI Skill Authoring** | LLM-assisted skill drafting, a code editor, and version diffs in the workspace UI |
-| **NEW** | **Secrets & Vaults** | AES-256-GCM encrypted provider API keys (Secrets) and MCP credentials (Vaults), injected into the sandbox at run time |
-| **NEW** | **Skill Security Scanning** | SkillSpector scans skill content; runtime blocks unapproved, unscanned, failed, blocked, scanning, or drifted skills before use |
-| **NEW** | **Per-Sandbox Egress Control** | Envoy proxy enforces a deny-all-by-default domain allowlist per sandbox |
-| **NEW** | **Full-Chain trace_id Propagation** | End-to-end request tracing via OpenTelemetry for complete observability |
-
----
-
-## Managed-Agent Parity & Roadmap
-
-JoySafeter implements the same **managed-agent operating model** that Anthropic describes for
-[Claude Managed Agents](https://claude.com/blog/claude-managed-agents) — you declare an agent's
-tools, skills, and guardrails, and the platform runs it on a managed harness with sandboxed
-execution, sessions, scoped permissions, and full observability. The difference: JoySafeter is
-**open-source, self-hostable, engine-agnostic** (Claude Code / Codex / native `ccb`), and
-**specialized for security work**. This table maps the model concept-for-concept against what
-JoySafeter ships today.
-
-**Legend:** ✅ shipped · 🟡 partial · ⬜ planned (see roadmap)
-
-| Managed-agent capability | JoySafeter | How we do it |
-|---|:---:|---|
-| Managed agent harness / orchestration | ✅ | Orchestrator + gRPC `AgentBridge` + in-sandbox Rust `sandbox-runner` harness |
-| Sandboxed execution | ✅ | Per-session hardened containers; Docker (default) / E2B / Daytona behind one SPI |
-| Tools, custom tools & MCP | ✅ | Per-agent builtin tools, custom tools, and `mcp_configs`, delivered to the sandbox over gRPC |
-| Scoped permissions / guardrails | ✅ | Per-tool policy (`always_ask` / `always_allow`) with human-in-the-loop confirmation |
-| Credential management | ✅ | Secrets (provider keys) + Vaults (MCP creds), AES-256-GCM encrypted, injected as sandbox env |
-| Sessions & resumable work | ✅ | `JoySafeterSession` + append-only event log; harness session/work-dir resume on reconnect |
-| Memory stores | ✅ | Versioned, agent-writable memory stores with bi-directional sandbox sync |
-| Observability / session tracing | ✅ | OTel traces + `observations`, plus a live SSE event stream of every tool call & decision |
-| Deployment CLI + console | ✅ | `joysafeterctl` (declarative REST CLI) + the web workspace |
-| Scheduled & event triggers | ✅ | Cron / one-off `run_at` / inbound signed-webhook triggers auto-run an agent; retry/backoff, dead-letter auto-disable, per-fire session modes |
-| Multi-agent orchestration (lead → specialists) | 🟡 | Harness-driven sub-agents today, surfaced via `TaskNotification` events; first-class lead/specialist orchestration is on the roadmap |
-| Durable checkpointing | 🟡 | Session-level resume today; step-level durable checkpoints are planned |
-| Outcomes (rubric + grader self-correct loop) | ⬜ | Planned |
-| Dreaming (scheduled memory consolidation / self-improvement) | ⬜ | Planned |
-| Webhooks (notify on task/outcome completion) | ⬜ | Planned |
-
-### Roadmap / TODO
-
-Combining our current capabilities with the managed-agent frontier, the next work items are:
-
-- [ ] **Outcomes** — let a user define a rubric; an independent grader evaluates each result in its own context and the agent self-corrects until the criteria are met (no per-attempt human review).
-- [ ] **First-class multi-agent orchestration** — a lead agent that delegates to specialist sub-agents, each with its own model / prompt / tools, running in parallel on a shared session workspace, with full per-sub-agent tracing (today sub-agents are spawned by the harness and only observed via `agent.bg_task_*` events).
-- [ ] **Dreaming** — a scheduled job that reviews past sessions + memory stores, extracts recurring patterns and mistakes, and curates memory (opt-in auto-update or review-first).
-- [ ] **Webhooks** — notify external systems (or trigger follow-on agents) when a task or outcome completes.
-- [ ] **Durable step-level checkpointing** — resume a long-running task mid-flight beyond the current session/work-dir reattach.
-- [ ] **Session-hour metering & cost analytics** — per-session runtime + token/cost accounting surfaced in the console.
-
-> Have a use case that needs one of these sooner? Open an issue — the roadmap is community-driven.
-
----
-
 ## Documentation
 
 ### Getting Started
-- [INSTALL.md](INSTALL.md) — Installation guide (Docker / manual / pre-built images)
+- [INSTALL.md](INSTALL.md) — Unified installation entry point
 - [DEVELOPMENT.md](DEVELOPMENT.md) — Local development setup
-- [deploy/README.md](deploy/README.md) — Docker deployment
+- [deploy/README.md](deploy/README.md) — Builds, image publishing, and deployment
 
 ### Deep Dive
 - [docs/README.md](docs/README.md) — Documentation map
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Architecture overview
-- [docs/DOCUMENTATION_STATUS.md](docs/DOCUMENTATION_STATUS.md) — Current documentation review status
+- [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) — Pre-release production gates
 - [backend/README.md](backend/README.md) — Backend guide
 - [frontend/README.md](frontend/README.md) — Frontend guide
 

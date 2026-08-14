@@ -11,7 +11,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser as User
-from app.joysafeter_domain.services.joysafeter_auth_service import AuthSessionService
 from app.joysafeter_shared.common.app_errors import AuthenticationError
 from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
 from app.joysafeter_shared.database import get_db
@@ -26,11 +25,7 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """
-    Get the current user (login required).
-    Support two authentication methods:
-    1. JWT token (preferred): decode JWT token to obtain user ID
-    2. Session token (backward-compatible): verify via auth.session table
-    Also support token delivery via Cookie (prefer the configured cookie_name)
+    Get the current user from an access JWT delivered by Bearer header or cookie.
     """
     cookie_token = None
     try:
@@ -42,31 +37,17 @@ async def get_current_user(
     if not token:
         raise AuthenticationError("Missing credentials", code="MISSING_CREDENTIALS")
 
-    # try JWT token first (JWT mode)
     payload = decode_token(token)
-    if payload:
-        user_id = payload.sub
-        result = await db.execute(select(User).where(User.id == str(user_id)))
-        user = result.scalar_one_or_none()
-        if user is None:
-            raise AuthenticationError("User not found", code="USER_NOT_FOUND")
-        if not user.is_active:
-            raise AuthenticationError("User is inactive", code="USER_INACTIVE")
-        return user
+    if not payload or payload.type != "access":
+        raise AuthenticationError("Could not validate credentials", code="INVALID_CREDENTIALS")
 
-    # if JWT validation fails, try as session token (backward-compatible)
-    session_service = AuthSessionService(db)
-    session = await session_service.get_session_by_token(token)
-    if session:
-        result = await db.execute(select(User).where(User.id == session.user_id))
-        user = result.scalar_one_or_none()
-        if user is None:
-            raise AuthenticationError("User not found", code="USER_NOT_FOUND")
-        if not user.is_active:
-            raise AuthenticationError("User is inactive", code="USER_INACTIVE")
-        return user
-
-    raise AuthenticationError("Could not validate credentials", code="INVALID_CREDENTIALS")
+    result = await db.execute(select(User).where(User.id == str(payload.sub)))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise AuthenticationError("User not found", code="USER_NOT_FOUND")
+    if not user.is_active:
+        raise AuthenticationError("User is inactive", code="USER_INACTIVE")
+    return user
 
 
 async def get_current_user_optional(
@@ -85,27 +66,13 @@ async def get_current_user_optional(
     if not token:
         return None
 
-    # prefer JWT token
     payload = decode_token(token)
-    if payload:
-        user_id = payload.sub
-        result = await db.execute(select(User).where(User.id == str(user_id)))
-        user = result.scalar_one_or_none()
-        if user and user.is_active:
-            return user
+    if not payload or payload.type != "access":
         return None
 
-    # fall back to session token
-    session_service = AuthSessionService(db)
-    session = await session_service.get_session_by_token(token)
-    if session:
-        result = await db.execute(select(User).where(User.id == session.user_id))
-        user = result.scalar_one_or_none()
-        if user and user.is_active:
-            return user
-        return None
-
-    return None
+    result = await db.execute(select(User).where(User.id == str(payload.sub)))
+    user = result.scalar_one_or_none()
+    return user if user and user.is_active else None
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]

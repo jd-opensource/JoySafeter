@@ -224,8 +224,8 @@ export default function TriggerListPage() {
     if (trig.type === 'webhook') {
       return (
         <span className="text-sm text-muted-foreground">
-          {trig.secret_ref
-            ? t('managed.triggers.signedVia', { secret: trig.secret_ref })
+          {trig.webhook_auth_credential_id
+            ? t('managed.triggers.signedVia', { secret: trig.webhook_auth_credential_id })
             : t('managed.triggers.unsigned')}
         </span>
       )

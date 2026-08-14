@@ -1,27 +1,28 @@
 """JoySafeterSessionFile model - links files to sessions for mounting."""
 
-import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.ids import EntityIdType, FileId, SessionId, SessionResourceId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
 class JoySafeterSessionFile(Base):
     __tablename__ = "joysafeter_session_files"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[SessionResourceId] = mapped_column(
+        EntityIdType(SessionResourceId), primary_key=True, default=SessionResourceId.new
+    )
+    session_id: Mapped[SessionId] = mapped_column(
+        EntityIdType(SessionId),
         ForeignKey("joysafeter_sessions.id", ondelete="CASCADE"),
         nullable=False,
     )
-    file_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    file_id: Mapped[FileId] = mapped_column(
+        EntityIdType(FileId),
         ForeignKey("joysafeter_files.id", ondelete="CASCADE"),
         nullable=False,
     )

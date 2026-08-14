@@ -1,16 +1,4 @@
-"""
-JoySafeter session services.
-
-Merged from session_event_realtime.py, joysafeter_session_lifecycle.py, and
-session_service.py (v1 cleanup consolidation):
-  - build_session_event_payload / publish_session_event_realtime — SSE helpers
-  - JoySafeterSessionLifecycleService — session state transitions
-  - SessionService — session CRUD + event ingestion
-
-Note: ``_RETRYABLE_DB_ERROR_MARKERS`` / ``_is_retryable_db_error`` were defined
-identically in two of the source modules; the SessionService copy (last section)
-is the one that wins.
-"""
+"""Session lifecycle, persistence, and realtime event services."""
 
 from __future__ import annotations
 
@@ -22,28 +10,33 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.config.service_role import current_role
 from app.joysafeter_shared.config.settings import joysafeter_config
-from app.joysafeter_shared.utils.id_utils import parse_event_id, same_id
+from app.joysafeter_shared.ids import AgentId, CredentialGroupId, EventId, SandboxId, SessionId, TaskId, as_uuid
 
 logger = logging.getLogger(__name__)
 
 
+class SessionEventBatchItem(TypedDict):
+    session_id: SessionId | uuid.UUID
+    event_type: str
+    payload: dict[str, Any]
+
+
 def build_session_event_payload(
     *,
-    event_id: uuid.UUID | str | None,
+    event_id: EventId | None,
     event_type: str,
     seq: int | None,
     payload: dict[str, Any] | None,
 ) -> dict[str, Any]:
     event: dict[str, Any] = {"type": event_type}
     if event_id:
-        raw_id = str(event_id)
-        event["id"] = raw_id if raw_id.startswith("evt_") else f"evt_{raw_id}"
+        event["id"] = str(event_id)
     if seq:
         event["seq"] = seq
     if isinstance(payload, dict):
@@ -53,8 +46,8 @@ def build_session_event_payload(
 
 async def publish_session_event_realtime(
     *,
-    session_id: uuid.UUID,
-    event_id: uuid.UUID | str | None,
+    session_id: SessionId,
+    event_id: EventId | None,
     event_type: str,
     seq: int | None,
     payload: dict[str, Any] | None,
@@ -77,7 +70,7 @@ async def publish_session_event_realtime(
         ensure_ascii=False,
         default=str,
     )
-    channel = f"joysafeter:session_events:{session_id}"
+    channel = f"joysafeter:session_events:{as_uuid(session_id)}"
     try:
         await redis.publish(channel, wrapper)
     except Exception as exc:
@@ -113,13 +106,14 @@ from typing import Optional
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_domain.models.joysafeter_credential import JoySafeterSessionCredentialGroup
 from app.joysafeter_domain.models.joysafeter_session import (
     JoySafeterSession,
     JoySafeterSessionEvent,
     SessionStatus,
 )
 from app.joysafeter_shared.common.app_errors import ConflictError, NotFoundError, ResourceConflictError
-from app.joysafeter_shared.utils.datetime import utc_now
+from app.joysafeter_shared.utils.datetime import platform_now, utc_now
 from app.joysafeter_shared.utils.locks import session_advisory_lock_key
 
 _VALID_TRANSITIONS: dict[str, set[str]] = {
@@ -152,7 +146,7 @@ class JoySafeterSessionLifecycleService:
 
     async def transition_and_emit(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         status: str,
         event_type: str,
         payload: dict,
@@ -177,7 +171,7 @@ class JoySafeterSessionLifecycleService:
 
     async def _transition_and_emit_once(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         status: str,
         event_type: str,
         payload: dict,
@@ -240,7 +234,7 @@ class JoySafeterSessionLifecycleService:
         )
         return True
 
-    async def _lock_event_sequence(self, session_id: uuid.UUID) -> None:
+    async def _lock_event_sequence(self, session_id: SessionId) -> None:
         lock_key = session_advisory_lock_key(session_id)
         await self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
@@ -298,23 +292,38 @@ class SessionService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    @staticmethod
+    def build_session_title(title: Optional[str], agent_name: Optional[str]) -> str:
+        requested_title = (title or "").strip()
+        if requested_title:
+            return requested_title
+        display_agent_name = (agent_name or "").strip() or "Session"
+        return f"{display_agent_name} · {platform_now().strftime('%m-%d %H:%M')}"
+
     async def create_session(
         self,
-        agent_id: uuid.UUID,
+        agent_id: AgentId,
         title: Optional[str] = None,
         metadata: Optional[dict] = None,
-        vault_ids: Optional[list[str]] = None,
+        credential_group_ids: Optional[list[CredentialGroupId]] = None,
         environment_ref: Optional[str] = None,
         agent_version: Optional[int] = None,
         agent_snapshot: Optional[dict] = None,
         project_id: Optional[str] = None,
+        agent_name: Optional[str] = None,
     ) -> JoySafeterSession:
+        # Dedupe preserving order; the association table's composite PK would also
+        # reject dupes, but we normalize up front so the bind validation and the
+        # persisted set match exactly.
+        group_ids = list(dict.fromkeys(credential_group_ids or []))
+        if group_ids:
+            await self._validate_credential_groups(group_ids, project_id)
+
         kwargs = dict(
             agent_id=agent_id,
-            title=title,
+            title=self.build_session_title(title, agent_name),
             status=SessionStatus.IDLE.value,
             metadata_=metadata or {},
-            vault_ids=vault_ids or [],
             environment_ref=environment_ref,
             agent_version=agent_version,
             agent_snapshot=agent_snapshot,
@@ -323,13 +332,85 @@ class SessionService:
             kwargs["project_id"] = project_id
         session = JoySafeterSession(**kwargs)
         self.db.add(session)
+        # Flush to allocate the session id before writing the association rows.
+        await self.db.flush()
+        for group_id in group_ids:
+            self.db.add(
+                JoySafeterSessionCredentialGroup(
+                    session_id=session.id,
+                    credential_group_id=group_id,
+                )
+            )
         await self.db.commit()
         await self.db.refresh(session)
         return session
 
+    async def _validate_credential_groups(
+        self,
+        group_ids: list[CredentialGroupId],
+        project_id: Optional[str],
+    ) -> None:
+        """Validate a session's credential-group binding before persisting it.
+
+        Each group must exist in this project and not be archived; and — because
+        the runtime resolves mcp credentials by normalized url into a single map —
+        the same normalized url must not appear in two of the bound groups
+        (delegated to ``CredentialGroupService.check_url_conflict_for_session``,
+        which raises ``CREDENTIAL_GROUP_URL_CONFLICT``).
+        """
+        from app.joysafeter_domain.services.joysafeter_credential_group_service import (
+            CredentialGroupService,
+        )
+
+        grp_svc = CredentialGroupService(self.db)
+        await grp_svc.lock_groups(group_ids, project_id=project_id)
+        for group_id in group_ids:
+            group = await grp_svc.get(group_id, project_id=project_id or "")
+            if group is None:
+                raise NotFoundError(
+                    code="SESSION_CREDENTIAL_GROUP_NOT_FOUND",
+                    message=f"Credential group not found: {group_id}",
+                    data={"credential_group_id": str(group_id)},
+                    user_action="refresh",
+                )
+            if group.archived_at is not None:
+                raise ResourceConflictError(
+                    code="SESSION_CREDENTIAL_GROUP_ARCHIVED",
+                    message=f"Credential group is archived: {group_id}",
+                    data={"credential_group_id": str(group_id)},
+                    user_action="refresh",
+                )
+        await grp_svc.check_url_conflict_for_session(group_ids, project_id or "")
+
+    async def get_credential_group_ids(self, session_id: SessionId) -> list[CredentialGroupId]:
+        result = await self.db.execute(
+            select(JoySafeterSessionCredentialGroup.credential_group_id).where(
+                JoySafeterSessionCredentialGroup.session_id == session_id
+            )
+        )
+        return list(result.scalars().all())
+
+    async def credential_group_ids_map(
+        self, session_ids: list[SessionId]
+    ) -> dict[SessionId, list[CredentialGroupId]]:
+        """Batch-load bound credential-group ids for a set of sessions (list view)."""
+        if not session_ids:
+            return {}
+        result = await self.db.execute(
+            select(
+                JoySafeterSessionCredentialGroup.session_id,
+                JoySafeterSessionCredentialGroup.credential_group_id,
+            ).where(JoySafeterSessionCredentialGroup.session_id.in_(session_ids))
+        )
+        out: dict[SessionId, list[CredentialGroupId]] = {}
+        for session_id, group_id in result.all():
+            out.setdefault(session_id, []).append(group_id)
+        return out
+
+
     async def get_session(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterSession]:
         conditions = [JoySafeterSession.id == session_id]
@@ -341,7 +422,7 @@ class SessionService:
     async def list_sessions(
         self,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
+        after_id: Optional[SessionId] = None,
         project_id: Optional[str] = None,
         include_archived: bool = False,
     ) -> tuple[list[JoySafeterSession], bool]:
@@ -358,9 +439,9 @@ class SessionService:
 
     async def list_sessions_by_agent(
         self,
-        agent_id: uuid.UUID,
+        agent_id: AgentId,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
+        after_id: Optional[SessionId] = None,
         project_id: Optional[str] = None,
         include_archived: bool = False,
     ) -> tuple[list[JoySafeterSession], bool]:
@@ -375,7 +456,7 @@ class SessionService:
         has_more = len(sessions) > limit
         return sessions[:limit], has_more
 
-    async def delete_session(self, session_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+    async def delete_session(self, session_id: SessionId, project_id: Optional[str] = None) -> bool:
         session = await self.get_session(session_id, project_id=project_id)
         if not session:
             return False
@@ -408,7 +489,7 @@ class SessionService:
         await self.db.commit()
         return True
 
-    async def archive_session(self, session_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+    async def archive_session(self, session_id: SessionId, project_id: Optional[str] = None) -> bool:
         session = await self.get_session(session_id, project_id=project_id)
         if not session:
             return False
@@ -445,7 +526,7 @@ class SessionService:
 
     async def update_session_status(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         status: str,
         stop_reason: Optional[dict] = None,
         project_id: Optional[str] = None,
@@ -507,9 +588,9 @@ class SessionService:
 
     async def update_session_status_for_task_event(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         status: str,
-        task_id: uuid.UUID,
+        task_id: TaskId,
         stop_reason: Optional[dict] = None,
     ) -> bool:
         """Accept and apply a task-scoped session status transition.
@@ -540,7 +621,7 @@ class SessionService:
 
         task_result = await self.db.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))
         task = task_result.scalar_one_or_none()
-        if not task or not same_id(task.chat_session_id, session_id):
+        if not task or task.chat_session_id != session_id:
             return False
 
         terminal_values = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
@@ -586,8 +667,8 @@ class SessionService:
 
     async def update_session_sandbox(
         self,
-        session_id: uuid.UUID,
-        sandbox_id: uuid.UUID,
+        session_id: SessionId,
+        sandbox_id: SandboxId,
         harness_session_id: Optional[str] = None,
         work_dir: Optional[str] = None,
     ) -> bool:
@@ -603,7 +684,7 @@ class SessionService:
         await self.db.commit()
         return True
 
-    async def accumulate_usage(self, session_id: uuid.UUID, task_usage: dict) -> bool:
+    async def accumulate_usage(self, session_id: SessionId, task_usage: dict) -> bool:
         result = await self.db.execute(
             select(JoySafeterSession).where(JoySafeterSession.id == session_id).with_for_update()
         )
@@ -642,7 +723,7 @@ class SessionService:
 
     async def send_event(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         event_type: str,
         payload: dict,
     ) -> JoySafeterSessionEvent:
@@ -659,7 +740,7 @@ class SessionService:
 
     async def _send_event_once(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         event_type: str,
         payload: dict,
     ) -> JoySafeterSessionEvent:
@@ -703,7 +784,7 @@ class SessionService:
 
     async def list_events(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         limit: int = 50,
         after_seq: Optional[int] = None,
         project_id: Optional[str] = None,
@@ -728,7 +809,7 @@ class SessionService:
 
     async def find_user_message_event_by_idempotency_key(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         idempotency_key: str,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterSessionEvent]:
@@ -757,8 +838,8 @@ class SessionService:
 
     async def find_status_running_event_for_task(
         self,
-        session_id: uuid.UUID,
-        task_id: uuid.UUID,
+        session_id: SessionId,
+        task_id: TaskId,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterSessionEvent]:
         conditions: list[Any] = [
@@ -784,13 +865,13 @@ class SessionService:
         )
         return result.scalar_one_or_none()
 
-    async def resolve_control_tool_use_call_id(self, session_id: uuid.UUID, raw_tool_use_id: str) -> str:
+    async def resolve_control_tool_use_call_id(self, session_id: SessionId, raw_tool_use_id: str) -> str:
         raw_tool_use_id = str(raw_tool_use_id or "").strip()
         if not raw_tool_use_id:
             return raw_tool_use_id
 
         try:
-            event_id = parse_event_id(raw_tool_use_id)
+            event_id = EventId.from_public(raw_tool_use_id)
         except (TypeError, ValueError):
             return raw_tool_use_id
 
@@ -815,7 +896,7 @@ class SessionService:
                 return value
         return raw_tool_use_id
 
-    async def task_has_agent_output(self, task_id: uuid.UUID, session_id: uuid.UUID) -> bool:
+    async def task_has_agent_output(self, task_id: TaskId, session_id: SessionId) -> bool:
         """Check if a task has emitted agent.message events (produced output)."""
         from sqlalchemy import text as sa_text
 
@@ -833,14 +914,14 @@ class SessionService:
                 "  )"
                 ")"
             ),
-            {"sid": session_id, "tid": str(task_id)},
+            {"sid": as_uuid(session_id), "tid": str(task_id)},
         )
         return result.scalar() or False
 
     async def repair_missing_agent_message(
         self,
-        session_id: uuid.UUID,
-        task_id: uuid.UUID,
+        session_id: SessionId,
+        task_id: TaskId,
         output: Optional[str],
     ) -> bool:
         """Emit a synthetic agent.message from a task's final output iff none exists.
@@ -860,7 +941,7 @@ class SessionService:
         await self.send_event(session_id, "agent.message", {"content": [{"type": "text", "text": output}]})
         return True
 
-    async def _lock_event_sequence(self, session_id: uuid.UUID) -> None:
+    async def _lock_event_sequence(self, session_id: SessionId) -> None:
         # Keep seq allocation serialized with the worker batch writer, which
         # uses the same per-session transaction advisory lock.  Mixing row locks
         # and advisory locks for the same event stream can deadlock under
@@ -868,7 +949,7 @@ class SessionService:
         lock_key = session_advisory_lock_key(session_id)
         await self.db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
-    async def _next_seq_locked(self, session_id: uuid.UUID) -> int:
+    async def _next_seq_locked(self, session_id: SessionId) -> int:
         result = await self.db.execute(
             select(func.coalesce(func.max(JoySafeterSessionEvent.seq), 0)).where(
                 JoySafeterSessionEvent.session_id == session_id
@@ -878,7 +959,7 @@ class SessionService:
 
     async def attach_memory_stores(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         resources: list[dict],
         project_id: Optional[str] = None,
     ) -> list:
@@ -988,7 +1069,7 @@ class SessionService:
                 await self.db.refresh(row)
         return created
 
-    async def list_session_memory_stores(self, session_id: uuid.UUID) -> list:
+    async def list_session_memory_stores(self, session_id: SessionId) -> list:
         from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemoryStore
 
         result = await self.db.execute(
@@ -996,7 +1077,7 @@ class SessionService:
         )
         return list(result.scalars().all())
 
-    async def mark_event_processed(self, event_id: uuid.UUID) -> None:
+    async def mark_event_processed(self, event_id: EventId) -> None:
         await self.db.execute(
             update(JoySafeterSessionEvent)
             .where(JoySafeterSessionEvent.id == event_id)
@@ -1005,7 +1086,7 @@ class SessionService:
         await self.db.commit()
 
     async def list_unprocessed_events(
-        self, session_id: uuid.UUID, event_types: list[str], limit: int = 100
+        self, session_id: SessionId, event_types: list[str], limit: int = 100
     ) -> list[JoySafeterSessionEvent]:
         q = (
             select(JoySafeterSessionEvent)
@@ -1022,14 +1103,19 @@ class SessionService:
         result = await self.db.execute(q)
         return list(result.scalars().all())
 
-    async def batch_insert_session_events(self, events: list[dict]) -> list:
+    async def batch_insert_session_events(self, events: list[SessionEventBatchItem]) -> list:
         if not events:
             return []
 
         # Group events by session_id
-        groups: dict[uuid.UUID, list[dict]] = defaultdict(list)
+        groups: dict[SessionId, list[SessionEventBatchItem]] = defaultdict(list)
         for ev in events:
-            groups[ev["session_id"]].append(ev)
+            session_id = ev["session_id"]
+            if isinstance(session_id, uuid.UUID):
+                session_id = SessionId.from_uuid(session_id)
+            if not isinstance(session_id, SessionId):
+                raise TypeError("session_id must be a SessionId or UUID")
+            groups[session_id].append(ev)
 
         created = []
         for session_id in sorted(groups.keys()):
@@ -1063,7 +1149,7 @@ class SessionService:
             )
         return created
 
-    async def _max_seq_locked(self, session_id: uuid.UUID) -> int:
+    async def _max_seq_locked(self, session_id: SessionId) -> int:
         result = await self.db.execute(
             select(func.coalesce(func.max(JoySafeterSessionEvent.seq), 0)).where(
                 JoySafeterSessionEvent.session_id == session_id
@@ -1073,7 +1159,7 @@ class SessionService:
 
     async def list_session_events_filtered(
         self,
-        session_id: uuid.UUID,
+        session_id: SessionId,
         after_seq: Optional[int],
         limit: int,
         event_types: list[str],
@@ -1087,7 +1173,7 @@ class SessionService:
         result = await self.db.execute(q)
         return list(result.scalars().all())
 
-    async def list_all_memories_for_session(self, session_id: uuid.UUID) -> list[dict]:
+    async def list_all_memories_for_session(self, session_id: SessionId) -> list[dict]:
         from app.joysafeter_domain.models.joysafeter_memory import (
             JoySafeterMemory,
             JoySafeterSessionMemoryStore,

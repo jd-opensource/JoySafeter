@@ -83,7 +83,7 @@ async def test_org_owner_lists_project_skill_without_project_membership(db_sessi
     await db_session.commit()
 
     svc = SkillService(db_session, active_org_id=org.id, caller_org_role=JoySafeterRole.OWNER)
-    skills, _ = await svc.list_skills(current_user_id=owner.id, org_id=org.id, limit=50)
+    skills, _ = await svc.list_skills(current_user_id=owner.id, limit=50)
     assert skill_id in {s.id for s in skills}
 
 
@@ -99,7 +99,7 @@ async def test_org_admin_lists_project_skill_without_project_membership(db_sessi
     await db_session.commit()
 
     svc = SkillService(db_session, active_org_id=org.id, caller_org_role=JoySafeterRole.ADMIN)
-    skills, _ = await svc.list_skills(current_user_id=admin.id, org_id=org.id, limit=50)
+    skills, _ = await svc.list_skills(current_user_id=admin.id, limit=50)
     assert skill_id in {s.id for s in skills}
 
 
@@ -117,7 +117,7 @@ async def test_plain_org_member_does_not_list_foreign_project_skill(db_session):
     await db_session.commit()
 
     svc = SkillService(db_session, active_org_id=org.id, caller_org_role=JoySafeterRole.MEMBER)
-    skills, _ = await svc.list_skills(current_user_id=member.id, org_id=org.id, limit=50)
+    skills, _ = await svc.list_skills(current_user_id=member.id, limit=50)
     assert skill_id not in {s.id for s in skills}
 
 
@@ -137,5 +137,5 @@ async def test_org_owner_does_not_list_other_org_project_skill(db_session):
     await db_session.commit()
 
     svc = SkillService(db_session, active_org_id=org_a.id, caller_org_role=JoySafeterRole.OWNER)
-    skills, _ = await svc.list_skills(current_user_id=owner.id, org_id=org_a.id, limit=50)
+    skills, _ = await svc.list_skills(current_user_id=owner.id, limit=50)
     assert skill_id not in {s.id for s in skills}

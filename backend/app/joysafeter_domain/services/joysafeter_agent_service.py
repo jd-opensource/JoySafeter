@@ -4,7 +4,6 @@ AgentService — manages Agent lifecycle (v2 JoySafeterAgent).
 
 from __future__ import annotations
 
-import uuid
 from typing import Any, Optional, cast
 
 from sqlalchemy import and_, func, select, update
@@ -16,6 +15,7 @@ from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemo
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.repositories.joysafeter_skill_version import SkillVersionRepository
 from app.joysafeter_domain.schemas.joysafeter_agent import (
@@ -23,40 +23,50 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterUpdateAgentRequest,
 )
 from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
-from app.joysafeter_shared.common.app_errors import InvalidRequestError
+from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
+from app.joysafeter_shared.ids import AgentId, CredentialId, SessionId, SkillId
 from app.joysafeter_shared.utils.datetime import utc_now  # noqa: E402
 
 TERMINAL_TASK_STATUSES = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
 
 
-def _merge_packed_items(skills: list, agents: list, commands: list) -> list[dict]:
+def _merge_agent_assets(skills: list, agents: list, commands: list) -> list[dict]:
     merged = []
+    # ``mode="json"`` is required: SkillRef.skill_id is a typed ``SkillId`` value
+    # object, and this list is stored into the ``skills`` JSONB column whose
+    # serializer is the default ``json.dumps`` (no EntityId encoder). A python-mode
+    # dump would leave a ``SkillId`` instance in the dict and raise
+    # ``TypeError: Object of type SkillId is not JSON serializable`` at flush.
+    # JSON mode emits the canonical ``skill_<uuid>`` string the Rust loader and
+    # response re-validation both expect.
     for item in skills:
-        d = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+        d = item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
         d["target"] = "skills"
         merged.append(d)
     for item in agents:
-        d = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+        d = item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
         d["target"] = "agents"
         merged.append(d)
     for item in commands:
-        d = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+        d = item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
         d["target"] = "commands"
         merged.append(d)
     return merged
 
 
-def _split_packed_items(merged: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+def _split_agent_assets(merged: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
     skills, agents, commands = [], [], []
     for item in merged:
         item_copy = {k: v for k, v in item.items() if k != "target"}
-        target = item.get("target", "skills")
+        target = item.get("target")
         if target == "agents":
             agents.append(item_copy)
         elif target == "commands":
             commands.append(item_copy)
-        else:
+        elif target == "skills":
             skills.append(item_copy)
+        else:
+            raise ValueError("Agent asset target must be skills, agents, or commands")
     return skills, agents, commands
 
 
@@ -86,7 +96,7 @@ class JoySafeterAgentService:
         environment_ref: Optional[str] = None,
         version: Optional[int] = None,
     ) -> dict:
-        skills, agents, commands = _split_packed_items(agent.skills or [])
+        skills, agents, commands = _split_agent_assets(agent.skills or [])
         effective_environment_ref = environment_ref if environment_ref is not None else agent.environment_ref
         snapshot = {
             "schema": "joysafeter.agent_execution_snapshot.v1",
@@ -95,11 +105,11 @@ class JoySafeterAgentService:
             "name": agent.name,
             "engine_kind": agent.engine_kind,
             "model": agent.model,
-            "system_prompt": agent.system_prompt,
+            "system": agent.system_prompt,
             "description": agent.description,
             "metadata": agent.metadata_,
             "env": agent.env,
-            "mcp_configs": agent.mcp_configs,
+            "mcp_servers": agent.mcp_servers,
             "skills": skills,
             "agents": agents,
             "commands": commands,
@@ -107,7 +117,7 @@ class JoySafeterAgentService:
             "permission_mode": agent.permission_mode,
             "multiagent": agent.multiagent,
             "environment_ref": effective_environment_ref,
-            "secret_ref": agent.secret_ref,
+            "model_credential_id": str(agent.model_credential_id) if agent.model_credential_id else None,
         }
         environment_snapshot = JoySafeterAgentService.build_environment_execution_snapshot(
             environment,
@@ -117,14 +127,14 @@ class JoySafeterAgentService:
             snapshot["environment"] = environment_snapshot
         return snapshot
 
-    def _skill_ref_id(self, item: Any) -> Optional[uuid.UUID]:
+    def _skill_ref_id(self, item: Any) -> Optional[SkillId]:
         value = getattr(item, "skill_id", None)
         if value is None and isinstance(item, dict):
             value = item.get("skill_id")
         if not value:
             return None
         try:
-            return uuid.UUID(str(value).removeprefix("skill_"))
+            return SkillId.from_public(str(value))
         except ValueError as exc:
             raise InvalidRequestError(
                 "Invalid skill reference id",
@@ -197,7 +207,52 @@ class JoySafeterAgentService:
                 data={"skills": invalid},
             )
 
-    async def _count_active_tasks_for_agent(self, agent_id: uuid.UUID, project_id: Optional[str] = None) -> int:
+    async def _validate_model_credential_ref(
+        self,
+        model_credential_id: Optional[CredentialId],
+        project_id: Optional[str],
+        *,
+        acquire_lock: bool = True,
+    ) -> None:
+        """Ensure an agent's model_credential_id references a usable model credential.
+
+        The credential must exist in the same project, be of kind ``model``, and
+        not be archived/soft-deleted (``CredentialService.get`` already filters
+        soft-deleted rows). project_id-less (global) agents cannot pin a
+        project-scoped credential, so a supplied id is rejected outright.
+        """
+        if model_credential_id is None:
+            return
+        if project_id is None:
+            raise NotFoundError(
+                code="CREDENTIAL_NOT_FOUND",
+                message="Credential not found",
+                data={"credential_id": str(model_credential_id)},
+            )
+        from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
+
+        credential_service = CredentialService(self.db)
+        if acquire_lock:
+            await credential_service.lock_credential(
+                model_credential_id,
+                project_id=project_id,
+            )
+        cred = await credential_service.get(model_credential_id, project_id=project_id)
+        if cred is None or cred.archived_at is not None:
+            raise NotFoundError(
+                code="CREDENTIAL_NOT_FOUND",
+                message="Credential not found",
+                data={"credential_id": str(model_credential_id)},
+            )
+        if cred.kind != "model":
+            raise InvalidRequestError(
+                code="CREDENTIAL_KIND_INVALID",
+                message="Agent model reference must point to a model credential",
+                data={"credential_id": str(model_credential_id), "kind": cred.kind},
+                user_action="fix_input",
+            )
+
+    async def _count_active_tasks_for_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> int:
         if project_id is not None and not await self.get_agent(agent_id, project_id=project_id):
             return 0
         result = await self.db.execute(
@@ -214,7 +269,7 @@ class JoySafeterAgentService:
 
     async def _archive_session_ids_if_no_active_tasks(
         self,
-        session_ids: list[uuid.UUID],
+        session_ids: list[SessionId],
         archived_at,
     ) -> None:
         if not session_ids:
@@ -248,6 +303,7 @@ class JoySafeterAgentService:
         self, req: JoySafeterCreateAgentRequest, project_id: Optional[str] = None
     ) -> JoySafeterAgent:
         await self._validate_skill_refs(list(req.skills or []), project_id)
+        await self._validate_model_credential_ref(req.model_credential_id, project_id)
         model_data = None
         if req.model:
             model_data = req.model if isinstance(req.model, str) else req.model.model_dump()
@@ -260,13 +316,13 @@ class JoySafeterAgentService:
             description=req.description,
             metadata_=req.metadata,
             env=req.env,
-            mcp_configs=[s.model_dump() for s in req.mcp_servers],
-            skills=_merge_packed_items(req.skills, req.agents, req.commands),
+            mcp_servers=[s.model_dump() for s in req.mcp_servers],
+            skills=_merge_agent_assets(req.skills, req.agents, req.commands),
             tools=[t.model_dump() for t in req.tools],
             multiagent=req.multiagent,
             version=1,
             environment_ref=req.environment_ref,
-            secret_ref=req.secret_ref,
+            model_credential_id=req.model_credential_id,
             project_id=project_id,
         )
         self.db.add(agent)
@@ -288,7 +344,7 @@ class JoySafeterAgentService:
         await self.db.refresh(agent)
         return agent
 
-    async def get_agent(self, agent_id: uuid.UUID, project_id: Optional[str] = None) -> Optional[JoySafeterAgent]:
+    async def get_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> Optional[JoySafeterAgent]:
         conditions = [
             JoySafeterAgent.id == agent_id,
             JoySafeterAgent.deleted_at.is_(None),
@@ -311,7 +367,7 @@ class JoySafeterAgentService:
     async def list_agents(
         self,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
+        after_id: Optional[AgentId] = None,
         include_archived: bool = False,
         project_id: Optional[str] = None,
     ) -> tuple[list[JoySafeterAgent], bool]:
@@ -328,7 +384,7 @@ class JoySafeterAgentService:
 
     async def update_agent(
         self,
-        agent_id: uuid.UUID,
+        agent_id: AgentId,
         req: JoySafeterUpdateAgentRequest,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterAgent]:
@@ -367,16 +423,16 @@ class JoySafeterAgentService:
             changed = True
         if req.mcp_servers is not None:
             new_mcp = [s.model_dump() for s in req.mcp_servers]
-            if new_mcp != agent.mcp_configs:
-                agent.mcp_configs = new_mcp
+            if new_mcp != agent.mcp_servers:
+                agent.mcp_servers = new_mcp
                 changed = True
         if req.skills is not None or req.agents is not None or req.commands is not None:
-            cur_skills, cur_agents, cur_commands = _split_packed_items(agent.skills or [])
+            cur_skills, cur_agents, cur_commands = _split_agent_assets(agent.skills or [])
             new_skills = req.skills if req.skills is not None else cur_skills
             new_agents = req.agents if req.agents is not None else cur_agents
             new_commands = req.commands if req.commands is not None else cur_commands
             await self._validate_skill_refs(list(new_skills or []), project_id)
-            merged = _merge_packed_items(new_skills, new_agents, new_commands)
+            merged = _merge_agent_assets(new_skills, new_agents, new_commands)
             if merged != (agent.skills or []):
                 agent.skills = merged
                 changed = True
@@ -391,8 +447,25 @@ class JoySafeterAgentService:
         if req.environment_ref is not None and req.environment_ref != agent.environment_ref:
             agent.environment_ref = req.environment_ref
             changed = True
-        if req.secret_ref is not None and req.secret_ref != agent.secret_ref:
-            agent.secret_ref = req.secret_ref
+        if "model_credential_id" in req.model_fields_set and req.model_credential_id != agent.model_credential_id:
+            from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
+
+            credential_ids = [
+                credential_id
+                for credential_id in (agent.model_credential_id, req.model_credential_id)
+                if credential_id is not None
+            ]
+            if project_id is not None:
+                await CredentialService(self.db).lock_credentials(
+                    credential_ids,
+                    project_id=project_id,
+                )
+            await self._validate_model_credential_ref(
+                req.model_credential_id,
+                project_id,
+                acquire_lock=False,
+            )
+            agent.model_credential_id = req.model_credential_id
             changed = True
 
         if not changed:
@@ -408,7 +481,7 @@ class JoySafeterAgentService:
 
     async def delete_agent(
         self,
-        agent_id: uuid.UUID,
+        agent_id: AgentId,
         force: bool = False,
         project_id: Optional[str] = None,
     ) -> bool:
@@ -428,8 +501,8 @@ class JoySafeterAgentService:
         return True
 
     async def archive_agent_with_sessions(
-        self, agent_id: uuid.UUID, project_id: Optional[str] = None
-    ) -> tuple[bool, list[uuid.UUID]]:
+        self, agent_id: AgentId, project_id: Optional[str] = None
+    ) -> tuple[bool, list[SessionId]]:
         """Archive an agent and its live sessions in one transaction.
 
         Either the agent row and all its non-archived sessions flip to archived
@@ -467,9 +540,32 @@ class JoySafeterAgentService:
         await self.db.commit()
         return True, session_ids
 
+    async def restore_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> bool:
+        """Un-archive an agent and rearm its paused cron triggers in one transaction.
+
+        Returns False when the agent does not exist (or is out of the given
+        project scope). Returns True when restored, or when it was already active
+        (idempotent, no side effects). Already-terminated sessions are left as-is.
+        """
+        agent = await self.get_agent(agent_id, project_id=project_id)
+        if not agent:
+            return False
+        if agent.archived_at is None:
+            return True
+
+        from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
+
+        now = utc_now()
+        agent.archived_at = None
+        agent.updated_at = now
+        await self.db.flush()  # make cleared archived_at visible to _next_run_or_pause
+        await JoySafeterTriggerService(self.db).resume_after_agent_restore(agent_id)
+        await self.db.commit()
+        return True
+
     async def list_versions(
         self,
-        agent_id: uuid.UUID,
+        agent_id: AgentId,
         limit: int = 20,
         before_version: Optional[int] = None,
         project_id: Optional[str] = None,
@@ -495,7 +591,7 @@ class JoySafeterAgentService:
         self.db.add(version)
         await self.db.flush()
 
-    async def hard_delete_agent(self, agent_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+    async def hard_delete_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> bool:
         agent = await self.get_agent(agent_id, project_id=project_id)
         if not agent:
             return False
@@ -524,6 +620,7 @@ class JoySafeterAgentService:
 
         # Delete any tasks directly linked to agent (not via session)
         await self.db.execute(sa_delete(JoySafeterTask).where(JoySafeterTask.agent_id == agent_id))
+        await self.db.execute(sa_delete(JoySafeterTrigger).where(JoySafeterTrigger.agent_id == agent_id))
         # Delete agent versions
         await self.db.execute(sa_delete(JoySafeterAgentVersion).where(JoySafeterAgentVersion.agent_id == agent_id))
         # Delete agent
@@ -531,9 +628,7 @@ class JoySafeterAgentService:
         await self.db.commit()
         return True
 
-    async def archive_sessions_for_agent(
-        self, agent_id: uuid.UUID, project_id: Optional[str] = None
-    ) -> list[uuid.UUID]:
+    async def archive_sessions_for_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> list[SessionId]:
         if project_id is not None and not await self.get_agent(agent_id, project_id=project_id):
             return []
         if await self._count_active_tasks_for_agent(agent_id, project_id=project_id) > 0:
@@ -557,7 +652,7 @@ class JoySafeterAgentService:
         return session_ids
 
     async def get_agent_version_snapshot(
-        self, agent_id: uuid.UUID, version: int, project_id: Optional[str] = None
+        self, agent_id: AgentId, version: int, project_id: Optional[str] = None
     ) -> Optional[dict]:
         if project_id is not None and not await self.get_agent(agent_id, project_id=project_id):
             return None
@@ -574,7 +669,46 @@ class JoySafeterAgentService:
             return None
         return ver.snapshot
 
-    async def list_active_tasks_for_agent(self, agent_id: uuid.UUID, project_id: Optional[str] = None) -> list:
+    async def count_delete_preview(
+        self, agent_id: AgentId, project_id: Optional[str] = None
+    ) -> Optional[tuple[int, int, int, int]]:
+        """Return (sessions, tasks, versions, triggers) counts for a delete preview.
+
+        Returns None when the agent does not exist (or is out of the given
+        project scope), so the caller can surface a 404. Counts are exact
+        aggregates (``func.count()``) and are NOT affected by list pagination
+        limits:
+          - sessions: all sessions for the agent, including archived ones
+          - tasks: all tasks for the agent, including terminal history
+          - versions: all historical versions
+          - triggers: all triggers, including soft-deleted audit rows
+        """
+        if not await self.get_agent(agent_id, project_id=project_id):
+            return None
+
+        sessions_result = await self.db.execute(
+            select(func.count()).select_from(JoySafeterSession).where(JoySafeterSession.agent_id == agent_id)
+        )
+        sessions = cast(int, sessions_result.scalar() or 0)
+
+        tasks_result = await self.db.execute(
+            select(func.count()).select_from(JoySafeterTask).where(JoySafeterTask.agent_id == agent_id)
+        )
+        tasks = cast(int, tasks_result.scalar() or 0)
+
+        versions_result = await self.db.execute(
+            select(func.count()).select_from(JoySafeterAgentVersion).where(JoySafeterAgentVersion.agent_id == agent_id)
+        )
+        versions = cast(int, versions_result.scalar() or 0)
+
+        triggers_result = await self.db.execute(
+            select(func.count()).select_from(JoySafeterTrigger).where(JoySafeterTrigger.agent_id == agent_id)
+        )
+        triggers = cast(int, triggers_result.scalar() or 0)
+
+        return sessions, tasks, versions, triggers
+
+    async def list_active_tasks_for_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> list:
         if project_id is not None and not await self.get_agent(agent_id, project_id=project_id):
             return []
         result = await self.db.execute(

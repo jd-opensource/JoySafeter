@@ -3,10 +3,10 @@ use std::sync::Arc;
 use sqlx::PgPool;
 use tokio::sync::broadcast;
 use tracing::{debug, error, warn};
-use uuid::Uuid;
 
 use super::envelope::EventEnvelope;
 use super::realtime::publish_session_event_realtime;
+use crate::ids::{EventId, TaskId};
 
 /// SessionStateSubscriber — PERSIST phase.
 ///
@@ -68,12 +68,14 @@ impl SessionStateSubscriber {
         // 1. Deadlocks with EventPersister (consistent lock ordering: advisory → row)
         // 2. Seq races on session_events (serialized by advisory lock)
         // Matches Python SessionService.update_session_status + send_event lock ordering.
-        let result: Result<Option<(Uuid, i64)>, sqlx::Error> = async {
+        let result: Result<Option<(EventId, i64)>, sqlx::Error> = async {
             let mut tx = self.pool.begin().await?;
 
             // Acquire advisory lock FIRST (same key derivation as Python)
             let lock_key = i64::from_be_bytes(
-                envelope.session_id.as_bytes()[8..16].try_into().unwrap(),
+                envelope.session_id.as_uuid().as_bytes()[8..16]
+                    .try_into()
+                    .unwrap(),
             );
             sqlx::query("SELECT pg_advisory_xact_lock($1)")
                 .bind(lock_key)
@@ -88,7 +90,9 @@ impl SessionStateSubscriber {
                     .map(ToOwned::to_owned)
                     .or_else(|| envelope.task_id.map(|id| id.to_string()));
                 if let Some(task_id) = task_id.as_deref() {
-                    if let Ok(task_uuid) = Uuid::parse_str(task_id) {
+                    // ``task_id`` here is the canonical prefixed payload form
+                    // (``task_<uuid>``); parse it to the bare uuid for the id column.
+                    if let Ok(task_uuid) = TaskId::from_public(task_id).map(|t| t.as_uuid()) {
                         let task_status: Option<String> = sqlx::query_scalar(
                             "SELECT status FROM joysafeter_tasks WHERE id = $1",
                         )
@@ -155,19 +159,9 @@ impl SessionStateSubscriber {
                     ""
                 };
 
-            let sql = format!(
-                r#"
-                UPDATE joysafeter_sessions
-                SET status = $2,
-                    stop_reason = CASE
-                        WHEN $3::jsonb IS NOT NULL OR $2 IN ('idle', 'terminated') THEN $3::jsonb
-                        ELSE stop_reason
-                    END,
-                    updated_at = NOW()
-                WHERE id = $1 AND status IN ({allowed_from})
-                  {active_task_guard}
-                  AND NOT (status = $2 AND COALESCE(stop_reason, '{{}}'::jsonb) = COALESCE($3::jsonb, '{{}}'::jsonb))
-                "#,
+            let sql = crate::db::queries::build_session_status_update_sql(
+                allowed_from,
+                active_task_guard,
             );
             let update_result = sqlx::query(&sql)
                 .bind(envelope.session_id)
@@ -182,7 +176,7 @@ impl SessionStateSubscriber {
                 return Ok(None);
             }
 
-            let mut inserted_event: Option<(Uuid, i64)> = None;
+            let mut inserted_event: Option<(EventId, i64)> = None;
             // Persist the status event (seq protected by advisory lock in same txn)
             if let Some(event_id) = envelope.event_id {
                 let latest = sqlx::query_as::<_, (String, serde_json::Value)>(

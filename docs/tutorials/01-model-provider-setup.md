@@ -1,125 +1,161 @@
-# 教程 01：模型配置 —— 用 Secrets 管理供应商密钥
+# 教程 01：引擎、协议、模型供应商与模型配置
 
-> **状态：** 已按 v2 真实代码核对（2026-07-03）。
-> **适合人群**：初次配置 JoySafeter 模型，或需要接入私有 / 第三方 OpenAI 兼容端点的用户。
+JoySafeter 把大模型接入拆成四个明确概念：
 
----
+```text
+Engine --supports--> Protocol <--implements-- Provider
+Secret = kind + Provider + Protocol + credentials
+Agent = Engine + secret_ref
+```
 
-## 机制先行：v2 里“模型配置”长什么样？
+- **Engine（引擎）**：运行 Agent 的执行器，例如 Claude Code、Codex、Native、Pi。
+- **Protocol（协议）**：请求与流式响应契约，例如 Anthropic Messages、OpenAI Responses、Chat Completions。
+- **Provider（模型供应商）**：实现某个协议的服务商，例如 Anthropic、OpenAI、DeepSeek 或自定义兼容服务。
+- **模型配置（LLM Secret）**：保存 `kind=llm`、`provider`、`protocol` 和对应 Credential Profile 的加密字段。
 
-v1 的三层对象（Provider / ModelInstance / ModelCredential）以及 `/api/v1/models`、
-`/api/v1/model-credentials`、独立的“Models 设置页”**都已移除**。v2 把模型配置收敛成两件事：
+引擎在开发时通过 Catalog 明确声明支持哪些协议；供应商通过 Catalog 声明实现哪些协议。前后端和运行时都使用同一份 Catalog，不从 Provider 名称或密钥键名猜测兼容性。
 
-1. **Secret（凭据）** —— 一条加密存储的供应商密钥记录，表 `joysafeter_secrets`，API `/api/v1/secrets`，
-   UI 在 **资源 → 密钥** 页（`/managed/secrets`）。字段：
-   - `name`：显示名
-   - `provider` / `protocol`：供应商 / 协议标识（默认 `custom`）
-   - `data`：键值对，放 `api_key` / `base_url` 等真正的连接信息（**AES-256-GCM 加密**存储）
-   - `is_default`：是否为项目默认凭据
-2. **Agent 的模型选择** —— 在 Agent 编辑器里选引擎（`claude` / `codex` / `native`）与模型；Agent 行上的
-   `model`（JSONB）+ `secret_ref` 决定运行时用哪条 Secret。
+## 1. 查看 LLM Catalog
 
-**运行时如何生效**：任务被调度到沙箱时，orchestrator 解密对应 Secret，把里面的键（如
-`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_BASE_URL` 等）作为**容器环境变量**注入沙箱，
-沙箱内的 CLI harness（Claude Code / Codex / `ccb`）读取这些环境变量直连模型。**密钥绝不经 gRPC 过线**，
-只经容器 env 注入。
+`GET /api/v1/llm/catalog` 返回当前系统支持的引擎、协议、供应商绑定与凭据字段定义。
 
-> 换句话说：v2 里“模型流量”由沙箱内的 CLI 引擎直接发起，平台 Python 侧不再有 ModelRouter / 供应商
-> 适配器层。你配置的是“往沙箱注入哪些密钥环境变量”，而不是一个中心化的模型网关。
+当前初始矩阵：
 
----
+| 引擎 | 支持协议 |
+|---|---|
+| Claude Code (`claude`) | `anthropic_messages` |
+| Codex (`codex`) | `openai_responses` |
+| Native (`native`) | `anthropic_messages`、`openai_responses`、`chat_completions` |
+| Pi (`pi`) | `anthropic_messages`、`openai_responses`、`chat_completions` |
 
-## 案例 A：配置一条 Anthropic（Claude）凭据
+Catalog 是系统契约。新增引擎适配器、协议适配器或供应商绑定时，应先更新 Catalog，再实现对应运行时路由。
 
-1. 左侧导航进入 **资源 → 密钥**（`/managed/secrets`）。
-2. 新建一条 Secret：
-   - `name`：`claude-prod`
-   - `provider`：`anthropic`（`protocol` 可留 `custom`）
-   - `data`：
-     ```json
-     { "ANTHROPIC_API_KEY": "sk-ant-xxxxxxxx" }
-     ```
-   - 勾选 **设为默认**（`is_default`），让未显式指定 Secret 的 Agent 复用它。
-3. 保存。
+## 2. 在界面创建模型配置
 
-对应 API：
+进入 **资源 → 密钥**（`/managed/secrets`），点击创建：
+
+1. 选择 **模型配置**，而不是通用密钥。
+2. 可选择“计划用于哪个引擎”；该选择只筛选兼容项，不会把配置绑定到单个引擎。
+3. 选择模型供应商。
+4. 当供应商与引擎交集只有一个协议时，系统自动选择；有多个协议时显式选择。
+5. 填写 Catalog Credential Profile 展示的字段。
+6. 测试连接并创建。
+
+`provider` 和 `protocol` 共同定义连接身份，创建后不可修改。若要切换身份，请创建新的模型配置，再修改 Agent 的 `secret_ref`。
+
+## 3. 创建 Anthropic 配置
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/secrets \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <platform-token>" \
   -d '{
-    "name": "claude-prod",
+    "kind": "llm",
+    "name": "anthropic-production",
     "provider": "anthropic",
-    "protocol": "custom",
-    "data": { "ANTHROPIC_API_KEY": "sk-ant-xxxxxxxx" },
+    "protocol": "anthropic_messages",
+    "data": {
+      "ANTHROPIC_API_KEY": "<secret>",
+      "ANTHROPIC_MODEL": "claude-sonnet-4-5"
+    },
     "is_default": true
   }'
 ```
 
-> 列表接口返回的 `data` 是**脱敏**的（不回显明文密钥）。
+`anthropic_messages` 可用于 Claude Code、Native 和 Pi，不能用于 Codex。
 
----
+## 4. 创建 OpenAI / OpenAI-compatible 配置
 
-## 案例 B：接入 OpenAI 兼容端点（DeepSeek / 本地 Ollama / LM Studio 等）
+OpenAI Responses：
 
-许多服务都提供 OpenAI 兼容 API，只需把 `base_url` 指向对应网关即可，无需专门的“供应商适配器”。
+```bash
+curl -X POST http://localhost:8000/api/v1/secrets \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <platform-token>" \
+  -d '{
+    "kind": "llm",
+    "name": "openai-production",
+    "provider": "openai",
+    "protocol": "openai_responses",
+    "data": {
+      "OPENAI_API_KEY": "<secret>",
+      "OPENAI_MODEL": "gpt-5"
+    },
+    "is_default": true
+  }'
+```
 
-1. 在 **资源 → 密钥**（`/managed/secrets`）新建：
-   - `name`：`local-ollama`
-   - `provider`：`openai`（或 `custom`）
-   - `data`：
-     ```json
-     {
-       "OPENAI_API_KEY": "not-needed",
-       "OPENAI_BASE_URL": "http://host.docker.internal:11434/v1"
-     }
-     ```
-2. 保存后，在 Agent 编辑器里把该 Agent 的引擎设为对应 CLI 引擎、模型名填成端点支持的模型（如
-   `llama3:8b` / `deepseek-chat`），并把该 Agent 的 Secret 指向这条 `local-ollama`。
+DeepSeek Chat Completions：
 
-> **踩坑提示**
-> - `base_url` 是否要带 `/v1` 取决于你接入的服务，平台不会自动补全。
-> - 沙箱容器默认收紧网络（`NetworkMode=none` + Envoy 出口白名单）。要让沙箱能访问你的本地 / 内网端点，
->   该域名必须在 Envoy 出口白名单内，且地址要从**沙箱容器**（而非你的浏览器）可达（本机服务通常用
->   `host.docker.internal`）。
-> - 具体环境变量名（`OPENAI_API_KEY` vs `ANTHROPIC_API_KEY` 等）取决于沙箱内 CLI 引擎读取哪个变量——
->   与你选择的引擎（`claude` / `codex` / `native`）匹配即可。
+```bash
+curl -X POST http://localhost:8000/api/v1/secrets \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <platform-token>" \
+  -d '{
+    "kind": "llm",
+    "name": "deepseek-chat",
+    "provider": "deepseek",
+    "protocol": "chat_completions",
+    "data": {
+      "OPENAI_API_KEY": "<secret>",
+      "OPENAI_MODEL": "deepseek-chat"
+    }
+  }'
+```
 
----
+默认配置按 **Protocol** 隔离：一个 `anthropic_messages` 默认配置和一个 `openai_responses` 默认配置可以同时存在。
 
-## 案例 C：企业 SSO 登录
+协议默认仅用于界面推荐和首次自动选择。Agent 的 `secret_ref` 为空时不会在运行时自动套用默认配置，也不会从密钥模块注入模型凭据。
 
-若组织使用统一身份认证，JoySafeter 的 SSO 是可插拔的（`joysafeter_shared/oauth/`）：
+## 5. 查询某个引擎可用的模型配置
 
-| 方式 | 说明 |
-|------|------|
-| 标准 OAuth2 / OIDC | GitHub / Google 等模板，在 `backend/config` 的 OAuth 配置中填入 Client ID/Secret 启用 |
-| JD SSO | 京东内部单点登录（非标准 OAuth2，`jd_sso` 协议处理器） |
+Agent 与 Quickstart 不拉取全部 Secret 后在浏览器猜测，而是调用服务端过滤：
 
-前端 `/signin` 支持 SSO 自动跳转（`GET /api/v1/auth/oauth/providers` → 取首个 provider →
-授权地址）。SSO 登录后自动创建用户并关联到默认组织 / 项目，凭据与权限体系与手动注册用户一致。
+```bash
+curl 'http://localhost:8000/api/v1/secrets?kind=llm&compatible_engine=codex&limit=100' \
+  -H "Authorization: Bearer <platform-token>"
+```
 
----
+列表项会返回：
 
-## 常见问题
+- `kind`
+- `provider`
+- `protocol`
+- `model`
+- `compatible_engine_ids`
+- `is_default`
+- `keys`（只有字段名，不返回明文）
 
-**Q：我建了 Secret，运行时却没用上？**
-默认凭据由 `is_default` 决定；若某个 Agent 显式绑定了别的 Secret（`secret_ref`），则以 Agent 上的为准。
-确认该 Agent 指向的 Secret 与你刚配置的是同一条。
+编辑 Agent 时若切换引擎导致当前配置不兼容，页面会保留原配置名称和元数据，要求用户“重新选择模型配置”或“恢复原引擎”，解决前不能保存。
 
-**Q：验证密钥有效性的接口在哪？**
-v2 没有集中的 model-credentials 校验端点。最直接的验证方式是：在一个绑定该 Secret 的 Agent 上开一个
-Session 发一条消息，看沙箱内引擎是否成功调用模型（失败会在会话事件流里以 `error` / `session.status_*`
-体现）。
+## 6. 通用密钥
 
-**Q：密钥安全吗？**
-`data` 以 AES-256-GCM 加密落库，仅在任务调度时解密并作为容器环境变量注入目标沙箱，不经 gRPC 传输、
-不写入事件流。
+非大模型凭据使用：
 
----
+```json
+{
+  "kind": "generic",
+  "name": "github-token",
+  "data": { "GITHUB_TOKEN": "<secret>" }
+}
+```
+
+通用密钥没有 `provider`、`protocol` 或协议默认状态，也不能作为 Agent 的模型配置。
+
+## 7. 运行时行为
+
+运行前会再次校验：
+
+1. Secret 必须是 `kind=llm`。
+2. Provider 必须实现 Secret 的 Protocol。
+3. Agent Engine 必须支持该 Protocol。
+4. Credential Profile 必填字段必须完整。
+5. 模型名只从 Credential Profile 的 `model_key` 读取。
+
+校验通过后才会解密凭据并注入运行环境。系统不会创建隐式环境变量别名，也不会根据 Provider 名称推断 Engine。
 
 ## 下一步
 
-- [教程 02](./02-mcp-service-setup.md)：给 Agent 接入 MCP 工具（凭据放 Vaults）
-- [教程 04](./04-agent-build-and-run.md)：在 Agent 编辑器里选引擎 / 模型，并在 Session 中运行
+- [教程 04：创建 Agent 并运行](./04-agent-build-and-run.md)
+- [API 说明](../api/openapi.md)
+- [系统架构](../ARCHITECTURE_CN.md)

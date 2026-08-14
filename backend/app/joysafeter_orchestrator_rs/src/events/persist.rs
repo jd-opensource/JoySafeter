@@ -6,11 +6,11 @@ use sqlx::PgPool;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use uuid::Uuid;
 
 use super::envelope::EventEnvelope;
 use super::realtime::publish_session_event_realtime;
 use super::sink::EventSink;
+use crate::ids::{EventId, SessionId};
 use crate::runtime_config::RuntimeConfig;
 
 /// Batched event persister — collects events and flushes them to the DB
@@ -25,6 +25,7 @@ use crate::runtime_config::RuntimeConfig;
 pub struct EventPersister {
     pool: PgPool,
     buffer: Arc<Mutex<EventBuffer>>,
+    flush_guard: Arc<Mutex<()>>,
     max_size: usize,
     max_delay: Duration,
     runtime_config: Option<Arc<RuntimeConfig>>,
@@ -39,8 +40,8 @@ struct EventBuffer {
 
 #[derive(Clone)]
 struct PendingEvent {
-    id: Uuid,
-    session_id: Uuid,
+    id: EventId,
+    session_id: SessionId,
     event_type: String,
     payload: serde_json::Value,
     seq: Option<i64>,
@@ -118,6 +119,7 @@ impl EventPersister {
                 events: Vec::with_capacity(max_size),
                 last_flush: Instant::now(),
             })),
+            flush_guard: Arc::new(Mutex::new(())),
             max_size,
             max_delay: Duration::from_millis(max_delay_ms),
             runtime_config,
@@ -129,8 +131,8 @@ impl EventPersister {
     /// Push an event into the buffer. Flushes automatically if full.
     pub async fn push(
         &self,
-        id: Uuid,
-        session_id: Uuid,
+        id: EventId,
+        session_id: SessionId,
         event_type: &str,
         payload: &serde_json::Value,
         seq: Option<i64>,
@@ -173,6 +175,7 @@ impl EventPersister {
 
     /// Flush all buffered events to the database.
     pub async fn flush(&self) {
+        let _flush_guard = self.flush_guard.lock().await;
         let events = {
             let mut buf = self.buffer.lock().await;
             if buf.events.is_empty() {
@@ -187,7 +190,7 @@ impl EventPersister {
         // Group events by session_id and sort keys to prevent deadlocks
         // (matching Python batch_writer sort fix).
         use std::collections::BTreeMap;
-        let mut groups: BTreeMap<Uuid, Vec<&PendingEvent>> = BTreeMap::new();
+        let mut groups: BTreeMap<SessionId, Vec<&PendingEvent>> = BTreeMap::new();
         for event in &events {
             if is_session_status_event(&event.event_type) {
                 tracing::warn!(
@@ -211,7 +214,7 @@ impl EventPersister {
             // Acquire advisory locks in sorted session_id order (prevent deadlocks)
             for session_id in groups.keys() {
                 let lock_key = i64::from_be_bytes(
-                    session_id.as_bytes()[8..16].try_into().unwrap(),
+                    session_id.as_uuid().as_bytes()[8..16].try_into().unwrap(),
                 );
                 sqlx::query("SELECT pg_advisory_xact_lock($1)")
                     .bind(lock_key)
@@ -230,7 +233,7 @@ impl EventPersister {
                 .fetch_one(&mut *tx)
                 .await?;
 
-                let latest = sqlx::query_as::<_, (Uuid, String, serde_json::Value, i64)>(
+                let latest = sqlx::query_as::<_, (EventId, String, serde_json::Value, i64)>(
                     r#"
                     SELECT id, event_type, payload, seq
                     FROM joysafeter_session_events
@@ -370,5 +373,184 @@ impl EventSink for EventPersister {
 
     async fn flush(&self) {
         EventPersister::flush(self).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::env;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use serde_json::json;
+    use sqlx::postgres::PgPoolOptions;
+    use uuid::Uuid;
+
+    use super::*;
+    use crate::ids::AgentId;
+
+    fn database_url() -> Option<String> {
+        env::var("JOYSAFETER_TEST_DATABASE_URL")
+            .ok()
+            .or_else(|| env::var("DATABASE_URL").ok())
+            .map(|url| url.replace("postgresql+asyncpg://", "postgres://"))
+    }
+
+    #[tokio::test]
+    async fn concurrent_flushes_do_not_reorder_later_session_batch() {
+        let Some(database_url) = database_url() else {
+            eprintln!("skipping real Postgres scenario test: DATABASE_URL is not set");
+            return;
+        };
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .expect("connect to migrated Postgres test database");
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let mut session_ids = [
+            SessionId::from_uuid(Uuid::now_v7()),
+            SessionId::from_uuid(Uuid::now_v7()),
+        ];
+        session_ids.sort();
+        let blocked_session_id = session_ids[0];
+        let target_session_id = session_ids[1];
+
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_agents (id, name, engine_kind, permission_mode, version)
+            VALUES ($1, $2, 'claude', 'bypassPermissions', 1)
+            "#,
+        )
+        .bind(agent_id)
+        .bind(format!("event-flush-order-{agent_id}"))
+        .execute(&pool)
+        .await
+        .expect("insert test agent");
+        for session_id in session_ids {
+            sqlx::query(
+                "INSERT INTO joysafeter_sessions (id, agent_id, status) VALUES ($1, $2, 'running')",
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .execute(&pool)
+            .await
+            .expect("insert test session");
+        }
+
+        let result = async {
+            let persister = Arc::new(EventPersister::new(
+                pool.clone(),
+                100,
+                60_000,
+                None,
+                redis::Client::open("redis://127.0.0.1:1/").expect("construct redis client"),
+                "event-flush-order-test".to_string(),
+            ));
+            let blocked_lock_key = i64::from_be_bytes(
+                blocked_session_id.as_uuid().as_bytes()[8..16]
+                    .try_into()
+                    .unwrap(),
+            );
+            let mut blocking_tx = pool.begin().await.expect("begin blocking transaction");
+            sqlx::query("SELECT pg_advisory_xact_lock($1)")
+                .bind(blocked_lock_key)
+                .execute(&mut *blocking_tx)
+                .await
+                .expect("hold first session advisory lock");
+
+            persister
+                .push(
+                    EventId::from_uuid(Uuid::now_v7()),
+                    blocked_session_id,
+                    "agent.message",
+                    &json!({"content": "blocking-session"}),
+                    None,
+                )
+                .await;
+            persister
+                .push(
+                    EventId::from_uuid(Uuid::now_v7()),
+                    target_session_id,
+                    "agent.message",
+                    &json!({"content": "first"}),
+                    None,
+                )
+                .await;
+
+            let first_persister = persister.clone();
+            let first_flush = tokio::spawn(async move {
+                first_persister.flush().await;
+            });
+
+            tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    if persister.buffer.lock().await.events.is_empty() {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("first flush drains its batch before blocking");
+
+            persister
+                .push(
+                    EventId::from_uuid(Uuid::now_v7()),
+                    target_session_id,
+                    "agent.message",
+                    &json!({"content": "second"}),
+                    None,
+                )
+                .await;
+            let second_persister = persister.clone();
+            let mut second_flush = tokio::spawn(async move {
+                second_persister.flush().await;
+            });
+
+            let completed_early =
+                tokio::time::timeout(Duration::from_millis(500), &mut second_flush).await;
+            drop(blocking_tx);
+            first_flush.await.expect("join first flush");
+            if completed_early.is_err() {
+                second_flush.await.expect("join second flush");
+            }
+
+            assert!(
+                completed_early.is_err(),
+                "a later flush must not overtake an earlier blocked flush"
+            );
+
+            let contents: Vec<String> = sqlx::query_scalar(
+                r#"
+                SELECT payload->>'content'
+                FROM joysafeter_session_events
+                WHERE session_id = $1
+                ORDER BY seq ASC
+                "#,
+            )
+            .bind(target_session_id)
+            .fetch_all(&pool)
+            .await
+            .expect("load target session events");
+            assert_eq!(contents, vec!["first".to_string(), "second".to_string()]);
+        }
+        .await;
+
+        for session_id in session_ids {
+            let _ = sqlx::query("DELETE FROM joysafeter_session_events WHERE session_id = $1")
+                .bind(session_id)
+                .execute(&pool)
+                .await;
+            let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+                .bind(session_id)
+                .execute(&pool)
+                .await;
+        }
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+        result
     }
 }

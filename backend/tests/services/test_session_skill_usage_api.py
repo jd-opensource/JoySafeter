@@ -8,6 +8,7 @@ import pytest
 from app.joysafeter_api.api.v1 import sessions as session_api
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import AgentId, SessionId
 
 pytestmark = pytest.mark.no_db
 
@@ -51,7 +52,7 @@ def _ctx(project_id: str | None = "proj-a") -> JoySafeterAuthContext:
     )
 
 
-def _usage_row(session_id: str, project_id: str = "proj-a") -> JoySafeterSkillUsageLog:
+def _usage_row(session_id: SessionId, project_id: str = "proj-a") -> JoySafeterSkillUsageLog:
     row = JoySafeterSkillUsageLog(
         id=uuid.uuid4(),
         skill_id=uuid.uuid4(),
@@ -63,8 +64,8 @@ def _usage_row(session_id: str, project_id: str = "proj-a") -> JoySafeterSkillUs
         security_scan_id=uuid.uuid4(),
         target_hash="a" * 64,
         artifact_hash="b" * 64,
-        session_id=session_id,
-        agent_id="agent-a",
+        session_id=str(session_id),
+        agent_id=str(AgentId.new()),
         project_id=project_id,
         user_id="user-a",
     )
@@ -75,7 +76,8 @@ def _usage_row(session_id: str, project_id: str = "proj-a") -> JoySafeterSkillUs
 @pytest.mark.asyncio
 async def test_session_skill_usage_api_serializes_runtime_audit(monkeypatch):
     session_uuid = uuid.uuid4()
-    row = _usage_row(f"sess_{session_uuid}")
+    session_id = SessionId(session_uuid)
+    row = _usage_row(session_id)
     db = _Db([row])
 
     class _Svc:
@@ -83,14 +85,14 @@ async def test_session_skill_usage_api_serializes_runtime_audit(monkeypatch):
             self.db = db
 
         async def get_session(self, session_id, project_id=None):
-            assert session_id == session_uuid
+            assert session_id == SessionId(session_uuid)
             assert project_id == "proj-a"
             return _Session()
 
     monkeypatch.setattr(session_api, "SessionService", _Svc)
 
     response = await session_api.list_session_skill_usage(
-        session_id=session_uuid,
+        session_id=session_id,
         limit=50,
         db=db,  # type: ignore[arg-type]
         auth_ctx=_ctx(),
@@ -105,9 +107,13 @@ async def test_session_skill_usage_api_serializes_runtime_audit(monkeypatch):
     assert item.target == "/skills/runtime-audit-skill"
     assert item.target_hash == "a" * 64
     assert item.artifact_hash == "b" * 64
-    assert item.session_id == f"sess_{session_uuid}"
+    assert item.session_id == session_id
 
-    compiled = str(db.statement.compile(compile_kwargs={"literal_binds": True}))
-    assert f"sess_{session_uuid}" in compiled
-    assert str(session_uuid) in compiled
-    assert "proj-a" in compiled
+    compiled = db.statement.compile()
+    # Assert the real filter, not a compiled-SQL artifact: the WHERE targets the
+    # session_id COLUMN (the `=` distinguishes a filter from the SELECT/ORDER-BY
+    # column list) and binds the given typed SessionId. EntityIdType unwraps it to
+    # the bare uuid at execution, so there is no as_uuid()/f"sess_{...}" round-trip.
+    assert "joysafeter_skill_usage_log.session_id =" in str(compiled)
+    assert SessionId(session_uuid) in compiled.params.values()
+    assert "proj-a" in compiled.params.values()

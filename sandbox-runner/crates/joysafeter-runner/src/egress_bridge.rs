@@ -17,6 +17,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UnixStream};
 use tracing::{debug, info, warn};
 
@@ -73,12 +74,200 @@ pub async fn serve(listener: TcpListener, http_sock: PathBuf) {
 /// Connect to the Envoy Unix socket, retrying with backoff until it appears or
 /// the ready budget elapses, then splice the TCP client and the Unix socket
 /// bidirectionally.
+///
+/// If the client opens with an HTTP `CONNECT` tunnel (as pi's Node/undici client
+/// does under `NODE_USE_ENV_PROXY=1`), the CONNECT is terminated here first, and
+/// the tunnelled request-line is rewritten from origin-form (`POST /path`) to
+/// absolute-form (`POST http://host/path`) before it reaches Envoy. Envoy's
+/// egress listener is a forward proxy whose route table matches only absolute-
+/// form requests; origin-form (and CONNECT) yield 404 route_not_found and an
+/// empty turn. Clients that already send absolute-form forward-proxy requests
+/// (curl, reqwest) do not send CONNECT and are spliced through unchanged.
 async fn proxy_connection(mut client: TcpStream, http_sock: &Path) -> io::Result<()> {
+    let tunnel = terminate_connect(&mut client).await?;
     let mut upstream = connect_upstream(http_sock).await?;
+    if let Some(tunnel) = tunnel {
+        forward_rewritten_request(&mut client, &mut upstream, &tunnel).await?;
+    }
     // Bidirectional copy; returns when either side closes.
     tokio::io::copy_bidirectional(&mut client, &mut upstream)
         .await
         .map(|_| ())
+}
+
+/// If `client` opens with an HTTP `CONNECT` request, consume that preamble, ack
+/// it with `200 Connection Established`, and return the tunnel authority
+/// (`host[:port]`). Otherwise consume nothing and return `None`.
+struct ConnectTunnel {
+    authority: String,
+    proxy_authorization: Option<String>,
+}
+
+async fn terminate_connect(client: &mut TcpStream) -> io::Result<Option<ConnectTunnel>> {
+    let Some(preamble_len) = detect_connect_preamble(client).await? else {
+        return Ok(None);
+    };
+    let mut preamble = vec![0u8; preamble_len];
+    client.read_exact(&mut preamble).await?;
+    let tunnel = parse_connect_tunnel(&preamble);
+    client
+        .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+        .await?;
+    client.flush().await?;
+    Ok(Some(tunnel))
+}
+
+fn parse_connect_tunnel(preamble: &[u8]) -> ConnectTunnel {
+    let text = String::from_utf8_lossy(preamble);
+    let mut lines = text.split("\r\n");
+    let authority = lines
+        .next()
+        .and_then(|line| line.split(' ').nth(1))
+        .unwrap_or("")
+        .to_string();
+    let proxy_authorization = lines.find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.eq_ignore_ascii_case("proxy-authorization")
+            .then(|| value.trim().to_string())
+    });
+    ConnectTunnel {
+        authority,
+        proxy_authorization,
+    }
+}
+
+/// Read the first tunnelled HTTP request's header block, rewrite the request-line
+/// to absolute-form using `authority`, force `Connection: close` (so each tunnel
+/// carries exactly one request — no body framing needed), and forward it plus any
+/// already-received body bytes to Envoy. The remainder of the request body and
+/// the response are then handled by the caller's bidirectional splice.
+async fn forward_rewritten_request(
+    client: &mut TcpStream,
+    upstream: &mut UnixStream,
+    tunnel: &ConnectTunnel,
+) -> io::Result<()> {
+    const MAX_HEAD: usize = 64 * 1024;
+    let mut buf: Vec<u8> = Vec::with_capacity(8192);
+    let mut tmp = [0u8; 4096];
+    loop {
+        if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") {
+            let head = &buf[..pos];
+            let body_start = pos + 4;
+            upstream
+                .write_all(&rewrite_request_head(head, tunnel))
+                .await?;
+            if body_start < buf.len() {
+                upstream.write_all(&buf[body_start..]).await?;
+            }
+            upstream.flush().await?;
+            return Ok(());
+        }
+        if buf.len() > MAX_HEAD {
+            // Malformed / oversized header block: forward raw rather than buffer
+            // unboundedly, and let Envoy reject it.
+            upstream.write_all(&buf).await?;
+            upstream.flush().await?;
+            return Ok(());
+        }
+        let n = client.read(&mut tmp).await?;
+        if n == 0 {
+            upstream.write_all(&buf).await?;
+            upstream.flush().await?;
+            return Ok(());
+        }
+        buf.extend_from_slice(&tmp[..n]);
+    }
+}
+
+/// Rewrite an HTTP request header block (request-line + headers, without the
+/// trailing blank line) so Envoy's forward proxy will route it: origin-form
+/// request-target becomes absolute-form using `authority`, and any keep-alive is
+/// downgraded to `Connection: close`. Returns the new block including the
+/// terminating `\r\n\r\n`.
+fn rewrite_request_head(head: &[u8], tunnel: &ConnectTunnel) -> Vec<u8> {
+    let text = String::from_utf8_lossy(head);
+    let mut lines = text.split("\r\n");
+    let request_line = lines.next().unwrap_or("");
+
+    let mut parts = request_line.splitn(3, ' ');
+    let method = parts.next().unwrap_or("");
+    let target = parts.next().unwrap_or("");
+    let version = parts.next().unwrap_or("HTTP/1.1");
+    let new_request_line = if target.starts_with('/') {
+        // Drop the default :80 so the authority matches the proven-working form.
+        let host = tunnel
+            .authority
+            .strip_suffix(":80")
+            .unwrap_or(&tunnel.authority);
+        format!("{method} http://{host}{target} {version}")
+    } else {
+        request_line.to_string()
+    };
+
+    let mut out = vec![new_request_line];
+    for line in lines {
+        let lower = line.to_ascii_lowercase();
+        if lower.starts_with("connection:")
+            || lower.starts_with("proxy-connection:")
+            || lower.starts_with("proxy-authorization:")
+        {
+            continue;
+        }
+        out.push(line.to_string());
+    }
+    if let Some(value) = &tunnel.proxy_authorization {
+        out.push(format!("Proxy-Authorization: {value}"));
+    }
+    out.push("Connection: close".to_string());
+
+    let mut bytes = out.join("\r\n").into_bytes();
+    bytes.extend_from_slice(b"\r\n\r\n");
+    bytes
+}
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// Peek (without consuming) at the start of `client` to detect an HTTP `CONNECT`
+/// tunnel request. Returns `Some(preamble_len)` — the byte length of the request
+/// line plus headers up to and including the terminating blank line — when the
+/// stream opens with `CONNECT `, else `None`. Any bytes the client pipelines
+/// after the preamble stay in the socket buffer for the subsequent splice.
+async fn detect_connect_preamble(client: &TcpStream) -> io::Result<Option<usize>> {
+    const CONNECT: &[u8] = b"CONNECT ";
+    let mut buf = vec![0u8; 8192];
+    // Bounded so a client that opens the connection but never completes the
+    // header block can't spin here forever; it just falls through to a splice.
+    for _ in 0..UDS_READY_BUDGET.as_millis() as u64 / UDS_RETRY_INTERVAL.as_millis() as u64 {
+        let n = client.peek(&mut buf).await?;
+        if n == 0 {
+            return Ok(None); // client closed before sending anything
+        }
+        let head = &buf[..n];
+        if head.len() < CONNECT.len() {
+            // Too few bytes to decide. If what we have is a prefix of "CONNECT ",
+            // wait for more; otherwise it can't be a CONNECT.
+            if CONNECT.starts_with(head) {
+                tokio::time::sleep(UDS_RETRY_INTERVAL).await;
+                continue;
+            }
+            return Ok(None);
+        }
+        if !head.starts_with(CONNECT) {
+            return Ok(None);
+        }
+        if let Some(pos) = find_subslice(head, b"\r\n\r\n") {
+            return Ok(Some(pos + 4));
+        }
+        if n == buf.len() {
+            // Header block larger than the peek buffer: not a well-formed CONNECT
+            // we handle; splice through rather than buffer unboundedly.
+            return Ok(None);
+        }
+        tokio::time::sleep(UDS_RETRY_INTERVAL).await;
+    }
+    Ok(None)
 }
 
 /// Lazily connect to the Envoy socket, tolerating the socket not existing yet.
@@ -153,6 +342,148 @@ mod tests {
         let mut out = Vec::new();
         client.read_to_end(&mut out).await.unwrap();
         assert_eq!(out, b"pong:ping");
+    }
+
+    /// pi's Node/undici client (NODE_USE_ENV_PROXY=1) reaches the LLM endpoint by
+    /// opening an HTTP `CONNECT host:port` tunnel to this proxy, then sending the
+    /// real request through it in ORIGIN form (`POST /path`). Envoy's egress
+    /// listener is a forward proxy whose route table matches only ABSOLUTE-form
+    /// requests (`POST http://host/path`) — origin-form yields 404 route_not_found
+    /// and an empty pi turn (confirmed live). So the bridge must terminate CONNECT
+    /// (ack `200`), then rewrite the tunnelled request-line to absolute-form using
+    /// the CONNECT authority before forwarding to Envoy.
+    #[tokio::test]
+    async fn bridge_terminates_connect_and_rewrites_to_absolute_form() {
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("http.sock");
+
+        // Fake Envoy mirroring the real forward proxy: 200 for absolute-form,
+        // 404 for anything else (origin-form, CONNECT).
+        let server_sock = sock.clone();
+        let uds = UnixListener::bind(&server_sock).unwrap();
+        let seen = std::sync::Arc::new(tokio::sync::Mutex::new(String::new()));
+        let seen_w = seen.clone();
+        tokio::spawn(async move {
+            let (mut conn, _) = uds.accept().await.unwrap();
+            let mut buf = [0u8; 512];
+            let n = conn.read(&mut buf).await.unwrap();
+            let first_line = String::from_utf8_lossy(&buf[..n])
+                .lines()
+                .next()
+                .unwrap_or("")
+                .to_string();
+            *seen_w.lock().await = first_line.clone();
+            let resp = if first_line.starts_with("POST http://") {
+                "HTTP/1.1 200 OK\r\ncontent-length:2\r\nconnection:close\r\n\r\nok"
+            } else {
+                "HTTP/1.1 404 Not Found\r\ncontent-length:0\r\nconnection:close\r\n\r\n"
+            };
+            conn.write_all(resp.as_bytes()).await.unwrap();
+            conn.flush().await.unwrap();
+        });
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let up = sock.clone();
+        tokio::spawn(async move {
+            let (client, _) = listener.accept().await.unwrap();
+            proxy_connection(client, &up).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        // Phase 1: the CONNECT preamble (what undici sends first).
+        client
+            .write_all(
+                b"CONNECT ai-api.jdcloud.com:80 HTTP/1.1\r\nHost: ai-api.jdcloud.com:80\r\n\r\n",
+            )
+            .await
+            .unwrap();
+        client.flush().await.unwrap();
+        // Phase 2: the bridge must ack the tunnel before the client sends the body.
+        let mut ack = [0u8; 64];
+        let n = client.read(&mut ack).await.unwrap();
+        assert!(
+            String::from_utf8_lossy(&ack[..n]).starts_with("HTTP/1.1 200"),
+            "expected a CONNECT 200 ack from the bridge, got: {:?}",
+            String::from_utf8_lossy(&ack[..n])
+        );
+        // Phase 3: the real (inner) request in ORIGIN form, tunnelled.
+        client
+            .write_all(b"POST /v1/chat/completions HTTP/1.1\r\nHost: ai-api.jdcloud.com\r\ncontent-length:2\r\n\r\n{}")
+            .await
+            .unwrap();
+        client.flush().await.unwrap();
+
+        let mut out = Vec::new();
+        client.read_to_end(&mut out).await.unwrap();
+
+        // Envoy must have received the request REWRITTEN to absolute-form.
+        assert_eq!(
+            *seen.lock().await,
+            "POST http://ai-api.jdcloud.com/v1/chat/completions HTTP/1.1",
+            "bridge should rewrite the tunnelled origin-form request to absolute-form"
+        );
+        assert!(
+            String::from_utf8_lossy(&out).contains("ok"),
+            "client should receive Envoy's 200 response through the tunnel, got: {:?}",
+            String::from_utf8_lossy(&out)
+        );
+    }
+
+    #[tokio::test]
+    async fn bridge_preserves_proxy_authorization_when_terminating_connect() {
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("http.sock");
+
+        let server_sock = sock.clone();
+        let uds = UnixListener::bind(&server_sock).unwrap();
+        let seen = std::sync::Arc::new(tokio::sync::Mutex::new(String::new()));
+        let seen_w = seen.clone();
+        tokio::spawn(async move {
+            let (mut conn, _) = uds.accept().await.unwrap();
+            let mut buf = [0u8; 1024];
+            let n = conn.read(&mut buf).await.unwrap();
+            *seen_w.lock().await = String::from_utf8_lossy(&buf[..n]).to_string();
+            conn.write_all(b"HTTP/1.1 200 OK\r\ncontent-length:2\r\nconnection:close\r\n\r\nok")
+                .await
+                .unwrap();
+            conn.flush().await.unwrap();
+        });
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let up = sock.clone();
+        tokio::spawn(async move {
+            let (client, _) = listener.accept().await.unwrap();
+            proxy_connection(client, &up).await.unwrap();
+        });
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        client
+            .write_all(
+                b"CONNECT ai-api.jdcloud.com:80 HTTP/1.1\r\nHost: ai-api.jdcloud.com:80\r\nProxy-Authorization: Basic c2FuZGJveDp0b2tlbg==\r\n\r\n",
+            )
+            .await
+            .unwrap();
+        client.flush().await.unwrap();
+        let mut ack = [0u8; 64];
+        let _ = client.read(&mut ack).await.unwrap();
+        client
+            .write_all(b"POST /v1/chat/completions HTTP/1.1\r\nHost: ai-api.jdcloud.com\r\ncontent-length:2\r\n\r\n{}")
+            .await
+            .unwrap();
+        client.flush().await.unwrap();
+
+        let mut out = Vec::new();
+        client.read_to_end(&mut out).await.unwrap();
+
+        assert!(String::from_utf8_lossy(&out).contains("ok"));
+        assert!(
+            seen.lock()
+                .await
+                .contains("Proxy-Authorization: Basic c2FuZGJveDp0b2tlbg==\r\n"),
+            "Envoy route authentication must survive CONNECT termination"
+        );
     }
 
     /// A connection that arrives before the upstream socket exists retries and

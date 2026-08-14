@@ -1,22 +1,18 @@
 # JoySafeter Backend
 
-JoySafeter 的后端服务（FastAPI），提供 API、鉴权、多租户、技能系统、任务调度、沙箱编排与事件落库能力。
+后端运行时由 Python API、Rust orchestrator 和 Python worker 组成，提供鉴权、多租户、技能系统、
+任务调度、沙箱编排与事件落库能力。
 
 > 说明：本文件只保留 **后端本地开发** 的最短路径；Docker/生产部署请统一以 `deploy/` 文档为准，避免重复与不一致。
 
 ## 快速开始（本地开发）
 
-### 1) 安装依赖（uv）
+### 1) 安装依赖
 
 ```bash
 cd backend
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv venv
-source .venv/bin/activate
-uv sync
+uv sync --dev
 ```
-
-> PyPI 镜像（可选）：通过环境变量 `UV_INDEX_URL` 或在 `.env` 中设置。项目默认使用清华镜像以加速下载。
 
 ### 2) 配置环境变量
 
@@ -48,9 +44,9 @@ cd backend
 uv run uvicorn app.joysafeter_api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## 三服务启动方式
+## 服务启动方式
 
-Python 进程只承载 API 与 worker；orchestrator 已迁移到 Rust。生产或压测时使用显式服务角色：
+需要分别调试服务时，使用以下当前入口：
 
 ```bash
 # API：HTTP、WebSocket、管理接口
@@ -80,7 +76,6 @@ uv run uvicorn app.joysafeter_worker.main:app --host 127.0.0.1 --port 8002 --wor
 - Rust orchestrator 需要扩容时启动多个实例，并为每个实例配置唯一 `JOYSAFETER_INSTANCE_ID`。
 - 三个服务共享同一套 PostgreSQL / Redis；服务之间通过 DB 状态和 Redis 唤醒/协调通信。
 - 三服务模式建议开启 `JOYSAFETER_EVENT_STREAM_ENABLED=true`，让 orchestrator 把高频 JoySafeter event 写入 Redis Stream，再由 `worker` 批量消费落库。
-- `JOYSAFETER_EVENT_STREAM_FALLBACK_TO_DB=true` 时，如果 orchestrator 写 Redis Stream 失败，会自动降级为本地 DB 落库，避免事件直接丢失。
 - worker 只有在批量落库成功后才 ACK Redis Stream；未 ACK 的 pending 消息会在 `JOYSAFETER_EVENT_STREAM_PENDING_IDLE_MS` 后被其他 worker 自动认领恢复。
 
 Docker Compose 可启动完整本地三服务栈：
@@ -89,6 +84,8 @@ Docker Compose 可启动完整本地三服务栈：
 cd deploy
 ./deploy.sh doctor
 ./deploy.sh local
+# 后续复用现有镜像快速启动
+./deploy.sh up
 ```
 
 `doctor` 只做 Docker/Compose/env/SkillSpector/socket/端口预检，不启动容器；
@@ -130,7 +127,7 @@ app/
 
 ## Triggers 触发器
 
-触发器让 Agent **自动运行**：按 cron 周期或一次性时间（`type=cron`），或被入站签名 webhook（`type=webhook`）触发。所有触发器统一走 `/api/v1/triggers`（旧的 `/schedules` 已下线）。cron 触发由 worker 内的 scheduler 以 `FOR UPDATE SKIP LOCKED` 认领执行，内置重试/退避，连续失败达到阈值会自动禁用（dead-letter）。
+触发器让 Agent **自动运行**：按 cron 周期或一次性时间（`type=cron`），或被入站签名 webhook（`type=webhook`）触发。所有触发器统一走 `/api/v1/triggers`。cron 触发由 worker 内的 scheduler 以 `FOR UPDATE SKIP LOCKED` 认领执行，内置重试/退避，连续失败达到阈值会自动禁用（dead-letter）。
 
 ### 端点一览
 
@@ -155,7 +152,7 @@ curl -X POST http://localhost:8000/api/v1/triggers \
   -d '{
     "name": "daily-report",
     "type": "cron",
-    "agent_id": "<agent-uuid>",
+    "agent_id": "agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001",
     "prompt_template": "生成今天的巡检报告",
     "cron_expr": "0 9 * * *",
     "timezone": "Asia/Shanghai",
@@ -176,7 +173,7 @@ curl -X POST http://localhost:8000/api/v1/triggers \
   -d '{
     "name": "on-alert",
     "type": "webhook",
-    "agent_id": "<agent-uuid>",
+    "agent_id": "agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001",
     "prompt_template": "处理告警：{{ body.alert.name }}",
     "secret_ref": "<vault-key>",
     "auth_methods": ["hmac"]
@@ -212,9 +209,10 @@ pytest
 pytest --cov=app
 ```
 
-## 部署入口（统一文档）
+## 构建与部署
 
-- 一键启动 / 场景化脚本 / 生产部署：[`deploy/README.md`](../deploy/README.md)
+- 完整安装、镜像构建和部署：[`deploy/README.md`](../deploy/README.md)
+- 宿主机开发与测试：[`DEVELOPMENT.md`](../DEVELOPMENT.md)
 
 ## License
 

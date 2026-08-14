@@ -7,6 +7,7 @@ mod config;
 mod db;
 mod events;
 mod grpc;
+mod ids;
 mod kernel;
 mod runtime_config;
 mod sandbox;
@@ -214,9 +215,9 @@ async fn main() -> anyhow::Result<()> {
     spawn_health_server(9091, ready_flag.clone());
 
     // Provider startup: Envoy init, DB recovery, ImageBuilder, etc.
-    if let Err(e) = sandbox_provider.on_startup(&db_pool).await {
-        warn!("Provider on_startup failed: {e}");
-    }
+    // Fail-closed: if egress control cannot initialize or recover, abort startup
+    // rather than becoming ready and serving sandboxes without enforcement.
+    sandbox_provider.on_startup(&db_pool).await?;
 
     // Initialize HA components (bridge store, task dispatcher, xDS store)
     let ha = kernel::ha::build_ha_components(
@@ -512,7 +513,6 @@ fn spawn_health_server(port: u16, ready: Arc<AtomicBool>) {
             let Ok((mut stream, _)) = listener.accept().await else {
                 continue;
             };
-            let is_ready = ready.load(Ordering::Acquire);
             let ready_clone = ready.clone();
             tokio::spawn(async move {
                 let mut buf = [0u8; 512];

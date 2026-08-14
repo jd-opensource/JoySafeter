@@ -21,7 +21,6 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
 from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
-from app.joysafeter_domain.models.joysafeter_vault import JoySafeterVault
 from app.joysafeter_domain.schemas.joysafeter_session import (
     AgentRef,
     CreateSessionRequest,
@@ -31,9 +30,10 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
 )
 from app.joysafeter_domain.services.joysafeter_session_resource_service import SessionResourceService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
-from app.joysafeter_domain.services.joysafeter_vault_cipher import VaultCipher
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import FileId, MemoryStoreId, SessionResourceId
+from app.joysafeter_shared.security.credential_cipher import CredentialCipher
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -143,7 +143,7 @@ async def _session_count(db_session) -> int:
 @pytest.mark.asyncio
 async def test_create_session_missing_memory_store_returns_structured_error_without_creating_session(db_session):
     agent = await _create_agent(db_session)
-    missing_store_id = uuid.uuid4()
+    missing_store_id = MemoryStoreId.new()
     req = CreateSessionRequest(
         agent_id=agent.id,
         resources=[SessionResourceRequest(memory_store_id=missing_store_id)],
@@ -358,7 +358,7 @@ async def test_session_service_rejects_duplicate_memory_attach_before_unique_con
 @pytest.mark.asyncio
 async def test_create_session_missing_file_resource_returns_structured_error_without_creating_session(db_session):
     agent = await _create_agent(db_session)
-    missing_file_id = f"file_{uuid.uuid4()}"
+    missing_file_id = FileId.new()
     req = CreateSessionRequest(
         agent_id=agent.id,
         file_resources=[SessionFileResourceRequest(file_id=missing_file_id)],
@@ -370,7 +370,7 @@ async def test_create_session_missing_file_resource_returns_structured_error_wit
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "SESSION_FILE_NOT_FOUND",
         "message": f"File not found: {missing_file_id}",
-        "data": {"file_id": missing_file_id},
+        "data": {"file_id": str(missing_file_id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -386,8 +386,8 @@ async def test_create_session_duplicate_file_mount_path_returns_structured_error
     req = CreateSessionRequest(
         agent_id=agent.id,
         file_resources=[
-            SessionFileResourceRequest(file_id=f"file_{first_file.id}", mount_path="/workspace/shared.txt"),
-            SessionFileResourceRequest(file_id=f"file_{second_file.id}", mount_path="/workspace/dir/../shared.txt"),
+            SessionFileResourceRequest(file_id=first_file.id, mount_path="/workspace/shared.txt"),
+            SessionFileResourceRequest(file_id=second_file.id, mount_path="/workspace/dir/../shared.txt"),
         ],
     )
 
@@ -397,7 +397,7 @@ async def test_create_session_duplicate_file_mount_path_returns_structured_error
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "SESSION_FILE_MOUNT_PATH_CONFLICT",
         "message": "File mount_path is already used by another session file resource: /workspace/shared.txt",
-        "data": {"mount_path": "/workspace/shared.txt", "file_id": f"file_{second_file.id}"},
+        "data": {"mount_path": "/workspace/shared.txt", "file_id": str(second_file.id)},
         "source": "api",
         "retryable": False,
         "user_action": "fix_input",
@@ -460,7 +460,7 @@ async def test_create_session_file_and_repo_share_workspace_namespace_without_cr
     file = await _create_file(db_session, project.id, "api")
     req = CreateSessionRequest(
         agent_id=agent.id,
-        file_resources=[SessionFileResourceRequest(file_id=f"file_{file.id}")],
+        file_resources=[SessionFileResourceRequest(file_id=file.id)],
         repo_resources=[SessionRepoResourceRequest(url="https://github.com/acme/api.git")],
     )
 
@@ -480,8 +480,8 @@ async def test_create_session_file_and_repo_share_workspace_namespace_without_cr
 
 @pytest.mark.asyncio
 async def test_session_repo_resources_keep_token_encrypted_and_never_echoed(db_session, monkeypatch):
-    cipher = VaultCipher(VaultCipher.generate_key())
-    monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_secret_service._cipher", cipher)
+    cipher = CredentialCipher(CredentialCipher.generate_key())
+    monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_credential_service._cipher", cipher)
 
     agent = await _create_agent(db_session)
     response = await create_session(
@@ -515,7 +515,7 @@ async def test_session_repo_resources_keep_token_encrypted_and_never_echoed(db_s
 
     await update_repo_resource_token(
         response.id,
-        f"sesrsc_{repo_id}",
+        repo_id,
         UpdateRepoResourceRequest(authorization_token="rotated-token"),
         _auth_ctx(),
         db_session,
@@ -532,8 +532,8 @@ async def test_session_repo_resources_keep_token_encrypted_and_never_echoed(db_s
 
 @pytest.mark.asyncio
 async def test_session_resource_service_keeps_parent_project_boundary_for_repo_children(db_session, monkeypatch):
-    cipher = VaultCipher(VaultCipher.generate_key())
-    monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_secret_service._cipher", cipher)
+    cipher = CredentialCipher(CredentialCipher.generate_key())
+    monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_credential_service._cipher", cipher)
     project, session = await _create_project_session(db_session, "SessionResourceSvcProject")
     other_project, _ = await _create_project_session(db_session, "SessionResourceSvcOtherProject")
     project_id = project.id
@@ -550,7 +550,7 @@ async def test_session_resource_service_keeps_parent_project_boundary_for_repo_c
     await db_session.commit()
     await db_session.refresh(row)
     session_id = session.id
-    resource_id = f"sesrsc_{row.id}"
+    resource_id = row.id
     raw_row_id = row.id
     svc = SessionResourceService(db_session)
 
@@ -566,7 +566,7 @@ async def test_session_resource_service_keeps_parent_project_boundary_for_repo_c
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "SESSION_REPO_RESOURCE_NOT_FOUND",
         "message": "Repo resource not found",
-        "data": {"session_id": str(session_id), "resource_id": resource_id},
+        "data": {"session_id": str(session_id), "resource_id": str(resource_id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -577,7 +577,7 @@ async def test_session_resource_service_keeps_parent_project_boundary_for_repo_c
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "SESSION_RESOURCE_NOT_FOUND",
         "message": "Resource not found",
-        "data": {"session_id": str(session_id), "resource_id": resource_id},
+        "data": {"session_id": str(session_id), "resource_id": str(resource_id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -624,7 +624,7 @@ async def test_create_session_archived_environment_returns_structured_error_with
     await db_session.commit()
     await db_session.refresh(env)
 
-    environment_id = f"env_{env.id}"
+    environment_id = str(env.id)
     req = CreateSessionRequest(agent_id=agent.id, environment_id=environment_id)
 
     with pytest.raises(AppError) as exc_info:
@@ -667,11 +667,11 @@ async def test_create_session_pinned_agent_version_uses_snapshot_environment(db_
     agent = JoySafeterAgent(
         name=f"pinned-session-agent-{uuid.uuid4()}",
         version=2,
-        environment_ref=f"env_{live_env.id}",
+        environment_ref=str(live_env.id),
     )
     db_session.add(agent)
     await db_session.flush()
-    pinned_ref = f"env_{pinned_env.id}"
+    pinned_ref = str(pinned_env.id)
     db_session.add(
         JoySafeterAgentVersion(
             agent_id=agent.id,
@@ -687,7 +687,7 @@ async def test_create_session_pinned_agent_version_uses_snapshot_environment(db_
                 "agents": [],
                 "commands": [],
                 "tools": [],
-                "mcp_configs": [],
+                "mcp_servers": [],
                 "environment_ref": pinned_ref,
             },
         )
@@ -733,31 +733,6 @@ async def test_create_session_archived_agent_returns_structured_error_without_cr
 
 
 @pytest.mark.asyncio
-async def test_create_session_archived_vault_returns_structured_error_without_creating_session(db_session):
-    agent = await _create_agent(db_session)
-    vault = JoySafeterVault(name=f"archived-session-vault-{uuid.uuid4()}", description="", archived_at=utc_now())
-    db_session.add(vault)
-    await db_session.commit()
-    await db_session.refresh(vault)
-
-    vault_ref = f"vault_{vault.id}"
-    req = CreateSessionRequest(agent_id=agent.id, vault_ids=[vault_ref])
-
-    with pytest.raises(AppError) as exc_info:
-        await create_session(req, db_session, _auth_ctx())
-
-    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
-        "code": "SESSION_VAULT_ARCHIVED",
-        "message": f"Vault is archived: {vault_ref}",
-        "data": {"vault_id": vault_ref},
-        "source": "api",
-        "retryable": False,
-        "user_action": "refresh",
-    }
-    assert await _session_count(db_session) == 0
-
-
-@pytest.mark.asyncio
 async def test_add_session_resource_rejects_non_object_body_with_structured_error(db_session):
     session = await _create_session(db_session)
 
@@ -777,7 +752,7 @@ async def test_add_session_resource_rejects_non_object_body_with_structured_erro
 @pytest.mark.asyncio
 async def test_add_session_resource_missing_file_returns_structured_error(db_session):
     session = await _create_session(db_session)
-    missing_file_id = f"file_{uuid.uuid4()}"
+    missing_file_id = FileId.new()
 
     with pytest.raises(AppError) as exc_info:
         await add_session_resource(session.id, {"type": "file", "file_id": missing_file_id}, _auth_ctx(), db_session)
@@ -785,7 +760,7 @@ async def test_add_session_resource_missing_file_returns_structured_error(db_ses
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "SESSION_FILE_NOT_FOUND",
         "message": f"File not found: {missing_file_id}",
-        "data": {"session_id": str(session.id), "file_id": missing_file_id},
+        "data": {"session_id": str(session.id), "file_id": str(missing_file_id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -801,14 +776,14 @@ async def test_session_resource_service_rejects_file_mount_path_collision_before
 
     await svc.add_file_resource(
         session.id,
-        SessionFileResourceRequest(file_id=f"file_{first_file.id}", mount_path="/workspace/shared.txt"),
+        SessionFileResourceRequest(file_id=first_file.id, mount_path="/workspace/shared.txt"),
         project_id=project.id,
     )
 
     with pytest.raises(AppError) as exc_info:
         await svc.add_file_resource(
             session.id,
-            SessionFileResourceRequest(file_id=f"file_{second_file.id}", mount_path="/workspace/./shared.txt"),
+            SessionFileResourceRequest(file_id=second_file.id, mount_path="/workspace/./shared.txt"),
             project_id=project.id,
         )
 
@@ -818,7 +793,7 @@ async def test_session_resource_service_rejects_file_mount_path_collision_before
         "data": {
             "session_id": str(session.id),
             "mount_path": "/workspace/shared.txt",
-            "file_id": f"file_{second_file.id}",
+            "file_id": str(second_file.id),
         },
         "source": "api",
         "retryable": False,
@@ -932,7 +907,7 @@ async def test_session_resource_service_rejects_repo_file_mount_path_collision_b
 
     await svc.add_file_resource(
         session.id,
-        SessionFileResourceRequest(file_id=f"file_{file.id}"),
+        SessionFileResourceRequest(file_id=file.id),
         project_id=project.id,
     )
 
@@ -964,30 +939,13 @@ async def test_session_resource_service_rejects_repo_file_mount_path_collision_b
 
 
 @pytest.mark.asyncio
-async def test_delete_session_resource_invalid_id_returns_structured_error(db_session):
-    session = await _create_session(db_session)
-
-    with pytest.raises(AppError) as exc_info:
-        await delete_session_resource(session.id, "sesrsc_not-a-uuid", _auth_ctx(), db_session)
-
-    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
-        "code": "SESSION_RESOURCE_ID_INVALID",
-        "message": "Invalid resource_id",
-        "data": {"session_id": str(session.id), "resource_id": "sesrsc_not-a-uuid"},
-        "source": "api",
-        "retryable": False,
-        "user_action": "fix_input",
-    }
-
-
-@pytest.mark.asyncio
 async def test_delete_session_resource_rejects_archived_session_before_resource_lookup(db_session):
     session = await _create_session(db_session)
     session.archived_at = utc_now()
     await db_session.commit()
 
     with pytest.raises(AppError) as exc_info:
-        await delete_session_resource(session.id, f"sesrsc_{uuid.uuid4()}", _auth_ctx(), db_session)
+        await delete_session_resource(session.id, SessionResourceId.new(), _auth_ctx(), db_session)
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "SESSION_ARCHIVED",
@@ -1021,7 +979,7 @@ async def test_rotate_repo_resource_rejects_running_session_without_mutating_tok
     with pytest.raises(AppError) as exc_info:
         await update_repo_resource_token(
             session.id,
-            f"sesrsc_{repo_id}",
+            repo_id,
             UpdateRepoResourceRequest(authorization_token="new-token"),
             _auth_ctx(),
             db_session,

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -27,6 +26,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_user_admin,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import StorageMountAuditId, StorageVolumeId
 
 router = APIRouter(tags=["joysafeter-storage-volumes"])
 
@@ -34,8 +34,8 @@ router = APIRouter(tags=["joysafeter-storage-volumes"])
 class PaginatedStorageMountAuditResponse(BaseModel):
     data: list[StorageMountAuditResponse]
     has_more: bool
-    first_id: Optional[str] = None
-    last_id: Optional[str] = None
+    first_id: Optional[StorageMountAuditId] = None
+    last_id: Optional[StorageMountAuditId] = None
 
 
 @router.get("/catalog")
@@ -88,10 +88,10 @@ async def create_storage_volume(
 
 @router.get("/audit/logs")
 async def list_storage_mount_audit(
-    volume_id: Optional[uuid.UUID] = Query(None),
+    volume_id: Optional[StorageVolumeId] = Query(None),
     q: str = Query("", max_length=100),
     limit: int = Query(100, ge=1, le=500),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[StorageMountAuditId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> PaginatedStorageMountAuditResponse:
@@ -113,14 +113,14 @@ async def list_storage_mount_audit(
     return PaginatedStorageMountAuditResponse(
         data=[StorageMountAuditResponse.model_validate(row) for row in rows],
         has_more=has_more,
-        first_id=str(rows[0].id) if rows else None,
-        last_id=str(rows[-1].id) if rows else None,
+        first_id=rows[0].id if rows else None,
+        last_id=rows[-1].id if rows else None,
     )
 
 
 @router.get("/{volume_id}")
 async def get_storage_volume(
-    volume_id: uuid.UUID,
+    volume_id: StorageVolumeId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> StorageVolumeResponse:
@@ -144,7 +144,7 @@ async def get_storage_volume(
 @router.post("/{volume_id}")
 async def update_storage_volume(
     req: UpdateStorageVolumeRequest,
-    volume_id: uuid.UUID,
+    volume_id: StorageVolumeId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
 ) -> StorageVolumeResponse:
@@ -157,7 +157,7 @@ async def update_storage_volume(
 
 @router.delete("/{volume_id}")
 async def delete_storage_volume(
-    volume_id: uuid.UUID,
+    volume_id: StorageVolumeId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
 ) -> dict[str, bool]:
@@ -170,7 +170,7 @@ async def delete_storage_volume(
 @router.post("/{volume_id}/grants", status_code=201)
 async def upsert_storage_volume_grant(
     req: StorageProjectGrantInput,
-    volume_id: uuid.UUID,
+    volume_id: StorageVolumeId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> StorageProjectGrantResponse:
@@ -185,7 +185,7 @@ async def upsert_storage_volume_grant(
 
 @router.delete("/{volume_id}/grants/{project_id}")
 async def delete_storage_volume_grant(
-    volume_id: uuid.UUID,
+    volume_id: StorageVolumeId,
     project_id: str,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
@@ -204,7 +204,7 @@ async def delete_storage_volume_grant(
 @router.post("/{volume_id}/organization-grants", status_code=201)
 async def upsert_storage_volume_organization_grant(
     req: StorageOrganizationGrantInput,
-    volume_id: uuid.UUID,
+    volume_id: StorageVolumeId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
 ) -> StorageOrganizationGrantResponse:
@@ -214,7 +214,7 @@ async def upsert_storage_volume_organization_grant(
 
 @router.delete("/{volume_id}/organization-grants/{org_id}")
 async def delete_storage_volume_organization_grant(
-    volume_id: uuid.UUID,
+    volume_id: StorageVolumeId,
     org_id: str,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),

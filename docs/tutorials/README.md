@@ -1,7 +1,5 @@
 # JoySafeter 使用教程
 
-> **状态：** 已按 v2 真实代码核对（2026-07-03）。
-
 本目录包含 JoySafeter 的实战教程，以真实场景为导向，帮助你快速上手平台核心功能。
 
 ---
@@ -10,14 +8,10 @@
 
 | # | 教程 | 核心内容 | 难度 |
 |---|------|---------|------|
-| 01 | [模型配置：用 Secrets 管理供应商密钥](./01-model-provider-setup.md) | 资源 → 密钥（`/managed/secrets`）配置 Anthropic / OpenAI 兼容端点；密钥经容器 env 注入沙箱 | ⭐ 入门 |
-| 02 | [为 Agent 接入 MCP 工具](./02-mcp-service-setup.md) | 在 Agent 编辑器配置 `mcp_configs`；凭据放托管智能体 → 凭证库（`/managed/vaults`）；运行时经 gRPC 下发 | ⭐⭐ 进阶 |
-| 03 | [Skills 的导入、安全扫描、投递与消费](./03-skills-usage.md) | SKILL.md → skillspector 扫描 → SkillPacker 打包 → 沙箱解压消费的闭环 | ⭐⭐ 进阶 |
+| 01 | [引擎、协议、模型供应商与模型配置](./01-model-provider-setup.md) | 通过统一 LLM Catalog 创建 Provider/Protocol 模型配置，并按 Engine 兼容性选择 | ⭐ 入门 |
+| 02 | [为 Agent 接入 MCP 工具](./02-mcp-service-setup.md) | 在 Agent 编辑器配置 URL 型 `mcp_servers`；凭据放托管智能体 → MCP 凭据库（`/managed/vaults`）；运行时经 gRPC 下发 | ⭐⭐ 进阶 |
+| 03 | [Skills 的导入、安全扫描、投递与消费](./03-skills-usage.md) | SKILL.md → skillspector 扫描 → Rust orchestrator 打包 → 沙箱解压消费的闭环 | ⭐⭐ 进阶 |
 | 04 | [构建并运行一个 Agent](./04-agent-build-and-run.md) | 引擎/模型/技能/工具/MCP 组装 → 开 Session → SSE 实时观察 → 干预/停止 | ⭐⭐ 进阶 |
-
-> **v1 用户注意**：DeepAgents 可视化图画布、Code 模式（浏览器写 LangGraph）、Copilot 图生成器等功能
-> 已在 v2 移除，相关教程（04b / 04c / 05）已删除。v2 的 Agent 是声明式定义 + 沙箱内 CLI harness 执行，
-> 对应新教程 04。
 
 ---
 
@@ -32,7 +26,7 @@
 
 1. 完成快速开始。
 2. **教程 03**：导入一个技能包，跑通“扫描 → approved → 挂到 Agent → 沙箱消费”闭环。
-3. **教程 02**：给 Agent 接入一个 MCP 工具（凭据放 Vaults）。
+3. **教程 02**：给 Agent 接入一个 MCP 工具（凭据放 MCP 凭据库）。
 4. **教程 04**：把工具 / 技能 / MCP 组合进同一个 Agent，构建自动化工作流。
 
 ### 🏆 进阶应用

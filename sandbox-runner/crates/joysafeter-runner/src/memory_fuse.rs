@@ -8,7 +8,7 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
@@ -86,7 +86,7 @@ impl MemoryFuseFs {
             FileAttr {
                 ino,
                 size: f.content.len() as u64,
-                blocks: (f.content.len() as u64 + BLOCK_SIZE as u64 - 1) / BLOCK_SIZE as u64,
+                blocks: (f.content.len() as u64).div_ceil(BLOCK_SIZE as u64),
                 atime: f.modified_at,
                 mtime: f.modified_at,
                 ctime: f.created_at,
@@ -170,14 +170,8 @@ impl Filesystem for MemoryFuseFs {
             format!("{parent_path}/{name_str}")
         };
 
-        let files = self.files.read().unwrap();
-        if files.contains_key(&child_path) {
-            drop(files);
-            let ino = self.get_or_create_inode(&child_path);
-            let attr = self.file_attr(ino, &child_path);
-            reply.entry(&TTL, &attr, 0);
-        } else if self.is_dir(&child_path) {
-            drop(files);
+        let is_file = self.files.read().unwrap().contains_key(&child_path);
+        if is_file || self.is_dir(&child_path) {
             let ino = self.get_or_create_inode(&child_path);
             let attr = self.file_attr(ino, &child_path);
             reply.entry(&TTL, &attr, 0);

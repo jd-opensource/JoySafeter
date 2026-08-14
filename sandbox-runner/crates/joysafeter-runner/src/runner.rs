@@ -30,7 +30,6 @@ pub struct SessionConfig {
 pub struct TaskMetadata {
     pub work_dir: String,
     pub session_id: Option<String>,
-    pub aborted: bool,
 }
 
 pub enum RunnerControl {
@@ -311,7 +310,6 @@ pub async fn handle_task(
         return Ok(TaskMetadata {
             work_dir: work_dir_str,
             session_id: task.session_id,
-            aborted: true,
         });
     }
 
@@ -369,7 +367,6 @@ pub async fn handle_task(
     Ok(TaskMetadata {
         work_dir: work_dir_str,
         session_id: result_session_id,
-        aborted: false,
     })
 }
 
@@ -563,10 +560,10 @@ async fn run_setup_commands(
 /// Resolve the skill directory layout for a given engine/provider.
 ///
 /// Each agent CLI discovers skills from a different directory convention:
-///   - Claude Code / native (claude binary) → `<work_dir>/.claude/skills/...`
-///   - Codex                                → `<work_dir>/.agents/skills/...`
-///     (codex scans `.agents/skills` from cwd up to the project root, see
-///      codex-rs/core-skills/src/loader.rs `repo_agents_skill_roots`)
+/// - Claude Code / native (claude binary) → `<work_dir>/.claude/skills/...`
+/// - Codex → `<work_dir>/.agents/skills/...`
+///   (codex scans `.agents/skills` from cwd up to the project root, see
+///   codex-rs/core-skills/src/loader.rs `repo_agents_skill_roots`)
 ///
 /// `target` is the leaf subdir name supplied by the orchestrator (always
 /// "skills" today); we honour it under the engine-specific parent so future
@@ -574,13 +571,14 @@ async fn run_setup_commands(
 fn skill_base_dir(work_dir: &Path, provider: &str, target: &str) -> PathBuf {
     match provider {
         "codex" => work_dir.join(".agents").join(target),
+        "pi" => work_dir.join(".pi").join(target),
         // "claude", "native", and anything else default to Claude's layout.
         _ => work_dir.join(".claude").join(target),
     }
 }
 
 async fn unpack_skills(
-    work_dir: &PathBuf,
+    work_dir: &Path,
     skills: &[proto::SkillArchive],
     provider: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -779,7 +777,7 @@ async fn write_initial_memory_files(
 }
 
 async fn write_settings_json(
-    work_dir: &PathBuf,
+    work_dir: &Path,
     provider: &str,
     mcp_servers: &[proto::McpConfig],
     custom_tools: &[proto::CustomTool],
@@ -887,7 +885,7 @@ async fn write_settings_json(
 /// `streamable-http` as an alias; `sse` is honored when explicitly requested).
 /// Local servers use `command` / `args` / `env`.
 async fn write_mcp_json(
-    work_dir: &PathBuf,
+    work_dir: &Path,
     mcp_servers: &[proto::McpConfig],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mcp_json_path = work_dir.join(".mcp.json");
@@ -988,6 +986,12 @@ pub async fn handle_memory_update(update: proto::MemoryFileUpdate, config: &Sess
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skill_base_dir_pi_uses_dot_pi() {
+        let base = skill_base_dir(std::path::Path::new("/w"), "pi", "skills");
+        assert_eq!(base, std::path::Path::new("/w/.pi/skills"));
+    }
 
     #[test]
     fn dedupe_only_applies_to_structured_live_input() {

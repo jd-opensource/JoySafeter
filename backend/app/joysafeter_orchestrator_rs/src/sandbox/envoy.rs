@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::ids::SandboxId;
 use bollard::container::{
     Config, CreateContainerOptions, RemoveContainerOptions, RestartContainerOptions,
     StartContainerOptions, WaitContainerOptions,
@@ -12,19 +13,17 @@ use futures::TryStreamExt;
 use serde_json::json;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
-use uuid::Uuid;
 
 use super::lds_backend::{
-    validate_egress_policy, CdsBackend, LdsBackend, ListenerKind, ListenerSpec, SandboxCredentials,
+    validate_egress_policy, LdsBackend, ListenerKind, ListenerSpec, SandboxCredentials,
     SandboxEgressPolicy,
 };
 
 /// Per-sandbox network isolation via a shared Envoy proxy sidecar container.
 ///
-/// Listener config is delivered through a pluggable [`LdsBackend`] and per-upstream
-/// clusters through a [`CdsBackend`] — either the filesystem path
-/// (`lds.json`/`cds.json`) or Delta gRPC xDS — selected by
-/// [`EnvoyConfig::xds_mode`]. The bootstrap written here is generated to match
+/// Listener config is delivered through a pluggable [`LdsBackend`] using either
+/// the filesystem path or Delta gRPC xDS, selected by [`EnvoyConfig::xds_mode`].
+/// The bootstrap written here is generated to match
 /// the active mode. Everything else (socket dirs, the wait-for-sockets loop, the
 /// data plane) is identical across modes. The authoritative config lives in the
 /// backends; a per-sandbox JSON file is still written under
@@ -33,7 +32,7 @@ pub struct EnvoyManager {
     docker: Arc<Docker>,
     config: EnvoyConfig,
     lds: Arc<dyn LdsBackend>,
-    sandbox_apply_locks: Mutex<HashMap<Uuid, Arc<Mutex<()>>>>,
+    sandbox_apply_locks: Mutex<HashMap<SandboxId, Arc<Mutex<()>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -78,7 +77,7 @@ impl EnvoyManager {
         }
     }
 
-    async fn sandbox_apply_lock(&self, sandbox_id: Uuid) -> Arc<Mutex<()>> {
+    async fn sandbox_apply_lock(&self, sandbox_id: SandboxId) -> Arc<Mutex<()>> {
         let mut locks = self.sandbox_apply_locks.lock().await;
         locks
             .entry(sandbox_id)
@@ -86,7 +85,7 @@ impl EnvoyManager {
             .clone()
     }
 
-    async fn cleanup_sandbox_apply_lock(&self, sandbox_id: Uuid, lock: &Arc<Mutex<()>>) {
+    async fn cleanup_sandbox_apply_lock(&self, sandbox_id: SandboxId, lock: &Arc<Mutex<()>>) {
         let mut locks = self.sandbox_apply_locks.lock().await;
         if locks
             .get(&sandbox_id)
@@ -105,7 +104,7 @@ impl EnvoyManager {
     /// Envoy binds its listener pipe there. In Docker-volume mode there is no
     /// host path to prepare; Docker creates the volume directory inside the Linux
     /// VM and Envoy creates the final socket path when it applies LDS.
-    pub async fn prepare_socket_dir(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+    pub async fn prepare_socket_dir(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         if self.config.skip_socket_dir_prep {
             return Ok(()); // K8s: handled by pod initContainer
         }
@@ -122,8 +121,9 @@ impl EnvoyManager {
         Ok(())
     }
 
-    async fn prepare_socket_dir_in_volume(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        let helper_name = format!("joysafeter-envoy-socket-init-{sandbox_id}");
+    async fn prepare_socket_dir_in_volume(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
+        let sandbox_uuid = sandbox_id.as_uuid();
+        let helper_name = format!("joysafeter-envoy-socket-init-{sandbox_uuid}");
         let _ = self
             .docker
             .remove_container(
@@ -136,7 +136,7 @@ impl EnvoyManager {
             .await;
 
         let mkdir_cmd =
-            format!("mkdir -p /sockets/{sandbox_id} && chmod 755 /sockets/{sandbox_id}");
+            format!("mkdir -p /sockets/{sandbox_uuid} && chmod 755 /sockets/{sandbox_uuid}");
         let container_config = Config {
             image: Some(self.config.envoy_image.clone()),
             user: Some("0".to_string()),
@@ -196,7 +196,7 @@ impl EnvoyManager {
     /// (uid 1000) can connect without any post-hoc chmod. We still defensively
     /// re-apply 0666 on the host in case a restrictive umask altered the created
     /// socket file. No `docker exec`.
-    async fn secure_socket_files(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+    async fn secure_socket_files(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         if let Some(socket_dir) = self.host_socket_dir(sandbox_id) {
             #[cfg(unix)]
             {
@@ -213,11 +213,11 @@ impl EnvoyManager {
         Ok(())
     }
 
-    fn host_socket_dir(&self, sandbox_id: Uuid) -> Option<PathBuf> {
+    fn host_socket_dir(&self, sandbox_id: SandboxId) -> Option<PathBuf> {
         self.config
             .socket_host_dir
             .as_ref()
-            .map(|root| PathBuf::from(root).join(sandbox_id.to_string()))
+            .map(|root| PathBuf::from(root).join(sandbox_id.as_uuid().to_string()))
     }
 
     pub fn spawn_health_monitor(
@@ -383,8 +383,10 @@ impl EnvoyManager {
 
             // Recreate the socket dir; the Envoy container may have restarted and
             // lost /sockets contents. Envoy recreates the pipes once it accepts
-            // the pushed listeners.
-            let _ = self.prepare_socket_dir(sb.id).await;
+            // the pushed listeners. Fail-closed: if we cannot prepare a live
+            // sandbox's socket dir we abort recovery rather than leave it running
+            // without egress enforcement.
+            self.prepare_socket_dir(sb.id).await?;
 
             // Re-derive the sandbox's egress credentials from the DB and render
             // both its listener routes and its per-upstream clusters.
@@ -452,44 +454,31 @@ impl EnvoyManager {
     /// listener and never enter the sandbox.
     pub async fn add_sandbox_policy(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         policy: SandboxEgressPolicy,
     ) -> anyhow::Result<()> {
         self.add_sandbox_with_policy(sandbox_id, policy).await
     }
 
-    /// Backward-compatible entry point for legacy credential builders.
-    pub async fn add_sandbox(
-        &self,
-        sandbox_id: Uuid,
-        allowed_hosts: Vec<String>,
-        credentials: SandboxCredentials,
-    ) -> anyhow::Result<()> {
-        self.add_sandbox_with_policy(
-            sandbox_id,
-            credentials.to_policy(&sandbox_id, allowed_hosts),
-        )
-        .await
-    }
-
     async fn add_sandbox_with_policy(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         policy: SandboxEgressPolicy,
     ) -> anyhow::Result<()> {
         validate_egress_policy(&sandbox_id, &policy)?;
         // Create socket directory inside container.
         self.prepare_socket_dir(sandbox_id).await?;
-        let socket_dir = format!("/sockets/{sandbox_id}");
+        let sandbox_uuid = sandbox_id.as_uuid();
+        let socket_dir = format!("/sockets/{sandbox_uuid}");
 
         if self.config.write_debug_entries {
             // Write a per-sandbox entry file for debugging visibility only.
             // NOTE: never include secrets here — only the non-sensitive allowlist.
             let entry_json = json!({
-                "sandbox_id": sandbox_id.to_string(),
+                "sandbox_id": sandbox_uuid.to_string(),
                 "allowed_hosts": policy.allowlist_hosts,
             });
-            let entry_path = format!("/envoy-config/sandboxes/{sandbox_id}.json");
+            let entry_path = format!("/envoy-config/sandboxes/{sandbox_uuid}.json");
             self.write_config_file(&entry_path, &serde_json::to_string(&entry_json)?)
                 .await?;
         }
@@ -559,7 +548,7 @@ impl EnvoyManager {
 
     async fn wait_for_socket_readiness(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         _socket_dir: &str,
     ) -> anyhow::Result<bool> {
         let timeout =
@@ -590,7 +579,7 @@ impl EnvoyManager {
         Ok(false)
     }
 
-    async fn socket_dir_state(&self, sandbox_id: Uuid) -> String {
+    async fn socket_dir_state(&self, sandbox_id: SandboxId) -> String {
         let Some(host_socket_dir) = self.host_socket_dir(sandbox_id) else {
             return "JOYSAFETER_ENVOY_SOCKET_HOST_DIR is not configured".to_string();
         };
@@ -613,16 +602,12 @@ impl EnvoyManager {
     }
 
     /// Remove a sandbox from Envoy config.
-    async fn remove_sandbox_unlocked(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
-        // Drop the current HTTP egress listener plus the historical gRPC listener
-        // name so rolling upgrades clean up any Envoy-proxied runner control
-        // resources left by older versions. No per-sandbox clusters to remove —
-        // all routes point to the shared dynamic_forward_proxy clusters.
+    async fn remove_sandbox_unlocked(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
+        // No per-sandbox clusters to remove: all routes point to the shared
+        // dynamic_forward_proxy clusters.
+        let sandbox_uuid = sandbox_id.as_uuid();
         self.lds
-            .remove(vec![
-                format!("{sandbox_id}_grpc"),
-                format!("{sandbox_id}_http"),
-            ])
+            .remove(vec![format!("{sandbox_uuid}_http")])
             .await?;
 
         // Release retained per-sandbox ACK/NACK bookkeeping (grpc xDS backend)
@@ -636,7 +621,7 @@ impl EnvoyManager {
         if self.config.write_debug_entries {
             let entry = PathBuf::from(&self.config.config_dir)
                 .join("sandboxes")
-                .join(format!("{sandbox_id}.json"));
+                .join(format!("{sandbox_uuid}.json"));
             let _ = tokio::fs::remove_file(entry).await;
         }
 
@@ -644,7 +629,7 @@ impl EnvoyManager {
         Ok(())
     }
 
-    pub async fn remove_sandbox(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+    pub async fn remove_sandbox(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         let sandbox_lock = self.sandbox_apply_lock(sandbox_id).await;
         let _guard = tokio::time::timeout(std::time::Duration::from_secs(5), sandbox_lock.lock())
             .await
@@ -818,17 +803,20 @@ impl EnvoyManager {
     /// egress boundary.
     pub async fn setup_for_sandbox(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         networking_config: Option<&serde_json::Value>,
         credentials: SandboxCredentials,
     ) -> anyhow::Result<()> {
         let allowed_hosts = extract_allowed_hosts(networking_config);
-        self.add_sandbox(sandbox_id, allowed_hosts, credentials)
-            .await
+        self.add_sandbox_policy(
+            sandbox_id,
+            credentials.to_policy(&sandbox_id, allowed_hosts),
+        )
+        .await
     }
 
     /// Teardown networking for a sandbox.
-    pub async fn teardown_for_sandbox(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+    pub async fn teardown_for_sandbox(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         self.remove_sandbox(sandbox_id).await
     }
 }

@@ -5,7 +5,7 @@ import { AlertTriangle, ArrowLeft, FileQuestion, RefreshCw, ShieldAlert } from '
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
 
-type ManagedResourceKind =
+export type ManagedResourceKind =
   | 'agent'
   | 'apiKey'
   | 'environment'
@@ -18,11 +18,12 @@ type ManagedResourceKind =
   | 'trigger'
   | 'vault'
 
-type ErrorReason = 'forbidden' | 'notFound' | 'unknown'
+export type ErrorReason = 'forbidden' | 'notFound' | 'unknown'
 
 interface ResourceErrorStateProps {
   error?: unknown
   resource: ManagedResourceKind
+  reason?: ErrorReason
   backLabel?: string
   onBack?: () => void
   onRetry?: () => void
@@ -59,12 +60,13 @@ function getErrorReason(error: unknown): ErrorReason {
 export function ResourceErrorState({
   error,
   resource,
+  reason: reasonProp,
   backLabel,
   onBack,
   onRetry,
 }: ResourceErrorStateProps) {
   const { t } = useTranslation()
-  const reason = getErrorReason(error)
+  const reason = reasonProp ?? getErrorReason(error)
   const Icon =
     reason === 'forbidden' ? ShieldAlert : reason === 'notFound' ? FileQuestion : AlertTriangle
   const iconClassName =

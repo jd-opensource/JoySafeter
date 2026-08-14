@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use uuid::Uuid;
 
+use crate::ids::SandboxId;
 use crate::kernel::sandbox_bridge::{BridgeRegistry, SandboxBridge};
 
 use super::dispatch::dispatch_to_bridge;
@@ -49,7 +49,7 @@ impl BridgeStore for LocalBridgeStore {
         self.inner.get(external_id)
     }
 
-    fn get_by_db_id(&self, db_id: Uuid) -> Option<Arc<SandboxBridge>> {
+    fn get_by_db_id(&self, db_id: SandboxId) -> Option<Arc<SandboxBridge>> {
         self.inner.get_by_db_id(db_id)
     }
 
@@ -65,7 +65,7 @@ impl BridgeStore for LocalBridgeStore {
         self.inner.shutdown_all().await;
     }
 
-    async fn get_owner_instance(&self, _sandbox_id: Uuid) -> Option<String> {
+    async fn get_owner_instance(&self, _sandbox_id: SandboxId) -> Option<String> {
         Some("self".to_string())
     }
 
@@ -95,7 +95,7 @@ impl LocalTaskDispatcher {
 impl TaskDispatcher for LocalTaskDispatcher {
     async fn dispatch_command(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         command: DispatchCommand,
     ) -> anyhow::Result<()> {
         let bridge = self
@@ -126,7 +126,7 @@ impl LocalXdsStateStore {
 
 #[async_trait]
 impl XdsStateStore for LocalXdsStateStore {
-    async fn notify_change(&self, _sandbox_id: Uuid, _action: XdsAction) -> anyhow::Result<()> {
+    async fn notify_change(&self, _sandbox_id: SandboxId, _action: XdsAction) -> anyhow::Result<()> {
         Ok(())
     }
 }

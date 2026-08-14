@@ -98,6 +98,15 @@ export function getOperationErrorMessage(
   if (code === 'PROJECT_ARCHIVED') {
     return t('managed.errors.projectArchived')
   }
+  if (code === 'AGENT_ACTIVE_TASKS') {
+    return t('managed.errors.agentActiveTasks')
+  }
+  if (code === 'AGENT_ARCHIVED') {
+    return t('managed.errors.resourceArchived')
+  }
+  if (code === 'AGENT_VERSION_CONFLICT') {
+    return t('managed.errors.agentVersionConflict')
+  }
   if (code === 'NOT_FOUND' || code.endsWith('_NOT_FOUND')) {
     return t('managed.errors.resourceNotFound')
   }

@@ -23,6 +23,7 @@ from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import SandboxId, as_uuid
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -65,7 +66,7 @@ class _FakeCommandRedis:
 
 
 class _ExternalIdChangingDestroyAckRedis(_FakeCommandRedis):
-    def __init__(self, db_session, sandbox_id: uuid.UUID, new_external_id: str, *, owner: str | None = "owner-1"):
+    def __init__(self, db_session, sandbox_id: SandboxId, new_external_id: str, *, owner: str | None = "owner-1"):
         super().__init__(owner=owner)
         self.db_session = db_session
         self.sandbox_id = sandbox_id
@@ -80,7 +81,7 @@ class _ExternalIdChangingDestroyAckRedis(_FakeCommandRedis):
                     "SET external_id = :external_id, updated_at = NOW() "
                     "WHERE id = :sandbox_id"
                 ),
-                {"external_id": self.new_external_id, "sandbox_id": self.sandbox_id},
+                {"external_id": self.new_external_id, "sandbox_id": as_uuid(self.sandbox_id)},
             )
             await self.db_session.commit()
             self.changed = True

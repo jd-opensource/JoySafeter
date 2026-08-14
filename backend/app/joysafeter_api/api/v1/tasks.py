@@ -3,20 +3,19 @@ import hashlib
 import json
 import logging
 import time
-import uuid
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Header, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.services import JoySafeterAgentService as AgentService
-from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
-from app.joysafeter_api.services import JoySafeterTaskService as TaskService
-from app.joysafeter_api.services import SessionService
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRequest as CreateTaskRequest
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskResponse as CreateTaskResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterTaskResponse as TaskResponse
+from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService as AgentService
+from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
+from app.joysafeter_domain.services.joysafeter_session_service import SessionService
+from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService as TaskService
 from app.joysafeter_shared.common.app_errors import (
     AppError,
     InvalidRequestError,
@@ -33,7 +32,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 )
 from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.utils.id_utils import same_id
+from app.joysafeter_shared.ids import AgentId, SessionId, TaskId, as_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +65,7 @@ def _derive_auto_idempotency_key(req: CreateTaskRequest, auth_ctx: JoySafeterAut
             str(req.agent_id or ""),
             str(req.agent_name or ""),
             req.prompt or "",
-            req.system_prompt or "",
+            req.system or "",
             str(req.chat_session_id or ""),
             str(req.environment_ref or ""),
             str(_auto_idempotency_window_bucket()),
@@ -99,7 +98,7 @@ def _task_idempotency_conflict_error(
     )
 
 
-def _task_cancel_conflict_error(task_id: uuid.UUID, exc: ValueError) -> AppError:
+def _task_cancel_conflict_error(task_id: TaskId, exc: ValueError) -> AppError:
     message = str(exc)
     data: dict[str, object] = {"task_id": str(task_id)}
     prefix = "Task already in terminal state: "
@@ -119,7 +118,7 @@ def _task_cancel_conflict_error(task_id: uuid.UUID, exc: ValueError) -> AppError
     )
 
 
-def _task_enqueue_failed_error(*, task_id: uuid.UUID, session_id: uuid.UUID | None = None) -> AppError:
+def _task_enqueue_failed_error(*, task_id: TaskId, session_id: SessionId | None = None) -> AppError:
     data: dict[str, object] = {"task_id": str(task_id)}
     if session_id is not None:
         data["session_id"] = str(session_id)
@@ -133,7 +132,7 @@ def _task_enqueue_failed_error(*, task_id: uuid.UUID, session_id: uuid.UUID | No
     )
 
 
-def _task_enqueue_failed_stop_reason(*, task_id: uuid.UUID, session_id: uuid.UUID | None = None) -> dict[str, object]:
+def _task_enqueue_failed_stop_reason(*, task_id: TaskId, session_id: SessionId | None = None) -> dict[str, object]:
     data: dict[str, object] = {"task_id": str(task_id)}
     if session_id is not None:
         data["session_id"] = str(session_id)
@@ -151,7 +150,7 @@ def _task_stream_error_payload(
     *,
     code: str,
     message: str,
-    task_id: uuid.UUID,
+    task_id: TaskId,
     source: str = "websocket",
     retryable: bool = False,
     user_action: str | None = None,
@@ -181,7 +180,7 @@ async def _relay_task_cancel_to_orchestrator(task, db: AsyncSession, *, reason: 
 
 
 def _validate_idempotent_task_replay(req: CreateTaskRequest, existing) -> None:
-    if req.agent_id is not None and not same_id(existing.agent_id, req.agent_id):
+    if req.agent_id is not None and existing.agent_id != req.agent_id:
         raise _task_idempotency_conflict_error(
             existing=existing,
             field="agent_id",
@@ -189,7 +188,7 @@ def _validate_idempotent_task_replay(req: CreateTaskRequest, existing) -> None:
             requested_value=req.agent_id,
             existing_value=existing.agent_id,
         )
-    if req.chat_session_id is not None and not same_id(existing.chat_session_id, req.chat_session_id):
+    if req.chat_session_id is not None and existing.chat_session_id != req.chat_session_id:
         raise _task_idempotency_conflict_error(
             existing=existing,
             field="chat_session_id",
@@ -244,7 +243,7 @@ async def _validate_task_environment_matches_existing_session(
         effective_environment = await EnvironmentService(db).get_environment_by_ref(
             effective_ref, project_id=project_id
         )
-        if effective_environment and same_id(effective_environment.id, requested_environment.id):
+        if effective_environment and effective_environment.id == requested_environment.id:
             return
 
     raise ResourceConflictError(
@@ -372,7 +371,7 @@ async def create_task(
 
     # Auto-create a ChatSession for the task if none provided
     chat_session_id = req.chat_session_id
-    auto_created_session_id: uuid.UUID | None = None
+    auto_created_session_id: SessionId | None = None
     session_svc = None
     if not chat_session_id:
         environment_ref = req.environment_ref or getattr(agent, "environment_ref", None)
@@ -404,7 +403,7 @@ async def create_task(
                 data={"session_id": str(chat_session_id)},
                 user_action="refresh",
             )
-        if not same_id(existing_session.agent_id, agent.id):
+        if existing_session.agent_id != agent.id:
             raise InvalidRequestError(
                 code="TASK_SESSION_AGENT_MISMATCH",
                 message="Session does not belong to the selected agent",
@@ -484,7 +483,7 @@ async def create_task(
     task, _created = await submission.create_and_dispatch(
         agent_id=agent.id,
         prompt=req.prompt,
-        system_prompt=req.system_prompt,
+        system_prompt=req.system,
         chat_session_id=chat_session_id,
         session_svc=session_svc,
         timeout_sec=req.timeout_sec,
@@ -502,9 +501,9 @@ async def create_task(
 @router.get("")
 async def list_tasks(
     limit: int = Query(20, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
-    agent_id: Optional[uuid.UUID] = Query(None),
-    session_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[TaskId] = Query(None),
+    agent_id: Optional[AgentId] = Query(None),
+    session_id: Optional[SessionId] = Query(None),
     status: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
@@ -529,7 +528,7 @@ async def list_tasks(
 
 @router.get("/{task_id}")
 async def get_task(
-    task_id: uuid.UUID,
+    task_id: TaskId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> TaskResponse:
@@ -547,7 +546,7 @@ async def get_task(
 
 @router.post("/{task_id}/cancel")
 async def cancel_task(
-    task_id: uuid.UUID,
+    task_id: TaskId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
@@ -616,7 +615,7 @@ async def _authorize_task_stream(
 
 
 @router.websocket("/{task_id}/stream")
-async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
+async def task_stream(websocket: WebSocket, task_id: TaskId):
     """WebSocket endpoint for real-time task output streaming."""
     from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
     from app.joysafeter_shared.security import decode_token
@@ -675,14 +674,14 @@ async def task_stream(websocket: WebSocket, task_id: uuid.UUID):
             pass
 
 
-async def _stream_via_redis(websocket: WebSocket, task_id: uuid.UUID, redis_client):
+async def _stream_via_redis(websocket: WebSocket, task_id: TaskId, redis_client):
     """Stream task events via Redis pub/sub (cross-instance fallback).
 
     Subscribes to the Redis channel first, then checks the DB for terminal
     state to avoid missing a completion event between the DB check in the
     caller and the subscribe call here.
     """
-    channel = f"joysafeter:events:{task_id}"
+    channel = f"joysafeter:events:{as_uuid(task_id)}"
     pubsub = redis_client.pubsub()
     try:
         await pubsub.subscribe(channel)

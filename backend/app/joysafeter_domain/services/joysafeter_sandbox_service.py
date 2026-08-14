@@ -1,11 +1,9 @@
 """
 JoySafeter sandbox services.
 
-Merged from sandbox_manager.py, joysafeter_sandbox_state_machine.py, and the
-sandbox_service.py shim (v1 cleanup consolidation):
+Contains the sandbox state machine and database lifecycle service:
   - JoySafeterSandboxStateMachine / InvalidSandboxTransition — status FSM
-  - JoySafeterSandboxService — sandbox pool + lifecycle management
-  - SandboxService — backwards-compatible alias of JoySafeterSandboxService
+  - SandboxService — sandbox pool + lifecycle management
 """
 
 from __future__ import annotations
@@ -14,7 +12,6 @@ from __future__ import annotations
 # ============================================================================
 # joysafeter_sandbox_state_machine.py
 # ============================================================================
-import uuid
 from typing import Any, Optional, cast
 
 from sqlalchemy import CursorResult, and_, or_, select
@@ -23,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
+from app.joysafeter_shared.ids import AgentId, SandboxId, SessionId, TaskId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 SANDBOX_STATUSES = frozenset(
@@ -66,7 +64,7 @@ class JoySafeterSandboxStateMachine:
 
     async def transition(
         self,
-        sandbox_id: uuid.UUID,
+        sandbox_id: SandboxId,
         new_status: str,
         expected_status: Optional[str] = None,
         config: Optional[dict] = None,
@@ -109,7 +107,7 @@ class JoySafeterSandboxStateMachine:
         await self.db.commit()
         return cast(CursorResult[Any], result).rowcount > 0
 
-    async def claim_pool_for_session(self, sandbox: JoySafeterSandbox, session_id: uuid.UUID) -> JoySafeterSandbox:
+    async def claim_pool_for_session(self, sandbox: JoySafeterSandbox, session_id: SessionId) -> JoySafeterSandbox:
         self._validate_transition(sandbox.status, "provisioning")
         sandbox.status = "provisioning"
         sandbox.chat_session_id = session_id
@@ -118,7 +116,7 @@ class JoySafeterSandboxStateMachine:
         await self.db.refresh(sandbox)
         return sandbox
 
-    async def complete_task(self, sandbox_id: uuid.UUID, task_id: uuid.UUID, new_status: str) -> bool:
+    async def complete_task(self, sandbox_id: SandboxId, task_id: TaskId, new_status: str) -> bool:
         self._validate_status(new_status)
         current_status = await self._current_status(sandbox_id)
         if current_status is None:
@@ -153,7 +151,7 @@ class JoySafeterSandboxStateMachine:
         await self.db.commit()
         return cast(CursorResult[Any], result).rowcount > 0
 
-    async def _current_status(self, sandbox_id: uuid.UUID) -> Optional[str]:
+    async def _current_status(self, sandbox_id: SandboxId) -> Optional[str]:
         result = await self.db.execute(select(JoySafeterSandbox.status).where(JoySafeterSandbox.id == sandbox_id))
         return result.scalar_one_or_none()
 
@@ -184,9 +182,8 @@ This service only owns the JoySafeterSandbox database record — state
 machine transitions, bridge connect/disconnect markers, pool claims, and
 list queries used by the reaper sweepers in orchestrator-rs.
 
-The legacy ``SandboxManagerService`` / ``get_sandbox_handle`` / in-process
-``SandboxPool`` / ``PydanticSandboxAdapter`` cluster was removed along with
-the old DispatchService / ExecutionOrchestrator chain.
+Runtime dispatch stays in the Rust orchestrator; this service only manages
+database state and lifecycle queries.
 """
 
 
@@ -195,7 +192,7 @@ from datetime import timedelta
 from sqlalchemy import func, update
 
 
-class JoySafeterSandboxService:
+class SandboxService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.state_machine = JoySafeterSandboxStateMachine(db)
@@ -205,10 +202,10 @@ class JoySafeterSandboxService:
         image: str,
         provider: str = "docker",
         config: Optional[dict] = None,
-        chat_session_id: Optional[uuid.UUID] = None,
+        chat_session_id: Optional[SessionId] = None,
         workspace_path: Optional[str] = None,
         external_id: Optional[str] = None,
-        sandbox_id: Optional[uuid.UUID] = None,
+        sandbox_id: Optional[SandboxId] = None,
         status: str = "creating",
         project_id: Optional[str] = None,
     ) -> JoySafeterSandbox:
@@ -234,7 +231,7 @@ class JoySafeterSandboxService:
 
     async def get_sandbox(
         self,
-        sandbox_id: uuid.UUID,
+        sandbox_id: SandboxId,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterSandbox]:
         conditions = [JoySafeterSandbox.id == sandbox_id]
@@ -255,7 +252,7 @@ class JoySafeterSandboxService:
         return result.scalar_one_or_none()
 
     async def list_sandboxes(
-        self, limit: int = 20, after_id: Optional[uuid.UUID] = None, project_id: Optional[str] = None
+        self, limit: int = 20, after_id: Optional[SandboxId] = None, project_id: Optional[str] = None
     ) -> tuple[list[JoySafeterSandbox], bool]:
         q = select(JoySafeterSandbox).where(JoySafeterSandbox.destroyed_at.is_(None))
         if project_id is not None:
@@ -268,7 +265,7 @@ class JoySafeterSandboxService:
 
     async def update_status_cas(
         self,
-        sandbox_id: uuid.UUID,
+        sandbox_id: SandboxId,
         expected_status: str,
         new_status: str,
     ) -> bool:
@@ -278,14 +275,14 @@ class JoySafeterSandboxService:
             expected_status=expected_status,
         )
 
-    async def touch(self, sandbox_id: uuid.UUID, task_id: Optional[uuid.UUID] = None) -> None:
+    async def touch(self, sandbox_id: SandboxId, task_id: Optional[TaskId] = None) -> None:
         values: dict = {"last_used_at": utc_now()}
         if task_id:
             values["last_task_id"] = task_id
         await self.db.execute(update(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id).values(**values))
         await self.db.commit()
 
-    async def mark_bridge_disconnected(self, sandbox_id: uuid.UUID) -> None:
+    async def mark_bridge_disconnected(self, sandbox_id: SandboxId) -> None:
         """Record that the runner→orchestrator gRPC bridge has dropped.
 
         The fallback sweeper uses ``disconnected_at`` (plus a grace window)
@@ -305,7 +302,7 @@ class JoySafeterSandboxService:
         )
         await self.db.commit()
 
-    async def mark_bridge_connected(self, sandbox_id: uuid.UUID) -> None:
+    async def mark_bridge_connected(self, sandbox_id: SandboxId) -> None:
         """Clear the disconnect marker on a successful runner reconnect."""
         await self.db.execute(
             update(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id).values(disconnected_at=None)
@@ -313,7 +310,7 @@ class JoySafeterSandboxService:
         await self.db.commit()
 
     async def find_by_session(
-        self, session_id: uuid.UUID, project_id: Optional[str] = None
+        self, session_id: SessionId, project_id: Optional[str] = None
     ) -> Optional[JoySafeterSandbox]:
         conditions = [
             JoySafeterSandbox.chat_session_id == session_id,
@@ -339,7 +336,7 @@ class JoySafeterSandboxService:
         return result.scalar_one_or_none()
 
     async def list_active_for_agent(
-        self, agent_id: uuid.UUID, project_id: Optional[str] = None
+        self, agent_id: AgentId, project_id: Optional[str] = None
     ) -> list[JoySafeterSandbox]:
         from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 
@@ -357,7 +354,7 @@ class JoySafeterSandboxService:
         )
         return list(result.scalars().all())
 
-    async def claim_from_pool(self, image: str, session_id: uuid.UUID) -> Optional[JoySafeterSandbox]:
+    async def claim_from_pool(self, image: str, session_id: SessionId) -> Optional[JoySafeterSandbox]:
         result = await self.db.execute(
             select(JoySafeterSandbox)
             .where(
@@ -375,18 +372,18 @@ class JoySafeterSandboxService:
             return None
         return await self.state_machine.claim_pool_for_session(sandbox, session_id)
 
-    async def stop_sandbox(self, sandbox_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+    async def stop_sandbox(self, sandbox_id: SandboxId, project_id: Optional[str] = None) -> bool:
         if project_id is not None and await self.get_sandbox(sandbox_id, project_id=project_id) is None:
             return False
         return await self.update_status_cas(sandbox_id, "idle", "stopping")
 
-    async def update_status(self, sandbox_id: uuid.UUID, status: str) -> None:
+    async def update_status(self, sandbox_id: SandboxId, status: str) -> None:
         await self.state_machine.transition(sandbox_id, status)
 
-    async def mark_destroyed(self, sandbox_id: uuid.UUID) -> None:
+    async def mark_destroyed(self, sandbox_id: SandboxId) -> None:
         await self.state_machine.transition(sandbox_id, "destroyed", mark_destroyed=True)
 
-    async def mark_destroyed_cas(self, sandbox_id: uuid.UUID, expected_status: str) -> bool:
+    async def mark_destroyed_cas(self, sandbox_id: SandboxId, expected_status: str) -> bool:
         return await self.state_machine.transition(
             sandbox_id,
             "destroyed",
@@ -396,7 +393,7 @@ class JoySafeterSandboxService:
 
     async def mark_destroyed_after_runtime_ack(
         self,
-        sandbox_id: uuid.UUID,
+        sandbox_id: SandboxId,
         expected_status: str,
         expected_external_id: Optional[str],
     ) -> bool:
@@ -443,7 +440,7 @@ class JoySafeterSandboxService:
         expected = expected_external_id or ""
         return status == "destroyed" and (external_id or "") == expected and destroyed_at is not None
 
-    async def update_status_and_config(self, sandbox_id: uuid.UUID, status: str, config: dict) -> None:
+    async def update_status_and_config(self, sandbox_id: SandboxId, status: str, config: dict) -> None:
         await self.state_machine.transition(sandbox_id, status, config=config, touch=True)
 
     async def list_idle_expired(self, timeout_seconds: int) -> list:
@@ -494,7 +491,7 @@ class JoySafeterSandboxService:
         result = await self.db.execute(select(JoySafeterSandbox).where(JoySafeterSandbox.status == "provisioning"))
         return list(result.scalars().all())
 
-    async def complete_task(self, sandbox_id: uuid.UUID, task_id: uuid.UUID, status: str) -> bool:
+    async def complete_task(self, sandbox_id: SandboxId, task_id: TaskId, status: str) -> bool:
         return await self.state_machine.complete_task(sandbox_id, task_id, status)
 
     async def list_stopping(self, timeout_seconds: int) -> list:
@@ -520,7 +517,3 @@ class JoySafeterSandboxService:
             )
         )
         return list(result.scalars().all())
-
-
-# Backwards-compatible alias (was sandbox_service.py)
-SandboxService = JoySafeterSandboxService

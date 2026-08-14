@@ -87,7 +87,12 @@ import {
 } from '@/hooks/managed/use-current-project-read-only'
 import { managedGet, managedPost, managedPut, managedDelete, managedUpload } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
+import {
+  apiCollectionPath,
+  apiResourceId,
+  apiResourcePath,
+  apiResourceSubpath,
+} from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import {
@@ -104,14 +109,26 @@ import {
   getManagedSkillImportValidationMessage,
 } from '@/lib/managed/skill-import'
 import { severityLabelKey } from '@/lib/managed/skill-severity'
+import {
+  parseSkillFileListResponse,
+  parseSkillFileResponse,
+  parseSkillResponse,
+  parseSkillSecurityScanListResponse,
+  parseSkillSecurityScanResponse,
+  parseSkillUsageListResponse,
+  parseSkillVersionFileListResponse,
+  parseSkillVersionListResponse,
+  parseSkillVersionResponse,
+} from '@/lib/managed/skill-response-parsers'
 import { diffSkillVersionFiles } from '@/lib/managed/skill-version-diff'
+import { parseSkillId, type SkillFileId, type SkillId } from '@/types/entity-id'
 import type {
   SkillRecord,
   SkillFileRecord,
   SkillVersionRecord,
   SkillSecurityScanRecord,
-  SessionSkillUsage,
   PromotableTier,
+  SkillVisibility,
 } from '@/types/managed'
 
 function formatBytes(bytes: number): string {
@@ -412,7 +429,7 @@ function getSecurityIssues(scan: SkillSecurityScanRecord): SecurityIssueView[] {
 
 /** Drag payload for a move. A file carries its real id; a folder carries its
  * ``fullPath`` (trailing ``/``). ``path`` on a file is its directory. */
-type MoveSource = { kind: 'file'; id: string; path: string } | { kind: 'folder'; path: string }
+type MoveSource = { kind: 'file'; id: SkillFileId; path: string } | { kind: 'folder'; path: string }
 
 interface TreeNode {
   name: string
@@ -470,10 +487,10 @@ function FileTreeNode({
 }: {
   node: TreeNode
   depth: number
-  selectedFileId: string | null
+  selectedFileId: SkillFileId | null
   canEdit: boolean
-  onSelectFile: (id: string) => void
-  onDeleteFile: (id: string) => void
+  onSelectFile: (id: SkillFileId) => void
+  onDeleteFile: (id: SkillFileId) => void
   onDeleteFolder: (folderPath: string) => void
   onAddToFolder: (folderPath: string) => void
   /** When provided, nodes become draggable and folders accept drops.
@@ -640,13 +657,13 @@ function SkillWorkspace({
 }: {
   skillName: string
   files: SkillFileRecord[]
-  selectedFileId: string | null
+  selectedFileId: SkillFileId | null
   canEdit: boolean
-  onSelectFile: (id: string) => void
+  onSelectFile: (id: SkillFileId) => void
   onSelectMain: () => void
   onAddFolder: () => void
   onAddToFolder: (folderPath: string) => void
-  onDeleteFile: (id: string) => void
+  onDeleteFile: (id: SkillFileId) => void
   onDeleteFolder: (folderPath: string) => void
   onMove?: (source: MoveSource, destFolder: string) => void
   isMainSelected: boolean
@@ -748,7 +765,7 @@ interface SkillFormState {
   content: string
   license: string
   tags: string
-  visibility?: string
+  visibility: SkillVisibility
   source_type: string
   source_url: string
 }
@@ -756,7 +773,7 @@ interface SkillFormState {
 interface SkillActionScope {
   runId: number
   scope: ManagedRequestScope
-  skillId: string
+  skillId: SkillId
 }
 
 interface ManagedActionScope {
@@ -773,7 +790,7 @@ interface ImportZipVariables extends ManagedActionScope {
 }
 
 interface DeleteSkillVariables extends ManagedActionScope {
-  id: string
+  id: SkillId
 }
 
 interface SaveSkillVariables extends SkillActionScope {
@@ -788,12 +805,12 @@ interface CreateFileVariables extends SkillActionScope {
 }
 
 interface SaveFileVariables extends SkillActionScope {
-  fileId: string
+  fileId: SkillFileId
   content: string
 }
 
 interface DeleteFileVariables extends SkillActionScope {
-  fileId: string
+  fileId: SkillFileId
 }
 
 interface DeleteFolderVariables extends SkillActionScope {
@@ -842,7 +859,7 @@ function SkillEditor({
 }: {
   skill: SkillRecord
   files: SkillFileRecord[]
-  selectedFileId: string | null
+  selectedFileId: SkillFileId | null
   canEdit: boolean
   form: SkillFormState
   setForm: (f: SkillFormState) => void
@@ -902,22 +919,22 @@ function SkillEditor({
   const { data: fromFiles = [] } = useQuery({
     queryKey: ['skill-version-files', queryScope, skillIdForDiff, diffTarget?.fromVersion],
     queryFn: async () => {
-      const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
+      const res = await managedGet<unknown>(
         apiResourcePath('skills', skillIdForDiff, 'versions', diffTarget!.fromVersion, 'files'),
         managedRequestOptions(requestScope),
       )
-      return Array.isArray(res) ? res : res.data || []
+      return parseSkillVersionFileListResponse(res)
     },
     enabled: !!diffTarget,
   })
   const { data: toFiles = [], isFetching: toFilesFetching } = useQuery({
     queryKey: ['skill-version-files', queryScope, skillIdForDiff, diffTarget?.toVersion],
     queryFn: async () => {
-      const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
+      const res = await managedGet<unknown>(
         apiResourcePath('skills', skillIdForDiff, 'versions', diffTarget!.toVersion, 'files'),
         managedRequestOptions(requestScope),
       )
-      return Array.isArray(res) ? res : res.data || []
+      return parseSkillVersionFileListResponse(res)
     },
     enabled: !!diffTarget,
   })
@@ -1100,7 +1117,7 @@ function SkillEditor({
                   {t('managed.skills.visibility.label')}
                 </label>
                 <div className="flex h-8 items-center gap-2">
-                  <SkillVisibilityBadge visibility={form.visibility || 'project'} />
+                  <SkillVisibilityBadge visibility={form.visibility} />
                   <span className="text-xs text-muted-foreground">
                     {t('managed.skills.visibility.managedByPromotion')}
                   </span>
@@ -1642,7 +1659,7 @@ function SkillEditor({
 export function SkillManagerPageContent({
   initialSkillId = null,
 }: {
-  initialSkillId?: string | null
+  initialSkillId?: SkillId | null
 }) {
   const { t } = useTranslation()
   const { toast } = useToast()
@@ -1658,8 +1675,8 @@ export function SkillManagerPageContent({
     useProjectStore((s) => s.organizations.find((o) => o.id === s.currentOrgId)?.role),
   )
 
-  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(initialSkillId)
-  const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
+  const [selectedSkillId, setSelectedSkillId] = useState<SkillId | null>(initialSkillId)
+  const [selectedFileId, setSelectedFileId] = useState<SkillFileId | null>(null)
   // Which workspace tab is active. Lifted here (out of SkillEditor) so the
   // header's Save button can decide what to persist: on the Metadata tab
   // we always save the skill-level form, regardless of which file happens
@@ -1678,8 +1695,8 @@ export function SkillManagerPageContent({
   const [newFileDir, setNewFileDir] = useState('')
   const [newFileName, setNewFileName] = useState('')
   const [newFileType, setNewFileType] = useState('text')
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
-  const [deleteFileTarget, setDeleteFileTarget] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<SkillId | null>(null)
+  const [deleteFileTarget, setDeleteFileTarget] = useState<SkillFileId | null>(null)
   const [deleteFolderTarget, setDeleteFolderTarget] = useState<string | null>(null)
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [showSecurityHistoryDialog, setShowSecurityHistoryDialog] = useState(false)
@@ -1705,8 +1722,8 @@ export function SkillManagerPageContent({
   const [fileContent, setFileContent] = useState('')
   const [fileContentSnapshot, setFileContentSnapshot] = useState('')
   const managedScopeRef = useRef(managedScope)
-  const selectedSkillIdRef = useRef<string | null>(selectedSkillId)
-  const selectedFileIdRef = useRef<string | null>(selectedFileId)
+  const selectedSkillIdRef = useRef<SkillId | null>(selectedSkillId)
+  const selectedFileIdRef = useRef<SkillFileId | null>(selectedFileId)
   const mutationRunRef = useRef(0)
 
   const clearSavedFlash = useCallback(() => {
@@ -1836,7 +1853,7 @@ export function SkillManagerPageContent({
   )
 
   const currentSkillInList = useCallback(
-    (skillId: string | null) => {
+    (skillId: SkillId | null) => {
       if (!skillId) return null
       if (!currentManagedScopeIsActive()) return null
       return (
@@ -1852,7 +1869,7 @@ export function SkillManagerPageContent({
   )
 
   const currentSkillDetail = useCallback(
-    (skillId: string | null) => {
+    (skillId: SkillId | null) => {
       if (!skillId) return null
       if (!currentManagedScopeIsActive()) return null
       return (
@@ -1896,7 +1913,7 @@ export function SkillManagerPageContent({
   )
 
   const currentSkillFile = useCallback(
-    (fileId: string | null, skillId = selectedSkillIdRef.current) => {
+    (fileId: SkillFileId | null, skillId = selectedSkillIdRef.current) => {
       if (!fileId || !skillId) return null
       return currentSkillFiles(skillId).find((file) => file.id === fileId) ?? null
     },
@@ -1927,7 +1944,7 @@ export function SkillManagerPageContent({
   )
 
   const invalidateSkillResources = useCallback(
-    (skillId: string, scopeKey = managedScopeRef.current.key) => {
+    (skillId: SkillId, scopeKey = managedScopeRef.current.key) => {
       queryClient.invalidateQueries({ queryKey: ['skills', scopeKey] })
       queryClient.invalidateQueries({ queryKey: ['skill', scopeKey, skillId] })
       queryClient.invalidateQueries({ queryKey: ['skill-files', scopeKey, skillId] })
@@ -1955,7 +1972,12 @@ export function SkillManagerPageContent({
     goPrev,
     goToPage,
     setPageSize,
-  } = usePaginatedList<SkillRecord>({ queryKey: 'skills', path: '/skills' })
+  } = usePaginatedList<SkillRecord>({
+    queryKey: 'skills',
+    path: '/skills',
+    parseItem: parseSkillResponse,
+    parseCursor: parseSkillId,
+  })
 
   const {
     data: selectedSkill,
@@ -1964,10 +1986,10 @@ export function SkillManagerPageContent({
   } = useQuery({
     queryKey: ['skill', managedScope.key, selectedSkillId],
     queryFn: () =>
-      managedGet<SkillRecord>(
+      managedGet<unknown>(
         apiResourcePath('skills', selectedSkillId!),
         managedRequestOptions(managedScope),
-      ),
+      ).then(parseSkillResponse),
     enabled: !!selectedSkillId && hasManagedRequestScope(managedScope),
     // While a security scan is running in the background (rescan dispatches
     // async because LLM analysis is slow), poll the skill so the security
@@ -1993,11 +2015,11 @@ export function SkillManagerPageContent({
   const { data: skillFiles = [] } = useQuery({
     queryKey: ['skill-files', managedScope.key, selectedSkillId],
     queryFn: async () => {
-      const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
+      const res = await managedGet<unknown>(
         apiResourcePath('skills', selectedSkillId!, 'files'),
         managedRequestOptions(managedScope),
       )
-      return Array.isArray(res) ? res : res.data || []
+      return parseSkillFileListResponse(res)
     },
     enabled: !!selectedSkillId && hasManagedRequestScope(managedScope),
   })
@@ -2005,11 +2027,11 @@ export function SkillManagerPageContent({
   const { data: versions = [] } = useQuery({
     queryKey: ['skill-versions', managedScope.key, selectedSkillId],
     queryFn: async () => {
-      const res = await managedGet<{ data: SkillVersionRecord[] } | SkillVersionRecord[]>(
+      const res = await managedGet<unknown>(
         apiResourceSubpath('skills', selectedSkillId!, ['versions'], { limit: 50 }),
         managedRequestOptions(managedScope),
       )
-      return Array.isArray(res) ? res : res.data || []
+      return parseSkillVersionListResponse(res)
     },
     enabled: !!selectedSkillId && hasManagedRequestScope(managedScope),
   })
@@ -2021,11 +2043,11 @@ export function SkillManagerPageContent({
   const { data: latestVersionFiles = [] } = useQuery({
     queryKey: ['skill-version-files', managedScope.key, selectedSkillId, latestPublishedVersion],
     queryFn: async () => {
-      const res = await managedGet<{ data: SkillFileRecord[] } | SkillFileRecord[]>(
+      const res = await managedGet<unknown>(
         apiResourcePath('skills', selectedSkillId!, 'versions', latestPublishedVersion!, 'files'),
         managedRequestOptions(managedScope),
       )
-      return Array.isArray(res) ? res : res.data || []
+      return parseSkillVersionFileListResponse(res)
     },
     enabled: !!selectedSkillId && !!latestPublishedVersion && hasManagedRequestScope(managedScope),
   })
@@ -2037,11 +2059,11 @@ export function SkillManagerPageContent({
   } = useQuery({
     queryKey: ['skill-security-scans', managedScope.key, selectedSkillId],
     queryFn: async () => {
-      const res = await managedGet<{ data: SkillSecurityScanRecord[] } | SkillSecurityScanRecord[]>(
+      const res = await managedGet<unknown>(
         apiResourceSubpath('skills', selectedSkillId!, ['security-scans'], { limit: 20 }),
         managedRequestOptions(managedScope),
       )
-      return Array.isArray(res) ? res : res.data || []
+      return parseSkillSecurityScanListResponse(res)
     },
     enabled: !!selectedSkillId && showSecurityHistoryDialog && hasManagedRequestScope(managedScope),
   })
@@ -2049,11 +2071,11 @@ export function SkillManagerPageContent({
   const { data: recentSkillUsage = [] } = useQuery({
     queryKey: ['skill-usage', managedScope.key, selectedSkillId],
     queryFn: async () => {
-      const res = await managedGet<{ data: SessionSkillUsage[] }>(
+      const res = await managedGet<unknown>(
         apiResourceSubpath('skills', selectedSkillId!, ['usage'], { limit: 5 }),
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return parseSkillUsageListResponse(res)
     },
     enabled: !!selectedSkillId && hasManagedRequestScope(managedScope),
   })
@@ -2061,14 +2083,14 @@ export function SkillManagerPageContent({
   const { data: targetHashUsage = [] } = useQuery({
     queryKey: ['skill-usage-search', managedScope.key, currentTargetHash],
     queryFn: async () => {
-      const res = await managedGet<{ data: SessionSkillUsage[] }>(
-        apiResourceSubpath('skills', 'usage', ['search'], {
+      const res = await managedGet<unknown>(
+        apiCollectionPath('skills/usage/search', {
           limit: 5,
           target_hash: currentTargetHash,
         }),
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return parseSkillUsageListResponse(res)
     },
     enabled: !!currentTargetHash && hasManagedRequestScope(managedScope),
   })
@@ -2083,7 +2105,7 @@ export function SkillManagerPageContent({
       content: skill.content || '',
       license: skill.license || '',
       tags: tagsStr,
-      visibility: skill.visibility || 'project',
+      visibility: skill.visibility,
       source_type: skill.source_type || '',
       source_url: skill.source_url || '',
     }
@@ -2162,10 +2184,10 @@ export function SkillManagerPageContent({
       if (!isCurrentManagedAction(variables)) {
         throw new Error('Stale skill folder import ignored')
       }
-      return managedPost<SkillRecord>('/skills', result.skillData, {
+      return managedPost<unknown>('/skills', result.skillData, {
         ...managedRequestOptions(variables.scope),
         timeout: SKILL_SCAN_TIMEOUT_MS,
-      })
+      }).then(parseSkillResponse)
     },
     onSuccess: (skill, variables) => {
       if (!isCurrentManagedAction(variables)) return
@@ -2195,11 +2217,11 @@ export function SkillManagerPageContent({
       }
       const formData = new FormData()
       formData.append('file', variables.file)
-      return managedUpload<SkillRecord>(
+      return managedUpload<unknown>(
         '/skills/import-zip',
         formData,
         managedRequestOptions(variables.scope),
-      )
+      ).then(parseSkillResponse)
     },
     onSuccess: (skill, variables) => {
       if (!isCurrentManagedAction(variables)) return
@@ -2257,7 +2279,7 @@ export function SkillManagerPageContent({
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean)
-      return managedPut<SkillRecord>(
+      return managedPut<unknown>(
         apiResourcePath('skills', skillId),
         {
           name: form.name,
@@ -2272,7 +2294,7 @@ export function SkillManagerPageContent({
           ...managedRequestOptions(variables.scope),
           timeout: SKILL_SCAN_TIMEOUT_MS,
         },
-      )
+      ).then(parseSkillResponse)
     },
     onSuccess: (updated, variables) => {
       if (!isCurrentSkillAction(variables)) return
@@ -2335,7 +2357,7 @@ export function SkillManagerPageContent({
         name = ensureExtension(fileName, fileType)
       }
 
-      return managedPost<SkillFileRecord>(
+      return managedPost<unknown>(
         apiResourcePath('skills', skillId, 'files'),
         {
           path,
@@ -2347,7 +2369,7 @@ export function SkillManagerPageContent({
           ...managedRequestOptions(variables.scope),
           timeout: SKILL_SCAN_TIMEOUT_MS,
         },
-      )
+      ).then(parseSkillFileResponse)
     },
     onSuccess: (_file, variables) => {
       if (!isCurrentSkillAction(variables)) return
@@ -2374,14 +2396,14 @@ export function SkillManagerPageContent({
       if (!isCurrentSkillAction(variables)) {
         throw new Error('Stale skill file save ignored')
       }
-      return managedPut<SkillFileRecord>(
+      return managedPut<unknown>(
         apiResourcePath('skills', variables.skillId, 'files', apiResourceId(variables.fileId)),
         { content: variables.content },
         {
           ...managedRequestOptions(variables.scope),
           timeout: SKILL_SCAN_TIMEOUT_MS,
         },
-      )
+      ).then(parseSkillFileResponse)
     },
     onSuccess: (_file, variables) => {
       if (!isCurrentSkillAction(variables)) return
@@ -2480,13 +2502,15 @@ export function SkillManagerPageContent({
         ) {
           throw new Error('MOVE_CONFLICT')
         }
-        await managedPut<SkillFileRecord>(
-          apiResourcePath('skills', skillId, 'files', apiResourceId(source.id)),
-          { path: dest },
-          {
-            ...managedRequestOptions(variables.scope),
-            timeout: SKILL_SCAN_TIMEOUT_MS,
-          },
+        parseSkillFileResponse(
+          await managedPut<unknown>(
+            apiResourcePath('skills', skillId, 'files', apiResourceId(source.id)),
+            { path: dest },
+            {
+              ...managedRequestOptions(variables.scope),
+              timeout: SKILL_SCAN_TIMEOUT_MS,
+            },
+          ),
         )
         return
       }
@@ -2508,14 +2532,14 @@ export function SkillManagerPageContent({
           if (newDir !== f.path && existing.has(newDir + f.file_name)) {
             throw new Error('MOVE_CONFLICT')
           }
-          return managedPut<SkillFileRecord>(
+          return managedPut<unknown>(
             apiResourcePath('skills', skillId, 'files', apiResourceId(f.id)),
             { path: newDir },
             {
               ...managedRequestOptions(variables.scope),
               timeout: SKILL_SCAN_TIMEOUT_MS,
             },
-          )
+          ).then(parseSkillFileResponse)
         }),
       )
     },
@@ -2541,7 +2565,7 @@ export function SkillManagerPageContent({
       if (!isCurrentSkillAction(variables)) {
         throw new Error('Stale skill version create ignored')
       }
-      return managedPost<SkillVersionRecord>(
+      return managedPost<unknown>(
         apiResourcePath('skills', variables.skillId, 'versions'),
         {
           name: form.name,
@@ -2551,7 +2575,7 @@ export function SkillManagerPageContent({
           ...(variables.version ? { version: variables.version } : {}),
         },
         managedRequestOptions(variables.scope),
-      )
+      ).then(parseSkillVersionResponse)
     },
     onSuccess: (_version, variables) => {
       if (!isCurrentSkillAction(variables)) return
@@ -2572,7 +2596,7 @@ export function SkillManagerPageContent({
   // the version's lifecycle_status, and can surface a fresh scan verdict — but
   // never the file tree, so it deliberately does NOT invalidate skill-files.
   const invalidatePromotion = useCallback(
-    (skillId: string, scope: ManagedRequestScope) => {
+    (skillId: SkillId, scope: ManagedRequestScope) => {
       queryClient.invalidateQueries({ queryKey: ['skills', scope.key] })
       queryClient.invalidateQueries({ queryKey: ['skill', scope.key, skillId] })
       queryClient.invalidateQueries({ queryKey: ['skill-security-scans', scope.key, skillId] })
@@ -2583,16 +2607,16 @@ export function SkillManagerPageContent({
 
   const submitPromotionMutation = useMutation({
     mutationFn: (v: {
-      skillId: string
+      skillId: SkillId
       scope: ManagedRequestScope
       version: string
       targetTier: PromotableTier
     }) =>
-      managedPost<SkillVersionRecord>(
+      managedPost<unknown>(
         apiResourcePath('skills', v.skillId, 'versions', v.version, 'submit-promotion'),
         { target_tier: v.targetTier },
         managedRequestOptions(v.scope),
-      ),
+      ).then(parseSkillVersionResponse),
     onSuccess: (_r, v) => {
       invalidatePromotion(v.skillId, v.scope)
       toast({ title: t('managed.skills.promotion.submitted') })
@@ -2601,12 +2625,12 @@ export function SkillManagerPageContent({
   })
 
   const approvePromotionMutation = useMutation({
-    mutationFn: (v: { skillId: string; scope: ManagedRequestScope; version: string }) =>
-      managedPost<SkillVersionRecord>(
+    mutationFn: (v: { skillId: SkillId; scope: ManagedRequestScope; version: string }) =>
+      managedPost<unknown>(
         apiResourcePath('skills', v.skillId, 'versions', v.version, 'approve-promotion'),
         {},
         managedRequestOptions(v.scope),
-      ),
+      ).then(parseSkillVersionResponse),
     onSuccess: (_r, v) => {
       invalidatePromotion(v.skillId, v.scope)
       toast({ title: t('managed.skills.promotion.approved') })
@@ -2616,16 +2640,16 @@ export function SkillManagerPageContent({
 
   const rejectPromotionMutation = useMutation({
     mutationFn: (v: {
-      skillId: string
+      skillId: SkillId
       scope: ManagedRequestScope
       version: string
       reason: string
     }) =>
-      managedPost<SkillVersionRecord>(
+      managedPost<unknown>(
         apiResourcePath('skills', v.skillId, 'versions', v.version, 'reject-promotion'),
         { reason: v.reason || null },
         managedRequestOptions(v.scope),
-      ),
+      ).then(parseSkillVersionResponse),
     onSuccess: (_r, v) => {
       invalidatePromotion(v.skillId, v.scope)
       toast({ title: t('managed.skills.promotion.rejectedDone') })
@@ -2634,12 +2658,12 @@ export function SkillManagerPageContent({
   })
 
   const takedownMutation = useMutation({
-    mutationFn: (v: { skillId: string; scope: ManagedRequestScope; tier: PromotableTier }) =>
-      managedPost<SkillRecord>(
+    mutationFn: (v: { skillId: SkillId; scope: ManagedRequestScope; tier: PromotableTier }) =>
+      managedPost<unknown>(
         apiResourcePath('skills', v.skillId, 'takedown'),
         { tier: v.tier },
         managedRequestOptions(v.scope),
-      ),
+      ).then(parseSkillResponse),
     onSuccess: (_r, v) => {
       invalidatePromotion(v.skillId, v.scope)
       toast({ title: t('managed.skills.promotion.takenDown') })
@@ -2702,10 +2726,12 @@ export function SkillManagerPageContent({
       if (!currentSkillVersion(version, action.skillId)) return false
       if (!isCurrentSkillAction(action)) return false
       try {
-        await managedPost(
-          apiResourcePath('skills', action.skillId, 'versions', 'restore', version),
-          {},
-          managedRequestOptions(action.scope),
+        parseSkillResponse(
+          await managedPost<unknown>(
+            apiResourcePath('skills', action.skillId, 'versions', 'restore', version),
+            {},
+            managedRequestOptions(action.scope),
+          ),
         )
         if (isCurrentSkillAction(action)) {
           // Restore rewrites the draft (content + files) from the version,
@@ -2733,7 +2759,7 @@ export function SkillManagerPageContent({
       if (!isCurrentSkillAction(variables)) {
         throw new Error('Stale skill security rescan ignored')
       }
-      return managedPost<SkillSecurityScanRecord>(
+      return managedPost<unknown>(
         apiResourcePath('skills', variables.skillId, 'security-scans', 'rescan'),
         {},
         managedRequestOptions(variables.scope),
@@ -2741,7 +2767,7 @@ export function SkillManagerPageContent({
         // immediately with a scanning-state row, so the default 30s client
         // timeout is plenty — no override needed. The selectedSkill query
         // polls (refetchInterval) until the background verdict lands.
-      )
+      ).then(parseSkillSecurityScanResponse)
     },
     onSuccess: (_scan, variables) => {
       if (!isCurrentSkillAction(variables)) return
@@ -2765,7 +2791,7 @@ export function SkillManagerPageContent({
   // -- Handlers --
 
   const handleSelectSkill = useCallback(
-    (id: string) => {
+    (id: SkillId) => {
       mutationRunRef.current += 1
       selectedSkillIdRef.current = id
       selectedFileIdRef.current = null
@@ -2778,7 +2804,7 @@ export function SkillManagerPageContent({
   )
 
   const openDeleteSkillDialog = useCallback(
-    (id: string) => {
+    (id: SkillId) => {
       // delete_skill requires ADMIN on the backend — gate the single choke
       // point every delete flow passes through. Archived skills stay
       // deletable (delete is a purge, not an edit), so we do NOT gate on
@@ -2805,7 +2831,7 @@ export function SkillManagerPageContent({
   }, [])
 
   const openDeleteFileDialog = useCallback(
-    (id: string) => {
+    (id: SkillFileId) => {
       const skillId = selectedSkillIdRef.current
       if (!isSkillMutable(currentSkillInList(skillId))) return
       const detailSkill = currentSkillDetail(skillId)
@@ -2843,7 +2869,7 @@ export function SkillManagerPageContent({
   }, [])
 
   const handleSelectFile = useCallback(
-    (fileId: string) => {
+    (fileId: SkillFileId) => {
       const file = skillFiles.find((f) => f.id === fileId)
       if (file) {
         selectedFileIdRef.current = fileId

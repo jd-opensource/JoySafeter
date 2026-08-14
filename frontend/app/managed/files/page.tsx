@@ -6,8 +6,11 @@ import { Upload, Trash2 } from 'lucide-react'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { FileRecord } from '@/types/managed'
+import { parseFileId } from '@/types/entity-id'
 import { managedUpload, managedDelete } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
+import { parseFileResponse } from '@/lib/managed/file-response-parsers'
+import { apiResourcePath } from '@/lib/managed/api-paths'
 import {
   managedRequestOptions,
   managedScopeKey,
@@ -66,7 +69,12 @@ export default function FileListPage() {
     goPrev,
     goToPage,
     setPageSize,
-  } = usePaginatedList<FileRecord>({ queryKey: 'files', path: '/files' })
+  } = usePaginatedList<FileRecord>({
+    queryKey: 'files',
+    path: '/files',
+    parseItem: parseFileResponse,
+    parseCursor: parseFileId,
+  })
 
   const files = data.filter(
     (f) =>
@@ -150,7 +158,12 @@ export default function FileListPage() {
         if (!isCurrentUpload(runId, uploadScope)) break
         const formData = new FormData()
         formData.append('file', file)
-        await managedUpload('/files', formData, managedRequestOptions(requestScope))
+        const response = await managedUpload<unknown>(
+          '/files',
+          formData,
+          managedRequestOptions(requestScope),
+        )
+        parseFileResponse(response)
       }
       if (isCurrentUpload(runId, uploadScope)) {
         queryClient.invalidateQueries({ queryKey: ['files', uploadScope] })
@@ -213,7 +226,7 @@ export default function FileListPage() {
     actionRunRef.current = runId
     if (!currentManagedScopeIsActive(actionScope)) return
     try {
-      await managedDelete(`/files/${file.id}`, managedRequestOptions(requestScope))
+      await managedDelete(apiResourcePath('files', file.id), managedRequestOptions(requestScope))
       if (!isCurrentAction(runId, actionScope)) return
       queryClient.invalidateQueries({ queryKey: ['files', actionScope] })
     } catch (e) {

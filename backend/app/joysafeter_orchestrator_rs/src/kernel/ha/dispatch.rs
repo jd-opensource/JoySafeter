@@ -7,9 +7,9 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use uuid::Uuid;
 
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage};
+use crate::ids::SandboxId;
 use crate::kernel::sandbox_bridge::SandboxBridge;
 
 use super::traits::DispatchCommand;
@@ -18,7 +18,7 @@ use super::traits::DispatchCommand;
 /// used by both `LocalTaskDispatcher` and `RedisTaskDispatcher`.
 pub async fn dispatch_to_bridge(
     bridge: &Arc<SandboxBridge>,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     command: &DispatchCommand,
 ) -> anyhow::Result<()> {
     match command {

@@ -61,12 +61,7 @@ def _permission_error(
 
 
 def _normalize_role_value(role: str) -> str:
-    normalized = (role or "").strip().lower()
-    # Legacy org synonyms fold into the 3-tier vocab; genuinely unknown values
-    # pass through unchanged so validate_member_role can reject them.
-    if normalized in ("developer", "viewer"):
-        return "member"
-    return normalized
+    return (role or "").strip().lower()
 
 
 def validate_member_role(role: str, *, allow_owner: bool = True) -> str:

@@ -7,8 +7,8 @@
 //! `JOYSAFETER_ENVOY_XDS_MODE`:
 //!
 //! * [`FilesystemLds`] — renders listeners to canonical Envoy JSON and writes
-//!   `/envoy-config/lds.json` into the Envoy container (the historical path;
-//!   Envoy watches the file via `path_config_source`). O(N) per update.
+//!   `/envoy-config/lds.json` into the Envoy container, which watches the file
+//!   via `path_config_source`. O(N) per update.
 //!
 //! * [`GrpcLds`] — a Delta ADS gRPC server. Renders listeners to typed protobuf,
 //!   keeps them in memory, and pushes only the changed resources to Envoy over a
@@ -36,6 +36,8 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{debug, warn};
 use uuid::Uuid;
+
+use crate::ids::SandboxId;
 
 use envoy_types::pb::envoy::service::discovery::v3::{
     aggregated_discovery_service_server::AggregatedDiscoveryService, DeltaDiscoveryRequest,
@@ -144,7 +146,7 @@ pub enum ListenerKind {
 /// this to its own wire form (JSON for filesystem, typed protobuf for gRPC).
 #[derive(Debug, Clone)]
 pub struct ListenerSpec {
-    pub sandbox_id: Uuid,
+    pub sandbox_id: SandboxId,
     pub kind: ListenerKind,
     /// Egress allowlist (only meaningful for [`ListenerKind::Http`]).
     pub allowed_hosts: Vec<String>,
@@ -254,10 +256,6 @@ impl std::fmt::Debug for EgressCredentialRoute {
     }
 }
 
-/// Backward-compatible alias while call sites migrate to the unified egress
-/// policy vocabulary.
-pub type CredentialRoute = EgressCredentialRoute;
-
 /// A per-upstream STRICT_DNS cluster spec, delivered via CDS. One per unique
 /// real upstream host so credential routes can `host_rewrite` + forward with the
 /// correct TLS SNI. The sandbox never sees this — it only knows the placeholder.
@@ -307,7 +305,11 @@ pub fn git_repo_slug(mount_name: &str, idx: usize) -> String {
 
 /// Deterministic cluster name for a sandbox's upstream host. Scoped per sandbox
 /// so cluster sets never collide across sandboxes sharing the Envoy.
-pub fn upstream_cluster_name(sandbox_id: &Uuid, upstream_host: &str, upstream_port: u16) -> String {
+pub fn upstream_cluster_name(
+    sandbox_id: &SandboxId,
+    upstream_host: &str,
+    upstream_port: u16,
+) -> String {
     // Envoy cluster names must be simple; sanitise host to alnum/_/-.
     let safe: String = upstream_host
         .chars()
@@ -319,7 +321,7 @@ pub fn upstream_cluster_name(sandbox_id: &Uuid, upstream_host: &str, upstream_po
             }
         })
         .collect();
-    format!("up_{sandbox_id}_{safe}_{upstream_port}")
+    format!("up_{}_{safe}_{upstream_port}", sandbox_id.as_uuid())
 }
 
 /// Unified egress policy for one sandbox. This is the Envoy-facing abstraction:
@@ -352,7 +354,7 @@ impl SandboxEgressPolicy {
         self
     }
 
-    pub fn clusters(&self, _sandbox_id: &Uuid) -> Vec<ClusterSpec> {
+    pub fn clusters(&self, _sandbox_id: &SandboxId) -> Vec<ClusterSpec> {
         // No per-sandbox clusters needed — all credential-injection routes point
         // to the shared dynamic_forward_proxy / dynamic_forward_proxy_tls clusters.
         Vec::new()
@@ -360,7 +362,7 @@ impl SandboxEgressPolicy {
 }
 
 pub fn validate_egress_policy(
-    _sandbox_id: &Uuid,
+    _sandbox_id: &SandboxId,
     policy: &SandboxEgressPolicy,
 ) -> anyhow::Result<()> {
     let mut route_ids = std::collections::HashSet::new();
@@ -448,7 +450,7 @@ pub fn validate_egress_policy(
     Ok(())
 }
 
-pub fn egress_policy_summary(sandbox_id: &Uuid, policy: &SandboxEgressPolicy) -> Value {
+pub fn egress_policy_summary(sandbox_id: &SandboxId, policy: &SandboxEgressPolicy) -> Value {
     let routes: Vec<Value> = policy
         .credential_routes
         .iter()
@@ -501,8 +503,8 @@ pub fn egress_policy_summary(sandbox_id: &Uuid, policy: &SandboxEgressPolicy) ->
     })
 }
 
-/// Legacy orchestrator-facing description of the real secrets for one sandbox,
-/// built from decrypted DB rows. Converted to [`SandboxEgressPolicy`] before it
+/// Orchestrator-facing description of the real secrets for one sandbox,
+/// built from decrypted DB rows and converted to [`SandboxEgressPolicy`] before it
 /// reaches Envoy rendering. This type holds plaintext secrets and must never be
 /// persisted or logged.
 ///
@@ -539,7 +541,7 @@ impl SandboxCredentials {
 
     pub fn to_policy(
         &self,
-        sandbox_id: &Uuid,
+        sandbox_id: &SandboxId,
         allowlist_hosts: Vec<String>,
     ) -> SandboxEgressPolicy {
         SandboxEgressPolicy {
@@ -553,7 +555,7 @@ impl SandboxCredentials {
     /// point at the shared dynamic_forward_proxy cluster (TLS or plain) based on
     /// the route's `upstream_tls`. No per-sandbox clusters are created; the DFP
     /// cluster resolves DNS on-demand from the `host_rewrite_literal` target.
-    pub fn to_routes(&self, _sandbox_id: &Uuid) -> Vec<CredentialRoute> {
+    pub fn to_routes(&self, _sandbox_id: &SandboxId) -> Vec<EgressCredentialRoute> {
         self.routes
             .iter()
             .map(|r| {
@@ -572,7 +574,7 @@ impl SandboxCredentials {
 
     /// The per-upstream STRICT_DNS clusters this sandbox needs, de-duplicated by
     /// cluster name (multiple MCP servers may share a host).
-    pub fn to_clusters(&self, sandbox_id: &Uuid) -> Vec<ClusterSpec> {
+    pub fn to_clusters(&self, sandbox_id: &SandboxId) -> Vec<ClusterSpec> {
         self.to_policy(sandbox_id, vec![]).clusters(sandbox_id)
     }
 }
@@ -637,7 +639,7 @@ impl UpstreamTarget {
     }
 }
 
-fn route_prefix_rewrite(r: &CredentialRoute) -> String {
+fn route_prefix_rewrite(r: &EgressCredentialRoute) -> String {
     if r.match_host == LLM_EGRESS_HOST {
         normalize_rewrite_base_prefix(&r.upstream_prefix)
     } else {
@@ -671,7 +673,7 @@ impl ListenerSpec {
     /// Resource name Envoy sees, e.g. `"<uuid>_http"`.
     pub fn resource_name(&self) -> String {
         match self.kind {
-            ListenerKind::Http => format!("{}_http", self.sandbox_id),
+            ListenerKind::Http => format!("{}_http", self.sandbox_id.as_uuid()),
         }
     }
 }
@@ -693,14 +695,14 @@ pub trait LdsBackend: Send + Sync {
     /// Filesystem LDS has no ACK channel, so its default is successful after write.
     async fn wait_for_sandbox_ack(
         &self,
-        _sandbox_id: Uuid,
+        _sandbox_id: SandboxId,
         _timeout: Duration,
     ) -> anyhow::Result<()> {
         Ok(())
     }
     /// Release any retained per-sandbox apply/ACK bookkeeping on teardown.
     /// Filesystem LDS keeps no such state, so the default is a no-op.
-    async fn forget_sandbox(&self, _sandbox_id: Uuid) {}
+    async fn forget_sandbox(&self, _sandbox_id: SandboxId) {}
 
     /// Atomically apply one sandbox's clusters and listeners in a single update
     /// (CDS ordered before LDS for make-before-break). Existing clusters under
@@ -725,7 +727,6 @@ pub trait LdsBackend: Send + Sync {
 // ===========================================================================
 
 /// LDS backend that writes `/envoy-config/lds.json` into the Envoy container.
-/// This is the historical behaviour, relocated behind the trait unchanged.
 pub struct FilesystemLds {
     config_dir: String,
     /// name → rendered listener JSON. Rewritten in full on every change.
@@ -945,19 +946,20 @@ fn render_listener_json(spec: &ListenerSpec) -> Value {
 
 /// HTTP connection manager listener with domain-based allowlist.
 fn build_http_listener_json(
-    sandbox_id: &Uuid,
+    sandbox_id: &SandboxId,
     allowed_hosts: &[String],
-    credentials: &[CredentialRoute],
+    credentials: &[EgressCredentialRoute],
     proxy_auth_token: Option<&str>,
 ) -> Value {
     let virtual_hosts = build_virtual_hosts_json(allowed_hosts, credentials, proxy_auth_token);
+    let sandbox_uuid = sandbox_id.as_uuid();
 
     json!({
         "@type": LISTENER_TYPE_URL,
-        "name": format!("{sandbox_id}_http"),
+        "name": format!("{sandbox_uuid}_http"),
         "address": {
             "pipe": {
-                "path": format!("/sockets/{sandbox_id}/http.sock"),
+                "path": format!("/sockets/{sandbox_uuid}/http.sock"),
                 "mode": 438
             }
         },
@@ -966,7 +968,7 @@ fn build_http_listener_json(
                 "name": "envoy.filters.network.http_connection_manager",
                 "typed_config": {
                     "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
-                    "stat_prefix": format!("{sandbox_id}_http"),
+                    "stat_prefix": format!("{sandbox_uuid}_http"),
                     "http_protocol_options": {
                         "allow_absolute_url": true
                     },
@@ -991,7 +993,7 @@ fn build_http_listener_json(
                                     "upstream_cluster": "%UPSTREAM_CLUSTER%",
                                     "attempt_count": "%UPSTREAM_REQUEST_ATTEMPT_COUNT%",
                                     "duration_ms": "%DURATION%",
-                                    "listener": format!("{sandbox_id}_http")
+                                    "listener": format!("{sandbox_uuid}_http")
                                 }
                             }
                         }
@@ -1035,7 +1037,7 @@ fn build_http_listener_json(
 /// on that host still egress plainly.
 fn build_virtual_hosts_json(
     allowed_hosts: &[String],
-    credentials: &[CredentialRoute],
+    credentials: &[EgressCredentialRoute],
     proxy_auth_token: Option<&str>,
 ) -> Vec<Value> {
     let mut vhosts = Vec::new();
@@ -1069,8 +1071,8 @@ fn build_virtual_hosts_json(
                     headers_to_remove.push("proxy-authorization".to_string());
                 }
                 // For transparent routes (host is already real), no host_rewrite
-                // or prefix_rewrite needed. For placeholder routes (legacy),
-                // rewrite to the real upstream.
+                // or prefix_rewrite is needed. Placeholder routes rewrite to
+                // the real upstream.
                 let is_transparent = r.exposure == EgressExposure::Transparent;
                 let prefix_rewrite = route_prefix_rewrite(r);
                 let route_json = if is_transparent {
@@ -1227,7 +1229,7 @@ fn route_match_with_proxy_auth(mut match_json: Value, proxy_auth_token: Option<&
     match_json
 }
 
-fn domains_for_credential_host(match_host: &str, routes: &[CredentialRoute]) -> Vec<String> {
+fn domains_for_credential_host(match_host: &str, routes: &[EgressCredentialRoute]) -> Vec<String> {
     let mut domains = vec![
         match_host.to_string(),
         format!("{match_host}:80"),
@@ -1340,16 +1342,16 @@ fn validate_header_name(name: &str) -> anyhow::Result<()> {
 /// (host-sorted) list with routes ordered longest-`match_prefix`-first so more
 /// specific prefixes are matched before `/`.
 fn group_credentials_by_host(
-    credentials: &[CredentialRoute],
-) -> Vec<(String, Vec<CredentialRoute>)> {
-    let mut by_host: HashMap<String, Vec<CredentialRoute>> = HashMap::new();
+    credentials: &[EgressCredentialRoute],
+) -> Vec<(String, Vec<EgressCredentialRoute>)> {
+    let mut by_host: HashMap<String, Vec<EgressCredentialRoute>> = HashMap::new();
     for r in credentials {
         by_host
             .entry(r.match_host.clone())
             .or_default()
             .push(r.clone());
     }
-    let mut grouped: Vec<(String, Vec<CredentialRoute>)> = by_host.into_iter().collect();
+    let mut grouped: Vec<(String, Vec<EgressCredentialRoute>)> = by_host.into_iter().collect();
     grouped.sort_by(|a, b| a.0.cmp(&b.0));
     for (_, routes) in &mut grouped {
         routes.sort_by(|a, b| b.match_prefix.len().cmp(&a.match_prefix.len()));
@@ -1483,7 +1485,7 @@ pub struct DeltaXdsServer {
     /// Optional DB handle attached on orchestrator startup for ACK/NACK status
     /// persistence. Kept optional so unit tests and filesystem mode do not need a DB.
     db_pool: Arc<Mutex<Option<PgPool>>>,
-    apply_status: Arc<Mutex<HashMap<Uuid, XdsApplyStatus>>>,
+    apply_status: Arc<Mutex<HashMap<SandboxId, XdsApplyStatus>>>,
     status_notify: watch::Sender<u64>,
     /// Node-aware filtering: maps sandbox_id → node_name. Used by stream tasks
     /// to only send resources for sandboxes running on their node. Empty in
@@ -1524,7 +1526,7 @@ impl DeltaXdsServer {
 
     pub async fn wait_for_sandbox_ack(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         timeout: Duration,
     ) -> anyhow::Result<()> {
         let mut rx = self.status_notify.subscribe();
@@ -1554,7 +1556,7 @@ impl DeltaXdsServer {
     /// sandbox's listeners/clusters are removed so `apply_status` cannot grow
     /// unboundedly over the orchestrator's lifetime (one entry per sandbox ever
     /// created otherwise).
-    async fn forget_sandbox(&self, sandbox_id: Uuid) {
+    async fn forget_sandbox(&self, sandbox_id: SandboxId) {
         self.apply_status.lock().await.remove(&sandbox_id);
     }
 
@@ -1563,7 +1565,7 @@ impl DeltaXdsServer {
         &self,
         type_url: &str,
         changes: Vec<Change>,
-        pending_sandboxes: Vec<Uuid>,
+        pending_sandboxes: Vec<SandboxId>,
     ) -> u64 {
         self.apply_batch(vec![(type_url.to_string(), changes)], pending_sandboxes)
             .await
@@ -1577,7 +1579,7 @@ impl DeltaXdsServer {
     async fn apply_batch(
         &self,
         groups: Vec<(String, Vec<Change>)>,
-        pending_sandboxes: Vec<Uuid>,
+        pending_sandboxes: Vec<SandboxId>,
     ) -> u64 {
         let groups: Vec<(String, Vec<Change>)> = groups
             .into_iter()
@@ -1691,13 +1693,13 @@ impl LdsBackend for GrpcLds {
 
     async fn wait_for_sandbox_ack(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         timeout: Duration,
     ) -> anyhow::Result<()> {
         self.server.wait_for_sandbox_ack(sandbox_id, timeout).await
     }
 
-    async fn forget_sandbox(&self, sandbox_id: Uuid) {
+    async fn forget_sandbox(&self, sandbox_id: SandboxId) {
         self.server.forget_sandbox(sandbox_id).await;
     }
 
@@ -2089,7 +2091,7 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
 
 struct XdsStatusHandle {
     db_pool: Arc<Mutex<Option<PgPool>>>,
-    apply_status: Arc<Mutex<HashMap<Uuid, XdsApplyStatus>>>,
+    apply_status: Arc<Mutex<HashMap<SandboxId, XdsApplyStatus>>>,
     status_notify: watch::Sender<u64>,
 }
 
@@ -2285,7 +2287,7 @@ impl DeltaXdsServer {
     }
 }
 
-fn sandbox_ids_from_xds_resources(resource_names: &[String]) -> Vec<Uuid> {
+fn sandbox_ids_from_xds_resources(resource_names: &[String]) -> Vec<SandboxId> {
     let mut ids = Vec::new();
     for name in resource_names {
         if let Some(id) = sandbox_id_from_xds_resource(name) {
@@ -2297,10 +2299,15 @@ fn sandbox_ids_from_xds_resources(resource_names: &[String]) -> Vec<Uuid> {
     ids
 }
 
-fn sandbox_id_from_xds_resource(name: &str) -> Option<Uuid> {
-    let raw = name.strip_prefix("up_").unwrap_or(name);
-    let candidate = raw.get(..36)?;
-    Uuid::parse_str(candidate).ok()
+fn sandbox_id_from_xds_resource(name: &str) -> Option<SandboxId> {
+    let candidate = if let Some(listener_id) = name.strip_suffix("_http") {
+        listener_id
+    } else if let Some(cluster_name) = name.strip_prefix("up_") {
+        cluster_name.split_once('_')?.0
+    } else {
+        return None;
+    };
+    Uuid::parse_str(candidate).ok().map(SandboxId::from_uuid)
 }
 
 // ---------------------------------------------------------------------------
@@ -2449,9 +2456,9 @@ fn pack_any<M: Message>(type_url: &str, msg: &M) -> Any {
 }
 
 fn build_http_listener_proto(
-    sandbox_id: &Uuid,
+    sandbox_id: &SandboxId,
     allowed_hosts: &[String],
-    credentials: &[CredentialRoute],
+    credentials: &[EgressCredentialRoute],
     proxy_auth_token: Option<&str>,
 ) -> envoy_types::pb::envoy::config::listener::v3::Listener {
     use envoy_types::pb::envoy::config::accesslog::v3::{access_log, AccessLog};
@@ -2474,6 +2481,7 @@ fn build_http_listener_proto(
         http_connection_manager, http_filter, HttpConnectionManager, HttpFilter,
     };
 
+    let sandbox_uuid = sandbox_id.as_uuid();
     let dfp_filter = FilterConfig {
         implementation_specifier: Some(filter_config::ImplementationSpecifier::DnsCacheConfig(
             DnsCacheConfig {
@@ -2486,7 +2494,7 @@ fn build_http_listener_proto(
     };
 
     let hcm = HttpConnectionManager {
-        stat_prefix: format!("{sandbox_id}_http"),
+        stat_prefix: format!("{sandbox_uuid}_http"),
         http_protocol_options: Some(Http1ProtocolOptions {
             allow_absolute_url: Some(envoy_types::pb::google::protobuf::BoolValue { value: true }),
             ..Default::default()
@@ -2499,7 +2507,7 @@ fn build_http_listener_proto(
                     access_log_format: Some(stdout_access_log::AccessLogFormat::LogFormat(
                         SubstitutionFormatString {
                             format: Some(substitution_format_string::Format::JsonFormat(
-                                access_log_json_format(format!("{sandbox_id}_http")),
+                                access_log_json_format(format!("{sandbox_uuid}_http")),
                             )),
                             ..Default::default()
                         },
@@ -2547,10 +2555,10 @@ fn build_http_listener_proto(
     };
 
     Listener {
-        name: format!("{sandbox_id}_http"),
+        name: format!("{sandbox_uuid}_http"),
         address: Some(Address {
             address: Some(address::Address::Pipe(Pipe {
-                path: format!("/sockets/{sandbox_id}/http.sock"),
+                path: format!("/sockets/{sandbox_uuid}/http.sock"),
                 // See the gRPC listener pipe above for why this is 0666 at
                 // creation time. The HTTP proxy still requires the per-sandbox
                 // proxy auth token before credential-bearing routes are usable.
@@ -2573,7 +2581,7 @@ fn build_http_listener_proto(
 
 fn build_virtual_hosts_proto(
     allowed_hosts: &[String],
-    credentials: &[CredentialRoute],
+    credentials: &[EgressCredentialRoute],
     proxy_auth_token: Option<&str>,
 ) -> Vec<envoy_types::pb::envoy::config::route::v3::VirtualHost> {
     use envoy_types::pb::envoy::config::core::v3::{
@@ -2847,7 +2855,7 @@ mod tests {
         let server = DeltaXdsServer::new();
         let lds = GrpcLds::new(server.clone());
         let mut listener = spec(ListenerKind::Http, &["example.com"]);
-        listener.sandbox_id = Uuid::from_u128(1);
+        listener.sandbox_id = SandboxId::from_uuid(Uuid::from_u128(1));
 
         // Before the fix this future never resolves; bound it so the test fails
         // as a timeout instead of hanging the whole test binary.
@@ -2866,7 +2874,7 @@ mod tests {
         // The pending status was recorded for the sandbox.
         let statuses = server.apply_status.lock().await;
         assert!(matches!(
-            statuses.get(&Uuid::from_u128(1)),
+            statuses.get(&SandboxId::from_uuid(Uuid::from_u128(1))),
             Some(XdsApplyStatus::Pending { .. })
         ));
     }
@@ -2877,7 +2885,7 @@ mod tests {
     async fn forget_sandbox_clears_apply_status() {
         let server = DeltaXdsServer::new();
         let lds = GrpcLds::new(server.clone());
-        let sandbox = Uuid::from_u128(7);
+        let sandbox = SandboxId::from_uuid(Uuid::from_u128(7));
         let mut listener = spec(ListenerKind::Http, &["example.com"]);
         listener.sandbox_id = sandbox;
 
@@ -2915,7 +2923,7 @@ mod tests {
     async fn apply_sandbox_batch_is_atomic_and_ordered() {
         let server = DeltaXdsServer::new();
         let lds = GrpcLds::new(server.clone());
-        let sandbox = Uuid::from_u128(9);
+        let sandbox = SandboxId::from_uuid(Uuid::from_u128(9));
         let prefix = format!("up_{sandbox}_");
 
         // Seed a stale cluster under the prefix that should be pruned.
@@ -2970,12 +2978,12 @@ mod tests {
         assert!(!clusters_now.contains_key(&format!("{prefix}stale_443")));
         assert!(st
             .snapshot_type(LISTENER_TYPE_URL)
-            .contains_key(&format!("{sandbox}_http")));
+            .contains_key(&format!("{}_http", sandbox.as_uuid())));
     }
 
     fn spec(kind: ListenerKind, hosts: &[&str]) -> ListenerSpec {
         ListenerSpec {
-            sandbox_id: Uuid::nil(),
+            sandbox_id: SandboxId::from_uuid(Uuid::nil()),
             kind,
             allowed_hosts: hosts.iter().map(|s| s.to_string()).collect(),
             credentials: vec![],
@@ -2986,10 +2994,10 @@ mod tests {
     fn spec_with_creds(
         kind: ListenerKind,
         hosts: &[&str],
-        creds: Vec<CredentialRoute>,
+        creds: Vec<EgressCredentialRoute>,
     ) -> ListenerSpec {
         ListenerSpec {
-            sandbox_id: Uuid::nil(),
+            sandbox_id: SandboxId::from_uuid(Uuid::nil()),
             kind,
             allowed_hosts: hosts.iter().map(|s| s.to_string()).collect(),
             credentials: creds,
@@ -2997,8 +3005,8 @@ mod tests {
         }
     }
 
-    fn llm_route() -> CredentialRoute {
-        CredentialRoute {
+    fn llm_route() -> EgressCredentialRoute {
+        EgressCredentialRoute {
             id: "llm".to_string(),
             kind: EgressKind::Llm,
             exposure: EgressExposure::Placeholder,
@@ -3015,8 +3023,8 @@ mod tests {
         }
     }
 
-    fn mcp_route(name: &str) -> CredentialRoute {
-        CredentialRoute {
+    fn mcp_route(name: &str) -> EgressCredentialRoute {
+        EgressCredentialRoute {
             id: format!("mcp:{name}"),
             kind: EgressKind::Mcp,
             exposure: EgressExposure::Placeholder,
@@ -3034,7 +3042,7 @@ mod tests {
     }
 
     #[test]
-    fn resource_names_match_historical_scheme() {
+    fn listener_resource_names_use_http_suffix() {
         assert_eq!(
             spec(ListenerKind::Http, &[]).resource_name(),
             "00000000-0000-0000-0000-000000000000_http"
@@ -3043,25 +3051,26 @@ mod tests {
 
     #[test]
     fn xds_resource_names_map_back_to_sandbox_ids() {
-        let id = Uuid::parse_str("018f5f50-0000-7000-8000-000000000001").unwrap();
+        let id =
+            SandboxId::from_uuid(Uuid::parse_str("018f5f50-0000-7000-8000-000000000001").unwrap());
         assert_eq!(
-            sandbox_id_from_xds_resource(&format!("{id}_http")),
+            sandbox_id_from_xds_resource(&format!("{}_http", id.as_uuid())),
             Some(id)
         );
         assert_eq!(
-            sandbox_id_from_xds_resource(&format!("{id}_grpc")),
+            sandbox_id_from_xds_resource(&format!("up_{}_external_api", id.as_uuid())),
             Some(id)
         );
         assert_eq!(
-            sandbox_id_from_xds_resource(&format!("up_{id}_external_api")),
-            Some(id)
+            sandbox_id_from_xds_resource(&format!("{}_grpc", id.as_uuid())),
+            None
         );
         assert_eq!(sandbox_id_from_xds_resource("dynamic_forward_proxy"), None);
     }
 
     #[test]
     fn validates_duplicate_credential_and_allowlist_domains() {
-        let sid = Uuid::nil();
+        let sid = SandboxId::from_uuid(Uuid::nil());
         let policy = SandboxEgressPolicy {
             allowlist_hosts: vec![LLM_EGRESS_HOST.to_string()],
             credential_routes: vec![llm_route()],
@@ -3075,7 +3084,7 @@ mod tests {
 
     #[test]
     fn policy_summary_hashes_injected_header_values() {
-        let sid = Uuid::nil();
+        let sid = SandboxId::from_uuid(Uuid::nil());
         let policy = SandboxCredentials {
             routes: vec![llm_route()],
             proxy_auth_token: None,
@@ -3147,7 +3156,7 @@ mod tests {
             ],
             proxy_auth_token: None,
         };
-        let sid = Uuid::nil();
+        let sid = SandboxId::from_uuid(Uuid::nil());
         let routes = creds.to_routes(&sid);
         let clusters = creds.to_clusters(&sid);
 
@@ -3193,7 +3202,7 @@ mod tests {
         // (external-egress.internal/services/<name>/) and a transparent route on
         // the real host so a skill can call http://crm.example.com/api/ directly.
         // Both now point to the shared dynamic_forward_proxy_tls cluster.
-        let sid = Uuid::nil();
+        let sid = SandboxId::from_uuid(Uuid::nil());
         let creds = SandboxCredentials {
             routes: vec![
                 EgressCredentialRoute {
@@ -3281,7 +3290,7 @@ mod tests {
         // (e.g. crm.example.com/api/ and crm.example.com/auth/). Their
         // transparent routes must land in ONE vhost for that host, ordered
         // longest-prefix-first, with the host's exact domain declared once.
-        let sid = Uuid::nil();
+        let sid = SandboxId::from_uuid(Uuid::nil());
         let mk = |id: &str, prefix: &str| EgressCredentialRoute {
             id: id.to_string(),
             kind: EgressKind::External,
@@ -3575,7 +3584,7 @@ mod tests {
 
     #[test]
     fn credential_header_values_with_percent_are_escaped_in_json() {
-        let cred = CredentialRoute {
+        let cred = EgressCredentialRoute {
             id: "test".to_string(),
             kind: EgressKind::External,
             exposure: EgressExposure::Transparent,

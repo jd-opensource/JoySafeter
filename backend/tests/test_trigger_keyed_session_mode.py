@@ -47,7 +47,6 @@ def _config(agent, **over):
         name="Hook",
         source="trigger:webhook:test",
         prompt="run",
-        system_prompt=None,
         environment_ref=None,
         timeout_sec=7200,
         max_retries=2,

@@ -11,95 +11,88 @@ on:
       - develop
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  # =============================================================================
-  # Main application images (backend, frontend)
-  # Build only (no push) — release.yml handles publishing versioned images
-  # =============================================================================
   build:
-    name: Build Docker Images
+    name: Build ${{ matrix.image.name }}
     runs-on: ubuntu-latest
+    timeout-minutes: 90
 
     strategy:
+      fail-fast: false
       matrix:
         image:
           - name: joysafeter-backend
             context: ./backend
             dockerfile: ./deploy/docker/backend.Dockerfile
+            skillspector: false
+            build_contexts: ''
           - name: joysafeter-frontend
             context: ./frontend
             dockerfile: ./deploy/docker/frontend.Dockerfile
+            skillspector: false
+            build_contexts: ''
+          - name: joysafeter-orchestrator-rs
+            context: .
+            dockerfile: ./deploy/docker/orchestrator-rs.Dockerfile
+            skillspector: false
+            build_contexts: ''
+          - name: joysafeter-skillspector
+            context: ./backend/joysafeter_skillspector
+            dockerfile: ./deploy/docker/skillspector-service.Dockerfile
+            skillspector: true
+            build_contexts: skillspector=./.deps/SkillSpector
+          - name: joysafeter-claudecode
+            context: .
+            dockerfile: ./deploy/docker/claudecode.Dockerfile
+            skillspector: false
+            build_contexts: ''
+          - name: joysafeter-codex
+            context: .
+            dockerfile: ./deploy/docker/codex.Dockerfile
+            skillspector: false
+            build_contexts: ''
+          - name: joysafeter-pi
+            context: .
+            dockerfile: ./deploy/docker/pi.Dockerfile
+            skillspector: false
+            build_contexts: ''
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+
+      - name: Checkout SkillSpector
+        if: matrix.image.skillspector
+        uses: actions/checkout@v6
+        with:
+          repository: NVIDIA/SkillSpector
+          ref: v2.5.1
+          path: .deps/SkillSpector
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
-      - name: Build Docker image
-        uses: docker/build-push-action@v5
+      - name: Build image
+        uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.dockerfile }}
+          build-contexts: ${{ matrix.image.build_contexts }}
           platforms: linux/amd64,linux/arm64
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
             GIT_COMMIT_SHA=${{ github.sha }}
-            PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
-            UV_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
-
-  # =============================================================================
-  # Sandbox image (independent, only triggered when sandbox files change)
-  # Build only (no push) — release.yml handles publishing versioned images
-  # =============================================================================
-  check-sandbox-changes:
-    name: Check Sandbox File Changes
-    runs-on: ubuntu-latest
-    outputs:
-      sandbox_changed: ${{ steps.filter.outputs.sandbox }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Check for sandbox file changes
-        uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            sandbox:
-              - 'deploy/docker/sandbox.Dockerfile'
-              - 'deploy/docker/configs/**'
-              - 'deploy/docker/entrypoint.sh'
-
-  build-sandbox:
-    name: Build Sandbox Image
-    runs-on: ubuntu-latest
-    needs: check-sandbox-changes
-    if: |
-      needs.check-sandbox-changes.outputs.sandbox_changed == 'true' ||
-      github.event_name == 'workflow_dispatch'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Sandbox image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./deploy/docker
-          file: ./deploy/docker/sandbox.Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+            UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple

@@ -4,8 +4,19 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from '@/lib/i18n'
-import { Pencil, ChevronRight, Package, Globe, Play, Sparkles, Archive, Trash2 } from 'lucide-react'
+import {
+  Pencil,
+  ChevronRight,
+  Package,
+  Globe,
+  Play,
+  Archive,
+  ArchiveRestore,
+  Trash2,
+  Loader2,
+} from 'lucide-react'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
+import { toast } from '@/hooks/use-toast'
 import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import {
@@ -16,7 +27,11 @@ import {
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { VersionDiffView } from '@/components/managed/agent/version-diff-view'
-import type { Agent, AgentTool, McpServer, PaginatedResponse, Session } from '@/types/managed'
+import type { Agent, AgentTool, McpServer, Session } from '@/types/managed'
+import { parseAgentId, parseSessionId } from '@/types/entity-id'
+import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
+import { parseSessionListResponse } from '@/lib/managed/session-response-parsers'
+import { getSessionDisplayTitle } from '@/lib/managed/session-display'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
@@ -35,9 +50,9 @@ import {
   DataTable,
   type Column,
   FilterBar,
-  ActionMenu,
   ConfirmDialog,
   ResourceErrorState,
+  withEntityRouteGuard,
 } from '@/components/managed/shared'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
@@ -55,7 +70,16 @@ interface DeletePreview {
   sessions: number
   tasks: number
   versions: number
+  triggers: number
 }
+
+type PendingAction =
+  | 'start'
+  | 'archive'
+  | 'restore'
+  | 'delete-preview'
+  | 'delete'
+  | 'archive-session'
 
 const ENGINE_KIND_LABELS: Record<string, string> = {
   claude: 'Claude Code',
@@ -64,8 +88,15 @@ const ENGINE_KIND_LABELS: Record<string, string> = {
   native: 'Native',
 }
 
-export default function AgentDetailPage({ params }: { params: Promise<{ agentId: string }> }) {
-  const { agentId } = React.use(params)
+export default withEntityRouteGuard(AgentDetailPageInner, {
+  kind: 'agent',
+  paramKey: 'agentId',
+  backTo: '/managed/agents',
+})
+
+function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }> }) {
+  const { agentId: rawAgentId } = React.use(params)
+  const agentId = parseAgentId(rawAgentId)
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -73,9 +104,11 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   const managedScope = useManagedRequestScope()
   const operationScope = `${managedScope.key}:${agentId ?? ''}`
   const actionRunRef = useRef(0)
+  const pendingActionRef = useRef<PendingAction | null>(null)
   const operationScopeRef = useRef(operationScope)
   const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const [showArchived, setShowArchived] = useState(false)
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean
     title: string
@@ -94,6 +127,8 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
 
   useEffect(() => {
     actionRunRef.current += 1
+    pendingActionRef.current = null
+    setPendingAction(null)
     operationScopeRef.current = operationScope
     managedRequestScopeRef.current = managedScope
     setConfirmDialog({
@@ -131,6 +166,13 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
     return !!currentAgent && currentAgent.id === agent?.id && !currentAgent.archived_at
   }
 
+  const currentAgentIsWritable = () => {
+    if (!currentOperationScopeIsActive()) return false
+    if (!currentProjectAllowsWrite()) return false
+    const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope.key, agentId])
+    return !!currentAgent && currentAgent.id === agent?.id
+  }
+
   const nextAction = () => {
     if (!currentOperationScopeIsActive()) return null
     const runId = actionRunRef.current + 1
@@ -139,6 +181,21 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
       runId,
       scope: operationScopeRef.current,
     }
+  }
+
+  const beginPendingAction = (type: PendingAction) => {
+    if (pendingActionRef.current) return null
+    const action = nextAction()
+    if (!action) return null
+    pendingActionRef.current = type
+    setPendingAction(type)
+    return action
+  }
+
+  const finishPendingAction = (runId: number, scope: string) => {
+    if (!isCurrentAction(runId, scope)) return
+    pendingActionRef.current = null
+    setPendingAction(null)
   }
 
   const closeConfirmDialog = () => {
@@ -154,7 +211,10 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   } = useQuery({
     queryKey: ['agent', managedScope.key, agentId],
     queryFn: () =>
-      managedGet<Agent>(apiResourcePath('agents', agentId), managedRequestOptions(managedScope)),
+      managedGet<unknown>(
+        apiResourcePath('agents', agentId),
+        managedRequestOptions(managedScope),
+      ).then(parseAgentResponse),
     enabled: !!agentId && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
@@ -162,13 +222,13 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   const { data: sessions } = useQuery({
     queryKey: ['agent-sessions', managedScope.key, agentId, showArchived],
     queryFn: async () => {
-      const res = await managedGet<PaginatedResponse<Session>>(
+      const res = await managedGet<{ data: unknown[] }>(
         apiResourceSubpath('agents', agentId, ['sessions'], {
           include_archived: showArchived || undefined,
         }),
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return parseSessionListResponse(res.data || [])
     },
     enabled: !!agentId && hasManagedRequestScope(managedScope),
   })
@@ -180,7 +240,10 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         apiResourcePath('agents', agentId, 'versions'),
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return (res.data || []).map((version) => ({
+        ...version,
+        snapshot: version.snapshot ? parseAgentResponse(version.snapshot) : undefined,
+      }))
     },
     enabled: !!agentId && hasManagedRequestScope(managedScope),
   })
@@ -188,9 +251,9 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   const handleStartSession = async () => {
     if (!currentAgentIsActive()) return
 
-    const runId = actionRunRef.current + 1
-    actionRunRef.current = runId
-    const actionScope = operationScopeRef.current
+    const action = beginPendingAction('start')
+    if (!action) return
+    const { runId, scope: actionScope } = action
     const requestScope = managedRequestScopeRef.current
     if (!currentOperationScopeIsActive(actionScope)) return
     try {
@@ -200,16 +263,13 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         managedRequestOptions(requestScope),
       )
       if (!isCurrentAction(runId, actionScope)) return
-      router.push(`/managed/sessions/${res.id}`)
+      router.push(`/managed/sessions/${parseSessionId(res.id)}`)
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
+    } finally {
+      finishPendingAction(runId, actionScope)
     }
-  }
-
-  const handleGuidedEdit = () => {
-    if (!currentAgentIsActive()) return
-    router.push(`/managed/agents/${agentId}/edit?guided=true`)
   }
 
   const handleArchive = () => {
@@ -226,10 +286,11 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
           setConfirmDialog((prev) => ({ ...prev, open: false }))
           return
         }
-        const action = nextAction()
+        const action = beginPendingAction('archive')
         if (!action) return
         const { runId, scope } = action
         const requestScope = managedRequestScopeRef.current
+        setConfirmDialog((prev) => ({ ...prev, open: false }))
         try {
           await managedPost(
             apiResourcePath('agents', agentId, 'archive'),
@@ -238,20 +299,63 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
           )
           if (!isCurrentAction(runId, scope)) return
           queryClient.invalidateQueries({ queryKey: ['agent', requestScope.key, agentId] })
-          setConfirmDialog((prev) => ({ ...prev, open: false }))
+          queryClient.invalidateQueries({ queryKey: ['agents', requestScope.key] })
+          queryClient.invalidateQueries({
+            queryKey: ['agent-sessions', requestScope.key, agentId],
+            exact: false,
+          })
+          toast({ title: t('managed.agents.archiveSuccess', { name: agent?.name }) })
         } catch (e) {
           if (!isCurrentAction(runId, scope)) return
-          setConfirmDialog((prev) => ({ ...prev, open: false }))
           toastOperationError(t, e, 'common.operationFailed')
+        } finally {
+          finishPendingAction(runId, scope)
+        }
+      },
+    })
+  }
+
+  const handleRestore = () => {
+    if (!currentAgentIsWritable()) return
+    const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope.key, agentId])
+    if (!currentAgent?.archived_at) return
+    actionRunRef.current += 1
+    setConfirmDialog({
+      open: true,
+      title: t('managed.agents.restoreTitle'),
+      description: t('managed.agents.restoreDescription', { name: agent?.name }),
+      confirmLabel: t('common.restore'),
+      destructive: false,
+      onConfirm: async () => {
+        const action = beginPendingAction('restore')
+        if (!action) return
+        const { runId, scope } = action
+        const requestScope = managedRequestScopeRef.current
+        setConfirmDialog((prev) => ({ ...prev, open: false }))
+        try {
+          await managedPost(
+            apiResourcePath('agents', agentId, 'unarchive'),
+            {},
+            managedRequestOptions(requestScope),
+          )
+          if (!isCurrentAction(runId, scope)) return
+          queryClient.invalidateQueries({ queryKey: ['agent', requestScope.key, agentId] })
+          queryClient.invalidateQueries({ queryKey: ['agents', requestScope.key] })
+          toast({ title: t('managed.agents.restoreSuccess', { name: agent?.name }) })
+        } catch (e) {
+          if (!isCurrentAction(runId, scope)) return
+          toastOperationError(t, e, 'common.operationFailed')
+        } finally {
+          finishPendingAction(runId, scope)
         }
       },
     })
   }
 
   const handleDelete = async () => {
-    if (!currentAgentIsActive()) return
+    if (!currentAgentIsWritable()) return
 
-    const action = nextAction()
+    const action = beginPendingAction('delete-preview')
     if (!action) return
     const { runId, scope } = action
     const requestScope = managedRequestScopeRef.current
@@ -260,12 +364,13 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         apiResourcePath('agents', agentId, 'delete_preview'),
         managedRequestOptions(requestScope),
       )
-      if (!isCurrentAction(runId, scope) || !currentAgentIsActive()) return
+      if (!isCurrentAction(runId, scope) || !currentAgentIsWritable()) return
       const desc = t('managed.agents.deleteDescription', {
         name: agent?.name,
         sessions: preview.sessions,
         tasks: preview.tasks,
         versions: preview.versions,
+        triggers: preview.triggers,
       })
       setConfirmDialog({
         open: true,
@@ -274,30 +379,36 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         confirmLabel: t('managed.agents.permanentlyDelete'),
         destructive: true,
         onConfirm: async () => {
-          if (!currentAgentIsActive()) {
+          if (!currentAgentIsWritable()) {
             setConfirmDialog((prev) => ({ ...prev, open: false }))
             return
           }
-          const action = nextAction()
+          const action = beginPendingAction('delete')
           if (!action) return
           const requestScope = managedRequestScopeRef.current
+          setConfirmDialog((prev) => ({ ...prev, open: false }))
           try {
             await managedDelete(
               apiResourcePath('agents', agentId),
               managedRequestOptions(requestScope),
             )
             if (!isCurrentAction(action.runId, action.scope)) return
+            queryClient.invalidateQueries({ queryKey: ['agents', requestScope.key] })
+            toast({ title: t('managed.agents.deleteSuccess', { name: agent?.name }) })
             router.push('/managed/agents')
           } catch (e) {
             if (!isCurrentAction(action.runId, action.scope)) return
-            setConfirmDialog((prev) => ({ ...prev, open: false }))
             toastOperationError(t, e, 'common.operationFailed')
+          } finally {
+            finishPendingAction(action.runId, action.scope)
           }
         },
       })
     } catch (e) {
       if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, e, 'common.operationFailed')
+    } finally {
+      finishPendingAction(runId, scope)
     }
   }
 
@@ -312,7 +423,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
     ])
     if (!currentSessions?.some((currentSession) => currentSession.id === session.id)) return
 
-    const action = nextAction()
+    const action = beginPendingAction('archive-session')
     if (!action) return
     const { runId, scope } = action
     const requestScope = managedRequestScopeRef.current
@@ -330,6 +441,8 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
     } catch (e) {
       if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, e, 'common.operationFailed')
+    } finally {
+      finishPendingAction(runId, scope)
     }
   }
 
@@ -349,33 +462,8 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
   }
 
   const isArchived = !!agent.archived_at
-  const menuItems =
-    isArchived || projectReadOnly
-      ? []
-      : [
-          {
-            label: t('managed.agents.startSession'),
-            onClick: handleStartSession,
-            icon: <Play className="h-3.5 w-3.5" />,
-          },
-          {
-            label: t('managed.agents.guidedEdit'),
-            onClick: handleGuidedEdit,
-            icon: <Sparkles className="h-3.5 w-3.5" />,
-          },
-          {
-            label: t('common.archive'),
-            onClick: handleArchive,
-            icon: <Archive className="h-3.5 w-3.5" />,
-            separator: true,
-          },
-          {
-            label: t('common.delete'),
-            onClick: handleDelete,
-            icon: <Trash2 className="h-3.5 w-3.5" />,
-            destructive: true,
-          },
-        ]
+  const actionPending = pendingAction !== null
+  const deletePending = pendingAction === 'delete-preview' || pendingAction === 'delete'
 
   return (
     <div>
@@ -388,19 +476,108 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
         ]}
         action={
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isArchived || projectReadOnly}
-              onClick={() => {
-                if (!currentAgentIsActive()) return
-                router.push(`/managed/agents/${agentId}/edit`)
-              }}
-            >
-              <Pencil className="mr-1.5 h-3.5 w-3.5" />
-              {t('common.edit')}
-            </Button>
-            <ActionMenu items={menuItems} />
+            {isArchived ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={projectReadOnly || actionPending}
+                  onClick={handleRestore}
+                >
+                  {pendingAction === 'restore' ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  {t(pendingAction === 'restore' ? 'managed.agents.restoring' : 'common.restore')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={projectReadOnly || actionPending}
+                  className="text-destructive hover:text-destructive"
+                  onClick={handleDelete}
+                >
+                  {deletePending ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  {t(
+                    pendingAction === 'delete-preview'
+                      ? 'managed.agents.preparingDelete'
+                      : pendingAction === 'delete'
+                        ? 'managed.agents.deleting'
+                        : 'common.delete',
+                  )}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="default"
+                  size="sm"
+                  disabled={projectReadOnly || actionPending}
+                  onClick={handleStartSession}
+                >
+                  {pendingAction === 'start' ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Play className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  {t(
+                    pendingAction === 'start'
+                      ? 'managed.agents.startingSession'
+                      : 'managed.agents.startSession',
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={projectReadOnly || actionPending}
+                  onClick={() => {
+                    if (!currentAgentIsActive()) return
+                    router.push(`/managed/agents/${agentId}/edit`)
+                  }}
+                >
+                  <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                  {t('common.edit')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={projectReadOnly || actionPending}
+                  onClick={handleArchive}
+                >
+                  {pendingAction === 'archive' ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Archive className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  {t(pendingAction === 'archive' ? 'managed.agents.archiving' : 'common.archive')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={projectReadOnly || actionPending}
+                  className="text-destructive hover:text-destructive"
+                  onClick={handleDelete}
+                >
+                  {deletePending ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  {t(
+                    pendingAction === 'delete-preview'
+                      ? 'managed.agents.preparingDelete'
+                      : pendingAction === 'delete'
+                        ? 'managed.agents.deleting'
+                        : 'common.delete',
+                  )}
+                </Button>
+              </>
+            )}
           </div>
         }
       />
@@ -431,7 +608,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ agentId:
             onArchivedChange={setShowArchived}
             onSelect={(s) => router.push(`/managed/sessions/${s.id}`)}
             onArchive={handleArchiveSession}
-            canArchive={!projectReadOnly && !isArchived}
+            canArchive={!projectReadOnly && !isArchived && !actionPending}
           />
         </TabsContent>
       </Tabs>
@@ -574,24 +751,20 @@ function AgentConfig({ agent, versions: apiVersions }: { agent: Agent; versions:
           </section>
 
           {/* System prompt */}
-          {(selectedAgent.system || selectedAgent.system_prompt) && (
+          {selectedAgent.system && (
             <section>
               <h3 className="mb-2 text-sm font-medium text-foreground">
                 {t('managed.agents.systemPrompt')}
               </h3>
               <div className="relative">
                 <pre className="max-h-[300px] overflow-x-auto overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted p-4 font-mono text-xs">
-                  {selectedAgent.system || selectedAgent.system_prompt}
+                  {selectedAgent.system}
                 </pre>
                 <Button
                   variant="outline"
                   size="icon"
                   className="absolute right-2 top-2 h-7 w-7"
-                  onClick={() =>
-                    navigator.clipboard.writeText(
-                      selectedAgent.system || selectedAgent.system_prompt || '',
-                    )
-                  }
+                  onClick={() => navigator.clipboard.writeText(selectedAgent.system || '')}
                   title={t('common.copyAll')}
                 >
                   <svg
@@ -881,7 +1054,13 @@ function AgentSessions({
 
   const columns: Column<Session>[] = [
     { key: 'id', header: t('managed.table.id'), render: (s) => <MonoId id={s.id} /> },
-    { key: 'name', header: t('managed.table.name'), render: (s) => <span>{s.title || '-'}</span> },
+    {
+      key: 'name',
+      header: t('managed.table.name'),
+      render: (s) => (
+        <span>{getSessionDisplayTitle(s.title, t('managed.sessions.untitledSession'))}</span>
+      ),
+    },
     {
       key: 'status',
       header: t('managed.table.status'),

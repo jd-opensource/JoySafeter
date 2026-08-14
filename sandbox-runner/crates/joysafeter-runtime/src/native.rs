@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use joysafeter_types::harness::{
-    HarnessAdapter, HarnessError, HarnessEvent, HarnessInput, HarnessResult, HarnessResultStatus,
-    RunningHarness,
+    HarnessAdapter, HarnessError, HarnessEvent, HarnessInput, HarnessResult, RunningHarness,
 };
 use joysafeter_types::token_usage::{ModelUsage, TokenUsage};
 use serde::Deserialize;
@@ -27,6 +26,7 @@ struct TurnState {
     turn_done_tx: Option<oneshot::Sender<bool>>,
     usage: Arc<std::sync::Mutex<TokenUsage>>,
     output: Arc<std::sync::Mutex<String>>,
+    error: Arc<std::sync::Mutex<Option<String>>>,
     session_id: Arc<std::sync::Mutex<Option<String>>>,
     call_id_to_tool: Arc<std::sync::Mutex<HashMap<String, String>>>,
 }
@@ -261,6 +261,7 @@ impl HarnessAdapter for NativeAdapter {
                 turn_done_tx: Some(td_tx),
                 usage: Arc::new(std::sync::Mutex::new(TokenUsage::default())),
                 output: Arc::new(std::sync::Mutex::new(String::new())),
+                error: Arc::new(std::sync::Mutex::new(None)),
                 session_id: session_id_arc.clone(),
                 call_id_to_tool: Arc::new(std::sync::Mutex::new(HashMap::new())),
             });
@@ -295,16 +296,17 @@ impl HarnessAdapter for NativeAdapter {
         tokio::spawn(async move {
             let aborted = td_rx.await.unwrap_or(true);
 
-            let (final_output, final_usage, final_session_id) = {
+            let (final_output, final_usage, final_error, final_session_id) = {
                 let ct = current_turn.lock().await;
                 if let Some(ref turn) = *ct {
                     (
                         turn.output.lock().unwrap().clone(),
                         turn.usage.lock().unwrap().clone(),
+                        turn.error.lock().unwrap().clone(),
                         turn.session_id.lock().unwrap().clone(),
                     )
                 } else {
-                    (String::new(), TokenUsage::default(), None)
+                    (String::new(), TokenUsage::default(), None, None)
                 }
             };
 
@@ -318,16 +320,12 @@ impl HarnessAdapter for NativeAdapter {
                 *ct = None;
             }
 
-            let status = if aborted {
-                HarnessResultStatus::Aborted
-            } else {
-                HarnessResultStatus::Completed
-            };
+            let (status, error) = crate::finish_turn(aborted, final_error);
 
             let _ = result_tx.send(HarnessResult {
                 status,
                 output: final_output,
-                error: None,
+                error,
                 session_id: final_session_id,
                 usage: final_usage,
                 duration: start.elapsed(),
@@ -529,6 +527,8 @@ struct NativeMessage {
     request_id: Option<String>,
     #[serde(default)]
     request: Option<serde_json::Value>,
+    #[serde(skip)]
+    raw: Option<serde_json::Value>,
 }
 
 // ---------------------------------------------------------------------------
@@ -548,10 +548,15 @@ async fn persistent_native_reader(
             continue;
         }
 
-        let msg: NativeMessage = match serde_json::from_str(&line) {
+        let raw_value: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let mut msg: NativeMessage = match serde_json::from_value(raw_value.clone()) {
             Ok(m) => m,
             Err(_) => continue,
         };
+        msg.raw = Some(raw_value);
 
         let turn_refs = {
             let guard = current_turn.lock().await;
@@ -560,13 +565,15 @@ async fn persistent_native_reader(
                     turn.event_tx.clone(),
                     turn.usage.clone(),
                     turn.output.clone(),
+                    turn.error.clone(),
                     turn.session_id.clone(),
                     turn.call_id_to_tool.clone(),
                 )
             })
         };
 
-        let Some((event_tx, usage, output, session_id, call_id_to_tool)) = turn_refs else {
+        let Some((event_tx, usage, output, turn_error, session_id, call_id_to_tool)) = turn_refs
+        else {
             continue;
         };
 
@@ -768,6 +775,14 @@ async fn persistent_native_reader(
                 if let Some(text) = &msg.result {
                     *output.lock().unwrap() = text.clone();
                 }
+                if let Some(error_message) = msg.raw.as_ref().and_then(crate::sdk_result_error) {
+                    *turn_error.lock().unwrap() = Some(error_message.clone());
+                    let _ = event_tx
+                        .send(HarnessEvent::Error {
+                            message: error_message,
+                        })
+                        .await;
+                }
                 // Signal turn completion — do NOT break the reader loop
                 let mut guard = current_turn.lock().await;
                 if let Some(ref mut turn) = *guard {
@@ -809,6 +824,20 @@ async fn persistent_native_reader(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn result_error_message_uses_sdk_error_payload() {
+        let raw = serde_json::json!({
+            "type": "result",
+            "subtype": "error_max_turns",
+            "is_error": true,
+            "errors": ["Maximum turns reached"]
+        });
+        assert_eq!(
+            crate::sdk_result_error(&raw).as_deref(),
+            Some("Maximum turns reached")
+        );
+    }
 
     #[test]
     fn live_input_tool_confirmation_maps_to_control_response() {
@@ -865,6 +894,7 @@ mod tests {
         let input = HarnessInput {
             prompt: "hello".into(),
             system_prompt: Some("sys".into()),
+            system_prompt_mode: "append".into(),
             session_id: None,
             model: Some("opus".into()),
             max_turns: Some(10),
@@ -886,6 +916,7 @@ mod tests {
         let input1 = HarnessInput {
             prompt: "hello".into(),
             system_prompt: None,
+            system_prompt_mode: "append".into(),
             session_id: Some("abc".into()),
             model: Some("opus".into()),
             max_turns: Some(5),
@@ -900,6 +931,7 @@ mod tests {
         let input2 = HarnessInput {
             prompt: "different prompt".into(),
             system_prompt: None,
+            system_prompt_mode: "append".into(),
             session_id: Some("xyz".into()),
             model: Some("opus".into()),
             max_turns: Some(100),
@@ -922,6 +954,7 @@ mod tests {
         let input1 = HarnessInput {
             prompt: "hello".into(),
             system_prompt: None,
+            system_prompt_mode: "append".into(),
             session_id: None,
             model: Some("opus".into()),
             max_turns: None,

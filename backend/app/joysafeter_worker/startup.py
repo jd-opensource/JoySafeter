@@ -8,9 +8,6 @@ from loguru import logger
 
 
 async def run_worker_startup() -> None:
-    # Sandbox provisioning is owned by the Rust orchestrator. The Python worker
-    # no longer talks to Docker directly, so do not warn when this service runs
-    # without a mounted Docker socket in container/Kubernetes deployments.
     await _recover_stuck_scanning_skills()
 
 
@@ -53,9 +50,4 @@ async def _recover_stuck_scanning_skills() -> None:
 
 
 async def run_worker_shutdown() -> None:
-    # The legacy execution_event_bus subscribers, CheckpointerManager
-    # (LangGraph Postgres saver), and CLI container pool were removed
-    # during prior cleanup waves. Nothing to tear down here for now; we
-    # keep the symbol so callers don't need to special-case the absence
-    # of a shutdown hook.
     return None

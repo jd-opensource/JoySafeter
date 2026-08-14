@@ -1,6 +1,6 @@
+use crate::ids::{AgentId, CredentialId, SandboxId, SessionId, TaskId};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // JoySafeterTask — mirrors Python JoySafeterTask (table: joysafeter_tasks)
@@ -44,12 +44,12 @@ impl TaskStatus {
 
 #[derive(Debug, Clone, FromRow)]
 pub struct JoySafeterTask {
-    pub id: Uuid,
+    pub id: TaskId,
     pub project_id: Option<String>,
-    pub agent_id: Option<Uuid>,
+    pub agent_id: Option<AgentId>,
     #[sqlx(rename = "chat_session_id")]
-    pub session_id: Option<Uuid>,
-    pub sandbox_id: Option<Uuid>,
+    pub session_id: Option<SessionId>,
+    pub sandbox_id: Option<SandboxId>,
     pub status: String,
     pub prompt: String,
     pub system_prompt: Option<String>,
@@ -74,15 +74,14 @@ pub struct JoySafeterTask {
 
 #[derive(Debug, Clone, FromRow)]
 pub struct JoySafeterSession {
-    pub id: Uuid,
-    pub agent_id: Option<Uuid>,
+    pub id: SessionId,
+    pub agent_id: Option<AgentId>,
     pub project_id: Option<String>,
     pub status: String,
     pub agent_version: Option<i32>,
     pub agent_snapshot: Option<serde_json::Value>,
     pub last_harness_session_id: Option<String>,
     pub last_work_dir: Option<String>,
-    pub vault_ids: Option<serde_json::Value>,
     pub environment_ref: Option<String>,
 }
 
@@ -92,11 +91,11 @@ pub struct JoySafeterSession {
 
 #[derive(Debug, Clone, FromRow)]
 pub struct JoySafeterSandbox {
-    pub id: Uuid,
+    pub id: SandboxId,
     pub external_id: Option<String>,
     pub status: String,
     pub config: Option<serde_json::Value>,
-    pub chat_session_id: Option<Uuid>,
+    pub chat_session_id: Option<SessionId>,
     pub image: Option<String>,
     pub disconnected_at: Option<chrono::DateTime<chrono::Utc>>,
     pub networking_status: String,
@@ -112,7 +111,7 @@ pub struct JoySafeterSandbox {
 
 #[derive(Debug, Clone, FromRow)]
 pub struct JoySafeterAgent {
-    pub id: Uuid,
+    pub id: AgentId,
     pub project_id: Option<String>,
     pub name: String,
     pub engine_kind: Option<String>,
@@ -120,7 +119,7 @@ pub struct JoySafeterAgent {
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub env: Option<serde_json::Value>,
-    pub mcp_configs: Option<serde_json::Value>,
+    pub mcp_servers: Option<serde_json::Value>,
     pub skills: Option<serde_json::Value>,
     pub agents: Option<serde_json::Value>,
     pub commands: Option<serde_json::Value>,
@@ -130,5 +129,5 @@ pub struct JoySafeterAgent {
     pub multiagent: Option<serde_json::Value>,
     pub version: i32,
     pub environment_ref: Option<String>,
-    pub secret_ref: Option<String>,
+    pub model_credential_id: Option<CredentialId>,
 }

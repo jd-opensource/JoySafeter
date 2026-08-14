@@ -7,12 +7,24 @@ import asyncio
 from loguru import logger
 from sqlalchemy import text
 
+from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.config.service_role import current_role
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.database import close_db, engine
 from app.joysafeter_shared.observation.otel.global_provider import init_global_provider
 from app.joysafeter_shared.observation.otel.provider import init_global_processors
+from app.joysafeter_shared.security.credential_cipher import CredentialCipher
+
+
+def validate_credential_encryption_configuration() -> None:
+    from app.joysafeter_shared.config.settings import joysafeter_config
+
+    CredentialCipher(joysafeter_config.vault_encryption_key).require_enabled()
+
+
+def validate_llm_catalog_configuration() -> None:
+    get_llm_catalog()
 
 
 async def _check_db_connection() -> None:
@@ -53,6 +65,8 @@ async def _check_docker_availability() -> None:
 
 
 async def _run_common_startup() -> None:
+    validate_credential_encryption_configuration()
+    validate_llm_catalog_configuration()
     init_global_provider()
     init_global_processors()
 
@@ -100,19 +114,3 @@ async def _run_common_shutdown() -> None:
 
     await close_db()
     logger.info("Application shutdown")
-
-
-async def start_worker_loops() -> list[asyncio.Task]:
-    """Compatibility wrapper for worker service loops."""
-
-    from app.joysafeter_worker.lifecycle import start_worker_loops as _start_worker_loops
-
-    return await _start_worker_loops()
-
-
-async def stop_worker_loops(tasks: list[asyncio.Task]) -> None:
-    """Compatibility wrapper for worker service loop shutdown."""
-
-    from app.joysafeter_worker.lifecycle import stop_worker_loops as _stop_worker_loops
-
-    await _stop_worker_loops(tasks)

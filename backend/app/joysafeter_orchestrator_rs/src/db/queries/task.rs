@@ -2,6 +2,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::db::models::JoySafeterTask;
+use crate::ids::{SandboxId, SessionId, TaskId};
 
 // ---------------------------------------------------------------------------
 // Structs
@@ -9,17 +10,17 @@ use crate::db::models::JoySafeterTask;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ResetSandboxTask {
-    pub id: Uuid,
+    pub id: TaskId,
     #[sqlx(rename = "chat_session_id")]
-    pub session_id: Option<Uuid>,
+    pub session_id: Option<SessionId>,
     pub previous_retry_count: i32,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct FailedSandboxTask {
-    pub id: Uuid,
+    pub id: TaskId,
     #[sqlx(rename = "chat_session_id")]
-    pub session_id: Option<Uuid>,
+    pub session_id: Option<SessionId>,
 }
 
 // ---------------------------------------------------------------------------
@@ -29,7 +30,7 @@ pub struct FailedSandboxTask {
 /// Claim a single pending task by ID for scheduling (PENDING → SCHEDULING).
 pub async fn claim_pending_task_by_id(
     pool: &PgPool,
-    task_id: Uuid,
+    task_id: TaskId,
 ) -> Result<Option<JoySafeterTask>, sqlx::Error> {
     sqlx::query_as::<_, JoySafeterTask>(
         r#"
@@ -81,7 +82,7 @@ pub async fn claim_pending_tasks(
 /// Claim the next task for a specific sandbox (SCHEDULING/PENDING → RUNNING).
 pub async fn claim_next_sandbox_task(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     owner_instance_id: &str,
     lease_ttl_sec: i64,
 ) -> Result<Option<JoySafeterTask>, sqlx::Error> {
@@ -114,8 +115,8 @@ pub async fn claim_next_sandbox_task(
 /// Attach a sandbox to a task that is in 'scheduling' status.
 pub async fn attach_sandbox_to_task(
     pool: &PgPool,
-    task_id: Uuid,
-    sandbox_id: Uuid,
+    task_id: TaskId,
+    sandbox_id: SandboxId,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         r#"
@@ -135,7 +136,7 @@ pub async fn attach_sandbox_to_task(
 /// Return a claimed task to PENDING only if it is still in SCHEDULING.
 pub async fn reset_scheduling_task_to_pending(
     pool: &PgPool,
-    task_id: Uuid,
+    task_id: TaskId,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         r#"
@@ -162,7 +163,7 @@ pub async fn reset_scheduling_task_to_pending(
 /// since the watchdog would have set a different terminal status).
 pub async fn complete_task(
     pool: &PgPool,
-    task_id: Uuid,
+    task_id: TaskId,
     status: &str,
     output: Option<&str>,
     error_msg: Option<&str>,
@@ -193,7 +194,10 @@ pub async fn complete_task(
 }
 
 /// Get a task by ID.
-pub async fn get_task(pool: &PgPool, task_id: Uuid) -> Result<Option<JoySafeterTask>, sqlx::Error> {
+pub async fn get_task(
+    pool: &PgPool,
+    task_id: TaskId,
+) -> Result<Option<JoySafeterTask>, sqlx::Error> {
     sqlx::query_as::<_, JoySafeterTask>("SELECT * FROM joysafeter_tasks WHERE id = $1")
         .bind(task_id)
         .fetch_optional(pool)
@@ -213,7 +217,7 @@ pub async fn count_active_tasks(pool: &PgPool) -> Result<i64, sqlx::Error> {
 /// CAS task status transition.
 pub async fn transition_task_cas(
     pool: &PgPool,
-    task_id: Uuid,
+    task_id: TaskId,
     expected_status: &str,
     new_status: &str,
     error_msg: Option<&str>,
@@ -269,7 +273,7 @@ pub async fn transition_task_cas(
 /// that has since been reclaimed with a new owner epoch.
 pub async fn transition_task_cas_observed_owner_epoch(
     pool: &PgPool,
-    task_id: Uuid,
+    task_id: TaskId,
     expected_status: &str,
     new_status: &str,
     error_msg: Option<&str>,
@@ -321,7 +325,7 @@ pub async fn transition_task_cas_observed_owner_epoch(
 /// rows so callers can repair session state for exactly those task mutations.
 pub async fn reset_sandbox_tasks_to_pending_returning(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
 ) -> Result<Vec<ResetSandboxTask>, sqlx::Error> {
     sqlx::query_as::<_, ResetSandboxTask>(
         r#"
@@ -341,7 +345,7 @@ pub async fn reset_sandbox_tasks_to_pending_returning(
 /// changed rows so callers can repair session state.
 pub async fn fail_exhausted_sandbox_tasks_returning(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
     reason: &str,
 ) -> Result<Vec<FailedSandboxTask>, sqlx::Error> {
     sqlx::query_as::<_, FailedSandboxTask>(
@@ -365,7 +369,7 @@ pub async fn fail_exhausted_sandbox_tasks_returning(
 /// Find running tasks for a sandbox (for orphan rescue on reconnect).
 pub async fn find_running_tasks_for_sandbox(
     pool: &PgPool,
-    sandbox_id: Uuid,
+    sandbox_id: SandboxId,
 ) -> Result<Vec<JoySafeterTask>, sqlx::Error> {
     sqlx::query_as::<_, JoySafeterTask>(
         "SELECT * FROM joysafeter_tasks WHERE sandbox_id = $1 AND status = 'running'",
@@ -382,7 +386,7 @@ pub async fn find_running_tasks_for_sandbox(
 /// task that another path already returned to PENDING.
 pub async fn increment_running_retry(
     pool: &PgPool,
-    task_id: Uuid,
+    task_id: TaskId,
     expected_retry_count: i32,
     expected_owner_epoch: Option<i64>,
 ) -> Result<bool, sqlx::Error> {
@@ -416,8 +420,8 @@ pub async fn increment_running_retry(
 /// association in the same CAS write.
 pub async fn fail_running_task_for_sandbox(
     pool: &PgPool,
-    task_id: Uuid,
-    sandbox_id: Uuid,
+    task_id: TaskId,
+    sandbox_id: SandboxId,
     expected_retry_count: i32,
     expected_owner_epoch: Option<i64>,
     reason: &str,
@@ -457,7 +461,7 @@ pub async fn renew_running_task_leases(
     pool: &PgPool,
     owner_instance_id: &str,
     lease_ttl_sec: i64,
-    active_task_leases: &[(Uuid, i64)],
+    active_task_leases: &[(TaskId, i64)],
 ) -> Result<u64, sqlx::Error> {
     if active_task_leases.is_empty() {
         return Ok(0);
@@ -465,7 +469,7 @@ pub async fn renew_running_task_leases(
 
     let active_task_ids: Vec<Uuid> = active_task_leases
         .iter()
-        .map(|(task_id, _)| *task_id)
+        .map(|(task_id, _)| task_id.as_uuid())
         .collect();
     let active_owner_epochs: Vec<i64> = active_task_leases
         .iter()
@@ -520,7 +524,7 @@ pub async fn find_lease_expired_running_tasks(
 
 pub async fn retry_lease_expired_task(
     pool: &PgPool,
-    task_id: Uuid,
+    task_id: TaskId,
     reason: &str,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
@@ -551,7 +555,7 @@ pub async fn retry_lease_expired_task(
 
 pub async fn fail_lease_expired_task(
     pool: &PgPool,
-    task_id: Uuid,
+    task_id: TaskId,
     reason: &str,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
@@ -586,7 +590,7 @@ pub async fn fail_lease_expired_task(
 /// RUNNING back to PENDING.
 pub async fn increment_scheduling_retry_keep_scheduling(
     pool: &PgPool,
-    task_id: Uuid,
+    task_id: TaskId,
     expected_retry_count: i32,
     backoff_seconds: i64,
     error_type: &str,
@@ -622,7 +626,7 @@ pub async fn increment_scheduling_retry_keep_scheduling(
 /// Move a retried scheduling task back to PENDING while preserving next_schedule_at.
 pub async fn release_scheduling_retry_to_pending(
     pool: &PgPool,
-    task_id: Uuid,
+    task_id: TaskId,
     expected_retry_count: i32,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
@@ -646,7 +650,7 @@ pub async fn release_scheduling_retry_to_pending(
 /// their own backoff/lifecycle coordination.
 pub async fn increment_scheduling_retry(
     pool: &PgPool,
-    task_id: Uuid,
+    task_id: TaskId,
     expected_retry_count: i32,
 ) -> Result<bool, sqlx::Error> {
     let updated = increment_scheduling_retry_keep_scheduling(
@@ -667,8 +671,8 @@ pub async fn increment_scheduling_retry(
 /// Check if a task has produced agent.message events (for failover decisions).
 pub async fn task_has_agent_output(
     pool: &PgPool,
-    task_id: Uuid,
-    session_id: Uuid,
+    task_id: TaskId,
+    session_id: SessionId,
 ) -> Result<bool, sqlx::Error> {
     let row: (bool,) = sqlx::query_as(
         r#"
@@ -694,8 +698,8 @@ pub async fn task_has_agent_output(
 }
 
 /// Find all pending tasks (for startup re-enqueue).
-pub async fn find_pending_tasks(pool: &PgPool, limit: i64) -> Result<Vec<(Uuid,)>, sqlx::Error> {
-    sqlx::query_as::<_, (Uuid,)>(
+pub async fn find_pending_tasks(pool: &PgPool, limit: i64) -> Result<Vec<(TaskId,)>, sqlx::Error> {
+    sqlx::query_as::<_, (TaskId,)>(
         r#"
         SELECT id FROM joysafeter_tasks
         WHERE status = 'pending'

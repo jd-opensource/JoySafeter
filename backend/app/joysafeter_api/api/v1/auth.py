@@ -1,37 +1,26 @@
-"""
-JoySafeter auth routes — /auth endpoints.
-
-Covers two surfaces under a single `/api/v1/auth` prefix:
-
-  - Identity flow (sign-in / sign-up / refresh / forgot-password /
-    reset-password / verify-email / logout / session / ws-token).
-    Ported from the retired ``api/v1/auth.py`` so the frontend can call
-    everything under ``MANAGED_API_BASE`` and v1 can be deleted.
-
-  - Managed user context (/me, /switch-context, /projects, /api-keys,
-    /members, /organizations, ...) — assumes the user is already signed
-    in via the identity flow above.
-"""
+"""Identity and managed user-context routes under ``/api/v1/auth``."""
 
 import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Literal, Optional, cast
+from typing import Annotated, Literal, Optional, cast
 
 from fastapi import APIRouter, Body, Depends, Header, Query, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
-from app.joysafeter_api.services import ApiKeyService, AuthService, AuthSessionService, ProjectService
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.services.joysafeter_api_key_service import ApiKeyService
+from app.joysafeter_domain.services.joysafeter_auth_service import AuthService
 from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
 from app.joysafeter_domain.services.joysafeter_organization_service import OrganizationService
+from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
     AppError,
@@ -242,8 +231,7 @@ def _normalize_api_key_role(role: str) -> ProjectRole:
 
     An API key is pinned to one project and authenticates as a non-super-user
     whose capability is its stored role, so its role uses the project vocabulary
-    (admin / editor / viewer). Legacy values are folded in by ProjectRole; a
-    truly unrecognized value is rejected.
+    (admin / editor / viewer). Any other value is rejected.
     """
     try:
         return ProjectRole.parse_strict(role)
@@ -351,16 +339,35 @@ def _set_auth_cookies(response: Response, result: dict) -> None:
 # --- Identity-flow schemas --------------------------------------------------
 
 
+def _validate_password_policy(password: str) -> str:
+    if not any(character.isupper() for character in password):
+        raise ValueError("Password must include at least one uppercase letter")
+    if not any(character.islower() for character in password):
+        raise ValueError("Password must include at least one lowercase letter")
+    if not any(character.isdigit() for character in password):
+        raise ValueError("Password must include at least one number")
+    if not any(character in "#?!@$%^&*-" for character in password):
+        raise ValueError("Password must include at least one special character")
+    return password
+
+
+PasswordValue = Annotated[
+    str,
+    Field(min_length=8, max_length=100),
+    AfterValidator(_validate_password_policy),
+]
+
+
 class RegisterRequest(BaseModel):
     email: EmailStr
     name: str = Field(..., min_length=1, max_length=255)
-    password: str = Field(..., min_length=6, max_length=100)
+    password: PasswordValue
     image: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=1, max_length=100)
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -369,11 +376,12 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str
-    new_password: str = Field(..., min_length=6, max_length=100)
+    new_password: PasswordValue
 
 
-class ResetPasswordForCurrentUserRequest(BaseModel):
-    new_password: str = Field(..., min_length=6, max_length=100)
+class ChangePasswordRequest(BaseModel):
+    old_password: str = Field(..., min_length=1, max_length=100)
+    new_password: PasswordValue
 
 
 class UserResponse(BaseModel):
@@ -470,22 +478,13 @@ async def _get_current_auth_user(
     user_service = AuthService(db)
 
     payload = decode_token(token)
-    if payload:
-        user_id = payload.sub
-        user = await user_service.get_user_by_id(str(user_id))
-        if user and user.is_active:
-            return user
-        raise AuthenticationError("User not found or inactive", code="USER_INVALID")
+    if not payload or payload.type != "access":
+        raise AuthenticationError("Invalid or expired token", code="TOKEN_INVALID")
 
-    session_service = AuthSessionService(db)
-    session = await session_service.get_session_by_token(token)
-    if session:
-        user = await user_service.user_repo.get(uuid.UUID(session.user_id))
-        if user and user.is_active:
-            return user
-        raise AuthenticationError("User not found or inactive", code="USER_INVALID")
-
-    raise AuthenticationError("Invalid or expired token", code="TOKEN_INVALID")
+    user = await user_service.get_user_by_id(str(payload.sub))
+    if user and user.is_active:
+        return user
+    raise AuthenticationError("User not found or inactive", code="USER_INVALID")
 
 
 def _user_to_response(user: AuthUser) -> UserResponse:
@@ -658,32 +657,29 @@ async def reset_password(
 @router.post("/me/reset-password")
 async def reset_password_for_current_user(
     http_request: Request,
-    body: ResetPasswordForCurrentUserRequest,
+    body: ChangePasswordRequest,
     db: AsyncSession = Depends(get_db),
     token: Optional[str] = Header(None, alias="Authorization"),
 ):
-    """Reset password for the current logged-in user (no old password required)."""
+    """Change password for the current logged-in user."""
     current_user = await _get_current_auth_user(token, db, http_request)
     service = AuthService(db)
-    await service.reset_password_for_current_user(
+    await service.change_password_for_current_user(
         user=current_user,
+        old_password=body.old_password,
         new_password=body.new_password,
     )
-    return success_response(message="Password reset successful")
+    return success_response(message="Password changed successfully")
 
 
-# Backwards-compat alias: the frontend calls `auth/me/change-password` for
-# the "change my own password" flow. There's no separate change-password
-# endpoint on the server; we route it to the same reset-for-current-user
-# handler so it accepts the same payload shape.
 @router.post("/me/change-password")
 async def change_password_for_current_user(
     http_request: Request,
-    body: ResetPasswordForCurrentUserRequest,
+    body: ChangePasswordRequest,
     db: AsyncSession = Depends(get_db),
     token: Optional[str] = Header(None, alias="Authorization"),
 ):
-    """Alias for /me/reset-password — used by the frontend's `change password` UI."""
+    """Change the current user's password after verifying the old password."""
     return await reset_password_for_current_user(
         http_request=http_request,
         body=body,
@@ -1468,7 +1464,9 @@ async def list_platform_organizations(
                 logo=org.logo,
                 member_count=len(org.members or []),
                 project_count=len(org.projects or []),
-                member_emails=[member.user.email for member in (org.members or []) if member.user and member.user.email],
+                member_emails=[
+                    member.user.email for member in (org.members or []) if member.user and member.user.email
+                ],
                 created_at=org.created_at,
             )
             for org in result.scalars().all()

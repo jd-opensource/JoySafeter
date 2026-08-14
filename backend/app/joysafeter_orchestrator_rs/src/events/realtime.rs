@@ -1,9 +1,10 @@
 use redis::AsyncCommands;
+
+use crate::ids::{EventId, SessionId};
 use serde_json::Value;
-use uuid::Uuid;
 
 pub fn build_session_event_payload(
-    event_id: Option<Uuid>,
+    event_id: Option<EventId>,
     event_type: &str,
     seq: Option<i64>,
     payload: &Value,
@@ -15,7 +16,7 @@ pub fn build_session_event_payload(
     if let Some(obj) = event.as_object_mut() {
         obj.insert("type".to_string(), serde_json::json!(event_type));
         if let Some(id) = event_id {
-            obj.insert("id".to_string(), serde_json::json!(format!("evt_{id}")));
+            obj.insert("id".to_string(), serde_json::json!(id.to_public()));
         }
         if let Some(seq) = seq {
             obj.insert("seq".to_string(), serde_json::json!(seq));
@@ -27,8 +28,8 @@ pub fn build_session_event_payload(
 pub async fn publish_session_event_realtime(
     redis_client: &redis::Client,
     instance_id: &str,
-    session_id: Uuid,
-    event_id: Option<Uuid>,
+    session_id: SessionId,
+    event_id: Option<EventId>,
     event_type: &str,
     seq: Option<i64>,
     payload: &Value,
@@ -49,7 +50,7 @@ pub async fn publish_session_event_realtime(
         "source_instance": instance_id,
         "event": event,
     });
-    let channel = format!("joysafeter:session_events:{session_id}");
+    let channel = format!("joysafeter:session_events:{}", session_id.as_uuid());
     let payload = serde_json::to_string(&wrapper).unwrap_or_default();
     if let Err(e) = conn.publish::<_, _, ()>(channel, payload).await {
         tracing::warn!(

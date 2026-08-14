@@ -39,7 +39,6 @@ import {
   Database,
   Network,
   FolderCode,
-  Lock,
   Sparkles,
   Shield,
   LogOut,
@@ -69,7 +68,6 @@ const buildItems: NavItem[] = [
   { to: '/managed/agents', labelKey: 'nav.agents', icon: Bot },
   { to: '/managed/sessions', labelKey: 'nav.sessions', icon: MessageSquare },
   { to: '/managed/environments', labelKey: 'nav.environments', icon: Server },
-  { to: '/managed/vaults', labelKey: 'nav.vaults', icon: KeyRound },
 ]
 
 const automationItems: NavItem[] = [
@@ -85,20 +83,19 @@ const resourceItems: NavItem[] = [
   { to: '/managed/files', labelKey: 'nav.files', icon: FileText },
   { to: '/managed/storage-volumes', labelKey: 'nav.storageGrants', icon: Database },
   { to: '/managed/skills', labelKey: 'nav.resourceSkills', icon: Sparkles },
-  { to: '/managed/secrets', labelKey: 'nav.secrets', icon: Lock },
+  { to: '/managed/credentials', labelKey: 'nav.credentials', icon: KeyRound },
   { to: '/managed/memory-stores', labelKey: 'nav.memory', icon: Brain },
 ]
 
 const platformManageItems: NavItem[] = [
   { to: '/managed/platform/users', labelKey: 'nav.platformUsers', icon: Users },
   { to: '/managed/platform/storage', labelKey: 'nav.platformStorageVolumes', icon: Database },
-  { to: '/managed/platform/network-policies', labelKey: 'nav.networkPolicyDiagnostics', icon: Network },
+  {
+    to: '/managed/platform/network-policies',
+    labelKey: 'nav.networkPolicyDiagnostics',
+    icon: Network,
+  },
 ]
-
-// platformItems (the old /dashboard /agents /tasks /skills /tools /settings
-// platform pages) were removed during the v1 cleanup — those pages relied on
-// the deep-agents-copilot + LangChain/LangGraph engines that no longer exist.
-// All navigation now flows through the managed (v2) routes above.
 
 const manageItems: NavItem[] = [
   { to: '/managed/settings', labelKey: 'nav.organization', icon: Building2 },
@@ -168,10 +165,13 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
         }))
       } else {
         try {
-          const data = await managedGet<ProjectInfo[] | { data: ProjectInfo[] }>('/auth/projects?include_archived=false&limit=200', {
-            skipManagedContext: true,
-            headers: { 'X-Org-Id': org.id },
-          })
+          const data = await managedGet<ProjectInfo[] | { data: ProjectInfo[] }>(
+            '/auth/projects?include_archived=false&limit=200',
+            {
+              skipManagedContext: true,
+              headers: { 'X-Org-Id': org.id },
+            },
+          )
           const rows = Array.isArray(data) ? data : data?.data || []
           result[org.id] = rows
             .filter((project) => !project.org_id || project.org_id === org.id)

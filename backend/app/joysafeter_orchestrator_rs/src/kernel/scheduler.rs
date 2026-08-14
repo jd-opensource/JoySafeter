@@ -14,6 +14,7 @@ use crate::db::{
     models::{JoySafeterAgent, JoySafeterSession},
     queries,
 };
+use crate::ids::{AgentId, EnvironmentId, SandboxId, SessionId, TaskId};
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::ha::BridgeStore;
 use crate::kernel::sandbox_resolver::SandboxResolver;
@@ -26,7 +27,7 @@ const SCHEDULING_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(60);
 
 #[derive(Debug, sqlx::FromRow)]
 struct SchedulerEnvironmentSnapshot {
-    id: Uuid,
+    id: EnvironmentId,
     name: String,
     config: Value,
     image_tag: Option<String>,
@@ -215,9 +216,9 @@ async fn schedule_single_task(
     task_dispatcher: &dyn crate::kernel::ha::TaskDispatcher,
     config: &JoySafeterConfig,
     resolver: &SandboxResolver,
-    task_id: Uuid,
-    agent_id: Option<Uuid>,
-    mut session_id: Option<Uuid>,
+    task_id: TaskId,
+    agent_id: Option<AgentId>,
+    mut session_id: Option<SessionId>,
     project_id: Option<&str>,
 ) -> anyhow::Result<()> {
     // --- Resolve agent ---
@@ -290,11 +291,11 @@ async fn schedule_single_task(
 
     // --- Resolve engine_kind → image ---
     let engine_kind = agent.engine_kind.as_deref().unwrap_or("claude");
-    let resolved_image = config.image_for_provider(engine_kind);
+    let resolved_image = config.image_for_provider(engine_kind)?;
 
     // --- Resolve sandbox through the full provider-backed resolver ---
     // The resolver builds the effective Python-compatible context itself:
-    // session/agent environment, secret_ref, environment image, and networking.
+    // session/agent environment, model credential, environment image, and networking.
     let (sandbox_db_id, _external_id) = resolver
         .resolve(task_id, session_id, Some(agent.id), project_id)
         .await?;
@@ -350,12 +351,12 @@ async fn schedule_single_task(
 
 async fn create_session_and_attach_to_scheduling_task(
     pool: &PgPool,
-    task_id: Uuid,
+    task_id: TaskId,
     agent: &JoySafeterAgent,
     agent_snapshot: &Value,
 ) -> anyhow::Result<Option<JoySafeterSession>> {
     let mut tx = pool.begin().await?;
-    let session_id = Uuid::now_v7();
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
 
     let session = sqlx::query_as::<_, JoySafeterSession>(
         r#"
@@ -397,7 +398,12 @@ async fn create_session_and_attach_to_scheduling_task(
     Ok(Some(session))
 }
 
-async fn handle_scheduling_failure(pool: &PgPool, _queue: &TaskQueue, task_id: Uuid, reason: &str) {
+async fn handle_scheduling_failure(
+    pool: &PgPool,
+    _queue: &TaskQueue,
+    task_id: TaskId,
+    reason: &str,
+) {
     let task = match queries::get_task(pool, task_id).await {
         Ok(Some(task)) => task,
         Ok(None) => {
@@ -517,8 +523,8 @@ fn classify_scheduling_error(reason: &str) -> &'static str {
 
 async fn mark_terminal_task_and_session_idle(
     pool: &PgPool,
-    task_id: Uuid,
-    session_id: Option<Uuid>,
+    task_id: TaskId,
+    session_id: Option<SessionId>,
     task_status: &str,
     reason: &str,
     stop_reason: Value,
@@ -572,19 +578,18 @@ async fn build_agent_execution_snapshot(
         "engine_kind": agent.engine_kind.clone(),
         "description": agent.description.clone(),
         "model": agent.model.clone(),
-        "system_prompt": agent.system_prompt.clone(),
+        "system": agent.system_prompt.clone(),
         "metadata": agent.metadata.clone(),
         "env": agent.env.clone(),
         "tools": agent.tools.clone(),
         "skills": agent.skills.clone(),
         "agents": agent.agents.clone(),
         "commands": agent.commands.clone(),
-        "mcp_servers": agent.mcp_configs.clone(),
-        "mcp_configs": agent.mcp_configs.clone(),
+        "mcp_servers": agent.mcp_servers.clone(),
         "permission_mode": agent.permission_mode.clone(),
         "multiagent": agent.multiagent.clone(),
         "environment_ref": agent.environment_ref.clone(),
-        "secret_ref": agent.secret_ref.clone(),
+        "model_credential_id": agent.model_credential_id.map(|id| id.to_string()),
     });
 
     if let Some(environment_ref) = agent.environment_ref.as_deref() {
@@ -620,9 +625,7 @@ async fn load_environment_snapshot(
         return Ok(None);
     }
 
-    if let Ok(environment_id) =
-        Uuid::parse_str(normalized.strip_prefix("env_").unwrap_or(normalized))
-    {
+    if let Ok(environment_id) = EnvironmentId::from_public(normalized) {
         return Ok(sqlx::query_as::<_, SchedulerEnvironmentSnapshot>(
             r#"
             SELECT id, name, config, image_tag, image_version
@@ -713,12 +716,12 @@ mod tests {
         }
     }
 
-    async fn create_scheduler_agent(pool: &PgPool, unique: &str) -> Uuid {
-        let agent_id = Uuid::now_v7();
+    async fn create_scheduler_agent(pool: &PgPool, unique: &str) -> AgentId {
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
         sqlx::query(
             r#"
             INSERT INTO joysafeter_agents (
-                id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                id, name, engine_kind, model, system_prompt, env, mcp_servers,
                 skills, tools, agents, commands, permission_mode, metadata,
                 multiagent, version
             )
@@ -738,8 +741,12 @@ mod tests {
         agent_id
     }
 
-    async fn create_scheduler_session(pool: &PgPool, agent_id: Option<Uuid>, status: &str) -> Uuid {
-        let session_id = Uuid::now_v7();
+    async fn create_scheduler_session(
+        pool: &PgPool,
+        agent_id: Option<AgentId>,
+        status: &str,
+    ) -> SessionId {
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
         queries::create_session(pool, session_id, agent_id, None, None, None)
             .await
             .expect("create scheduler failure session");
@@ -754,14 +761,14 @@ mod tests {
 
     async fn create_scheduler_task(
         pool: &PgPool,
-        agent_id: Option<Uuid>,
-        session_id: Uuid,
+        agent_id: Option<AgentId>,
+        session_id: SessionId,
         status: &str,
         retry_count: i32,
         max_retries: i32,
-        sandbox_id: Option<Uuid>,
-    ) -> Uuid {
-        let task_id = Uuid::now_v7();
+        sandbox_id: Option<SandboxId>,
+    ) -> TaskId {
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
         sqlx::query(
             r#"
             INSERT INTO joysafeter_tasks (
@@ -784,8 +791,12 @@ mod tests {
         task_id
     }
 
-    async fn create_running_sandbox(pool: &PgPool, session_id: Uuid, task_id: Uuid) -> Uuid {
-        let sandbox_id = Uuid::now_v7();
+    async fn create_running_sandbox(
+        pool: &PgPool,
+        session_id: SessionId,
+        task_id: TaskId,
+    ) -> SandboxId {
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         queries::create_sandbox(
             pool,
             sandbox_id,
@@ -799,10 +810,10 @@ mod tests {
         )
         .await
         .expect("create scheduler failure sandbox");
-        queries::transition_sandbox(pool, sandbox_id, "idle")
+        queries::transition_sandbox_cas(pool, sandbox_id, "creating", "idle")
             .await
             .expect("transition sandbox idle");
-        queries::transition_sandbox(pool, sandbox_id, "running")
+        queries::transition_sandbox_cas(pool, sandbox_id, "idle", "running")
             .await
             .expect("transition sandbox running");
         sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
@@ -816,10 +827,10 @@ mod tests {
 
     async fn cleanup_scheduler_rows(
         pool: &PgPool,
-        task_id: Uuid,
-        session_id: Uuid,
-        agent_id: Option<Uuid>,
-        sandbox_id: Option<Uuid>,
+        task_id: TaskId,
+        session_id: SessionId,
+        agent_id: Option<AgentId>,
+        sandbox_id: Option<SandboxId>,
     ) {
         let _ = sqlx::query("DELETE FROM joysafeter_tasks WHERE id = $1")
             .bind(task_id)
@@ -883,7 +894,7 @@ mod tests {
 
         let unique = Uuid::now_v7().simple().to_string();
         let agent_id = create_scheduler_agent(&pool, &unique).await;
-        let task_id = Uuid::now_v7();
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
 
         sqlx::query(
             r#"
@@ -917,7 +928,7 @@ mod tests {
             .await
             .expect("stale auto-session scheduling should be skipped");
 
-            let task: (String, Option<Uuid>) = sqlx::query_as(
+            let task: (String, Option<SandboxId>) = sqlx::query_as(
                 "SELECT status, chat_session_id FROM joysafeter_tasks WHERE id = $1",
             )
             .bind(task_id)
@@ -1016,7 +1027,7 @@ mod tests {
             );
             assert_eq!(event.2, 1);
 
-            let sandbox: (String, Option<Uuid>) = sqlx::query_as(
+            let sandbox: (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -1054,7 +1065,7 @@ mod tests {
         let result = async {
             handle_scheduling_failure(&pool, &test_queue(), task_id, "late resolver failure").await;
 
-            let task: (String, i32, Option<Uuid>, Option<String>) = sqlx::query_as(
+            let task: (String, i32, Option<SandboxId>, Option<String>) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id, error FROM joysafeter_tasks WHERE id = $1",
             )
             .bind(task_id)
@@ -1089,7 +1100,7 @@ mod tests {
             .expect("count stale scheduler status events");
             assert_eq!(status_events, 0);
 
-            let sandbox: (String, Option<Uuid>) = sqlx::query_as(
+            let sandbox: (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -1294,11 +1305,11 @@ mod tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let environment_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
-        let environment_ref = format!("env_{environment_id}");
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
+        let environment_ref = environment_id.to_string();
 
         async {
             sqlx::query(
@@ -1321,7 +1332,7 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata,
                     multiagent, version, environment_ref
                 )
@@ -1413,7 +1424,7 @@ mod tests {
                 Some("scheduler-snapshot-model")
             );
             assert_eq!(
-                stored_snapshot.get("system_prompt").and_then(Value::as_str),
+                stored_snapshot.get("system").and_then(Value::as_str),
                 Some("scheduler snapshot system")
             );
             assert_eq!(

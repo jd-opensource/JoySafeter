@@ -10,7 +10,7 @@
  */
 import { structuredPatch } from 'diff'
 
-import type { SkillFileRecord } from '@/types/managed'
+import type { SkillFileRecord, SkillVersionFileRecord } from '@/types/managed'
 
 export type FileDiffStatus = 'added' | 'removed' | 'modified' | 'unchanged'
 
@@ -47,7 +47,9 @@ export type SkillVersionDiff = {
   totalRemoved: number
 }
 
-const fullPath = (f: SkillFileRecord): string => `${f.path || ''}${f.file_name}`
+type SkillDiffFile = Pick<SkillFileRecord | SkillVersionFileRecord, 'path' | 'file_name' | 'content'>
+
+const fullPath = (file: SkillDiffFile): string => `${file.path || ''}${file.file_name}`
 
 // Ordering: modified / added / removed first (by path), unchanged last.
 const STATUS_ORDER: Record<FileDiffStatus, number> = {
@@ -103,11 +105,11 @@ function buildHunks(
 }
 
 export function diffSkillVersionFiles(
-  base: SkillFileRecord[] | null | undefined,
-  target: SkillFileRecord[] | null | undefined,
+  base: SkillDiffFile[] | null | undefined,
+  target: SkillDiffFile[] | null | undefined,
 ): SkillVersionDiff {
-  const beforeMap = new Map<string, SkillFileRecord>()
-  const afterMap = new Map<string, SkillFileRecord>()
+  const beforeMap = new Map<string, SkillDiffFile>()
+  const afterMap = new Map<string, SkillDiffFile>()
   for (const f of base || []) beforeMap.set(fullPath(f), f)
   for (const f of target || []) afterMap.set(fullPath(f), f)
 

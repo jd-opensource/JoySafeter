@@ -20,6 +20,7 @@ from sqlalchemy.future import select
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
+from app.joysafeter_shared.ids import AgentId
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ class AnalyticsService:
         range_str: str = "7d",
         engine: Optional[str] = None,
         model: Optional[str] = None,
-        agent_id: Optional[str] = None,
+        agent_id: Optional[AgentId] = None,
     ) -> dict:
         """Aggregate summary KPIs from tasks within the time range."""
         time_boundary = _get_time_boundary(range_str)
@@ -250,7 +251,7 @@ class AnalyticsService:
         project_id: str,
         range_str: str = "7d",
         engine: Optional[str] = None,
-        agent_id: Optional[str] = None,
+        agent_id: Optional[AgentId] = None,
     ) -> list[dict]:
         """Task completions over time, bucketed."""
         time_boundary = _get_time_boundary(range_str)
@@ -291,7 +292,7 @@ class AnalyticsService:
         project_id: str,
         range_str: str = "7d",
         engine: Optional[str] = None,
-        agent_id: Optional[str] = None,
+        agent_id: Optional[AgentId] = None,
     ) -> list[dict]:
         """Token usage over time from sessions, bucketed."""
         time_boundary = _get_time_boundary(range_str)
@@ -339,7 +340,7 @@ class AnalyticsService:
         project_id: str,
         range_str: str = "7d",
         engine: Optional[str] = None,
-        agent_id: Optional[str] = None,
+        agent_id: Optional[AgentId] = None,
     ) -> list[dict]:
         """Latency (task duration) over time, bucketed."""
         time_boundary = _get_time_boundary(range_str)
@@ -428,7 +429,7 @@ class AnalyticsService:
         engine: Optional[str] = None,
         model: Optional[str] = None,
         status: Optional[str] = None,
-        agent_id: Optional[str] = None,
+        agent_id: Optional[AgentId] = None,
         page: int = 1,
         page_size: int = 20,
         sort_by: str = "created_at",
@@ -494,10 +495,10 @@ class AnalyticsService:
 
             records.append(
                 {
-                    "id": str(task.id),
-                    "trace_id": str(task.id),
-                    "session_id": str(task.chat_session_id) if task.chat_session_id else None,
-                    "agent_id": str(task.agent_id) if task.agent_id else None,
+                    "id": task.id,
+                    "trace_id": task.id,
+                    "session_id": task.chat_session_id,
+                    "agent_id": task.agent_id,
                     "agent_name": agent_name,
                     "engine_kind": engine_kind,
                     "model": model_id,
@@ -586,7 +587,7 @@ class AnalyticsService:
         )
 
         session_result = await self.db.execute(session_stmt)
-        session_map = {str(row.agent_id): row.total_sessions for row in session_result.all()}
+        session_map = {row.agent_id: row.total_sessions for row in session_result.all()}
 
         metrics_list = []
         for row in task_rows:
@@ -595,10 +596,10 @@ class AnalyticsService:
 
             metrics_list.append(
                 {
-                    "agent_id": str(row.agent_id),
+                    "agent_id": row.agent_id,
                     "agent_name": row.agent_name or "Unknown",
                     "engine_kind": row.engine_kind,
-                    "total_sessions": session_map.get(str(row.agent_id), 0),
+                    "total_sessions": session_map.get(row.agent_id, 0),
                     "total_tasks": total_tasks,
                     "success_rate": round(success_rate, 3),
                     "avg_duration_ms": round(float(row.avg_duration or 0), 1),
@@ -838,7 +839,7 @@ class AnalyticsService:
                         "type": "consecutive_failures",
                         "severity": "error",
                         "agent_name": agent_name,
-                        "agent_id": str(agent_id),
+                        "agent_id": agent_id,
                         "params": {"count": consecutive, "threshold": threshold},
                     }
                 )
@@ -875,7 +876,7 @@ class AnalyticsService:
                 "type": "slow_agent",
                 "severity": "warning",
                 "agent_name": row.name,
-                "agent_id": str(row.agent_id),
+                "agent_id": row.agent_id,
                 "params": {
                     "avgSec": round(row.avg_duration / 1000, 1),
                     "thresholdSec": threshold_ms // 1000,
@@ -980,7 +981,7 @@ class AnalyticsService:
                 "type": "high_retries",
                 "severity": "warning",
                 "agent_name": row.name,
-                "agent_id": str(row.agent_id),
+                "agent_id": row.agent_id,
                 "params": {"maxRetries": row.max_retries, "taskCount": row.task_count},
             }
             for row in result.all()
@@ -1020,7 +1021,7 @@ class AnalyticsService:
                     "type": "zombie_session",
                     "severity": "warning",
                     "agent_name": row.name,
-                    "agent_id": str(row.agent_id) if row.agent_id else None,
+                    "agent_id": row.agent_id,
                     "params": {"hours": round(hours, 1)},
                 }
             )
@@ -1080,7 +1081,7 @@ class AnalyticsService:
             .group_by(JoySafeterSession.agent_id)
         )
         token_result = await self.db.execute(token_stmt)
-        token_map = {str(r.agent_id): int(r.total_tokens or 0) for r in token_result.all()}
+        token_map = {r.agent_id: int(r.total_tokens or 0) for r in token_result.all()}
 
         # Get last task time per agent (across all time, not filtered by range)
         last_task_stmt = (
@@ -1092,7 +1093,7 @@ class AnalyticsService:
             .group_by(JoySafeterTask.agent_id)
         )
         last_task_result = await self.db.execute(last_task_stmt)
-        last_task_map = {str(r.agent_id): r.last_task_at for r in last_task_result.all()}
+        last_task_map = {r.agent_id: r.last_task_at for r in last_task_result.all()}
 
         now = datetime.now(timezone.utc)
 
@@ -1102,9 +1103,9 @@ class AnalyticsService:
             success_rate = (row.completed or 0) / total
             failed = row.failed or 0
             avg_dur = float(row.avg_duration_ms or 0)
-            tokens = token_map.get(str(row.agent_id), 0)
+            tokens = token_map.get(row.agent_id, 0)
 
-            last_task = last_task_map.get(str(row.agent_id))
+            last_task = last_task_map.get(row.agent_id)
             if not last_task:
                 activity_status = "unused"
             elif (now - last_task).total_seconds() < 86400:
@@ -1114,7 +1115,7 @@ class AnalyticsService:
 
             ranking.append(
                 {
-                    "agent_id": str(row.agent_id),
+                    "agent_id": row.agent_id,
                     "agent_name": row.agent_name,
                     "engine_kind": row.engine_kind,
                     "total_tasks": total,
@@ -1138,11 +1139,11 @@ class AnalyticsService:
         )
         all_agents_result = await self.db.execute(all_agents_stmt)
         for agent in all_agents_result.scalars().all():
-            if str(agent.id) not in existing_agent_ids:
-                last_task = last_task_map.get(str(agent.id))
+            if agent.id not in existing_agent_ids:
+                last_task = last_task_map.get(agent.id)
                 ranking.append(
                     {
-                        "agent_id": str(agent.id),
+                        "agent_id": agent.id,
                         "agent_name": agent.name,
                         "engine_kind": agent.engine_kind,
                         "total_tasks": 0,
@@ -1203,7 +1204,7 @@ class AnalyticsService:
         project_id: str,
         range_str: str = "7d",
         engine: Optional[str] = None,
-        agent_id: Optional[str] = None,
+        agent_id: Optional[AgentId] = None,
     ) -> dict:
         """Aggregate errors by status type and show top error messages."""
         time_boundary = _get_time_boundary(range_str)
@@ -1271,7 +1272,7 @@ class AnalyticsService:
         project_id: str,
         range_str: str = "7d",
         engine: Optional[str] = None,
-        agent_id: Optional[str] = None,
+        agent_id: Optional[AgentId] = None,
     ) -> dict:
         """Compute duration distribution by time buckets."""
         time_boundary = _get_time_boundary(range_str)

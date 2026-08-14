@@ -1,11 +1,8 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import { cn } from '@/lib/utils'
-import { useTranslation } from '@/lib/i18n'
-import { Search, ChevronDown, Check } from 'lucide-react'
-import type { AnalyticsFilters, TimeRange } from '@/lib/managed/analytics/types'
-import { TIME_RANGE_OPTIONS, CALL_STATUS_OPTIONS } from './constants'
+import { Check, ChevronDown, Search } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+
 import {
   Select,
   SelectContent,
@@ -13,13 +10,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useTranslation } from '@/lib/i18n'
+import type { AnalyticsFilters, TimeRange } from '@/lib/managed/analytics/types'
+import { cn } from '@/lib/utils'
+import type { AgentId } from '@/types/entity-id'
+
+import { CALL_STATUS_OPTIONS, TIME_RANGE_OPTIONS } from './constants'
 
 interface AnalyticsFilterBarProps {
   filters: AnalyticsFilters
   onFiltersChange: (filters: AnalyticsFilters) => void
   engines?: string[]
   models?: string[]
-  agents?: { id: string; name: string }[]
+  agents?: { id: AgentId; name: string }[]
   showStatusFilter?: boolean
 }
 
@@ -148,9 +151,9 @@ function SearchableAgentSelect({
   placeholder,
   searchPlaceholder,
 }: {
-  agents: { id: string; name: string }[]
-  value: string | null
-  onChange: (v: string | null) => void
+  agents: { id: AgentId; name: string }[]
+  value: AgentId | null
+  onChange: (v: AgentId | null) => void
   placeholder: string
   searchPlaceholder: string
 }) {

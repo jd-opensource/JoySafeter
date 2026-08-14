@@ -11,6 +11,7 @@ from app.joysafeter_api.api.v1.environments import (
     delete_environment,
     update_environment,
 )
+from app.joysafeter_api.api.v1.sessions import _canonical_environment_ref
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
@@ -27,6 +28,7 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import EnvironmentId, as_uuid
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -189,31 +191,6 @@ async def test_update_environment_rejects_cross_project_at_service_boundary(db_s
 
 
 @pytest.mark.asyncio
-async def test_create_environment_rejects_missing_secret_ref_with_structured_error(db_session):
-    missing_ref = f"missing-secret-{uuid.uuid4()}"
-    req = CreateEnvironmentRequest(
-        name=f"secret-ref-env-{uuid.uuid4()}", config=EnvironmentConfig(secret_refs=[missing_ref])
-    )
-
-    with pytest.raises(AppError) as exc_info:
-        await create_environment(req, db_session, _auth_ctx())
-
-    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
-        "code": "ENVIRONMENT_SECRET_NOT_FOUND",
-        "message": f"Secret not found: {missing_ref}",
-        "data": {"secret_ref": missing_ref},
-        "source": "api",
-        "retryable": False,
-        "user_action": "fix_input",
-    }
-
-    row = (
-        await db_session.execute(select(JoySafeterEnvironment).where(JoySafeterEnvironment.name == req.name))
-    ).scalar_one_or_none()
-    assert row is None
-
-
-@pytest.mark.asyncio
 async def test_create_environment_with_packages_builds_image_via_rust_runtime(db_session, monkeypatch):
     redis = _FakeRuntimeRedis(image_tag="joysafeter/env-runtime:v1")
     monkeypatch.setattr(
@@ -234,7 +211,9 @@ async def test_create_environment_with_packages_builds_image_via_rust_runtime(db
     channel, payload = redis.published[0]
     assert channel == "joysafeter:cmd:runtime-1"
     assert payload["type"] == "build_environment_image"
-    assert payload["environment_id"] == str(response.id)
+    # Bare uuid: the Rust command_listener parses environment_id into a bare Uuid for
+    # build_environment_image (physical command boundary), so no env_ prefix here.
+    assert payload["environment_id"] == str(as_uuid(response.id))
     assert payload["version"] == 1
     assert payload["packages"] == {
         "apt": ["curl"],
@@ -312,9 +291,9 @@ async def test_archive_environment_rejects_non_archived_session_reference(db_ses
 
 
 @pytest.mark.asyncio
-async def test_archive_environment_rejects_legacy_bare_uuid_session_reference(db_session):
-    env = JoySafeterEnvironment(name=f"legacy-env-ref-{uuid.uuid4()}", description="")
-    agent = JoySafeterAgent(name=f"legacy-env-agent-{uuid.uuid4()}")
+async def test_archive_environment_rejects_canonical_id_session_reference(db_session):
+    env = JoySafeterEnvironment(name=f"canonical-env-ref-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(name=f"canonical-env-agent-{uuid.uuid4()}")
     db_session.add_all([env, agent])
     await db_session.commit()
     await db_session.refresh(env)
@@ -345,6 +324,31 @@ async def test_archive_environment_rejects_legacy_bare_uuid_session_reference(db
 
 
 @pytest.mark.asyncio
+async def test_environment_reference_resolver_requires_prefix_for_id_lookup(db_session):
+    env = JoySafeterEnvironment(name=f"typed-env-ref-{uuid.uuid4()}", description="")
+    db_session.add(env)
+    await db_session.commit()
+    await db_session.refresh(env)
+
+    service = EnvironmentService(db_session)
+
+    assert await service.get_environment_by_ref(str(env.id)) == env
+    assert await service.get_environment_by_ref(str(env.id.uuid)) is None
+    assert await service.get_environment_by_ref(env.name) == env
+
+
+def test_session_environment_reference_rejects_bare_uuid_but_preserves_names():
+    environment_id = EnvironmentId.new()
+
+    assert _canonical_environment_ref(str(environment_id)) == str(environment_id)
+    assert _canonical_environment_ref("development") == "development"
+    with pytest.raises(AppError) as exc_info:
+        _canonical_environment_ref(str(environment_id.uuid))
+
+    assert exc_info.value.code == "ENVIRONMENT_ID_INVALID"
+
+
+@pytest.mark.asyncio
 async def test_archive_environment_rejects_active_task_agent_reference_without_session(db_session):
     env = JoySafeterEnvironment(name=f"agent-env-ref-{uuid.uuid4()}", description="")
     db_session.add(env)
@@ -352,7 +356,7 @@ async def test_archive_environment_rejects_active_task_agent_reference_without_s
     await db_session.refresh(env)
     env_id = env.id
 
-    agent = JoySafeterAgent(name=f"env-agent-{uuid.uuid4()}", environment_ref=f"env_{env.id}")
+    agent = JoySafeterAgent(name=f"env-agent-{uuid.uuid4()}", environment_ref=str(env.id))
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -438,7 +442,7 @@ async def test_delete_environment_rejects_agent_reference_without_active_task(db
     await db_session.refresh(env)
     env_id = env.id
 
-    agent = JoySafeterAgent(name=f"static-env-agent-{uuid.uuid4()}", environment_ref=f"env_{env.id}")
+    agent = JoySafeterAgent(name=f"static-env-agent-{uuid.uuid4()}", environment_ref=str(env.id))
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -480,7 +484,7 @@ async def test_archive_environment_rejects_cron_trigger_reference_without_active
         timezone="UTC",
         enabled=True,
         next_run_at=utc_now(),
-        environment_ref=f"env_{env.id}",
+        environment_ref=str(env.id),
         filter={},
         config={},
         last_payload={},

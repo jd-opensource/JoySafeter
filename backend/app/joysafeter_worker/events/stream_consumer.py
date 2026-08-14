@@ -13,6 +13,7 @@ from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.config.service_role import current_role
 from app.joysafeter_shared.config.settings import joysafeter_config
+from app.joysafeter_shared.ids import EventId, SessionId
 from app.joysafeter_worker.events.batch_writer import BufferedEvent, EventBatchConfig, EventBatchSender
 
 logger = logging.getLogger(__name__)
@@ -314,13 +315,13 @@ class EventStreamWorker:
         await redis.xack(self._stream_key, self._group, *ack_ids)
 
     def _decode_event(self, fields: dict[str, Any]) -> BufferedEvent:
-        session_id = uuid.UUID(str(fields["session_id"]))
+        session_id = SessionId.from_uuid(uuid.UUID(str(fields["session_id"])))
         event_id_raw = str(fields.get("event_id") or "")
         payload_raw = fields.get("payload") or "{}"
         # F1 fix: always assign an event_id so the batch writer's dedup check
         # (which skips events with e.id is None) can prevent duplicates on
         # crash-recovery re-delivery via XAUTOCLAIM.
-        event_id = uuid.UUID(event_id_raw) if event_id_raw else uuid.uuid4()
+        event_id = EventId.from_uuid(uuid.UUID(event_id_raw) if event_id_raw else uuid.uuid4())
         return BufferedEvent(
             session_id=session_id,
             event_type=str(fields["event_type"]),

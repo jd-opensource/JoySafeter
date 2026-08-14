@@ -1,16 +1,4 @@
-"""
-JoySafeter authentication services.
-
-Merged from the former auth_session_service.py, auth_service.py,
-oauth_service.py, and login_init.py (v1 cleanup consolidation):
-  - AuthSessionService     — auth session persistence + active-org context
-  - AuthService            — password login / signup / session issuance
-  - OAuthService           — OAuth provider login / callback / linking
-  - run_post_login_init()  — shared post-login bookkeeping + audit
-
-Each former module's full body is kept verbatim below under a section banner;
-redundant imports across sections are harmless.
-"""
+"""Authentication, OAuth, login initialization, and session services."""
 
 # ruff: noqa: E402 — sections merged verbatim; imports intentionally follow their banners
 
@@ -235,6 +223,7 @@ from app.joysafeter_shared.security import (
     generate_email_verify_token,
     generate_password_reset_token,
     get_password_hash,
+    hash_security_token,
     verify_password,
 )
 
@@ -256,12 +245,6 @@ class AuthService(BaseService):
         self.user_repo = AuthUserRepository(db)
         self.session_service = AuthSessionService(db)
         self.audit_service = SecurityAuditService(db)
-
-    # ------------------------------------------------------------------ utils
-    def _issue_token(self, user_id: str) -> tuple[str, datetime]:
-        expires = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-        token = secrets.token_urlsafe(32)
-        return token, expires
 
     async def _issue_jwt_tokens(self, user_id: str) -> tuple[str, str, str, datetime, datetime]:
         """Generate JWT access token, refresh token, and CSRF token."""
@@ -316,7 +299,7 @@ class AuthService(BaseService):
                 await ProjectService(self.db).grant_project_membership(
                     project_id=default_project.id,
                     user_id=user_id,
-                    role="owner",
+                    role="admin",
                 )
 
             org_id = membership.organization_id
@@ -337,16 +320,25 @@ class AuthService(BaseService):
             if project:
                 project_id = project.id
         except Exception as exc:
-            logger.bind(
-                error=_oauth_service_error_payload(
+            raise InternalServiceError(
+                "Failed to resolve authentication context",
+                code="AUTH_JWT_CONTEXT_RESOLVE_FAILED",
+                data=_oauth_service_error_payload(
                     code="AUTH_JWT_CONTEXT_RESOLVE_FAILED",
                     message="Failed to resolve org/project for JWT claims",
                     operation="resolve_jwt_context",
                     boundary="auth_service",
                     data={"user_id": user_id},
                     detail=exc.__class__.__name__,
-                )
-            ).debug("Failed to resolve org/project for JWT claims")
+                ),
+            ) from exc
+
+        if not org_id or not project_id or not role:
+            raise InternalServiceError(
+                "Authentication context is incomplete",
+                code="AUTH_JWT_CONTEXT_INCOMPLETE",
+                data={"user_id": user_id},
+            )
 
         # generate access token (JWT) with org/project context
         access_token = create_access_token(
@@ -388,7 +380,7 @@ class AuthService(BaseService):
         return access_token, refresh_token, csrf_token, access_expires, refresh_expires
 
     def _refresh_session_token(self, refresh_token: str) -> str:
-        """Namespace refresh tokens so they cannot be used as legacy access sessions."""
+        """Namespace refresh tokens so they cannot authenticate access requests."""
         return f"{self._REFRESH_SESSION_PREFIX}{refresh_token}"
 
     async def _store_refresh_session(
@@ -441,6 +433,17 @@ class AuthService(BaseService):
             await redis_client.delete(refresh_token_user_key)
 
         await self.session_service.invalidate_session(self._refresh_session_token(refresh_token))
+
+    async def _revoke_user_sessions(self, user_id: str) -> None:
+        """Revoke all durable and Redis-backed sessions for a user."""
+        sessions = await self.session_service.list_user_sessions(user_id)
+        for session in sessions:
+            if session.token.startswith(self._REFRESH_SESSION_PREFIX):
+                refresh_token = session.token.removeprefix(self._REFRESH_SESSION_PREFIX)
+                await self._delete_refresh_token(refresh_token, user_id)
+
+        await self.session_service.session_repo.delete_by_user_id(user_id)
+        await self.commit()
 
     async def _rotate_refresh_token(self, refresh_token: str, user_id: str) -> None:
         """Retire a rotated refresh token, keeping a short grace pointer.
@@ -516,51 +519,6 @@ class AuthService(BaseService):
             user, access_token, refresh_token, csrf_token, access_expires, refresh_expires
         )
 
-    async def _build_login_response(
-        self,
-        user: AuthUser,
-        session_token: str,
-        expires_at: datetime,
-        session: Optional[AuthSession] = None,
-    ) -> dict:
-        """Build login response (aligned with better-auth format)."""
-
-        response: Dict[str, Any] = {
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "name": user.name,
-                "image": user.image,
-                "emailVerified": user.email_verified,
-                "isSuperUser": user.is_super_user,
-                "createdAt": user.created_at.isoformat() if user.created_at else None,
-                "updatedAt": user.updated_at.isoformat() if user.updated_at else None,
-            },
-        }
-
-        if session:
-            response["session"] = {
-                "id": session.id,
-                "token": session.token,
-                "expiresAt": session.expires_at.isoformat() if session.expires_at else None,
-                "userId": session.user_id,
-                "activeOrganizationId": session.active_organization_id,
-                "ipAddress": session.ip_address,
-                "userAgent": session.user_agent,
-                "createdAt": session.created_at.isoformat() if session.created_at else None,
-                "updatedAt": session.updated_at.isoformat() if session.updated_at else None,
-            }
-        else:
-            response["session"] = {
-                "token": session_token,
-                "expiresAt": expires_at.isoformat() if expires_at else None,
-            }
-            response["access_token"] = session_token
-            response["token_type"] = "bearer"
-            response["expires_in"] = int((expires_at - datetime.now(timezone.utc)).total_seconds())
-
-        return response
-
     # ---------------------------------------------------------------- register/login
     async def register(
         self,
@@ -580,7 +538,7 @@ class AuthService(BaseService):
         Args:
             email: Email address for the new account.
             name: Display name.
-            password: Client-side hashed password.
+            password: Raw password received over TLS.
             image: Optional profile image URL.
             is_super_user: Whether to grant super-user privileges.
 
@@ -609,7 +567,7 @@ class AuthService(BaseService):
         )
         try:
             token_verify, expires_verify = generate_email_verify_token()
-            user.email_verify_token = token_verify
+            user.email_verify_token = hash_security_token(token_verify)
             user.email_verify_expires = expires_verify
             await self.commit()
             await email_service.send_email_verification(
@@ -643,7 +601,7 @@ class AuthService(BaseService):
 
         Args:
             email: User's email address.
-            password: Client-side hashed password (64-char hex string).
+            password: Raw password received over TLS.
             skip_password_check: If True, bypass password verification (for
                 OAuth/SSO flows).
             ip_address: Client IP address for audit logging.
@@ -667,29 +625,7 @@ class AuthService(BaseService):
             if not password:
                 raise AuthenticationError("Incorrect email or password", code="MISSING_CREDENTIALS")
 
-            # Validate password format (client-side hashed password)
-            password = password.strip().lower()
-            if len(password) != 64 or not all(c in "0123456789abcdef" for c in password):
-                # Log the specific error internally without exposing to user
-                logger.warning(f"Invalid password format received for login attempt: email={email}")
-                raise AuthenticationError("Incorrect email or password", code="INVALID_CREDENTIALS")
-
-            stored_password = user.hashed_password.strip().lower()
-            if len(stored_password) != 64 or not all(c in "0123456789abcdef" for c in stored_password):
-                # Log the internal error but don't expose to user
-                logger.bind(
-                    error=_oauth_service_error_payload(
-                        code="AUTH_STORED_PASSWORD_FORMAT_INVALID",
-                        message="Invalid stored password format",
-                        operation="validate_stored_password_format",
-                        boundary="auth_service",
-                        data={"user_id": str(user.id)},
-                        retryable=False,
-                        user_action="check_data",
-                    )
-                ).warning("Invalid stored password format")
-                raise AuthenticationError("Incorrect email or password", code="INVALID_CREDENTIALS")
-
+            stored_password = user.hashed_password.strip()
             password_match = verify_password(password, stored_password)
 
             if password_match:
@@ -757,7 +693,7 @@ class AuthService(BaseService):
         if not user:
             return True
         token, expires = generate_password_reset_token()
-        user.password_reset_token = token
+        user.password_reset_token = hash_security_token(token)
         user.password_reset_expires = expires
         await self.commit()
         await email_service.send_password_reset_email(
@@ -772,7 +708,7 @@ class AuthService(BaseService):
 
         Args:
             token: The password-reset token from the email link.
-            new_password: Client-side hashed new password.
+            new_password: Raw new password received over TLS.
 
         Returns:
             True on success.
@@ -789,14 +725,23 @@ class AuthService(BaseService):
         user.password_reset_token = None
         user.password_reset_expires = None
         await self.commit()
+        await self._revoke_user_sessions(user.id)
         return True
 
-    async def reset_password_for_current_user(self, user: AuthUser, new_password: str) -> bool:
-        """Reset password for the current logged-in user (no old password required)."""
+    async def change_password_for_current_user(
+        self,
+        user: AuthUser,
+        old_password: str,
+        new_password: str,
+    ) -> bool:
+        """Change the current user's password after verifying the old password."""
         if not user or not user.is_active:
             raise InvalidRequestError("User not found or inactive", code="USER_INVALID")
+        if not user.hashed_password or not verify_password(old_password, user.hashed_password):
+            raise AuthenticationError("Incorrect current password", code="INVALID_CREDENTIALS")
         user.hashed_password = get_password_hash(new_password)
         await self.commit()
+        await self._revoke_user_sessions(user.id)
         return True
 
     # ---------------------------------------------------------------- email verify
@@ -838,7 +783,7 @@ class AuthService(BaseService):
         if user.email_verified:
             raise InvalidRequestError("Email already verified", code="EMAIL_ALREADY_VERIFIED")
         token, expires = generate_email_verify_token()
-        user.email_verify_token = token
+        user.email_verify_token = hash_security_token(token)
         user.email_verify_expires = expires
         await self.commit()
         await email_service.send_email_verification(

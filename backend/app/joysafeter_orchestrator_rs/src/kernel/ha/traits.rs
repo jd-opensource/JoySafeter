@@ -9,8 +9,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use uuid::Uuid;
 
+use crate::ids::SandboxId;
 use crate::kernel::sandbox_bridge::SandboxBridge;
 
 // ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ pub trait BridgeStore: Send + Sync + 'static {
     fn get(&self, external_id: &str) -> Option<Arc<SandboxBridge>>;
 
     /// Get a bridge by database UUID.
-    fn get_by_db_id(&self, db_id: Uuid) -> Option<Arc<SandboxBridge>>;
+    fn get_by_db_id(&self, db_id: SandboxId) -> Option<Arc<SandboxBridge>>;
 
     /// Remove a bridge by external ID.
     fn remove(&self, external_id: &str) -> Option<Arc<SandboxBridge>>;
@@ -44,7 +44,7 @@ pub trait BridgeStore: Send + Sync + 'static {
 
     /// Which orchestrator instance owns this sandbox.
     /// Returns `Some("self")` for local modes, `Some(instance_id)` for multi.
-    async fn get_owner_instance(&self, sandbox_id: Uuid) -> Option<String>;
+    async fn get_owner_instance(&self, sandbox_id: SandboxId) -> Option<String>;
 
     /// Heartbeat to refresh TTLs (no-op for local mode).
     async fn heartbeat(&self) -> anyhow::Result<()>;
@@ -75,7 +75,7 @@ pub trait TaskDispatcher: Send + Sync + 'static {
     /// Send a command to the runner managing this sandbox.
     async fn dispatch_command(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         command: DispatchCommand,
     ) -> anyhow::Result<()>;
 }
@@ -99,5 +99,5 @@ pub enum XdsAction {
 #[async_trait]
 pub trait XdsStateStore: Send + Sync + 'static {
     /// Notify other instances of an xDS change (no-op for local mode).
-    async fn notify_change(&self, sandbox_id: Uuid, action: XdsAction) -> anyhow::Result<()>;
+    async fn notify_change(&self, sandbox_id: SandboxId, action: XdsAction) -> anyhow::Result<()>;
 }

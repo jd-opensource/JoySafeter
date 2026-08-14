@@ -1,6 +1,5 @@
 import posixpath
 import re
-import uuid
 import zipfile
 from io import BytesIO
 from pathlib import PurePosixPath
@@ -11,13 +10,6 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.api.v1.id_helpers import parse_skill_file_id, parse_skill_id, parse_skill_security_scan_id
-from app.joysafeter_api.services import (
-    SkillLifecycleService,
-    SkillPromotionService,
-    SkillService,
-    SkillVersionService,
-)
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill, JoySafeterSkillUsageLog
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
@@ -35,6 +27,12 @@ from app.joysafeter_domain.schemas.joysafeter_skill import (
     UpdateSkillFileRequest,
     UpdateSkillRequest,
 )
+from app.joysafeter_domain.services.joysafeter_skill_service import (
+    SkillLifecycleService,
+    SkillPromotionService,
+    SkillService,
+    SkillVersionService,
+)
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
     InvalidRequestError,
@@ -48,6 +46,12 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 )
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import (
+    SkillFileId,
+    SkillId,
+    SkillSecurityScanId,
+    SkillVersionId,
+)
 from app.joysafeter_shared.skill.yaml_parser import extract_metadata_from_frontmatter, parse_skill_md
 
 router = APIRouter(tags=["joysafeter-skills"])
@@ -423,7 +427,7 @@ async def import_skill_zip(
 @router.get("")
 async def list_skills(
     limit: int = Query(10, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[SkillId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
@@ -431,7 +435,6 @@ async def list_skills(
     skills, has_more = await svc.list_skills(
         current_user_id=auth_ctx.user_id,
         project_id=auth_ctx.project_id,
-        org_id=auth_ctx.org_id,
         limit=limit,
         after_id=after_id,
     )
@@ -446,7 +449,7 @@ async def list_skills(
 
 @router.get("/security-scans/{scan_id}")
 async def get_skill_security_scan(
-    scan_id: uuid.UUID = Depends(parse_skill_security_scan_id),
+    scan_id: SkillSecurityScanId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillSecurityScanResponse:
@@ -457,7 +460,7 @@ async def get_skill_security_scan(
 
 @router.get("/{skill_id}")
 async def get_skill(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillResponse:
@@ -469,7 +472,7 @@ async def get_skill(
 
 @router.get("/{skill_id}/security-scans/latest")
 async def get_latest_skill_security_scan(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillSecurityScanResponse:
@@ -480,9 +483,9 @@ async def get_latest_skill_security_scan(
 
 @router.get("/{skill_id}/security-scans")
 async def list_skill_security_scans(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     limit: int = Query(20, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[SkillSecurityScanId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
@@ -507,7 +510,7 @@ async def search_skill_usage(
     limit: int = Query(50, ge=1, le=100),
     artifact_hash: Optional[str] = Query(None, min_length=64, max_length=64),
     target_hash: Optional[str] = Query(None, min_length=64, max_length=64),
-    security_scan_id: Optional[uuid.UUID] = Query(None),
+    security_scan_id: Optional[SkillSecurityScanId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> PaginatedResponse[SkillUsageResponse]:
@@ -547,11 +550,11 @@ async def search_skill_usage(
 
 @router.get("/{skill_id}/usage")
 async def list_skill_usage(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     limit: int = Query(50, ge=1, le=100),
     artifact_hash: Optional[str] = Query(None, min_length=64, max_length=64),
     target_hash: Optional[str] = Query(None, min_length=64, max_length=64),
-    security_scan_id: Optional[uuid.UUID] = Query(None),
+    security_scan_id: Optional[SkillSecurityScanId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> PaginatedResponse[SkillUsageResponse]:
@@ -587,7 +590,7 @@ async def list_skill_usage(
 @router.post("/{skill_id}/security-scans/rescan")
 async def rescan_skill_security(
     background_tasks: BackgroundTasks,
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillSecurityScanResponse:
@@ -604,7 +607,7 @@ async def rescan_skill_security(
 async def update_skill(
     req: UpdateSkillRequest,
     background_tasks: BackgroundTasks,
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillResponse:
@@ -627,13 +630,13 @@ async def update_skill(
 
 @router.delete("/{skill_id}")
 async def delete_skill(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ):
     svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     await svc.delete_skill(skill_id, current_user_id=auth_ctx.user_id)
-    return {"id": f"skill_{skill_id}", "type": "skill_deleted"}
+    return {"id": str(skill_id), "type": "skill_deleted"}
 
     # ── Skill Lifecycle Transitions ─────────────────────────────────────
     # Each endpoint maps to a single edge on the state machine in
@@ -649,7 +652,7 @@ async def _run_transition(transition_coro) -> SkillLifecycleTransitionResponse:
 
 @router.post("/{skill_id}/submit-review")
 async def submit_skill_for_review(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillLifecycleTransitionResponse:
@@ -660,7 +663,7 @@ async def submit_skill_for_review(
 
 @router.post("/{skill_id}/approve")
 async def approve_skill(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillLifecycleTransitionResponse:
@@ -671,7 +674,7 @@ async def approve_skill(
 
 @router.post("/{skill_id}/reject")
 async def reject_skill(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillLifecycleTransitionResponse:
@@ -682,7 +685,7 @@ async def reject_skill(
 
 @router.post("/{skill_id}/archive")
 async def archive_skill(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillLifecycleTransitionResponse:
@@ -693,7 +696,7 @@ async def archive_skill(
 
 @router.post("/{skill_id}/unarchive")
 async def unarchive_skill(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillLifecycleTransitionResponse:
@@ -704,7 +707,7 @@ async def unarchive_skill(
 
 @router.post("/{skill_id}/reopen")
 async def reopen_skill(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillLifecycleTransitionResponse:
@@ -849,7 +852,7 @@ async def admin_rescan_all_skills(
             license=skill.license,
             files=sec.files_from_skill(skill),
         )
-        scheduled.append(f"skill_{skill.id}")
+        scheduled.append(str(skill.id))
     await db.commit()
     return {
         "scheduled": scheduled,
@@ -865,7 +868,7 @@ async def admin_rescan_all_skills(
 async def create_skill_file(
     req: CreateSkillFileRequest,
     background_tasks: BackgroundTasks,
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillFileResponse:
@@ -886,7 +889,7 @@ async def create_skill_file(
 
 @router.get("/{skill_id}/files")
 async def list_skill_files(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
@@ -899,8 +902,8 @@ async def list_skill_files(
 
 @router.get("/{skill_id}/files/{file_id}")
 async def get_skill_file(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
-    file_id: uuid.UUID = Depends(parse_skill_file_id),
+    skill_id: SkillId,
+    file_id: SkillFileId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillFileResponse:
@@ -921,8 +924,8 @@ async def get_skill_file(
 async def update_skill_file(
     req: UpdateSkillFileRequest,
     background_tasks: BackgroundTasks,
-    skill_id: uuid.UUID = Depends(parse_skill_id),
-    file_id: uuid.UUID = Depends(parse_skill_file_id),
+    skill_id: SkillId,
+    file_id: SkillFileId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillFileResponse:
@@ -942,8 +945,8 @@ async def update_skill_file(
 @router.delete("/{skill_id}/files/{file_id}")
 async def delete_skill_file(
     background_tasks: BackgroundTasks,
-    skill_id: uuid.UUID = Depends(parse_skill_id),
-    file_id: uuid.UUID = Depends(parse_skill_file_id),
+    skill_id: SkillId,
+    file_id: SkillFileId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ):
@@ -954,7 +957,7 @@ async def delete_skill_file(
         expected_skill_id=skill_id,
     )
     _flush_async_scans(svc, background_tasks)
-    return {"id": f"sklfile_{file_id}", "type": "skill_file_deleted"}
+    return {"id": str(file_id), "type": "skill_file_deleted"}
 
     # ── Skill Versions ───────────────────────────────────────────────────
 
@@ -962,7 +965,7 @@ async def delete_skill_file(
 @router.post("/{skill_id}/versions", status_code=201)
 async def create_skill_version(
     req: CreateSkillVersionRequest,
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillVersionResponse:
@@ -991,9 +994,9 @@ async def create_skill_version(
 
 @router.get("/{skill_id}/versions")
 async def list_skill_versions(
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     limit: int = Query(50, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[SkillVersionId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
@@ -1008,7 +1011,7 @@ async def list_skill_versions(
 @router.get("/{skill_id}/versions/{version}")
 async def get_skill_version(
     version: str,
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillVersionResponse:
@@ -1020,7 +1023,7 @@ async def get_skill_version(
 @router.delete("/{skill_id}/versions/{version}")
 async def delete_skill_version(
     version: str,
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     force: bool = Query(False, description="Delete even if agents reference this version"),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
@@ -1038,7 +1041,7 @@ async def delete_skill_version(
 @router.get("/{skill_id}/versions/{version}/files")
 async def list_skill_version_files(
     version: str,
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
@@ -1052,7 +1055,7 @@ async def list_skill_version_files(
 @router.post("/{skill_id}/versions/restore/{version}")
 async def restore_skill_from_version(
     version: str,
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillResponse:
@@ -1092,7 +1095,7 @@ class TakedownRequest(BaseModel):
 async def submit_skill_promotion(
     req: SubmitPromotionRequest,
     version: str,
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillVersionResponse:
@@ -1111,7 +1114,7 @@ async def submit_skill_promotion(
 @router.post("/{skill_id}/versions/{version}/approve-promotion")
 async def approve_skill_promotion(
     version: str,
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillVersionResponse:
@@ -1127,7 +1130,7 @@ async def approve_skill_promotion(
 async def reject_skill_promotion(
     req: RejectPromotionRequest,
     version: str,
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillVersionResponse:
@@ -1142,7 +1145,7 @@ async def reject_skill_promotion(
 @router.post("/{skill_id}/takedown")
 async def takedown_skill(
     req: TakedownRequest,
-    skill_id: uuid.UUID = Depends(parse_skill_id),
+    skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillResponse:

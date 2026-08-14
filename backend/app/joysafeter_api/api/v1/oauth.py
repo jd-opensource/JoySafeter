@@ -23,7 +23,7 @@ from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.services import AuthService, OAuthService
+from app.joysafeter_domain.services.joysafeter_auth_service import AuthService, OAuthService
 from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
@@ -289,7 +289,7 @@ async def oauth_callback(
         await db.commit()
         ip_address = _get_client_ip(request)
 
-        from app.joysafeter_api.services import run_post_login_init
+        from app.joysafeter_domain.services.joysafeter_auth_service import run_post_login_init
 
         await run_post_login_init(db, user, ip_address)
 

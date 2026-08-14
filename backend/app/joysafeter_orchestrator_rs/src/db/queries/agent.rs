@@ -1,7 +1,7 @@
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::db::models::JoySafeterAgent;
+use crate::ids::AgentId;
 
 // ---------------------------------------------------------------------------
 // Agent queries
@@ -10,13 +10,13 @@ use crate::db::models::JoySafeterAgent;
 /// Get an agent by ID.
 pub async fn get_agent(
     pool: &PgPool,
-    agent_id: Uuid,
+    agent_id: AgentId,
 ) -> Result<Option<JoySafeterAgent>, sqlx::Error> {
     sqlx::query_as::<_, JoySafeterAgent>(
         r#"
         SELECT id, project_id, name, engine_kind, model->>'id' AS model, system_prompt,
-               description, env, mcp_configs, skills, agents, commands, tools,
-               permission_mode, metadata, multiagent, version, environment_ref, secret_ref
+               description, env, mcp_servers, skills, agents, commands, tools,
+               permission_mode, metadata, multiagent, version, environment_ref, model_credential_id
         FROM joysafeter_agents
         WHERE id = $1 AND deleted_at IS NULL
         "#,

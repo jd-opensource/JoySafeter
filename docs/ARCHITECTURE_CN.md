@@ -1,9 +1,6 @@
 # 架构（Architecture）
 
-> **状态：** 已按 `joysafeter-v2` 分支的真实代码核对（2026-07-03）。
-> 本文档描述的是**当前实际运行的代码**。v2 之前的单进程设计
-> （DispatchService / ExecutionOrchestrator / EngineRegistry / 进程内 `ExecutionEventBus` / `/ws/executions`）
-> 已被**移除**——若你在找旧模型，见 [§11 迁移说明](#11-迁移说明v1--v2)。
+本文档描述当前运行时架构，代码和自动化测试是最终事实来源。
 
 JoySafeter 是一个面向安全工作的 AI Agent 编排平台。用户定义一个 **Agent**（引擎 + 模型 +
 系统提示词 + 工具 + 技能 + MCP 服务器），打开一个 **Session**（会话）并发送消息。每条消息会变成一个
@@ -109,7 +106,7 @@ flowchart TB
 
 ### 协同契约
 
-每个服务只有一个清晰的所有权边界。跨服务调用应保持这些契约，而不是恢复旧的进程内捷径。
+每个服务只有一个清晰的所有权边界。跨服务调用必须保持这些契约。
 
 | 参与方 | 拥有什么 | 消费什么 | 发布 / 修改什么 | 不应该做什么 |
 |---|---|---|---|---|
@@ -153,7 +150,7 @@ sequenceDiagram
     FE->>API: POST /sessions/{id}/events（user.message）
     API->>PG: 创建 JoySafeterTask（status=pending）
     API->>PG: session → running（+ 状态事件）
-    API->>Q: rpush joysafeter:global_queue <task_id>
+    API->>Q: rpush joysafeter:global_queue <裸 task UUID>
 
     Note over ORCH: 调度器认领 pending task（DB 为权威）
     ORCH->>PG: task pending → scheduling → running
@@ -190,18 +187,22 @@ sequenceDiagram
    和*广播相*（→ Redis Pub/Sub，由 SSE 层临时消费）。浏览器快速拿到事件；Worker 保证事件带单调 `seq`
    落库 Postgres，因此重连的客户端可从 `?after_seq` 回放。
 
+3. **Sandbox 状态写入统一使用 CAS。** Rust runtime 通过
+   `transition_sandbox_cas(expected_status, new_status)` 校验 sandbox FSM，并在同一条带期望状态的更新中落库。
+   系统不再提供先读状态再写入的兼容 API，陈旧观察者无法自行推断 expected state 后覆盖并发结果。
+
 ---
 
 ## 3. 传输映射——谁与谁通信、如何通信
 
-旧文档只描述了一个进程内 WebSocket 总线。实际是若干各司其职的通道。此表为权威参考。
+运行时使用若干各司其职的通信通道。此表为权威参考。
 
 | 通道 | 机制 | 用途 | 锚点 |
 |---|---|---|---|
 | 浏览器 → API | HTTPS REST `/api/v1/*` | 所有 CRUD + 命令 | `joysafeter_api/api/v1/router.py` |
 | **实时事件 → 浏览器** | **SSE** `GET /sessions/{id}/events/stream` | 主执行流（`?after_seq` 回放 DB，再转实时） | `joysafeter_api/api/v1/sessions.py` |
 | 通知 → 浏览器 | WebSocket `/ws/notifications` | 用户级通知（进程内 `NotificationManager`） | `joysafeter_api/app.py`、`joysafeter_api/websocket/notification_manager.py` |
-| 遗留任务流 | WebSocket `/tasks/{id}/stream` | 单任务输出（bridge 队列 → Redis 回退） | `joysafeter_api/api/v1/tasks.py` |
+| 单任务流 | WebSocket `/tasks/{id}/stream` | 单任务输出（bridge 队列 → Redis 回退） | `joysafeter_api/api/v1/tasks.py` |
 | 任务入队 | Redis **list** `joysafeter:global_queue` | API `rpush` → Rust orchestrator 调度器弹出 | `joysafeter_api/services.py`、`joysafeter_orchestrator_rs/src/kernel/queue.rs` |
 | **可靠事件总线** | Redis **Streams** `joysafeter:orchestrator:events` + 消费组 | orchestrator `XADD` → Worker `XREADGROUP` → 落库 | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`、`joysafeter_worker/events/stream_consumer.py` |
 | **实时事件扇出** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | 跨实例 SSE 投递（`SessionBroadcaster`） | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`、`joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
@@ -230,8 +231,7 @@ API 面。装配 FastAPI 应用（`app.py`），通过 `ApiV1ResponseWrapperMidd
 Cookie/session 回退（首次登录自动开通默认 org+project）。所有 project 作用域路由都按 `auth_ctx.project_id`
 过滤以实现多租户隔离。WebSocket 连接用 `GET /auth/ws-token` 的短时 token 鉴权。
 
-**启动**现在几乎不做事——`run_api_startup()` 只为 SSE 装配 `SessionBroadcaster`；v1 的模型注册表与
-MCP 服务器启动钩子已删除。
+**启动**保持最小化：`run_api_startup()` 只为 SSE 装配 `SessionBroadcaster`。
 
 完整 REST 清单见 [§8 API 面](#8-api-面)。
 
@@ -367,14 +367,14 @@ runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`�
 
 ## 7. 领域模型
 
-以异步 SQLAlchemy 2.0 持久化到 PostgreSQL。v2 词汇与 v1 不同：**没有 `execution`、`run` 或 `mission` 表**。
+以异步 SQLAlchemy 2.0 持久化到 PostgreSQL。系统**没有 `execution`、`run` 或 `mission` 表**。
 运行单元是 `JoySafeterTask`；会话单元是带追加式事件日志的 `JoySafeterSession`。
 
 ### 7.1 核心实体
 
 | 实体 | 表 | 角色 |
 |---|---|---|
-| `JoySafeterAgent` | `joysafeter_agents` | Agent 定义。能力（`skills`、`tools`、`mcp_configs`、`model`、`agents`、`commands`）以 **JSONB 反范式**存在行上，非 join 表。经 `joysafeter_agent_versions` 版本化 |
+| `JoySafeterAgent` | `joysafeter_agents` | Agent 定义。能力（`skills`、`tools`、`mcp_servers`、`model`、`agents`、`commands`）以 **JSONB 反范式**存在行上，非 join 表。经 `joysafeter_agent_versions` 版本化 |
 | `JoySafeterSession` | `joysafeter_sessions` | 会话/线程。累计 token 用量；创建时快照 Agent |
 | `JoySafeterSessionEvent` | `joysafeter_session_events` | **追加式事件日志**，`unique(session_id, seq)`。即持久化的事件流 |
 | `JoySafeterTask` | `joysafeter_tasks` | 运行/执行单元。经 `chat_session_id` 关联会话 |
@@ -410,6 +410,40 @@ runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`�
 所有路径在 `/api/v1` 下。路由在 `joysafeter_api/api/v1/router.py` 装配。**没有**独立的
 `models` / `mcp` / `tools` / `copilot` / `graphs` 路由——这些概念存于 Agent（JSONB 字段）或
 `secrets` / `vaults`。
+
+### 8.1 类型化实体 ID
+
+公共 API 与日志统一使用 canonical 前缀 ID（`agent_<uuid>`、`sess_<uuid>`、`task_<uuid>`、
+`trig_<uuid>`、`env_<uuid>`、`secret_<uuid>`、`vault_<uuid>`、`cred_<uuid>`、`sbx_<uuid>`、
+`memstore_<uuid>`、`mem_<uuid>`、`memver_<uuid>`、`skill_<uuid>`、`sklfile_<uuid>`、
+`sklscan_<uuid>`、`sklver_<uuid>`、`sklvfile_<uuid>`、`skluse_<uuid>`、`file_<uuid>`、
+`sesrsc_<uuid>`、`evt_<uuid>`）。前缀是语义判别器：让跨实体误传在 UUID 进入领域逻辑前即可被
+识别并拒绝。应用/领域层使用对应的类型（`AgentId`、`SessionId`、`TaskId`、`TriggerId`、
+`EnvironmentId`、`SecretId`、`VaultId`、`CredentialId`、`SandboxId`、`MemoryStoreId`、`MemoryId`、
+`MemoryVersionId`、`SkillId`、`SkillFileId`、`SkillSecurityScanId`、`SkillVersionId`、
+`SkillVersionFileId`、`SkillUsageId`、`FileId`、`SessionResourceId`、`EventId`）；PostgreSQL、Redis、protobuf 与明确记录的跨语言适配器使用裸 UUID。因此，
+使用类型化 ID 并不意味着取消前缀，而是把前缀校验集中到边界，禁止 service、route、前端和
+测试自行拆装前缀。Rust ID newtype 不实现 `Deref<Uuid>`；物理适配器必须显式调用 `.as_uuid()`，
+避免内存中的实体身份静默降级为存储身份。`environment_ref` 是刻意保留的多态边界：它接受环境名称或 canonical
+`env_<uuid>`，但不把裸 UUID 解释为 Environment ID。
+Sandbox provider label、容器/Pod 名称、Envoy resource/socket 名称、runner 环境变量、Redis ownership
+key/payload 与 protobuf 字段属于物理边界，必须显式把 `SandboxId` 解包为裸 UUID；公共 API 响应、
+错误、日志和前端状态始终保留 `sbx_<uuid>`。
+Memory 同步遵循同一规则：API 路径、schema、日志与前端状态保留 canonical Memory ID；Redis
+`memory_update` payload 和 runner protobuf mount 显式携带裸 Memory Store UUID，Rust 在订阅查找前
+将其恢复为 `MemoryStoreId`。
+文件元数据、文件路由、Session 文件/仓库资源、日志与前端状态保留 `file_<uuid>` / `sesrsc_<uuid>`；
+PostgreSQL UUID 列与对象存储 key 必须显式解包 `FileId`，物理存储 key 绝不能包含公共 `file_` 前缀。
+已持久化的 Session 事件在 REST/SSE payload、日志、前端状态及应用/Rust 事件流中保留 `evt_<uuid>`；
+SQL UUID 列和 Redis Stream 字段携带裸 Event UUID，并在重新进入类型化应用代码时立即恢复为 `EventId`。
+Skill CRUD、生命周期、安全扫描、版本、版本文件快照、使用日志、路由与前端状态统一保留六类
+canonical Skill ID；仅 SQL join、Rust bundle 与存储适配器在物理边界显式解包为裸 UUID。AI
+authoring 的草稿文件在持久化前没有实体身份，禁止用空字符串或伪造的 `SkillFileId` 占位。
+Agent/Environment 中的 `secret_ref` 仍是按名称解析的配置引用，不是 Secret ID；Secret CRUD 路径、
+游标、响应、日志和 ORM 身份统一使用 canonical `SecretId`。
+Session 的 `vault_ids` 是持久化 JSONB 引用文档，刻意保存 canonical `vault_<uuid>` 字符串。Python
+以 `list[VaultId]` 校验；Rust harness 只在 SQL 查询适配器处解包成裸 UUID。历史裸 UUID 数据仅在该
+适配器保留读取兼容。
 
 | 分组 | 前缀 | 要点 |
 |---|---|---|
@@ -455,8 +489,9 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
    （private/project/organization/public）+ 严格 active-org 隔离。
 3. **安全扫描**（`joysafeter_domain/.../joysafeter_skill_security.py` → **skillspector** 服务）——
    扫描器失败会记录 failed/scanning 状态，拦截 `DO_NOT_INSTALL` 建议，规范 sha256 用于漂移检测。
-4. **打包与投递**——`SkillPacker` 在会话开始时把引用解析为 `tar.gz` `SkillArchive`，应用 `is_skill_usable`
-   闸门、记录用量；orchestrator 把归档注入沙箱，runner 解包。
+4. **打包与投递**——Rust orchestrator 的 `HarnessInputBuilder` 在任务启动时解析已发布版本，执行
+   `ensure_skill_runtime_ready` 闸门，从版本文件现场生成 `tar.gz` `SkillArchive` 并记录用量；归档随后
+   注入沙箱，由 runner 解包。无可用版本或闸门失败会终止输入构建，不会静默降级。
 
 ### 9.3 可观测性——全链路追踪
 
@@ -473,8 +508,9 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
 
 - **鉴权：** JWT（HS256）带 org/project/role 声明 + 实时 DB 复核；HttpOnly Cookie；变更请求带 CSRF token；
   密码在客户端先做 SHA-256 预哈希。
-- **凭据加密：** provider secret 与 vault token 用 AES-256-GCM（`credential_encryption_key`），与 Rust
-  `agentd` 兼容的 cipher。
+- **凭据加密：** provider secret、仓库 token 与 vault/OAuth 凭据统一使用 AES-256-GCM
+  （`JOYSAFETER_VAULT_ENCRYPTION_KEY`）。密钥缺失或无效时服务拒绝启动；数据库中的凭据必须使用 `enc:`
+  封装，明文或损坏记录会明确失败，不再静默透传；密文格式与 Rust `agentd` 兼容。
 - **SSRF 守卫：** 拦截云元数据 IP、解析 DNS 以挫败 rebinding；默认允许私有 RFC-1918（内部 LLM/MCP 端点），
   可选加固开关。
 - **沙箱隔离：** 丢弃能力、非 root、no-new-privileges、PID 限制、Envoy 全拒出口。
@@ -524,22 +560,3 @@ skills/                        # 30 个技能包（pentest / utility / planning�
 deploy/docker-compose.yml      # 三服务 + 基础设施拓扑（Rust orchestrator profile）
 frontend/                      # Next.js App Router UI
 ```
-
----
-
-## 11. 迁移说明（v1 → v2）
-
-如果你见过旧架构文档，下面说明变了什么、以及为何旧名字在代码里已无法解析：
-
-| v1（已移除） | v2（当前） |
-|---|---|
-| 单进程 | API / Worker 两个 Python 服务 + Rust `orchestrator-rs` 服务 |
-| 进程内 `ExecutionEventBus` | 两相总线 → **Redis Streams**（可靠，Worker）+ **Redis Pub/Sub**（实时，SSE） |
-| WebSocket `/ws/executions` | **SSE** `/sessions/{id}/events/stream`；WS 只用于 `/ws/notifications` |
-| `DispatchService` → `ExecutionOrchestrator` → `EngineRegistry` | API 经 Redis 入队；orchestrator 调度器从 DB 拉取 |
-| 进程内 `CLIEngine` / `LangGraphVisualEngine` / `CopilotEngine` | Rust `sandbox-runner` 经 gRPC `AgentBridge` 执行 harness |
-| `Execution` / `Run` / `Task` / `Mission` 实体 | `JoySafeterTask`（运行单元）+ `JoySafeterSession` + `JoySafeterSessionEvent`（日志） |
-| `ModelPort` / 模型 provider 注册表 | OpenAI 兼容辅助 + DB 存储 secret；工作负载路由在 CLI harness |
-
-**仍存的概念**（核实仍在，虽位置迁移）：集中式状态机、`AppError` / `ErrorDescriptor` 错误模型、
-基于 OTel 的观测层。

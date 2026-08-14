@@ -45,7 +45,7 @@ class _FakeDB:
 def _make_service(skill, *, monkeypatch):
     svc = SkillVersionService.__new__(SkillVersionService)
     svc.db = _FakeDB()
-    svc._active_org_id = None
+    svc._active_org_id = "org-test"
 
     # The publish security gate only runs when scanning is enabled; the
     # global default is off, so turn it on to exercise the gate itself.

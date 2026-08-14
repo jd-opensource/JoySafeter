@@ -2,6 +2,8 @@
 
 import { MoreVertical } from 'lucide-react'
 import type { ReactNode } from 'react'
+
+import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -9,7 +11,6 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { Button } from '@/components/ui/button'
 
 export interface MenuItem {
   label: string
@@ -19,7 +20,15 @@ export interface MenuItem {
   separator?: boolean
 }
 
-export function ActionMenu({ items }: { items: MenuItem[] }) {
+export function ActionMenu({
+  items,
+  disabled = false,
+  ariaLabel,
+}: {
+  items: MenuItem[]
+  disabled?: boolean
+  ariaLabel?: string
+}) {
   if (items.length === 0) return null
 
   return (
@@ -29,6 +38,8 @@ export function ActionMenu({ items }: { items: MenuItem[] }) {
           variant="ghost"
           size="icon"
           className="h-8 w-8"
+          disabled={disabled}
+          aria-label={ariaLabel}
           onClick={(e) => e.stopPropagation()}
         >
           <MoreVertical className="h-4 w-4 text-muted-foreground" />

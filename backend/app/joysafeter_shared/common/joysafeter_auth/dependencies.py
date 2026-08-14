@@ -16,10 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.joysafeter_domain.models.joysafeter_api_key import JoySafeterApiKey
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member
-from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_shared.common.app_errors import AccessDeniedError, AuthenticationError, ResourceConflictError
-from app.joysafeter_shared.common.dependencies import get_current_user
 from app.joysafeter_shared.database import get_db
 
 from .context import (
@@ -82,18 +80,6 @@ async def get_joysafeter_auth_context(
     if ctx is not None:
         return ctx
 
-    # ------------------------------------------------------------------
-    # 3. Cookie/session fallback (for browser login, issues new-style token)
-    # ------------------------------------------------------------------
-    try:
-        ctx = await _auth_via_user_session(request, db)
-        if ctx is not None:
-            return ctx
-    except AuthenticationError:
-        raise
-    except Exception as exc:
-        logger.error(f"JoySafeter auth session error: {exc}", exc_info=True)
-
     raise AuthenticationError(
         "凭证缺失或无效，请重新登录 / Missing or invalid credentials",
         code="JOYSAFETER_UNAUTHORIZED",
@@ -108,7 +94,7 @@ async def get_joysafeter_auth_context(
 async def _auth_via_jwt_claims(request: Request, db: AsyncSession) -> JoySafeterAuthContext | None:
     """Resolve auth context from JWT claims after verifying DB state.
 
-    Returns None if the token doesn't carry org/project claims (old tokens).
+    Returns None when the request does not contain a complete access JWT.
     """
     from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
     from app.joysafeter_shared.security import decode_token
@@ -326,135 +312,6 @@ async def _auth_via_api_key(
         principal_type="api_key",
         project_role=api_key.role,
         is_super_user=False,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Cookie / Bearer auth path
-# ---------------------------------------------------------------------------
-
-
-async def _auth_via_user_session(
-    request: Request,
-    db: AsyncSession,
-) -> JoySafeterAuthContext | None:
-    """Authenticate via the existing user session (cookie/Bearer)."""
-    from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
-
-    # Extract token from Authorization header or cookie (same as v1 auth)
-    token = None
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header[7:]
-
-    if not token:
-        token = extract_token_from_cookies(request.cookies)
-
-    logger.info(f"[JoySafeterAuth] token extracted: {bool(token)}, cookies present: {list(request.cookies.keys())}")
-
-    if not token:
-        raise AuthenticationError("Missing credentials", code="MISSING_CREDENTIALS")
-
-    user = await get_current_user(token=token, request=request, db=db)
-    logger.info(f"[JoySafeterAuth] user resolved: {user.id}")
-
-    # Look up the user's org membership.
-    # Prefer X-Org-Id header if provided (org switching), otherwise first found.
-    preferred_org_id = request.headers.get("X-Org-Id")
-    if preferred_org_id:
-        result = await db.execute(
-            select(Member)
-            .where(
-                Member.user_id == user.id,
-                Member.organization_id == preferred_org_id,
-            )
-            .limit(1)
-        )
-    else:
-        result = await db.execute(select(Member).where(Member.user_id == user.id).limit(1))
-    membership = result.scalar_one_or_none()
-    if membership is None and preferred_org_id:
-        # User explicitly requested an org they don't belong to
-        raise AuthenticationError(
-            "User is not a member of the requested organization",
-            code="NOT_ORG_MEMBER",
-        )
-    if membership is None:
-        # Auto-create a default organization and project for the user
-        import uuid as _uuid
-
-        from app.joysafeter_domain.models.joysafeter_organization import Organization
-
-        org_id = str(_uuid.uuid4())
-        org = Organization(id=org_id, name=user.name or "Default", slug="default")
-        db.add(org)
-        membership = Member(
-            id=str(_uuid.uuid4()),
-            user_id=user.id,
-            organization_id=org_id,
-            role="owner",
-        )
-        db.add(membership)
-        new_default_project = Project(
-            id=str(_uuid.uuid4()),
-            org_id=org_id,
-            name="Default",
-            slug="default",
-            is_default=True,
-        )
-        db.add(new_default_project)
-        await ProjectService(db).grant_project_membership(
-            project_id=new_default_project.id,
-            user_id=user.id,
-            role="admin",
-        )
-        await db.commit()
-        await db.refresh(membership)
-
-    org_id = membership.organization_id
-    role = _map_org_role(membership.role)
-
-    # Resolve project_id: prefer explicit header, otherwise default project.
-    project_svc = ProjectService(db)
-    project_id = request.headers.get("X-Project-Id")
-    if project_id:
-        verified_project = await project_svc.get_accessible_project(
-            project_id=project_id,
-            org_id=org_id,
-            user_id=user.id,
-            org_role=role,
-            allow_archived=True,
-        )
-        if not verified_project:
-            raise AuthenticationError(
-                "Project not found or access denied",
-                code="PROJECT_ACCESS_DENIED",
-            )
-
-    if not project_id:
-        projects = await project_svc.list_accessible_projects(
-            org_id=org_id,
-            user_id=user.id,
-            org_role=role,
-        )
-        default_project = next((project for project in projects if project.is_default), None)
-        if default_project is None and projects:
-            default_project = projects[0]
-        if default_project is None:
-            raise AuthenticationError(
-                "No project found for organization",
-                code="NO_PROJECT",
-            )
-        project_id = default_project.id
-
-    project_role = await project_svc.get_project_member_role(project_id, user.id)
-    return JoySafeterAuthContext(
-        user_id=user.id,
-        org_id=org_id,
-        project_id=project_id,
-        role=role,
-        project_role=project_role,
-        is_super_user=bool(user.is_super_user),
     )
 
 

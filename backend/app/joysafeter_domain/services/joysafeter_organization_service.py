@@ -8,18 +8,20 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_credential import (
+    JoySafeterCredential,
+    JoySafeterCredentialGroup,
+)
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
 from app.joysafeter_domain.models.joysafeter_memory import JoySafeterMemoryStore
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
-from app.joysafeter_domain.models.joysafeter_secret import JoySafeterSecret
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
-from app.joysafeter_domain.models.joysafeter_vault import JoySafeterVault
 from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
 from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
@@ -30,12 +32,12 @@ PROJECT_RESOURCE_BLOCKERS = (
     ("files", JoySafeterFile),
     ("memory_stores", JoySafeterMemoryStore),
     ("sandboxes", JoySafeterSandbox),
-    ("secrets", JoySafeterSecret),
+    ("credentials", JoySafeterCredential),
+    ("credential_groups", JoySafeterCredentialGroup),
     ("sessions", JoySafeterSession),
     ("skills", JoySafeterSkill),
     ("tasks", JoySafeterTask),
     ("triggers", JoySafeterTrigger),
-    ("vaults", JoySafeterVault),
 )
 
 
@@ -152,8 +154,14 @@ class OrganizationService:
 
     async def _project_resource_blockers(self, project_ids: list[str]) -> list[str]:
         blockers: list[str] = []
+        # Credentials / credential groups are soft-deleted; a tombstoned row must
+        # not block org/project deletion, so those two are scoped to live rows.
+        soft_delete_models = {JoySafeterCredential, JoySafeterCredentialGroup}
         for resource_name, model in PROJECT_RESOURCE_BLOCKERS:
-            result = await self.db.execute(select(model.id).where(model.project_id.in_(project_ids)).limit(1))
+            query = select(model.id).where(model.project_id.in_(project_ids))
+            if model in soft_delete_models:
+                query = query.where(model.deleted_at.is_(None))
+            result = await self.db.execute(query.limit(1))
             if result.scalar_one_or_none() is not None:
                 blockers.append(resource_name)
         return blockers

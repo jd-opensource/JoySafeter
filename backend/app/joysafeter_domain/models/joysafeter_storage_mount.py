@@ -1,14 +1,22 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String, Text, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_domain.models.base import JoySafeterBaseModel
+from app.joysafeter_shared.ids import (
+    EntityIdType,
+    EnvironmentId,
+    SessionId,
+    SessionResourceId,
+    StorageGrantId,
+    StorageMountAuditId,
+    StorageVolumeId,
+)
 
 
 class JoySafeterStorageVolume(JoySafeterBaseModel):
@@ -22,6 +30,10 @@ class JoySafeterStorageVolume(JoySafeterBaseModel):
             sqlite_where=text("deleted_at IS NULL"),
         ),
         Index("idx_joysafeter_storage_volumes_enabled", "enabled"),
+    )
+
+    id: Mapped[StorageVolumeId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(StorageVolumeId), primary_key=True, default=StorageVolumeId.new
     )
 
     volume_ref: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -47,8 +59,11 @@ class JoySafeterStorageProjectGrant(JoySafeterBaseModel):
         Index("idx_joysafeter_storage_grants_volume", "volume_id"),
     )
 
-    volume_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[StorageGrantId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(StorageGrantId), primary_key=True, default=StorageGrantId.new
+    )
+    volume_id: Mapped[StorageVolumeId] = mapped_column(
+        EntityIdType(StorageVolumeId),
         ForeignKey("joysafeter_storage_volumes.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -71,8 +86,11 @@ class JoySafeterStorageOrganizationGrant(JoySafeterBaseModel):
         Index("idx_joysafeter_storage_org_grants_volume", "volume_id"),
     )
 
-    volume_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[StorageGrantId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(StorageGrantId), primary_key=True, default=StorageGrantId.new
+    )
+    volume_id: Mapped[StorageVolumeId] = mapped_column(
+        EntityIdType(StorageVolumeId),
         ForeignKey("joysafeter_storage_volumes.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -98,13 +116,16 @@ class JoySafeterSessionStorageMount(JoySafeterBaseModel):
         UniqueConstraint("session_id", "mount_path", name="uq_joysafeter_session_storage_mount_path"),
     )
 
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[SessionResourceId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(SessionResourceId), primary_key=True, default=SessionResourceId.new
+    )
+    session_id: Mapped[SessionId] = mapped_column(
+        EntityIdType(SessionId),
         ForeignKey("joysafeter_sessions.id", ondelete="CASCADE"),
         nullable=False,
     )
-    volume_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    volume_id: Mapped[StorageVolumeId] = mapped_column(
+        EntityIdType(StorageVolumeId),
         ForeignKey("joysafeter_storage_volumes.id", ondelete="RESTRICT"),
         nullable=False,
     )
@@ -134,14 +155,17 @@ class JoySafeterStorageMountAudit(JoySafeterBaseModel):
         Index("idx_joysafeter_storage_audit_result_created", "result", "created_at"),
     )
 
-    volume_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[StorageMountAuditId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(StorageMountAuditId), primary_key=True, default=StorageMountAuditId.new
+    )
+    volume_id: Mapped[Optional[StorageVolumeId]] = mapped_column(
+        EntityIdType(StorageVolumeId),
         ForeignKey("joysafeter_storage_volumes.id", ondelete="SET NULL"),
         nullable=True,
     )
     project_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
-    environment_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    session_id: Mapped[Optional[SessionId]] = mapped_column(EntityIdType(SessionId), nullable=True)
+    environment_id: Mapped[Optional[EnvironmentId]] = mapped_column(EntityIdType(EnvironmentId), nullable=True)
     user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     volume_ref: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)

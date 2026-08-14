@@ -11,11 +11,12 @@ class WebhookTriggerProvider:
     kind = "webhook"
 
     def build_config(self, **fields: Any) -> dict[str, Any]:
-        auth_methods = fields.get("auth_methods")
         return {
-            "secret_ref": fields.get("secret_ref"),
-            "secret_key": fields.get("secret_key") or "WEBHOOK_SECRET",
-            "auth_methods": auth_methods if auth_methods is not None else ["hmac", "bearer", "token"],
+            "webhook_auth_credential_id": (
+                str(cred_id) if (cred_id := fields.get("webhook_auth_credential_id")) is not None else None
+            ),
+            "webhook_auth_field": fields.get("webhook_auth_field") or "WEBHOOK_SECRET",
+            "auth_methods": fields.get("auth_methods"),
             "dedupe_header": fields.get("dedupe_header") or "x-joysafeter-delivery",
         }
 

@@ -1,4 +1,4 @@
-"""Task prompt/system_prompt must be length-bounded at the schema layer.
+"""Task prompt/system fields must be length-bounded at the schema layer.
 
 The body-size middleware is a coarse per-worker OOM guard (64 MiB). It cannot
 finely bound a single text field: an ~60 MiB `prompt` still sails through, then
@@ -7,10 +7,18 @@ lands in a DB row and is fanned out over Redis pub/sub to every SSE subscriber
 and bounds the row + fan-out cost of one submission.
 """
 
+import uuid
+
 import pytest
 from pydantic import ValidationError
 
-from app.joysafeter_domain.schemas.joysafeter_task import MAX_PROMPT_CHARS, JoySafeterCreateTaskRequest
+from app.joysafeter_domain.schemas.joysafeter_task import (
+    MAX_PROMPT_CHARS,
+    JoySafeterCreateTaskRequest,
+    JoySafeterCreateTaskResponse,
+    JoySafeterTaskResponse,
+)
+from app.joysafeter_shared.ids import AgentId, SandboxId, SessionId, TaskId
 
 pytestmark = pytest.mark.no_db
 
@@ -25,12 +33,100 @@ def test_prompt_over_cap_is_rejected():
         JoySafeterCreateTaskRequest(prompt="x" * (MAX_PROMPT_CHARS + 1))
 
 
-def test_system_prompt_over_cap_is_rejected():
+def test_system_over_cap_is_rejected():
     with pytest.raises(ValidationError):
-        JoySafeterCreateTaskRequest(prompt="ok", system_prompt="x" * (MAX_PROMPT_CHARS + 1))
+        JoySafeterCreateTaskRequest(prompt="ok", system="x" * (MAX_PROMPT_CHARS + 1))
 
 
 def test_normal_prompt_is_unaffected():
-    req = JoySafeterCreateTaskRequest(prompt="scan the target host", system_prompt="you are a pentest agent")
+    req = JoySafeterCreateTaskRequest(prompt="scan the target host", system="you are a pentest agent")
     assert req.prompt == "scan the target host"
-    assert req.system_prompt == "you are a pentest agent"
+    assert req.system == "you are a pentest agent"
+
+
+def test_removed_system_prompt_field_is_rejected():
+    with pytest.raises(ValidationError):
+        JoySafeterCreateTaskRequest(prompt="ok", system_prompt="old field")
+
+
+def test_task_response_serializes_internal_system_prompt_as_system():
+    response = JoySafeterTaskResponse.model_validate(
+        {
+            "id": TaskId(uuid.UUID("00000000-0000-0000-0000-000000000001")),
+            "agent_id": AgentId(uuid.UUID("00000000-0000-0000-0000-000000000002")),
+            "status": "pending",
+            "prompt": "scan",
+            "system_prompt": "be precise",
+            "timeout_sec": 60,
+            "retry_count": 0,
+            "max_retries": 0,
+            "created_at": "2026-08-05T00:00:00Z",
+        }
+    )
+
+    payload = response.model_dump()
+    assert payload["system"] == "be precise"
+    assert "system_prompt" not in payload
+
+
+def test_task_responses_use_canonical_prefixed_ids():
+    task_id = TaskId(uuid.UUID("00000000-0000-0000-0000-000000000001"))
+    agent_id = AgentId(uuid.UUID("00000000-0000-0000-0000-000000000002"))
+    session_id = SessionId(uuid.UUID("00000000-0000-0000-0000-000000000003"))
+    sandbox_id = SandboxId(uuid.UUID("00000000-0000-0000-0000-000000000004"))
+
+    created = JoySafeterCreateTaskResponse(id=task_id, status="pending").model_dump(mode="json")
+    task = JoySafeterTaskResponse.model_validate(
+        {
+            "id": task_id,
+            "agent_id": agent_id,
+            "chat_session_id": session_id,
+            "status": "pending",
+            "prompt": "scan",
+            "sandbox_id": sandbox_id,
+            "timeout_sec": 60,
+            "retry_count": 0,
+            "max_retries": 0,
+            "created_at": "2026-08-06T00:00:00Z",
+        }
+    ).model_dump(mode="json")
+
+    assert created["id"] == str(task_id)
+    assert task["id"] == str(task_id)
+    assert task["agent_id"] == str(agent_id)
+    assert task["chat_session_id"] == str(session_id)
+    assert task["sandbox_id"] == str(sandbox_id)
+
+
+def test_task_response_hydrates_from_typed_task_id_attribute():
+    # After migration the ORM attribute ``JoySafeterTask.id`` is a ``TaskId``; a
+    # RESPONSE schema field still typed ``uuid.UUID`` raises ValidationError on it
+    # (the from_attributes trap). The field must accept a ``TaskId`` and serialize
+    # to the canonical ``task_<uuid>`` prefix.
+    from types import SimpleNamespace
+
+    task_uuid = uuid.uuid4()
+    agent_uuid = uuid.uuid4()
+    task = JoySafeterTaskResponse.model_validate(
+        SimpleNamespace(
+            id=TaskId(task_uuid),
+            agent_id=AgentId(agent_uuid),
+            chat_session_id=None,
+            status="pending",
+            prompt="scan",
+            system_prompt=None,
+            sandbox_id=None,
+            output="",
+            error=None,
+            usage=None,
+            timeout_sec=60,
+            retry_count=0,
+            max_retries=0,
+            created_at="2026-08-06T00:00:00Z",
+            started_at=None,
+            completed_at=None,
+            duration_ms=None,
+        )
+    )
+
+    assert task.model_dump(mode="json")["id"] == f"task_{task_uuid}"

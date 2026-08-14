@@ -13,15 +13,25 @@ the whole managed-agent skill subsystem:
 from __future__ import annotations
 
 import enum
-import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar, List, Optional
 
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.ids import (
+    AgentId,
+    EntityIdType,
+    SessionId,
+    SkillFileId,
+    SkillId,
+    SkillSecurityScanId,
+    SkillUsageId,
+    SkillVersionFileId,
+    SkillVersionId,
+)
 
 from .base import BaseModel, TimestampMixin
 
@@ -119,6 +129,12 @@ class JoySafeterSkill(BaseModel):
 
     __tablename__ = "joysafeter_skills"
 
+    id: Mapped[SkillId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(SkillId),
+        primary_key=True,
+        default=SkillId.new,
+    )
+
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     description: Mapped[str] = mapped_column(String(1024), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -154,7 +170,9 @@ class JoySafeterSkill(BaseModel):
     security_severity: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     security_recommendation: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     security_scanned_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    security_scan_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    security_scan_id: Mapped[Optional[SkillSecurityScanId]] = mapped_column(
+        EntityIdType(SkillSecurityScanId), nullable=True
+    )
     security_scan_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     security_issues_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     security_critical_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -164,8 +182,6 @@ class JoySafeterSkill(BaseModel):
     # Lifecycle gate, independent of security verdict. The runtime loader
     # only accepts ``approved``. New skills start in ``draft`` so the owner
     # has a chance to scan and verify before letting agents pick them up.
-    # Legacy data is promoted to ``approved`` by
-    # 20260625_000004_promote_legacy_skills_approved.
     lifecycle_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=JoySafeterSkillLifecycleStatus.DRAFT.value
     )
@@ -173,13 +189,13 @@ class JoySafeterSkill(BaseModel):
     # org / public tiers. Nullable FKs onto joysafeter_skill_versions with
     # ondelete SET NULL so deleting a version clears the pointer rather than
     # cascading into the skill. Populated by later phases; NULL for now.
-    org_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
+    org_version_id: Mapped[Optional[SkillVersionId]] = mapped_column(
+        EntityIdType(SkillVersionId),
         ForeignKey("joysafeter_skill_versions.id", ondelete="SET NULL"),
         nullable=True,
     )
-    public_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
+    public_version_id: Mapped[Optional[SkillVersionId]] = mapped_column(
+        EntityIdType(SkillVersionId),
         ForeignKey("joysafeter_skill_versions.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -252,8 +268,14 @@ class JoySafeterSkillFile(BaseModel):
 
     __tablename__ = "joysafeter_skill_files"
 
-    skill_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[SkillFileId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(SkillFileId),
+        primary_key=True,
+        default=SkillFileId.new,
+    )
+
+    skill_id: Mapped[SkillId] = mapped_column(
+        EntityIdType(SkillId),
         ForeignKey("joysafeter_skills.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -279,8 +301,14 @@ class JoySafeterSkillSecurityScan(BaseModel):
 
     __tablename__ = "joysafeter_skill_security_scans"
 
-    skill_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[SkillSecurityScanId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(SkillSecurityScanId),
+        primary_key=True,
+        default=SkillSecurityScanId.new,
+    )
+
+    skill_id: Mapped[Optional[SkillId]] = mapped_column(
+        EntityIdType(SkillId),
         ForeignKey("joysafeter_skills.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -340,8 +368,14 @@ class JoySafeterSkillVersion(BaseModel):
 
     __tablename__ = "joysafeter_skill_versions"
 
-    skill_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[SkillVersionId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(SkillVersionId),
+        primary_key=True,
+        default=SkillVersionId.new,
+    )
+
+    skill_id: Mapped[SkillId] = mapped_column(
+        EntityIdType(SkillId),
         ForeignKey("joysafeter_skills.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -376,8 +410,8 @@ class JoySafeterSkillVersion(BaseModel):
     # of the parent skill's status — a published version stays approved
     # even after the owner archives the parent skill, until the
     # version itself is explicitly archived.
-    security_scan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
+    security_scan_id: Mapped[Optional[SkillSecurityScanId]] = mapped_column(
+        EntityIdType(SkillSecurityScanId),
         ForeignKey("joysafeter_skill_security_scans.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -426,8 +460,14 @@ class JoySafeterSkillVersionFile(BaseModel):
 
     __tablename__ = "joysafeter_skill_version_files"
 
-    version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[SkillVersionFileId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(SkillVersionFileId),
+        primary_key=True,
+        default=SkillVersionFileId.new,
+    )
+
+    version_id: Mapped[SkillVersionId] = mapped_column(
+        EntityIdType(SkillVersionId),
         ForeignKey("joysafeter_skill_versions.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -449,8 +489,8 @@ class JoySafeterSkillVersionFile(BaseModel):
     # ---------------------------------------------------------------------------
     # Skill usage log — append-only pack/load audit trail
     #
-    # Append-only event log: one row per time a SkillPacker successfully packs
-    # a skill into a sandbox bundle. Deliberately decoupled from
+    # Append-only event log: one row per time the orchestrator packs a skill
+    # into a sandbox bundle. Deliberately decoupled from
     # ``joysafeter_skill_security_scans`` — scans record what was *checked*,
     # usage logs record what was *executed*. Both matter independently.
     # ---------------------------------------------------------------------------
@@ -465,27 +505,23 @@ class JoySafeterSkillUsageLog(Base, TimestampMixin):
 
     __tablename__ = "joysafeter_skill_usage_log"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[SkillUsageId] = mapped_column(
+        EntityIdType(SkillUsageId),
         primary_key=True,
-        default=uuid.uuid4,
+        default=SkillUsageId.new,
     )
 
     # The skill that was loaded. ON DELETE SET NULL so the audit trail
     # survives a skill deletion; the FK constraint stays for queryability.
-    skill_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
+    skill_id: Mapped[Optional[SkillId]] = mapped_column(
+        EntityIdType(SkillId),
         ForeignKey("joysafeter_skills.id", ondelete="SET NULL"),
         nullable=True,
     )
-    # Resolved version label, if any. Free-form to admit both semver
-    # strings ("1.2.3"), the ``"latest"`` keyword (which the packer
-    # rewrites to a concrete version before logging), and ``"draft"``.
-    # Nullable for legacy ``tar_gz_b64`` direct-packed sessions where
-    # there is no DB-side skill version.
-    skill_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    skill_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
+    # Concrete published version loaded by the orchestrator.
+    skill_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    skill_version_id: Mapped[Optional[SkillVersionId]] = mapped_column(
+        EntityIdType(SkillVersionId),
         ForeignKey("joysafeter_skill_versions.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -495,17 +531,20 @@ class JoySafeterSkillUsageLog(Base, TimestampMixin):
     skill_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     skill_source_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     target: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    security_scan_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    security_scan_id: Mapped[Optional[SkillSecurityScanId]] = mapped_column(
+        EntityIdType(SkillSecurityScanId), nullable=True
+    )
     target_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     artifact_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
-    # Which session loaded this skill. String not UUID because session
-    # ids in v2 are JoySafeter-managed strings.
-    session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Which session loaded this skill. Stored as the underlying UUID via the
+    # typed-id persistence codec so reads hydrate to a SessionId symmetrically;
+    # no FK because the audit row must survive session deletion.
+    session_id: Mapped[Optional[SessionId]] = mapped_column(EntityIdType(SessionId), nullable=True)
     # The agent that owned the session at load time. Captured separately
     # from session so we can answer "which agents historically used skill
     # X" without joining through sessions.
-    agent_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    agent_id: Mapped[Optional[AgentId]] = mapped_column(EntityIdType(AgentId), nullable=True)
     # Project the session belonged to — useful for org-level audit
     # queries ("everything our project loaded yesterday").
     project_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

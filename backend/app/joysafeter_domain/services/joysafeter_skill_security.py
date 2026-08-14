@@ -1,13 +1,4 @@
-"""
-JoySafeter skill security services.
-
-Merged from skill_security_service.py, skill_runtime_policy.py,
-skill_packer.py, and skill_async_scan.py (v1 cleanup consolidation):
-  - SkillScanFile / SkillSecurityPolicyDecision / SkillSecurityService — SkillSpector scans
-  - is_skill_usable — runtime gate (lifecycle + security + hash drift)
-  - SkillPacker — pack approved skills into tar.gz bundles
-  - scan_input_bytes / run_scan_in_background — async scan dispatch
-"""
+"""Skill scanning, runtime eligibility, and async dispatch."""
 
 from __future__ import annotations
 
@@ -22,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Iterable, Literal, Optional
@@ -55,6 +45,7 @@ from app.joysafeter_shared.common.joysafeter_auth.context import (
 )
 from app.joysafeter_shared.common.skill_permissions import check_skill_access
 from app.joysafeter_shared.config.settings import settings
+from app.joysafeter_shared.ids import SkillId, SkillSecurityScanId
 from app.joysafeter_shared.security.ssrf_guard import validate_url
 from app.joysafeter_shared.skill.yaml_parser import is_system_file
 from app.joysafeter_shared.utils.datetime import utc_now
@@ -338,7 +329,7 @@ class SkillSecurityService:
         created_by_id: str,
         owner_id: Optional[str],
         project_id: Optional[str],
-        skill_id: Optional[uuid.UUID],
+        skill_id: Optional[SkillId],
         name: str,
         description: str,
         content: str,
@@ -483,7 +474,7 @@ class SkillSecurityService:
             )
         return scan
 
-    async def rescan_existing_skill(self, skill_id: uuid.UUID, current_user_id: str) -> JoySafeterSkillSecurityScan:
+    async def rescan_existing_skill(self, skill_id: SkillId, current_user_id: str) -> JoySafeterSkillSecurityScan:
         """Rescan persisted skill content and update the skill's current security state."""
         skill = await self.skill_repo.get_with_files(skill_id)
         if not skill:
@@ -551,10 +542,10 @@ class SkillSecurityService:
 
     async def list_scans(
         self,
-        skill_id: uuid.UUID,
+        skill_id: SkillId,
         current_user_id: str,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
+        after_id: Optional[SkillSecurityScanId] = None,
     ) -> tuple[list[JoySafeterSkillSecurityScan], bool]:
         skill = await self.skill_repo.get(skill_id)
         if not skill:
@@ -569,7 +560,7 @@ class SkillSecurityService:
         )
         return await self.repo.list_by_skill(skill_id, limit=limit, after_id=after_id)
 
-    async def get_latest_scan(self, skill_id: uuid.UUID, current_user_id: str) -> JoySafeterSkillSecurityScan:
+    async def get_latest_scan(self, skill_id: SkillId, current_user_id: str) -> JoySafeterSkillSecurityScan:
         skill = await self.skill_repo.get(skill_id)
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
@@ -590,7 +581,7 @@ class SkillSecurityService:
             )
         return scan
 
-    async def get_scan(self, scan_id: uuid.UUID, current_user_id: str) -> JoySafeterSkillSecurityScan:
+    async def get_scan(self, scan_id: SkillSecurityScanId, current_user_id: str) -> JoySafeterSkillSecurityScan:
         scan = await self.repo.get(scan_id)
         if not scan:
             raise NotFoundError(
@@ -748,7 +739,7 @@ class SkillSecurityService:
         created_by_id: str,
         owner_id: Optional[str],
         project_id: Optional[str],
-        skill_id: Optional[uuid.UUID],
+        skill_id: Optional[SkillId],
         target_name: str,
         target_hash: str,
     ) -> JoySafeterSkillSecurityScan:
@@ -1007,7 +998,7 @@ class SkillSecurityService:
         )
         return size >= threshold
 
-    async def mark_scanning(self, skill_id: uuid.UUID) -> None:
+    async def mark_scanning(self, skill_id: SkillId) -> None:
         """Flip the skill row to ``security_status='scanning'`` so the
         runtime gate refuses to load while a BG scan is in flight.
 
@@ -1052,10 +1043,8 @@ Centralizes the three checks any loader needs:
      refused until the owner runs ``POST /skills/{id}/security-scans/rescan``.
 
 The function intentionally does NOT raise. It returns a verdict tuple so
-the caller can choose between "skip this skill silently" (the
-:class:`SkillPacker` path: an unusable skill is just absent from the
-session's bundle, the rest of the agent still runs) and "fail loud"
-(future API validation paths).
+the caller can choose between skipping an unusable skill at runtime and
+failing an API validation request loudly.
 
 P2 adds a ``scanning`` intermediate state for the async scan flow —
 treated as "no scan completed" until SkillSpector returns.
@@ -1181,366 +1170,6 @@ def _files_payload(skill: JoySafeterSkill) -> list[dict]:
 
 
 # ============================================================================
-# skill_packer.py
-# ============================================================================
-
-"""
-SkillPacker — resolves skill references to tar.gz archives at session start time.
-
-Supports two formats:
-1. SkillRef (new): {"type": "custom", "skill_id": "uuid", "version": "latest"}
-2. PackedItem (legacy): {"name": "xxx", "tar_gz_b64": "base64..."}
-"""
-
-import base64
-import io
-import os
-import tarfile
-
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-
-from app.joysafeter_shared.orchestrator_bridge.types import SkillArchive
-
-
-class SkillPacker:
-    def __init__(
-        self,
-        db: AsyncSession,
-        project_id: Optional[str] = None,
-        *,
-        session_id: Optional[str] = None,
-        agent_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-    ):
-        """Pack skill bundles into sandbox-loadable tar.gz archives.
-
-        The four optional context ids (``project_id``, ``session_id``,
-        ``agent_id``, ``user_id``) are recorded in ``SkillUsageLog``
-        whenever a pack succeeds. They are kept optional so callers
-        with partial context (e.g. cron rescan jobs that pack without a
-        live session) still work — the log row carries NULL for any id
-        the caller couldn't supply.
-        """
-        self.db = db
-        self._project_id = project_id
-        self._session_id = session_id
-        self._agent_id = agent_id
-        self._user_id = user_id
-
-    async def resolve_and_pack(self, skill_items: list[dict], target: str = "skills") -> list[SkillArchive]:
-        """Resolve a list of skill entries (refs or packed) into SkillArchive objects."""
-        archives: list[SkillArchive] = []
-
-        for item in skill_items:
-            archive = await self._resolve_item(item, target)
-            if archive:
-                archives.append(archive)
-
-        return archives
-
-    async def _resolve_item(self, item: dict, target: str) -> Optional[SkillArchive]:
-        """Resolve a single skill item to a SkillArchive."""
-        # Legacy format: pre-packed tar.gz
-        if item.get("tar_gz_b64"):
-            try:
-                data = base64.b64decode(item["tar_gz_b64"])
-                return SkillArchive(
-                    name=item.get("name", "unknown"),
-                    data=data,
-                    target=target,
-                )
-            except Exception as e:
-                log_boundary_failure_loguru(
-                    logger,
-                    boundary="skill_security",
-                    code="SKILL_PACKED_ARCHIVE_DECODE_FAILED",
-                    message="Failed to decode packed skill archive",
-                    operation="decode_packed_skill",
-                    error=e,
-                    data={"skill_name": str(item.get("name") or "unknown")},
-                    retryable=False,
-                    user_action="correct_request",
-                )
-                return None
-
-                # New format: skill reference
-        if item.get("skill_id"):
-            return await self._pack_custom(
-                skill_id=item["skill_id"],
-                version=item.get("version", "latest"),
-                target=target,
-            )
-
-        logger.warning("Skill item has neither tar_gz_b64 nor skill_id: %s", item)
-        return None
-
-    async def _pack_custom(self, skill_id: str, version: str, target: str) -> Optional[SkillArchive]:
-        """Resolve a custom skill by ID, fetch files from DB, and pack into tar.gz.
-
-        Version keyword semantics (aligned with npm/Cargo/MCP conventions):
-
-        - ``"latest"`` (or unset) → the highest published ``SkillVersion``;
-          falls back to draft only when the skill has never been published.
-        - ``"draft"`` → the current mutable working copy (``skill_files``).
-        - explicit ``"x.y.z"`` → that exact published version.
-        """
-        sid = skill_id.removeprefix("skill_")
-        try:
-            uid = uuid.UUID(sid)
-        except ValueError:
-            logger.warning("Invalid skill_id format: %s", skill_id)
-            return None
-
-            # Explicit draft request always uses the working copy.
-        if version == "draft":
-            return await self._pack_draft(uid, target)
-
-            # Explicit semver — must hit a published version.
-        if version and version != "latest":
-            return await self._pack_version(uid, version, target)
-
-            # "latest" (or empty): prefer the highest published version; fall back to
-            # draft when nothing has been published yet, so brand-new skills still work.
-        from app.joysafeter_domain.repositories.joysafeter_skill_version import SkillVersionRepository
-
-        repo = SkillVersionRepository(self.db)
-        highest = await repo.get_highest_version_str(uid)
-        if highest:
-            return await self._pack_version(uid, highest, target)
-        return await self._pack_draft(uid, target)
-
-    async def _pack_draft(self, skill_id: uuid.UUID, target: str) -> Optional[SkillArchive]:
-        """Pack the mutable working copy (``Skill`` + ``SkillFile``)."""
-        from sqlalchemy import and_
-        from sqlalchemy import select as sa_select
-
-        conditions = [JoySafeterSkill.id == skill_id]
-        if self._project_id:
-            conditions.append(JoySafeterSkill.project_id == self._project_id)
-        result = await self.db.execute(
-            sa_select(JoySafeterSkill).where(and_(*conditions)).options(selectinload(JoySafeterSkill.files))
-        )
-        skill = result.scalar_one_or_none()
-        if not skill:
-            logger.warning("Skill not found: %s", skill_id)
-            return None
-
-            # Runtime gate: lifecycle + security verdict + content-drift check.
-            # A disapproved / unscanned / drifted skill is dropped from the
-            # session bundle silently — the rest of the agent still runs. The
-            # owner sees the reason via the skill's stored status fields.
-
-        usable, reason = is_skill_usable(skill)
-        if not usable:
-            logger.warning(
-                "Skill %s (%s) refused by runtime gate: %s",
-                skill.name,
-                skill_id,
-                reason,
-            )
-            return None
-
-        if not skill.files:
-            logger.warning("Skill %s has no files", skill.name)
-            return None
-
-        tar_data = self._create_targz(skill.files, root_dir=skill.name)
-        await self._record_usage(
-            skill_id=skill.id,
-            skill_name=skill.name,
-            skill_source_type=skill.source_type,
-            skill_version="draft",
-            skill_version_id=None,
-            security_scan_id=skill.security_scan_id,
-            target_hash=skill.security_scan_hash,
-            artifact_hash=hashlib.sha256(tar_data).hexdigest(),
-            target=target,
-        )
-        return SkillArchive(name=skill.name, data=tar_data, target=target)
-
-    async def _pack_version(self, skill_id: uuid.UUID, version: str, target: str) -> Optional[SkillArchive]:
-        """Pack a specific published version of a skill."""
-
-        # Verify skill belongs to project before fetching version, and apply
-        # the runtime gate on the parent skill row. Published versions are
-        # only as trustworthy as the skill they belong to — a disapproved
-        # parent skill drops every version with it. (Version-level
-        # lifecycle/security verdicts are P2 work.)
-        from sqlalchemy import select as sa_select
-
-        from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillVersion
-
-        owner_query = sa_select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id)
-        if self._project_id:
-            owner_query = owner_query.where(JoySafeterSkill.project_id == self._project_id)
-        owner_check = await self.db.execute(owner_query)
-        parent_skill = owner_check.scalar_one_or_none()
-        if not parent_skill:
-            if self._project_id:
-                logger.warning("Skill %s not found in project %s", skill_id, self._project_id)
-            else:
-                logger.warning("Skill %s not found", skill_id)
-            return None
-
-        usable, reason = is_skill_usable(parent_skill, check_drift=False)
-        if not usable:
-            logger.warning(
-                "Skill %s (%s) version %s refused by runtime gate: %s",
-                parent_skill.name,
-                skill_id,
-                version,
-                reason,
-            )
-            return None
-
-        result = await self.db.execute(
-            select(JoySafeterSkillVersion)
-            .where(JoySafeterSkillVersion.skill_id == skill_id, JoySafeterSkillVersion.version == version)
-            .options(selectinload(JoySafeterSkillVersion.files))
-        )
-        sv = result.scalar_one_or_none()
-        if not sv:
-            logger.warning("Skill version not found: skill=%s version=%s", skill_id, version)
-            return None
-
-        if not sv.files:
-            logger.warning("Skill version %s/%s has no files", skill_id, version)
-            return None
-
-        tar_data = self._create_targz(sv.files, root_dir=parent_skill.name)
-        await self._record_usage(
-            skill_id=skill_id,
-            skill_name=parent_skill.name,
-            skill_source_type=parent_skill.source_type,
-            skill_version=version,
-            skill_version_id=sv.id,
-            security_scan_id=sv.security_scan_id or parent_skill.security_scan_id,
-            target_hash=sv.target_hash or parent_skill.security_scan_hash,
-            artifact_hash=hashlib.sha256(tar_data).hexdigest(),
-            target=target,
-        )
-        return SkillArchive(name=parent_skill.name, data=tar_data, target=target)
-
-    async def _record_usage(
-        self,
-        *,
-        skill_id: uuid.UUID,
-        skill_version: Optional[str],
-        skill_name: Optional[str] = None,
-        skill_source_type: Optional[str] = None,
-        skill_version_id: Optional[uuid.UUID] = None,
-        security_scan_id: Optional[uuid.UUID] = None,
-        target_hash: Optional[str] = None,
-        artifact_hash: Optional[str] = None,
-        target: Optional[str] = None,
-    ) -> None:
-        """Append a row to ``joysafeter_skill_usage_log``.
-
-        Fire-and-forget: a failure to record the log MUST NOT break the
-        pack — the agent is loading a skill it has every right to load,
-        and we'd rather miss an audit row than refuse to run. The DB
-        error is logged at warning level so an outage stays visible.
-        ``flush`` (not ``commit``) keeps the caller's transaction
-        semantics intact — the orchestrator commits the whole bundle
-        in one shot upstream.
-        """
-        from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog
-
-        try:
-            self.db.add(
-                JoySafeterSkillUsageLog(
-                    skill_id=skill_id,
-                    skill_name=skill_name,
-                    skill_source_type=skill_source_type,
-                    skill_version=skill_version,
-                    skill_version_id=skill_version_id,
-                    target=target,
-                    security_scan_id=security_scan_id,
-                    target_hash=target_hash,
-                    artifact_hash=artifact_hash,
-                    session_id=self._session_id,
-                    agent_id=self._agent_id,
-                    project_id=self._project_id,
-                    user_id=self._user_id,
-                )
-            )
-            await self.db.flush()
-        except Exception as exc:  # noqa: BLE001 — never fail a pack on logging
-            log_boundary_failure_loguru(
-                logger,
-                boundary="skill_security",
-                code="SKILL_USAGE_LOG_WRITE_FAILED",
-                message="Failed to write skill usage log",
-                operation="write_skill_usage_log",
-                error=exc,
-                data={
-                    "skill_id": str(skill_id),
-                    "skill_version": str(skill_version) if skill_version is not None else None,
-                    "session_id": str(self._session_id) if self._session_id is not None else None,
-                    "agent_id": str(self._agent_id) if self._agent_id is not None else None,
-                    "project_id": str(self._project_id) if self._project_id is not None else None,
-                    "user_id": self._user_id,
-                },
-            )
-
-    def _create_targz(self, files, root_dir: Optional[str] = None) -> bytes:
-        """Pack a list of SkillFile/SkillVersionFile objects into a tar.gz archive."""
-        safe_root = self._safe_archive_component(root_dir) if root_dir else None
-        buf = io.BytesIO()
-        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-            for f in files:
-                safe_path = self._safe_archive_path(f)
-                if not safe_path:
-                    continue
-                if safe_root:
-                    safe_path = f"{safe_root}/{safe_path}"
-                content = (f.content or "").encode("utf-8")
-                info = tarfile.TarInfo(name=safe_path)
-                info.size = len(content)
-                tar.addfile(info, io.BytesIO(content))
-        return buf.getvalue()
-
-    def _safe_archive_component(self, value: Optional[str]) -> Optional[str]:
-        if not value:
-            return None
-        component = os.path.basename(value.replace("\\", "/").strip())
-        component = os.path.normpath(component).replace("\\", "/").strip("/")
-        if not component or component == "." or component == ".." or "/" in component:
-            logger.warning("Skill packer: unsafe archive root skipped: %s", value)
-            return None
-        return component
-
-    def _safe_archive_path(self, file_obj) -> Optional[str]:
-        """Return a normalized relative path for a skill file inside the archive."""
-        raw_path = (getattr(file_obj, "path", None) or "").replace("\\", "/")
-        file_name = (getattr(file_obj, "file_name", None) or "").replace("\\", "/")
-
-        # Historical imports stored `path` inconsistently: some rows keep the
-        # complete relative file path in `path`, while newer ZIP imports store
-        # the directory in `path` and the basename in `file_name`.  Build the
-        # archive path defensively so Claude always receives
-        # .claude/skills/<skill>/<relative-file>.
-        if raw_path in ("", "."):
-            candidate = file_name
-        elif raw_path.endswith("/"):
-            candidate = f"{raw_path}{file_name}"
-        elif file_name and os.path.basename(raw_path) != file_name:
-            candidate = f"{raw_path}/{file_name}"
-        else:
-            candidate = raw_path
-
-        safe_path = os.path.normpath(candidate).replace("\\", "/").lstrip("/")
-        if not safe_path or safe_path == "." or safe_path.endswith("/"):
-            logger.warning("Skill packer: empty archive path skipped: path=%s file_name=%s", raw_path, file_name)
-            return None
-        if ".." in safe_path.split("/"):
-            logger.warning("Skill packer: path traversal blocked: %s", candidate)
-            return None
-        return safe_path
-
-
-# ============================================================================
 # skill_async_scan.py
 # ============================================================================
 
@@ -1598,7 +1227,7 @@ def scan_input_bytes(
 
 async def run_scan_in_background(
     *,
-    skill_id: uuid.UUID,
+    skill_id: SkillId,
     trigger: str,
     created_by_id: str,
     owner_id: Optional[str],

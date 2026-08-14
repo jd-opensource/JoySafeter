@@ -3,8 +3,6 @@
  *
  * Handles authentication-related API requests using the unified API client
  */
-import CryptoJS from 'crypto-js'
-
 import {
   ApiError,
   createApiError,
@@ -62,16 +60,10 @@ export interface SessionResponse {
   user: AuthUser | null
 }
 
-// Use unified ApiError, but keep backward-compatible AuthError alias
-export { ApiError as AuthError }
+export { ApiError }
 
 // ==================== Session Management ====================
 export { onSessionChange, type SessionChangeType }
-
-// ==================== Utility Functions ====================
-function hashPassword(password: string): string {
-  return CryptoJS.SHA256(password).toString()
-}
 
 // ==================== Auth API ====================
 export const authApi = {
@@ -80,12 +72,11 @@ export const authApi = {
     password: string
     callbackURL?: string
   }): Promise<LoginResponse> {
-    const hashedPassword = hashPassword(params.password)
     const response = await managedPost<LoginResponse>(
       'auth/sign-in/email',
       {
         email: params.email,
-        password: hashedPassword,
+        password: params.password,
       },
       { withAuth: false, skipManagedContext: true },
     )
@@ -103,12 +94,11 @@ export const authApi = {
     password: string
     name: string
   }): Promise<SignUpResponse> {
-    const hashedPassword = hashPassword(params.password)
     const response = await managedPost<SignUpResponse>(
       'auth/sign-up/email',
       {
         email: params.email,
-        password: hashedPassword,
+        password: params.password,
         name: params.name,
       },
       { withAuth: false, skipManagedContext: true },
@@ -198,12 +188,11 @@ export const authApi = {
   },
 
   async resetPassword(params: { token: string; newPassword: string }): Promise<void> {
-    const hashedPassword = hashPassword(params.newPassword)
     await managedPost(
       'auth/reset-password',
       {
         token: params.token,
-        new_password: hashedPassword,
+        new_password: params.newPassword,
       },
       { skipManagedContext: true },
     )

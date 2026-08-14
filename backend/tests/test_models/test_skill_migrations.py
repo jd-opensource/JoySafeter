@@ -1,12 +1,11 @@
-"""Alembic offline-SQL smoke tests for the P0+P1 skill migrations.
+"""Alembic smoke tests for the pre-release initial schema.
 
 These don't touch a real database — they exercise alembic's
 ``--sql`` mode (offline) to confirm:
 
-  1. The migration chain reaches a single head (no branched revisions).
-  2. ``20260624_000001 -> head`` generates SQL for every expected step,
-     in order.
-  3. The downgrade path retraces the same chain.
+  1. The migration directory contains one linear chain with a single head.
+  2. ``base -> head`` creates the current schema directly.
+  3. ``head -> base`` removes the current schema.
 
 Running this in CI catches the most common alembic mistake — a new
 revision file with the wrong ``down_revision`` — before it lands in a
@@ -21,6 +20,7 @@ from __future__ import annotations
 import io
 import uuid
 from contextlib import redirect_stdout
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -44,124 +44,76 @@ def _config() -> Config:
 
 
 @pytest.mark.no_db
-def test_chain_has_single_head():
-    """A branched alembic chain produces two heads; surface that early
-    before someone discovers it via `alembic upgrade` blowing up on a
-    real database."""
+def test_chain_is_linear_with_single_head():
     cfg = _config()
     script = ScriptDirectory.from_config(cfg)
-    heads = script.get_heads()
-    assert len(heads) == 1, f"expected single head, got {heads}"
+    assert len(script.get_heads()) == 1
+    revisions = list(script.walk_revisions(base="base", head="heads"))
+    assert revisions
+    assert revisions[-1].down_revision is None
+    assert all(
+        revision.down_revision == parent.revision
+        for revision, parent in pairwise(revisions)
+    )
 
 
 @pytest.mark.no_db
-def test_chain_includes_expected_skill_revisions():
-    """The chain ending at head must contain the current squashed schema and
-    every follow-up Skill/managed-resource revision. If a future rebase drops
-    one of them, this test catches it."""
-    cfg = _config()
-    script = ScriptDirectory.from_config(cfg)
-    head = script.get_current_head()
-    # Walk backwards from head; collect into a set since the linear
-    # chain order is already enforced by alembic itself.
-    seen = set()
-    for rev in script.walk_revisions(base="base", head=head):
-        seen.add(rev.revision)
-    expected = {
-        "20260627_000001",  # squashed managed-agent schema
-        "20260702_000002",  # task idempotency key
-        "20260702_000003",  # task lease
-        "20260702_000004",  # task owner epoch
-        "20260703_000005",  # project task limit
-        "20260703_000006",  # project resource limits
-        "20260703_000007",  # task submitter identity
-        "20260703_000008",  # session message idempotency index
-        "20260703_000009",  # cluster members
-        "20260703_000010",  # unique active default project
-        "20260710_000011",  # schedules
-        "20260716_000012",  # project-scoped vault names
-        "20260716_000013",  # project-scoped agent/environment names
-        "20260717_000014",  # normalize project member roles
-        "20260717_000015",  # unique org member
-        "20260717_000016",  # unified role vocabulary
-        "20260718_000001",  # Skill version pointers / root_path removal
-        "20260718_000002",  # single-axis Skill teardown
-        "20260720_000001",  # Skill runtime usage audit fields/indexes
-    }
-    missing = expected - seen
-    assert not missing, f"missing revisions: {sorted(missing)}"
-
-
-@pytest.mark.no_db
-def test_upgrade_sql_renders_current_skill_steps():
-    """Offline SQL generation exercises every revision's ``upgrade()``
-    function. A typo (or PG-only syntax that alembic can't render in
-    offline mode) shows up here before hitting a real database."""
+def test_upgrade_sql_creates_current_schema():
     cfg = _config()
     buf = io.StringIO()
     with redirect_stdout(buf):
         command.upgrade(cfg, "base:head", sql=True)
     sql = buf.getvalue()
 
-    # Squashed schema still creates the Skill runtime/audit foundations.
+    assert "CREATE SEQUENCE joysafeter_task_owner_epoch_seq" in sql
+    assert "CREATE TABLE joysafeter_cluster_members" in sql
+    assert "CREATE TABLE joysafeter_tasks" in sql
+    assert "CREATE TABLE joysafeter_sessions" in sql
+    assert "CREATE TABLE joysafeter_triggers" in sql
+    assert "CREATE TABLE joysafeter_skills" in sql
+    assert "CREATE TABLE joysafeter_skill_versions" in sql
     assert "CREATE TABLE joysafeter_skill_usage_log" in sql
+    usage_log_sql = sql.split("CREATE TABLE joysafeter_skill_usage_log", 1)[1].split(";", 1)[0]
+    assert "session_id UUID" in usage_log_sql
+    assert "agent_id UUID" in usage_log_sql
+    assert "org_version_id UUID" in sql
+    assert "public_version_id UUID" in sql
+    assert "review_target_visibility VARCHAR(16)" in sql
+    assert "artifact_hash VARCHAR(64)" in sql
     assert "skill_usage_log_session_created_idx" in sql
     assert "skill_usage_log_skill_created_idx" in sql
-
-    # Skill version pointer + single-axis teardown revisions.
-    assert "ADD COLUMN org_version_id" in sql
-    assert "ADD COLUMN public_version_id" in sql
-    assert "ADD COLUMN review_target_visibility" in sql
-    assert "DROP COLUMN root_path" in sql
-    assert "DROP TABLE joysafeter_skill_collaborators" in sql
-    assert "DROP COLUMN is_public" in sql
-    assert "ALTER COLUMN project_id SET NOT NULL" in sql
-
-    # Runtime usage audit follow-up fields + security-response indexes.
-    assert "ADD COLUMN skill_version_id" in sql
-    assert "ADD COLUMN skill_name" in sql
-    assert "ADD COLUMN skill_source_type" in sql
-    assert "ADD COLUMN target" in sql
-    assert "ADD COLUMN artifact_hash" in sql
     assert "skill_usage_log_project_artifact_created_idx" in sql
     assert "skill_usage_log_project_target_created_idx" in sql
     assert "skill_usage_log_project_scan_created_idx" in sql
+    assert "uq_joysafeter_triggers_global_name" in sql
+    assert "uq_joysafeter_triggers_project_name" in sql
+    trigger_sql = sql.split("CREATE TABLE joysafeter_triggers", 1)[1].split(";", 1)[0]
+    assert "system_prompt" not in trigger_sql
+    assert "joysafeter_schedules" not in sql
+    assert "root_path" not in sql
+    assert "is_public" not in sql
 
 
 @pytest.mark.no_db
-def test_downgrade_sql_unwinds_current_skill_steps():
-    """Round-trip safety net: every upgrade must have a working
-    downgrade. Offline mode lets us verify the SQL is generated;
-    actual data-level reversibility is a separate concern (the P1.4
-    promote_legacy migration is intentionally one-way and pins that
-    with a no-op downgrade)."""
+def test_downgrade_sql_removes_current_schema():
     cfg = _config()
     buf = io.StringIO()
     with redirect_stdout(buf):
         command.downgrade(cfg, "head:base", sql=True)
     sql = buf.getvalue()
 
-    # Each downgrade should be visible in the rendered SQL.
-    assert "DROP INDEX skill_usage_log_project_scan_created_idx" in sql
-    assert "DROP INDEX skill_usage_log_project_target_created_idx" in sql
-    assert "DROP INDEX skill_usage_log_project_artifact_created_idx" in sql
-    assert "DROP COLUMN artifact_hash" in sql
-    assert "DROP COLUMN skill_name" in sql
-    assert "ADD COLUMN root_path" in sql
-    assert "ADD COLUMN is_public" in sql
-    assert "CREATE TABLE joysafeter_skill_collaborators" in sql
-    assert "DROP COLUMN org_version_id" in sql
-    assert "DROP COLUMN public_version_id" in sql
+    assert "DROP TABLE joysafeter_skill_usage_log" in sql
+    assert "DROP TABLE joysafeter_skill_versions" in sql
+    assert "DROP TABLE joysafeter_skills" in sql
+    assert "DROP TABLE joysafeter_triggers" in sql
+    assert "DROP TABLE joysafeter_sessions" in sql
+    assert "DROP TABLE joysafeter_tasks" in sql
+    assert "DROP TABLE joysafeter_cluster_members" in sql
+    assert "DROP SEQUENCE joysafeter_task_owner_epoch_seq" in sql
 
 
 # ---------------------------------------------------------------------------
-# P1 (single-axis redesign): version pointers on skills + review target on
-# versions, and removal of the always-NULL root_path column.
-#
-# These run against the real migrated Postgres (the ``db_session`` fixture
-# spins up a testcontainer and applies ``alembic upgrade head``), so they
-# validate the 20260718_000001 migration end-to-end rather than in offline
-# SQL.
+# Current Skill schema checks against the migrated Postgres fixture.
 # ---------------------------------------------------------------------------
 
 

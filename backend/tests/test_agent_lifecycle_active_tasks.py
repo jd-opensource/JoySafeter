@@ -5,18 +5,20 @@ import pytest
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select, text
 
-from app.joysafeter_api.api.v1.agents import archive_agent, delete_agent
+from app.joysafeter_api.api.v1.agents import archive_agent, delete_agent, delete_agent_preview
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_agent import JoySafeterCreateAgentRequest
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import SandboxId, as_uuid
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -94,7 +96,7 @@ class _FakeCommandRedis:
 
 
 class _ExternalIdChangingDestroyAckRedis(_FakeCommandRedis):
-    def __init__(self, db_session, sandbox_id: uuid.UUID, new_external_id: str):
+    def __init__(self, db_session, sandbox_id: SandboxId, new_external_id: str):
         super().__init__()
         self.db_session = db_session
         self.sandbox_id = sandbox_id
@@ -109,7 +111,7 @@ class _ExternalIdChangingDestroyAckRedis(_FakeCommandRedis):
                     "SET external_id = :external_id, updated_at = NOW() "
                     "WHERE id = :sandbox_id"
                 ),
-                {"external_id": self.new_external_id, "sandbox_id": self.sandbox_id},
+                {"external_id": self.new_external_id, "sandbox_id": as_uuid(self.sandbox_id)},
             )
             await self.db_session.commit()
             self.changed = True
@@ -146,8 +148,12 @@ async def test_create_agent_allows_same_active_name_in_different_projects(db_ses
     name = f"scoped-agent-{uuid.uuid4()}"
     svc = JoySafeterAgentService(db_session)
 
-    agent_a = await svc.create_agent(JoySafeterCreateAgentRequest(name=name), project_id="project-a")
-    agent_b = await svc.create_agent(JoySafeterCreateAgentRequest(name=name), project_id="project-b")
+    agent_a = await svc.create_agent(
+        JoySafeterCreateAgentRequest(name=name, engine_kind="claude"), project_id="project-a"
+    )
+    agent_b = await svc.create_agent(
+        JoySafeterCreateAgentRequest(name=name, engine_kind="claude"), project_id="project-b"
+    )
 
     assert agent_a.id != agent_b.id
     assert agent_a.project_id == "project-a"
@@ -159,12 +165,16 @@ async def test_create_agent_reuses_soft_deleted_name_without_purging_history(db_
     await _ensure_project(db_session, "project-a")
     name = f"reused-agent-{uuid.uuid4()}"
     svc = JoySafeterAgentService(db_session)
-    old_agent = await svc.create_agent(JoySafeterCreateAgentRequest(name=name), project_id="project-a")
+    old_agent = await svc.create_agent(
+        JoySafeterCreateAgentRequest(name=name, engine_kind="claude"), project_id="project-a"
+    )
     old_agent_id = old_agent.id
     old_agent.deleted_at = utc_now()
     await db_session.commit()
 
-    new_agent = await svc.create_agent(JoySafeterCreateAgentRequest(name=name), project_id="project-a")
+    new_agent = await svc.create_agent(
+        JoySafeterCreateAgentRequest(name=name, engine_kind="claude"), project_id="project-a"
+    )
 
     assert new_agent.id != old_agent_id
     db_session.expire_all()
@@ -197,11 +207,11 @@ async def test_agent_child_resources_reject_cross_project_at_service_boundary(db
     svc = JoySafeterAgentService(db_session)
 
     await svc.create_agent(
-        JoySafeterCreateAgentRequest(name=f"project-a-agent-{uuid.uuid4()}"),
+        JoySafeterCreateAgentRequest(name=f"project-a-agent-{uuid.uuid4()}", engine_kind="claude"),
         project_id="project-a",
     )
     agent_b = await svc.create_agent(
-        JoySafeterCreateAgentRequest(name=f"project-b-agent-{uuid.uuid4()}"),
+        JoySafeterCreateAgentRequest(name=f"project-b-agent-{uuid.uuid4()}", engine_kind="claude"),
         project_id="project-b",
     )
     agent_b_id = agent_b.id
@@ -419,6 +429,76 @@ async def test_delete_agent_rejects_active_task_with_structured_task_ids(db_sess
 
 
 @pytest.mark.asyncio
+async def test_delete_agent_preview_returns_exact_counts(db_session):
+    agent, session, task = await _agent_session_and_task(db_session)
+    agent_id = agent.id
+    db_session.add(
+        JoySafeterTask(
+            agent_id=agent_id,
+            chat_session_id=session.id,
+            prompt="completed task",
+            status=JoySafeterTaskStatus.COMPLETED.value,
+        )
+    )
+    db_session.add(
+        JoySafeterTrigger(
+            name=f"delete-preview-trigger-{uuid.uuid4()}",
+            type="webhook",
+            agent_id=agent_id,
+            prompt_template="preview",
+        )
+    )
+    await db_session.commit()
+
+    result = await delete_agent_preview(agent_id, db_session, _auth_ctx())
+
+    assert result == {"sessions": 1, "tasks": 2, "versions": 0, "triggers": 1}
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_agent_removes_related_triggers(db_session):
+    agent = JoySafeterAgent(name=f"delete-trigger-agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+    agent_id = agent.id
+
+    trigger = JoySafeterTrigger(
+        name=f"delete-trigger-{uuid.uuid4()}",
+        type="webhook",
+        agent_id=agent_id,
+        prompt_template="delete me",
+    )
+    db_session.add(trigger)
+    await db_session.commit()
+    await db_session.refresh(trigger)
+    trigger_id = trigger.id
+
+    deleted = await JoySafeterAgentService(db_session).hard_delete_agent(agent_id)
+
+    assert deleted is True
+    db_session.expire_all()
+    agent_row = (
+        await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))
+    ).scalar_one_or_none()
+    trigger_row = (
+        await db_session.execute(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+    ).scalar_one_or_none()
+    assert agent_row is None
+    assert trigger_row is None
+
+
+@pytest.mark.asyncio
+async def test_delete_agent_preview_missing_agent_raises_404(db_session):
+    missing_id = as_uuid(uuid.uuid4())
+
+    with pytest.raises(AppError) as exc_info:
+        await delete_agent_preview(missing_id, db_session, _auth_ctx())  # type: ignore[arg-type]
+
+    assert exc_info.value.code == "AGENT_NOT_FOUND"
+
+
+@pytest.mark.asyncio
 async def test_delete_agent_destroys_idle_session_sandbox_before_hard_delete(db_session, monkeypatch):
     redis = _FakeCommandRedis()
     agent = JoySafeterAgent(name=f"idle-agent-{uuid.uuid4()}")
@@ -454,7 +534,7 @@ async def test_delete_agent_destroys_idle_session_sandbox_before_hard_delete(db_
     channel, payload = redis.published[0]
     assert channel == "joysafeter:cmd:owner-1"
     assert payload["type"] == "destroy"
-    assert payload["sandbox_id"] == str(sandbox_id)
+    assert payload["sandbox_id"] == str(as_uuid(sandbox_id))
     assert redis.blpop_timeouts == [30]
 
     db_session.expire_all()
@@ -594,7 +674,11 @@ async def test_force_delete_agent_keeps_agent_when_cancel_relay_fails(db_session
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "AGENT_REDIS_CANCEL_RELAY_FAILED",
         "message": "Failed to cancel agent task in sandbox runtime.",
-        "data": {"agent_id": str(agent_id), "task_id": str(task_id), "sandbox_id": str(sandbox_id)},
+        "data": {
+            "agent_id": str(agent_id),
+            "task_id": str(task_id),
+            "sandbox_id": str(sandbox_id),
+        },
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",

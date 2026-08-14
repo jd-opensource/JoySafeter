@@ -1,15 +1,13 @@
 import json
 import logging
-import uuid
 from typing import Any, Optional, cast
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.api.v1.id_helpers import parse_agent_id
-from app.joysafeter_api.services import JoySafeterAgentService as AgentService
-from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
-from app.joysafeter_api.services import SecretService, SessionService, _split_packed_items
+from app.joysafeter_domain.llm.compatibility import (
+    validate_engine,
+)
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     AgentVersionResponse,
@@ -25,6 +23,10 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
 )
 from app.joysafeter_domain.schemas.joysafeter_session import SessionResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterTaskResponse as TaskResponse
+from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService as AgentService
+from app.joysafeter_domain.services.joysafeter_agent_service import _split_agent_assets
+from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
+from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import (
     AppError,
     InvalidRequestError,
@@ -39,6 +41,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import AgentId, SessionId
 from app.joysafeter_shared.orchestrator_bridge.runtime_commands import (
     relay_sandbox_destroy_via_redis,
 )
@@ -60,7 +63,7 @@ def _agent_config_error(*, code: str, message: str, data: dict[str, Any]) -> App
     )
 
 
-def _agent_not_found_error(agent_id: uuid.UUID) -> AppError:
+def _agent_not_found_error(agent_id: AgentId) -> AppError:
     return NotFoundError(
         code="AGENT_NOT_FOUND",
         message="Agent not found",
@@ -69,11 +72,11 @@ def _agent_not_found_error(agent_id: uuid.UUID) -> AppError:
     )
 
 
-def _validate_mcp_configs(mcp_configs: list[dict] | None) -> None:
-    if not mcp_configs:
+def _validate_mcp_servers(mcp_servers: list[dict] | None) -> None:
+    if not mcp_servers:
         return
     seen_names: set[str] = set()
-    for cfg in mcp_configs:
+    for cfg in mcp_servers:
         if not isinstance(cfg, dict):
             continue
         url = cfg.get("url", "")
@@ -100,13 +103,13 @@ def _validate_mcp_configs(mcp_configs: list[dict] | None) -> None:
             seen_names.add(name)
 
 
-def _validate_tool_mcp_references(tools: list | None, mcp_configs: list[dict] | None) -> None:
-    """Ensure each tool's mcp_server_name references a declared mcp_server in mcp_configs."""
+def _validate_tool_mcp_references(tools: list | None, mcp_servers: list[dict] | None) -> None:
+    """Ensure each tool's mcp_server_name references a declared MCP server."""
     if not tools:
         return
     declared_names: set[str] = set()
-    if mcp_configs:
-        for cfg in mcp_configs:
+    if mcp_servers:
+        for cfg in mcp_servers:
             name = cfg.get("name", "") if isinstance(cfg, dict) else ""
             if name:
                 declared_names.add(name)
@@ -120,58 +123,6 @@ def _validate_tool_mcp_references(tools: list | None, mcp_configs: list[dict] | 
                     message=f"Tool references undeclared MCP server: {server_name}",
                     data={"mcp_server_name": server_name, "declared_mcp_server_names": sorted(declared_names)},
                 )
-
-
-def _secret_matches_engine(secret, engine_kind: str) -> bool:
-    provider = (getattr(secret, "provider", "") or "").lower()
-    protocol = (getattr(secret, "protocol", "") or "").lower()
-    keys = set((getattr(secret, "data", None) or {}).keys())
-    is_openai_secret = (
-        provider == "codex" or protocol in {"openai_responses", "chat_completions"} or "OPENAI_API_KEY" in keys
-    )
-    is_anthropic_secret = (
-        provider in {"anthropic", "claude"}
-        or protocol == "anthropic_messages"
-        or "ANTHROPIC_API_KEY" in keys
-        or "ANTHROPIC_AUTH_TOKEN" in keys
-    )
-    if engine_kind == "codex":
-        return is_openai_secret
-    if engine_kind == "claude":
-        return is_anthropic_secret
-    if engine_kind == "native":
-        return is_anthropic_secret or is_openai_secret
-    return True
-
-
-async def _validate_secret_ref_for_engine(
-    db: AsyncSession,
-    *,
-    secret_ref: Optional[str],
-    engine_kind: str,
-    project_id: Optional[str],
-) -> None:
-    if not secret_ref:
-        return
-    secret_svc = SecretService(db)
-    secret = await secret_svc.get_secret_by_name(secret_ref, project_id=project_id)
-    if not secret:
-        raise _agent_config_error(
-            code="AGENT_SECRET_NOT_FOUND",
-            message=f"Secret not found: {secret_ref}",
-            data={"secret_ref": secret_ref, "engine_kind": engine_kind},
-        )
-    if not _secret_matches_engine(secret, engine_kind):
-        raise _agent_config_error(
-            code="AGENT_SECRET_ENGINE_INCOMPATIBLE",
-            message=f"Secret '{secret_ref}' is not compatible with engine_kind '{engine_kind}'",
-            data={
-                "secret_ref": secret_ref,
-                "engine_kind": engine_kind,
-                "provider": getattr(secret, "provider", None),
-                "protocol": getattr(secret, "protocol", None),
-            },
-        )
 
 
 async def _validate_environment_ref(
@@ -199,57 +150,18 @@ async def _validate_environment_ref(
         )
 
 
-def _model_from_secret_data(secret_data: dict[str, Any] | None, engine_kind: str | None) -> Optional[dict[str, str]]:
-    if not secret_data:
-        return None
-
-    if (engine_kind or "claude") == "codex":
-        model_id = secret_data.get("OPENAI_MODEL")
-    elif engine_kind == "native":
-        model_id = secret_data.get("ANTHROPIC_MODEL") or secret_data.get("OPENAI_MODEL") or secret_data.get("MODEL")
-    else:
-        # claude and any other engine
-        model_id = secret_data.get("ANTHROPIC_MODEL") or secret_data.get("MODEL")
-
-    return {"id": str(model_id)} if model_id else None
-
-
-async def _resolve_agent_model(
-    agent,
-    secret_svc: SecretService,
-    *,
-    project_id: Optional[str],
-    secret_cache: Optional[dict[str, Optional[dict[str, Any]]]] = None,
-) -> Optional[dict[str, Any]]:
-    if agent.model:
-        return cast(Optional[dict[str, Any]], agent.model)
-    if not agent.secret_ref:
-        return None
-
-    if secret_cache is not None:
-        if agent.secret_ref not in secret_cache:
-            secret = await secret_svc.get_secret_by_name(agent.secret_ref, project_id=project_id)
-            secret_cache[agent.secret_ref] = secret_svc.get_secret_data(secret) if secret else None
-        secret_data = secret_cache.get(agent.secret_ref)
-    else:
-        secret = await secret_svc.get_secret_by_name(agent.secret_ref, project_id=project_id)
-        secret_data = secret_svc.get_secret_data(secret) if secret else None
-
-    return _model_from_secret_data(secret_data, getattr(agent, "engine_kind", None))
-
-
-def _agent_to_response(agent, *, model: Optional[dict[str, Any]] = None) -> AgentResponse:
-    skills, agents, commands = _split_packed_items(agent.skills or [])
+def _agent_to_response(agent) -> AgentResponse:
+    skills, agents, commands = _split_agent_assets(agent.skills or [])
     return AgentResponse(
         id=agent.id,
         name=agent.name,
         engine_kind=agent.engine_kind,
-        model=cast(Any, model if model is not None else agent.model),
+        model=cast(Any, agent.model),
         system=agent.system_prompt,
         description=agent.description,
         metadata=agent.metadata_,
         env=agent.env,
-        mcp_servers=agent.mcp_configs,
+        mcp_servers=agent.mcp_servers,
         skills=cast(Any, skills),
         agents=cast(Any, agents),
         commands=cast(Any, commands),
@@ -257,7 +169,7 @@ def _agent_to_response(agent, *, model: Optional[dict[str, Any]] = None) -> Agen
         multiagent=agent.multiagent,
         version=agent.version,
         environment_ref=agent.environment_ref,
-        secret_ref=agent.secret_ref,
+        model_credential_id=agent.model_credential_id,
         created_at=agent.created_at,
         updated_at=agent.updated_at,
         archived_at=agent.archived_at,
@@ -271,14 +183,9 @@ async def create_agent(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> AgentResponse:
     mcp_dicts = [s.model_dump() for s in req.mcp_servers] if req.mcp_servers else None
-    _validate_mcp_configs(mcp_dicts)
+    _validate_mcp_servers(mcp_dicts)
     _validate_tool_mcp_references(req.tools, mcp_dicts)
-    await _validate_secret_ref_for_engine(
-        db,
-        secret_ref=req.secret_ref,
-        engine_kind=req.engine_kind.value,
-        project_id=auth_ctx.project_id,
-    )
+    validate_engine(req.engine_kind.value)
     await _validate_environment_ref(
         db,
         environment_ref=req.environment_ref,
@@ -286,15 +193,13 @@ async def create_agent(
     )
     svc = AgentService(db)
     agent = await svc.create_agent(req, project_id=auth_ctx.project_id)
-    secret_svc = SecretService(db)
-    model = await _resolve_agent_model(agent, secret_svc, project_id=auth_ctx.project_id)
-    return _agent_to_response(agent, model=model)
+    return _agent_to_response(agent)
 
 
 @router.get("")
 async def list_agents(
     limit: int = Query(20, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[AgentId] = Query(None),
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
@@ -304,20 +209,7 @@ async def list_agents(
         limit, after_id, include_archived=include_archived, project_id=auth_ctx.project_id
     )
 
-    secret_svc = SecretService(db)
-    secret_cache: dict[str, Optional[dict]] = {}
-    data = [
-        _agent_to_response(
-            agent,
-            model=await _resolve_agent_model(
-                agent,
-                secret_svc,
-                project_id=auth_ctx.project_id,
-                secret_cache=secret_cache,
-            ),
-        )
-        for agent in agents
-    ]
+    data = [_agent_to_response(agent) for agent in agents]
     return PaginatedResponse(
         data=data,
         has_more=has_more,
@@ -328,7 +220,7 @@ async def list_agents(
 
 @router.get("/{agent_id}")
 async def get_agent(
-    agent_id: uuid.UUID = Depends(parse_agent_id),
+    agent_id: AgentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> AgentResponse:
@@ -336,15 +228,13 @@ async def get_agent(
     agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
         raise _agent_not_found_error(agent_id)
-    secret_svc = SecretService(db)
-    model = await _resolve_agent_model(agent, secret_svc, project_id=auth_ctx.project_id)
-    return _agent_to_response(agent, model=model)
+    return _agent_to_response(agent)
 
 
 @router.post("/{agent_id}")
 async def update_agent(
     req: UpdateAgentRequest,
-    agent_id: uuid.UUID = Depends(parse_agent_id),
+    agent_id: AgentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> AgentResponse:
@@ -376,44 +266,45 @@ async def update_agent(
             user_action="refresh",
         )
 
-    # Resolve the effective mcp_configs for cross-validation
+    # Resolve the effective MCP servers for cross-validation.
     if req.mcp_servers is not None:
         mcp_dicts = [s.model_dump() for s in req.mcp_servers]
-        _validate_mcp_configs(mcp_dicts)
+        _validate_mcp_servers(mcp_dicts)
     else:
-        mcp_dicts = current_agent.mcp_configs or []
+        mcp_dicts = current_agent.mcp_servers or []
 
     # Validate tool -> mcp_server references
     effective_tools = req.tools if req.tools is not None else (current_agent.tools or [])
     _validate_tool_mcp_references(effective_tools, mcp_dicts)
 
     effective_engine_kind = req.engine_kind.value if req.engine_kind is not None else current_agent.engine_kind
-    effective_secret_ref = req.secret_ref if req.secret_ref is not None else current_agent.secret_ref
+    model_credential_supplied = "model_credential_id" in req.model_fields_set
     effective_environment_ref = (
         req.environment_ref if req.environment_ref is not None else current_agent.environment_ref
     )
-    await _validate_secret_ref_for_engine(
-        db,
-        secret_ref=effective_secret_ref,
-        engine_kind=effective_engine_kind,
-        project_id=auth_ctx.project_id,
-    )
+    validate_engine(effective_engine_kind)
     await _validate_environment_ref(
         db,
         environment_ref=effective_environment_ref,
         project_id=auth_ctx.project_id,
     )
 
-    dependency_ref_changed = (req.secret_ref is not None and req.secret_ref != current_agent.secret_ref) or (
-        req.environment_ref is not None and req.environment_ref != current_agent.environment_ref
-    )
+    dependency_ref_changed = (
+        model_credential_supplied and req.model_credential_id != current_agent.model_credential_id
+    ) or (req.environment_ref is not None and req.environment_ref != current_agent.environment_ref)
     if dependency_ref_changed:
         active_tasks = await svc.list_active_tasks_for_agent(agent_id, project_id=auth_ctx.project_id)
         if active_tasks:
             raise ResourceConflictError(
                 code="AGENT_ACTIVE_TASKS",
-                message="Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref.",
-                data={"agent_id": str(agent_id), "active_task_ids": [str(task.id) for task in active_tasks]},
+                message=(
+                    "Agent has active tasks. Stop or wait for them before changing "
+                    "model_credential_id or environment_ref."
+                ),
+                data={
+                    "agent_id": str(agent_id),
+                    "active_task_ids": [str(task.id) for task in active_tasks],
+                },
                 retryable=True,
                 user_action="retry",
             )
@@ -438,19 +329,35 @@ async def update_agent(
         raise _agent_not_found_error(agent_id)
 
     after_snapshot = _agent_snapshot(agent)
-    secret_svc = SecretService(db)
     if before_snapshot == after_snapshot:
         # No real change — return existing agent without bumping version
-        model = await _resolve_agent_model(current_agent, secret_svc, project_id=auth_ctx.project_id)
-        return _agent_to_response(current_agent, model=model)
+        return _agent_to_response(current_agent)
 
-    model = await _resolve_agent_model(agent, secret_svc, project_id=auth_ctx.project_id)
-    return _agent_to_response(agent, model=model)
+    return _agent_to_response(agent)
+
+
+@router.get("/{agent_id}/delete_preview")
+async def delete_agent_preview(
+    agent_id: AgentId,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
+) -> dict[str, int]:
+    """Counts of data that will be removed when the agent is deleted.
+
+    Powers the frontend delete-confirmation dialog. Returns exact counts of
+    sessions, active tasks, and versions tied to the agent.
+    """
+    svc = AgentService(db)
+    counts = await svc.count_delete_preview(agent_id, project_id=auth_ctx.project_id)
+    if counts is None:
+        raise _agent_not_found_error(agent_id)
+    sessions, tasks, versions, triggers = counts
+    return {"sessions": sessions, "tasks": tasks, "versions": versions, "triggers": triggers}
 
 
 @router.delete("/{agent_id}", status_code=204)
 async def delete_agent(
-    agent_id: uuid.UUID = Depends(parse_agent_id),
+    agent_id: AgentId,
     force: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
@@ -516,9 +423,7 @@ async def delete_agent(
         raise _agent_not_found_error(agent_id)
 
 
-async def _cancel_active_tasks_for_agent(
-    agent_id: uuid.UUID, db: AsyncSession, project_id: Optional[str] = None
-) -> None:
+async def _cancel_active_tasks_for_agent(agent_id: AgentId, db: AsyncSession, project_id: Optional[str] = None) -> None:
     """Cancel all active tasks through the Rust runtime boundary."""
     from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
 
@@ -538,7 +443,11 @@ async def _cancel_active_tasks_for_agent(
                 raise ServiceUnavailableError(
                     code="AGENT_REDIS_CANCEL_RELAY_FAILED",
                     message="Failed to cancel agent task in sandbox runtime.",
-                    data={"agent_id": str(agent_id), "task_id": str(task.id), "sandbox_id": str(sandbox_id)},
+                    data={
+                        "agent_id": str(agent_id),
+                        "task_id": str(task.id),
+                        "sandbox_id": str(sandbox_id),
+                    },
                     source="runtime",
                     retryable=True,
                     user_action="retry",
@@ -557,7 +466,10 @@ async def _cancel_active_tasks_for_agent(
         raise ServiceUnavailableError(
             code="AGENT_FORCE_CANCEL_ACTIVE_TASKS_FAILED",
             message="Failed to cancel all active tasks for agent",
-            data={"agent_id": str(agent_id), "active_task_ids": [str(task.id) for task in remaining_active]},
+            data={
+                "agent_id": str(agent_id),
+                "active_task_ids": [str(task.id) for task in remaining_active],
+            },
             source="runtime",
             retryable=True,
             user_action="retry",
@@ -593,13 +505,13 @@ async def _cancel_active_tasks_for_agent(
 
 
 async def _destroy_sandboxes_for_agent(
-    agent_id: uuid.UUID,
+    agent_id: AgentId,
     db: AsyncSession,
     *,
     reason: str,
     project_id: Optional[str] = None,
 ) -> None:
-    from app.joysafeter_api.services import SandboxService
+    from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
 
     sandbox_svc = SandboxService(db)
     sandboxes = await sandbox_svc.list_active_for_agent(agent_id, project_id=project_id)
@@ -664,7 +576,7 @@ async def _destroy_sandboxes_for_agent(
 
 @router.post("/{agent_id}/archive", status_code=200)
 async def archive_agent(
-    agent_id: uuid.UUID = Depends(parse_agent_id),
+    agent_id: AgentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:
@@ -690,9 +602,22 @@ async def archive_agent(
     }
 
 
+@router.post("/{agent_id}/unarchive", status_code=200)
+async def unarchive_agent(
+    agent_id: AgentId,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> dict:
+    svc = AgentService(db)
+    restored = await svc.restore_agent(agent_id, project_id=auth_ctx.project_id)
+    if not restored:
+        raise _agent_not_found_error(agent_id)
+    return {"status": "active"}
+
+
 @router.get("/{agent_id}/tasks")
 async def list_agent_tasks(
-    agent_id: uuid.UUID = Depends(parse_agent_id),
+    agent_id: AgentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> list[TaskResponse]:
@@ -706,9 +631,9 @@ async def list_agent_tasks(
 
 @router.get("/{agent_id}/sessions")
 async def list_agent_sessions(
-    agent_id: uuid.UUID = Depends(parse_agent_id),
+    agent_id: AgentId,
     limit: int = Query(20, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[SessionId] = Query(None),
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
@@ -742,7 +667,7 @@ async def list_agent_sessions(
 
 @router.get("/{agent_id}/versions")
 async def list_agent_versions(
-    agent_id: uuid.UUID = Depends(parse_agent_id),
+    agent_id: AgentId,
     limit: int = Query(20, ge=1, le=100),
     before_version: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),

@@ -1,10 +1,6 @@
 # Architecture
 
-> **Status:** As-built, verified against the `joysafeter-v2` branch (2026-07-03).
-> This document describes the code that actually ships. The pre-v2 single-process
-> design (DispatchService / ExecutionOrchestrator / EngineRegistry / in-process
-> `ExecutionEventBus` / `/ws/executions`) has been **removed** — see
-> [§11 Migration notes](#11-migration-notes-v1--v2) if you are looking for the old model.
+This document describes the current runtime architecture. Source code and automated tests are the final authority.
 
 JoySafeter is an AI-agent orchestration platform for security work. A user defines
 an **Agent** (engine + model + system prompt + tools + skills + MCP servers), opens a
@@ -162,7 +158,7 @@ sequenceDiagram
     API->>API: TaskSubmissionService admission/idempotency boundary
     API->>PG: create JoySafeterTask (status=pending)
     API->>PG: session → running (+ status event)
-    API->>Q: rpush joysafeter:global_queue <task_id>
+    API->>Q: rpush joysafeter:global_queue <bare-task-uuid>
 
     Note over ORCH: scheduler claims pending task (DB is source of truth)
     ORCH->>PG: task pending → scheduling → running
@@ -222,6 +218,11 @@ Core ownership rules:
    relay, sandbox state sync, session archival, trigger pause, and the final
    project archive timestamp. Routes should not recreate that chain inline.
 
+6. **Sandbox status writes are compare-and-swap.** Rust runtime state changes use
+   `transition_sandbox_cas(expected_status, new_status)`, which validates the documented
+   sandbox FSM before issuing the fenced update. There is no read-then-write compatibility
+   transition API, so stale observers cannot select their own expected state.
+
 6. **Organization membership has one owner.** Organization creation/deletion and
    member role lifecycle go through `OrganizationService` and
    `OrganizationMemberService`. Those services own owner membership bootstrap,
@@ -239,15 +240,14 @@ Core ownership rules:
 
 ## 3. Transport map — what talks to what, and how
 
-The old docs described one in-process WebSocket bus. Reality is several purpose-built
-channels. This table is the definitive reference.
+Runtime communication uses several purpose-built channels. This table is the definitive reference.
 
 | Channel | Mechanism | Purpose | Anchor |
 |---|---|---|---|
 | Browser → API | HTTPS REST `/api/v1/*` | All CRUD + commands | `joysafeter_api/api/v1/router.py` |
 | **Live events → browser** | **SSE** `GET /sessions/{id}/events/stream` | Primary execution stream (DB replay via `?after_seq`, then live) | `joysafeter_api/api/v1/sessions.py` |
 | Notifications → browser | WebSocket `/ws/notifications` | User-level notifications (in-memory `NotificationManager`) | `joysafeter_api/app.py`, `joysafeter_api/websocket/notification_manager.py` |
-| Legacy task stream | WebSocket `/tasks/{id}/stream` | Per-task output (bridge queue → Redis fallback) | `joysafeter_api/api/v1/tasks.py` |
+| Per-task stream | WebSocket `/tasks/{id}/stream` | Per-task output (bridge queue → Redis fallback) | `joysafeter_api/api/v1/tasks.py` |
 | Task enqueue | Redis **list** `joysafeter:global_queue` | API `rpush` → Rust orchestrator scheduler pops | `joysafeter_api/services.py`, `joysafeter_orchestrator_rs/src/kernel/queue.rs` |
 | **Durable event bus** | Redis **Streams** `joysafeter:orchestrator:events` + consumer group | Orchestrator `XADD` → Worker `XREADGROUP` → DB persist | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`, `joysafeter_worker/events/stream_consumer.py` |
 | **Live event fan-out** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | Cross-instance SSE delivery via `SessionBroadcaster` | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`, `joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
@@ -256,9 +256,8 @@ channels. This table is the definitive reference.
 | Runner egress | Envoy proxy (unix socket) | Per-sandbox domain allowlist, deny-all default | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
 | Skill scan | HTTP → skillspector `:8010` | Security scan on skill writes; runtime blocks failed/scanning/unscanned/blocked skills | `joysafeter_skill_security.py` |
 
-**API ↔ orchestrator is Redis, not direct gRPC.** Python API/worker processes do not import
-the removed Python orchestrator package. They use `joysafeter_shared.orchestrator_bridge`
-only for lightweight API-side helpers and optional test seams; runtime control flows through
+**API ↔ orchestrator is Redis, not direct gRPC.** Python API/worker processes use
+`joysafeter_shared.orchestrator_bridge` only for lightweight API-side helpers and optional test seams; runtime control flows through
 Redis command relay and ACKs. gRPC is used *only* for the Rust orchestrator ↔ in-sandbox-runner hop.
 
 ---
@@ -279,8 +278,7 @@ real-time DB re-verification of org/project membership) → cookie/session fallb
 by `auth_ctx.project_id` for multi-tenant isolation. WebSocket connections authenticate via
 a short-lived token from `GET /auth/ws-token`.
 
-**Startup** does almost nothing now — `run_api_startup()` only wires the `SessionBroadcaster`
-for SSE; the v1 model-registry and MCP-server startup hooks were deleted.
+**Startup** is deliberately small: `run_api_startup()` only wires the `SessionBroadcaster` for SSE.
 
 The full REST inventory is in [§8 API surface](#8-api-surface).
 
@@ -425,15 +423,15 @@ outbound HTTP goes through an Envoy listener with a **deny-all-by-default domain
 
 ## 7. Domain model
 
-Persisted in PostgreSQL via async SQLAlchemy 2.0. The v2 vocabulary differs from v1: there is
-**no `execution`, `run`, or `mission` table**. The run unit is `JoySafeterTask`; the
+Persisted in PostgreSQL via async SQLAlchemy 2.0. There is **no `execution`, `run`, or `mission` table**.
+The run unit is `JoySafeterTask`; the
 conversation unit is `JoySafeterSession` with an append-only event log.
 
 ### 7.1 Central entities
 
 | Entity | Table | Role |
 |---|---|---|
-| `JoySafeterAgent` | `joysafeter_agents` | Agent definition. Capabilities (`skills`, `tools`, `mcp_configs`, `model`, `agents`, `commands`) stored **denormalized as JSONB** on the row, not join tables. Versioned via `joysafeter_agent_versions` |
+| `JoySafeterAgent` | `joysafeter_agents` | Agent definition. Capabilities (`skills`, `tools`, `mcp_servers`, `model`, `agents`, `commands`) stored **denormalized as JSONB** on the row, not join tables. Versioned via `joysafeter_agent_versions` |
 | `JoySafeterSession` | `joysafeter_sessions` | Conversation/thread. Accumulates token usage; snapshots the agent at creation |
 | `JoySafeterSessionEvent` | `joysafeter_session_events` | **Append-only event log**, `unique(session_id, seq)`. The persisted event stream |
 | `JoySafeterTask` | `joysafeter_tasks` | The run/execution unit. Links to a session via `chat_session_id` |
@@ -472,6 +470,60 @@ hash matches the last scan (drift detection). A disapproved or drifted skill is 
 All paths are under `/api/v1`. Routers are wired in `joysafeter_api/api/v1/router.py`. There
 are **no** standalone `models` / `mcp` / `tools` / `copilot` / `graphs` routers — those
 concepts live inside the agent (JSONB fields) or in `secrets` / `vaults`.
+
+### 8.1 Typed entity identifiers
+
+Public APIs, persisted JSON/JSONB references, logs, and frontend state use canonical prefixed IDs. The
+prefix is a semantic discriminator, not decoration: it makes cross-entity mistakes rejectable before a
+UUID reaches domain logic. Application/domain code uses the matching typed ID; it does not strip and
+rebuild prefixes.
+
+This is the authoritative UUID-backed entity inventory:
+
+| Entity type | Public prefix | Entity type | Public prefix |
+|---|---|---|---|
+| `AgentId` | `agent_` | `SessionId` | `sess_` |
+| `TaskId` | `task_` | `TriggerId` | `trig_` |
+| `EnvironmentId` | `env_` | `SecretId` | `secret_` |
+| `VaultId` | `vault_` | `CredentialId` | `cred_` |
+| `SandboxId` | `sbx_` | `MemoryStoreId` | `memstore_` |
+| `MemoryId` | `mem_` | `MemoryVersionId` | `memver_` |
+| `SkillId` | `skill_` | `SkillFileId` | `sklfile_` |
+| `SkillSecurityScanId` | `sklscan_` | `SkillVersionId` | `sklver_` |
+| `SkillVersionFileId` | `sklvfile_` | `SkillUsageId` | `skluse_` |
+| `FileId` | `file_` | `SessionResourceId` | `sesrsc_` |
+| `EventId` | `evt_` | `StorageVolumeId` | `vol_` |
+| `StorageGrantId` | `stgrant_` | `StorageMountAuditId` | `staudit_` |
+
+Bare UUIDs are retained only at these reviewed physical boundaries:
+
+| Physical boundary | Bare UUID contract |
+|---|---|
+| SQL UUID bind/result | SQLAlchemy `EntityIdType` and transparent SQLx wrappers bind native UUID columns and hydrate the concrete typed ID immediately on read. |
+| PostgreSQL advisory locks | Lock-key derivation uses UUID bytes solely to produce the database's signed 64-bit lock key. |
+| Redis queues, channels, and payloads | Queue members, channel/key suffixes, ownership values, and event/runtime payload fields use bare UUID strings when both producer and consumer explicitly restore the concrete ID type. |
+| Runner/protobuf fields | Runner commands and protobuf messages whose schemas define UUID strings unwrap at construction and restore typed IDs when re-entering application code. |
+| OpenTelemetry identities | Trace, span, execution, and observation UUIDs are telemetry/storage identities rather than public JoySafeter entity-ID contracts. |
+| Object-storage keys | File object keys use the bare `FileId` UUID; public file metadata and routes retain `file_<uuid>`. |
+| Physical resource naming | Runner environment variables plus sandbox-provider labels, pod/container names, and Envoy resource names may derive bare UUID text from a typed ID solely for stable infrastructure naming. These are deployment/runtime names, not third-party API schemas. |
+| Third-party UUID contracts | An external API may receive or return a bare UUID only when its independently documented schema requires UUID text; the adapter restores the concrete typed ID before application use. |
+
+The architecture scanner also reviews three explicit native-UUID conversion categories that do not
+create a retained bare-string contract: the typed-ID codec implementation itself, strict validation
+probes that intentionally attempt native UUID parsing to reject bare public input, and deterministic
+non-identity derivations such as advisory hashes or jitter seeds. Their allowlist entries are scoped by
+stable file/function or file/count keys and any new occurrence fails architecture tests until classified.
+
+Rust ID newtypes do not implement `Deref<Uuid>`; a physical adapter must call `.as_uuid()` explicitly.
+`environment_ref` is an intentional polymorphic public boundary: it accepts an environment name or a
+canonical `env_<uuid>`, never a bare Environment UUID. Agent/Environment `secret_ref` fields remain
+name-based configuration references rather than Secret IDs. Session `vault_ids` is persisted in one
+canonical JSONB format, `vault_<uuid>`; no bare-value compatibility query or read path exists.
+
+Memory synchronization, Session events, Skills, Files, Session resources, and storage resources follow
+the same rule: API paths, schemas, JSON, logs, and frontend state retain their canonical prefix, while
+only a listed physical adapter may unwrap to a UUID. Draft Skill authoring files remain identity-free
+until persisted and must not use empty or fabricated `SkillFileId` values.
 
 | Group | Prefix | Highlights |
 |---|---|---|
@@ -520,9 +572,10 @@ a `SKILL.md`-fronted directory. The pipeline spans three layers:
 3. **Security scan** (`joysafeter_domain/.../joysafeter_skill_security.py` → **skillspector**
    service) — records failed/scanning states on scanner failure, blocks `DO_NOT_INSTALL`
    recommendations, and computes canonical sha256 for drift detection.
-4. **Pack & deliver** — `SkillPacker` resolves refs → `tar.gz` `SkillArchive` at session start,
-   applies the `is_skill_usable` gate, logs usage; the orchestrator injects the archive into the
-   sandbox, where the runner unpacks it.
+4. **Pack & deliver** — the Rust orchestrator's `HarnessInputBuilder` resolves a published version
+   when the task starts, applies `ensure_skill_runtime_ready`, builds the `tar.gz` `SkillArchive`
+   from version files, and records usage. The runner unpacks the injected archive in the sandbox;
+   missing versions or failed gates stop input construction instead of silently degrading.
 
 ### 9.3 Observability — full-chain tracing
 
@@ -540,8 +593,9 @@ a `SKILL.md`-fronted directory. The pipeline spans three layers:
 
 - **Auth:** JWT (HS256) with org/project/role claims + real-time DB re-verification; HttpOnly
   cookies; CSRF token on mutating requests; passwords SHA-256 pre-hashed client-side.
-- **Credential encryption:** AES-256-GCM for provider secrets and vault tokens
-  (`credential_encryption_key`), Rust-`agentd`-compatible cipher.
+- **Credential encryption:** AES-256-GCM for provider secrets, repository tokens, and vault/OAuth credentials
+  (`JOYSAFETER_VAULT_ENCRYPTION_KEY`). Startup fails when the key is missing or invalid; stored credential
+  values must use the `enc:` envelope, and plaintext/corrupt records are rejected rather than passed through.
 - **SSRF guard:** blocks cloud-metadata IPs, resolves DNS to defeat rebinding; private RFC-1918
   allowed by default (internal LLM/MCP endpoints), opt-in hardening flags.
 - **Sandbox isolation:** dropped capabilities, non-root, no-new-privileges, PID limits, and
@@ -592,25 +646,4 @@ sandbox-runner/                # Rust workspace: types / runtime / runner / ctl
 skills/                        # 30 skill packs (pentest / utility / planning)
 deploy/docker-compose.yml      # 3-service + infra topology (Rust orchestrator profile)
 frontend/                      # Next.js App Router UI
-```
-
----
-
-## 11. Migration notes (v1 → v2)
-
-If you have seen the old architecture doc, here is what changed and why the old names no longer
-resolve in the codebase:
-
-| v1 (removed) | v2 (current) |
-|---|---|
-| Single process | API and Worker Python services plus the Rust `orchestrator-rs` service |
-| In-process `ExecutionEventBus` | Two-phase bus → **Redis Streams** (durable, Worker) + **Redis Pub/Sub** (live, SSE) |
-| WebSocket `/ws/executions` | **SSE** `/sessions/{id}/events/stream`; WS only for `/ws/notifications` |
-| `DispatchService` → `ExecutionOrchestrator` → `EngineRegistry` | API enqueues via Redis; orchestrator scheduler pulls from DB |
-| `CLIEngine` / `LangGraphVisualEngine` / `CopilotEngine` in-process | Rust `sandbox-runner` executes the harness over gRPC `AgentBridge` |
-| `Execution` / `Run` / `Task` / `Mission` entities | `JoySafeterTask` (run unit) + `JoySafeterSession` + `JoySafeterSessionEvent` (log) |
-| `ModelPort` / model provider registry | OpenAI-compatible helper + DB-stored secrets; workload routing in the CLI harness |
-
-**Surviving concepts** (verified still present, though relocated): centralized state machines,
-the `AppError` / `ErrorDescriptor` error model, and the OTel-based observation layer.
 ```

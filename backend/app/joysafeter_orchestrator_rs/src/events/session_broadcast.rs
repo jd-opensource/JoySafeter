@@ -55,7 +55,7 @@ impl SessionBroadcastSubscriber {
         if let Some(obj) = event.as_object_mut() {
             obj.insert("type".to_string(), serde_json::json!(envelope.event_type));
             if let Some(id) = envelope.event_id {
-                obj.insert("id".to_string(), serde_json::json!(format!("evt_{id}")));
+                obj.insert("id".to_string(), serde_json::json!(id.to_public()));
             }
             if let Some(seq) = envelope.session_seq {
                 obj.insert("seq".to_string(), serde_json::json!(seq));

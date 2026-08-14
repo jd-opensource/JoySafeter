@@ -16,7 +16,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useTranslation } from '@/lib/i18n'
-import { isCustomSecretProvider } from '@/lib/managed/secret-keys'
+import { filterSelectableSecretResources } from '@/lib/managed/secret-response-parsers'
+import { parseCredentialId } from '@/types/entity-id'
 import type { EnvironmentEgressService, Secret } from '@/types/managed'
 
 // Sentinel value for the "create secret" option in the credential dropdown.
@@ -74,7 +75,7 @@ const defaultsForAuthType = (authType: EgressServiceForm['authType']) => {
   return { authType, secretKey: '', header: '' }
 }
 
-const secretKeysFor = (secret?: Secret) => secret?.keys || Object.keys(secret?.data || {})
+const secretKeysFor = (secret?: Secret) => Object.keys(secret?.data || {})
 
 const preferredSecretKey = (keys: string[], authType: EgressServiceForm['authType']) => {
   if (keys.length === 0) return authType === 'cookie' ? 'COOKIE_HEADER' : ''
@@ -99,7 +100,7 @@ export const serviceToForm = (service: EnvironmentEgressService): EgressServiceF
   return {
     name: service.name || '',
     baseUrl: service.base_url || '',
-    credentialRef: service.credential_ref || '',
+    credentialRef: service.service_credential_id || '',
     authType,
     secretKey:
       inject.secret_key ||
@@ -136,7 +137,7 @@ export const buildEgressServices = (forms: EgressServiceForm[]): EnvironmentEgre
         kind: 'external',
         exposure: 'placeholder',
         base_url: baseUrl,
-        credential_ref: credentialRef,
+        service_credential_id: parseCredentialId(credentialRef),
         inject,
       }
       const allowedPaths = service.allowedPaths
@@ -248,7 +249,7 @@ function SearchableSecretSelect({
         </div>
         {filteredSecrets.length > 0 ? (
           filteredSecrets.map((secret) => (
-            <SelectItem key={secret.id} value={secret.name}>
+            <SelectItem key={secret.id} value={secret.id}>
               {secret.name}
             </SelectItem>
           ))
@@ -296,8 +297,9 @@ export function EgressServicesEditor({
     })
   }
 
-  // 只列第三方服务（custom）的密钥；大模型引擎密钥不适用于 egress 凭证注入。
-  const customSecrets = secrets.filter((secret) => isCustomSecretProvider(secret.provider))
+  const customSecrets = filterSelectableSecretResources(
+    secrets.filter((secret) => secret.kind === 'service'),
+  )
 
   const changeService = (
     index: number,
@@ -312,7 +314,7 @@ export function EgressServicesEditor({
   return (
     <div className="space-y-3">
       {services.map((service, index) => {
-        const selectedSecret = customSecrets.find((secret) => secret.name === service.credentialRef)
+        const selectedSecret = customSecrets.find((secret) => secret.id === service.credentialRef)
         const selectedSecretKeys = secretKeysFor(selectedSecret)
         const isCollapsed = collapsed.has(index)
         return (
@@ -406,9 +408,9 @@ export function EgressServicesEditor({
                       emptyText={t('managed.environments.egressNoCredentialFound')}
                       createText={t('managed.environments.egressCreateSecretOption')}
                       invalid={Boolean(errors[index]?.credentialRef)}
-                      onCreate={() => window.open('/managed/secrets?create=custom', '_blank')}
+                      onCreate={() => window.open('/managed/credentials?tab=services&create=service', '_blank')}
                       onChange={(value) => {
-                        const secret = customSecrets.find((item) => item.name === value)
+                        const secret = customSecrets.find((item) => item.id === value)
                         changeService(
                           index,
                           {

@@ -48,7 +48,7 @@ export type AgentDiff = {
   engine_kind: ScalarFieldDiff
   description: ScalarFieldDiff
   model: ObjectFieldDiff
-  system_prompt: TextFieldDiff
+  system: TextFieldDiff
   tools: ArrayFieldDiff<AgentTool>
   mcp_servers: ArrayFieldDiff<McpServer>
   skills: ArrayFieldDiff<AgentSkillRef>
@@ -180,27 +180,21 @@ export function diffAgents(
     a.model as Record<string, unknown> | null,
     b.model as Record<string, unknown> | null,
   )
-  const system_prompt = diffText(a.system || a.system_prompt, b.system || b.system_prompt)
+  const system = diffText(a.system, b.system)
   const tools = diffArray<AgentTool>(a.tools, b.tools, toolKey)
   const mcp_servers = diffArray<McpServer>(a.mcp_servers, b.mcp_servers, mcpKey)
   const skills = diffArray<AgentSkillRef>(a.skills, b.skills, skillKey)
 
-  const changedCount = [
-    engine_kind,
-    description,
-    model,
-    system_prompt,
-    tools,
-    mcp_servers,
-    skills,
-  ].filter((d) => d.changed).length
+  const changedCount = [engine_kind, description, model, system, tools, mcp_servers, skills].filter(
+    (d) => d.changed,
+  ).length
 
   return {
     changedCount,
     engine_kind,
     description,
     model,
-    system_prompt,
+    system,
     tools,
     mcp_servers,
     skills,

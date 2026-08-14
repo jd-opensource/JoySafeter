@@ -13,6 +13,7 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_shared.common.app_errors import AccessDeniedError, AuthenticationError, ResourceConflictError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.common.joysafeter_auth import dependencies as auth_deps
+from app.joysafeter_shared.security import create_access_token
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -28,10 +29,7 @@ def _request_with_headers(headers: dict[str, str]) -> Request:
 
 
 @pytest.mark.asyncio
-async def test_cookie_auth_rejects_explicit_unknown_project_instead_of_falling_back(
-    db_session,
-    monkeypatch,
-):
+async def test_jwt_auth_rejects_explicit_unknown_project_instead_of_falling_back(db_session):
     user = AuthUser(
         id=f"user-{uuid.uuid4()}",
         email=f"user-{uuid.uuid4()}@example.com",
@@ -59,30 +57,29 @@ async def test_cookie_auth_rejects_explicit_unknown_project_instead_of_falling_b
     )
     await db_session.commit()
 
-    async def fake_get_current_user(**_kwargs):
-        return user
-
-    monkeypatch.setattr(auth_deps, "get_current_user", fake_get_current_user)
+    token = create_access_token(
+        subject=user.id,
+        org_id=org.id,
+        project_id=default_project.id,
+        role="admin",
+    )
 
     request = _request_with_headers(
         {
-            "Authorization": "Bearer session-token",
+            "Authorization": f"Bearer {token}",
             "X-Org-Id": org.id,
             "X-Project-Id": f"project-{uuid.uuid4()}",
         },
     )
 
     with pytest.raises(AuthenticationError) as exc_info:
-        await auth_deps._auth_via_user_session(request, db_session)
+        await auth_deps._auth_via_jwt_claims(request, db_session)
 
     assert exc_info.value.code == "PROJECT_ACCESS_DENIED"
 
 
 @pytest.mark.asyncio
-async def test_cookie_auth_keeps_explicit_archived_project_for_read_context_instead_of_falling_back(
-    db_session,
-    monkeypatch,
-):
+async def test_jwt_auth_keeps_explicit_archived_project_for_read_context(db_session):
     user = AuthUser(
         id=f"user-{uuid.uuid4()}",
         email=f"user-{uuid.uuid4()}@example.com",
@@ -118,20 +115,22 @@ async def test_cookie_auth_keeps_explicit_archived_project_for_read_context_inst
     )
     await db_session.commit()
 
-    async def fake_get_current_user(**_kwargs):
-        return user
-
-    monkeypatch.setattr(auth_deps, "get_current_user", fake_get_current_user)
+    token = create_access_token(
+        subject=user.id,
+        org_id=org.id,
+        project_id=default_project.id,
+        role="admin",
+    )
 
     request = _request_with_headers(
         {
-            "Authorization": "Bearer session-token",
+            "Authorization": f"Bearer {token}",
             "X-Org-Id": org.id,
             "X-Project-Id": archived_project.id,
         },
     )
 
-    ctx = await auth_deps._auth_via_user_session(request, db_session)
+    ctx = await auth_deps._auth_via_jwt_claims(request, db_session)
 
     assert ctx is not None
     assert ctx.project_id == archived_project.id

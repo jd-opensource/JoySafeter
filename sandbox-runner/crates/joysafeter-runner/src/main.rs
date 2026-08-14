@@ -377,17 +377,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 replayed += 1;
             }
-            loop {
-                match task.event_rx.try_recv() {
-                    Ok(msg) => {
-                        if runner_tx.send(msg).await.is_err() {
-                            warn!("Lost connection while replaying buffer");
-                            break;
-                        }
-                        replayed += 1;
-                    }
-                    Err(_) => break,
+            while let Ok(msg) = task.event_rx.try_recv() {
+                if runner_tx.send(msg).await.is_err() {
+                    warn!("Lost connection while replaying buffer");
+                    break;
                 }
+                replayed += 1;
             }
             if replayed > 0 {
                 info!(
@@ -474,16 +469,11 @@ async fn drain_event_buffer(
     runner_tx: &mpsc::Sender<RunnerMessage>,
 ) -> usize {
     let mut count = 0;
-    loop {
-        match event_rx.try_recv() {
-            Ok(msg) => {
-                if runner_tx.send(msg).await.is_err() {
-                    break;
-                }
-                count += 1;
-            }
-            Err(_) => break,
+    while let Ok(msg) = event_rx.try_recv() {
+        if runner_tx.send(msg).await.is_err() {
+            break;
         }
+        count += 1;
     }
     count
 }
@@ -597,7 +587,6 @@ async fn run_session(
                             break runner::TaskMetadata {
                                 work_dir: task.work_dir.clone().unwrap_or_default(),
                                 session_id: task.session_id.clone(),
-                                aborted: false,
                             };
                         }
                         Err(e) => {
@@ -618,7 +607,6 @@ async fn run_session(
                             break runner::TaskMetadata {
                                 work_dir: task.work_dir.clone().unwrap_or_default(),
                                 session_id: task.session_id.clone(),
-                                aborted: false,
                             };
                         }
                     }
@@ -793,7 +781,6 @@ async fn run_session(
                                     break runner::TaskMetadata {
                                         work_dir: task_work_dir.clone().unwrap_or_default(),
                                         session_id: task_session_id.clone(),
-                                        aborted: false,
                                     };
                                 }
                                 Err(e) => {
@@ -814,7 +801,6 @@ async fn run_session(
                                     break runner::TaskMetadata {
                                         work_dir: task_work_dir.clone().unwrap_or_default(),
                                         session_id: task_session_id.clone(),
-                                        aborted: false,
                                     };
                                 }
                             }

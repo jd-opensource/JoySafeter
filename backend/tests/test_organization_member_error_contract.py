@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 import pytest
 from error_contract_helpers import handled_app_error_payload
-from fastapi import Request
 from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.auth import (
@@ -42,7 +41,6 @@ from app.joysafeter_domain.models.joysafeter_organization import Member, Organiz
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.common.joysafeter_auth import dependencies as auth_dependencies
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -470,48 +468,6 @@ async def test_archive_default_project_returns_structured_error(db_session):
 
 
 @pytest.mark.asyncio
-async def test_user_session_auth_skips_archived_default_project(db_session, monkeypatch):
-    org = await _org(db_session)
-    user = AuthUser(name="Fallback User", email=f"fallback-{uuid.uuid4()}@example.com")
-    db_session.add(user)
-    await db_session.flush()
-    user_id = user.id
-    db_session.add(Member(user_id=user_id, organization_id=org.id, role="admin"))
-    archived_default = Project(
-        org_id=org.id,
-        name="Archived Default",
-        slug=f"archived-default-{uuid.uuid4()}",
-        is_default=True,
-        archived_at=utc_now(),
-    )
-    active_project = Project(
-        org_id=org.id,
-        name="Active",
-        slug=f"active-{uuid.uuid4()}",
-    )
-    db_session.add_all([archived_default, active_project])
-    await db_session.commit()
-    await db_session.refresh(active_project)
-
-    async def fake_get_current_user(*, token, request, db):  # noqa: ARG001
-        return SimpleNamespace(id=user_id, name=user.name)
-
-    monkeypatch.setattr(auth_dependencies, "get_current_user", fake_get_current_user)
-    request = Request(
-        {
-            "type": "http",
-            "method": "GET",
-            "path": "/api/v1/agents",
-            "headers": [(b"authorization", b"Bearer old-token")],
-        }
-    )
-
-    ctx = await auth_dependencies._auth_via_user_session(request, db_session)
-
-    assert ctx.project_id == active_project.id
-
-
-@pytest.mark.asyncio
 async def test_create_organization_blank_name_returns_structured_error(db_session):
     with pytest.raises(AppError) as exc_info:
         await create_organization(CreateOrganizationRequest(name=" "), db_session, _auth_ctx("org-1"))
@@ -755,9 +711,11 @@ async def test_list_projects_filters_to_accessible_projects_for_non_admin_member
     await db_session.commit()
 
     response = await list_projects(
-        False,
-        db_session,
-        JoySafeterAuthContext(
+        include_archived=False,
+        limit=50,
+        after_id=None,
+        db=db_session,
+        auth_ctx=JoySafeterAuthContext(
             user_id=user.id,
             org_id=org_id,
             project_id=allowed_project.id,
@@ -765,8 +723,8 @@ async def test_list_projects_filters_to_accessible_projects_for_non_admin_member
         ),
     )
 
-    assert [project.id for project in response] == [allowed_project.id]
-    assert blocked_project.id not in {project.id for project in response}
+    assert [project.id for project in response.data] == [allowed_project.id]
+    assert blocked_project.id not in {project.id for project in response.data}
 
 
 @pytest.mark.asyncio

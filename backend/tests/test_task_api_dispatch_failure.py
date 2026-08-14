@@ -20,6 +20,7 @@ from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRe
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import SandboxId, SessionId, TaskId, as_uuid
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -64,11 +65,11 @@ class _TaskSandboxChangingAckRedis(_FakeCommandRedis):
     def __init__(
         self,
         db_session,
-        task_id: uuid.UUID,
+        task_id: TaskId,
         *,
-        old_sandbox_id: uuid.UUID,
-        new_sandbox_id: uuid.UUID,
-        session_id: uuid.UUID,
+        old_sandbox_id: SandboxId,
+        new_sandbox_id: SandboxId,
+        session_id: SessionId,
     ):
         super().__init__()
         self.db_session = db_session
@@ -86,7 +87,7 @@ class _TaskSandboxChangingAckRedis(_FakeCommandRedis):
                     "SET status = 'destroyed', destroyed_at = NOW(), updated_at = NOW() "
                     "WHERE id = :old_sandbox_id"
                 ),
-                {"old_sandbox_id": self.old_sandbox_id},
+                {"old_sandbox_id": as_uuid(self.old_sandbox_id)},
             )
             await self.db_session.execute(
                 text(
@@ -94,7 +95,7 @@ class _TaskSandboxChangingAckRedis(_FakeCommandRedis):
                     "SET chat_session_id = :session_id, status = 'running', updated_at = NOW() "
                     "WHERE id = :new_sandbox_id"
                 ),
-                {"new_sandbox_id": self.new_sandbox_id, "session_id": self.session_id},
+                {"new_sandbox_id": as_uuid(self.new_sandbox_id), "session_id": as_uuid(self.session_id)},
             )
             await self.db_session.execute(
                 text(
@@ -102,7 +103,7 @@ class _TaskSandboxChangingAckRedis(_FakeCommandRedis):
                     "SET sandbox_id = :sandbox_id, owner_epoch = COALESCE(owner_epoch, 0) + 1, updated_at = NOW() "
                     "WHERE id = :task_id"
                 ),
-                {"sandbox_id": self.new_sandbox_id, "task_id": self.task_id},
+                {"sandbox_id": as_uuid(self.new_sandbox_id), "task_id": as_uuid(self.task_id)},
             )
             await self.db_session.commit()
             self.changed = True
@@ -167,7 +168,7 @@ async def test_create_task_enqueues_via_redis_without_local_scheduler(db_session
 
     assert response.id is not None
     assert response.status == JoySafeterTaskStatus.PENDING.value
-    assert redis.rpushed == [("joysafeter:global_queue", str(response.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(response.id.uuid))]
 
     task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == response.id))).scalar_one()
     session = (
@@ -187,7 +188,8 @@ async def test_create_task_enqueues_via_redis_without_local_scheduler(db_session
         .all()
     )
     assert [(event.event_type, event.payload) for event in events] == [
-        ("session.status_running", {"task_id": str(task.id)})
+        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": str(task.id)}),
+        ("session.status_running", {"task_id": str(task.id)}),
     ]
 
 
@@ -210,7 +212,7 @@ async def test_create_task_auto_session_stores_execution_snapshot(db_session, mo
     await db_session.commit()
     await db_session.refresh(env)
 
-    env_ref = f"env_{env.id}"
+    env_ref = str(env.id)
     agent = JoySafeterAgent(
         name=f"task-snapshot-agent-{uuid.uuid4()}",
         version=1,
@@ -300,7 +302,7 @@ async def test_create_task_rejects_archived_environment_ref_with_structured_erro
     await db_session.commit()
     await db_session.refresh(agent)
 
-    env_ref = f"env_{env.id}"
+    env_ref = str(env.id)
     req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target", environment_ref=env_ref)
     with pytest.raises(AppError) as exc_info:
         await create_task(req, db_session, _auth_ctx())
@@ -407,6 +409,7 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
         .all()
     )
     assert [(event.event_type, event.payload) for event in events] == [
+        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": str(task.id)}),
         ("session.status_running", {"task_id": str(task.id)}),
         (
             "session.status_idle",
@@ -490,7 +493,7 @@ async def test_create_task_with_existing_session_marks_running_before_enqueue(db
     assert session.status == "running"
     task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == response.id))).scalar_one()
     assert task.chat_session_id == session.id
-    assert redis.rpushed == [("joysafeter:global_queue", str(response.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(response.id.uuid))]
 
     events = (
         (
@@ -504,7 +507,8 @@ async def test_create_task_with_existing_session_marks_running_before_enqueue(db
         .all()
     )
     assert [(event.event_type, event.payload) for event in events] == [
-        ("session.status_running", {"task_id": str(response.id)})
+        ("user.message", {"content": [{"type": "text", "text": "scan target"}], "task_id": str(response.id)}),
+        ("session.status_running", {"task_id": str(response.id)}),
     ]
 
 
@@ -530,7 +534,7 @@ async def test_create_task_rejects_environment_ref_mismatch_for_existing_session
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle", environment_ref=f"env_{session_env.id}")
+    session = JoySafeterSession(agent_id=agent.id, status="idle", environment_ref=str(session_env.id))
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -538,7 +542,7 @@ async def test_create_task_rejects_environment_ref_mismatch_for_existing_session
     req = JoySafeterCreateTaskRequest(
         agent_id=agent.id,
         chat_session_id=session.id,
-        environment_ref=f"env_{requested_env.id}",
+        environment_ref=str(requested_env.id),
         prompt="scan target",
     )
 
@@ -550,8 +554,8 @@ async def test_create_task_rejects_environment_ref_mismatch_for_existing_session
         "message": "Task environment_ref does not match the existing session environment",
         "data": {
             "session_id": str(session.id),
-            "requested_environment_ref": f"env_{requested_env.id}",
-            "session_environment_ref": f"env_{session_env.id}",
+            "requested_environment_ref": str(requested_env.id),
+            "session_environment_ref": str(session_env.id),
         },
         "source": "api",
         "retryable": False,
@@ -585,7 +589,7 @@ async def test_create_task_uses_existing_session_environment_before_agent_defaul
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle", environment_ref=f"env_{session_env.id}")
+    session = JoySafeterSession(agent_id=agent.id, status="idle", environment_ref=str(session_env.id))
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -596,7 +600,7 @@ async def test_create_task_uses_existing_session_environment_before_agent_defaul
 
     task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == response.id))).scalar_one()
     assert task.chat_session_id == session.id
-    assert redis.rpushed == [("joysafeter:global_queue", str(response.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(response.id.uuid))]
 
 
 @pytest.mark.asyncio
@@ -795,7 +799,7 @@ async def test_create_task_idempotent_replay_accepts_same_session_uuid_value_acr
 
     assert second.id == first.id
     assert second.status == first.status
-    assert redis.rpushed == [("joysafeter:global_queue", str(first.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(first.id.uuid))]
 
 
 @pytest.mark.asyncio
@@ -823,12 +827,12 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_environme
     key = f"task-reuse-env-{uuid.uuid4()}"
     first = JoySafeterCreateTaskRequest(
         agent_id=agent.id,
-        environment_ref=f"env_{env_a.id}",
+        environment_ref=str(env_a.id),
         prompt="scan target",
     )
     second = JoySafeterCreateTaskRequest(
         agent_id=agent.id,
-        environment_ref=f"env_{env_b.id}",
+        environment_ref=str(env_b.id),
         prompt="scan target",
     )
 
@@ -842,8 +846,8 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_environme
         "data": {
             "task_id": str(first_response.id),
             "conflict_field": "environment_ref",
-            "requested_value": f"env_{env_b.id}",
-            "existing_value": f"env_{env_a.id}",
+            "requested_value": str(env_b.id),
+            "existing_value": str(env_a.id),
         },
         "source": "api",
         "retryable": False,
@@ -869,7 +873,7 @@ async def test_create_task_idempotent_retry_allows_original_environment_archived
     await db_session.commit()
     await db_session.refresh(agent)
 
-    env_ref = f"env_{env.id}"
+    env_ref = str(env.id)
     key = f"task-retry-archived-env-{uuid.uuid4()}"
     req = JoySafeterCreateTaskRequest(agent_id=agent.id, environment_ref=env_ref, prompt="scan target")
 
@@ -889,7 +893,7 @@ async def test_create_task_idempotent_retry_allows_original_environment_archived
 
     assert retry_response.id == first_response.id
     assert retry_response.status == JoySafeterTaskStatus.COMPLETED.value
-    assert redis.rpushed == [("joysafeter:global_queue", str(first_response.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(first_response.id.uuid))]
 
 
 @pytest.mark.asyncio
@@ -973,7 +977,7 @@ async def test_cancel_task_relays_cancel_to_rust_orchestrator(db_session, monkey
     channel, payload = command_publishes[0]
     assert channel == "joysafeter:cmd:owner-1"
     assert payload["type"] == "cancel"
-    assert payload["sandbox_id"] == str(sandbox.id)
+    assert payload["sandbox_id"] == str(as_uuid(sandbox.id))
     assert payload["reason"] == "Cancelled via API"
     assert payload["ack_key"].startswith("joysafeter:cmd_ack:")
 
@@ -1056,7 +1060,7 @@ async def test_cancel_task_rejects_ack_if_task_moved_to_another_sandbox(db_sessi
         (channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")
     ]
     assert len(command_publishes) == 1
-    assert command_publishes[0][1]["sandbox_id"] == str(old_sandbox_id)
+    assert command_publishes[0][1]["sandbox_id"] == str(as_uuid(old_sandbox_id))
 
     db_session.expire_all()
     task_row = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
@@ -1373,4 +1377,4 @@ async def test_per_user_admission_skips_service_principal(db_session, monkeypatc
     response = await create_task(req, db_session, _service_auth_ctx())
 
     assert response.status == JoySafeterTaskStatus.PENDING.value
-    assert redis.rpushed == [("joysafeter:global_queue", str(response.id))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(response.id.uuid))]

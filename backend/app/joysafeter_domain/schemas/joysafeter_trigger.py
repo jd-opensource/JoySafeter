@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.joysafeter_shared.ids import AgentId, CredentialId, SessionId, TaskId, TriggerId
 
 
 def _strip_required(value: str) -> str:
@@ -21,22 +22,17 @@ def _strip_optional(value: Optional[str]) -> Optional[str]:
 
 
 class TriggerCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=255)
     type: str = "webhook"
-    agent_id: uuid.UUID
+    agent_id: AgentId
     prompt_template: str = Field(min_length=1)
-    system_prompt: Optional[str] = Field(
-        default=None,
-        description=(
-            "Deprecated. Trigger-specific instructions should live in prompt_template; "
-            "the agent's system_prompt remains the base behavior. Retained for API compatibility."
-        ),
-    )
     environment_ref: Optional[str] = None
     description: Optional[str] = None
     enabled: bool = True
     session_mode: str = "fresh"
-    pinned_session_id: Optional[uuid.UUID] = None
+    pinned_session_id: Optional[SessionId] = None
     session_key: Optional[str] = None
     filter: dict[str, Any] = Field(default_factory=dict)
     timeout_sec: int = Field(default=7200, ge=1)
@@ -47,9 +43,9 @@ class TriggerCreateRequest(BaseModel):
     run_at: Optional[datetime] = None
     concurrency_policy: str = "allow"
 
-    secret_ref: Optional[str] = None
-    secret_key: Optional[str] = "WEBHOOK_SECRET"
-    auth_methods: list[str] = Field(default_factory=lambda: ["hmac", "bearer", "token"])
+    webhook_auth_credential_id: Optional[CredentialId] = None
+    webhook_auth_field: Optional[str] = "WEBHOOK_SECRET"
+    auth_methods: Optional[list[str]] = None
     dedupe_header: Optional[str] = "x-joysafeter-delivery"
 
     @field_validator("name", "type", "prompt_template", "session_mode", "timezone", "concurrency_policy", mode="before")
@@ -60,12 +56,10 @@ class TriggerCreateRequest(BaseModel):
         return value
 
     @field_validator(
-        "system_prompt",
         "environment_ref",
         "description",
         "cron_expr",
-        "secret_ref",
-        "secret_key",
+        "webhook_auth_field",
         "dedupe_header",
         "session_key",
         mode="before",
@@ -78,20 +72,15 @@ class TriggerCreateRequest(BaseModel):
 
 
 class TriggerUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     prompt_template: Optional[str] = Field(default=None, min_length=1)
-    system_prompt: Optional[str] = Field(
-        default=None,
-        description=(
-            "Deprecated. Trigger-specific instructions should live in prompt_template; "
-            "the agent's system_prompt remains the base behavior. Retained for API compatibility."
-        ),
-    )
     environment_ref: Optional[str] = None
     description: Optional[str] = None
     enabled: Optional[bool] = None
     session_mode: Optional[str] = None
-    pinned_session_id: Optional[uuid.UUID] = None
+    pinned_session_id: Optional[SessionId] = None
     session_key: Optional[str] = None
     filter: Optional[dict[str, Any]] = None
     timeout_sec: Optional[int] = Field(default=None, ge=1)
@@ -102,8 +91,8 @@ class TriggerUpdateRequest(BaseModel):
     run_at: Optional[datetime] = None
     concurrency_policy: Optional[str] = None
 
-    secret_ref: Optional[str] = None
-    secret_key: Optional[str] = None
+    webhook_auth_credential_id: Optional[CredentialId] = None
+    webhook_auth_field: Optional[str] = None
     auth_methods: Optional[list[str]] = None
     dedupe_header: Optional[str] = None
 
@@ -115,12 +104,10 @@ class TriggerUpdateRequest(BaseModel):
         return value
 
     @field_validator(
-        "system_prompt",
         "environment_ref",
         "description",
         "cron_expr",
-        "secret_ref",
-        "secret_key",
+        "webhook_auth_field",
         "dedupe_header",
         "session_key",
         mode="before",
@@ -154,18 +141,17 @@ class TriggerUpdateRequest(BaseModel):
 class TriggerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
+    id: TriggerId
     name: str
     description: Optional[str]
     type: Literal["cron", "webhook", "manual"]
-    agent_id: uuid.UUID
+    agent_id: AgentId
     prompt_template: str
-    system_prompt: Optional[str]
     environment_ref: Optional[str]
     enabled: bool
     session_mode: str
-    pinned_session_id: Optional[uuid.UUID]
-    reusable_session_id: Optional[uuid.UUID]
+    pinned_session_id: Optional[SessionId]
+    reusable_session_id: Optional[SessionId]
     session_key: Optional[str] = None
     filter: dict[str, Any]
     config: dict[str, Any]
@@ -177,8 +163,8 @@ class TriggerResponse(BaseModel):
     concurrency_policy: Optional[str] = None
     next_run_at: Optional[datetime] = None
     last_fired_slot: Optional[datetime] = None
-    secret_ref: Optional[str] = None
-    secret_key: Optional[str] = None
+    webhook_auth_credential_id: Optional[CredentialId] = None
+    webhook_auth_field: Optional[str] = None
     project_id: Optional[str]
     webhook_url: Optional[str] = None
     last_attempt_at: Optional[datetime]
@@ -187,22 +173,11 @@ class TriggerResponse(BaseModel):
     consecutive_failures: int
     auto_disabled_at: Optional[datetime] = None
     disabled_reason: Optional[str] = None
-    last_task_id: Optional[uuid.UUID]
-    last_session_id: Optional[uuid.UUID]
+    last_task_id: Optional[TaskId]
+    last_session_id: Optional[SessionId]
     last_payload: dict[str, Any]
     created_at: datetime
     updated_at: datetime
-
-    @field_serializer("id")
-    def _serialize_id(self, value: uuid.UUID) -> str:
-        return f"trig_{value}"
-
-    @field_serializer("agent_id", "pinned_session_id", "reusable_session_id", "last_task_id", "last_session_id")
-    def _serialize_uuid(self, value: Optional[uuid.UUID]) -> Optional[str]:
-        if value is None:
-            return None
-        return str(value)
-
 
 class TriggerVariable(BaseModel):
     path: str
@@ -217,8 +192,8 @@ class TriggerVariableCatalogResponse(BaseModel):
 
 class TriggerFireResponse(BaseModel):
     status: str
-    task_id: Optional[str] = None
-    session_id: Optional[str] = None
+    task_id: Optional[TaskId] = None
+    session_id: Optional[SessionId] = None
     deduped: bool = False
     reason: Optional[str] = None
 
@@ -228,25 +203,13 @@ class TriggerRunResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
-    trigger_id: Optional[uuid.UUID]
+    id: TaskId
+    trigger_id: Optional[TriggerId]
     status: str
     retry_count: int
     max_retries: int
-    chat_session_id: Optional[uuid.UUID]
+    chat_session_id: Optional[SessionId]
     error: Optional[str]
     created_at: datetime
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
-
-    @field_serializer("id")
-    def _serialize_id(self, value: uuid.UUID) -> str:
-        return f"task_{value}"
-
-    @field_serializer("trigger_id")
-    def _serialize_trigger_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
-        return f"trig_{value}" if value is not None else None
-
-    @field_serializer("chat_session_id")
-    def _serialize_chat_session_id(self, value: Optional[uuid.UUID]) -> Optional[str]:
-        return f"sess_{value}" if value is not None else None

@@ -1,22 +1,23 @@
 import logging
 import re
-import uuid
 from typing import NamedTuple, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.api.v1.id_helpers import parse_env_id
 from app.joysafeter_api.api.v1.network_policy_refresh import (
     refresh_live_limited_sandbox_network_policies,
 )
-from app.joysafeter_api.services import JoySafeterEnvironmentService as EnvironmentService
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
+from app.joysafeter_domain.schemas.joysafeter_credential import CredentialKind
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
+    EnvironmentConfig,
     EnvironmentResponse,
     UpdateEnvironmentRequest,
+    extract_environment_secret_references,
 )
+from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
 from app.joysafeter_shared.common.app_errors import (
     AppError,
@@ -32,6 +33,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import EnvironmentId, TaskId
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +49,7 @@ class _EnvironmentImageUpdate(NamedTuple):
     image_version: int
 
 
-def _environment_conflict_error(env_id: uuid.UUID, exc: ValueError) -> AppError:
+def _environment_conflict_error(env_id: EnvironmentId, exc: ValueError) -> AppError:
     message = str(exc)
     active_task_match = _ACTIVE_TASK_ENV_RE.match(message)
     if active_task_match:
@@ -55,7 +57,11 @@ def _environment_conflict_error(env_id: uuid.UUID, exc: ValueError) -> AppError:
         return ResourceConflictError(
             code="ENVIRONMENT_ACTIVE_TASK",
             message=message,
-            data={"environment_id": str(env_id), "task_id": task_id, "source": source},
+            data={
+                "environment_id": str(env_id),
+                "task_id": str(TaskId.from_public(task_id)),
+                "source": source,
+            },
             retryable=True,
             user_action="retry",
         )
@@ -92,7 +98,7 @@ def _environment_conflict_error(env_id: uuid.UUID, exc: ValueError) -> AppError:
     )
 
 
-def _environment_not_found_error(env_id: uuid.UUID) -> AppError:
+def _environment_not_found_error(env_id: EnvironmentId) -> AppError:
     return NotFoundError(
         code="ENVIRONMENT_NOT_FOUND",
         message="Environment not found",
@@ -101,7 +107,7 @@ def _environment_not_found_error(env_id: uuid.UUID) -> AppError:
     )
 
 
-def _environment_image_build_error(env_id: uuid.UUID, *, operation: str, exc: Exception) -> AppError:
+def _environment_image_build_error(env_id: EnvironmentId, *, operation: str, exc: Exception) -> AppError:
     return InternalServiceError(
         code="ENVIRONMENT_IMAGE_BUILD_FAILED",
         message=f"Image build failed: {exc}",
@@ -112,7 +118,7 @@ def _environment_image_build_error(env_id: uuid.UUID, *, operation: str, exc: Ex
     )
 
 
-def _environment_image_builder_unavailable_error(env_id: uuid.UUID) -> AppError:
+def _environment_image_builder_unavailable_error(env_id: EnvironmentId) -> AppError:
     return ServiceUnavailableError(
         code="ENVIRONMENT_IMAGE_BUILDER_UNAVAILABLE",
         message="Image builder is unavailable; cannot provision environment packages right now",
@@ -177,25 +183,61 @@ def _env_to_response(env) -> EnvironmentResponse:
 
 async def _validate_secret_refs(
     db: AsyncSession,
-    secret_refs: list[str],
+    config: EnvironmentConfig,
     project_id: Optional[str],
 ) -> None:
-    if not secret_refs:
+    """Validate that every referenced credential id (egress service_credential_id
+    and env-var secret_refs) resolves to a live, in-project ``kind='service'``
+    credential in the unified credential store.
+
+    There is no FK (the refs are buried in JSONB), so this write-time check is the
+    integrity guard on create/update. Delete-time dependency scanning is Task 9e.
+    """
+    from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
+
+    references = extract_environment_secret_references(config)
+    if not references:
         return
 
-    from app.joysafeter_api.services import SecretService
+    if project_id is None:
+        # A project-less environment cannot pin a project-scoped credential.
+        reference = references[0]
+        raise NotFoundError(
+            code="CREDENTIAL_NOT_FOUND",
+            message="Credential not found",
+            data={
+                "credential_id": str(reference.credential_id),
+                "source": reference.source,
+            },
+            user_action="fix_input",
+        )
 
-    secret_svc = SecretService(db)
-    for secret_ref in secret_refs:
-        ref = str(secret_ref).strip()
-        if not ref:
-            continue
-        secret = await secret_svc.get_secret_by_name(ref, project_id=project_id)
-        if not secret:
+    credential_svc = CredentialService(db)
+    await credential_svc.lock_credentials(
+        [reference.credential_id for reference in references],
+        project_id=project_id,
+    )
+    for reference in references:
+        cred = await credential_svc.get(reference.credential_id, project_id=project_id)
+        if cred is None or cred.archived_at is not None:
+            raise NotFoundError(
+                code="CREDENTIAL_NOT_FOUND",
+                message="Credential not found",
+                data={
+                    "credential_id": str(reference.credential_id),
+                    "source": reference.source,
+                },
+                user_action="fix_input",
+            )
+        if cred.kind != CredentialKind.SERVICE.value:
             raise InvalidRequestError(
-                code="ENVIRONMENT_SECRET_NOT_FOUND",
-                message=f"Secret not found: {ref}",
-                data={"secret_ref": ref},
+                code="CREDENTIAL_KIND_INVALID",
+                message="Environment credentials must reference a service credential",
+                data={
+                    "credential_id": str(reference.credential_id),
+                    "source": reference.source,
+                    "kind": cred.kind,
+                },
                 user_action="fix_input",
             )
 
@@ -214,7 +256,7 @@ async def create_environment(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> EnvironmentResponse:
-    await _validate_secret_refs(db, req.config.secret_refs, auth_ctx.project_id)
+    await _validate_secret_refs(db, req.config, auth_ctx.project_id)
     await StorageMountService(db).validate_mount_resources(req.config.mount_resources, auth_ctx.project_id)
 
     svc = EnvironmentService(db)
@@ -241,7 +283,7 @@ async def create_environment(
 @router.get("")
 async def list_environments(
     limit: int = Query(20, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[EnvironmentId] = Query(None),
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
@@ -259,7 +301,7 @@ async def list_environments(
 
 @router.get("/{env_id}")
 async def get_environment(
-    env_id: uuid.UUID = Depends(parse_env_id),
+    env_id: EnvironmentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> EnvironmentResponse:
@@ -273,7 +315,7 @@ async def get_environment(
 @router.post("/{env_id}")
 async def update_environment(
     req: UpdateEnvironmentRequest,
-    env_id: uuid.UUID = Depends(parse_env_id),
+    env_id: EnvironmentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> EnvironmentResponse:
@@ -291,7 +333,7 @@ async def update_environment(
         )
 
     if req.config is not None:
-        await _validate_secret_refs(db, req.config.secret_refs, auth_ctx.project_id)
+        await _validate_secret_refs(db, req.config, auth_ctx.project_id)
         await StorageMountService(db).validate_mount_resources(req.config.mount_resources, auth_ctx.project_id)
 
     try:
@@ -332,7 +374,7 @@ async def update_environment(
 
 @router.delete("/{env_id}", status_code=204)
 async def delete_environment(
-    env_id: uuid.UUID = Depends(parse_env_id),
+    env_id: EnvironmentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:
@@ -360,7 +402,7 @@ async def delete_environment(
 
 @router.post("/{env_id}/archive")
 async def archive_environment(
-    env_id: uuid.UUID = Depends(parse_env_id),
+    env_id: EnvironmentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> dict:

@@ -30,6 +30,111 @@ class CatalogEntry:
 
 
 CATALOG: dict[str, CatalogEntry] = {
+    # --- Unified credentials (P0). Flat, stable, actionable codes (design 3.13).
+    "CREDENTIAL_NOT_FOUND": CatalogEntry(
+        code="CREDENTIAL_NOT_FOUND", error_class=NotFoundError, default_message="Credential not found"
+    ),
+    "CREDENTIAL_KIND_INVALID": CatalogEntry(
+        code="CREDENTIAL_KIND_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Credential kind is invalid for this operation",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_NAME_EXISTS": CatalogEntry(
+        code="CREDENTIAL_NAME_EXISTS",
+        error_class=ResourceConflictError,
+        default_message="A credential with this name already exists for this kind in the project",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_IN_USE": CatalogEntry(
+        code="CREDENTIAL_IN_USE",
+        error_class=ResourceConflictError,
+        default_message="Credential is still referenced and cannot be archived or deleted",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_ARCHIVED": CatalogEntry(
+        code="CREDENTIAL_ARCHIVED",
+        error_class=ResourceConflictError,
+        default_message="Credential is archived",
+        user_action="refresh",
+    ),
+    "CREDENTIAL_FIELD_MISSING": CatalogEntry(
+        code="CREDENTIAL_FIELD_MISSING",
+        error_class=InvalidRequestError,
+        default_message="A required credential field is missing",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_FIELD_INVALID": CatalogEntry(
+        code="CREDENTIAL_FIELD_INVALID",
+        error_class=InvalidRequestError,
+        default_message="A credential field is invalid",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_MASK_CONFLICT": CatalogEntry(
+        code="CREDENTIAL_MASK_CONFLICT",
+        error_class=InvalidRequestError,
+        default_message="A masked value was submitted for a field with no stored value to preserve",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_GROUP_NOT_FOUND": CatalogEntry(
+        code="CREDENTIAL_GROUP_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Credential group not found",
+    ),
+    "CREDENTIAL_GROUP_NAME_EXISTS": CatalogEntry(
+        code="CREDENTIAL_GROUP_NAME_EXISTS",
+        error_class=ResourceConflictError,
+        default_message="A credential group with this name already exists in the project",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_GROUP_URL_CONFLICT": CatalogEntry(
+        code="CREDENTIAL_GROUP_URL_CONFLICT",
+        error_class=ResourceConflictError,
+        default_message="An mcp credential for this server url already exists in the group",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_TEST_BASE_URL_REQUIRED": CatalogEntry(
+        code="CREDENTIAL_TEST_BASE_URL_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="A base URL is required to test this credential",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_TEST_BASE_URL_INVALID": CatalogEntry(
+        code="CREDENTIAL_TEST_BASE_URL_INVALID",
+        error_class=InvalidRequestError,
+        default_message="The credential base URL is invalid",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_TEST_BASE_URL_NOT_ALLOWED": CatalogEntry(
+        code="CREDENTIAL_TEST_BASE_URL_NOT_ALLOWED",
+        error_class=InvalidRequestError,
+        default_message="The credential base URL host is not allowlisted",
+        user_action="fix_input",
+    ),
+    "CREDENTIAL_TEST_CREDENTIAL_PROFILE_UNSUPPORTED": CatalogEntry(
+        code="CREDENTIAL_TEST_CREDENTIAL_PROFILE_UNSUPPORTED",
+        error_class=InvalidRequestError,
+        default_message="Test connection is not supported for this credential profile",
+        user_action="fix_input",
+    ),
+    "SESSION_CREDENTIAL_GROUP_NOT_FOUND": CatalogEntry(
+        code="SESSION_CREDENTIAL_GROUP_NOT_FOUND",
+        error_class=NotFoundError,
+        default_message="Credential group not found",
+        user_action="refresh",
+    ),
+    "SESSION_CREDENTIAL_GROUP_ARCHIVED": CatalogEntry(
+        code="SESSION_CREDENTIAL_GROUP_ARCHIVED",
+        error_class=ResourceConflictError,
+        default_message="Credential group is archived",
+        user_action="refresh",
+    ),
+    "TRIGGER_SECRET_KIND_INVALID": CatalogEntry(
+        code="TRIGGER_SECRET_KIND_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Webhook auth credential must be a service credential",
+        user_action="fix_input",
+    ),
     "AGENT_ACTIVE_TASKS": CatalogEntry(
         code="AGENT_ACTIVE_TASKS",
         error_class=ResourceConflictError,
@@ -109,6 +214,16 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InvalidRequestError,
         default_message="Invalid role for this operation",
     ),
+    "AUTH_JWT_CONTEXT_INCOMPLETE": CatalogEntry(
+        code="AUTH_JWT_CONTEXT_INCOMPLETE",
+        error_class=InternalServiceError,
+        default_message="Authentication context is incomplete",
+    ),
+    "AUTH_JWT_CONTEXT_RESOLVE_FAILED": CatalogEntry(
+        code="AUTH_JWT_CONTEXT_RESOLVE_FAILED",
+        error_class=InternalServiceError,
+        default_message="Failed to resolve authentication context",
+    ),
     "AUTH_REQUIRED": CatalogEntry(
         code="AUTH_REQUIRED", error_class=AuthenticationError, default_message="Authentication required"
     ),
@@ -161,6 +276,11 @@ CATALOG: dict[str, CatalogEntry] = {
     ),
     "ENVIRONMENT_CONFLICT": CatalogEntry(
         code="ENVIRONMENT_CONFLICT", error_class=ResourceConflictError, default_message="Environment conflict"
+    ),
+    "ENVIRONMENT_ID_INVALID": CatalogEntry(
+        code="ENVIRONMENT_ID_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Invalid environment_id",
     ),
     "ENVIRONMENT_TRIGGER_REFERENCE": CatalogEntry(
         code="ENVIRONMENT_TRIGGER_REFERENCE",
@@ -481,6 +601,23 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InvalidRequestError,
         default_message="LLM base URL host is not allowlisted.",
     ),
+    "QUICKSTART_BASE_URL_REQUIRED": CatalogEntry(
+        code="QUICKSTART_BASE_URL_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="Base URL is required for this provider",
+        user_action="fix_input",
+    ),
+    "QUICKSTART_PROTOCOL_UNSUPPORTED": CatalogEntry(
+        code="QUICKSTART_PROTOCOL_UNSUPPORTED",
+        error_class=InvalidRequestError,
+        default_message="Quickstart does not support this protocol",
+        user_action="fix_input",
+    ),
+    "QUICKSTART_SECRET_INCOMPATIBLE": CatalogEntry(
+        code="QUICKSTART_SECRET_INCOMPATIBLE",
+        error_class=InvalidRequestError,
+        default_message="Secret is not compatible with the selected engine kind",
+    ),
     "QUICKSTART_SECRET_MISSING_KEY": CatalogEntry(
         code="QUICKSTART_SECRET_MISSING_KEY",
         error_class=InvalidRequestError,
@@ -550,42 +687,6 @@ CATALOG: dict[str, CatalogEntry] = {
         code="SANDBOX_FILE_TOO_LARGE",
         error_class=InvalidRequestError,
         default_message="Sandbox file exceeds download size limit",
-    ),
-    "SECRET_ACTIVE_TASK_DEPENDENCY": CatalogEntry(
-        code="SECRET_ACTIVE_TASK_DEPENDENCY",
-        error_class=ResourceConflictError,
-        default_message="Secret active task dependency",
-    ),
-    "SECRET_TEST_BASE_URL_INVALID": CatalogEntry(
-        code="SECRET_TEST_BASE_URL_INVALID",
-        error_class=InvalidRequestError,
-        default_message="Invalid secret test base URL",
-    ),
-    "SECRET_TEST_BASE_URL_NOT_ALLOWED": CatalogEntry(
-        code="SECRET_TEST_BASE_URL_NOT_ALLOWED",
-        error_class=InvalidRequestError,
-        default_message="Secret test base URL host is not allowlisted.",
-    ),
-    "SECRET_TEST_MISSING_KEY": CatalogEntry(
-        code="SECRET_TEST_MISSING_KEY",
-        error_class=InvalidRequestError,
-        default_message="Secret test missing required key.",
-    ),
-    "SECRET_TEST_PROVIDER_UNSUPPORTED": CatalogEntry(
-        code="SECRET_TEST_PROVIDER_UNSUPPORTED",
-        error_class=InvalidRequestError,
-        default_message="Secret test provider unsupported.",
-    ),
-    "SECRET_NOT_FOUND": CatalogEntry(
-        code="SECRET_NOT_FOUND", error_class=NotFoundError, default_message="Secret not found"
-    ),
-    "SECRET_VALIDATION_FAILED": CatalogEntry(
-        code="SECRET_VALIDATION_FAILED", error_class=InvalidRequestError, default_message="Secret validation failed"
-    ),
-    "SECRET_VAULT_CONFIGURATION_REQUIRED": CatalogEntry(
-        code="SECRET_VAULT_CONFIGURATION_REQUIRED",
-        error_class=ServiceUnavailableError,
-        default_message="Managed secrets require JOYSAFETER_VAULT_ENCRYPTION_KEY to be configured.",
     ),
     "SERVICE_UNAVAILABLE": CatalogEntry(
         code="SERVICE_UNAVAILABLE", error_class=ServiceUnavailableError, default_message="服务暂不可用"
@@ -755,17 +856,6 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=RequestValidationAppError,
         default_message="user.message requires content",
     ),
-    "SESSION_VAULT_ID_INVALID": CatalogEntry(
-        code="SESSION_VAULT_ID_INVALID", error_class=InvalidRequestError, default_message="Session vault id invalid"
-    ),
-    "SESSION_VAULT_NOT_FOUND": CatalogEntry(
-        code="SESSION_VAULT_NOT_FOUND", error_class=NotFoundError, default_message="Session vault not found"
-    ),
-    "SESSION_VAULT_ARCHIVED": CatalogEntry(
-        code="SESSION_VAULT_ARCHIVED",
-        error_class=ResourceConflictError,
-        default_message="Session vault is archived",
-    ),
     "SESSION_FILE_MOUNT_PATH_CONFLICT": CatalogEntry(
         code="SESSION_FILE_MOUNT_PATH_CONFLICT",
         error_class=ResourceConflictError,
@@ -835,6 +925,17 @@ CATALOG: dict[str, CatalogEntry] = {
         code="SKILL_AUTHORING_BASE_URL_NOT_ALLOWED",
         error_class=InvalidRequestError,
         default_message="OPENAI_BASE_URL host is not allowlisted.",
+    ),
+    "SKILL_AUTHORING_BASE_URL_REQUIRED": CatalogEntry(
+        code="SKILL_AUTHORING_BASE_URL_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="Base URL is required for skill authoring.",
+        user_action="fix_input",
+    ),
+    "SKILL_AUTHORING_SECRET_INCOMPATIBLE": CatalogEntry(
+        code="SKILL_AUTHORING_SECRET_INCOMPATIBLE",
+        error_class=InvalidRequestError,
+        default_message="Skill authoring requires an OpenAI Responses compatible model configuration.",
     ),
     "SKILL_AUTHORING_SECRET_MISSING_KEY": CatalogEntry(
         code="SKILL_AUTHORING_SECRET_MISSING_KEY",
@@ -1103,7 +1204,7 @@ CATALOG: dict[str, CatalogEntry] = {
     "TRIGGER_AUTH_METHODS_REQUIRED": CatalogEntry(
         code="TRIGGER_AUTH_METHODS_REQUIRED",
         error_class=RequestValidationAppError,
-        default_message="Webhook auth_methods must not be empty",
+        default_message="Webhook auth_methods is required and must not be empty",
     ),
     "TRIGGER_CONCURRENCY_POLICY_INVALID": CatalogEntry(
         code="TRIGGER_CONCURRENCY_POLICY_INVALID",
@@ -1190,6 +1291,11 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=RequestValidationAppError,
         default_message="Webhook trigger requires secret_ref",
     ),
+    "TRIGGER_SECRET_VALUE_BLANK": CatalogEntry(
+        code="TRIGGER_SECRET_VALUE_BLANK",
+        error_class=RequestValidationAppError,
+        default_message="Webhook credential field must not be blank",
+    ),
     "TRIGGER_SESSION_KEY_REQUIRED": CatalogEntry(
         code="TRIGGER_SESSION_KEY_REQUIRED",
         error_class=RequestValidationAppError,
@@ -1235,32 +1341,6 @@ CATALOG: dict[str, CatalogEntry] = {
         retryable=True,
         user_action="retry",
     ),
-    "VAULT_CREDENTIAL_NOT_FOUND": CatalogEntry(
-        code="VAULT_CREDENTIAL_NOT_FOUND", error_class=NotFoundError, default_message="Credential not found"
-    ),
-    "VAULT_CREDENTIAL_ARCHIVED": CatalogEntry(
-        code="VAULT_CREDENTIAL_ARCHIVED",
-        error_class=ResourceConflictError,
-        default_message="Credential is archived",
-    ),
-    "VAULT_NOT_FOUND": CatalogEntry(
-        code="VAULT_NOT_FOUND", error_class=NotFoundError, default_message="Vault not found"
-    ),
-    "VAULT_ARCHIVED": CatalogEntry(
-        code="VAULT_ARCHIVED",
-        error_class=ResourceConflictError,
-        default_message="Vault is archived",
-    ),
-    "VAULT_ACTIVE_SESSION_REFERENCE": CatalogEntry(
-        code="VAULT_ACTIVE_SESSION_REFERENCE",
-        error_class=ResourceConflictError,
-        default_message="Vault active session reference",
-    ),
-    "VAULT_CONFLICT": CatalogEntry(
-        code="VAULT_CONFLICT",
-        error_class=ResourceConflictError,
-        default_message="Vault conflict",
-    ),
     "VERIFICATION_TOKEN_EXPIRED": CatalogEntry(
         code="VERIFICATION_TOKEN_EXPIRED",
         error_class=InvalidRequestError,
@@ -1286,12 +1366,6 @@ CATALOG: dict[str, CatalogEntry] = {
         code="PLATFORM_USER_NOT_FOUND",
         error_class=NotFoundError,
         default_message="User not found",
-    ),
-    # --- Secrets ---
-    "SECRET_NAME_EXISTS": CatalogEntry(
-        code="SECRET_NAME_EXISTS",
-        error_class=ResourceConflictError,
-        default_message="Secret name exists",
     ),
     # --- Storage volumes / grants / mounts ---
     "PROJECT_SCOPE_REQUIRED": CatalogEntry(

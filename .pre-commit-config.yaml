@@ -1,6 +1,6 @@
 # Pre-commit hooks configuration
-# Install: pip install pre-commit && pre-commit install
-# Run manually: pre-commit run --all-files
+# Install: cd backend && uv sync --dev && uv run pre-commit install --install-hooks
+# Run manually: backend/.venv/bin/python -m pre_commit run --all-files
 
 repos:
   # General hooks

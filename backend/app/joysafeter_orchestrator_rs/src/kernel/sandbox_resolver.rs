@@ -13,20 +13,25 @@ use uuid::Uuid;
 use crate::config::JoySafeterConfig;
 use crate::db::models::{JoySafeterAgent, JoySafeterSandbox};
 use crate::db::queries;
+use crate::ids::{
+    AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId,
+    SessionResourceId, TaskId,
+};
 use crate::kernel::ha::{XdsAction, XdsStateStore};
 use crate::kernel::harness_input_builder::VaultCipher;
+use crate::kernel::llm_catalog::{validate_runtime_secret, RuntimeSecretBinding};
+use crate::kernel::mcp_url;
 use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
 use crate::sandbox::lds_backend::{
     normalize_prefix, normalize_rewrite_base_prefix, EgressCredentialRoute, EgressExposure,
-    EgressKind, SandboxCredentials, UpstreamTarget, GIT_EGRESS_HOST, LLM_EGRESS_HOST,
-    MCP_EGRESS_HOST,
+    EgressKind, SandboxCredentials, UpstreamTarget, GIT_EGRESS_HOST,
 };
 use crate::sandbox::mounts::{resolve_mount_resources, SandboxMount, SandboxMountFingerprint};
 use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
 
-use super::llm_providers::{
-    llm_provider_registry, CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OPENAI_API_KEY,
-};
+use super::llm_providers::credential_profile_spec;
+#[cfg(test)]
+use super::llm_providers::{CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OPENAI_API_KEY};
 
 /// Hard client-side bound on a provider networking setup/refresh call (Envoy
 /// socket prep + xDS push + ACK/socket-readiness wait). The individual steps are
@@ -37,31 +42,50 @@ use super::llm_providers::{
 /// freezing task scheduling.
 const SETUP_NETWORKING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-fn mcp_credential_url_keys(raw: &str) -> Vec<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Vec::new();
+#[cfg(test)]
+mod protocol_env_tests {
+    use super::model_protocol_env_value;
+
+    #[test]
+    fn maps_known_protocols() {
+        assert_eq!(
+            model_protocol_env_value("openai_responses"),
+            Some("openai_responses".to_string())
+        );
+        assert_eq!(
+            model_protocol_env_value("chat_completions"),
+            Some("chat_completions".to_string())
+        );
+        assert_eq!(
+            model_protocol_env_value("anthropic_messages"),
+            Some("anthropic_messages".to_string())
+        );
     }
 
-    let mut keys = vec![trimmed.to_string()];
-    if let Ok(mut url) = Url::parse(trimmed) {
-        if let Some(host) = url.host_str().map(|host| host.to_ascii_lowercase()) {
-            let _ = url.set_host(Some(&host));
-        }
-        let path = url.path().to_string();
-        if path != "/" {
-            url.set_path(path.trim_end_matches('/'));
-        }
-        keys.push(url.to_string());
-        if url.path() != "/" {
-            let with_slash_path = format!("{}/", url.path().trim_end_matches('/'));
-            url.set_path(&with_slash_path);
-            keys.push(url.to_string());
-        }
+    #[test]
+    fn ignores_custom_and_blank() {
+        assert_eq!(model_protocol_env_value("custom"), None);
+        assert_eq!(model_protocol_env_value(""), None);
+        assert_eq!(model_protocol_env_value("   "), None);
     }
-    keys.sort();
-    keys.dedup();
-    keys
+}
+
+/// Normalizes a stored secret `protocol` into the container-env signal read by
+/// pi-entrypoint.sh. Returns `None` for `custom`/blank so we never emit a
+/// meaningless `JOYSAFETER_MODEL_PROTOCOL`.
+fn model_protocol_env_value(protocol: &str) -> Option<String> {
+    match protocol.trim() {
+        "" | "custom" => None,
+        other => Some(other.to_string()),
+    }
+}
+
+fn apply_sandbox_timezone(env: &mut HashMap<String, String>, platform_timezone: &str) {
+    let platform_timezone = platform_timezone.trim();
+    if !platform_timezone.is_empty() {
+        env.entry("TZ".to_string())
+            .or_insert_with(|| platform_timezone.to_string());
+    }
 }
 
 /// 3-stage sandbox resolution with full Python parity:
@@ -76,12 +100,12 @@ pub struct SandboxResolver {
     provider: Arc<dyn SandboxProvider>,
     config: JoySafeterConfig,
     /// Per-session locks to prevent concurrent resolution
-    session_locks: dashmap::DashMap<Uuid, Arc<tokio::sync::Mutex<()>>>,
+    session_locks: dashmap::DashMap<SessionId, Arc<tokio::sync::Mutex<()>>>,
     /// In-process confirmation that this orchestrator has successfully pushed
     /// the sandbox's current Envoy policy. DB state alone is not enough after a
     /// process restart because xDS state is in-memory; the first reuse after
     /// restart refreshes Envoy and repopulates this cache.
-    network_policy_ready: dashmap::DashMap<Uuid, String>,
+    network_policy_ready: dashmap::DashMap<SandboxId, String>,
     /// Optional notify to trigger immediate pool replenishment after a claim.
     pool_replenish_notify: Option<Arc<tokio::sync::Notify>>,
 }
@@ -127,11 +151,11 @@ impl SandboxResolver {
     /// double-attachment.
     pub async fn resolve(
         &self,
-        task_id: Uuid,
-        session_id: Option<Uuid>,
-        agent_id: Option<Uuid>,
+        task_id: TaskId,
+        session_id: Option<SessionId>,
+        agent_id: Option<AgentId>,
         project_id: Option<&str>,
-    ) -> anyhow::Result<(Uuid, String)> {
+    ) -> anyhow::Result<(SandboxId, String)> {
         // Per-session in-process lock to prevent concurrent resolution
         let _lock = if let Some(sid) = session_id {
             let lock = self
@@ -163,11 +187,11 @@ impl SandboxResolver {
 
     async fn resolve_inner(
         &self,
-        task_id: Uuid,
-        session_id: Option<Uuid>,
-        agent_id: Option<Uuid>,
+        task_id: TaskId,
+        session_id: Option<SessionId>,
+        agent_id: Option<AgentId>,
         project_id: Option<&str>,
-    ) -> anyhow::Result<(Uuid, String)> {
+    ) -> anyhow::Result<(SandboxId, String)> {
         let context = self
             .build_resolve_context(session_id, agent_id, project_id)
             .await?;
@@ -498,19 +522,20 @@ impl SandboxResolver {
     /// Create a brand-new sandbox container with full env vars and runner token.
     async fn create_new_sandbox(
         &self,
-        task_id: Uuid,
+        task_id: TaskId,
         context: &ResolveContext,
-    ) -> anyhow::Result<(Uuid, String)> {
-        let sandbox_db_id = Uuid::now_v7();
+    ) -> anyhow::Result<(SandboxId, String)> {
+        let sandbox_db_id = SandboxId::from_uuid(Uuid::now_v7());
         let expected = context.expected.clone();
         let image = expected.image.clone();
         let runner_token = generate_runner_token();
 
         // Build environment variables — both JOYSAFETER_* and JOYSAFETER_* variants
         let mut env = expected.env.clone();
+        apply_sandbox_timezone(&mut env, &self.config.sandbox_timezone);
         env.insert(
             "JOYSAFETER_SANDBOX_ID".to_string(),
-            sandbox_db_id.to_string(),
+            sandbox_db_id.as_uuid().to_string(),
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
         // Disable Claude Code telemetry — the sandbox has no route to
@@ -526,7 +551,7 @@ impl SandboxResolver {
         labels.insert("joysafeter.managed".to_string(), "true".to_string());
         labels.insert(
             "joysafeter.sandbox_id".to_string(),
-            sandbox_db_id.to_string(),
+            sandbox_db_id.as_uuid().to_string(),
         );
         labels.insert(
             "joysafeter.owner_instance_id".to_string(),
@@ -776,8 +801,8 @@ impl SandboxResolver {
 
     async fn build_resolve_context(
         &self,
-        session_id: Option<Uuid>,
-        agent_id: Option<Uuid>,
+        session_id: Option<SessionId>,
+        agent_id: Option<AgentId>,
         project_id: Option<&str>,
     ) -> anyhow::Result<ResolveContext> {
         let live_agent = match agent_id {
@@ -819,12 +844,14 @@ impl SandboxResolver {
             .as_ref()
             .and_then(|a| a.engine_kind.clone())
             .unwrap_or_else(|| "claude".to_string());
-        let image = environment
-            .as_ref()
-            .and_then(|env| env.image_tag.clone())
-            .unwrap_or_else(|| self.config.image_for_provider(&engine_kind));
-        let mut env =
+        let image = match environment.as_ref().and_then(|env| env.image_tag.clone()) {
+            Some(tag) => tag,
+            None => self.config.image_for_provider(&engine_kind)?,
+        };
+        let resolved_env =
             Self::resolve_agent_env_from(&self.pool, agent.as_ref(), environment.as_ref()).await?;
+        let mut env = resolved_env.values;
+        let llm_binding = resolved_env.llm_binding;
         let configured_networking = environment
             .as_ref()
             .and_then(|env| env.config.get("networking").cloned());
@@ -843,13 +870,14 @@ impl SandboxResolver {
         // Egress credential injection only applies to limited-networking sandboxes
         // (those routed through Envoy). For those, pull the LLM key out of the
         // container env and repoint the base URL at the egress boundary so the
-        // real key never enters the sandbox. Non-limited sandboxes keep the
-        // legacy behaviour (key stays in env) since they have no proxy.
+        // real key never enters the sandbox. Unrestricted sandboxes keep the
+        // key in their environment because they do not route through Envoy.
         let mut credentials = SandboxCredentials::default();
         if network.as_deref() == Some("none") {
             let mut routes = Vec::new();
             routes.extend(Self::extract_llm_egress(
                 &mut env,
+                llm_binding.as_ref(),
                 &self.config.llm_egress_allowed_hosts,
             ));
             routes.extend(Self::build_mcp_egress(&self.pool, session_id, agent.as_ref()).await?);
@@ -902,7 +930,7 @@ impl SandboxResolver {
         env_ref: &str,
         project_id: Option<&str>,
     ) -> anyhow::Result<Option<EnvironmentRow>> {
-        if let Some(env_id) = parse_prefixed_uuid(env_ref, "env_") {
+        if let Ok(env_id) = EnvironmentId::from_public(env_ref) {
             return sqlx::query_as::<_, EnvironmentRow>(
                 r#"
                 SELECT config, image_tag FROM joysafeter_environments
@@ -1017,7 +1045,7 @@ impl SandboxResolver {
     /// the session's egress policy (credentials + allowlist) after claim.
     async fn setup_pool_sandbox_networking(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         external_id: &str,
         context: &ResolveContext,
     ) -> anyhow::Result<()> {
@@ -1072,8 +1100,8 @@ impl SandboxResolver {
 
     async fn persist_network_policy_failure(
         &self,
-        sandbox_id: Uuid,
-        task_id: Option<Uuid>,
+        sandbox_id: SandboxId,
+        task_id: Option<TaskId>,
         context: &ResolveContext,
         error: &anyhow::Error,
     ) -> anyhow::Result<()> {
@@ -1194,10 +1222,10 @@ impl SandboxResolver {
         pool: &PgPool,
         agent: Option<&JoySafeterAgent>,
         environment: Option<&EnvironmentRow>,
-    ) -> anyhow::Result<HashMap<String, String>> {
+    ) -> anyhow::Result<ResolvedAgentEnv> {
         let mut env = HashMap::new();
         let Some(agent) = agent else {
-            return Ok(env);
+            return Ok(ResolvedAgentEnv::default());
         };
 
         if let Some(environment) = environment {
@@ -1215,33 +1243,67 @@ impl SandboxResolver {
                 }
             }
 
+            // Environment-level credentials are referenced by id. Both the
+            // legacy list form (`secret_refs`) and the single `service_credential_id`
+            // now hold canonical `cred_` ids that resolve against
+            // `joysafeter_credentials` with kind=service.
+            let mut env_credential_ids: Vec<CredentialId> = Vec::new();
+            if let Some(service_credential_id) = environment
+                .config
+                .get("service_credential_id")
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.trim().is_empty())
+                .and_then(|raw| CredentialId::from_public(raw).ok())
+            {
+                env_credential_ids.push(service_credential_id);
+            }
             if let Some(secret_refs) = environment
                 .config
                 .get("secret_refs")
                 .and_then(|v| v.as_array())
             {
-                for secret_ref in secret_refs.iter().filter_map(|v| v.as_str()) {
-                    Self::merge_secret_ref_into_env(
-                        pool,
-                        &mut env,
-                        secret_ref,
-                        agent.project_id.as_deref(),
-                        false,
-                    )
-                    .await?;
+                for raw in secret_refs.iter().filter_map(|v| v.as_str()) {
+                    if let Ok(credential_id) = CredentialId::from_public(raw) {
+                        env_credential_ids.push(credential_id);
+                    }
                 }
+            }
+            for credential_id in env_credential_ids {
+                Self::merge_secret_ref_into_env(
+                    pool,
+                    &mut env,
+                    credential_id,
+                    agent.project_id.as_deref(),
+                    false,
+                    None,
+                )
+                .await?;
             }
         }
 
-        if let Some(secret_ref) = agent.secret_ref.as_deref().filter(|v| !v.trim().is_empty()) {
-            Self::merge_secret_ref_into_env(
+        if let Some(model_credential_id) = agent.model_credential_id {
+            let llm_binding = Self::merge_secret_ref_into_env(
                 pool,
                 &mut env,
-                secret_ref,
+                model_credential_id,
                 agent.project_id.as_deref(),
                 true,
+                Some(agent.engine_kind.as_deref().unwrap_or("claude")),
             )
             .await?;
+            if let Some(obj) = agent.env.as_ref().and_then(|v| v.as_object()) {
+                for (key, value) in obj {
+                    let value = value
+                        .as_str()
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| value.to_string());
+                    env.insert(key.clone(), value);
+                }
+            }
+            return Ok(ResolvedAgentEnv {
+                values: env,
+                llm_binding,
+            });
         }
 
         if let Some(obj) = agent.env.as_ref().and_then(|v| v.as_object()) {
@@ -1254,9 +1316,10 @@ impl SandboxResolver {
             }
         }
 
-        apply_provider_aliases(&mut env);
-
-        Ok(env)
+        Ok(ResolvedAgentEnv {
+            values: env,
+            llm_binding: None,
+        })
     }
 
     /// Extract LLM egress credentials from the resolved env, removing the real
@@ -1264,30 +1327,33 @@ impl SandboxResolver {
     /// boundary. After this, the container env holds no LLM API key — the key is
     /// injected by Envoy at the egress boundary instead.
     ///
-    /// Provider detection is data-driven via [`llm_provider_registry`]: the first
-    /// spec whose detection key is present in `env` wins. The upstream host is
-    /// derived from the corresponding `*_BASE_URL` (using the spec's default when
-    /// unset), then the base URL is rewritten to the plaintext egress placeholder
-    /// so the agent's HTTP client targets Envoy.
+    /// Credential handling is selected by the Catalog-resolved profile, and
+    /// provider defaults come from the validated Provider/Protocol binding.
     fn extract_llm_egress(
         env: &mut HashMap<String, String>,
+        binding: Option<&RuntimeSecretBinding>,
         allowed_hosts: &[String],
     ) -> Vec<EgressCredentialRoute> {
-        // Find the first matching provider spec by scanning detection keys in
-        // registry order (preserves the original if/else precedence).
-        let registry = llm_provider_registry();
-        let (spec, matched_key) = match registry.iter().find_map(|spec| {
-            spec.detection_keys
-                .iter()
-                .find(|k| env.contains_key(**k))
-                .map(|k| (spec, *k))
-        }) {
-            Some(pair) => pair,
-            None => return vec![],
+        let Some(binding) = binding else {
+            return vec![];
+        };
+        let Some(spec) = credential_profile_spec(&binding.credential_profile_id) else {
+            warn!(
+                credential_profile_id = %binding.credential_profile_id,
+                protocol_id = %binding.protocol_id,
+                "LLM credential profile has no runtime routing implementation"
+            );
+            return vec![];
+        };
+        let Some(credential_key) = spec
+            .credential_keys
+            .iter()
+            .find(|credential| env.contains_key(credential.key))
+        else {
+            return vec![];
         };
 
-        // Take the key value, removing it from env.
-        let Some(key_value) = env.remove(matched_key) else {
+        let Some(key_value) = env.remove(credential_key.key) else {
             return vec![];
         };
 
@@ -1298,15 +1364,17 @@ impl SandboxResolver {
             env.remove(*extra);
         }
 
-        let base_url_var = spec.base_url_var;
-        let default_host = spec.default_host;
+        let base_url_var = binding.base_url_key.as_str();
 
         // Parse the configured base URL to learn the real upstream
         // host/port/scheme/path. The sandbox is then repointed at the placeholder
         // egress host over plaintext http:// — it never learns the real address.
         // Envoy matches the placeholder, injects the key, host_rewrites to the
         // real upstream, and forwards via that upstream's STRICT_DNS cluster.
-        let configured = env.get(base_url_var).cloned();
+        let configured = env
+            .get(base_url_var)
+            .cloned()
+            .or_else(|| binding.default_base_url.clone());
         let (upstream_host, upstream_port, upstream_prefix, upstream_tls) = match configured
             .as_deref()
         {
@@ -1326,30 +1394,24 @@ impl SandboxResolver {
                     );
                     return vec![];
                 }
-                let host = match (url.host_str(), default_host) {
-                    (Some(h), _) => h.to_string(),
-                    (None, Some(d)) => d.to_string(),
-                    (None, None) => return vec![],
+                let host = match url.host_str() {
+                    Some(host) => host.to_string(),
+                    None => return vec![],
                 };
                 let tls = url.scheme() == "https";
                 let port = url.port().unwrap_or(if tls { 443 } else { 80 });
                 let prefix = normalize_llm_upstream_prefix(url.path());
                 (host, port, prefix, tls)
             }
-            // No base URL configured: use the provider default if it has one.
-            // Providers without a fixed endpoint (Azure) require an explicit base
-            // URL, so bail rather than inject a key toward an unknown host.
-            None => match default_host {
-                Some(d) => (d.to_string(), 443, "/".to_string(), true),
-                None => {
-                    warn!(
-                        base_url_var,
-                        "LLM provider requires an explicit base URL (no fixed \
-                     endpoint); skipping credential injection"
-                    );
-                    return vec![];
-                }
-            },
+            None => {
+                warn!(
+                    base_url_var,
+                    credential_profile_id = %binding.credential_profile_id,
+                    protocol_id = %binding.protocol_id,
+                    "LLM binding requires an explicit base URL"
+                );
+                return vec![];
+            }
         };
 
         if !is_llm_egress_host_allowed(&upstream_host, allowed_hosts) {
@@ -1385,7 +1447,7 @@ impl SandboxResolver {
         };
         env.insert(base_url_var.to_string(), base_url_for_sandbox);
 
-        let header_value = if spec.is_bearer {
+        let header_value = if credential_key.is_bearer {
             format!("Bearer {key_value}")
         } else {
             key_value
@@ -1403,20 +1465,21 @@ impl SandboxResolver {
             upstream_prefix: normalize_rewrite_base_prefix(&upstream_prefix),
             upstream_tls,
             cluster_name: String::new(),
-            inject_headers: vec![(spec.header_name.to_string(), header_value)],
+            inject_headers: vec![(credential_key.header_name.to_string(), header_value)],
             remove_headers: vec![],
         }]
     }
 
     /// Build MCP egress credentials for a sandbox: for each remote MCP server the
-    /// agent references, match a vault credential by URL, decrypt its token, and
+    /// agent references, match a credential (from the session's bound credential
+    /// groups) by canonical normalized URL, decrypt its static-bearer token, and
     /// produce an [`EgressCredentialRoute`] keyed by the server name. The
     /// `.mcp.json` written
     /// into the sandbox points at `mcp-egress.internal/mcp/<name>/` with no token;
     /// Envoy injects the real `Authorization` here.
     async fn build_mcp_egress(
         pool: &PgPool,
-        session_id: Option<Uuid>,
+        session_id: Option<SessionId>,
         agent: Option<&JoySafeterAgent>,
     ) -> anyhow::Result<Vec<EgressCredentialRoute>> {
         let Some(agent) = agent else {
@@ -1427,7 +1490,7 @@ impl SandboxResolver {
         };
         // Remote MCP servers (url present) declared by the agent.
         let mcp_servers: Vec<(String, String)> = agent
-            .mcp_configs
+            .mcp_servers
             .as_ref()
             .and_then(|v| v.as_array())
             .map(|arr| {
@@ -1448,73 +1511,72 @@ impl SandboxResolver {
             return Ok(vec![]);
         }
 
-        // Load the session's vault credentials, keyed by mcp_server_url.
-        let session = match queries::get_session(pool, session_id).await {
-            Ok(Some(s)) => s,
-            Ok(None) => return Ok(vec![]),
-            Err(e) => {
-                return Err(anyhow::anyhow!(
-                    "failed to load session {session_id} while building MCP egress: {e}"
-                ));
-            }
-        };
-        let Some(vault_ids) = session.vault_ids.as_ref() else {
-            return Ok(vec![]);
-        };
-        let ids: Vec<Uuid> = vault_ids
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str())
-                    .filter_map(parse_vault_ref)
-                    .collect()
-            })
-            .unwrap_or_default();
-        if ids.is_empty() {
+        // Load the credential groups bound to the session, then the MCP
+        // credentials in those groups, keyed by their canonical normalized URL.
+        let group_ids: Vec<CredentialGroupId> = sqlx::query_as::<_, (CredentialGroupId,)>(
+            r#"
+            SELECT credential_group_id
+            FROM joysafeter_session_credential_groups
+            WHERE session_id = $1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "failed to load session credential groups for MCP egress in session {session_id}: {e}"
+            )
+        })?
+        .into_iter()
+        .map(|(id,)| id)
+        .collect();
+        if group_ids.is_empty() {
             return Ok(vec![]);
         }
 
+        let rows: Vec<(Option<String>, serde_json::Value)> = sqlx::query_as(
+            r#"
+            SELECT normalized_mcp_server_url, data
+            FROM joysafeter_credentials
+            WHERE group_id = ANY($1)
+              AND kind = 'mcp'
+              AND archived_at IS NULL
+              AND deleted_at IS NULL
+            "#,
+        )
+        .bind(&group_ids)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!("failed to load MCP credentials for session {session_id}: {e}")
+        })?;
+
         let cipher = VaultCipher::from_env();
+        // Map normalized_url -> decrypted token. Python enforces a per-group
+        // unique index on normalized_mcp_server_url and rejects cross-group URL
+        // conflicts at write time, so a single deterministic key is sufficient.
         let mut token_by_url: HashMap<String, String> = HashMap::new();
-        for vault_id in ids {
-            let rows: Vec<(Option<String>, String)> = sqlx::query_as(
-                r#"
-                SELECT c.mcp_server_url, c.token_value
-                FROM joysafeter_vault_credentials c
-                JOIN joysafeter_vaults v ON v.id = c.vault_id
-                WHERE c.vault_id = $1
-                  AND c.deleted_at IS NULL
-                  AND c.archived_at IS NULL
-                  AND v.deleted_at IS NULL
-                  AND v.archived_at IS NULL
-                "#,
-            )
-            .bind(vault_id)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| {
-                anyhow::anyhow!("failed to load vault credentials for vault {vault_id}: {e}")
+        for (normalized_url, data) in rows {
+            let Some(normalized_url) = normalized_url else {
+                continue;
+            };
+            let Some(token_value) = data.get("token_value").and_then(|v| v.as_str()) else {
+                // OAuth-only or malformed credential: no static bearer to inject.
+                // P2B: OAuth refresh not yet migrated.
+                continue;
+            };
+            let token = cipher.decrypt_or_passthrough(token_value).map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to decrypt MCP credential token for server '{normalized_url}' in session {session_id}: {e}"
+                )
             })?;
-            for (url, token_value) in rows {
-                if let Some(url) = url {
-                    let tok = cipher.decrypt_or_passthrough(&token_value).map_err(|e| {
-                        anyhow::anyhow!(
-                            "failed to decrypt vault credential for MCP server '{url}' in vault {vault_id}: {e}"
-                        )
-                    })?;
-                    for key in mcp_credential_url_keys(&url) {
-                        token_by_url.insert(key, tok.clone());
-                    }
-                }
-            }
+            token_by_url.insert(normalized_url, token);
         }
 
         let mut egress = Vec::new();
         for (name, url) in mcp_servers {
-            let token = mcp_credential_url_keys(&url)
-                .into_iter()
-                .find_map(|key| token_by_url.get(&key));
-            let Some(token) = token else {
+            let Some(token) = token_by_url.get(&mcp_url::normalize(&url)) else {
                 continue;
             };
             let upstream = UpstreamTarget::from_url(&url)
@@ -1545,7 +1607,7 @@ impl SandboxResolver {
     /// forwards over the upstream scheme. The real token never enters the sandbox.
     async fn build_git_egress(
         pool: &PgPool,
-        session_id: Option<Uuid>,
+        session_id: Option<SessionId>,
     ) -> anyhow::Result<Vec<EgressCredentialRoute>> {
         let Some(session_id) = session_id else {
             return Ok(vec![]);
@@ -1653,10 +1715,11 @@ impl SandboxResolver {
             let port = upstream.port;
             let upstream_prefix = normalize_external_upstream_prefix(&upstream.prefix);
 
-            let Some(credential_ref) = service
-                .get("credential_ref")
+            let Some(service_credential_id) = service
+                .get("service_credential_id")
                 .and_then(|value| value.as_str())
                 .filter(|value| !value.trim().is_empty())
+                .and_then(|raw| CredentialId::from_public(raw).ok())
             else {
                 continue;
             };
@@ -1664,11 +1727,12 @@ impl SandboxResolver {
                 continue;
             };
 
-            let secret = match Self::load_secret_data(pool, credential_ref, project_id).await {
+            let secret = match Self::load_secret_data(pool, service_credential_id, project_id).await
+            {
                 Ok(Some(secret)) => secret,
                 Ok(None) => continue,
                 Err(e) => {
-                    warn!(service = %name, credential_ref, "Failed to load external egress secret: {e}");
+                    warn!(service = %name, credential_id = %service_credential_id, "Failed to load external egress secret: {e}");
                     continue;
                 }
             };
@@ -1676,7 +1740,7 @@ impl SandboxResolver {
                 Ok(headers) if !headers.is_empty() => headers,
                 Ok(_) => continue,
                 Err(e) => {
-                    warn!(service = %name, credential_ref, "Failed to build external egress headers: {e}");
+                    warn!(service = %name, credential_id = %service_credential_id, "Failed to build external egress headers: {e}");
                     continue;
                 }
             };
@@ -1748,19 +1812,17 @@ impl SandboxResolver {
 
     async fn load_secret_data(
         pool: &PgPool,
-        secret_ref: &str,
+        credential_id: CredentialId,
         project_id: Option<&str>,
     ) -> anyhow::Result<Option<HashMap<String, String>>> {
         let secret: Option<(serde_json::Value,)> = sqlx::query_as(
             r#"
-            SELECT data FROM joysafeter_secrets
-            WHERE name = $1 AND deleted_at IS NULL
-              AND ($2::text IS NULL OR project_id = $2)
-            ORDER BY created_at DESC
-            LIMIT 1
+            SELECT data FROM joysafeter_credentials
+            WHERE id = $1 AND project_id = $2 AND kind = 'service'
+              AND archived_at IS NULL AND deleted_at IS NULL
             "#,
         )
-        .bind(secret_ref)
+        .bind(credential_id)
         .bind(project_id)
         .fetch_optional(pool)
         .await?;
@@ -1786,30 +1848,54 @@ impl SandboxResolver {
     async fn merge_secret_ref_into_env(
         pool: &PgPool,
         env: &mut HashMap<String, String>,
-        secret_ref: &str,
+        credential_id: CredentialId,
         project_id: Option<&str>,
         override_existing: bool,
-    ) -> anyhow::Result<()> {
-        let secret: Option<(serde_json::Value,)> = sqlx::query_as(
+        runtime_engine_kind: Option<&str>,
+    ) -> anyhow::Result<Option<RuntimeSecretBinding>> {
+        let secret = sqlx::query_as::<_, RuntimeSecretRow>(
             r#"
-            SELECT data FROM joysafeter_secrets
-            WHERE name = $1 AND deleted_at IS NULL
+            SELECT kind, provider, protocol, data FROM joysafeter_credentials
+            WHERE id = $1 AND archived_at IS NULL AND deleted_at IS NULL
               AND ($2::text IS NULL OR project_id = $2)
-            ORDER BY created_at DESC
-            LIMIT 1
             "#,
         )
-        .bind(secret_ref)
+        .bind(credential_id)
         .bind(project_id)
         .fetch_optional(pool)
         .await?;
 
-        let Some((data,)) = secret else {
-            return Ok(());
+        let Some(secret) = secret else {
+            return Ok(None);
         };
 
+        let binding = if let Some(engine_kind) = runtime_engine_kind {
+            Some(validate_runtime_secret(
+                engine_kind,
+                &secret.kind,
+                secret.provider.as_deref(),
+                secret.protocol.as_deref(),
+            )?)
+        } else {
+            if secret.kind != "service" {
+                anyhow::bail!("environment credential must have kind=service");
+            }
+            None
+        };
+
+        // The agent's primary secret (override_existing) defines the model wire
+        // protocol for the sandbox. Environment-level secret_refs must not clobber
+        // it. pi-entrypoint.sh maps this to the models.json `api` field.
+        if override_existing {
+            if let Some(protocol) = secret.protocol.as_deref() {
+                if let Some(value) = model_protocol_env_value(protocol) {
+                    env.insert("JOYSAFETER_MODEL_PROTOCOL".to_string(), value);
+                }
+            }
+        }
+
         let cipher = VaultCipher::from_env();
-        if let Some(obj) = data.as_object() {
+        if let Some(obj) = secret.data.as_object() {
             for (key, value) in obj {
                 if override_existing || !env.contains_key(key) {
                     let value = value
@@ -1821,10 +1907,10 @@ impl SandboxResolver {
             }
         }
 
-        Ok(())
+        Ok(binding)
     }
 
-    async fn teardown_networking(&self, sandbox_id: Uuid) -> anyhow::Result<()> {
+    async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         self.provider.teardown_networking(sandbox_id).await
     }
 
@@ -1877,7 +1963,7 @@ impl SandboxResolver {
 
     async fn restart_stopped_sandbox(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         external_id: &str,
     ) -> anyhow::Result<bool> {
         let claimed =
@@ -1918,7 +2004,7 @@ impl SandboxResolver {
 
     async fn active_sandbox_status(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         external_id: &str,
     ) -> anyhow::Result<Option<String>> {
         let Some(sandbox) = queries::get_sandbox(&self.pool, sandbox_id).await? else {
@@ -1935,8 +2021,8 @@ impl SandboxResolver {
 
     async fn mark_pool_claimed(
         &self,
-        sandbox_id: Uuid,
-        session_id: Option<Uuid>,
+        sandbox_id: SandboxId,
+        session_id: Option<SessionId>,
         expected: &ExpectedFingerprint,
         stage: &str,
         progress: i64,
@@ -1967,14 +2053,15 @@ impl SandboxResolver {
     }
 
     /// Provision a warm-pool sandbox (called from SandboxController).
-    pub async fn provision_pool_sandbox(&self, image: &str) -> anyhow::Result<Uuid> {
-        let sandbox_db_id = Uuid::now_v7();
+    pub async fn provision_pool_sandbox(&self, image: &str) -> anyhow::Result<SandboxId> {
+        let sandbox_db_id = SandboxId::from_uuid(Uuid::now_v7());
         let runner_token = generate_runner_token();
 
         let mut env = HashMap::new();
+        apply_sandbox_timezone(&mut env, &self.config.sandbox_timezone);
         env.insert(
             "JOYSAFETER_SANDBOX_ID".to_string(),
-            sandbox_db_id.to_string(),
+            sandbox_db_id.as_uuid().to_string(),
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
 
@@ -1990,7 +2077,7 @@ impl SandboxResolver {
                 ("joysafeter.managed".to_string(), "true".to_string()),
                 (
                     "joysafeter.sandbox_id".to_string(),
-                    sandbox_db_id.to_string(),
+                    sandbox_db_id.as_uuid().to_string(),
                 ),
                 (
                     "joysafeter.owner_instance_id".to_string(),
@@ -2157,12 +2244,14 @@ pub(crate) async fn rebuild_sandbox_credentials(
                 None => None,
             }
         };
-        if let Ok(mut env) =
+        if let Ok(resolved_env) =
             SandboxResolver::resolve_agent_env_from(pool, agent.as_ref(), environment.as_ref())
                 .await
         {
+            let mut env = resolved_env.values;
             routes.extend(SandboxResolver::extract_llm_egress(
                 &mut env,
+                resolved_env.llm_binding.as_ref(),
                 llm_egress_allowed_hosts,
             ));
         }
@@ -2317,7 +2406,7 @@ async fn load_environment_row(
     env_ref: &str,
     project_id: Option<&str>,
 ) -> anyhow::Result<Option<EnvironmentRow>> {
-    if let Some(env_id) = parse_prefixed_uuid(env_ref, "env_") {
+    if let Ok(env_id) = EnvironmentId::from_public(env_ref) {
         return Ok(sqlx::query_as::<_, EnvironmentRow>(
             r#"
             SELECT config, image_tag FROM joysafeter_environments
@@ -2345,7 +2434,7 @@ struct ExpectedFingerprint {
 
 #[derive(Debug, Clone)]
 struct ResolveContext {
-    session_id: Option<Uuid>,
+    session_id: Option<SessionId>,
     project_id: Option<String>,
     networking: Option<serde_json::Value>,
     network: Option<String>,
@@ -2514,31 +2603,11 @@ fn generate_runner_token() -> String {
     hex::encode(random_bytes)
 }
 
-fn parse_prefixed_uuid(raw: &str, prefix: &str) -> Option<Uuid> {
-    raw.strip_prefix(prefix).unwrap_or(raw).parse().ok()
-}
-
-fn parse_vault_ref(raw: &str) -> Option<Uuid> {
-    raw.strip_prefix("vault_")
-        .or_else(|| raw.strip_prefix("vlt_"))
-        .unwrap_or(raw)
-        .parse()
-        .ok()
-}
-
 fn non_empty(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-}
-
-fn apply_provider_aliases(env: &mut HashMap<String, String>) {
-    if env.contains_key("ANTHROPIC_AUTH_TOKEN") && !env.contains_key("ANTHROPIC_API_KEY") {
-        if let Some(token) = env.get("ANTHROPIC_AUTH_TOKEN").cloned() {
-            env.insert("ANTHROPIC_API_KEY".to_string(), token);
-        }
-    }
 }
 
 fn effective_networking_config(
@@ -2613,14 +2682,11 @@ fn merge_mcp_hosts(
         .unwrap_or_default();
 
     // Add MCP server hosts to allowlist.
-    // NOTE: MCP servers with vault credentials will also have credential-injection
-    // routes (transparent mode, match_host = real host). Those hosts are removed
-    // below to avoid the allowlist/credential overlap validation error.
-    if let Some(mcp_configs) = agent
-        .and_then(|a| a.mcp_configs.as_ref())
+    if let Some(mcp_servers) = agent
+        .and_then(|a| a.mcp_servers.as_ref())
         .and_then(|value| value.as_array())
     {
-        for config in mcp_configs {
+        for config in mcp_servers {
             let Some(url) = config.get("url").and_then(|value| value.as_str()) else {
                 continue;
             };
@@ -2646,27 +2712,6 @@ fn merge_mcp_hosts(
             .filter_map(|url| extract_host(url))
             .collect();
         allowed_hosts.retain(|h| !external_hosts.iter().any(|eh| eh == h));
-    }
-
-    // Remove MCP server hosts that have vault credentials (credential-injection
-    // routes use transparent exposure with the real host as match_host). Keeping
-    // them in allowlist would trigger the overlap validation error.
-    if let Some(mcp_configs) = agent
-        .and_then(|a| a.mcp_configs.as_ref())
-        .and_then(|value| value.as_array())
-    {
-        // MCP servers with credentials: those whose URL matches a vault credential
-        // row. We don't have vault data here, so we conservatively remove ALL
-        // MCP hosts that use transparent credential injection — i.e., any MCP
-        // server whose host would also appear as a credential route match_host.
-        // The credential route already provides egress access, so removing from
-        // allowlist does not reduce connectivity.
-        let mcp_hosts_with_creds: Vec<String> = mcp_configs
-            .iter()
-            .filter_map(|config| config.get("url").and_then(|v| v.as_str()))
-            .filter_map(|url| extract_host(url))
-            .collect();
-        allowed_hosts.retain(|h| !mcp_hosts_with_creds.iter().any(|mh| mh == h));
     }
 
     let Some(object) = networking.as_object_mut() else {
@@ -2822,6 +2867,20 @@ fn is_blocked_llm_ip(ip: IpAddr) -> bool {
 struct EnvironmentRow {
     config: serde_json::Value,
     image_tag: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct ResolvedAgentEnv {
+    values: HashMap<String, String>,
+    llm_binding: Option<RuntimeSecretBinding>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct RuntimeSecretRow {
+    kind: String,
+    provider: Option<String>,
+    protocol: Option<String>,
+    data: serde_json::Value,
 }
 
 fn sanitize_external_service_name(name: &str) -> String {
@@ -2986,9 +3045,18 @@ mod egress_tests {
     /// always zero or one route.
     fn extract_llm_route(
         env: &mut HashMap<String, String>,
+        provider_id: &str,
+        protocol_id: &str,
         allowed_hosts: &[String],
     ) -> Option<EgressCredentialRoute> {
-        SandboxResolver::extract_llm_egress(env, allowed_hosts)
+        let binding = crate::kernel::llm_catalog::validate_runtime_secret(
+            "native",
+            "llm",
+            Some(provider_id),
+            Some(protocol_id),
+        )
+        .expect("test binding must be Catalog-valid");
+        SandboxResolver::extract_llm_egress(env, Some(&binding), allowed_hosts)
             .into_iter()
             .next()
     }
@@ -3008,11 +3076,20 @@ mod egress_tests {
     }
 
     #[test]
-    fn mcp_credential_url_keys_matches_trailing_slash_variants() {
-        let keys = mcp_credential_url_keys("https://AI-Legal-Test.JD.com/legal-mcp/mcp/");
+    fn sandbox_timezone_uses_platform_default_without_overriding_environment() {
+        let mut default_env = HashMap::new();
+        apply_sandbox_timezone(&mut default_env, "Asia/Shanghai");
+        assert_eq!(
+            default_env.get("TZ").map(String::as_str),
+            Some("Asia/Shanghai")
+        );
 
-        assert!(keys.contains(&"https://ai-legal-test.jd.com/legal-mcp/mcp".to_string()));
-        assert!(keys.contains(&"https://ai-legal-test.jd.com/legal-mcp/mcp/".to_string()));
+        let mut explicit_env = HashMap::from([("TZ".to_string(), "America/New_York".to_string())]);
+        apply_sandbox_timezone(&mut explicit_env, "Asia/Shanghai");
+        assert_eq!(
+            explicit_env.get("TZ").map(String::as_str),
+            Some("America/New_York")
+        );
     }
 
     #[test]
@@ -3089,14 +3166,14 @@ mod egress_tests {
     #[derive(Default)]
     struct RecordingProvider {
         created: Mutex<Vec<SandboxCreateConfig>>,
-        networking: Mutex<Vec<(Uuid, Option<serde_json::Value>)>>,
-        start_status_probe: Mutex<Option<(PgPool, Uuid)>>,
+        networking: Mutex<Vec<(SandboxId, Option<serde_json::Value>)>>,
+        start_status_probe: Mutex<Option<(PgPool, SandboxId)>>,
         start_observed_statuses: Mutex<Vec<String>>,
-        start_marks_error: Mutex<Option<(PgPool, Uuid)>>,
-        status_marks_idle: Mutex<Option<(PgPool, Uuid)>>,
-        status_marks_error: Mutex<Option<(PgPool, Uuid)>>,
+        start_marks_error: Mutex<Option<(PgPool, SandboxId)>>,
+        status_marks_idle: Mutex<Option<(PgPool, SandboxId)>>,
+        status_marks_error: Mutex<Option<(PgPool, SandboxId)>>,
         status_result: Mutex<Option<SandboxStatus>>,
-        destroy_status_probe: Mutex<Option<(PgPool, Uuid)>>,
+        destroy_status_probe: Mutex<Option<(PgPool, SandboxId)>>,
         destroy_observed_statuses: Mutex<Vec<String>>,
         destroyed: Mutex<Vec<String>>,
     }
@@ -3169,7 +3246,7 @@ mod egress_tests {
 
         async fn setup_networking(
             &self,
-            sandbox_id: Uuid,
+            sandbox_id: SandboxId,
             _sandbox_external_id: &str,
             networking: Option<&serde_json::Value>,
             _credentials: SandboxCredentials,
@@ -3197,15 +3274,19 @@ mod egress_tests {
     #[test]
     fn anthropic_auth_token_uses_bearer_and_leaves_no_key() {
         // Gateway / internal endpoint style: ANTHROPIC_AUTH_TOKEN → Bearer.
-        // apply_provider_aliases would have also set ANTHROPIC_API_KEY; simulate that.
         let mut e = env(&[
             ("ANTHROPIC_AUTH_TOKEN", "tok-123"),
             ("ANTHROPIC_API_KEY", "tok-123"),
             ("ANTHROPIC_BASE_URL", "https://llm.internal.example.com/v1"),
             ("DB_PASSWORD", "keepme"),
         ]);
-        let egress =
-            extract_llm_route(&mut e, &allow(&["llm.internal.example.com"])).expect("egress");
+        let egress = extract_llm_route(
+            &mut e,
+            "anthropic",
+            "anthropic_messages",
+            &allow(&["llm.internal.example.com"]),
+        )
+        .expect("egress");
 
         // Bearer header, real host preserved in egress, TLS upstream.
         assert_eq!(egress.upstream_host, "llm.internal.example.com");
@@ -3233,13 +3314,49 @@ mod egress_tests {
     }
 
     #[test]
+    fn llm_egress_uses_catalog_binding_instead_of_key_inference() {
+        let binding = crate::kernel::llm_catalog::validate_runtime_secret(
+            "native",
+            "llm",
+            Some("deepseek"),
+            Some("chat_completions"),
+        )
+        .expect("DeepSeek Chat Completions must be valid for Native");
+        let mut e = env(&[("OPENAI_API_KEY", "sk-deepseek")]);
+
+        let egress = SandboxResolver::extract_llm_egress(
+            &mut e,
+            Some(&binding),
+            &allow(&["api.deepseek.com"]),
+        )
+        .into_iter()
+        .next()
+        .expect("egress route");
+
+        assert_eq!(egress.upstream_host, "api.deepseek.com");
+        assert_eq!(
+            egress.inject_headers,
+            vec![(
+                "authorization".to_string(),
+                "Bearer sk-deepseek".to_string()
+            )]
+        );
+    }
+
+    #[test]
     fn anthropic_api_key_uses_x_api_key() {
         // Official-style key (no AUTH_TOKEN) → x-api-key header.
         let mut e = env(&[
             ("ANTHROPIC_API_KEY", "sk-ant-xyz"),
             ("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
         ]);
-        let egress = extract_llm_route(&mut e, &allow(&["api.anthropic.com"])).expect("egress");
+        let egress = extract_llm_route(
+            &mut e,
+            "anthropic",
+            "anthropic_messages",
+            &allow(&["api.anthropic.com"]),
+        )
+        .expect("egress");
         assert_eq!(
             egress.inject_headers,
             vec![("x-api-key".to_string(), "sk-ant-xyz".to_string())]
@@ -3257,7 +3374,7 @@ mod egress_tests {
             ("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
         ]);
 
-        assert!(SandboxResolver::extract_llm_egress(&mut e, &[]).is_empty());
+        assert!(extract_llm_route(&mut e, "anthropic", "anthropic_messages", &[]).is_none());
         assert!(!e.contains_key("ANTHROPIC_API_KEY"));
         assert_eq!(
             e.get("ANTHROPIC_BASE_URL").unwrap(),
@@ -3273,9 +3390,13 @@ mod egress_tests {
             ("ANTHROPIC_BASE_URL", "https://evil.example.com/v1"),
         ]);
 
-        assert!(
-            SandboxResolver::extract_llm_egress(&mut e, &allow(&["api.anthropic.com"])).is_empty()
-        );
+        assert!(extract_llm_route(
+            &mut e,
+            "anthropic",
+            "anthropic_messages",
+            &allow(&["api.anthropic.com"]),
+        )
+        .is_none());
         assert!(!e.contains_key("ANTHROPIC_AUTH_TOKEN"));
         assert!(!e.contains_key("ANTHROPIC_API_KEY"));
         assert_eq!(
@@ -3290,7 +3411,13 @@ mod egress_tests {
             ("ANTHROPIC_AUTH_TOKEN", "tok-123"),
             ("ANTHROPIC_BASE_URL", "http://ai-api.jdcloud.com/anthropic"),
         ]);
-        let egress = extract_llm_route(&mut e, &allow(&["ai-api.jdcloud.com"])).expect("egress");
+        let egress = extract_llm_route(
+            &mut e,
+            "custom",
+            "anthropic_messages",
+            &allow(&["ai-api.jdcloud.com"]),
+        )
+        .expect("egress");
         assert_eq!(egress.upstream_host, "ai-api.jdcloud.com");
         assert_eq!(egress.upstream_port, 80);
         assert_eq!(egress.upstream_prefix, "/anthropic/");
@@ -3303,7 +3430,13 @@ mod egress_tests {
             ("OPENAI_API_KEY", "sk-oai"),
             ("OPENAI_BASE_URL", "https://gw.internal/v1"),
         ]);
-        let egress = extract_llm_route(&mut e, &allow(&["gw.internal"])).expect("egress");
+        let egress = extract_llm_route(
+            &mut e,
+            "custom",
+            "openai_responses",
+            &allow(&["gw.internal"]),
+        )
+        .expect("egress");
         assert_eq!(egress.upstream_host, "gw.internal");
         assert_eq!(egress.upstream_prefix, "/v1/");
         assert_eq!(
@@ -3324,7 +3457,7 @@ mod egress_tests {
     #[test]
     fn no_llm_key_returns_none() {
         let mut e = env(&[("DB_PASSWORD", "x")]);
-        assert!(SandboxResolver::extract_llm_egress(&mut e, &[]).is_empty());
+        assert!(extract_llm_route(&mut e, "openai", "openai_responses", &[]).is_none());
         assert_eq!(e.get("DB_PASSWORD").unwrap(), "x");
     }
 
@@ -3335,7 +3468,13 @@ mod egress_tests {
             ("ANTHROPIC_AUTH_TOKEN", "t"),
             ("ANTHROPIC_BASE_URL", "http://llm.internal:8080/v1"),
         ]);
-        let egress = extract_llm_route(&mut e, &allow(&["llm.internal"])).expect("egress");
+        let egress = extract_llm_route(
+            &mut e,
+            "custom",
+            "anthropic_messages",
+            &allow(&["llm.internal"]),
+        )
+        .expect("egress");
         assert_eq!(egress.upstream_host, "llm.internal");
         assert_eq!(egress.upstream_port, 8080);
         assert_eq!(egress.upstream_prefix, "/v1/");
@@ -3343,78 +3482,6 @@ mod egress_tests {
         assert_eq!(
             e.get("ANTHROPIC_BASE_URL").unwrap(),
             "http://llm.internal:8080/v1/"
-        );
-    }
-
-    #[test]
-    fn gemini_uses_x_goog_api_key_and_default_host() {
-        // Google Generative Language API: raw key in x-goog-api-key, default host.
-        let mut e = env(&[("GEMINI_API_KEY", "AIzaXYZ")]);
-        let egress = extract_llm_route(&mut e, &allow(&["generativelanguage.googleapis.com"]))
-            .expect("egress");
-        assert_eq!(egress.upstream_host, "generativelanguage.googleapis.com");
-        assert!(egress.upstream_tls);
-        assert_eq!(
-            egress.inject_headers,
-            vec![("x-goog-api-key".to_string(), "AIzaXYZ".to_string())]
-        );
-        assert!(!e.contains_key("GEMINI_API_KEY"));
-        // base URL is repointed at the plaintext egress placeholder host.
-        assert_eq!(
-            e.get("GOOGLE_GEMINI_BASE_URL").unwrap(),
-            "http://generativelanguage.googleapis.com:443/"
-        );
-    }
-
-    #[test]
-    fn google_api_key_alias_also_works() {
-        let mut e = env(&[("GOOGLE_API_KEY", "AIzaABC")]);
-        let egress = extract_llm_route(&mut e, &allow(&["generativelanguage.googleapis.com"]))
-            .expect("egress");
-        assert_eq!(
-            egress.inject_headers,
-            vec![("x-goog-api-key".to_string(), "AIzaABC".to_string())]
-        );
-        assert!(!e.contains_key("GOOGLE_API_KEY"));
-    }
-
-    #[test]
-    fn azure_uses_api_key_header_no_bearer() {
-        // Azure OpenAI: `api-key` header, raw key (no Bearer). Host from base URL.
-        let mut e = env(&[
-            ("AZURE_OPENAI_API_KEY", "az-secret"),
-            ("AZURE_OPENAI_BASE_URL", "https://my-res.openai.azure.com"),
-        ]);
-        let egress = extract_llm_route(&mut e, &allow(&["*.openai.azure.com"])).expect("egress");
-        assert_eq!(egress.upstream_host, "my-res.openai.azure.com");
-        assert!(egress.upstream_tls);
-        assert_eq!(
-            egress.inject_headers,
-            vec![("api-key".to_string(), "az-secret".to_string())]
-        );
-        assert!(!e.contains_key("AZURE_OPENAI_API_KEY"));
-    }
-
-    #[test]
-    fn azure_wildcard_does_not_allow_parent_domain() {
-        let mut e = env(&[
-            ("AZURE_OPENAI_API_KEY", "az-secret"),
-            ("AZURE_OPENAI_BASE_URL", "https://openai.azure.com"),
-        ]);
-
-        assert!(
-            SandboxResolver::extract_llm_egress(&mut e, &allow(&["*.openai.azure.com"])).is_empty()
-        );
-        assert!(!e.contains_key("AZURE_OPENAI_API_KEY"));
-    }
-
-    #[test]
-    fn azure_without_base_url_bails() {
-        // Azure has no fixed endpoint; without a base URL we must not inject the
-        // key toward an unknown host.
-        let mut e = env(&[("AZURE_OPENAI_API_KEY", "az-secret")]);
-        assert!(
-            SandboxResolver::extract_llm_egress(&mut e, &allow(&["*.openai.azure.com"])).is_empty()
         );
     }
 
@@ -3427,7 +3494,7 @@ mod egress_tests {
             ]);
 
             assert!(
-                SandboxResolver::extract_llm_egress(&mut e, &allow(&[host])).is_empty(),
+                extract_llm_route(&mut e, "custom", "openai_responses", &allow(&[host]),).is_none(),
                 "host should be rejected: {host}"
             );
             assert!(!e.contains_key("OPENAI_API_KEY"));
@@ -3441,9 +3508,13 @@ mod egress_tests {
             ("OPENAI_BASE_URL", "file:///tmp/socket"),
         ]);
 
-        assert!(
-            SandboxResolver::extract_llm_egress(&mut e, &allow(&["api.openai.com"])).is_empty()
-        );
+        assert!(extract_llm_route(
+            &mut e,
+            "custom",
+            "openai_responses",
+            &allow(&["api.openai.com"]),
+        )
+        .is_none());
         assert!(!e.contains_key("OPENAI_API_KEY"));
     }
 
@@ -3493,7 +3564,7 @@ mod egress_tests {
             assert_eq!(created[0].workspace_path.as_deref(), None);
             assert_eq!(
                 created[0].env.get("JOYSAFETER_SANDBOX_ID"),
-                Some(&sandbox_id.to_string())
+                Some(&sandbox_id.as_uuid().to_string())
             );
         }
         .await;
@@ -3600,8 +3671,8 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
         let unique = Uuid::now_v7().simple().to_string();
         let image = format!("resolver-new-error-{unique}:latest");
         let trigger_name = format!("trg_new_sandbox_error_{unique}");
@@ -3667,7 +3738,12 @@ mod egress_tests {
         let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
 
         let result = resolver
-            .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+            .resolve(
+                TaskId::from_uuid(Uuid::now_v7()),
+                Some(session_id),
+                Some(agent_id),
+                None,
+            )
             .await;
         let destroyed = provider.destroyed.lock().await.clone();
         let sandbox: Option<(Uuid, String, serde_json::Value)> = sqlx::query_as(
@@ -3724,10 +3800,10 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let image = format!("resolver-pool-claim-idle-{unique}:latest");
         let external_id = format!("resolver-pool-claim-idle-{sandbox_id}");
 
@@ -3800,13 +3876,18 @@ mod egress_tests {
             let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
 
             let resolved = resolver
-                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .resolve(
+                    TaskId::from_uuid(Uuid::now_v7()),
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect("pool claim should survive runner-ready idle race");
             assert_eq!(resolved, (sandbox_id, external_id.clone()));
             assert!(provider.destroyed.lock().await.is_empty());
 
-            let sandbox: (String, Option<Uuid>, serde_json::Value) = sqlx::query_as(
+            let sandbox: (String, Option<SessionId>, serde_json::Value) = sqlx::query_as(
                 "SELECT status, chat_session_id, config FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -3847,10 +3928,10 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let image = format!("resolver-pool-stopped-start-{unique}:latest");
         let external_id = format!("resolver-pool-stopped-start-{sandbox_id}");
 
@@ -3924,7 +4005,12 @@ mod egress_tests {
             let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
 
             let resolved = resolver
-                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .resolve(
+                    TaskId::from_uuid(Uuid::now_v7()),
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect("stopped pool claim should restart after DB claim");
             assert_eq!(resolved, (sandbox_id, external_id.clone()));
@@ -3935,7 +4021,7 @@ mod egress_tests {
             );
             assert!(provider.destroyed.lock().await.is_empty());
 
-            let sandbox: (String, Option<Uuid>, serde_json::Value) = sqlx::query_as(
+            let sandbox: (String, Option<SessionId>, serde_json::Value) = sqlx::query_as(
                 "SELECT status, chat_session_id, config FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -3976,10 +4062,10 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let image = format!("resolver-pool-claim-error-{unique}:latest");
         let external_id = format!("resolver-pool-claim-error-{sandbox_id}");
 
@@ -4052,7 +4138,12 @@ mod egress_tests {
             let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
 
             let err = resolver
-                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .resolve(
+                    TaskId::from_uuid(Uuid::now_v7()),
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect_err("concurrent pool claim error must abort resolve");
             let message = err.to_string();
@@ -4097,49 +4188,87 @@ mod egress_tests {
     }
 
     #[tokio::test]
-    async fn sandbox_resolver_builds_mcp_egress_from_vlt_prefixed_vault_ids() {
+    async fn sandbox_resolver_builds_mcp_egress_from_session_credential_groups() {
         let Some(pool) = test_pool().await else {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let vault_id = Uuid::now_v7();
-        let credential_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let group_id = CredentialGroupId::from_uuid(Uuid::now_v7());
+        let credential_id = CredentialId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
+        let org_id = format!("org-{unique}");
+        let project_id = format!("proj-{unique}");
         let mcp_url = "https://mcp.vault-alias.example/api";
+        let normalized = mcp_url::normalize(mcp_url);
 
         async {
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_vaults (id, name, description)
-                VALUES ($1, $2, '')
+                INSERT INTO joysafeter_organizations
+                    (id, name, slug, storage_used_bytes, departed_member_usage)
+                VALUES ($1, $2, $3, 0, 0)
                 "#,
             )
-            .bind(vault_id)
-            .bind(format!("resolver-vault-alias-{unique}"))
+            .bind(&org_id)
+            .bind(format!("Resolver MCP Org {unique}"))
+            .bind(format!("resolver-mcp-org-{unique}"))
             .execute(&pool)
             .await
-            .expect("insert vault");
+            .expect("insert organization");
 
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_vault_credentials
-                    (id, vault_id, name, credential_type, mcp_server_url, token_value)
-                VALUES ($1, $2, 'resolver alias credential', 'static_bearer', $3, 'vault-token')
+                INSERT INTO joysafeter_organization_projects
+                    (id, org_id, name, slug, is_default)
+                VALUES ($1, $2, $3, $4, false)
+                "#,
+            )
+            .bind(&project_id)
+            .bind(&org_id)
+            .bind(format!("Resolver MCP Project {unique}"))
+            .bind(format!("resolver-mcp-project-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert project");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_credential_groups (id, project_id, name, description)
+                VALUES ($1, $2, $3, '')
+                "#,
+            )
+            .bind(group_id)
+            .bind(&project_id)
+            .bind(format!("resolver-group-alias-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert credential group");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_credentials
+                    (id, project_id, kind, name, credential_type, mcp_server_url,
+                     normalized_mcp_server_url, group_id, data)
+                VALUES ($1, $2, 'mcp', 'resolver alias credential', 'static_bearer', $3,
+                        $4, $5, $6)
                 "#,
             )
             .bind(credential_id)
-            .bind(vault_id)
+            .bind(&project_id)
             .bind(mcp_url)
+            .bind(&normalized)
+            .bind(group_id)
+            .bind(serde_json::json!({"token_value": "vault-token"}))
             .execute(&pool)
             .await
-            .expect("insert vault credential");
+            .expect("insert mcp credential");
 
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata, version
                 )
                 VALUES (
@@ -4163,16 +4292,27 @@ mod egress_tests {
 
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_sessions (id, agent_id, status, vault_ids)
-                VALUES ($1, $2, 'idle', $3)
+                INSERT INTO joysafeter_sessions (id, agent_id, status)
+                VALUES ($1, $2, 'idle')
                 "#,
             )
             .bind(session_id)
             .bind(agent_id)
-            .bind(serde_json::json!([format!("vlt_{vault_id}")]))
             .execute(&pool)
             .await
             .expect("insert session");
+
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_session_credential_groups (session_id, credential_group_id)
+                VALUES ($1, $2)
+                "#,
+            )
+            .bind(session_id)
+            .bind(group_id)
+            .execute(&pool)
+            .await
+            .expect("bind session credential group");
 
             let agent = queries::get_agent(&pool, agent_id)
                 .await
@@ -4199,6 +4339,11 @@ mod egress_tests {
         }
         .await;
 
+        let _ =
+            sqlx::query("DELETE FROM joysafeter_session_credential_groups WHERE session_id = $1")
+                .bind(session_id)
+                .execute(&pool)
+                .await;
         let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
             .bind(session_id)
             .execute(&pool)
@@ -4207,12 +4352,20 @@ mod egress_tests {
             .bind(agent_id)
             .execute(&pool)
             .await;
-        let _ = sqlx::query("DELETE FROM joysafeter_vault_credentials WHERE id = $1")
+        let _ = sqlx::query("DELETE FROM joysafeter_credentials WHERE id = $1")
             .bind(credential_id)
             .execute(&pool)
             .await;
-        let _ = sqlx::query("DELETE FROM joysafeter_vaults WHERE id = $1")
-            .bind(vault_id)
+        let _ = sqlx::query("DELETE FROM joysafeter_credential_groups WHERE id = $1")
+            .bind(group_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
+            .bind(&project_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organizations WHERE id = $1")
+            .bind(&org_id)
             .execute(&pool)
             .await;
     }
@@ -4223,10 +4376,10 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let image = format!("resolver-race-image-{unique}:latest");
         let external_id = format!("resolver-race-{sandbox_id}");
 
@@ -4234,7 +4387,7 @@ mod egress_tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata, version
                 )
                 VALUES (
@@ -4313,7 +4466,12 @@ mod egress_tests {
 
             let resolver = SandboxResolver::new(pool.clone(), provider, config);
             let err = resolver
-                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .resolve(
+                    TaskId::from_uuid(Uuid::now_v7()),
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect_err("concurrent error must abort stopped sandbox restart");
             let message = err.to_string();
@@ -4359,10 +4517,10 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let sandbox_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let image = format!("resolver-restart-ordering-{unique}:latest");
         let external_id = format!("resolver-restart-ordering-{sandbox_id}");
 
@@ -4370,7 +4528,7 @@ mod egress_tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata, version
                 )
                 VALUES (
@@ -4449,7 +4607,12 @@ mod egress_tests {
 
             let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
             let resolved = resolver
-                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .resolve(
+                    TaskId::from_uuid(Uuid::now_v7()),
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect("restart stopped sandbox");
             assert_eq!(resolved, (sandbox_id, external_id.clone()));
@@ -4489,11 +4652,11 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let stale_sandbox_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let stale_sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let image = format!("resolver-stale-creating-{unique}:latest");
         let external_id = format!("resolver-stale-creating-{stale_sandbox_id}");
 
@@ -4501,7 +4664,7 @@ mod egress_tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata, version
                 )
                 VALUES (
@@ -4575,7 +4738,12 @@ mod egress_tests {
 
             let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
             let (resolved_sandbox_id, _resolved_external_id) = resolver
-                .resolve(task_id, Some(session_id), Some(agent_id), None)
+                .resolve(
+                    task_id,
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect("resolve replacement after stale creating cleanup");
             assert_ne!(resolved_sandbox_id, stale_sandbox_id);
@@ -4616,11 +4784,11 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let environment_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
-        let environment_ref = format!("env_{environment_id}");
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
+        let environment_ref = environment_id.to_string();
         let agent_name = format!("resolver-snapshot-agent-{unique}");
         let environment_name = format!("resolver-snapshot-env-{unique}");
         let snapshot = serde_json::json!({
@@ -4631,7 +4799,7 @@ mod egress_tests {
             "engine_kind": "claude",
             "model": {"id": "snapshot-model"},
             "env": {"AGENT_ENV": "snapshot-agent"},
-            "mcp_configs": [],
+            "mcp_servers": [],
             "tools": [],
             "skills": [],
             "agents": [],
@@ -4675,7 +4843,7 @@ mod egress_tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_configs,
+                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata,
                     version, environment_ref
                 )
@@ -4721,7 +4889,12 @@ mod egress_tests {
             let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
 
             let (sandbox_id, _external_id) = resolver
-                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .resolve(
+                    TaskId::from_uuid(Uuid::now_v7()),
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect("resolve sandbox from snapshot");
 
@@ -4804,11 +4977,11 @@ mod egress_tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let file_id = Uuid::now_v7();
-        let session_file_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let file_id = FileId::from_uuid(Uuid::now_v7());
+        let session_file_id = SessionResourceId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let org_id = format!("org-{unique}");
         let project_id = format!("proj-{unique}");
         let missing_storage_key = format!("missing-resolver-session-file-{unique}.txt");
@@ -4849,7 +5022,7 @@ mod egress_tests {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, project_id, name, engine_kind, model, system_prompt, env,
-                    mcp_configs, skills, tools, agents, commands, permission_mode,
+                    mcp_servers, skills, tools, agents, commands, permission_mode,
                     metadata, version
                 )
                 VALUES (
@@ -4921,7 +5094,12 @@ mod egress_tests {
             let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
 
             let err = resolver
-                .resolve(Uuid::now_v7(), Some(session_id), Some(agent_id), None)
+                .resolve(
+                    TaskId::from_uuid(Uuid::now_v7()),
+                    Some(session_id),
+                    Some(agent_id),
+                    None,
+                )
                 .await
                 .expect_err("missing declared session file content must fail sandbox resolve");
             let message = err.to_string();

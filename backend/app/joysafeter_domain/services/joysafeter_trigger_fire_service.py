@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -21,8 +20,9 @@ from app.joysafeter_domain.services.agent_trigger_execution import (
 from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import TriggerRuntimeGate
 from app.joysafeter_domain.services.joysafeter_trigger_scheduler_state_service import TriggerSchedulerStateService
 from app.joysafeter_domain.triggers import get_provider
+from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
 
-FireResult = tuple[str, Optional[JoySafeterTask], Optional[uuid.UUID], bool, Optional[str]]
+FireResult = tuple[str, Optional[JoySafeterTask], Optional[SessionId], bool, Optional[str]]
 ProjectBlockReason = Callable[[Optional[str]], Awaitable[Optional[str]]]
 ResolveRunnableTarget = Callable[..., Awaitable[tuple[JoySafeterAgent, Optional[str]]]]
 MarkAttempt = Callable[..., Awaitable[None]]
@@ -52,7 +52,7 @@ class TriggerFireService:
     async def resolve_runnable_target(
         self,
         *,
-        agent_id: uuid.UUID,
+        agent_id: AgentId,
         project_id: Optional[str],
         environment_ref: Optional[str] = None,
     ) -> tuple[JoySafeterAgent, Optional[str]]:
@@ -73,8 +73,8 @@ class TriggerFireService:
         trigger: JoySafeterTrigger,
         *,
         success: Optional[bool],
-        task_id: Optional[uuid.UUID] = None,
-        session_id: Optional[uuid.UUID] = None,
+        task_id: Optional[TaskId] = None,
+        session_id: Optional[SessionId] = None,
         error: Optional[str] = None,
         payload: Optional[dict[str, Any]] = None,
     ) -> None:
@@ -123,7 +123,6 @@ class TriggerFireService:
                 name=trigger.name,
                 source=source,
                 prompt=render_prompt_template(trigger.prompt_template, payload),
-                system_prompt=trigger.system_prompt,
                 environment_ref=environment_ref,
                 timeout_sec=trigger.timeout_sec,
                 max_retries=trigger.max_retries,

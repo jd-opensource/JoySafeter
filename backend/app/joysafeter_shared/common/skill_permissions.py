@@ -74,13 +74,8 @@ async def _project_member_role(
 
 
 def _effective_visibility(skill: JoySafeterSkill) -> str:
-    """Resolve the visibility tier the gate should honor.
-
-    Reads the ``visibility`` column only, falling back to ``project`` (the
-    least-permissive shareable tier) when it is null/empty. Capability — not
-    the tier — decides write/admin; the tier only ever widens READ.
-    """
-    return skill.visibility or JoySafeterSkillVisibility.PROJECT.value
+    """Return the persisted visibility tier."""
+    return skill.visibility
 
 
 async def check_skill_access(
@@ -104,11 +99,10 @@ async def check_skill_access(
     every skill in their own org). There is no owner short-circuit and no
     per-skill collaborator ACL — those axes are gone.
 
-    Org isolation: when ``active_org_id`` is supplied, the capability
-    path only counts inside that org. A caller pinned to org B cannot
+    Org isolation: the capability path only counts inside the active org.
+    A caller pinned to org B cannot
     READ/WRITE an org-A skill via project capability, even a project
-    admin — that would defeat multi-tenant separation. ``active_org_id
-    is None`` (legacy callers) disables the gate.
+    admin — that would defeat multi-tenant separation.
 
     READ can additionally be granted through the visibility tier:
 
@@ -121,7 +115,7 @@ async def check_skill_access(
     visibility tier.
     """
     skill_org_id = await resolve_skill_org_id(db, skill)
-    in_active_org = active_org_id is None or skill_org_id == active_org_id
+    in_active_org = skill_org_id == active_org_id
 
     # 1. Capability path — the single authoritative axis. A project role
     #    (or org super-user) resolves to a ProjectCapability; org

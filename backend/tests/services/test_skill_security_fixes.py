@@ -147,7 +147,7 @@ async def test_archived_skill_can_be_deleted(monkeypatch):
 # ── Risks #2 / #3 — public visibility is owner-only ─────────────
 
 
-def _make_skill_service(skill, *, current_user_id, active_org_id=None):
+def _make_skill_service(skill, *, current_user_id, active_org_id="org-test"):
     """Construct ``SkillService`` with everything it needs to walk
     the public-visibility gate. The service hits ``check_skill_access``
     first (we stub it out so the test scopes to the gate itself),
@@ -275,7 +275,7 @@ async def test_archived_skill_rejects_sync_rescan_before_scan_or_commit(monkeypa
     svc.skill_repo = MagicMock()
     svc.skill_repo.get_with_files = AsyncMock(return_value=skill)
     svc.scan_for_write = AsyncMock()
-    svc._active_org_id = None
+    svc._active_org_id = "org-test"
 
     async def _allow(*_args, **_kw):
         return None

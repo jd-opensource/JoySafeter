@@ -66,7 +66,7 @@ vi.mock('@/lib/api-client', () => {
       async (response: Response) => new MockApiError(response.status, response.statusText),
     ),
     isUnauthorizedApiError: vi.fn(() => false),
-    MANAGED_API_BASE: 'http://localhost:8000/api/v1',
+    API_BASE: 'http://localhost:8000/api/v1',
     managedGet: vi.fn(),
     managedDelete: vi.fn(async (url: string) => {
       const response = await fetch(`http://localhost:8000/api/v1/${url.replace(/^\/+/, '')}`, {
@@ -219,7 +219,13 @@ function authMe(userId: string, orgId: string, projectId: string) {
       name: userId,
     },
     organization: { id: orgId, name: orgId, slug: orgId, role: 'owner' },
-    project: { id: projectId, name: projectId, slug: projectId, is_default: true },
+    project: {
+      id: projectId,
+      name: projectId,
+      slug: projectId,
+      is_default: true,
+      capability: 'admin',
+    },
     organizations: [{ id: orgId, name: orgId, slug: orgId, role: 'owner' }],
     projects: [{ id: projectId, name: projectId, slug: projectId, is_default: true }],
   }
@@ -244,7 +250,7 @@ function authMeWithProject(
       name: userId,
     },
     organization: { id: orgId, name: orgId, slug: orgId, role: 'owner' },
-    project,
+    project: { capability: 'admin', ...project },
     organizations: [{ id: orgId, name: orgId, slug: orgId, role: 'owner' }],
     projects,
   }

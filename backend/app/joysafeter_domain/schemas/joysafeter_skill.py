@@ -1,8 +1,18 @@
-import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.joysafeter_shared.ids import (
+    AgentId,
+    SessionId,
+    SkillFileId,
+    SkillId,
+    SkillSecurityScanId,
+    SkillUsageId,
+    SkillVersionFileId,
+    SkillVersionId,
+)
 
 
 class CreateSkillRequest(BaseModel):
@@ -71,15 +81,10 @@ class SkillSecurityScanSummary(BaseModel):
     medium_count: int = 0
     low_count: int = 0
     scanned_at: Optional[datetime] = None
-    scan_id: Optional[uuid.UUID] = None
+    scan_id: Optional[SkillSecurityScanId] = None
     target_hash: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("scan_id")
-    def serialize_scan_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
-        return f"sklscan_{v}" if v else None
-
 
 class SkillRuntimeEligibility(BaseModel):
     # ``reason`` + ``next_action`` are the stable machine contract. Human-facing
@@ -112,44 +117,27 @@ class SkillImpactSummary(BaseModel):
 
 
 class SkillUsageResponse(BaseModel):
-    id: uuid.UUID
-    skill_id: Optional[uuid.UUID] = None
+    id: SkillUsageId
+    skill_id: Optional[SkillId] = None
     skill_name: Optional[str] = None
     skill_source_type: Optional[str] = None
     skill_version: Optional[str] = None
-    skill_version_id: Optional[uuid.UUID] = None
+    skill_version_id: Optional[SkillVersionId] = None
     target: Optional[str] = None
-    security_scan_id: Optional[uuid.UUID] = None
+    security_scan_id: Optional[SkillSecurityScanId] = None
     target_hash: Optional[str] = None
     artifact_hash: Optional[str] = None
-    session_id: Optional[str] = None
-    agent_id: Optional[str] = None
+    session_id: Optional[SessionId] = None
+    agent_id: Optional[AgentId] = None
     project_id: Optional[str] = None
     user_id: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"skluse_{v}"
-
-    @field_serializer("skill_id")
-    def serialize_skill_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
-        return f"skill_{v}" if v else None
-
-    @field_serializer("skill_version_id")
-    def serialize_skill_version_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
-        return f"sklver_{v}" if v else None
-
-    @field_serializer("security_scan_id")
-    def serialize_security_scan_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
-        return f"sklscan_{v}" if v else None
-
-
 class SkillSecurityScanResponse(BaseModel):
-    id: uuid.UUID
-    skill_id: Optional[uuid.UUID] = None
+    id: SkillSecurityScanId
+    skill_id: Optional[SkillId] = None
     project_id: Optional[str] = None
     owner_id: Optional[str] = None
     created_by_id: str
@@ -174,17 +162,8 @@ class SkillSecurityScanResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"sklscan_{v}"
-
-    @field_serializer("skill_id")
-    def serialize_skill_id(self, v: Optional[uuid.UUID]) -> Optional[str]:
-        return f"skill_{v}" if v else None
-
-
 class SkillResponse(BaseModel):
-    id: uuid.UUID
+    id: SkillId
     name: str
     description: str = ""
     content: str = ""
@@ -200,8 +179,8 @@ class SkillResponse(BaseModel):
     # Tier pointers: the version currently served at the organization / public
     # tier (set only through the promotion approval flow). ``None`` when the
     # skill is not exposed at that tier.
-    org_version_id: Optional[uuid.UUID] = None
-    public_version_id: Optional[uuid.UUID] = None
+    org_version_id: Optional[SkillVersionId] = None
+    public_version_id: Optional[SkillVersionId] = None
     license: Optional[str] = None
     compatibility: Optional[str] = None
     metadata: dict = Field(default_factory=dict, alias="meta_data")
@@ -213,15 +192,6 @@ class SkillResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
-
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"skill_{v}"
-
-    @field_serializer("org_version_id", "public_version_id")
-    def serialize_version_pointer(self, v: Optional[uuid.UUID]) -> Optional[str]:
-        return f"sklver_{v}" if v else None
-
 
 class CreateSkillFileRequest(BaseModel):
     path: str
@@ -267,8 +237,8 @@ class UpdateSkillFileRequest(BaseModel):
 
 
 class SkillFileResponse(BaseModel):
-    id: uuid.UUID
-    skill_id: uuid.UUID
+    id: SkillFileId
+    skill_id: SkillId
     path: str
     file_name: str
     file_type: str = "text"
@@ -278,15 +248,6 @@ class SkillFileResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"sklfile_{v}"
-
-    @field_serializer("skill_id")
-    def serialize_skill_id(self, v: uuid.UUID) -> str:
-        return f"skill_{v}"
-
 
 class CreateSkillVersionRequest(BaseModel):
     version: Optional[str] = None
@@ -302,20 +263,15 @@ class SkillLifecycleTransitionResponse(BaseModel):
     "moved from X to Y").
     """
 
-    skill_id: uuid.UUID
+    skill_id: SkillId
     from_status: str
     to_status: str
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_serializer("skill_id")
-    def serialize_skill_id(self, v: uuid.UUID) -> str:
-        return f"skill_{v}"
-
-
 class SkillVersionResponse(BaseModel):
-    id: uuid.UUID
-    skill_id: uuid.UUID
+    id: SkillVersionId
+    skill_id: SkillId
     version: str
     skill_name: str = ""
     skill_description: str = ""
@@ -336,18 +292,9 @@ class SkillVersionResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"sklver_{v}"
-
-    @field_serializer("skill_id")
-    def serialize_skill_id(self, v: uuid.UUID) -> str:
-        return f"skill_{v}"
-
-
 class SkillVersionFileResponse(BaseModel):
-    id: uuid.UUID
-    version_id: uuid.UUID
+    id: SkillVersionFileId
+    version_id: SkillVersionId
     path: str
     file_name: str
     file_type: str = "text"
@@ -356,11 +303,3 @@ class SkillVersionFileResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
-    @field_serializer("id")
-    def serialize_id(self, v: uuid.UUID) -> str:
-        return f"sklvfile_{v}"
-
-    @field_serializer("version_id")
-    def serialize_version_id(self, v: uuid.UUID) -> str:
-        return f"sklver_{v}"

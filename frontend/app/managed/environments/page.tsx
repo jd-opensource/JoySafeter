@@ -6,6 +6,7 @@ import { useTranslation } from '@/lib/i18n'
 import { Plus } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { parseEnvironmentId, parseCredentialId } from '@/types/entity-id'
 import type {
   StorageVolumeCatalogItem,
   Environment,
@@ -14,6 +15,8 @@ import type {
 } from '@/types/managed'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
+import { parseEnvironmentResponse } from '@/lib/managed/environment-response-parsers'
+import { parseSecretResponse } from '@/lib/managed/secret-response-parsers'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { Button } from '@/components/ui/button'
@@ -151,11 +154,15 @@ export default function EnvironmentListPage() {
     queryKey: 'environments',
     path: '/environments',
     includeArchived: showArchived,
+    parseItem: parseEnvironmentResponse,
+    parseCursor: parseEnvironmentId,
   })
   const { data: secrets } = usePaginatedList<Secret>({
-    queryKey: 'secrets',
-    path: '/secrets',
+    queryKey: 'service-credentials',
+    path: '/credentials?kind=service',
     limit: 50,
+    parseItem: parseSecretResponse,
+    parseCursor: parseCredentialId,
   })
   const { data: storageCatalog } = useQuery({
     queryKey: ['storage-mount-catalog', managedScope],
@@ -335,7 +342,7 @@ export default function EnvironmentListPage() {
         .filter((resource) => resource.name && resource.volume_ref && resource.mount_path)
       if (mounts.length > 0) config.mount_resources = mounts
 
-      await managedPost(
+      await managedPost<Environment>(
         '/environments',
         {
           name: name.trim(),
@@ -343,7 +350,7 @@ export default function EnvironmentListPage() {
           config,
         },
         managedRequestOptions(requestScope),
-      )
+      ).then(parseEnvironmentResponse)
       if (!isCurrentCreateRun(runId, createScope)) return
       resetForm()
       setShowCreate(false)
@@ -615,7 +622,7 @@ export default function EnvironmentListPage() {
                   optional={t('managed.environments.optional')}
                   tooltip={t(
                     'managed.environments.envVarsHint',
-                    '注入到沙箱的非敏感环境变量。格式：KEY=value，逗号或换行分隔。不要填写 token、cookie、API key 等敏感凭证。',
+                    '注入到沙箱的非敏感环境变量。格式：KEY=value，逗号或换行分隔。不要填写 token、cookie、API key 等敏感值；请改存到服务凭据中。',
                   )}
                   className="mb-3"
                 >

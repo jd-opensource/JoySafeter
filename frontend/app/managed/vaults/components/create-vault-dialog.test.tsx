@@ -4,10 +4,18 @@ import { JSDOM } from 'jsdom'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/i18n', () => ({
-  i18n: { language: 'en' },
-  useTranslation: () => ({ t: (key: string, _params?: unknown) => key }),
-}))
+vi.mock('@/lib/i18n', async () => {
+  const { default: en } = await import('@/lib/i18n/locales/en')
+  return {
+    i18n: { language: 'en' },
+    useTranslation: () => ({
+      t: (key: string, _params?: unknown) =>
+        key === 'managed.vaults.sharedWarning'
+          ? en.translation.managed.vaults.sharedWarning
+          : key,
+    }),
+  }
+})
 
 vi.mock('@/lib/api-client', () => ({
   extractErrorFromResponse: vi.fn(async () => new Error('mock api error')),
@@ -96,7 +104,7 @@ function deferred<T>() {
 describe('CreateVaultDialog managed scope lifecycle', () => {
   beforeEach(() => {
     managedPostMock.mockReset()
-    managedPostMock.mockResolvedValue({ id: 'vault-created' })
+    managedPostMock.mockResolvedValue({ id: 'credgrp_018f6f42-0a51-7cc4-98c8-4f6f0ca5f012' })
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
@@ -106,6 +114,7 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
         name: 'Project A',
         slug: 'project-a',
         is_default: true,
+        capability: 'write',
         archived_at: null,
       },
       organizations: [],
@@ -124,6 +133,65 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
       projects: [],
     })
     localStorage.clear()
+  })
+
+  it('renders the current-project permission warning', () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <CreateVaultDialog open onOpenChange={() => {}} />
+      </QueryClientProvider>,
+    )
+
+    expect(view.container.textContent).toContain(
+      'MCP credential vaults are shared within the current project. Access and management require appropriate project permissions.',
+    )
+  })
+
+  it('calls onCreated with the parsed vault after a successful create', async () => {
+    managedPostMock.mockResolvedValue({
+      id: 'credgrp_018f6f42-0a51-7cc4-98c8-4f6f0ca5f012',
+      name: 'v',
+      archived_at: null,
+      created_at: '',
+      updated_at: '',
+    })
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+    const onCreated = vi.fn()
+
+    const { getByPlaceholderText, getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <CreateVaultDialog open onOpenChange={() => {}} onCreated={onCreated} />
+      </QueryClientProvider>,
+    )
+
+    await act(async () => {
+      fireEvent.input(getByPlaceholderText('managed.vaults.namePlaceholder'), {
+        target: { value: 'My Vault' },
+      })
+    })
+
+    await act(async () => {
+      fireEvent.click(getByText('common.create'))
+      await Promise.resolve()
+    })
+
+    expect(onCreated).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'credgrp_018f6f42-0a51-7cc4-98c8-4f6f0ca5f012' }),
+    )
   })
 
   it('does not create a vault from old dialog state in the same turn as a project switch', async () => {
@@ -153,7 +221,11 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(managedPostMock).not.toHaveBeenCalledWith('/vaults', expect.anything(), managedOptions())
+    expect(managedPostMock).not.toHaveBeenCalledWith(
+      '/credential-groups',
+      expect.anything(),
+      managedOptions(),
+    )
   })
 
   it('does not invalidate from a create completion after the managed project changes', async () => {
@@ -192,7 +264,9 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults', 'org-a:project-a'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['credential-groups', 'org-a:project-a'],
+    })
   })
 
   it('does not invalidate from a create completion after the dialog unmounts', async () => {
@@ -232,7 +306,9 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
       await Promise.resolve()
     })
 
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['vaults', 'org-a:project-a'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['credential-groups', 'org-a:project-a'],
+    })
     expect(onOpenChange).not.toHaveBeenCalled()
   })
 })

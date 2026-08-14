@@ -8,6 +8,7 @@ import pytest
 from app.joysafeter_domain.models.joysafeter_session import SessionStatus
 from app.joysafeter_domain.services.agent_trigger_execution import AgentTriggerExecutor, AgentTriggerRunConfig
 from app.joysafeter_shared.common.app_errors import AppError
+from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
 
 pytestmark = pytest.mark.no_db
 
@@ -17,8 +18,19 @@ class _NoActiveTaskResult:
         return None
 
 
+class _TriggerLockResult:
+    def scalar_one_or_none(self):
+        return uuid.uuid4()
+
+
 class _FakeDb:
+    def __init__(self):
+        self.execute_count = 0
+
     async def execute(self, _stmt):
+        self.execute_count += 1
+        if self.execute_count in {1, 3}:
+            return _TriggerLockResult()
         return _NoActiveTaskResult()
 
 
@@ -30,18 +42,18 @@ class _FakeSubmission:
         return None
 
     async def create_and_dispatch(self, **kwargs):
-        task = SimpleNamespace(id=uuid.uuid4(), status="pending", chat_session_id=kwargs["chat_session_id"])
+        task = SimpleNamespace(id=TaskId.new(), status="pending", chat_session_id=kwargs["chat_session_id"])
         return task, True
 
 
-def _agent(agent_id: uuid.UUID | None = None):
+def _agent(agent_id: AgentId | None = None):
     return SimpleNamespace(
-        id=agent_id or uuid.uuid4(),
+        id=agent_id or AgentId.new(),
         name="agent",
         version=1,
         environment_ref=None,
         env={},
-        mcp_configs=[],
+        mcp_servers=[],
         skills=[],
         tools=[],
         agents=[],
@@ -53,8 +65,8 @@ def _agent(agent_id: uuid.UUID | None = None):
     )
 
 
-def _session(*, agent_id: uuid.UUID, status: str = SessionStatus.IDLE.value):
-    return SimpleNamespace(id=uuid.uuid4(), agent_id=agent_id, status=status, archived_at=None)
+def _session(*, agent_id: AgentId, status: str = SessionStatus.IDLE.value):
+    return SimpleNamespace(id=SessionId.new(), agent_id=agent_id, status=status, archived_at=None)
 
 
 def _config(agent, **overrides):
@@ -63,7 +75,6 @@ def _config(agent, **overrides):
         name="Daily",
         source="trigger:cron:test",
         prompt="run",
-        system_prompt=None,
         environment_ref=None,
         timeout_sec=7200,
         max_retries=2,
@@ -94,7 +105,7 @@ def patch_executor_dependencies(monkeypatch):
 
         async def create_session(self, **kwargs):
             session = SimpleNamespace(
-                id=uuid.uuid4(),
+                id=SessionId.new(),
                 agent_id=kwargs["agent_id"],
                 status=SessionStatus.IDLE.value,
                 archived_at=None,
@@ -178,7 +189,7 @@ async def test_pinned_mode_uses_selected_idle_session(patch_executor_dependencie
 @pytest.mark.asyncio
 async def test_pinned_mode_rejects_different_agent_session(patch_executor_dependencies):
     agent = _agent()
-    pinned = _session(agent_id=uuid.uuid4(), status=SessionStatus.IDLE.value)
+    pinned = _session(agent_id=AgentId.new(), status=SessionStatus.IDLE.value)
     patch_executor_dependencies["sessions"][pinned.id] = pinned
 
     with pytest.raises(AppError) as exc_info:

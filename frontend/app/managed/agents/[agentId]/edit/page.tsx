@@ -4,10 +4,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
 import { useTranslation } from '@/lib/i18n'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
+import { getEnabledEngines } from '@/lib/managed/llm-catalog'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -17,7 +19,10 @@ import {
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { validateUniqueMcpServerName } from '@/lib/utils/mcp-validation'
-import type { Agent } from '@/types/managed'
+import type { Agent, Secret } from '@/types/managed'
+import { parseAgentId, parseCredentialId, type AgentId, type SkillId } from '@/types/entity-id'
+import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
+import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -36,6 +41,7 @@ import {
   FormSectionCard,
   PageHeader,
   SkillVersionSelect,
+  withEntityRouteGuard,
 } from '@/components/managed/shared'
 import { CircleHelp, Plus, Trash2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -44,7 +50,12 @@ import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
-import { ModelSecretSelect } from '../../components/model-secret-select'
+import {
+  compatibleSecretsQueryPrefix,
+  useCompatibleSecrets,
+  useLlmSecretByName,
+} from '@/hooks/managed/use-compatible-secrets'
+import { CompatibleSecretPicker } from '@/components/managed/llm/compatible-secret-picker'
 import { SearchableAgentConfigSelect } from '../../components/searchable-agent-config-select'
 
 const BUILTIN_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
@@ -66,7 +77,7 @@ interface ManagedListResponse<T> {
 }
 
 interface SkillListItem {
-  id: string
+  id: SkillId
   name?: string
   display_title?: string
   // Latest published version string, or null/undefined if never published.
@@ -79,20 +90,28 @@ interface EnvironmentListItem {
 }
 
 interface SaveAgentVariables {
-  agentId: string
+  agentId: AgentId
   body: Record<string, unknown>
   requestScope: ManagedRequestScope
   runId: number
   scope: string
 }
 
-export default function AgentEditPage({ params }: { params: Promise<{ agentId: string }> }) {
-  const { agentId } = React.use(params)
+export default withEntityRouteGuard(AgentEditPageInner, {
+  kind: 'agent',
+  paramKey: 'agentId',
+  backTo: '/managed/agents',
+})
+
+function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }) {
+  const { agentId: rawAgentId } = React.use(params)
+  const agentId = parseAgentId(rawAgentId)
   const router = useRouter()
   const queryClient = useQueryClient()
   const { t } = useTranslation()
   const projectReadOnly = useCurrentProjectReadOnly()
   const managedScope = useManagedRequestScope()
+  const catalogQuery = useLlmCatalog()
   const operationScope = `${managedScope.key}:${agentId ?? ''}`
   const saveRunRef = useRef(0)
   const operationScopeRef = useRef(operationScope)
@@ -103,28 +122,22 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   const { data: agent, isLoading } = useQuery({
     queryKey: ['agent', managedScope.key, agentId],
     queryFn: () =>
-      managedGet<Agent>(apiResourcePath('agents', agentId), managedRequestOptions(managedScope)),
+      managedGet<unknown>(
+        apiResourcePath('agents', agentId),
+        managedRequestOptions(managedScope),
+      ).then(parseAgentResponse),
     enabled: !!agentId && hasManagedRequestScope(managedScope),
   })
-
-  // ── Fetch secrets ──
-  const { data: secretsRes } = useQuery({
-    queryKey: ['secrets', managedScope.key],
-    queryFn: () =>
-      managedGet<{ data: { name: string }[] }>('/secrets', managedRequestOptions(managedScope)),
-    enabled: hasManagedRequestScope(managedScope),
-  })
-  const secrets = secretsRes?.data
 
   // ── Fetch skills ──
   const { data: skills } = useQuery({
     queryKey: ['skills', managedScope.key],
     queryFn: async () => {
-      const res = await managedGet<ManagedListResponse<SkillListItem>>(
+      const res = await managedGet<ManagedListResponse<unknown>>(
         '/skills',
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return (res.data || []).map(parseSkillResponse)
     },
     enabled: hasManagedRequestScope(managedScope),
   })
@@ -145,7 +158,8 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   // ── Basic info state ──
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [engineKind, setEngineKind] = useState('claude')
+  const [engineKind, setEngineKind] = useState('')
+  const [originalEngineKind, setOriginalEngineKind] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
   const [systemPromptMode, setSystemPromptMode] = useState<'append' | 'replace'>('append')
   const [dirty, setDirty] = useState(false)
@@ -163,8 +177,8 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   const [enabledTools, setEnabledTools] = useState<Set<string>>(new Set(BUILTIN_TOOLS))
 
   // ── Skills state ──
-  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set())
-  /** skill_id → chosen version keyword ("latest", "draft") or semver string. */
+  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<SkillId>>(new Set())
+  /** skill_id → chosen published version keyword or semver string. */
   const [skillVersions, setSkillVersions] = useState<Record<string, string>>({})
 
   // Only *published* skills can be newly referenced. We still show any skill
@@ -184,22 +198,36 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   const effectiveSkillVersions = useMemo(
     () =>
       Object.fromEntries(
-        Object.entries(skillVersions).filter(([id]) => effectiveSelectedSkillIds.has(id)),
+        Object.entries(skillVersions).filter(([id]) =>
+          Array.from(effectiveSelectedSkillIds).some((skillId) => skillId === id),
+        ),
       ),
     [effectiveSelectedSkillIds, skillVersions],
   )
 
   // ── Secret ref ──
   const [secretRef, setSecretRef] = useState('')
+  const enabledEngines = useMemo(
+    () => (catalogQuery.data ? getEnabledEngines(catalogQuery.data) : []),
+    [catalogQuery.data],
+  )
+  const engineUnavailable =
+    catalogQuery.isSuccess && !enabledEngines.some((engine) => engine.id === engineKind)
+  const compatibleSecretsQuery = useCompatibleSecrets({ engineId: engineKind })
+  const secrets = compatibleSecretsQuery.data
+  const selectedSecretIsCompatible =
+    !secretRef || Boolean(secrets?.some((secret) => secret.id === secretRef))
+  const secretConflict =
+    Boolean(secretRef) && compatibleSecretsQuery.isSuccess && !selectedSecretIsCompatible
+  const conflictSecretQuery = useLlmSecretByName({
+    name: secretRef,
+    enabled: secretConflict,
+  })
+  const secretCompatibilityBlocked =
+    Boolean(secretRef) && (!compatibleSecretsQuery.isSuccess || secretConflict)
 
   // ── Environment ref ──
   const [environmentRef, setEnvironmentRef] = useState('')
-
-  const effectiveSecretRef = useMemo(() => {
-    if (!secretRef) return ''
-    if (!secrets) return secretRef
-    return secrets.some((secret) => secret.name === secretRef) ? secretRef : ''
-  }, [secretRef, secrets])
 
   const effectiveEnvironmentRef = useMemo(() => {
     if (!environmentRef) return ''
@@ -237,8 +265,10 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
 
     setName(agent.name)
     setDescription(agent.description || '')
-    setEngineKind(agent.engine_kind || 'claude')
-    setSystemPrompt(agent.system || agent.system_prompt || '')
+    const hydratedEngineKind = agent.engine_kind
+    setEngineKind(hydratedEngineKind)
+    setOriginalEngineKind(hydratedEngineKind)
+    setSystemPrompt(agent.system || '')
     setSystemPromptMode((agent.metadata?.system_prompt_mode as 'append' | 'replace') || 'append')
 
     // MCP servers — merge url (from mcp_servers) with policy (from the
@@ -293,7 +323,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
     )
 
     // Secret ref
-    setSecretRef(agent.secret_ref || '')
+    setSecretRef(agent.model_credential_id || '')
 
     // Environment ref
     setEnvironmentRef(agent.environment_ref || '')
@@ -330,10 +360,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
       toastOperationError(t, new Error(urlError), 'common.error')
       return
     }
-    setMcpServers((prev) => [
-      ...prev,
-      { name: trimmedName, url: trimmedUrl, policy: 'always_ask' },
-    ])
+    setMcpServers((prev) => [...prev, { name: trimmedName, url: trimmedUrl, policy: 'always_ask' }])
     markDirty()
     setMcpName('')
     setMcpUrl('')
@@ -351,7 +378,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   }
 
   // ── Skill toggle ──
-  const toggleSkill = (skillId: string) => {
+  const toggleSkill = (skillId: SkillId) => {
     markDirty()
     setSelectedSkillIds((prev) => {
       const next = new Set(prev)
@@ -396,17 +423,18 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
     scopeKey = managedRequestScopeRef.current.key,
   ): Record<string, unknown> => {
     const currentSecrets =
-      queryClient.getQueryData<{ data?: { name: string }[] }>(['secrets', scopeKey])?.data ??
-      secrets
+      queryClient
+        .getQueriesData<Secret[]>({
+          queryKey: compatibleSecretsQueryPrefix(scopeKey, engineKind),
+        })
+        .at(-1)?.[1] ?? secrets
     const currentEnvironments =
       queryClient.getQueryData<ManagedListResponse<EnvironmentListItem>>(['environments', scopeKey])
         ?.data ?? environments
-    const currentSkills =
-      queryClient.getQueryData<ManagedListResponse<SkillListItem>>(['skills', scopeKey])?.data ??
-      skills
+    const currentSkills = queryClient.getQueryData<SkillListItem[]>(['skills', scopeKey]) ?? skills
 
     const currentSecretRef =
-      secretRef && (!currentSecrets || currentSecrets.some((secret) => secret.name === secretRef))
+      secretRef && (!currentSecrets || currentSecrets.some((secret) => secret.id === secretRef))
         ? secretRef
         : ''
     const currentEnvironmentRef =
@@ -436,7 +464,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
         skill_id: id,
         version: effectiveSkillVersions[id] || 'latest',
       })),
-      ...(currentSecretRef ? { secret_ref: currentSecretRef } : {}),
+      model_credential_id: currentSecretRef ? parseCredentialId(currentSecretRef) : null,
       ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
       metadata: { system_prompt_mode: systemPromptMode },
     }
@@ -465,7 +493,8 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
   const isCurrentSaveRun = (runId: number, scope: string) =>
     saveRunRef.current === runId &&
     operationScopeRef.current === scope &&
-    getCurrentOperationScope() === scope
+    getCurrentOperationScope() === scope &&
+    currentProjectAllowsWrite()
 
   // ── Save mutation ──
   const mutation = useMutation({
@@ -481,6 +510,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
     onSuccess: (_data, { agentId, requestScope, runId, scope }) => {
       if (!isCurrentSaveRun(runId, scope)) return
       queryClient.invalidateQueries({ queryKey: ['agent', requestScope.key, agentId] })
+      queryClient.invalidateQueries({ queryKey: ['agents', requestScope.key] })
       router.push(`/managed/agents/${agentId}`)
     },
     onError: (error, { runId, scope }) => {
@@ -525,7 +555,7 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
             title={t('agents.edit.basicInfo')}
             description={t(
               'managed.agents.basicSettingsDesc',
-              '设置智能体名称、模型密钥、引擎和系统提示词。',
+              '设置智能体名称、模型接入、引擎和系统提示词。',
             )}
           >
             <div>
@@ -574,9 +604,16 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="claude">{t('managed.agents.engineClaude')}</SelectItem>
-                  <SelectItem value="codex">{t('managed.agents.engineCodex')}</SelectItem>
-                  <SelectItem value="native">{t('managed.agents.engineNative')}</SelectItem>
+                  {engineUnavailable ? (
+                    <SelectItem value={engineKind} disabled>
+                      {engineKind} · {t('managed.llm.engineUnavailable')}
+                    </SelectItem>
+                  ) : null}
+                  {enabledEngines.map((engine) => (
+                    <SelectItem key={engine.id} value={engine.id}>
+                      {engine.display_name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -589,27 +626,48 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
                   {t('managed.agents.formOptional')}
                 </span>
               </h3>
-              {secrets && secrets.length > 0 ? (
-                <ModelSecretSelect
-                  value={secretRef}
-                  secrets={secrets}
-                  placeholder={t('agents.edit.selectSecret')}
-                  noneLabel={t('agents.edit.noSelection')}
-                  searchPlaceholder={t('agents.edit.searchSecret')}
-                  emptyText={t('agents.edit.noSecretMatch')}
-                  createLabel={t('agents.edit.createSecret')}
-                  clearSearchLabel={t('agents.edit.clearSearch')}
-                  onChange={(value) => {
-                    setSecretRef(value)
-                    markDirty()
-                  }}
-                  onCreate={() => window.open('/managed/secrets?create=llm', '_blank')}
-                />
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {t('managed.agents.create.noSecrets')}
-                </p>
-              )}
+              <CompatibleSecretPicker
+                engineId={engineKind}
+                value={secretRef}
+                allowNone
+                disabled={formReadOnly}
+                conflictSecret={conflictSecretQuery.data ?? null}
+                conflictValue={secretConflict ? secretRef : undefined}
+                conflictMessage={
+                  secretConflict ? t('managed.llm.incompatibleWithSelectedEngine') : undefined
+                }
+                onChange={(value) => {
+                  setSecretRef(value)
+                  markDirty()
+                }}
+                onCreateRequested={() => window.open('/managed/credentials?tab=models&create=model', '_blank')}
+              />
+              {secretConflict ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={formReadOnly}
+                    onClick={() => {
+                      setSecretRef('')
+                      markDirty()
+                    }}
+                  >
+                    {t('managed.llm.reselectConfiguration')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={formReadOnly}
+                    onClick={() => {
+                      setEngineKind(originalEngineKind)
+                      markDirty()
+                    }}
+                  >
+                    {t('managed.llm.restoreOriginalEngine')}
+                  </Button>
+                </div>
+              ) : null}
             </section>
 
             {/* ───────── Environment Reference ───────── */}
@@ -981,7 +1039,15 @@ export default function AgentEditPage({ params }: { params: Promise<{ agentId: s
                 scope,
               })
             }}
-            disabled={formReadOnly || mutation.isPending || !name.trim() || !systemPromptValid}
+            disabled={
+              formReadOnly ||
+              mutation.isPending ||
+              !name.trim() ||
+              !systemPromptValid ||
+              secretCompatibilityBlocked ||
+              engineUnavailable ||
+              !catalogQuery.isSuccess
+            }
           >
             {mutation.isPending ? t('managed.agents.saving') : t('managed.agents.saveChanges')}
           </Button>

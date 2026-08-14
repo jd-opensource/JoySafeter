@@ -7,12 +7,14 @@ import {
   createApiError,
   extractErrorFromResponse,
   isUnauthorizedApiError,
-  MANAGED_API_BASE,
+  API_BASE,
   refreshAccessTokenOrRelogin,
 } from '@/lib/api-client'
 import { getCsrfToken } from '@/lib/auth/csrf'
 import { apiResourcePath } from '@/lib/managed/api-paths'
+import { parseSessionEventResponse } from '@/lib/managed/event-response-parsers'
 import { useProjectStore } from '@/stores/managed/project-store'
+import type { SessionId } from '@/types/entity-id'
 import type { SessionEvent } from '@/types/managed'
 
 const NON_RECONNECT_ERROR_CODES = new Set([
@@ -24,7 +26,7 @@ const NON_RECONNECT_ERROR_CODES = new Set([
   'NOT_ORG_MEMBER',
 ])
 
-export function useSessionStream(sessionId: string, enabled: boolean) {
+export function useSessionStream(sessionId: SessionId | null, enabled: boolean) {
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const streamScope = `${sessionId}:${currentOrgId ?? ''}:${currentProjectId ?? ''}`
@@ -84,7 +86,7 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
 
       try {
         const afterSeq = lastSeqRef.current
-        const url = `${MANAGED_API_BASE}${apiResourcePath('sessions', sessionId, 'events', 'stream')}?after_seq=${afterSeq}`
+        const url = `${API_BASE}${apiResourcePath('sessions', sessionId, 'events', 'stream')}?after_seq=${afterSeq}`
 
         if (process.env.NODE_ENV !== 'production') {
           // eslint-disable-next-line no-console
@@ -215,7 +217,7 @@ export function useSessionStream(sessionId: string, enabled: boolean) {
               lagged = true
               return
             }
-            const event = parsed as SessionEvent
+            const event = parseSessionEventResponse(parsed)
             if (event.seq && event.seq > lastSeqRef.current) {
               lastSeqRef.current = event.seq
             }

@@ -6,6 +6,7 @@ from fastapi import HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError as PydanticValidationError
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
@@ -181,11 +182,21 @@ def _format_validation_errors(errors: Iterable[Mapping[str, Any]]) -> list[dict[
 
 
 async def request_validation_exception_handler(request: Request, exc: Exception) -> Response:
-    errors: list[dict[str, Any]] = []
+    raw_errors: list[Mapping[str, Any]] = []
     if isinstance(exc, (RequestValidationError, PydanticValidationError)):
-        errors = _format_validation_errors(exc.errors())
+        raw_errors = list(exc.errors())
 
-    error = RequestValidationAppError(data={"errors": errors})
+    # A failed typed-EntityId field (body or path) yields the project's frozen
+    # {FIELD}_INVALID 400 contract, rendered via the same AppError path as the
+    # rest of the app. Non-id validation errors fall through to the 422 default.
+    from app.joysafeter_api.id_validation_error import app_error_for_id_validation
+
+    for err in raw_errors:
+        id_error = app_error_for_id_validation(dict(err))
+        if id_error is not None:
+            return await app_error_handler(request, id_error)
+
+    error = RequestValidationAppError(data={"errors": _format_validation_errors(raw_errors)})
     return await app_error_handler(request, error)
 
 
@@ -209,6 +220,53 @@ def register_exception_handlers(app: Any) -> None:
     app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
     app.add_exception_handler(PydanticValidationError, request_validation_exception_handler)
     app.add_exception_handler(Exception, general_exception_handler)
+
+
+class ExceptionHandlingMiddleware:
+    """Turn unhandled exceptions into AppError responses *inside* the CORS layer.
+
+    Starlette routes the catch-all ``Exception`` (500) handler through
+    ``ServerErrorMiddleware``, which is always the OUTERMOST middleware — above
+    ``CORSMiddleware``. So a raw unhandled exception (e.g. a DB
+    ``ProgrammingError``) yields a 500 whose response never passes through the
+    CORS middleware and therefore has no ``Access-Control-Allow-Origin`` header.
+    In a browser that surfaces as a misleading ``CORS policy: No
+    'Access-Control-Allow-Origin' header`` / ``net::ERR_FAILED`` error that hides
+    the real 500.
+
+    Installed as the innermost user middleware (inside ``CORSMiddleware``), this
+    catches those exceptions and emits the same response ``general_exception_handler``
+    would, so it flows back out through the CORS middleware and gets its headers.
+    Handlers registered via :func:`register_exception_handlers` still cover
+    ``AppError`` / ``HTTPException`` / validation errors (Starlette's inner
+    ``ExceptionMiddleware``); this only intercepts the otherwise-unhandled ones.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        response_started = False
+
+        async def send_wrapper(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        except Exception as exc:
+            if response_started:
+                # The response has already begun streaming; we can no longer
+                # replace it with an error body, so let it propagate.
+                raise
+            response = await general_exception_handler(Request(scope, receive), exc)
+            await response(scope, receive, send)
 
 
 def normalize_exception(exc: Exception) -> AppError:

@@ -1,28 +1,17 @@
 from __future__ import annotations
 
 import enum
-import uuid
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from uuid_utils import uuid7
 
 from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.ids import AgentId, EntityIdType, EventId, SandboxId, SessionId
 
 from .base import JoySafeterBaseModel
-
-# ---------------------------------------------------------------------------
-# JoySafeter Session models
-#
-# Sessions run on ``JoySafeterSession`` / ``JoySafeterSessionEvent`` below
-# (tables ``joysafeter_sessions`` / ``joysafeter_session_events``). The legacy
-# unprefixed ``Thread`` model and its ``threads`` table were removed in the v1
-# cleanup (table dropped in alembic 20260626_000001); this module was renamed
-# from ``thread.py`` to match.
-# ---------------------------------------------------------------------------
 
 
 class SessionStatus(str, enum.Enum):
@@ -49,19 +38,22 @@ class JoySafeterSession(JoySafeterBaseModel):
         Index("idx_csess_archived", "archived_at"),
     )
 
+    id: Mapped[SessionId] = mapped_column(  # type: ignore[assignment]
+        EntityIdType(SessionId), primary_key=True, default=SessionId.new
+    )
     project_id: Mapped[Optional[str]] = mapped_column(
         String(255),
         ForeignKey("joysafeter_organization_projects.id"),
         nullable=True,
         index=True,
     )
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    agent_id: Mapped[AgentId] = mapped_column(
+        EntityIdType(AgentId),
         ForeignKey("joysafeter_agents.id"),
         nullable=False,
     )
     title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="idle")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default=SessionStatus.IDLE.value)
     stop_reason: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     usage: Mapped[dict] = mapped_column(
         JSONB,
@@ -71,13 +63,12 @@ class JoySafeterSession(JoySafeterBaseModel):
     active_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default="{}")
-    vault_ids: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     agent_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     agent_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     environment_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_harness_session_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_work_dir: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    last_sandbox_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    last_sandbox_id: Mapped[Optional[SandboxId]] = mapped_column(EntityIdType(SandboxId), nullable=True)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     events: Mapped[list["JoySafeterSessionEvent"]] = relationship(
@@ -98,9 +89,9 @@ class JoySafeterSessionEvent(Base):
         Index("idx_cse_session_processed_event", "session_id", "processed_at", "event_type"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7())
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[EventId] = mapped_column(EntityIdType(EventId), primary_key=True, default=EventId.new)
+    session_id: Mapped[SessionId] = mapped_column(
+        EntityIdType(SessionId),
         ForeignKey("joysafeter_sessions.id"),
         nullable=False,
     )

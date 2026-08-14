@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use joysafeter_types::harness::{
-    HarnessAdapter, HarnessError, HarnessEvent, HarnessInput, HarnessResult, HarnessResultStatus,
-    RunningHarness,
+    HarnessAdapter, HarnessError, HarnessEvent, HarnessInput, HarnessResult, RunningHarness,
 };
 use joysafeter_types::token_usage::TokenUsage;
 use serde::Deserialize;
@@ -51,6 +50,7 @@ struct TurnState {
     turn_done_tx: Option<oneshot::Sender<bool>>,
     usage: Arc<std::sync::Mutex<TokenUsage>>,
     output: Arc<std::sync::Mutex<String>>,
+    error: Arc<std::sync::Mutex<Option<String>>>,
     call_id_to_tool: Arc<std::sync::Mutex<HashMap<String, String>>>,
     agent_message_text_by_id: Arc<std::sync::Mutex<HashMap<String, String>>>,
     model: String,
@@ -109,6 +109,12 @@ pub struct CodexAdapter {
     session: Arc<Mutex<Option<PersistentCodex>>>,
 }
 
+impl Default for CodexAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CodexAdapter {
     pub fn new() -> Self {
         Self {
@@ -120,10 +126,7 @@ impl CodexAdapter {
         let mut guard = self.session.lock().await;
 
         let alive = if let Some(ref mut session) = *guard {
-            match session.child.try_wait() {
-                Ok(None) => true,
-                _ => false,
-            }
+            matches!(session.child.try_wait(), Ok(None))
         } else {
             false
         };
@@ -555,6 +558,7 @@ impl HarnessAdapter for CodexAdapter {
             turn_done_tx: None,
             usage: Arc::new(std::sync::Mutex::new(TokenUsage::default())),
             output: Arc::new(std::sync::Mutex::new(String::new())),
+            error: Arc::new(std::sync::Mutex::new(None)),
             call_id_to_tool: Arc::new(std::sync::Mutex::new(HashMap::new())),
             agent_message_text_by_id: Arc::new(std::sync::Mutex::new(HashMap::new())),
             model: input.model.clone().unwrap_or_else(|| "codex".to_string()),
@@ -611,22 +615,20 @@ impl HarnessAdapter for CodexAdapter {
         let current_turn_for_completion = current_turn.clone();
         let last_usage_for_completion = session_last_usage.clone();
         tokio::spawn(async move {
-            let aborted = match td_rx.await {
-                Ok(aborted) => aborted,
-                Err(_) => true,
-            };
+            let aborted = td_rx.await.unwrap_or(true);
 
             // Wait briefly for late notifications (tokenUsage, turn/completed)
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-            let (final_output, turn_usage) = {
+            let (final_output, turn_usage, final_error) = {
                 let ct = current_turn_for_completion.lock().await;
                 if let Some(ref turn) = *ct {
                     let o = turn.output.lock().unwrap().clone();
                     let u = turn.usage.lock().unwrap().clone();
-                    (o, u)
+                    let e = turn.error.lock().unwrap().clone();
+                    (o, u, e)
                 } else {
-                    (String::new(), TokenUsage::default())
+                    (String::new(), TokenUsage::default(), None)
                 }
             };
 
@@ -643,16 +645,12 @@ impl HarnessAdapter for CodexAdapter {
             }
 
             let duration = start.elapsed();
-            let status = if aborted {
-                HarnessResultStatus::Aborted
-            } else {
-                HarnessResultStatus::Completed
-            };
+            let (status, error) = crate::finish_turn(aborted, final_error);
 
             let _ = result_tx.send(HarnessResult {
                 status,
                 output: final_output,
-                error: None,
+                error,
                 session_id: None,
                 usage: final_usage,
                 duration,
@@ -949,6 +947,7 @@ fn derive_approval_tool_name(method: &str, params: &Value) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_notification(
     method: &str,
     params: &Value,
@@ -1016,6 +1015,7 @@ async fn handle_notification(
                 message: error_msg.to_string(),
             })
             .await;
+        record_turn_error(current_turn, error_msg.to_string()).await;
         output
             .lock()
             .unwrap()
@@ -1156,6 +1156,7 @@ async fn handle_legacy_event(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_raw_notification(
     method: &str,
     params: &Value,
@@ -1193,6 +1194,14 @@ async fn handle_raw_notification(
             let turn = params.get("turn").unwrap_or(params);
             let status = turn.get("status").and_then(|s| s.as_str()).unwrap_or("");
             let aborted = matches!(status, "cancelled" | "canceled" | "aborted" | "interrupted");
+            if let Some(error_message) = codex_turn_error(turn) {
+                let _ = event_tx
+                    .send(HarnessEvent::Error {
+                        message: error_message.clone(),
+                    })
+                    .await;
+                record_turn_error(current_turn, error_message).await;
+            }
             let effective_usage =
                 replace_usage(turn, usage).unwrap_or_else(|| usage.lock().unwrap().clone());
             let (it, ot, crt, cwt) = usage_values(&effective_usage);
@@ -1631,10 +1640,7 @@ fn find_usage_object(data: &Value) -> Option<&serde_json::Map<String, Value>> {
 }
 
 fn usage_from_value(data: &Value) -> Option<TokenUsage> {
-    let usage_obj = match find_usage_object(data) {
-        Some(obj) => obj,
-        None => return None,
-    };
+    let usage_obj = find_usage_object(data)?;
 
     let get_u64 = |keys: &[&str]| -> u64 {
         for key in keys {
@@ -1683,6 +1689,34 @@ fn usage_values(usage: &TokenUsage) -> (u64, u64, u64, u64) {
         usage.cache_read_tokens,
         usage.cache_write_tokens,
     )
+}
+
+fn codex_turn_error(turn: &Value) -> Option<String> {
+    let status = turn
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !matches!(status.as_str(), "failed" | "error" | "errored") {
+        return None;
+    }
+
+    turn.get("error")
+        .and_then(crate::error_value_message)
+        .or_else(|| {
+            turn.get("message")
+                .and_then(Value::as_str)
+                .filter(|message| !message.trim().is_empty())
+                .map(ToOwned::to_owned)
+        })
+        .or_else(|| Some(format!("codex turn {status}")))
+}
+
+async fn record_turn_error(current_turn: &Arc<Mutex<Option<TurnState>>>, error_message: String) {
+    let guard = current_turn.lock().await;
+    if let Some(turn) = guard.as_ref() {
+        *turn.error.lock().unwrap() = Some(error_message);
+    }
 }
 
 fn replace_usage(data: &Value, usage: &Arc<std::sync::Mutex<TokenUsage>>) -> Option<TokenUsage> {
@@ -1839,6 +1873,20 @@ fn toml_escape(s: &str) -> String {
 mod tests {
     use super::*;
 
+    static TEST_HOME_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    #[test]
+    fn failed_turn_extracts_error_for_terminal_result() {
+        let turn = serde_json::json!({
+            "status": "failed",
+            "error": {"message": "model unavailable"}
+        });
+        assert_eq!(
+            codex_turn_error(&turn).as_deref(),
+            Some("model unavailable")
+        );
+    }
+
     #[test]
     fn codex_token_usage_prefers_last_and_normalizes_fields() {
         let data = serde_json::json!({
@@ -1989,6 +2037,7 @@ mod tests {
     async fn merge_codex_mcp_servers_writes_toml_block() {
         use joysafeter_types::agent::McpServerConfig;
 
+        let _guard = TEST_HOME_LOCK.lock().await;
         let tmp = std::env::temp_dir().join(format!("codex_mcp_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::env::set_var("HOME", &tmp);
@@ -2021,6 +2070,7 @@ mod tests {
     async fn merge_codex_mcp_servers_preserves_existing_file_content() {
         use joysafeter_types::agent::McpServerConfig;
 
+        let _guard = TEST_HOME_LOCK.lock().await;
         let tmp = std::env::temp_dir().join(format!("codex_mcp_preserve_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(tmp.join(".codex")).unwrap();

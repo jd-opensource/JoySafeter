@@ -4,7 +4,9 @@ Pydantic response schemas for the analytics API.
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
+
+from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
 
 # --- KPI Summary ---
 
@@ -71,10 +73,10 @@ class EngineShareItem(BaseModel):
 
 
 class CallRecord(BaseModel):
-    id: str
-    trace_id: str
-    session_id: Optional[str] = None
-    agent_id: Optional[str] = None
+    id: TaskId
+    trace_id: TaskId
+    session_id: Optional[SessionId] = None
+    agent_id: Optional[AgentId] = None
     agent_name: Optional[str] = None
     engine_kind: Optional[str] = None
     model: Optional[str] = None
@@ -91,6 +93,27 @@ class CallRecord(BaseModel):
     completed_at: Optional[str] = None
     retry_count: int = 0
     queue_wait_ms: int = 0
+
+    @field_serializer("id", "trace_id")
+    def serialize_task_id(self, value: TaskId) -> str:
+        # ``model_dump()`` (Python mode) is part of this schema's contract, but the
+        # typed-id core serializer only fires in JSON mode; mirror the sibling id
+        # fields so the canonical prefix is emitted in both modes.
+        return str(value)
+
+    @field_serializer("session_id")
+    def serialize_session_id(self, value: Optional[SessionId]) -> Optional[str]:
+        # ``model_dump()`` (Python mode) is part of this schema's contract, but the
+        # typed-id core serializer only fires in JSON mode; mirror the sibling id
+        # fields so the canonical prefix is emitted in both modes.
+        return str(value) if value is not None else None
+
+    @field_serializer("agent_id")
+    def serialize_agent_id(self, value: Optional[AgentId]) -> Optional[str]:
+        # ``model_dump()`` (Python mode) is part of this schema's contract, but the
+        # typed-id core serializer only fires in JSON mode; mirror the sibling id
+        # fields so the canonical prefix is emitted in both modes.
+        return str(value) if value is not None else None
 
 
 class CallsListResponse(BaseModel):
@@ -124,7 +147,7 @@ class ObservationNodeResponse(BaseModel):
 
 
 class AgentMetricsResponse(BaseModel):
-    agent_id: str
+    agent_id: AgentId
     agent_name: str
     engine_kind: Optional[str] = None
     total_sessions: int = 0
@@ -135,6 +158,10 @@ class AgentMetricsResponse(BaseModel):
     avg_cost: float = 0.0
     total_tokens: int = 0
     avg_agent_steps: float = 0.0
+
+    @field_serializer("agent_id")
+    def serialize_agent_id(self, value: AgentId) -> str:
+        return str(value)
 
 
 # --- Health Check ---
@@ -147,8 +174,29 @@ class AlertItem(BaseModel):
     type: str  # consecutive_failures, slow_agent, token_spike, high_retries, zombie_session
     severity: str  # error, warning, info
     agent_name: Optional[str] = None
-    agent_id: Optional[str] = None
+    agent_id: Optional[AgentId] = None
     params: dict[str, float] = {}
+
+    @field_serializer("agent_id")
+    def serialize_agent_id(self, value: Optional[AgentId]) -> Optional[str]:
+        return str(value) if value is not None else None
+
+
+class AgentRankingItem(BaseModel):
+    agent_id: AgentId
+    agent_name: str
+    engine_kind: Optional[str] = None
+    total_tasks: int
+    success_rate: float
+    failed_count: int
+    avg_duration_ms: float
+    total_tokens: int
+    last_task_at: Optional[str] = None
+    activity_status: str
+
+    @field_serializer("agent_id")
+    def serialize_agent_id(self, value: AgentId) -> str:
+        return str(value)
 
 
 class TokenSummary(BaseModel):

@@ -17,6 +17,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage};
+use crate::ids::SandboxId;
 use crate::kernel::sandbox_bridge::{BridgeRegistry, SandboxBridge};
 
 use super::dispatch::dispatch_to_bridge;
@@ -78,7 +79,7 @@ impl RedisBridgeStore {
 #[async_trait]
 impl BridgeStore for RedisBridgeStore {
     fn register(&self, external_id: String, bridge: Arc<SandboxBridge>) {
-        let sandbox_db_id = bridge.sandbox_db_id;
+        let sandbox_db_id = bridge.sandbox_db_id.as_uuid();
         // Local cache (immediate, sync)
         self.inner.register(external_id, bridge);
 
@@ -113,14 +114,14 @@ impl BridgeStore for RedisBridgeStore {
         self.inner.get(external_id)
     }
 
-    fn get_by_db_id(&self, db_id: Uuid) -> Option<Arc<SandboxBridge>> {
+    fn get_by_db_id(&self, db_id: SandboxId) -> Option<Arc<SandboxBridge>> {
         self.inner.get_by_db_id(db_id)
     }
 
     fn remove(&self, external_id: &str) -> Option<Arc<SandboxBridge>> {
         let bridge = self.inner.remove(external_id);
         if let Some(ref b) = bridge {
-            let sandbox_db_id = b.sandbox_db_id;
+            let sandbox_db_id = b.sandbox_db_id.as_uuid();
             let client = self.redis_client.clone();
             tokio::spawn(async move {
                 if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
@@ -140,8 +141,8 @@ impl BridgeStore for RedisBridgeStore {
         self.inner.shutdown_all().await;
     }
 
-    async fn get_owner_instance(&self, sandbox_id: Uuid) -> Option<String> {
-        let key = format!("{BRIDGE_KEY_PREFIX}{sandbox_id}");
+    async fn get_owner_instance(&self, sandbox_id: SandboxId) -> Option<String> {
+        let key = format!("{BRIDGE_KEY_PREFIX}{}", sandbox_id.as_uuid());
         match self.get_conn().await {
             Ok(mut conn) => conn.get::<_, Option<String>>(&key).await.unwrap_or(None),
             Err(_) => None,
@@ -159,7 +160,7 @@ impl BridgeStore for RedisBridgeStore {
         // Pipeline all EXPIRE commands in one RTT (200 bridges → ~3ms instead of ~200ms)
         let mut pipe = redis::pipe();
         for bridge in &bridges {
-            let key = format!("{BRIDGE_KEY_PREFIX}{}", bridge.sandbox_db_id);
+            let key = format!("{BRIDGE_KEY_PREFIX}{}", bridge.sandbox_db_id.as_uuid());
             pipe.cmd("EXPIRE").arg(&key).arg(BRIDGE_TTL_SECS as i64);
         }
         let results: Vec<bool> = pipe.query_async(&mut conn).await?;
@@ -169,7 +170,7 @@ impl BridgeStore for RedisBridgeStore {
         let mut need_re_register = false;
         for (i, exists) in results.iter().enumerate() {
             if !exists {
-                let key = format!("{BRIDGE_KEY_PREFIX}{}", bridges[i].sandbox_db_id);
+                let key = format!("{BRIDGE_KEY_PREFIX}{}", bridges[i].sandbox_db_id.as_uuid());
                 re_register_pipe
                     .cmd("SET")
                     .arg(&key)
@@ -203,7 +204,7 @@ pub struct RedisTaskDispatcher {
     redis_client: redis::Client,
     instance_id: String,
     /// Local cache: sandbox_id → (instance_id, cached_at). Avoids repeated Redis GETs.
-    owner_cache: dashmap::DashMap<Uuid, (String, std::time::Instant)>,
+    owner_cache: dashmap::DashMap<SandboxId, (String, std::time::Instant)>,
 }
 
 /// How long to cache a remote owner lookup before re-checking Redis.
@@ -235,7 +236,7 @@ impl RedisTaskDispatcher {
 impl TaskDispatcher for RedisTaskDispatcher {
     async fn dispatch_command(
         &self,
-        sandbox_id: Uuid,
+        sandbox_id: SandboxId,
         command: DispatchCommand,
     ) -> anyhow::Result<()> {
         // Fast path: try local bridge first (zero Redis RTT)
@@ -245,6 +246,7 @@ impl TaskDispatcher for RedisTaskDispatcher {
 
         // Slow path: look up owner instance (cached locally, fallback to Redis)
         let mut conn = self.get_conn().await?;
+        let bridge_key = format!("{BRIDGE_KEY_PREFIX}{}", sandbox_id.as_uuid());
 
         // Check local owner cache first (avoids Redis GET on repeated dispatches)
         let target = if let Some(entry) = self.owner_cache.get(&sandbox_id) {
@@ -254,7 +256,6 @@ impl TaskDispatcher for RedisTaskDispatcher {
             } else {
                 drop(entry);
                 self.owner_cache.remove(&sandbox_id);
-                let bridge_key = format!("{BRIDGE_KEY_PREFIX}{sandbox_id}");
                 let owner: Option<String> = conn.get(&bridge_key).await?;
                 match owner {
                     Some(o) => {
@@ -267,7 +268,6 @@ impl TaskDispatcher for RedisTaskDispatcher {
                 }
             }
         } else {
-            let bridge_key = format!("{BRIDGE_KEY_PREFIX}{sandbox_id}");
             let owner: Option<String> = conn.get(&bridge_key).await?;
             match owner {
                 Some(o) => {
@@ -315,7 +315,7 @@ impl TaskDispatcher for RedisTaskDispatcher {
             .arg("type")
             .arg(cmd_type)
             .arg("sandbox_id")
-            .arg(sandbox_id.to_string())
+            .arg(sandbox_id.as_uuid().to_string())
             .arg("payload")
             .arg(payload.to_string())
             .query_async::<String>(&mut conn)
@@ -355,7 +355,7 @@ impl RedisXdsStateStore {
 
 #[async_trait]
 impl XdsStateStore for RedisXdsStateStore {
-    async fn notify_change(&self, sandbox_id: Uuid, action: XdsAction) -> anyhow::Result<()> {
+    async fn notify_change(&self, sandbox_id: SandboxId, action: XdsAction) -> anyhow::Result<()> {
         let mut conn = self
             .redis_client
             .get_multiplexed_async_connection()
@@ -374,7 +374,7 @@ impl XdsStateStore for RedisXdsStateStore {
             .arg(XDS_NOTIFY_MAXLEN)
             .arg("*")
             .arg("sandbox_id")
-            .arg(sandbox_id.to_string())
+            .arg(sandbox_id.as_uuid().to_string())
             .arg("action")
             .arg(action_str)
             .arg("instance")
@@ -437,8 +437,8 @@ async fn handle_inbox_message(
         }
     }
 
-    let sandbox_id: Uuid = match sandbox_id_str.parse() {
-        Ok(id) => id,
+    let sandbox_id: SandboxId = match sandbox_id_str.parse::<Uuid>() {
+        Ok(id) => SandboxId::from_uuid(id),
         Err(_) => {
             warn!("Inbox message has invalid sandbox_id: {sandbox_id_str}");
             return;
@@ -555,8 +555,8 @@ pub async fn xds_notify_consumer_loop(
                 continue;
             }
 
-            let sandbox_id: Uuid = match sandbox_id_str.parse() {
-                Ok(id) => id,
+            let sandbox_id: SandboxId = match sandbox_id_str.parse::<Uuid>() {
+                Ok(id) => SandboxId::from_uuid(id),
                 Err(_) => continue,
             };
 

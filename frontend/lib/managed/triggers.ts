@@ -2,14 +2,29 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { managedDelete, managedGet, managedPatch, managedPost } from '@/lib/api-client'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { managedDelete, managedGet, managedPatch, managedPost } from '@/lib/api-client'
 import { apiCollectionPath, apiResourceId, apiResourcePath } from '@/lib/managed/api-paths'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
+import {
+  parseTaskId,
+  type AgentId,
+  type CredentialId,
+  type SessionId,
+  type TaskId,
+  type TriggerId,
+} from '@/types/entity-id'
+
+import {
+  parseAgentTriggerListResponse,
+  parseAgentTriggerResponse,
+  parseTriggerFireResultResponse,
+  parseTriggerRunResponse,
+} from './trigger-response-parsers'
 
 export type TriggerType = 'cron' | 'webhook' | 'manual'
 export type TriggerSessionMode = 'fresh' | 'reuse' | 'pinned' | 'keyed'
@@ -17,18 +32,17 @@ export type TriggerConcurrencyPolicy = 'allow' | 'forbid' | 'replace'
 export type WebhookAuthMethod = 'hmac' | 'bearer' | 'token'
 
 export interface AgentTrigger {
-  id: string
+  id: TriggerId
   name: string
   description: string | null
   type: TriggerType
-  agent_id: string
+  agent_id: AgentId
   prompt_template: string
-  system_prompt: string | null
   environment_ref: string | null
   enabled: boolean
   session_mode: TriggerSessionMode
-  pinned_session_id: string | null
-  reusable_session_id: string | null
+  pinned_session_id: SessionId | null
+  reusable_session_id: SessionId | null
   session_key: string | null
   filter: Record<string, unknown>
   timeout_sec: number
@@ -39,8 +53,8 @@ export interface AgentTrigger {
   concurrency_policy?: TriggerConcurrencyPolicy | null
   next_run_at?: string | null
   last_fired_slot?: string | null
-  secret_ref?: string | null
-  secret_key?: string | null
+  webhook_auth_credential_id?: CredentialId | null
+  webhook_auth_field?: string | null
   config?: Record<string, unknown>
   project_id: string | null
   webhook_url: string | null
@@ -50,8 +64,8 @@ export interface AgentTrigger {
   consecutive_failures: number
   auto_disabled_at?: string | null
   disabled_reason?: string | null
-  last_task_id: string | null
-  last_session_id: string | null
+  last_task_id: TaskId | null
+  last_session_id: SessionId | null
   last_payload: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -60,15 +74,15 @@ export interface AgentTrigger {
 export interface AgentTriggerCreate {
   name: string
   type?: TriggerType
-  agent_id: string
+  agent_id: AgentId
   prompt_template: string
-  secret_ref?: string | null
-  secret_key?: string | null
+  webhook_auth_credential_id?: CredentialId | null
+  webhook_auth_field?: string | null
   environment_ref?: string | null
   description?: string | null
   enabled?: boolean
   session_mode?: TriggerSessionMode
-  pinned_session_id?: string | null
+  pinned_session_id?: SessionId | null
   session_key?: string | null
   filter?: Record<string, unknown>
   timeout_sec?: number
@@ -85,12 +99,12 @@ export type AgentTriggerUpdate = Partial<Omit<AgentTriggerCreate, 'type' | 'agen
 
 /** A single execution row for a trigger (`/triggers/{id}/runs`). */
 export interface TriggerRun {
-  id: string
-  trigger_id: string | null
+  id: TaskId
+  trigger_id: TriggerId | null
   status: string
   retry_count: number
   max_retries: number
-  chat_session_id: string | null
+  chat_session_id: SessionId | null
   error: string | null
   created_at: string
   started_at: string | null
@@ -100,8 +114,8 @@ export interface TriggerRun {
 /** Result of a manual run / test-fire. */
 export interface TriggerFireResult {
   status: string
-  task_id: string | null
-  session_id: string | null
+  task_id: TaskId | null
+  session_id: SessionId | null
   reason?: string | null
   deduped?: boolean
 }
@@ -132,25 +146,28 @@ export function useAgentTriggers(params?: {
   })
   return useQuery({
     queryKey: ['triggers', scope.key, path],
-    queryFn: () => managedGet<AgentTrigger[]>(path, managedRequestOptions(scope)),
+    queryFn: () =>
+      managedGet<AgentTrigger[]>(path, managedRequestOptions(scope)).then(
+        parseAgentTriggerListResponse,
+      ),
     enabled: hasManagedRequestScope(scope),
   })
 }
 
-export function useAgentTrigger(triggerId: string | undefined) {
+export function useAgentTrigger(triggerId: TriggerId | undefined) {
   const scope = useManagedRequestScope()
   return useQuery({
     queryKey: ['trigger', scope.key, triggerId],
     queryFn: () =>
       managedGet<AgentTrigger>(
-        apiResourcePath('triggers', triggerId),
+        apiResourcePath('triggers', triggerId!),
         managedRequestOptions(scope),
-      ),
+      ).then(parseAgentTriggerResponse),
     enabled: !!triggerId && hasManagedRequestScope(scope),
   })
 }
 
-/** Normalize a create/update body: strip id prefixes off referenced resources. */
+/** Normalize legacy references while preserving canonical typed entity IDs. */
 function normalizeTriggerBody(
   body: AgentTriggerCreate | AgentTriggerUpdate,
 ): Record<string, unknown> {
@@ -175,7 +192,7 @@ export function useCreateAgentTrigger() {
           agent_id: apiResourceId(body.agent_id),
         },
         managedRequestOptions(scope),
-      ),
+      ).then(parseAgentTriggerResponse),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['triggers', scope.key] }),
   })
 }
@@ -184,15 +201,15 @@ export function useUpdateAgentTrigger() {
   const qc = useQueryClient()
   const scope = useManagedRequestScope()
   return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: AgentTriggerUpdate }) =>
+    mutationFn: ({ id, body }: { id: TriggerId; body: AgentTriggerUpdate }) =>
       managedPatch<AgentTrigger>(
         apiResourcePath('triggers', id),
         normalizeTriggerBody(body),
         managedRequestOptions(scope),
-      ),
+      ).then(parseAgentTriggerResponse),
     onSuccess: (_data, { id }) => {
       qc.invalidateQueries({ queryKey: ['triggers', scope.key] })
-      qc.invalidateQueries({ queryKey: ['trigger', scope.key, apiResourceId(id)] })
+      qc.invalidateQueries({ queryKey: ['trigger', scope.key, id] })
     },
   })
 }
@@ -206,12 +223,12 @@ export function useToggleAgentTrigger() {
   const qc = useQueryClient()
   const scope = useManagedRequestScope()
   return useMutation({
-    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+    mutationFn: ({ id, enabled }: { id: TriggerId; enabled: boolean }) =>
       managedPatch<AgentTrigger>(
         apiResourcePath('triggers', id),
         { enabled },
         managedRequestOptions(scope),
-      ),
+      ).then(parseAgentTriggerResponse),
     onMutate: async ({ id, enabled }) => {
       await qc.cancelQueries({ queryKey: ['triggers', scope.key] })
       const snapshots = qc.getQueriesData<AgentTrigger[]>({ queryKey: ['triggers', scope.key] })
@@ -219,7 +236,7 @@ export function useToggleAgentTrigger() {
         if (!list) continue
         qc.setQueryData<AgentTrigger[]>(
           key,
-          list.map((t) => (apiResourceId(t.id) === apiResourceId(id) ? { ...t, enabled } : t)),
+          list.map((t) => (t.id === id ? { ...t, enabled } : t)),
         )
       }
       return { snapshots }
@@ -231,7 +248,7 @@ export function useToggleAgentTrigger() {
     },
     onSettled: (_data, _error, { id }) => {
       qc.invalidateQueries({ queryKey: ['triggers', scope.key] })
-      qc.invalidateQueries({ queryKey: ['trigger', scope.key, apiResourceId(id)] })
+      qc.invalidateQueries({ queryKey: ['trigger', scope.key, id] })
     },
   })
 }
@@ -240,20 +257,22 @@ export function useDeleteAgentTrigger() {
   const qc = useQueryClient()
   const scope = useManagedRequestScope()
   return useMutation({
-    mutationFn: (id: string) =>
+    mutationFn: (id: TriggerId) =>
       managedDelete(apiResourcePath('triggers', id), managedRequestOptions(scope)),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['triggers', scope.key] }),
   })
 }
 
-export function useTriggerRuns(triggerId: string | undefined, limit = 10) {
-  const path = triggerId ? `/triggers/${apiResourceId(triggerId)}/runs` : '/triggers/runs'
+export function useTriggerRuns(triggerId: TriggerId | undefined, limit = 10) {
+  const path = triggerId ? `/triggers/${triggerId}/runs` : '/triggers/runs'
   return usePaginatedList<TriggerRun>({
     queryKey: 'trigger-runs',
     path,
     limit,
     pageSizeOptions: [10, 25, 50, 100],
     enabled: !!triggerId,
+    parseItem: parseTriggerRunResponse,
+    parseCursor: parseTaskId,
     // Poll only while a run is still in flight so a just-fired run advances to
     // its terminal state without a manual refresh. Idle when all are terminal.
     refetchInterval: (page) => {
@@ -264,14 +283,15 @@ export function useTriggerRuns(triggerId: string | undefined, limit = 10) {
 }
 
 /** Manually run a trigger (POST /run). Optional idempotency key is honored by the backend. */
-export function useRunTrigger(defaultId = '') {
+export function useRunTrigger(defaultId?: TriggerId) {
   const qc = useQueryClient()
   const scope = useManagedRequestScope()
   return useMutation({
     mutationFn: ({
       id = defaultId,
       idempotencyKey,
-    }: { id?: string; idempotencyKey?: string } = {}) => {
+    }: { id?: TriggerId; idempotencyKey?: string } = {}) => {
+      if (!id) throw new TypeError('Trigger ID is required')
       const options = managedRequestOptions(scope)
       const headers = idempotencyKey
         ? { ...options.headers, 'Idempotency-Key': idempotencyKey }
@@ -280,7 +300,7 @@ export function useRunTrigger(defaultId = '') {
         apiResourcePath('triggers', id, 'run'),
         {},
         { ...options, headers },
-      )
+      ).then(parseTriggerFireResultResponse)
     },
     onSuccess: () =>
       qc.invalidateQueries({
@@ -290,7 +310,7 @@ export function useRunTrigger(defaultId = '') {
 }
 
 /** Test-fire a webhook trigger (POST /test) — fires even when disabled. */
-export function useTestFireWebhook(triggerId: string) {
+export function useTestFireWebhook(triggerId: TriggerId) {
   const qc = useQueryClient()
   const scope = useManagedRequestScope()
   return useMutation({
@@ -299,19 +319,19 @@ export function useTestFireWebhook(triggerId: string) {
         apiResourcePath('triggers', triggerId, 'test'),
         {},
         managedRequestOptions(scope),
-      ),
+      ).then(parseTriggerFireResultResponse),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['trigger-runs', scope.key] }),
   })
 }
 
 /** Copy-paste signed-request sample (GET /webhook-sample). Webhook triggers only. */
-export function useWebhookSample(triggerId: string | undefined, enabled: boolean) {
+export function useWebhookSample(triggerId: TriggerId | undefined, enabled: boolean) {
   const scope = useManagedRequestScope()
   return useQuery({
     queryKey: ['trigger-webhook-sample', scope.key, triggerId],
     queryFn: () =>
       managedGet<WebhookSample>(
-        apiResourcePath('triggers', triggerId, 'webhook-sample'),
+        apiResourcePath('triggers', triggerId!, 'webhook-sample'),
         managedRequestOptions(scope),
       ),
     enabled: enabled && !!triggerId && hasManagedRequestScope(scope),

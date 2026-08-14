@@ -67,7 +67,7 @@ async def test_double_submit_without_idempotency_key_creates_one_task(db_session
         select(func.count()).select_from(JoySafeterTask).where(JoySafeterTask.agent_id == agent.id)
     )
     assert total == 1
-    assert redis.rpushed == [("joysafeter:global_queue", str(first.id))], "the task must be enqueued exactly once"
+    assert redis.rpushed == [("joysafeter:global_queue", str(first.id.uuid))], "the task must be enqueued exactly once"
 
 
 @pytest.mark.asyncio

@@ -6,11 +6,13 @@ import pytest
 
 from app.joysafeter_domain.services.joysafeter_trigger_config_policy import TriggerConfigPolicy
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
+from app.joysafeter_shared.ids import CredentialId
 
 pytestmark = pytest.mark.no_db
 
 _FUTURE = datetime.now(timezone.utc) + timedelta(hours=1)
 _PAST = datetime.now(timezone.utc) - timedelta(hours=1)
+_CRED_ID = CredentialId.new()
 
 
 def _validate(**overrides):
@@ -23,8 +25,8 @@ def _validate(**overrides):
         "run_at": None,
         "timezone_name": "UTC",
         "concurrency_policy": "allow",
-        "secret_ref": None,
-        "secret_key": "WEBHOOK_SECRET",
+        "webhook_auth_credential_id": None,
+        "webhook_auth_field": "WEBHOOK_SECRET",
         "auth_methods": ["hmac", "bearer", "token"],
     }
     fields.update(overrides)
@@ -46,7 +48,7 @@ def test_unsupported_trigger_type_gets_semantic_error():
 
 
 def test_invalid_session_mode_gets_semantic_error():
-    _assert_invalid("TRIGGER_SESSION_MODE_INVALID", type="webhook", secret_ref="x", session_mode="loop")
+    _assert_invalid("TRIGGER_SESSION_MODE_INVALID", type="webhook", webhook_auth_credential_id=_CRED_ID, session_mode="loop")
 
 
 def test_invalid_concurrency_policy_gets_semantic_error():
@@ -54,7 +56,7 @@ def test_invalid_concurrency_policy_gets_semantic_error():
 
 
 def test_invalid_auth_method_gets_semantic_error():
-    _assert_invalid("TRIGGER_AUTH_METHODS_INVALID", type="webhook", secret_ref="x", auth_methods=["magic-link"])
+    _assert_invalid("TRIGGER_AUTH_METHODS_INVALID", type="webhook", webhook_auth_credential_id=_CRED_ID, auth_methods=["magic-link"])
 
 
 def test_cron_rejects_both_cron_expr_and_run_at():
@@ -81,7 +83,7 @@ def test_run_at_only_valid_for_cron():
     _assert_invalid(
         "TRIGGER_RUN_AT_NOT_ALLOWED",
         type="webhook",
-        secret_ref="x",
+        webhook_auth_credential_id=_CRED_ID,
         run_at=_FUTURE,
     )
 
@@ -90,7 +92,7 @@ def test_cron_expr_only_valid_for_cron():
     _assert_invalid(
         "TRIGGER_SCHEDULE_FIELD_NOT_ALLOWED",
         type="webhook",
-        secret_ref="x",
+        webhook_auth_credential_id=_CRED_ID,
         cron_expr="*/5 * * * *",
     )
 
@@ -99,7 +101,7 @@ def test_non_default_concurrency_policy_only_valid_for_cron():
     _assert_invalid(
         "TRIGGER_SCHEDULE_FIELD_NOT_ALLOWED",
         type="webhook",
-        secret_ref="x",
+        webhook_auth_credential_id=_CRED_ID,
         concurrency_policy="forbid",
     )
 
@@ -108,7 +110,7 @@ def test_keyed_requires_session_key():
     _assert_invalid(
         "TRIGGER_SESSION_KEY_REQUIRED",
         type="webhook",
-        secret_ref="x",
+        webhook_auth_credential_id=_CRED_ID,
         session_mode="keyed",
     )
 
@@ -116,7 +118,7 @@ def test_keyed_requires_session_key():
 def test_keyed_accepts_session_key():
     _validate(
         type="webhook",
-        secret_ref="x",
+        webhook_auth_credential_id=_CRED_ID,
         session_mode="keyed",
         session_key="{{ body.chat_id }}",
     )

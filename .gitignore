@@ -5,6 +5,7 @@ __pycache__/
 
 .superpowers/
 .worktrees/
+/.tmp/
 # C extensions
 *.so
 
@@ -173,6 +174,8 @@ log.txt
 .telemetry_log/
 backend/app/logs
 *.jsonl
+# ...but test fixtures (captured real streams) are committed on purpose.
+!sandbox-runner/crates/joysafeter-runtime/tests/fixtures/*.jsonl
 
 # Config
 config.yaml

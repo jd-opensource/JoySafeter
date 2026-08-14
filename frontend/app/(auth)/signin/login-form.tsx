@@ -19,7 +19,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ApiError, managedGet } from '@/lib/api-client'
-import { client, useSession, type AuthError } from '@/lib/auth/auth-client'
+import { client, useSession } from '@/lib/auth/auth-client'
 import { getEnv, isFalsy } from '@/lib/core/config/env'
 import { getBaseUrl } from '@/lib/core/utils/urls'
 import { useTranslation } from '@/lib/i18n'
@@ -415,7 +415,7 @@ export default function LoginPage() {
           callbackURL: safeCallbackUrl,
         },
         {
-          onError: (ctx: { error: AuthError }) => {
+          onError: (ctx: { error: ApiError }) => {
             logger.error('Login error:', ctx.error)
 
             const errorCode = typeof ctx.error.code === 'string' ? ctx.error.code : ''
@@ -451,7 +451,7 @@ export default function LoginPage() {
       if (!result || result.error) {
         logger.warn('Login failed with error:', result?.error)
         if (result?.error) {
-          const error = result.error as AuthError
+          const error = result.error as ApiError
           const errorCode = typeof error.code === 'string' ? error.code : ''
           const errorMsg = typeof error.message === 'string' ? error.message : ''
 

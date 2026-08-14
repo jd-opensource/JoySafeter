@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { managedGet } from '@/lib/api-client'
-import { apiCollectionPath, apiResourceId } from '@/lib/managed/api-paths'
+import { apiCollectionPath } from '@/lib/managed/api-paths'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -22,10 +22,14 @@ interface PageResult<T> {
 interface UsePaginatedListOptions<T extends { id?: string }> {
   queryKey: string
   path: string
+  query?: Record<string, string | number | boolean | null | undefined>
+  cacheVersion?: string
   limit?: number
   pageSizeOptions?: number[]
   enabled?: boolean
   includeArchived?: boolean
+  parseItem?: (item: unknown) => T
+  parseCursor?: (cursor: string) => string
   refetchInterval?: (page: PageResult<T> | undefined) => number | false
 }
 
@@ -59,24 +63,44 @@ function storageKey(scope: string) {
   return `${STORAGE_PREFIX}${scope}`
 }
 
-function normalizeCursorState(scope: string, value: unknown): CursorState {
+function normalizeStoredCursor(
+  value: unknown,
+  parseCursor?: (cursor: string) => string,
+): string | undefined {
+  if (typeof value !== 'string' || !value) return undefined
+  try {
+    return parseCursor ? parseCursor(value) : value
+  } catch {
+    return undefined
+  }
+}
+
+function normalizeCursorState(
+  scope: string,
+  value: unknown,
+  parseCursor?: (cursor: string) => string,
+): CursorState {
   if (!value || typeof value !== 'object') return { scope, cursor: undefined, stack: [] }
   const maybeState = value as Partial<CursorState>
   if (maybeState.scope !== scope) return { scope, cursor: undefined, stack: [] }
   return {
     scope,
-    cursor: typeof maybeState.cursor === 'string' ? maybeState.cursor : undefined,
+    cursor: normalizeStoredCursor(maybeState.cursor, parseCursor),
     stack: Array.isArray(maybeState.stack)
-      ? maybeState.stack.filter((item): item is string => typeof item === 'string')
+      ? maybeState.stack.flatMap((item) => {
+          if (item === '') return ['']
+          const cursor = normalizeStoredCursor(item, parseCursor)
+          return cursor ? [cursor] : []
+        })
       : [],
   }
 }
 
-function loadCursorState(scope: string): CursorState {
+function loadCursorState(scope: string, parseCursor?: (cursor: string) => string): CursorState {
   if (typeof window === 'undefined') return { scope, cursor: undefined, stack: [] }
   try {
     const raw = window.sessionStorage.getItem(storageKey(scope))
-    return normalizeCursorState(scope, raw ? JSON.parse(raw) : null)
+    return normalizeCursorState(scope, raw ? JSON.parse(raw) : null, parseCursor)
   } catch {
     return { scope, cursor: undefined, stack: [] }
   }
@@ -101,62 +125,80 @@ async function apiPage<T extends { id?: string }>(
   cursor?: string,
   limit = 10,
   includeArchived = false,
+  parseItem?: (item: unknown) => T,
+  parseCursor?: (cursor: string) => string,
 ): Promise<PageResult<T>> {
   const url = apiCollectionPath(path, {
     limit,
-    after_id: cursor ? apiResourceId(cursor) : undefined,
+    after_id: cursor ? (parseCursor ? parseCursor(cursor) : cursor) : undefined,
     include_archived: includeArchived || undefined,
   })
 
   const res = await managedGet<
-    T[] | { data: T[]; has_more: boolean; first_id?: string; last_id?: string }
+    unknown[] | { data: unknown[]; has_more: boolean; first_id?: string; last_id?: string }
   >(url, managedRequestOptions(scope))
 
   if (Array.isArray(res)) {
-    return { data: res, has_more: false }
+    return { data: parseItem ? res.map(parseItem) : (res as T[]), has_more: false }
   }
-  const items = res.data
-  const firstId = res.first_id
-    ? apiResourceId(res.first_id)
-    : items.length > 0
-      ? apiResourceId(items[0].id || '')
-      : undefined
-  const lastId = res.last_id
-    ? apiResourceId(res.last_id)
-    : items.length > 0
-      ? apiResourceId(items[items.length - 1].id || '')
-      : undefined
+  const items = parseItem ? res.data.map(parseItem) : (res.data as T[])
+  const firstCursor = res.first_id ?? items[0]?.id
+  const lastCursor = res.last_id ?? items[items.length - 1]?.id
+  const firstId = firstCursor ? (parseCursor ? parseCursor(firstCursor) : firstCursor) : undefined
+  const lastId = lastCursor ? (parseCursor ? parseCursor(lastCursor) : lastCursor) : undefined
   return { data: items, has_more: res.has_more, first_id: firstId, last_id: lastId }
 }
 
 export function usePaginatedList<T extends { id?: string }>({
   queryKey,
   path,
+  query,
+  cacheVersion,
   limit = 10,
   pageSizeOptions = [10, 25, 50],
   enabled = true,
   includeArchived = false,
+  parseItem,
+  parseCursor,
   refetchInterval,
 }: UsePaginatedListOptions<T>): UsePaginatedListResult<T> {
   const queryClient = useQueryClient()
   const managedScope = useManagedRequestScope()
+  const queryScope = query ? JSON.stringify(query) : ''
+  const scopedPath = useMemo(
+    () => (query ? apiCollectionPath(path, query) : path),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [path, queryScope],
+  )
   const defaultPageSize = pageSizeOptions.includes(limit) ? limit : pageSizeOptions[0]
   const [pageSize, setPageSizeState] = useState(defaultPageSize)
   const effectivePageSize = pageSizeOptions.includes(pageSize) ? pageSize : defaultPageSize
-  const listScope = `${queryKey}:${path}:${managedScope.key}:${includeArchived}:${effectivePageSize}`
-  const [cursorState, setCursorState] = useState<CursorState>(() => loadCursorState(listScope))
+  const listScope = `${queryKey}:${scopedPath}:${managedScope.key}:${includeArchived}:${effectivePageSize}:${cacheVersion ?? ''}`
+  const [cursorState, setCursorState] = useState<CursorState>(() =>
+    loadCursorState(listScope, parseCursor),
+  )
   const cursor = cursorState.scope === listScope ? cursorState.cursor : undefined
   const cursorStack = useMemo(
     () => (cursorState.scope === listScope ? cursorState.stack : []),
     [cursorState, listScope],
   )
 
-  const fullKey = [queryKey, managedScope.key, path, cursor, includeArchived, effectivePageSize]
+  const fullKey = [
+    queryKey,
+    managedScope.key,
+    scopedPath,
+    cursor,
+    includeArchived,
+    effectivePageSize,
+    ...(cacheVersion ? [cacheVersion] : []),
+  ]
   const queryEnabled = enabled && hasManagedRequestScope(managedScope)
 
   useEffect(() => {
-    setCursorState((state) => (state.scope === listScope ? state : loadCursorState(listScope)))
-  }, [listScope])
+    setCursorState((state) =>
+      state.scope === listScope ? state : loadCursorState(listScope, parseCursor),
+    )
+  }, [listScope, parseCursor])
 
   useEffect(() => {
     if (cursorState.scope === listScope) saveCursorState(cursorState)
@@ -164,7 +206,16 @@ export function usePaginatedList<T extends { id?: string }>({
 
   const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: fullKey,
-    queryFn: () => apiPage<T>(path, managedScope, cursor, effectivePageSize, includeArchived),
+    queryFn: () =>
+      apiPage<T>(
+        scopedPath,
+        managedScope,
+        cursor,
+        effectivePageSize,
+        includeArchived,
+        parseItem,
+        parseCursor,
+      ),
     enabled: queryEnabled,
     placeholderData: (previousData, previousQuery) => {
       const previousKey = previousQuery?.queryKey
@@ -172,9 +223,10 @@ export function usePaginatedList<T extends { id?: string }>({
         Array.isArray(previousKey) &&
         previousKey[0] === queryKey &&
         previousKey[1] === managedScope.key &&
-        previousKey[2] === path &&
+        previousKey[2] === scopedPath &&
         previousKey[4] === includeArchived &&
-        previousKey[5] === effectivePageSize
+        previousKey[5] === effectivePageSize &&
+        previousKey[6] === cacheVersion
       ) {
         return previousData
       }
@@ -194,15 +246,24 @@ export function usePaginatedList<T extends { id?: string }>({
       const nextKey = [
         queryKey,
         managedScope.key,
-        path,
+        scopedPath,
         page.last_id,
         includeArchived,
         effectivePageSize,
+        ...(cacheVersion ? [cacheVersion] : []),
       ]
       queryClient.prefetchQuery({
         queryKey: nextKey,
         queryFn: () =>
-          apiPage<T>(path, managedScope, page.last_id, effectivePageSize, includeArchived),
+          apiPage<T>(
+            scopedPath,
+            managedScope,
+            page.last_id,
+            effectivePageSize,
+            includeArchived,
+            parseItem,
+            parseCursor,
+          ),
         staleTime: 30_000,
       })
     }
@@ -211,9 +272,12 @@ export function usePaginatedList<T extends { id?: string }>({
     page.last_id,
     queryKey,
     managedScope,
-    path,
+    scopedPath,
     effectivePageSize,
+    cacheVersion,
     includeArchived,
+    parseItem,
+    parseCursor,
     queryEnabled,
     queryClient,
   ])

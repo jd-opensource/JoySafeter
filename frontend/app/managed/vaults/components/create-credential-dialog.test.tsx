@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { JSDOM } from 'jsdom'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -75,10 +75,13 @@ globalThis.alert = vi.fn()
 
 import { managedPost } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
+import { parseCredentialGroupId, type CredentialGroupId } from '@/types/entity-id'
 
 import { CreateCredentialDialog } from './create-credential-dialog'
 
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
+const vaultAId = parseCredentialGroupId('credgrp_00000000-0000-0000-0000-000000000001')
+const vaultBId = parseCredentialGroupId('credgrp_00000000-0000-0000-0000-000000000002')
 
 function managedOptions() {
   return {
@@ -99,7 +102,7 @@ function deferred<T>() {
 }
 
 function renderDialog(
-  vaultId: string,
+  vaultId: CredentialGroupId,
   queryClient: QueryClient,
   onOpenChange: (open: boolean) => void = () => {},
 ) {
@@ -118,7 +121,15 @@ function renderDialog(
 describe('CreateCredentialDialog object lifecycle', () => {
   beforeEach(() => {
     managedPostMock.mockReset()
-    managedPostMock.mockResolvedValue({ id: 'cred-created' })
+    managedPostMock.mockResolvedValue({
+      id: 'cred_00000000-0000-0000-0000-000000000003',
+      group_id: 'credgrp_00000000-0000-0000-0000-000000000001',
+      name: 'https://mcp-a.example.com',
+      mcp_server_url: 'https://mcp-a.example.com',
+      data: { token_value: '********' },
+      created_at: '2026-08-10T00:00:00Z',
+      updated_at: '2026-08-10T00:00:00Z',
+    })
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
@@ -128,6 +139,7 @@ describe('CreateCredentialDialog object lifecycle', () => {
         name: 'Project A',
         slug: 'project-a',
         is_default: true,
+        capability: 'write',
         archived_at: null,
       },
       organizations: [],
@@ -158,7 +170,7 @@ describe('CreateCredentialDialog object lifecycle', () => {
     })
 
     const { getByPlaceholderText, getByText, rerender } = render(
-      renderDialog('vault-a', queryClient),
+      renderDialog(vaultAId, queryClient),
     )
 
     await act(async () => {
@@ -168,14 +180,17 @@ describe('CreateCredentialDialog object lifecycle', () => {
       fireEvent.input(getByPlaceholderText('https://mcp.example.com'), {
         target: { value: 'https://mcp-a.example.com' },
       })
+      fireEvent.input(getByPlaceholderText('managed.vaults.cred.tokenPlaceholder'), {
+        target: { value: 'bearer-token' },
+      })
     })
 
     await act(async () => {
-      rerender(renderDialog('vault-b', queryClient))
+      rerender(renderDialog(vaultBId, queryClient))
     })
 
     await act(async () => {
-      fireEvent.click(getByText('managed.vaults.cred.connect'))
+      fireEvent.click(getByText('managed.vaults.cred.add'))
     })
 
     expect(managedPostMock).not.toHaveBeenCalled()
@@ -194,31 +209,35 @@ describe('CreateCredentialDialog object lifecycle', () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
     const { getByPlaceholderText, getByText, rerender } = render(
-      renderDialog('vault-a', queryClient),
+      renderDialog(vaultAId, queryClient),
     )
 
     await act(async () => {
       fireEvent.input(getByPlaceholderText('https://mcp.example.com'), {
         target: { value: 'https://mcp-a.example.com' },
       })
+      fireEvent.input(getByPlaceholderText('managed.vaults.cred.tokenPlaceholder'), {
+        target: { value: 'bearer-token' },
+      })
     })
-
     await act(async () => {
-      fireEvent.click(getByText('managed.vaults.cred.connect'))
+      fireEvent.click(getByText('managed.vaults.cred.add'))
       await Promise.resolve()
     })
 
-    expect(managedPostMock).toHaveBeenCalledWith(
-      '/vaults/vault-a/credentials',
-      expect.objectContaining({
-        credential_type: 'mcp_oauth',
-        mcp_server_url: 'https://mcp-a.example.com',
-      }),
-      managedOptions(),
+    await waitFor(() =>
+      expect(managedPostMock).toHaveBeenCalledWith(
+        `/credential-groups/${vaultAId}/members`,
+        expect.objectContaining({
+          mcp_server_url: 'https://mcp-a.example.com',
+          data: { token_value: 'bearer-token' },
+        }),
+        managedOptions(),
+      ),
     )
 
     await act(async () => {
-      rerender(renderDialog('vault-b', queryClient))
+      rerender(renderDialog(vaultBId, queryClient))
       create.resolve({ id: 'cred-created-in-vault-a' })
       await Promise.resolve()
     })
@@ -239,16 +258,19 @@ describe('CreateCredentialDialog object lifecycle', () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     const onOpenChange = vi.fn()
 
-    const view = render(renderDialog('vault-a', queryClient, onOpenChange))
+    const view = render(renderDialog(vaultAId, queryClient, onOpenChange))
 
     await act(async () => {
       fireEvent.input(view.getByPlaceholderText('https://mcp.example.com'), {
         target: { value: 'https://mcp-a.example.com' },
       })
+      fireEvent.input(view.getByPlaceholderText('managed.vaults.cred.tokenPlaceholder'), {
+        target: { value: 'bearer-token' },
+      })
     })
 
     await act(async () => {
-      fireEvent.click(view.getByText('managed.vaults.cred.connect'))
+      fireEvent.click(view.getByText('managed.vaults.cred.add'))
       await Promise.resolve()
     })
 
@@ -261,5 +283,50 @@ describe('CreateCredentialDialog object lifecycle', () => {
 
     expect(invalidateSpy).not.toHaveBeenCalled()
     expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it('defaults a blank optional name to the server url and accepts the member response', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    const onOpenChange = vi.fn()
+    let wirePayload: Record<string, unknown> | undefined
+    managedPostMock.mockImplementationOnce(async (_path, payload) => {
+      wirePayload = JSON.parse(JSON.stringify(payload)) as Record<string, unknown>
+      return {
+        id: 'cred_00000000-0000-0000-0000-000000000003',
+        group_id: vaultAId,
+        name: 'https://mcp-a.example.com',
+        mcp_server_url: 'https://mcp-a.example.com',
+        data: { token_value: '********' },
+        archived_at: null,
+        created_at: '2026-08-10T00:00:00Z',
+        updated_at: '2026-08-10T00:00:00Z',
+      }
+    })
+    const view = render(renderDialog(vaultAId, queryClient, onOpenChange))
+
+    expect(view.queryByText('OAuth')).toBeNull()
+    const submit = view.getByText('managed.vaults.cred.add').closest('button')!
+    expect(submit.disabled).toBe(true)
+
+    fireEvent.input(view.getByPlaceholderText('https://mcp.example.com'), {
+      target: { value: 'https://mcp-a.example.com' },
+    })
+    fireEvent.input(view.getByPlaceholderText('managed.vaults.cred.tokenPlaceholder'), {
+      target: { value: ' bearer-token ' },
+    })
+    await act(async () => {
+      fireEvent.click(submit)
+    })
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(wirePayload).toEqual({
+      name: 'https://mcp-a.example.com',
+      mcp_server_url: 'https://mcp-a.example.com',
+      data: { token_value: 'bearer-token' },
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['vault-credentials', vaultAId],
+    })
   })
 })

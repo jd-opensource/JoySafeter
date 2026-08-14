@@ -1,14 +1,10 @@
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { ProjectInfo } from '@/stores/managed/project-store'
 
-// capability is absent on legacy/persisted state or projects-list entries — in
-// that case we do NOT restrict (backward-safe; capability repopulates on the
-// next /auth/me). We only mark read-only when the capability is known and below
-// write, or the project is archived/missing.
 function isReadOnly(projectId: string | null, project: ProjectInfo | null): boolean {
   if (!projectId) return false
   if (!project || project.archived_at) return true
-  return project.capability === 'read' || project.capability === 'none'
+  return project.capability !== 'write' && project.capability !== 'admin'
 }
 
 export function useCurrentProjectReadOnly(): boolean {
@@ -21,11 +17,7 @@ export function currentProjectAllowsWrite(): boolean {
 }
 
 // ADMIN-tier gate for privileged skill actions (lifecycle transitions,
-// publish, delete) whose backend requires ProjectCapability.ADMIN. Unlike the
-// write gate, this is conservative on unknown capability: it grants admin ONLY
-// when capability is known to be 'admin' — an unknown/legacy state hides the
-// action rather than showing a button the backend will 403. Archived/missing
-// projects are never admin.
+// publish, delete) whose backend requires ProjectCapability.ADMIN.
 function isAdmin(projectId: string | null, project: ProjectInfo | null): boolean {
   if (!projectId) return false
   if (!project || project.archived_at) return false

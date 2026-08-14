@@ -1,13 +1,11 @@
-import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.api.v1.id_helpers import parse_sandbox_id
-from app.joysafeter_api.services import SandboxService
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_sandbox import SandboxResponse
+from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
 from app.joysafeter_shared.common.app_errors import AppError, NotFoundError
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
@@ -15,11 +13,12 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import SandboxId
 
 router = APIRouter(tags=["joysafeter-sandboxes"])
 
 
-def _sandbox_not_found_error(sandbox_id: uuid.UUID) -> AppError:
+def _sandbox_not_found_error(sandbox_id: SandboxId) -> AppError:
     return NotFoundError(
         code="SANDBOX_NOT_FOUND",
         message="Sandbox not found",
@@ -31,7 +30,7 @@ def _sandbox_not_found_error(sandbox_id: uuid.UUID) -> AppError:
 @router.get("")
 async def list_sandboxes(
     limit: int = Query(20, ge=1, le=100),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[SandboxId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> PaginatedResponse[SandboxResponse]:
@@ -48,7 +47,7 @@ async def list_sandboxes(
 
 @router.get("/{sandbox_id}")
 async def get_sandbox(
-    sandbox_id: uuid.UUID = Depends(parse_sandbox_id),
+    sandbox_id: SandboxId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SandboxResponse:
@@ -61,7 +60,7 @@ async def get_sandbox(
 
 @router.delete("/{sandbox_id}", status_code=204)
 async def stop_sandbox(
-    sandbox_id: uuid.UUID = Depends(parse_sandbox_id),
+    sandbox_id: SandboxId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:

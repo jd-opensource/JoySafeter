@@ -28,7 +28,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_domain.services.joysafeter_secret_service import SecretService
+from app.joysafeter_domain.llm.catalog import get_llm_catalog
+from app.joysafeter_domain.llm.compatibility import (
+    LlmCompatibilityError,
+    validate_credential_data,
+    validate_provider_protocol,
+)
+from app.joysafeter_domain.schemas.joysafeter_credential import CredentialKind
+from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_domain.services.joysafeter_skill_authoring import (
     stream_authoring_chat,
 )
@@ -44,6 +51,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import CredentialId, SkillId
 from app.joysafeter_shared.llm.base_url import LLMBaseUrlError, validate_llm_base_url
 
 logger = logging.getLogger(__name__)
@@ -51,8 +59,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["skill-ai-authoring"])
 
 
-def _authoring_base_url_error(exc: LLMBaseUrlError, *, secret_ref: str) -> InvalidRequestError:
-    data = {"secret_ref": secret_ref, "key": exc.key, "base_url": exc.base_url}
+def _authoring_base_url_error(exc: LLMBaseUrlError, *, credential_id: CredentialId) -> InvalidRequestError:
+    data = {"credential_id": str(credential_id), "key": exc.key, "base_url": exc.base_url}
     if exc.host:
         data["host"] = exc.host
     if exc.reason == "not_allowed":
@@ -90,7 +98,7 @@ class AuthoringDraft(BaseModel):
 
 
 class AuthoringChatRequest(BaseModel):
-    secret_ref: str = Field(..., min_length=1, description="Secret name holding OPENAI_*.")
+    model_credential_id: CredentialId = Field(..., description="Model credential holding OPENAI_*.")
     messages: list[AuthoringMessage] = Field(..., max_length=50)
     draft: Optional[AuthoringDraft] = None
 
@@ -98,7 +106,7 @@ class AuthoringChatRequest(BaseModel):
 class SaveDraftRequest(BaseModel):
     """Create-or-update a draft skill row. Idempotent on ``draft_skill_id``."""
 
-    draft_skill_id: Optional[str] = None
+    draft_skill_id: Optional[SkillId] = None
     name: str = Field(..., min_length=1, max_length=64)
     description: str = ""
     content: str = ""
@@ -130,12 +138,6 @@ def _sse(event: dict[str, Any]) -> str:
     # break the stream).
     payload = payload.replace("\r", "").replace("\n", "\\n")
     return f"data: {payload}\n\n"
-
-
-def _strip_skill_id_prefix(raw: str) -> str:
-    """Accept either ``skill_<uuid>`` or a bare uuid (mirrors how skills
-    page sends/receives ids)."""
-    return raw.removeprefix("skill_") if raw.startswith("skill_") else raw
 
 
 # Map a file extension to the ``file_type`` label the skill store uses.
@@ -229,35 +231,78 @@ async def authoring_chat(
 ):
     """Stream one authoring turn against the configured LLM.
 
-    Credentials live in a JoySafeter secret (multi-tenant) — same shape
-    ``quickstart.py`` uses: ``OPENAI_API_KEY`` (required), ``OPENAI_BASE_URL``
+    Credentials live in a JoySafeter model credential (multi-tenant) — same
+    shape ``quickstart.py`` uses: ``OPENAI_API_KEY`` (required), ``OPENAI_BASE_URL``
     (optional, defaults to api.openai.com), ``OPENAI_MODEL`` (optional,
     defaults to ``gpt-5.5``).
     """
-    svc = SecretService(db)
-    secret = await svc.get_secret_by_name(req.secret_ref, project_id=auth_ctx.project_id)
-    if not secret:
+    svc = CredentialService(db)
+    cred = await svc.get(req.model_credential_id, project_id=auth_ctx.project_id)
+    if not cred:
         raise NotFoundError(
-            code="SKILL_AUTHORING_SECRET_NOT_FOUND",
-            message="Secret not found.",
-            data={"secret_ref": req.secret_ref},
+            code="CREDENTIAL_NOT_FOUND",
+            message="Credential not found.",
+            data={"credential_id": str(req.model_credential_id)},
             user_action="fix_input",
         )
-    data = svc.get_secret_data(secret)
-    api_key = data.get("OPENAI_API_KEY") or ""
-    if not api_key:
+    if (
+        cred.kind != CredentialKind.MODEL.value
+        or not cred.provider
+        or cred.protocol != "openai_responses"
+    ):
         raise InvalidRequestError(
-            code="SKILL_AUTHORING_SECRET_MISSING_KEY",
-            message="Secret missing OPENAI_API_KEY.",
-            data={"secret_ref": req.secret_ref, "required_key": "OPENAI_API_KEY"},
+            code="SKILL_AUTHORING_SECRET_INCOMPATIBLE",
+            message="Skill authoring requires an OpenAI Responses compatible model configuration.",
+            data={
+                "credential_id": str(req.model_credential_id),
+                "kind": cred.kind,
+                "provider": cred.provider,
+                "protocol": cred.protocol,
+                "required_protocol": "openai_responses",
+            },
             user_action="fix_input",
         )
-    base_url = data.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
     try:
-        base_url = validate_llm_base_url(base_url, key="OPENAI_BASE_URL")
+        binding = validate_provider_protocol(cred.provider, cred.protocol)
+        data = svc.get_credential_data(cred)
+        validate_credential_data(cred.provider, cred.protocol, data)
+    except LlmCompatibilityError as exc:
+        if exc.code == "LLM_SECRET_CREDENTIALS_INCOMPLETE" and exc.data.get(
+            "required_fields"
+        ) == ["OPENAI_API_KEY"]:
+            raise InvalidRequestError(
+                code="SKILL_AUTHORING_SECRET_MISSING_KEY",
+                message="Credential missing OPENAI_API_KEY.",
+                data={"credential_id": str(req.model_credential_id), "required_key": "OPENAI_API_KEY"},
+                user_action="fix_input",
+            ) from exc
+        raise InvalidRequestError(
+            code="SKILL_AUTHORING_SECRET_INCOMPATIBLE",
+            message="Skill authoring model configuration is invalid.",
+            data={
+                "credential_id": str(req.model_credential_id),
+                "provider": cred.provider,
+                "protocol": cred.protocol,
+            },
+            user_action="fix_input",
+        ) from exc
+    profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
+    api_key = data.get("OPENAI_API_KEY") or ""
+    base_url_key = profile.base_url_key or "BASE_URL"
+    base_url = data.get(base_url_key) or binding.default_base_url
+    if not base_url:
+        raise InvalidRequestError(
+            code="SKILL_AUTHORING_BASE_URL_REQUIRED",
+            message=f"{base_url_key} is required for skill authoring.",
+            data={"credential_id": str(req.model_credential_id), "key": base_url_key},
+            user_action="fix_input",
+        )
+    try:
+        base_url = validate_llm_base_url(base_url, key=base_url_key)
     except LLMBaseUrlError as exc:
-        raise _authoring_base_url_error(exc, secret_ref=req.secret_ref) from None
-    model = data.get("OPENAI_MODEL") or "gpt-5.5"
+        raise _authoring_base_url_error(exc, credential_id=req.model_credential_id) from None
+    model = data.get(profile.model_key) if profile.model_key else None
+    model = model or "gpt-5.5"
 
     history = [m.model_dump() for m in req.messages]
     draft_dict = req.draft.model_dump() if req.draft else None
@@ -307,12 +352,9 @@ async def authoring_save_draft(
     files = _normalize_draft_files(req.files)
 
     if req.draft_skill_id:
-        sid_str = _strip_skill_id_prefix(req.draft_skill_id)
         try:
-            import uuid as _uuid
-
             skill = await svc.update_skill(
-                _uuid.UUID(sid_str),
+                req.draft_skill_id,
                 current_user_id=auth_ctx.user_id,
                 name=req.name,
                 description=req.description,
@@ -328,7 +370,7 @@ async def authoring_save_draft(
                 f"技能名「{req.name}」已被占用，请换一个名称。",
                 code="SKILL_NAME_ALREADY_EXISTS",
             ) from None
-        return {"skill_id": f"skill_{skill.id}", "created": False}
+        return {"skill_id": str(skill.id), "created": False}
 
     # Only-when-taken suffix: keep the first save clean, auto-bump to
     # ``name-2`` / ``-3`` only if the project already has that name. Prevents
@@ -357,4 +399,4 @@ async def authoring_save_draft(
             f"技能名「{unique_name}」已存在，请换一个名称，或回到该草稿继续编辑。",
             code="SKILL_NAME_ALREADY_EXISTS",
         ) from None
-    return {"skill_id": f"skill_{skill.id}", "created": True}
+    return {"skill_id": str(skill.id), "created": True}

@@ -15,7 +15,6 @@ contract the orchestrator depends on.
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import Optional, Tuple
 
 from sqlalchemy import select
@@ -33,13 +32,13 @@ from app.joysafeter_shared.common.app_errors import (
 )
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.stream_errors import async_error_payload
+from app.joysafeter_shared.ids import AgentId, SessionId, TaskId, TriggerId
 from app.joysafeter_shared.orchestrator_bridge.enqueue import enqueue_joysafeter_task
-from app.joysafeter_shared.utils.id_utils import same_id
 
 logger = logging.getLogger(__name__)
 
 
-def _enqueue_failed_error(*, task_id: uuid.UUID, session_id: Optional[uuid.UUID]) -> AppError:
+def _enqueue_failed_error(*, task_id: TaskId, session_id: Optional[SessionId]) -> AppError:
     data: dict[str, object] = {"task_id": str(task_id)}
     if session_id is not None:
         data["session_id"] = str(session_id)
@@ -53,7 +52,7 @@ def _enqueue_failed_error(*, task_id: uuid.UUID, session_id: Optional[uuid.UUID]
     )
 
 
-def _enqueue_failed_stop_reason(*, task_id: uuid.UUID, session_id: Optional[uuid.UUID]) -> dict[str, object]:
+def _enqueue_failed_stop_reason(*, task_id: TaskId, session_id: Optional[SessionId]) -> dict[str, object]:
     data: dict[str, object] = {"task_id": str(task_id)}
     if session_id is not None:
         data["session_id"] = str(session_id)
@@ -132,10 +131,10 @@ class TaskSubmissionService:
     async def create_and_dispatch(
         self,
         *,
-        agent_id: uuid.UUID,
+        agent_id: AgentId,
         prompt: str,
         system_prompt: Optional[str],
-        chat_session_id: uuid.UUID,
+        chat_session_id: SessionId,
         session_svc: SessionService,
         timeout_sec: int,
         max_retries: int,
@@ -143,8 +142,8 @@ class TaskSubmissionService:
         user_id: Optional[str],
         org_id: Optional[str],
         idempotency_key: Optional[str],
-        trigger_id: Optional[uuid.UUID] = None,
-        auto_created_session_id: Optional[uuid.UUID] = None,
+        trigger_id: Optional[TriggerId] = None,
+        auto_created_session_id: Optional[SessionId] = None,
         enforce_admission: bool = True,
         enforce_user_quota: bool = True,
         emit_user_message: bool = True,
@@ -251,14 +250,14 @@ class TaskSubmissionService:
         self,
         task: JoySafeterTask,
         *,
-        chat_session_id: uuid.UUID,
-        auto_created_session_id: Optional[uuid.UUID],
+        chat_session_id: SessionId,
+        auto_created_session_id: Optional[SessionId],
         session_svc: SessionService,
     ) -> Tuple[JoySafeterTask, bool]:
         # Idempotent replay: the key already produced a task. Drop the
         # session we auto-created for this attempt (if it isn't the one the
         # existing task uses) and return the existing task unchanged.
-        if auto_created_session_id is not None and not same_id(task.chat_session_id, auto_created_session_id):
+        if auto_created_session_id is not None and task.chat_session_id != auto_created_session_id:
             try:
                 await session_svc.delete_session(auto_created_session_id)
             except Exception as exc:
@@ -269,9 +268,12 @@ class TaskSubmissionService:
                     message="Failed to delete orphan idempotency session",
                     operation="delete_orphan_idempotency_session",
                     error=exc,
-                    data={"session_id": str(auto_created_session_id), "task_id": str(task.id)},
+                    data={
+                        "session_id": str(auto_created_session_id),
+                        "task_id": str(task.id),
+                    },
                 )
-        elif auto_created_session_id is None and not same_id(task.chat_session_id, chat_session_id):
+        elif auto_created_session_id is None and task.chat_session_id != chat_session_id:
             raise ResourceConflictError(
                 code="TASK_IDEMPOTENCY_KEY_MISMATCH",
                 message="Idempotency-Key was already used for a different session",
@@ -279,7 +281,9 @@ class TaskSubmissionService:
                     "task_id": str(task.id),
                     "conflict_field": "chat_session_id",
                     "requested_value": str(chat_session_id),
-                    "existing_value": str(task.chat_session_id),
+                    "existing_value": (
+                        str(task.chat_session_id) if task.chat_session_id is not None else None
+                    ),
                 },
                 user_action="fix_input",
             )

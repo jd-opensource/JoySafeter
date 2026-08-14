@@ -5,8 +5,7 @@ The JoySafeter HTTP API is served under the `/api/v1` prefix by the **API servic
 `http://localhost:8000/docs` (Swagger UI) and `http://localhost:8000/redoc`.
 
 This page summarizes the router groups and the programmatic run flow (create an agent → open
-a session → send a message → stream events). It also calls out a few compatibility details
-that are easy to miss when using the raw API. For complete request/response schemas, use the
+a session → send a message → stream events). For complete request/response schemas, use the
 live OpenAPI docs at `/docs`.
 
 ---
@@ -54,7 +53,8 @@ All paths are under `/api/v1`.
 | **Tasks** | `/tasks` | create + enqueue, list, get, cancel, **WS** `/tasks/{id}/stream` |
 | **Sessions** | `/sessions` | CRUD, archive, stop, `POST /events` (send message), `GET /events` (history), **SSE** `/events/stream`, resources (files/repos) |
 | **Environments** | `/environments` | Sandbox image/config CRUD |
-| **Secrets** | `/secrets` | Provider API keys (model credentials) + default selection, AES-256-GCM encrypted |
+| **LLM Catalog** | `/llm/catalog` | Engine capabilities, Protocol definitions, Provider bindings, Credential Profiles |
+| **Secrets** | `/secrets` | LLM model configurations and generic secrets, AES-256-GCM encrypted |
 | **Vaults** | `/vaults` | MCP-server credentials + OAuth config |
 | **Skills** | `/skills` | CRUD, `import-zip`, files, versions, security-scans, lifecycle transitions, admin `rescan-all` |
 | **Skills AI authoring** | `/skills/ai-authoring` | **SSE** `/chat` (LLM authoring turn), `/save-draft` |
@@ -65,23 +65,87 @@ All paths are under `/api/v1`.
 | **Quickstart** | `/quickstart` | **SSE** `/chat` — guided onboarding LLM proxy |
 | **Health** | `/health` | readiness (Postgres + Redis), liveness |
 
-> There are **no** mounted `audit`, `models`, `model-credentials`, `model-providers`, `mcp`,
-> `tools`, `copilot`, `graphs`, or `openapi/graph/*` routers. Model configuration lives in
-> the agent's `model` JSONB field plus a `secret_ref` into **Secrets**; MCP credentials live
-> in **Vaults**. `backend/app/joysafeter_api/api/v1/audit.py` is a helper used by other
-> routers for security-audit logging; it is not included in `router.py`.
+An Agent stores `engine_kind + secret_ref`. The referenced LLM Secret stores an explicit
+`kind=llm + provider + protocol + credentials` identity. MCP credentials live in **Vaults**.
+
+## LLM Catalog and model configurations
+
+`GET /api/v1/llm/catalog` is the canonical public compatibility contract:
+
+- Engines declare `supported_protocol_ids` and `preferred_protocol_ids`.
+- Providers declare Protocol bindings and Credential Profiles.
+- Credential Profiles declare accepted fields, required alternatives, `base_url_key`, and `model_key`.
+
+Create an LLM Secret with `POST /api/v1/secrets`:
+
+```json
+{
+  "kind": "llm",
+  "name": "openai-production",
+  "provider": "openai",
+  "protocol": "openai_responses",
+  "data": {
+    "OPENAI_API_KEY": "...",
+    "OPENAI_MODEL": "gpt-5"
+  },
+  "is_default": true
+}
+```
+
+Create a generic Secret with `kind=generic`, no `provider` or `protocol`, and arbitrary `data`.
+The LLM identity fields are immutable after creation; `PUT /secrets/{secret_id}` updates
+credential `data` only.
+
+Useful Secret list filters:
+
+| Query | Meaning |
+|---|---|
+| `kind=llm` | Return only model configurations |
+| `compatible_engine=codex` | Return only configurations whose Protocol is supported by Codex |
+| `name=openai-production` | Exact project-scoped name lookup |
+| `provider=openai&protocol=openai_responses` | Filter an explicit Provider/Protocol binding |
+
+List responses expose `provider`, `protocol`, `model`, `compatible_engine_ids`, `is_default`, and
+credential field names in `keys`; plaintext credential values are never returned. Defaults are
+scoped by Protocol.
+
+Agent creation requires an explicit `engine_kind`; the API does not infer or default an Engine.
+Agent create/update and `POST /api/v1/quickstart/chat` validate Engine/Protocol compatibility on
+the server. Quickstart chat requests use `engine_kind` (not `provider`) plus `secret_ref`.
 
 ## ID formats
 
-Most managed-resource responses serialize IDs with a type prefix, such as `agent_<uuid>`,
-`sess_<uuid>`, `env_<uuid>`, `skill_<uuid>`, `vault_<uuid>`, and `secret_<uuid>`. The
-corresponding resource routes strip these prefixes where `id_helpers.py` is used, so either the
-prefixed ID or the bare UUID works for those paths.
-
-Task routes are the notable exception: `GET /tasks/{task_id}`, `POST /tasks/{task_id}/cancel`,
-and `WS /tasks/{task_id}/stream` currently take a bare UUID path parameter. `POST /tasks`
-returns the bare UUID as `data.id`; if another task response serializes `id` as `task_<uuid>`,
-strip `task_` before calling a task path.
+Managed-resource responses serialize IDs with a type prefix, such as `agent_<uuid>`, `sess_<uuid>`,
+`task_<uuid>`, `trig_<uuid>`, `env_<uuid>`, `skill_<uuid>`, `vault_<uuid>`, `cred_<uuid>`, `secret_<uuid>`, `sbx_<uuid>`,
+`memstore_<uuid>`, `mem_<uuid>`, `memver_<uuid>`, `sklfile_<uuid>`, `sklscan_<uuid>`, `sklver_<uuid>`,
+`sklvfile_<uuid>`, `skluse_<uuid>`, `file_<uuid>`, `sesrsc_<uuid>`, `evt_<uuid>`, `vol_<uuid>`,
+`stgrant_<uuid>`, and `staudit_<uuid>`. Typed Agent, Session, Task, Trigger, Environment,
+Secret, Vault, Credential, Sandbox, Memory Store, Memory, Memory Version, Skill, Skill File,
+Skill Security Scan, Skill Version, Skill Version File, Skill Usage, File, Session Resource, Event,
+Storage Volume, Storage Grant, and Storage Mount Audit request fields, path parameters, and cursors require
+their canonical prefixed form. Bare UUIDs are reserved for database, Redis, protobuf, and explicit
+physical adapters documented in `ARCHITECTURE.md`; they are not public API alternatives. `environment_ref` is the documented exception because it may contain either an
+environment name or canonical `env_<uuid>`; a bare UUID is not accepted as an Environment ID.
+Agent and Environment `secret_ref` values are secret names rather than Secret IDs; clients must not
+substitute `secret_<uuid>` into those name-based configuration fields.
+Session `vault_ids` values require canonical `vault_<uuid>` strings. Nested Vault credential routes
+require canonical `cred_<uuid>` values and reject bare or cross-entity UUIDs.
+Sandbox diagnostics and task/session sandbox references return canonical `sbx_<uuid>` values. Runtime
+commands, provider labels/names, Redis keys, and protobuf messages intentionally carry the bare sandbox
+UUID and are not public client contracts.
+Memory Store CRUD and memory/version routes likewise require canonical Memory IDs. Redis
+`memory_update.store_id` and runner `MemoryStoreMount.store_id` intentionally carry the bare store UUID
+and are converted back to `MemoryStoreId` inside the Rust command listener.
+Skill routes require the matching canonical ID family rather than a generic UUID: root skills use
+`skill_`, mutable files use `sklfile_`, scans use `sklscan_`, versions use `sklver_`, immutable version
+files use `sklvfile_`, and usage rows use `skluse_`. Cross-family values are rejected even when the UUID
+suffix is otherwise valid.
+File routes use `file_<uuid>`, while mutable file/repository attachments under a Session use
+`sesrsc_<uuid>`. Storage object keys and SQL UUID columns intentionally use the bare File UUID; clients
+must retain the canonical prefixes in paths, request bodies, caches, and UI state.
+Persisted Session event IDs use `evt_<uuid>` in REST history, SSE payloads, logs, caches, and UI state.
+SQL UUID columns and Redis stream fields intentionally use the bare Event UUID; those physical forms
+are not accepted by public API contracts.
 
 ---
 
@@ -104,13 +168,13 @@ curl -X POST https://your-domain/api/v1/sessions \
   -d '{"agent_name": "apk-analyzer", "title": "APK analysis"}'
 ```
 
-The response envelope's `data.id` is the session ID, usually serialized as `sess_<uuid>`.
+The response envelope's `data.id` is the session ID serialized as `sess_<uuid>`.
 
 ### 2. Send the first user message
 
 `POST /api/v1/sessions/{session_id}/events` appends a `user.message`, creates a Task for that
 turn, transitions the session to running, and enqueues the task. The API also emits a
-`session.status_running` event whose payload contains the created task's bare UUID.
+`session.status_running` event whose payload contains the created `task_<uuid>` ID.
 
 ```bash
 curl -X POST https://your-domain/api/v1/sessions/{session_id}/events \
@@ -154,7 +218,7 @@ curl -X POST https://your-domain/api/v1/tasks \
   -d '{"agent_name": "apk-analyzer", "prompt": "Analyze this APK: https://example.com/app.apk"}'
 ```
 
-The response envelope's `data` carries only `id` (bare task UUID) and `status`. To stream via
+The response envelope's `data` carries only `id` (`task_<uuid>`) and `status`. To stream via
 SSE after task-first creation, call `GET /api/v1/tasks/{task_id}` and use its
 `chat_session_id` field with `/sessions/{session_id}/events/stream`.
 

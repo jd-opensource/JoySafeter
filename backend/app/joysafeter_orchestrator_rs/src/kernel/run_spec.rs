@@ -1,6 +1,7 @@
 use serde_json::Value;
 
 use crate::db::models::{JoySafeterAgent, JoySafeterSession};
+use crate::ids::CredentialId;
 
 #[derive(Debug, Clone)]
 pub struct SnapshotEnvironment {
@@ -40,16 +41,14 @@ pub fn agent_for_execution(
             .or_else(|| live.and_then(|agent| agent.engine_kind.clone())),
         model: snapshot_model_override(snapshot)
             .unwrap_or_else(|| live.and_then(|agent| agent.model.clone())),
-        system_prompt: snapshot_string_override(snapshot, "system_prompt")
-            .or_else(|| snapshot_string_override(snapshot, "system"))
+        system_prompt: snapshot_string_override(snapshot, "system")
             .unwrap_or_else(|| live.and_then(|agent| agent.system_prompt.clone())),
         description: snapshot_string_override(snapshot, "description")
             .unwrap_or_else(|| live.and_then(|agent| agent.description.clone())),
         env: snapshot_value_override(snapshot, "env")
             .unwrap_or_else(|| live.and_then(|agent| agent.env.clone())),
-        mcp_configs: snapshot_value_override(snapshot, "mcp_configs")
-            .or_else(|| snapshot_value_override(snapshot, "mcp_servers"))
-            .unwrap_or_else(|| live.and_then(|agent| agent.mcp_configs.clone())),
+        mcp_servers: snapshot_value_override(snapshot, "mcp_servers")
+            .unwrap_or_else(|| live.and_then(|agent| agent.mcp_servers.clone())),
         skills: snapshot_value_override(snapshot, "skills")
             .unwrap_or_else(|| live.and_then(|agent| agent.skills.clone())),
         agents: snapshot_value_override(snapshot, "agents")
@@ -75,8 +74,12 @@ pub fn agent_for_execution(
                     .or_else(|| live.and_then(|agent| agent.environment_ref.clone()))
             },
         ),
-        secret_ref: snapshot_string_override(snapshot, "secret_ref")
-            .unwrap_or_else(|| live.and_then(|agent| agent.secret_ref.clone())),
+        // The agent's primary model credential is now referenced by id. The
+        // snapshot persists it as the canonical public id string under
+        // "model_credential_id"; parse it back to a CredentialId, else fall back
+        // to the live agent.
+        model_credential_id: snapshot_credential_id_override(snapshot)
+            .unwrap_or_else(|| live.and_then(|agent| agent.model_credential_id)),
     })
 }
 
@@ -126,6 +129,28 @@ fn snapshot_string_override(snapshot: Option<&Value>, key: &str) -> Option<Optio
 
 fn snapshot_string(snapshot: &Value, key: &str) -> Option<String> {
     snapshot.get(key)?.as_str().map(ToOwned::to_owned)
+}
+
+/// Resolves the model credential override from an agent snapshot.
+///
+/// Returns:
+///   - `None`           → the snapshot has no `model_credential_id` key
+///                        (fall back to the live agent);
+///   - `Some(None)`     → the key is present but null/blank/unparseable
+///                        (explicitly no credential);
+///   - `Some(Some(id))` → the key holds a canonical `cred_` public id.
+fn snapshot_credential_id_override(snapshot: Option<&Value>) -> Option<Option<CredentialId>> {
+    snapshot.and_then(|snapshot| {
+        snapshot
+            .as_object()
+            .and_then(|object| object.get("model_credential_id"))
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|raw| !raw.trim().is_empty())
+                    .and_then(|raw| CredentialId::from_public(raw).ok())
+            })
+    })
 }
 
 fn snapshot_i32(snapshot: Option<&Value>, key: &str) -> Option<i32> {

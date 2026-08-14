@@ -15,9 +15,7 @@ export interface ProjectInfo {
   slug: string
   is_default: boolean
   archived_at?: string | null
-  // The caller's effective capability in this project (none/read/write/admin).
-  // Present on the active project from /auth/me and switch-context; may be
-  // absent on entries from the projects list or persisted legacy state.
+  // Present on the active project returned by /auth/me and switch-context.
   capability?: string
   project_role?: string | null
 }
@@ -87,6 +85,10 @@ export const useProjectStore = create<ProjectState>()(
     }),
     {
       name: 'managed-project-state',
+      partialize: (state) => ({
+        currentOrgId: state.currentOrgId,
+        currentProjectId: state.currentProjectId,
+      }),
     },
   ),
 )

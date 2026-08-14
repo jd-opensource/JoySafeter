@@ -1,9 +1,4 @@
-"""Trigger-type provider registry: dispatch seam for cron/webhook/manual.
-
-Pure unit tests (no DB): registration, config snapshots equal to the legacy
-hardcoded dicts, exactly-once key derivation (including the attempt suffix used
-by slot retries), and rejection of unknown types.
-"""
+"""Trigger-type provider registry contracts for cron, webhook, and manual."""
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -36,7 +31,7 @@ def test_unknown_kind_raises():
         get_provider("event")
 
 
-def test_cron_build_config_matches_legacy_shape():
+def test_cron_build_config_shape():
     cfg = get_provider("cron").build_config(cron_expr="*/5 * * * *")
     assert cfg == {
         "cron_expr": "*/5 * * * *",
@@ -47,18 +42,21 @@ def test_cron_build_config_matches_legacy_shape():
     }
 
 
-def test_webhook_build_config_defaults():
-    cfg = get_provider("webhook").build_config(secret_ref="hook")
+def test_webhook_build_config_requires_explicit_auth_methods():
+    cred_id = "01J000000000000000000CRED0"
+    cfg = get_provider("webhook").build_config(webhook_auth_credential_id=cred_id)
     assert cfg == {
-        "secret_ref": "hook",
-        "secret_key": "WEBHOOK_SECRET",
-        "auth_methods": ["hmac", "bearer", "token"],
+        "webhook_auth_credential_id": cred_id,
+        "webhook_auth_field": "WEBHOOK_SECRET",
+        "auth_methods": None,
         "dedupe_header": "x-joysafeter-delivery",
     }
 
 
 def test_webhook_build_config_preserves_explicit_empty_auth_methods():
-    cfg = get_provider("webhook").build_config(secret_ref="hook", auth_methods=[])
+    cfg = get_provider("webhook").build_config(
+        webhook_auth_credential_id="01J000000000000000000CRED0", auth_methods=[]
+    )
     assert cfg["auth_methods"] == []
 
 
@@ -71,7 +69,7 @@ def test_cron_idempotency_key_attempt_suffix():
     trigger = _trigger()
     slot = datetime(2026, 7, 27, 12, 0, tzinfo=timezone.utc)
     epoch = int(slot.timestamp())
-    # Attempt 0 keeps the legacy key (backward compatible with existing rows).
+    # Attempt 0 is the base logical-slot key.
     assert provider.idempotency_key(trigger, fired_slot=slot, attempt=0) == f"trigger:cron:TID:{epoch}"
     # Retries get a distinct key so they re-fire instead of deduping against the
     # FAILED task that holds the attempt-0 key.

@@ -42,8 +42,10 @@ impl HarnessAdapter for MockAdapter {
         let provider = self.provider.clone();
         tokio::spawn(async move {
             let start = std::time::Instant::now();
-            let mut usage = TokenUsage::default();
-            usage.input_tokens = 1;
+            let mut usage = TokenUsage {
+                input_tokens: 1,
+                ..Default::default()
+            };
 
             let resumed_prompt = prompt.contains("User approved tool call event")
                 || prompt.contains("Tool result received for tool call event");
@@ -184,6 +186,7 @@ mod tests {
         HarnessInput {
             prompt: prompt.to_string(),
             system_prompt: None,
+            system_prompt_mode: "append".to_string(),
             session_id: Some("mock_session".to_string()),
             model: None,
             max_turns: None,

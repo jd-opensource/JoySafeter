@@ -11,12 +11,6 @@ from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_lo
 
 
 async def run_api_startup() -> None:
-    # v1 model-management and MCP tool registry are gone — see the v1 cleanup
-    # pass that removed ``ModelCredential``/``ModelInstance``/``ModelUsageLog``
-    # and the ``McpServer*`` services. The only startup work left here is
-    # wiring the session broadcaster so SSE live events survive across the
-    # request fleet. If a future feature needs additional one-shot init,
-    # add a private helper here rather than reviving the old hooks.
     await _initialize_session_broadcaster()
 
 

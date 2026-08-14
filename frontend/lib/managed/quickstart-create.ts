@@ -60,14 +60,13 @@ export function buildQuickstartAgentCreateBody(
   options: AgentCreateOptions,
 ): Record<string, unknown> {
   const name = nonEmptyString(agentConfig.name) || 'Untitled Agent'
-  const systemPrompt =
-    nonEmptyString(agentConfig.system_prompt) || nonEmptyString(agentConfig.system)
+  const systemPrompt = nonEmptyString(agentConfig.system)
 
   const body: Record<string, unknown> = {
     name: `${name}${options.suffix}`,
     engine_kind: options.engineKind,
-    system_prompt: systemPrompt || null,
-    secret_ref: options.secretRef,
+    system: systemPrompt || null,
+    model_credential_id: options.secretRef,
     tools: arrayValue(agentConfig.tools) || [],
   }
 

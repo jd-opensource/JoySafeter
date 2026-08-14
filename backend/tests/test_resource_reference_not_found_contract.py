@@ -9,7 +9,6 @@ from app.joysafeter_api.api.v1.environments import get_environment
 from app.joysafeter_api.api.v1.memory_stores import get_memory, get_memory_store
 from app.joysafeter_api.api.v1.sandboxes import get_sandbox
 from app.joysafeter_api.api.v1.sandboxes import stop_sandbox as stop_sandbox_route
-from app.joysafeter_api.api.v1.secrets import get_secret
 from app.joysafeter_api.api.v1.sessions import get_session as get_session_route
 from app.joysafeter_api.api.v1.sessions import list_events as list_session_events_route
 from app.joysafeter_api.api.v1.tasks import create_task, get_task
@@ -24,6 +23,7 @@ from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxSer
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import AgentId, EnvironmentId, SandboxId, TaskId
 
 
 def _auth_ctx(project_id: str | None = None) -> JoySafeterAuthContext:
@@ -67,7 +67,7 @@ async def _create_project_session(db_session, name: str) -> tuple[Project, JoySa
 
 @pytest.mark.asyncio
 async def test_get_agent_missing_agent_returns_structured_error(db_session):
-    agent_id = uuid.uuid4()
+    agent_id = AgentId.new()
 
     with pytest.raises(AppError) as exc_info:
         await get_agent(agent_id, db_session, _auth_ctx())
@@ -84,7 +84,7 @@ async def test_get_agent_missing_agent_returns_structured_error(db_session):
 
 @pytest.mark.asyncio
 async def test_create_task_missing_agent_returns_structured_error(db_session):
-    agent_id = uuid.uuid4()
+    agent_id = AgentId.new()
     req = JoySafeterCreateTaskRequest(agent_id=agent_id, prompt="run scan")
 
     with pytest.raises(AppError) as exc_info:
@@ -118,25 +118,8 @@ async def test_get_memory_store_missing_store_returns_structured_error(db_sessio
 
 
 @pytest.mark.asyncio
-async def test_get_secret_missing_secret_returns_structured_error(db_session):
-    secret_id = uuid.uuid4()
-
-    with pytest.raises(AppError) as exc_info:
-        await get_secret(secret_id, db_session, _auth_ctx())
-
-    assert await handled_app_error_payload(exc_info.value, status_code=404) == {
-        "code": "SECRET_NOT_FOUND",
-        "message": "Secret not found",
-        "data": {"secret_id": str(secret_id)},
-        "source": "api",
-        "retryable": False,
-        "user_action": "refresh",
-    }
-
-
-@pytest.mark.asyncio
 async def test_get_environment_missing_environment_returns_structured_error(db_session):
-    environment_id = uuid.uuid4()
+    environment_id = EnvironmentId.new()
 
     with pytest.raises(AppError) as exc_info:
         await get_environment(environment_id, db_session, _auth_ctx())
@@ -153,7 +136,7 @@ async def test_get_environment_missing_environment_returns_structured_error(db_s
 
 @pytest.mark.asyncio
 async def test_get_sandbox_missing_sandbox_returns_structured_error(db_session):
-    sandbox_id = uuid.uuid4()
+    sandbox_id = SandboxId.new()
 
     with pytest.raises(AppError) as exc_info:
         await get_sandbox(sandbox_id, db_session, _auth_ctx())
@@ -302,12 +285,12 @@ async def test_get_task_missing_task_returns_structured_error(db_session):
     task_id = uuid.uuid4()
 
     with pytest.raises(AppError) as exc_info:
-        await get_task(task_id, db_session, _auth_ctx())
+        await get_task(TaskId(task_id), db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "TASK_NOT_FOUND",
         "message": "Task not found",
-        "data": {"task_id": str(task_id)},
+        "data": {"task_id": f"task_{task_id}"},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",

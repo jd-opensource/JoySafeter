@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { TASK_ID } from '@/test-utils/entity-ids'
+
 import { ApiError } from '../api-client'
+
 import {
   getOperationErrorMessage,
   getOperationErrorMessageWithDetails,
@@ -57,6 +60,20 @@ describe('managed operation errors', () => {
     )
   })
 
+  it('localizes agent lifecycle conflicts instead of exposing backend English', () => {
+    const error = new ApiError(409, 'Conflict', {
+      code: 'AGENT_ACTIVE_TASKS',
+      message: 'Agent has active tasks. Stop or cancel them before archiving sessions.',
+      source: 'api',
+      retryable: true,
+      user_action: 'retry',
+    })
+
+    expect(getOperationErrorMessage(t, error, 'common.operationFailed')).toBe(
+      'translated:managed.errors.agentActiveTasks',
+    )
+  })
+
   it('uses codes instead of status for retry classification', () => {
     expect(
       shouldRetryManagedResourceError(
@@ -99,14 +116,14 @@ describe('managed operation errors', () => {
       parseApiError({
         code: 'TASK_ENQUEUE_FAILED',
         message: 'Failed to enqueue task',
-        data: { task_id: 'task-1' },
+        data: { task_id: TASK_ID },
         source: 'runtime',
         payload: { code: 'OLD_SHAPE' },
       }),
     ).toMatchObject({
       code: 'TASK_ENQUEUE_FAILED',
       message: 'Failed to enqueue task',
-      data: { task_id: 'task-1' },
+      data: { task_id: TASK_ID },
       source: 'runtime',
     })
   })

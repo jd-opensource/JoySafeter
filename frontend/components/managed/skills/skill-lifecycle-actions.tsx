@@ -18,21 +18,17 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
+import { parseSkillLifecycleTransitionResponse } from '@/lib/managed/skill-response-parsers'
 import { managedRequestOptions, type ManagedRequestScope } from '@/lib/managed/request-scope'
 import { useTranslation } from '@/lib/i18n'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { Button } from '@/components/ui/button'
 import type { SkillImpactSummary, SkillLifecycleStatus } from '@/types/managed'
+import type { SkillId } from '@/types/entity-id'
 import {
   currentProjectAllowsWrite,
   currentProjectAllowsAdmin,
 } from '@/hooks/managed/use-current-project-read-only'
-
-interface TransitionResponse {
-  skill_id: string
-  from_status: string
-  to_status: string
-}
 
 // One row per legal edge — keep in sync with ``_ALLOWED_EDGES`` in the
 // backend's ``skill_lifecycle_service``. Anything else 400s with
@@ -85,7 +81,7 @@ const TRANSITIONS: Array<{
 ]
 
 interface SkillLifecycleActionsProps {
-  skillId: string
+  skillId: SkillId
   currentStatus: SkillLifecycleStatus | string | undefined
   requestScope: ManagedRequestScope
   operationScope: string
@@ -156,7 +152,7 @@ export function SkillLifecycleActions({
       runId,
       scope,
     }: {
-      skillId: string
+      skillId: SkillId
       endpoint: string
       invalidateKeys: Array<readonly unknown[]>
       requestScope: ManagedRequestScope
@@ -168,10 +164,12 @@ export function SkillLifecycleActions({
       }
       setBusyEndpoint(endpoint)
       try {
-        const result = await managedPost<TransitionResponse>(
-          apiResourcePath('skills', skillId, endpoint),
-          {},
-          managedRequestOptions(requestScope),
+        const result = parseSkillLifecycleTransitionResponse(
+          await managedPost<unknown>(
+            apiResourcePath('skills', skillId, endpoint),
+            {},
+            managedRequestOptions(requestScope),
+          ),
         )
         return result
       } finally {

@@ -91,9 +91,10 @@ bun run type-check
 bun run test
 ```
 
-## 部署入口（统一文档）
+## 构建与部署
 
-- Docker 三服务 / 云部署 / 中间件脚本：[`deploy/README.md`](../deploy/README.md)
+- 完整安装、镜像构建和部署：[`deploy/README.md`](../deploy/README.md)
+- 宿主机开发与测试：[`DEVELOPMENT.md`](../DEVELOPMENT.md)
 
 ## 相关链接
 

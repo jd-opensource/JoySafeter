@@ -1,0 +1,14 @@
+[
+  { "raw": "https://Example.COM/mcp", "normalized": "https://example.com/mcp" },
+  { "raw": "https://example.com/mcp/", "normalized": "https://example.com/mcp" },
+  { "raw": "https://example.com/mcp", "normalized": "https://example.com/mcp" },
+  { "raw": "https://example.com/", "normalized": "https://example.com" },
+  { "raw": "https://example.com", "normalized": "https://example.com" },
+  { "raw": "https://example.com:443/mcp", "normalized": "https://example.com/mcp" },
+  { "raw": "http://example.com:80/mcp", "normalized": "http://example.com/mcp" },
+  { "raw": "https://example.com:8443/mcp", "normalized": "https://example.com:8443/mcp" },
+  { "raw": "https://example.com/mcp?token=abc&v=1", "normalized": "https://example.com/mcp?token=abc&v=1" },
+  { "raw": "https://example.com/mcp#section", "normalized": "https://example.com/mcp" },
+  { "raw": "  https://Example.com:443/mcp/#frag  ", "normalized": "https://example.com/mcp" },
+  { "raw": "not a url", "normalized": "not a url" }
+]

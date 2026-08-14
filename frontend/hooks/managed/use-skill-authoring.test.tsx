@@ -18,6 +18,7 @@ vi.mock('@/lib/api-client', () => ({
 
 import { ApiError, apiStream, managedGet, managedPost } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
+import { parseSkillId, type SkillId } from '@/types/entity-id'
 
 import { useSkillAuthoring } from './use-skill-authoring'
 
@@ -33,6 +34,26 @@ globalThis.localStorage = dom.window.localStorage
 const apiStreamMock = apiStream as unknown as ReturnType<typeof vi.fn>
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
+
+const PROJECT_SKILL_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f101'
+const UNMOUNTED_SKILL_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f102'
+const SCAN_SKILL_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f103'
+const PUBLISH_SKILL_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f104'
+const BLOCKED_SKILL_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f105'
+const SCAN_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f106'
+const PROJECT_SKILL_ID = parseSkillId(`skill_${PROJECT_SKILL_UUID}`)
+const UNMOUNTED_SKILL_ID = parseSkillId(`skill_${UNMOUNTED_SKILL_UUID}`)
+const SCAN_SKILL_ID = parseSkillId(`skill_${SCAN_SKILL_UUID}`)
+const PUBLISH_SKILL_ID = parseSkillId(`skill_${PUBLISH_SKILL_UUID}`)
+const BLOCKED_SKILL_ID = parseSkillId(`skill_${BLOCKED_SKILL_UUID}`)
+
+function scanResponse(status: string) {
+  return {
+    id: `sklscan_${SCAN_UUID}`,
+    skill_id: SCAN_SKILL_ID,
+    status,
+  }
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -86,6 +107,7 @@ function projectInfo(archivedAt: string | null = null) {
     name: 'Project A',
     slug: 'project-a',
     is_default: true,
+    capability: 'write',
     archived_at: archivedAt,
   }
 }
@@ -121,6 +143,24 @@ describe('useSkillAuthoring stream lifecycle', () => {
     window.localStorage.clear()
   })
 
+  it('uses Model Connection terminology when authoring has no selected connection', async () => {
+    const { result } = renderHook(() => useSkillAuthoring({ startFresh: true }))
+
+    await act(async () => {
+      await result.current.send('build a skill', '')
+    })
+
+    expect(apiStreamMock).not.toHaveBeenCalled()
+    expect(result.current.messages).toEqual([
+      { role: 'user', content: 'build a skill' },
+      {
+        role: 'assistant',
+        content:
+          '⚠️ 请先在右上角选择一个包含 OPENAI_API_KEY 的模型接入，才能让我开始创作。',
+      },
+    ])
+  })
+
   it('does not hydrate a persisted draft from a different managed project', () => {
     window.localStorage.setItem(
       'joysafeter:skill-authoring-state:v1',
@@ -134,7 +174,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
           content: 'project A only',
           files: [],
         },
-        draftSkillId: 'skill_project_a',
+        draftSkillId: PROJECT_SKILL_ID,
       }),
     )
     useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
@@ -302,7 +342,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
 
   it('does not attach a saved draft id after switching managed project', async () => {
     useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
-    const save = deferred<{ skill_id: string }>()
+    const save = deferred<{ skill_id: SkillId }>()
     managedPostMock.mockReturnValueOnce(save.promise)
 
     const { result } = renderHook(() => useSkillAuthoring({ startFresh: true }))
@@ -312,7 +352,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
       await wait(0)
     })
 
-    let saveResult!: Promise<string | null>
+    let saveResult!: Promise<SkillId | null>
     await act(async () => {
       saveResult = result.current.saveDraft()
       await wait(0)
@@ -324,7 +364,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
     })
 
     await act(async () => {
-      save.resolve({ skill_id: 'skill_project_a' })
+      save.resolve({ skill_id: PROJECT_SKILL_ID })
       await saveResult
     })
 
@@ -334,7 +374,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
   })
 
   it('does not attach a saved draft id after the hook unmounts', async () => {
-    const save = deferred<{ skill_id: string }>()
+    const save = deferred<{ skill_id: SkillId }>()
     managedPostMock.mockReturnValueOnce(save.promise)
 
     const { result, unmount } = renderHook(() => useSkillAuthoring({ startFresh: true }))
@@ -344,7 +384,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
       await wait(0)
     })
 
-    let saveResult!: Promise<string | null>
+    let saveResult!: Promise<SkillId | null>
     await act(async () => {
       saveResult = result.current.saveDraft()
       await wait(0)
@@ -353,7 +393,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
     unmount()
 
     await act(async () => {
-      save.resolve({ skill_id: 'skill_unmounted' })
+      save.resolve({ skill_id: UNMOUNTED_SKILL_ID })
       await saveResult
     })
 
@@ -362,7 +402,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
 
   it('does not attach a saved draft id when save resolves in the same turn as a project switch', async () => {
     useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
-    const save = deferred<{ skill_id: string }>()
+    const save = deferred<{ skill_id: SkillId }>()
     managedPostMock.mockReturnValueOnce(save.promise)
 
     const { result } = renderHook(() => useSkillAuthoring({ startFresh: true }))
@@ -372,7 +412,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
       await wait(0)
     })
 
-    let saveResult!: Promise<string | null>
+    let saveResult!: Promise<SkillId | null>
     await act(async () => {
       saveResult = result.current.saveDraft()
       await wait(0)
@@ -380,7 +420,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
 
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
-      save.resolve({ skill_id: 'skill_project_a' })
+      save.resolve({ skill_id: PROJECT_SKILL_ID })
       await saveResult
       await Promise.resolve()
     })
@@ -457,7 +497,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
     let send!: Promise<void>
     let save!: Promise<string | null>
     let scan!: Promise<void>
-    let publish!: Promise<{ skillId: string | null; error?: string }>
+    let publish!: Promise<{ skillId: SkillId | null; error?: string }>
 
     await act(async () => {
       send = result.current.send('build archived project skill', 'openai-prod')
@@ -526,9 +566,9 @@ describe('useSkillAuthoring stream lifecycle', () => {
   it('does not keep polling a security scan after the hook unmounts', async () => {
     vi.useFakeTimers()
     managedPostMock
-      .mockResolvedValueOnce({ skill_id: 'skill_scan_target' })
-      .mockResolvedValueOnce({ status: 'scanning' })
-    managedGetMock.mockResolvedValue({ status: 'passed' })
+      .mockResolvedValueOnce({ skill_id: SCAN_SKILL_ID })
+      .mockResolvedValueOnce(scanResponse('scanning'))
+    managedGetMock.mockResolvedValue(scanResponse('passed'))
 
     const { result, unmount } = renderHook(() => useSkillAuthoring({ startFresh: true }))
 
@@ -560,7 +600,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
   it('does not continue publishing lifecycle transitions after the hook unmounts', async () => {
     const submitReview = deferred<Record<string, never>>()
     managedPostMock
-      .mockResolvedValueOnce({ skill_id: 'skill_publish_target' })
+      .mockResolvedValueOnce({ skill_id: PUBLISH_SKILL_ID })
       .mockReturnValueOnce(submitReview.promise)
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce({})
@@ -572,7 +612,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
       await wait(0)
     })
 
-    let publish!: Promise<{ skillId: string | null; error?: string }>
+    let publish!: Promise<{ skillId: SkillId | null; error?: string }>
     await act(async () => {
       publish = result.current.publish()
       await Promise.resolve()
@@ -594,7 +634,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
 
   it('does not approve or publish a version after submit-review fails', async () => {
     managedPostMock
-      .mockResolvedValueOnce({ skill_id: 'skill_publish_blocked' })
+      .mockResolvedValueOnce({ skill_id: BLOCKED_SKILL_ID })
       .mockRejectedValueOnce(new ApiError('SKILL_SECURITY_BLOCKED'))
 
     const { result } = renderHook(() => useSkillAuthoring({ startFresh: true }))
@@ -604,7 +644,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
       await wait(0)
     })
 
-    let publish!: Promise<{ skillId: string | null; error?: string }>
+    let publish!: Promise<{ skillId: SkillId | null; error?: string }>
     await act(async () => {
       publish = result.current.publish()
       await publish
@@ -619,24 +659,24 @@ describe('useSkillAuthoring stream lifecycle', () => {
     )
     expect(managedPostMock).toHaveBeenNthCalledWith(
       2,
-      '/skills/publish_blocked/submit-review',
+      `/skills/${BLOCKED_SKILL_ID}/submit-review`,
       {},
       managedOptions(),
     )
     expect(managedPostMock).not.toHaveBeenCalledWith(
-      '/skills/publish_blocked/approve',
+      `/skills/${BLOCKED_SKILL_ID}/approve`,
       {},
       managedOptions(),
     )
     expect(managedPostMock).not.toHaveBeenCalledWith(
-      '/skills/publish_blocked/versions',
+      `/skills/${BLOCKED_SKILL_ID}/versions`,
       {
         release_notes: null,
       },
       managedOptions(),
     )
     await expect(publish).resolves.toMatchObject({
-      skillId: 'skill_publish_blocked',
+      skillId: BLOCKED_SKILL_ID,
       error: expect.any(String),
     })
   })

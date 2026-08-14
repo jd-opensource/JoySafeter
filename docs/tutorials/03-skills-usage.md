@@ -1,8 +1,7 @@
 # 教程 03：Skills（技能包）的导入、安全扫描、投递与沙箱消费
 
-> **状态：** 已按 v2 真实代码核对（2026-07-03）。
 > **适合人群**：希望让 Agent 拥有执行本地 Python/Shell 脚本能力的高阶用户，或为团队维护通用能力库的开发者。
-> **目标**：理解 v2 中 Skills 的完整生命周期（存储 → 安全扫描 → 打包投递 → 沙箱消费），并掌握合规导入与验证。
+> **目标**：理解 Skills 的完整生命周期（存储 → 安全扫描 → 打包投递 → 沙箱消费），并掌握合规导入与验证。
 
 ---
 
@@ -16,7 +15,7 @@
 
 ## 1. 核心管线（Under the Hood）
 
-v2 的技能管线横跨三层，比 v1 多了一道**独立的安全扫描服务**：
+技能管线横跨三层，并包含独立的安全扫描服务：
 
 ### 1.1 校验与存储（`joysafeter_shared/skill/` + `SkillService`）
 上传 ZIP / 导入目录时：
@@ -36,12 +35,13 @@ v2 的技能管线横跨三层，比 v1 多了一道**独立的安全扫描服�
 
 ### 1.3 生命周期与运行时闸门
 - 技能有生命周期 FSM：`draft → pending_review → {approved, rejected}`，`approved → archived`。
-- 运行时闸门 `is_skill_usable()`：**只有** `approved` + `security_status` 在白名单 + 内容哈希与上次扫描
-  一致（未漂移）的技能，才会被纳入会话技能包；否则被静默丢弃。
+- API 保存/关联阶段使用 `is_skill_usable()` 校验技能状态；任务启动时 Rust orchestrator 再执行
+  `ensure_skill_runtime_ready`，只接受 `approved` 且安全状态为 `passed` / `warning`、扫描哈希非空的技能。
+  任一检查失败都会拒绝本次输入构建，不会静默换用旧版本。
 
-### 1.4 打包投递（`SkillPacker` → gRPC → 沙箱 runner）
-- 会话启动时，`SkillPacker` 把该 Agent 引用的技能解析、通过闸门、打包成 `tar.gz`（proto `SkillArchive`），
-  记录用量日志。
+### 1.4 打包投递（Rust orchestrator → gRPC → 沙箱 runner）
+- 任务启动时，Rust `HarnessInputBuilder` 解析 Agent 引用的明确版本或最高已发布版本，从
+  `joysafeter_skill_version_files` 读取文件并现场打包为 `tar.gz`（proto `SkillArchive`），同时记录用量日志。
 - orchestrator 经 gRPC `SetupSandbox` / `StartTask` 把 `SkillArchive` 下发给沙箱内的 Rust runner。
 - runner 的 `unpack_skills` 把每个归档解压到沙箱工作目录下的技能目录（按引擎/`target` 决定具体子路径）。
 - **至此，数据库里的技能记录变成了沙箱内一份份真实文件。** 沙箱是隔离的，脚本再高危也困在沙箱内。
@@ -111,8 +111,8 @@ def write_test_log():
 - **版本化**：`POST /api/v1/skills/{id}/versions` 把当前文件快照为不可变版本（SemVer）；可从历史版本恢复
   （`restore`）。已发布版本带独立的安全扫描记录。
 - **协作者**：按角色分级（viewer < editor < admin），支持转移所有权。
-- **可见性**：四级 —— `private` / `project` / `organization` / `public`（旧的 `is_public` 布尔已被
-  `visibility` 取代）。设为 `public` 后出现在公共技能大厅；他人使用时，代码会被打包进**他自己**的隔离沙箱执行。
+- **可见性**：四级 —— `private` / `project` / `organization` / `public`。设为 `public` 后出现在
+  公共技能大厅；他人使用时，代码会被打包进**他自己**的隔离沙箱执行。
 
 ---
 

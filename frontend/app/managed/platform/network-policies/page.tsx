@@ -5,12 +5,26 @@ import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, Network, Search } from 'lucide-react'
 import { managedGet } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
+import { parseNetworkPolicyListResponse } from '@/lib/managed/network-policy-response-parsers'
 import { managedRequestOptions, useManagedRequestScope } from '@/lib/managed/request-scope'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { DataTable, MonoId, PageHeader, RelativeTime, ResourceErrorState, type Column } from '@/components/managed/shared'
-import type { NetworkPolicyListResponse, NetworkPolicyStatus } from '@/types/managed'
+import {
+  DataTable,
+  MonoId,
+  PageHeader,
+  RelativeTime,
+  ResourceErrorState,
+  type Column,
+} from '@/components/managed/shared'
+import type { NetworkPolicyStatus } from '@/types/managed'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
@@ -44,17 +58,18 @@ export default function NetworkPolicyDiagnosticsPage() {
   const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: ['network-policy-diagnostics', managedScope.key, searchParams],
     queryFn: () =>
-      managedGet<NetworkPolicyListResponse>(
+      managedGet<unknown>(
         `network-policies/diagnostics?${searchParams}`,
         managedRequestOptions(managedScope),
-      ),
+      ).then(parseNetworkPolicyListResponse),
   })
 
   const rows = data?.data ?? []
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
-  const columns: Column<NetworkPolicyStatus>[] = [
+  const columns: Column<NetworkPolicyStatus>[] = useMemo(
+    () => [
     {
       key: 'target',
       header: t('managed.networkPolicies.columns.target'),
@@ -75,7 +90,18 @@ export default function NetworkPolicyDiagnosticsPage() {
     {
       key: 'status',
       header: t('managed.networkPolicies.columns.status'),
-      render: (row) => <Badge variant="outline" className={statusTone(row.networking_status) === 'failed' ? 'border-destructive/40 bg-destructive/10 text-destructive' : ''}>{row.networking_status}</Badge>,
+      render: (row) => (
+        <Badge
+          variant="outline"
+          className={
+            statusTone(row.networking_status) === 'failed'
+              ? 'border-destructive/40 bg-destructive/10 text-destructive'
+              : ''
+          }
+        >
+          {row.networking_status}
+        </Badge>
+      ),
     },
     {
       key: 'policy',
@@ -83,7 +109,9 @@ export default function NetworkPolicyDiagnosticsPage() {
       render: (row) => (
         <div className="space-y-1 text-xs">
           <div>v{row.networking_policy_version || 0}</div>
-          <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{shortHash(row.networking_policy_hash)}</code>
+          <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+            {shortHash(row.networking_policy_hash)}
+          </code>
         </div>
       ),
     },
@@ -91,7 +119,8 @@ export default function NetworkPolicyDiagnosticsPage() {
       key: 'health',
       header: t('managed.networkPolicies.columns.health'),
       render: (row) => {
-        const errorText = row.networking_last_error || row.latest_policy_error || row.latest_policy_nack_reason
+        const errorText =
+          row.networking_last_error || row.latest_policy_error || row.latest_policy_nack_reason
         if (!errorText) {
           return (
             <div className="flex items-center gap-1.5 text-sm text-emerald-600">
@@ -106,7 +135,9 @@ export default function NetworkPolicyDiagnosticsPage() {
               <AlertTriangle className="h-4 w-4" />
               {t('managed.networkPolicies.hasError')}
             </div>
-            <p className="line-clamp-2 text-xs text-muted-foreground" title={errorText}>{errorText}</p>
+            <p className="line-clamp-2 text-xs text-muted-foreground" title={errorText}>
+              {errorText}
+            </p>
           </div>
         )
       },
@@ -114,9 +145,15 @@ export default function NetworkPolicyDiagnosticsPage() {
     {
       key: 'updated',
       header: t('managed.networkPolicies.columns.updated'),
-      render: (row) => <RelativeTime date={row.latest_policy_updated_at || row.networking_ready_at || row.sandbox_updated_at} />,
+      render: (row) => (
+        <RelativeTime
+          date={row.latest_policy_updated_at || row.networking_ready_at || row.sandbox_updated_at}
+        />
+      ),
     },
-  ]
+    ],
+    [t],
+  )
 
   return (
     <div className="space-y-6">
@@ -129,12 +166,21 @@ export default function NetworkPolicyDiagnosticsPage() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
-            onChange={(event) => { setPage(1); setQuery(event.target.value) }}
+            onChange={(event) => {
+              setPage(1)
+              setQuery(event.target.value)
+            }}
             placeholder={t('managed.networkPolicies.searchPlaceholder')}
             className="pl-9"
           />
         </div>
-        <Select value={status} onValueChange={(value) => { setPage(1); setStatus(value) }}>
+        <Select
+          value={status}
+          onValueChange={(value) => {
+            setPage(1)
+            setStatus(value)
+          }}
+        >
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
@@ -170,7 +216,10 @@ export default function NetworkPolicyDiagnosticsPage() {
             onNext: () => setPage((value) => Math.min(totalPages, value + 1)),
             onPrev: () => setPage((value) => Math.max(1, value - 1)),
             onPageChange: setPage,
-            onPageSizeChange: (size) => { setPage(1); setPageSize(size) },
+            onPageSizeChange: (size) => {
+              setPage(1)
+              setPageSize(size)
+            },
           }}
         />
       )}

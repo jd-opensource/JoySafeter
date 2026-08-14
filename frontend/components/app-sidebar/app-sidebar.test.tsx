@@ -137,6 +137,7 @@ const projectA: ProjectInfo = {
   slug: 'project-a-current',
   is_default: true,
   org_id: 'org-a',
+  capability: 'write',
 }
 
 const projectBCurrent: ProjectInfo = {
@@ -145,6 +146,7 @@ const projectBCurrent: ProjectInfo = {
   slug: 'project-b-current',
   is_default: true,
   org_id: 'org-b',
+  capability: 'write',
 }
 
 function deferred<T>() {
@@ -222,6 +224,7 @@ describe('AppSidebar project switcher lifecycle', () => {
       slug: 'project-archived',
       is_default: false,
       org_id: 'org-a',
+      capability: 'write',
       archived_at: '2026-01-02T00:00:00Z',
     }
     useProjectStore.setState({
@@ -251,7 +254,7 @@ describe('AppSidebar project switcher lifecycle', () => {
     const oldOrgBProjects = deferred<ProjectInfo[]>()
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
       if (path === '/auth/me') return Promise.resolve(authContext('org-a', projectA))
-      if (path === '/auth/projects?include_archived=false') return oldOrgBProjects.promise
+      if (path === '/auth/projects?include_archived=false&limit=200') return oldOrgBProjects.promise
       return Promise.resolve([])
     })
     const { AppSidebar } = await import('./app-sidebar')
@@ -265,7 +268,7 @@ describe('AppSidebar project switcher lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(managedGet).toHaveBeenCalledWith('/auth/projects?include_archived=false', {
+      expect(managedGet).toHaveBeenCalledWith('/auth/projects?include_archived=false&limit=200', {
         skipManagedContext: true,
         headers: { 'X-Org-Id': 'org-b' },
       })
@@ -303,7 +306,7 @@ describe('AppSidebar project switcher lifecycle', () => {
     }>()
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
       if (path === '/auth/me') return Promise.resolve(authContext('org-a', projectA))
-      if (path === '/auth/projects?include_archived=false') {
+      if (path === '/auth/projects?include_archived=false&limit=200') {
         return Promise.resolve([
           {
             id: 'project-b-target',
@@ -366,6 +369,7 @@ describe('AppSidebar project switcher lifecycle', () => {
           slug: 'project-b-target',
           is_default: true,
           org_id: 'org-b',
+          capability: 'write',
         },
         projects: [
           {

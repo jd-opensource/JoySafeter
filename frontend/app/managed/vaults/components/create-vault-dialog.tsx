@@ -6,15 +6,16 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { TriangleAlert } from 'lucide-react'
 import { managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
+import { parseVaultResponse } from '@/lib/managed/vault-response-parsers'
 import {
   managedRequestOptions,
   managedScopeKey,
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
+import type { Vault } from '@/types/managed'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
-import type { Vault } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -30,6 +31,7 @@ const MAX_NAME_LENGTH = 50
 interface CreateVaultDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onCreated?: (vault: Vault) => void
 }
 
 interface CreateVaultVariables {
@@ -39,7 +41,7 @@ interface CreateVaultVariables {
   requestScope: ManagedRequestScope
 }
 
-export function CreateVaultDialog({ open, onOpenChange }: CreateVaultDialogProps) {
+export function CreateVaultDialog({ open, onOpenChange, onCreated }: CreateVaultDialogProps) {
   const { t } = useTranslation()
   const managedScope = useManagedRequestScope()
   const createRunRef = useRef(0)
@@ -75,11 +77,16 @@ export function CreateVaultDialog({ open, onOpenChange }: CreateVaultDialogProps
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project vault create ignored')
       }
-      return managedPost<Vault>('/vaults', { name: vaultName }, managedRequestOptions(requestScope))
+      return managedPost<unknown>(
+        '/credential-groups',
+        { name: vaultName },
+        managedRequestOptions(requestScope),
+      ).then(parseVaultResponse)
     },
-    onSuccess: (_data, { runId, scope }) => {
+    onSuccess: (data, { runId, scope }) => {
       if (!isCurrentCreateRun(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['vaults', scope] })
+      queryClient.invalidateQueries({ queryKey: ['credential-groups', scope] })
+      onCreated?.(data)
       setName('')
       onOpenChange(false)
     },

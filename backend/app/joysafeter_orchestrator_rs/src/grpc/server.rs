@@ -29,6 +29,10 @@ use crate::grpc::proto::agent_bridge_server::{AgentBridge, AgentBridgeServer};
 use crate::grpc::proto::{
     orchestrator_message, runner_message, OrchestratorMessage, RunnerMessage, Shutdown,
 };
+use crate::ids::{
+    AgentId, EventId, FileId, MemoryId, MemoryStoreId, MemoryVersionId, SandboxId, SessionId,
+    SessionResourceId, TaskId,
+};
 use crate::kernel::harness_input_builder::HarnessInputBuilder;
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::queue::TaskQueue;
@@ -136,9 +140,9 @@ impl AgentBridge for AgentBridgeService {
                 }
             };
 
-            // Parse sandbox_id as UUID
+            // The runner protocol carries the physical bare UUID.
             let sandbox_db_id = match ready.sandbox_id.parse::<Uuid>() {
-                Ok(id) => id,
+                Ok(id) => SandboxId::from_uuid(id),
                 Err(_) => {
                     warn!("Invalid sandbox_id: {}", ready.sandbox_id);
                     return;
@@ -267,6 +271,7 @@ impl AgentBridge for AgentBridgeService {
                     .active_task_id
                     .as_ref()
                     .and_then(|s| s.parse::<Uuid>().ok())
+                    .map(TaskId::from_uuid)
             } else {
                 None
             };
@@ -291,7 +296,7 @@ impl AgentBridge for AgentBridgeService {
                         let mount_path = format!("/mnt/memory/{}", store.mount_name);
                         memory_subscribers
                             .register(
-                                &store.store_id.to_string(),
+                                store.store_id,
                                 sid,
                                 sandbox_db_id,
                                 &store.mount_name,
@@ -404,9 +409,9 @@ async fn multi_task_loop(
     queue: &TaskQueue,
     config: &JoySafeterConfig,
     sandbox_provider: &Arc<dyn SandboxProvider>,
-    sandbox_db_id: Uuid,
+    sandbox_db_id: SandboxId,
     sandbox_external_id: &str,
-    linked_session_id: Option<Uuid>,
+    linked_session_id: Option<SessionId>,
     exec_sem: &Arc<Semaphore>,
     redis_coord: Option<&crate::kernel::redis_coordinator::RedisCoordinator>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
@@ -938,10 +943,10 @@ async fn run_single_task(
     pool: &PgPool,
     event_bus: &EventBus,
     config: &JoySafeterConfig,
-    task_id: Uuid,
+    task_id: TaskId,
     expected_owner_epoch: Option<i64>,
-    session_id: Option<Uuid>,
-    sandbox_db_id: Uuid,
+    session_id: Option<SessionId>,
+    sandbox_db_id: SandboxId,
     heartbeat_timeout: Duration,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
     bridge_store: Arc<dyn BridgeStore>,
@@ -1298,10 +1303,10 @@ async fn handle_task_message(
     pool: &PgPool,
     event_bus: &EventBus,
     bridge: &Arc<SandboxBridge>,
-    task_id: Uuid,
+    task_id: TaskId,
     expected_owner_epoch: Option<i64>,
-    session_id: Option<Uuid>,
-    sandbox_db_id: Uuid,
+    session_id: Option<SessionId>,
+    sandbox_db_id: SandboxId,
     _tx: &mpsc::Sender<OrchestratorMessage>,
     requires_action_pending: &mut bool,
     buffered_events: &mut Vec<(String, serde_json::Value)>,
@@ -1349,7 +1354,7 @@ async fn handle_task_message(
 
                     if is_ctrl || is_custom_tool {
                         // Enter HITL mode
-                        let event_id = Uuid::now_v7();
+                        let event_id = EventId::from_uuid(Uuid::now_v7());
                         let call_id = payload
                             .get("call_id")
                             .and_then(|v| v.as_str())
@@ -1384,7 +1389,7 @@ async fn handle_task_message(
                         // Emit session.status_idle with requires_action stop_reason
                         let stop_reason = json!({
                             "type": "requires_action",
-                            "event_ids": [format!("evt_{event_id}")]
+                            "event_ids": [event_id.to_public()]
                         });
                         let payload = json!({"task_id": task_id.to_string(), "stop_reason": stop_reason.clone()});
                         let inserted = queries::update_session_status_and_insert_event(
@@ -1764,7 +1769,7 @@ fn payload_str<'a>(payload: &'a serde_json::Value, keys: &[&str]) -> Option<&'a 
 
 fn pending_control_live_input(
     event_type: &str,
-    event_id: Uuid,
+    event_id: EventId,
     payload: Option<&serde_json::Value>,
 ) -> Option<String> {
     let payload = payload?;
@@ -1826,11 +1831,11 @@ fn pending_control_live_input(
 
 async fn replay_pending_control_inputs(
     pool: &PgPool,
-    session_id: Uuid,
+    session_id: SessionId,
     tx: &mpsc::Sender<OrchestratorMessage>,
-    active_task_id: Uuid,
+    active_task_id: TaskId,
 ) -> Result<usize, sqlx::Error> {
-    let pending: Vec<(Uuid, String, Option<serde_json::Value>)> = sqlx::query_as(
+    let pending: Vec<(EventId, String, Option<serde_json::Value>)> = sqlx::query_as(
         r#"
         SELECT id, event_type, payload FROM joysafeter_session_events
         WHERE session_id = $1
@@ -1921,9 +1926,9 @@ mod tests {
         )
     }
 
-    async fn create_agent_and_session(pool: &PgPool) -> (Uuid, Uuid) {
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
+    async fn create_agent_and_session(pool: &PgPool) -> (AgentId, SessionId) {
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
         sqlx::query(
             r#"
             INSERT INTO joysafeter_agents (id, name, engine_kind, permission_mode, version)
@@ -1951,7 +1956,7 @@ mod tests {
         (agent_id, session_id)
     }
 
-    async fn cleanup(pool: &PgPool, agent_id: Uuid, session_id: Uuid) {
+    async fn cleanup(pool: &PgPool, agent_id: AgentId, session_id: SessionId) {
         let _ =
             sqlx::query("DELETE FROM joysafeter_tasks WHERE chat_session_id = $1 OR agent_id = $2")
                 .bind(session_id)
@@ -1985,8 +1990,8 @@ mod tests {
         assert_eq!(choose_provider_external_id(None, "019fc6f8"), "019fc6f8");
     }
 
-    async fn create_mounted_memory_store(pool: &PgPool, session_id: Uuid) -> Uuid {
-        let store_id = Uuid::now_v7();
+    async fn create_mounted_memory_store(pool: &PgPool, session_id: SessionId) -> MemoryStoreId {
+        let store_id = MemoryStoreId::from_uuid(Uuid::now_v7());
         sqlx::query(
             r#"
             INSERT INTO joysafeter_memory_stores (id, name, description)
@@ -2016,7 +2021,7 @@ mod tests {
         store_id
     }
 
-    async fn cleanup_memory_store(pool: &PgPool, session_id: Uuid, store_id: Uuid) {
+    async fn cleanup_memory_store(pool: &PgPool, session_id: SessionId, store_id: MemoryStoreId) {
         let _ = sqlx::query("DELETE FROM joysafeter_session_memory_stores WHERE session_id = $1")
             .bind(session_id)
             .execute(pool)
@@ -2050,14 +2055,14 @@ mod tests {
 
     async fn create_running_sandbox_task(
         pool: &PgPool,
-        agent_id: Uuid,
-        session_id: Uuid,
+        agent_id: AgentId,
+        session_id: SessionId,
         label: &str,
         retry_count: i32,
         max_retries: i32,
-    ) -> (Uuid, Uuid) {
-        let sandbox_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
+    ) -> (SandboxId, TaskId) {
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
         queries::create_sandbox(
             pool,
             sandbox_id,
@@ -2071,10 +2076,10 @@ mod tests {
         )
         .await
         .expect("insert linked sandbox");
-        let _ = queries::transition_sandbox(pool, sandbox_id, "idle")
+        let _ = queries::transition_sandbox_cas(pool, sandbox_id, "creating", "idle")
             .await
             .expect("sandbox idle");
-        let _ = queries::transition_sandbox(pool, sandbox_id, "running")
+        let _ = queries::transition_sandbox_cas(pool, sandbox_id, "idle", "running")
             .await
             .expect("sandbox running");
         sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
@@ -2157,7 +2162,12 @@ mod tests {
             let (closed_tx, closed_rx) = mpsc::channel(1);
             drop(closed_rx);
             let replayed =
-                replay_pending_control_inputs(&pool, session_id, &closed_tx, Uuid::now_v7())
+                replay_pending_control_inputs(
+                    &pool,
+                    session_id,
+                    &closed_tx,
+                    TaskId::from_uuid(Uuid::now_v7()),
+                )
                     .await
                     .expect("closed replay should not fail DB query");
             assert_eq!(replayed, 0);
@@ -2173,9 +2183,14 @@ mod tests {
             assert_eq!(processed_after_failed_send, None);
 
             let (tx, mut rx) = mpsc::channel(8);
-            let replayed = replay_pending_control_inputs(&pool, session_id, &tx, Uuid::now_v7())
-                .await
-                .expect("open replay succeeds");
+            let replayed = replay_pending_control_inputs(
+                &pool,
+                session_id,
+                &tx,
+                TaskId::from_uuid(Uuid::now_v7()),
+            )
+            .await
+            .expect("open replay succeeds");
             assert_eq!(replayed, 3);
 
             let mut replayed_inputs = Vec::new();
@@ -2282,7 +2297,7 @@ mod tests {
             return;
         };
         let (agent_id, session_id) = create_agent_and_session(&pool).await;
-        let sandbox_id = Uuid::now_v7();
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
         let result = async {
             let sandbox_config = json!({});
@@ -2347,7 +2362,7 @@ mod tests {
             return;
         };
         let (agent_id, session_id) = create_agent_and_session(&pool).await;
-        let sandbox_id = Uuid::now_v7();
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
         let result = async {
             queries::create_sandbox(
@@ -2406,8 +2421,8 @@ mod tests {
             return;
         };
         let (agent_id, session_id) = create_agent_and_session(&pool).await;
-        let sandbox_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
 
         let result = async {
             queries::create_sandbox(
@@ -2423,10 +2438,10 @@ mod tests {
             )
             .await
             .expect("insert linked sandbox");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "idle")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
                 .await
                 .expect("sandbox idle");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "running")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
                 .await
                 .expect("sandbox running");
             sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
@@ -2551,12 +2566,12 @@ mod tests {
             return;
         };
 
-        let agent_id = Uuid::now_v7();
-        let session_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
-        let file_id = Uuid::now_v7();
-        let session_file_id = Uuid::now_v7();
-        let unique = agent_id.simple().to_string();
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let file_id = FileId::from_uuid(Uuid::now_v7());
+        let session_file_id = SessionResourceId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
         let org_id = format!("org-{unique}");
         let project_id = format!("proj-{unique}");
         let missing_storage_key = format!("grpc-missing-session-file-{unique}.txt");
@@ -2595,7 +2610,7 @@ mod tests {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, project_id, name, engine_kind, model, system_prompt, env,
-                    mcp_configs, skills, tools, agents, commands, permission_mode,
+                    mcp_servers, skills, tools, agents, commands, permission_mode,
                     metadata, version
                 )
                 VALUES (
@@ -2680,11 +2695,15 @@ mod tests {
                 .await
                 .expect("load task")
                 .expect("task exists");
-            let err =
-                build_start_task_full(&pool, &task, Uuid::now_v7(), &JoySafeterConfig::from_env())
-                    .await
-                    .expect_err("harness input build failure must not produce fallback StartTask")
-                    .to_string();
+            let err = build_start_task_full(
+                &pool,
+                &task,
+                SandboxId::from_uuid(Uuid::now_v7()),
+                &JoySafeterConfig::from_env(),
+            )
+            .await
+            .expect_err("harness input build failure must not produce fallback StartTask")
+            .to_string();
 
             assert!(err.contains("failed to prepare session file"), "{err}");
             assert!(err.contains(&missing_storage_key), "{err}");
@@ -2729,8 +2748,8 @@ mod tests {
             return;
         };
         let (agent_id, session_id) = create_agent_and_session(&pool).await;
-        let sandbox_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
 
         let result = async {
             queries::create_sandbox(
@@ -2746,10 +2765,10 @@ mod tests {
             )
             .await
             .expect("insert linked sandbox");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "idle")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
                 .await
                 .expect("sandbox idle");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "running")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
                 .await
                 .expect("sandbox running");
             sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
@@ -2808,7 +2827,7 @@ mod tests {
             assert_eq!(task_status, "failed");
             assert_eq!(task_error.as_deref(), Some(reason));
 
-            let (sandbox_status, last_task_id): (String, Option<Uuid>) = sqlx::query_as(
+            let (sandbox_status, last_task_id): (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -2906,7 +2925,7 @@ mod tests {
                     .expect("load task after stale pre-start failure");
             assert_eq!(task_status, "cancelled");
 
-            let (sandbox_status, last_task_id): (String, Option<Uuid>) = sqlx::query_as(
+            let (sandbox_status, last_task_id): (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -2990,19 +3009,22 @@ mod tests {
             )
             .await;
 
-            let (task_status, task_error, task_sandbox_id): (String, Option<String>, Option<Uuid>) =
-                sqlx::query_as(
-                    "SELECT status, error, sandbox_id FROM joysafeter_tasks WHERE id = $1",
-                )
-                .bind(task_id)
-                .fetch_one(&pool)
-                .await
-                .expect("load task after stale pre-start pending failure");
+            let (task_status, task_error, task_sandbox_id): (
+                String,
+                Option<String>,
+                Option<SandboxId>,
+            ) = sqlx::query_as(
+                "SELECT status, error, sandbox_id FROM joysafeter_tasks WHERE id = $1",
+            )
+            .bind(task_id)
+            .fetch_one(&pool)
+            .await
+            .expect("load task after stale pre-start pending failure");
             assert_eq!(task_status, "pending");
             assert_eq!(task_error, None);
             assert_eq!(task_sandbox_id, None);
 
-            let (sandbox_status, last_task_id): (String, Option<Uuid>) = sqlx::query_as(
+            let (sandbox_status, last_task_id): (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -3333,8 +3355,8 @@ mod tests {
             return;
         };
         let (agent_id, session_id) = create_agent_and_session(&pool).await;
-        let sandbox_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
 
         let result = async {
             queries::create_sandbox(
@@ -3350,10 +3372,10 @@ mod tests {
             )
             .await
             .expect("insert linked sandbox");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "idle")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
                 .await
                 .expect("sandbox idle");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "running")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
                 .await
                 .expect("sandbox running");
             sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
@@ -3415,7 +3437,7 @@ mod tests {
             .await;
             assert!(!sent);
 
-            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<Uuid>) =
+            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<SandboxId>) =
                 sqlx::query_as(
                     "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
                 )
@@ -3427,7 +3449,7 @@ mod tests {
             assert_eq!(retry_count, 1);
             assert_eq!(task_sandbox_id, None);
 
-            let (sandbox_status, last_task_id): (String, Option<Uuid>) = sqlx::query_as(
+            let (sandbox_status, last_task_id): (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -3542,7 +3564,7 @@ mod tests {
             assert_eq!(task_status, "completed");
             assert_eq!(retry_count, 0);
 
-            let (sandbox_status, last_task_id): (String, Option<Uuid>) = sqlx::query_as(
+            let (sandbox_status, last_task_id): (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -3638,7 +3660,7 @@ mod tests {
             )
             .await;
 
-            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<Uuid>) =
+            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<SandboxId>) =
                 sqlx::query_as(
                     "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
                 )
@@ -3700,8 +3722,8 @@ mod tests {
             return;
         };
         let (agent_id, session_id) = create_agent_and_session(&pool).await;
-        let sandbox_id = Uuid::now_v7();
-        let task_id = Uuid::now_v7();
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
 
         let result = async {
             queries::create_sandbox(
@@ -3717,10 +3739,10 @@ mod tests {
             )
             .await
             .expect("insert linked sandbox");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "idle")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
                 .await
                 .expect("sandbox idle");
-            let _ = queries::transition_sandbox(&pool, sandbox_id, "running")
+            let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
                 .await
                 .expect("sandbox running");
             sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
@@ -3785,7 +3807,7 @@ mod tests {
             let (task_status, retry_count, task_sandbox_id, task_error): (
                 String,
                 i32,
-                Option<Uuid>,
+                Option<SandboxId>,
                 Option<String>,
             ) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id, error FROM joysafeter_tasks WHERE id = $1",
@@ -3911,7 +3933,7 @@ mod tests {
             assert_eq!(task_status, "cancelled");
             assert_eq!(retry_count, 2);
 
-            let (sandbox_status, last_task_id): (String, Option<Uuid>) = sqlx::query_as(
+            let (sandbox_status, last_task_id): (String, Option<TaskId>) = sqlx::query_as(
                 "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
             )
             .bind(sandbox_id)
@@ -4011,7 +4033,7 @@ mod tests {
                 String,
                 i32,
                 Option<String>,
-                Option<Uuid>,
+                Option<SandboxId>,
             ) = sqlx::query_as(
                 "SELECT status, retry_count, error, sandbox_id FROM joysafeter_tasks WHERE id = $1",
             )
@@ -4091,7 +4113,7 @@ mod tests {
             )
             .await;
 
-            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<Uuid>) =
+            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<SandboxId>) =
                 sqlx::query_as(
                     "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
                 )
@@ -4190,7 +4212,7 @@ mod tests {
             let (task_status, retry_count, task_sandbox_id, task_error): (
                 String,
                 i32,
-                Option<Uuid>,
+                Option<SandboxId>,
                 Option<String>,
             ) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id, error FROM joysafeter_tasks WHERE id = $1",
@@ -4293,7 +4315,7 @@ mod tests {
             .await;
             assert!(matches!(task_result, TaskResult::Disconnected));
 
-            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<Uuid>) =
+            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<SandboxId>) =
                 sqlx::query_as(
                     "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
                 )
@@ -4417,7 +4439,7 @@ mod tests {
             )
             .await;
 
-            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<Uuid>) =
+            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<SandboxId>) =
                 sqlx::query_as(
                     "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
                 )
@@ -4579,7 +4601,7 @@ mod tests {
             )
             .await;
 
-            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<Uuid>) =
+            let (task_status, retry_count, task_sandbox_id): (String, i32, Option<SandboxId>) =
                 sqlx::query_as(
                     "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
                 )
@@ -4667,7 +4689,7 @@ mod tests {
         let result = async {
             rescue_orphaned_tasks(&pool, &event_bus, sandbox_id, &queue).await;
 
-            let task: (String, i32, Option<Uuid>) = sqlx::query_as(
+            let task: (String, i32, Option<SandboxId>) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
             )
             .bind(task_id)
@@ -4904,7 +4926,7 @@ mod tests {
             return;
         };
         let (agent_id, session_id) = create_agent_and_session(&pool).await;
-        let stale_sandbox_id = Uuid::now_v7();
+        let stale_sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
 
         let result = async {
             queries::create_sandbox(
@@ -4969,7 +4991,7 @@ mod tests {
             .expect("count false sandbox disconnected idle events");
             assert_eq!(disconnected_idle_events, 0);
 
-            let active_task: (String, Option<Uuid>) =
+            let active_task: (String, Option<SandboxId>) =
                 sqlx::query_as("SELECT status, sandbox_id FROM joysafeter_tasks WHERE id = $1")
                     .bind(active_task_id)
                     .fetch_one(&pool)
@@ -5109,9 +5131,9 @@ async fn handle_reconnect_with_event_loop(
     pool: &PgPool,
     event_bus: &EventBus,
     config: &JoySafeterConfig,
-    sandbox_db_id: Uuid,
-    active_task_id: Uuid,
-    linked_session_id: Option<Uuid>,
+    sandbox_db_id: SandboxId,
+    active_task_id: TaskId,
+    linked_session_id: Option<SessionId>,
     exec_sem: &Arc<Semaphore>,
     redis_coord: Option<&crate::kernel::redis_coordinator::RedisCoordinator>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
@@ -5289,9 +5311,9 @@ async fn handle_reconnect_active_task(
     _event_bus: &EventBus,
     bridge: &Arc<SandboxBridge>,
     _tx: &mpsc::Sender<OrchestratorMessage>,
-    sandbox_db_id: Uuid,
-    active_task_id: Uuid,
-    _linked_session_id: Option<Uuid>,
+    sandbox_db_id: SandboxId,
+    active_task_id: TaskId,
+    _linked_session_id: Option<SessionId>,
     _config: &JoySafeterConfig,
 ) {
     // Simplified version without stream access — only sets up bridge state.
@@ -5316,7 +5338,7 @@ async fn handle_reconnect_active_task(
 async fn rescue_orphaned_tasks(
     pool: &PgPool,
     event_bus: &EventBus,
-    sandbox_db_id: Uuid,
+    sandbox_db_id: SandboxId,
     queue: &TaskQueue,
 ) {
     match queries::find_running_tasks_for_sandbox(pool, sandbox_db_id).await {
@@ -5360,7 +5382,7 @@ async fn rescue_orphaned_tasks(
 // SetupSandbox
 // ---------------------------------------------------------------------------
 
-async fn session_files_signature(pool: &PgPool, session_id: Uuid) -> anyhow::Result<String> {
+async fn session_files_signature(pool: &PgPool, session_id: SessionId) -> anyhow::Result<String> {
     let signature: Option<String> = sqlx::query_scalar(
         r#"
         SELECT COALESCE(
@@ -5394,7 +5416,7 @@ fn choose_provider_external_id(db_external_id: Option<&str>, runner_sandbox_id: 
 
 async fn resolve_provider_external_id_for_injection(
     pool: &PgPool,
-    sandbox_db_id: Uuid,
+    sandbox_db_id: SandboxId,
     runner_sandbox_id: &str,
 ) -> anyhow::Result<String> {
     let sandbox = queries::get_sandbox(pool, sandbox_db_id).await?;
@@ -5408,9 +5430,9 @@ async fn inject_session_files_before_start(
     pool: &PgPool,
     provider: &Arc<dyn SandboxProvider>,
     bridge: &Arc<SandboxBridge>,
-    sandbox_db_id: Uuid,
+    sandbox_db_id: SandboxId,
     runner_sandbox_id: &str,
-    session_id: Option<Uuid>,
+    session_id: Option<SessionId>,
 ) -> anyhow::Result<()> {
     let Some(session_id) = session_id else {
         return Ok(());
@@ -5473,10 +5495,10 @@ async fn handle_task_setup_failure_result(
     pool: &PgPool,
     event_bus: &EventBus,
     bridge: &Arc<SandboxBridge>,
-    task_id: Uuid,
+    task_id: TaskId,
     expected_owner_epoch: Option<i64>,
-    session_id: Option<Uuid>,
-    sandbox_db_id: Uuid,
+    session_id: Option<SessionId>,
+    sandbox_db_id: SandboxId,
     task_error: &mut bool,
 ) -> TaskMessageOutcome {
     *task_error = true;
@@ -5585,7 +5607,7 @@ fn is_setup_failure_task_result(result: &TaskResult) -> bool {
 async fn mark_idle_setup_failure(
     pool: &PgPool,
     bridge: &Arc<SandboxBridge>,
-    sandbox_db_id: Uuid,
+    sandbox_db_id: SandboxId,
     result: &proto::RunnerHarnessResult,
 ) {
     bridge.setup_done.store(false, Ordering::Relaxed);
@@ -5607,7 +5629,7 @@ async fn mark_idle_setup_failure(
 async fn send_setup(
     pool: &PgPool,
     _bridge: &Arc<SandboxBridge>,
-    sandbox_db_id: Uuid,
+    sandbox_db_id: SandboxId,
     tx: &mpsc::Sender<OrchestratorMessage>,
 ) -> anyhow::Result<bool> {
     let mut session_id = None;
@@ -5633,7 +5655,7 @@ async fn send_setup(
     };
 
     let setup_task = crate::db::models::JoySafeterTask {
-        id: Uuid::now_v7(),
+        id: TaskId::from_uuid(Uuid::now_v7()),
         project_id: session.project_id.clone(),
         agent_id: session.agent_id,
         session_id: Some(session_id),
@@ -5662,7 +5684,11 @@ async fn send_setup(
 
     let builder = HarnessInputBuilder::new(pool.clone());
     let input = builder
-        .build(&setup_task, &sandbox_db_id.to_string(), sandbox_db_id)
+        .build(
+            &setup_task,
+            &sandbox_db_id.as_uuid().to_string(),
+            sandbox_db_id,
+        )
         .await?;
     let mut setup = HarnessInputBuilder::build_setup_sandbox(&input);
     let file_count = setup.files.len();
@@ -5692,8 +5718,8 @@ async fn send_setup(
 
 async fn execute_sandbox_cleanup(
     pool: &PgPool,
-    sandbox_db_id: Uuid,
-    session_id: Option<Uuid>,
+    sandbox_db_id: SandboxId,
+    session_id: Option<SessionId>,
     failure_ejected: bool,
     queue: Option<&TaskQueue>,
     redis_coord: Option<&crate::kernel::redis_coordinator::RedisCoordinator>,
@@ -5881,8 +5907,8 @@ async fn persist_reset_tasks_rescheduling(pool: &PgPool, tasks: &[queries::Reset
 /// 120s reconnect window with early checks at 5/10/15s.
 async fn probe_and_grace_period_cleanup(
     pool: &PgPool,
-    sandbox_db_id: Uuid,
-    session_id: Option<Uuid>,
+    sandbox_db_id: SandboxId,
+    session_id: Option<SessionId>,
     failure_ejected: bool,
     bridge_store: Arc<dyn BridgeStore>,
     queue: Option<&TaskQueue>,
@@ -5938,7 +5964,7 @@ async fn probe_and_grace_period_cleanup(
 /// Handle memory sync: validate path, write to DB.
 async fn handle_memory_sync_db(
     pool: &PgPool,
-    session_id: Option<Uuid>,
+    session_id: Option<SessionId>,
     store_mount_name: &str,
     relative_path: &str,
     content: &str,
@@ -5968,7 +5994,7 @@ async fn handle_memory_sync_db(
     };
 
     // Resolve store from mount_name → store_id
-    let store = match sqlx::query_as::<_, (Uuid, String)>(
+    let store = match sqlx::query_as::<_, (MemoryStoreId, String)>(
         r#"
         SELECT sms.store_id, sms.access
         FROM joysafeter_session_memory_stores sms
@@ -6042,7 +6068,7 @@ async fn handle_memory_sync_db(
 
     match operation {
         "delete" => {
-            let existing = match sqlx::query_as::<_, (Uuid,)>(
+            let existing = match sqlx::query_as::<_, (MemoryId,)>(
                 r#"
                 SELECT id FROM joysafeter_memories
                 WHERE store_id = $1 AND path = $2
@@ -6066,7 +6092,7 @@ async fn handle_memory_sync_db(
                 return;
             };
 
-            let version_id = Uuid::now_v7();
+            let version_id = MemoryVersionId::from_uuid(Uuid::now_v7());
             if let Err(e) = sqlx::query(
                 r#"
                 INSERT INTO joysafeter_memory_versions
@@ -6114,7 +6140,7 @@ async fn handle_memory_sync_db(
             let size = content_bytes.len() as i64;
             let sha = hex::encode(Sha256::digest(content_bytes));
 
-            let existing = match sqlx::query_as::<_, (Uuid, String)>(
+            let existing = match sqlx::query_as::<_, (MemoryId, String)>(
                 r#"
                 SELECT id, content_sha256 FROM joysafeter_memories
                 WHERE store_id = $1 AND path = $2
@@ -6139,7 +6165,7 @@ async fn handle_memory_sync_db(
                     return;
                 }
 
-                let version_id = Uuid::now_v7();
+                let version_id = MemoryVersionId::from_uuid(Uuid::now_v7());
                 if let Err(e) = sqlx::query(
                     r#"
                     INSERT INTO joysafeter_memory_versions
@@ -6211,8 +6237,8 @@ async fn handle_memory_sync_db(
                     return;
                 }
 
-                let memory_id = Uuid::now_v7();
-                let version_id = Uuid::now_v7();
+                let memory_id = MemoryId::from_uuid(Uuid::now_v7());
+                let version_id = MemoryVersionId::from_uuid(Uuid::now_v7());
                 if let Err(e) = sqlx::query(
                     r#"
                     INSERT INTO joysafeter_memory_versions
@@ -6280,9 +6306,9 @@ async fn handle_memory_sync_db(
 async fn emit_session_running_status(
     pool: &PgPool,
     event_bus: &EventBus,
-    task_id: Uuid,
-    session_id: Option<Uuid>,
-    sandbox_db_id: Uuid,
+    task_id: TaskId,
+    session_id: Option<SessionId>,
+    sandbox_db_id: SandboxId,
     context: &str,
 ) -> bool {
     let Some(sid) = session_id else {
@@ -6333,9 +6359,9 @@ async fn emit_session_running_status(
 async fn emit_session_idle_status(
     pool: &PgPool,
     event_bus: &EventBus,
-    task_id: Uuid,
-    session_id: Option<Uuid>,
-    sandbox_db_id: Uuid,
+    task_id: TaskId,
+    session_id: Option<SessionId>,
+    sandbox_db_id: SandboxId,
     stop_reason: serde_json::Value,
     context: &str,
 ) -> bool {
@@ -6387,10 +6413,10 @@ async fn emit_session_idle_status(
 async fn transition_running_task_and_emit_idle(
     pool: &PgPool,
     event_bus: &EventBus,
-    task_id: Uuid,
+    task_id: TaskId,
     expected_owner_epoch: Option<i64>,
-    session_id: Option<Uuid>,
-    sandbox_db_id: Uuid,
+    session_id: Option<SessionId>,
+    sandbox_db_id: SandboxId,
     target_status: &str,
     error_message: Option<&str>,
     stop_reason: serde_json::Value,
@@ -6445,10 +6471,10 @@ async fn handle_task_disconnect_before_result(
     pool: &PgPool,
     event_bus: &EventBus,
     bridge: &Arc<SandboxBridge>,
-    task_id: Uuid,
+    task_id: TaskId,
     expected_owner_epoch: Option<i64>,
-    session_id: Option<Uuid>,
-    sandbox_db_id: Uuid,
+    session_id: Option<SessionId>,
+    sandbox_db_id: SandboxId,
     reason: &str,
     queue: Option<&TaskQueue>,
 ) -> TaskResult {
@@ -6483,7 +6509,7 @@ fn task_result_from_status(status: &str, error: Option<&str>) -> Option<TaskResu
     }
 }
 
-async fn load_terminal_task_result(pool: &PgPool, task_id: Uuid) -> Option<TaskResult> {
+async fn load_terminal_task_result(pool: &PgPool, task_id: TaskId) -> Option<TaskResult> {
     match queries::get_task(pool, task_id).await {
         Ok(Some(task)) => task_result_from_status(&task.status, task.error.as_deref()),
         Ok(None) => {
@@ -6500,10 +6526,10 @@ async fn load_terminal_task_result(pool: &PgPool, task_id: Uuid) -> Option<TaskR
 async fn fail_pre_start_task(
     pool: &PgPool,
     event_bus: &EventBus,
-    task_id: Uuid,
+    task_id: TaskId,
     expected_owner_epoch: Option<i64>,
-    session_id: Option<Uuid>,
-    sandbox_db_id: Uuid,
+    session_id: Option<SessionId>,
+    sandbox_db_id: SandboxId,
     reason: &str,
 ) {
     let transitioned = match queries::transition_task_cas(
@@ -6569,8 +6595,8 @@ async fn send_start_task_or_handle_failure(
     event_bus: &EventBus,
     tx: &mpsc::Sender<OrchestratorMessage>,
     task: &crate::db::models::JoySafeterTask,
-    session_id: Option<Uuid>,
-    sandbox_db_id: Uuid,
+    session_id: Option<SessionId>,
+    sandbox_db_id: SandboxId,
     msg: OrchestratorMessage,
     queue: Option<&TaskQueue>,
 ) -> bool {
@@ -6623,8 +6649,8 @@ async fn handle_dispatch_retryable_failure(
     pool: &PgPool,
     event_bus: &EventBus,
     task: &crate::db::models::JoySafeterTask,
-    session_id: Option<Uuid>,
-    sandbox_db_id: Uuid,
+    session_id: Option<SessionId>,
+    sandbox_db_id: SandboxId,
     expected_owner_epoch: Option<i64>,
     reason: &str,
     queue: Option<&TaskQueue>,
@@ -6764,10 +6790,10 @@ async fn handle_dispatch_retryable_failure(
 async fn failover_or_fail_inline(
     pool: &PgPool,
     event_bus: &EventBus,
-    task_id: Uuid,
+    task_id: TaskId,
     expected_owner_epoch: Option<i64>,
-    session_id: Option<Uuid>,
-    sandbox_db_id: Uuid,
+    session_id: Option<SessionId>,
+    sandbox_db_id: SandboxId,
     reason: &str,
     queue: Option<&TaskQueue>,
 ) {
@@ -6849,14 +6875,14 @@ fn compute_stop_reason(status: Option<&str>, error: Option<&str>) -> serde_json:
     }
 }
 
-fn compute_retry_delay(retry_count: u32, task_id: Uuid, config: &JoySafeterConfig) -> Duration {
+fn compute_retry_delay(retry_count: u32, task_id: TaskId, config: &JoySafeterConfig) -> Duration {
     let exponent = retry_count.min(14);
     let delay_ms = config
         .task_retry_base_ms
         .saturating_mul(2u64.saturating_pow(exponent))
         .min(config.task_retry_max_ms);
     let jitter_ms = if delay_ms > 0 {
-        (task_id.as_u128() % (delay_ms / 4 + 1) as u128) as u64
+        (task_id.as_uuid().as_u128() % (delay_ms / 4 + 1) as u128) as u64
     } else {
         0
     };
@@ -6882,7 +6908,7 @@ async fn wait_for_ready(
 async fn build_start_task_full(
     pool: &PgPool,
     task: &crate::db::models::JoySafeterTask,
-    sandbox_db_id: Uuid,
+    sandbox_db_id: SandboxId,
     config: &JoySafeterConfig,
 ) -> anyhow::Result<proto::StartTask> {
     let timeout_seconds = task
@@ -6890,7 +6916,7 @@ async fn build_start_task_full(
         .unwrap_or(config.task_default_timeout as i32) as u64;
     let builder = HarnessInputBuilder::new(pool.clone());
     let input = builder
-        .build(task, &sandbox_db_id.to_string(), sandbox_db_id)
+        .build(task, &sandbox_db_id.as_uuid().to_string(), sandbox_db_id)
         .await?;
     Ok(HarnessInputBuilder::build_start_task(
         &input,

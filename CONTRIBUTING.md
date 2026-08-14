@@ -32,51 +32,16 @@ This project and everyone participating in it is governed by our [Code of Conduc
 
 ## Development Setup
 
-### Prerequisites
-
-- Python 3.12+
-- Node.js 20+ with Bun 1.2+
-- PostgreSQL 15+
-- Redis
-- Git
-
-### Backend Setup
+Use the repository development guide instead of maintaining a second setup procedure here:
 
 ```bash
-cd backend
-
-# Create virtual environment
-uv venv
-source .venv/bin/activate
-
-# Install dependencies including dev tools
-uv sync --dev
-
-# Copy and configure environment
-cp env.example .env
-
-# Set up database
-createdb joysafeter
-alembic upgrade head
-
-# Run tests to verify setup
-pytest
+cd deploy
+./local-test.sh
 ```
 
-### Frontend Setup
-
-```bash
-cd frontend
-
-# Install dependencies
-bun install
-
-# Copy and configure environment
-cp env.example .env.local
-
-# Run development server
-bun run dev
-```
+See [`DEVELOPMENT.md`](DEVELOPMENT.md) for prerequisites, component commands, tests, formatting,
+and database migrations. Full-stack installation and deployment use
+[`deploy/deploy.sh`](deploy/README.md).
 
 ## How to Contribute
 
@@ -136,24 +101,15 @@ Unsure where to begin? Look for issues labeled:
    cd frontend && bun run lint
    ```
 
-6. **Set up Pre-commit Hooks（必须）**:
-
-   项目配置了 pre-commit hooks，提交前会自动运行代码检查。**必须**在仓库根目录执行以下脚本（依赖后端 UV 环境）：
+6. **Set up pre-commit hooks**:
 
    ```bash
-   # 在仓库根目录执行（需已安装 uv）
-   ./scripts/setup-pre-commit.sh
-   # 或: bash scripts/setup-pre-commit.sh
+   cd backend
+   uv sync --dev
+   uv run pre-commit install --install-hooks
    ```
 
-   该脚本会使用 backend 的 UV 环境安装 pre-commit 依赖并安装 Git hooks，无需单独执行 `pip install pre-commit`。
-
-   安装后，每次 `git commit` 时会自动：
-   - 运行后端 Ruff 检查（`uv run ruff check .`）
-   - 运行前端 ESLint 检查（`bun run lint`）
-   - 运行其他代码质量检查
-
-   如果检查失败，提交会被阻止，需要先修复错误。未安装 hooks 或跳过提交时，CI 也会运行相同校验，不通过则 PR 无法合并。
+   手动执行全部检查：`backend/.venv/bin/python -m pre_commit run --all-files`。CI 会执行相同配置。
 
    更多信息请参考 [Development Guide - Pre-commit Hooks](DEVELOPMENT.md#using-pre-commit-hooks)。
 

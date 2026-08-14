@@ -81,11 +81,7 @@ class ProjectMember(Base, TimestampMixin):
     every project without one. ``role`` is the authoritative per-project
     capability for non-super-users (``admin`` / ``editor`` / ``viewer``; see
     ``ProjectRole``). The ``effective_project_capability`` function derives
-    read/write/admin solely from this value, so it is not free-form or
-    presence-only. Legacy values (``owner`` / ``developer`` / ``member``) are
-    normalized both by a data migration
-    (``20260717_000014_normalize_project_member_roles``) and at runtime by
-    ``ProjectRole.normalize``.
+    read/write/admin solely from this value.
     """
 
     __tablename__ = "joysafeter_project_members"
@@ -106,7 +102,6 @@ class ProjectMember(Base, TimestampMixin):
         nullable=False,
     )
     # Per-project capability: admin / editor / viewer (see ProjectRole).
-    # Legacy values are normalized by ProjectRole.normalize at runtime.
     # Defaults to viewer (least privilege) if a grant path ever omits the role.
     role: Mapped[str] = mapped_column(String(50), nullable=False, default="viewer")
 

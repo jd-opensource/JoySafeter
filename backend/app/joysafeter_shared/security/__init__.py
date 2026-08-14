@@ -1,16 +1,19 @@
-"""Security utilities package compatibility exports."""
+"""Security utilities."""
 
 from __future__ import annotations
 
-import hmac
+import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+import bcrypt
 from jose import JWTError, jwt
 from pydantic import BaseModel
 
 from app.joysafeter_shared.config.settings import settings
+
+_BCRYPT_ROUNDS = 12
 
 
 class TokenPayload(BaseModel):
@@ -45,23 +48,30 @@ def generate_email_verify_token() -> tuple[str, datetime]:
     return token, expires
 
 
+def hash_security_token(token: str) -> str:
+    if not token:
+        raise ValueError("Security token must not be empty")
+    return hashlib.sha256(f"joysafeter-security-token:v1:{token}".encode()).hexdigest()
+
+
+def _password_material(password: str) -> bytes:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest().encode("ascii")
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     if not plain_password or not hashed_password:
         return False
-    plain_password = plain_password.lower().strip()
-    hashed_password = hashed_password.lower().strip()
-    if len(plain_password) != 64 or not all(c in "0123456789abcdef" for c in plain_password):
+
+    try:
+        return bcrypt.checkpw(_password_material(plain_password), hashed_password.strip().encode("ascii"))
+    except (ValueError, UnicodeEncodeError):
         return False
-    if len(hashed_password) != 64 or not all(c in "0123456789abcdef" for c in hashed_password):
-        return False
-    return hmac.compare_digest(plain_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
-    password = password.strip().lower()
-    if len(password) != 64 or not all(c in "0123456789abcdef" for c in password):
-        raise ValueError("Password must be a SHA-256 hash (64 hex characters)")
-    return password
+    if not password:
+        raise ValueError("Password must not be empty")
+    return bcrypt.hashpw(_password_material(password), bcrypt.gensalt(rounds=_BCRYPT_ROUNDS)).decode("ascii")
 
 
 def create_access_token(
@@ -123,5 +133,6 @@ __all__ = [
     "generate_refresh_token",
     "generate_token",
     "get_password_hash",
+    "hash_security_token",
     "verify_password",
 ]

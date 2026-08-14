@@ -62,33 +62,18 @@ function Pill({
   )
 }
 
-export function SkillLifecycleBadge({
-  status,
-}: {
-  status: SkillLifecycleStatus | string | undefined
-}) {
+export function SkillLifecycleBadge({ status }: { status: SkillLifecycleStatus }) {
   const { t } = useTranslation()
-  // Default to 'approved' so legacy skills written before P1 (no
-  // lifecycle_status field on the response) render normally rather
-  // than as an empty pill.
-  const value: SkillLifecycleStatus =
-    status && status in LIFECYCLE_TONE ? (status as SkillLifecycleStatus) : 'approved'
   const labelKey = `managed.skills.lifecycle.${
-    value === 'pending_review' ? 'pendingReview' : value
+    status === 'pending_review' ? 'pendingReview' : status
   }` as const
-  return <Pill tone={LIFECYCLE_TONE[value]}>{t(labelKey)}</Pill>
+  return <Pill tone={LIFECYCLE_TONE[status]}>{t(labelKey)}</Pill>
 }
 
-export function SkillVisibilityBadge({
-  visibility,
-}: {
-  visibility: SkillVisibility | string | undefined
-}) {
+export function SkillVisibilityBadge({ visibility }: { visibility: SkillVisibility }) {
   const { t } = useTranslation()
-  const value: SkillVisibility =
-    visibility && visibility in VISIBILITY_TONE ? (visibility as SkillVisibility) : 'project'
-  const labelKey = `managed.skills.visibility.${value}` as const
-  return <Pill tone={VISIBILITY_TONE[value]}>{t(labelKey)}</Pill>
+  const labelKey = `managed.skills.visibility.${visibility}` as const
+  return <Pill tone={VISIBILITY_TONE[visibility]}>{t(labelKey)}</Pill>
 }
 
 export function SkillSecurityBadge({ status }: { status: string | undefined }) {

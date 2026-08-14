@@ -15,14 +15,15 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
     UpdateEnvironmentRequest,
 )
+from app.joysafeter_shared.ids import EnvironmentId, TaskId, registered_entity_id_prefix
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
-def _environment_ref_matches(ref: object, env_name: str, env_id: uuid.UUID) -> bool:
+def _environment_ref_matches(ref: object, env_name: str, env_id: EnvironmentId) -> bool:
     if ref is None:
         return False
     normalized = str(ref).strip()
-    return normalized == env_name or normalized == f"env_{env_id}" or normalized == str(env_id)
+    return normalized == env_name or normalized == str(env_id)
 
 
 class EnvironmentService:
@@ -45,7 +46,9 @@ class EnvironmentService:
             name=req.name,
             description=req.description,
             metadata_=req.metadata,
-            config=req.config.model_dump(),
+            # ``mode="json"`` serializes typed CredentialId refs (egress
+            # service_credential_id / secret_refs) to plain strings for JSONB.
+            config=req.config.model_dump(mode="json"),
         )
         if project_id is not None:
             kwargs["project_id"] = project_id
@@ -56,7 +59,7 @@ class EnvironmentService:
         return env
 
     async def get_environment(
-        self, env_id: uuid.UUID, project_id: Optional[str] = None
+        self, env_id: EnvironmentId, project_id: Optional[str] = None
     ) -> Optional[JoySafeterEnvironment]:
         conditions = [
             JoySafeterEnvironment.id == env_id,
@@ -70,18 +73,25 @@ class EnvironmentService:
     async def get_environment_by_ref(
         self, ref: str, project_id: Optional[str] = None
     ) -> Optional[JoySafeterEnvironment]:
-        """If ref starts with 'env_', try to parse as UUID and query by ID.
-        A bare UUID is also accepted for legacy session rows created before
-        session environment refs were canonicalized. Otherwise query by name.
-        Filter deleted_at IS NULL."""
+        """Resolve an ``env_<uuid>`` reference or environment name."""
         normalized = ref.strip()
         if not normalized:
             return None
+        prefix = registered_entity_id_prefix(normalized)
+        if prefix is not None:
+            if prefix != EnvironmentId.prefix:
+                return None
+            try:
+                env_id = EnvironmentId.from_public(normalized)
+                return await self.get_environment(env_id, project_id=project_id)
+            except (TypeError, ValueError):
+                return None
         try:
-            env_id = uuid.UUID(normalized.removeprefix("env_"))
-            return await self.get_environment(env_id, project_id=project_id)
+            uuid.UUID(normalized)
         except ValueError:
             pass
+        else:
+            return None
         # Fall back to name lookup
         conditions = [
             JoySafeterEnvironment.name == normalized,
@@ -95,7 +105,7 @@ class EnvironmentService:
     async def list_environments(
         self,
         limit: int = 20,
-        after_id: Optional[uuid.UUID] = None,
+        after_id: Optional[EnvironmentId] = None,
         include_archived: bool = False,
         project_id: Optional[str] = None,
     ) -> tuple[list[JoySafeterEnvironment], bool]:
@@ -112,7 +122,7 @@ class EnvironmentService:
 
     async def update_environment(
         self,
-        env_id: uuid.UUID,
+        env_id: EnvironmentId,
         req: UpdateEnvironmentRequest,
         project_id: Optional[str] = None,
         *,
@@ -121,7 +131,7 @@ class EnvironmentService:
         env = await self.get_environment(env_id, project_id=project_id)
         if not env:
             return None
-        next_config = req.config.model_dump() if req.config is not None else None
+        next_config = req.config.model_dump(mode="json") if req.config is not None else None
         name_changed = req.name is not None and req.name != env.name
         config_changed = next_config is not None and next_config != (env.config or {})
         if name_changed or config_changed:
@@ -158,7 +168,7 @@ class EnvironmentService:
             await self.db.flush()
         return env
 
-    async def delete_environment(self, env_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+    async def delete_environment(self, env_id: EnvironmentId, project_id: Optional[str] = None) -> bool:
         env = await self.get_environment(env_id, project_id=project_id)
         if not env:
             return False
@@ -181,7 +191,7 @@ class EnvironmentService:
         await self.db.commit()
         return True
 
-    async def archive_environment(self, env_id: uuid.UUID, project_id: Optional[str] = None) -> bool:
+    async def archive_environment(self, env_id: EnvironmentId, project_id: Optional[str] = None) -> bool:
         env = await self.get_environment(env_id, project_id=project_id)
         if not env:
             return False
@@ -209,18 +219,15 @@ class EnvironmentService:
     async def environment_is_referenced_by_sessions(
         self,
         env_name: str,
-        env_id: uuid.UUID,
+        env_id: EnvironmentId,
         project_id: Optional[str] = None,
     ) -> bool:
-        """Check if any session has environment_ref matching either the name or
-        env_<uuid> / legacy bare UUID format AND archived_at IS NULL."""
-        env_prefixed = f"env_{env_id}"
-        env_bare = str(env_id)
+        """Check active sessions for the environment name or ``env_<uuid>`` ref."""
+        env_prefixed = str(env_id)
         conditions = [
             or_(
                 JoySafeterSession.environment_ref == env_name,
                 JoySafeterSession.environment_ref == env_prefixed,
-                JoySafeterSession.environment_ref == env_bare,
             ),
             JoySafeterSession.archived_at.is_(None),
         ]
@@ -232,7 +239,7 @@ class EnvironmentService:
     async def environment_is_referenced_by_agent(
         self,
         env_name: str,
-        env_id: uuid.UUID,
+        env_id: EnvironmentId,
         project_id: Optional[str] = None,
     ) -> Optional[str]:
         conditions: list[ColumnElement[bool]] = [
@@ -251,7 +258,7 @@ class EnvironmentService:
     async def environment_is_referenced_by_trigger(
         self,
         env_name: str,
-        env_id: uuid.UUID,
+        env_id: EnvironmentId,
         project_id: Optional[str] = None,
     ) -> Optional[str]:
         # Scope to type='cron' so the "referenced by cron trigger '<name>'" message
@@ -275,9 +282,9 @@ class EnvironmentService:
     async def active_task_environment_dependency(
         self,
         env_name: str,
-        env_id: uuid.UUID,
+        env_id: EnvironmentId,
         project_id: Optional[str] = None,
-    ) -> Optional[tuple[uuid.UUID, str]]:
+    ) -> Optional[tuple[TaskId, str]]:
         terminal_values = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
         conditions: list[ColumnElement[bool]] = [JoySafeterTask.status.notin_(terminal_values)]
         if project_id is not None:

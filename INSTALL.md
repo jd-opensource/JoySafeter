@@ -1,14 +1,18 @@
-# JoySafeter Installation Guide
+# JoySafeter Installation
 
-Below you will find comprehensive setup instructions depending on your deployment needs.
+JoySafeter maintains one full-stack installation path: **Docker Compose through
+`deploy/deploy.sh`**. Running Python, Rust, and Bun processes on the host is a development
+workflow, not a deployment mode.
 
-## Prerequisites
+## Requirements
 
-- Docker 20.10+ and Docker Compose 2.0+
-- Python 3.12+ and Node.js 20+ (only for local development)
-- PostgreSQL/Redis are included in Docker deployment
+- Docker Engine or Docker Desktop
+- Docker Compose v2
+- Git
+- At least 4 CPU cores and 8 GB RAM recommended
+- `linux/amd64` or `linux/arm64`
 
-## Recommended: Docker Compose
+## First Installation
 
 ```bash
 cd deploy
@@ -16,143 +20,33 @@ cd deploy
 ./deploy.sh local
 ```
 
-`doctor` prepares missing env files and checks Docker, Compose, the Docker daemon CPU
-architecture, SkillSpector sources, Docker socket access, ports, and the Compose config. It
-does not start containers. `local` repeats the checks, starts PostgreSQL/Redis/SkillSpector,
-waits for local Redis, runs database migrations, and then starts the full local stack.
+`doctor` checks Docker, Compose, ports, environment files, and the target architecture without
+starting services. `local` prepares environment files, generates and synchronizes the stable
+application/Vault keys plus the database password, builds the core services and the default
+Claude Code runtime, runs database migrations, and starts the complete stack. Existing valid keys
+are preserved.
 
-Access points:
+Open:
 
 - Frontend: `http://localhost:3000`
-- Backend API: `http://localhost:8000`
-- API Docs: `http://localhost:8000/docs`
+- API: `http://localhost:8000`
+- API docs: `http://localhost:8000/docs`
 
-The backend runtime is split into Python `api`, Rust `orchestrator-rs`, and Python `worker`
-services, alongside PostgreSQL, Redis, Envoy, and SkillSpector. The Python orchestrator profile
-has been removed; use the `rust-orchestrator` profile through `deploy.sh local`.
-
-`deploy.sh local` starts the control-plane services only. It does not build the agent runtime
-image (`joysafeter-claudecode` / `joysafeter-codex` / `joysafeter-native`), so the control plane
-comes up healthy but real agent tasks fail until you build or pull one:
+## Daily Operations
 
 ```bash
 cd deploy
-./deploy.sh build --claudecode-only --arch arm64   # or --arch amd64
-# or use a prebuilt image
-./deploy.sh pull --runtime-only --registry registry.example.com/your-org --tag v0.3.2
+./deploy.sh up                 # Start or update with existing images
+./deploy.sh status             # Show service status
+./deploy.sh logs api worker    # Follow logs
+./deploy.sh down               # Stop services and keep data volumes
 ```
 
-For cloud PostgreSQL/Redis, image building, prebuilt images, and troubleshooting, see
-[deploy/README.md](deploy/README.md).
-For service ownership, runtime topology, data flow, and deployment-mode selection, also see
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+## Next Documents
 
-## Using Pre-built Docker Images
+- Builds, image publishing, and deployment: [`deploy/README.md`](deploy/README.md)
+- Host-based development and tests: [`DEVELOPMENT.md`](DEVELOPMENT.md)
+- Pre-release gates: [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md)
 
-```bash
-cd deploy
-./deploy.sh doctor
-
-# Pull writes BACKEND_FULL_IMAGE, FRONTEND_FULL_IMAGE, ORCHESTRATOR_RS_FULL_IMAGE,
-# and SKILLSPECTOR_FULL_IMAGE into deploy/.env after the images are pulled.
-./deploy.sh pull --registry registry.example.com/your-org --tag v0.3.2
-docker compose --profile local-redis --profile rust-orchestrator up -d --no-build
-```
-
-## Local Test One-Command Startup
-
-```bash
-cd deploy
-./local-test.sh
-```
-
-
-## Environment Check
-
-```bash
-cd deploy
-./deploy.sh doctor
-```
-
-## Manual Setup
-
-<details>
-<summary><strong>Backend Setup</strong></summary>
-
-```bash
-cd backend
-
-# Install uv package manager
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Create environment and install dependencies
-uv venv && source .venv/bin/activate
-uv sync
-
-# Configure environment
-cp env.example .env
-# Edit .env with your settings
-
-# Initialize database
-createdb joysafeter
-alembic upgrade head
-
-# Start API
-JOYSAFETER_SERVICE_ROLE=api \
-uv run uvicorn app.joysafeter_api.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-> To match the Compose runtime, also start Rust orchestrator and the worker:
->
-> ```bash
-> cd backend/app/joysafeter_orchestrator_rs
-> JOYSAFETER_GRPC_HOST=0.0.0.0 JOYSAFETER_GRPC_PORT=9090 cargo run --release
->
-> cd backend
-> JOYSAFETER_SERVICE_ROLE=worker \
-> uv run uvicorn app.joysafeter_worker.main:app --host 127.0.0.1 --port 8002 --workers 1
-> ```
->
-> See [DEVELOPMENT.md](DEVELOPMENT.md).
-
-</details>
-
-<details>
-<summary><strong>Frontend Setup</strong></summary>
-
-```bash
-cd frontend
-
-# Install dependencies
-bun install
-
-# Configure environment
-cp env.example .env.local
-
-# Start development server
-bun run dev
-```
-
-</details>
-
-## Access Points
-
-| Service | URL |
-|---------|-----|
-| Frontend | http://localhost:3000 |
-| Backend API | http://localhost:8000 |
-| API Documentation | http://localhost:8000/docs |
-| ReDoc | http://localhost:8000/redoc |
-
-## Troubleshooting
-
-- Run `cd deploy && ./deploy.sh doctor` first. It validates the same env, platform, socket,
-  port, SkillSpector, and Compose prerequisites used by `./deploy.sh local`.
-- If you are on Apple Silicon or Colima, let `deploy.sh local` auto-detect the Docker daemon
-  architecture, or force it with `./deploy.sh local --arch arm64`.
-- If database tables are missing after a manual Compose start with local Redis, run
-  `docker compose --profile local-redis --profile rust-orchestrator --profile init run --rm db-init`.
-- If you use cloud Redis, leave off the `local-redis` profile and set `REDIS_URL` in `deploy/.env`.
-  For cloud Redis migrations, use
-  `docker compose --profile rust-orchestrator --profile init run --rm db-init`. For cloud PostgreSQL,
-  override the `POSTGRES_*` variables there as well.
+Use `./deploy.sh --help` as the command reference. Other documents intentionally avoid copying
+the complete option list.
