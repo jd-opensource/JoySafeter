@@ -195,6 +195,18 @@ async def _load_session_storage_mounts(db: AsyncSession, session_id: uuid.UUID, 
     return list(result.scalars().all())
 
 
+def _public_session_metadata(metadata) -> dict:
+    """Strip internal-only keys before returning session metadata to clients.
+
+    ``agent_identity_context`` holds the encrypted user credential + request
+    headers used server-side for JD identity token exchange. It must never be
+    exposed to the client.
+    """
+    if not isinstance(metadata, dict):
+        return {}
+    return {k: v for k, v in metadata.items() if k != "agent_identity_context"}
+
+
 def _session_to_response(
     session, agent=None, resources=None, repo_resources=None, storage_mounts=None
 ) -> SessionResponse:
@@ -255,7 +267,7 @@ def _session_to_response(
         status=session.status,
         stop_reason=session.stop_reason,
         title=session.title,
-        metadata=session.metadata_,
+        metadata=_public_session_metadata(session.metadata_),
         vault_ids=session.vault_ids or [],
         resources=resource_responses,
         repo_resources=repo_responses,
