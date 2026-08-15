@@ -1,9 +1,15 @@
 from typing import cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ...domain.models import JDSSOProviderSettings, OAuth2ProviderSettings, ProtocolId, ProviderProtocolSettings
 from .base import ProtocolDefinition
+
+
+def _require_nonblank(value: str | None) -> str | None:
+    if value is not None and not value.strip():
+        raise ValueError("Value must not be blank")
+    return value
 
 
 class OAuth2ConfigSchema(BaseModel):
@@ -19,6 +25,19 @@ class OAuth2ConfigSchema(BaseModel):
     user_mapping: dict[str, str]
     token_endpoint_auth_method: str = "client_secret_basic"
     userinfo_headers: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator(
+        "client_id",
+        "client_secret",
+        "authorize_url",
+        "token_url",
+        "userinfo_url",
+        "issuer",
+        "scope",
+    )
+    @classmethod
+    def require_nonblank_strings(cls, value: str | None) -> str | None:
+        return _require_nonblank(value)
 
     @model_validator(mode="after")
     def require_issuer_or_explicit_endpoints(self) -> "OAuth2ConfigSchema":
@@ -36,6 +55,13 @@ class JDSSOConfigSchema(BaseModel):
     userinfo_url: str
     scope: str = "openid"
     user_mapping: dict[str, str]
+
+    @field_validator("client_id", "client_secret", "authorize_url", "userinfo_url", "scope")
+    @classmethod
+    def require_nonblank_strings(cls, value: str) -> str:
+        validated = _require_nonblank(value)
+        assert validated is not None
+        return validated
 
 
 def _to_oauth2_settings(schema: BaseModel) -> ProviderProtocolSettings:

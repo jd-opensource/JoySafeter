@@ -1,12 +1,14 @@
 import ipaddress
 import re
+import socket
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ..domain.errors import ConfigurationIssue, FederationConfigurationError
 from ..domain.models import (
@@ -48,8 +50,16 @@ class CatalogSettings(BaseModel):
 class CatalogDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    version: Literal[1]
     providers: dict[str, CatalogProvider]
     settings: CatalogSettings
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def require_exact_integer_version_one(cls, value: object) -> object:
+        if not isinstance(value, int) or isinstance(value, bool) or value != 1:
+            raise ValueError("Catalog version must be the integer 1")
+        return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,17 +85,33 @@ def _load_yaml(config_path: Path) -> object:
     try:
         with config_path.open(encoding="utf-8") as file:
             return yaml.safe_load(file)
+    except FileNotFoundError:
+        raise FederationConfigurationError(
+            [
+                _issue(
+                    "catalog",
+                    "file",
+                    "FEDERATION_CONFIG_NOT_FOUND",
+                    "Federation configuration file was not found",
+                )
+            ]
+        ) from None
     except yaml.YAMLError as error:
+        mark = getattr(error, "problem_mark", None)
+        if mark is None:
+            message = "YAML syntax is invalid"
+        else:
+            message = f"YAML syntax is invalid at line {mark.line + 1}, column {mark.column + 1}"
         raise FederationConfigurationError(
             [
                 _issue(
                     "catalog",
                     "yaml",
                     "FEDERATION_CONFIG_YAML_INVALID",
-                    str(error),
+                    message,
                 )
             ]
-        ) from error
+        ) from None
 
 
 def _document_from_raw(raw: object) -> CatalogDocument:
@@ -105,14 +131,26 @@ def _document_from_raw(raw: object) -> CatalogDocument:
                     str(detail["msg"]),
                 )
             )
-        raise FederationConfigurationError(issues) from error
+        raise FederationConfigurationError(issues) from None
 
 
 def _parse_active_provider_names(active_provider_names: str) -> tuple[tuple[str, ...], list[ConfigurationIssue]]:
-    requested = tuple(name.strip() for name in active_provider_names.split(",") if name.strip())
+    if not active_provider_names.strip():
+        return (), []
+    requested = tuple(name.strip() for name in active_provider_names.split(","))
     issues: list[ConfigurationIssue] = []
     seen: set[str] = set()
-    for name in requested:
+    for index, name in enumerate(requested):
+        if not name:
+            issues.append(
+                _issue(
+                    "settings",
+                    f"providers[{index}]",
+                    "FEDERATION_PROVIDER_EMPTY",
+                    "Active provider entries must not be empty",
+                )
+            )
+            continue
         try:
             ProviderId(name)
         except ValueError as error:
@@ -152,22 +190,13 @@ def _parse_login_mode(
                 f"Login mode {login_mode!r} is not supported",
             )
         ]
-    if parsed is LoginMode.REDIRECT and not requested:
+    if parsed is LoginMode.REDIRECT and not any(requested):
         return parsed, [
             _issue(
                 "settings",
                 "login_mode",
                 "FEDERATION_LOGIN_MODE_INVALID",
                 "Redirect login mode requires at least one active provider",
-            )
-        ]
-    if parsed is LoginMode.REDIRECT and len(requested) != 1:
-        return parsed, [
-            _issue(
-                "settings",
-                "login_mode",
-                "FEDERATION_LOGIN_MODE_INVALID",
-                "Redirect login mode requires exactly one active provider",
             )
         ]
     return parsed, []
@@ -202,6 +231,54 @@ def _remap_protocol_issue(provider_id: str, issue: ConfigurationIssue) -> Config
     return _issue(provider_id, issue.field, issue.code, issue.message)
 
 
+def _parse_http_endpoint(value: str) -> tuple[str, str, int] | None:
+    if not value or value != value.strip() or "${" in value or any(char.isspace() for char in value):
+        return None
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return None
+    if parsed.scheme not in {"http", "https"} or hostname is None or not parsed.netloc:
+        return None
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+    if port < 1:
+        return None
+    return parsed.scheme, hostname.rstrip(".").lower(), port
+
+
+def _catalog_endpoint_is_valid(value: str) -> bool:
+    if _ENV_REFERENCE.fullmatch(value) is not None:
+        return True
+    candidate = _ENV_REFERENCE.sub("placeholder", value)
+    if "${" in candidate:
+        return False
+    return _parse_http_endpoint(candidate) is not None
+
+
+def _catalog_endpoint_issues(
+    provider_id: str,
+    configuration: Mapping[str, object],
+) -> list[ConfigurationIssue]:
+    issues: list[ConfigurationIssue] = []
+    for field in _ENDPOINT_FIELDS:
+        value = configuration.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not _catalog_endpoint_is_valid(value):
+            issues.append(
+                _issue(
+                    provider_id,
+                    field,
+                    "FEDERATION_ENDPOINT_INVALID",
+                    "Endpoint must be a valid HTTP(S) URL or environment reference",
+                )
+            )
+    return issues
+
+
 def _validate_catalog(
     document: CatalogDocument,
     schema_registry: ProtocolSchemaRegistry,
@@ -224,6 +301,7 @@ def _validate_catalog(
         issues.extend(
             _issue(provider_name, issue.field, issue.code, issue.message) for issue in template_issues
         )
+        issues.extend(_catalog_endpoint_issues(provider_name, configuration))
         try:
             schema_registry.validate_configuration(provider.protocol, configuration)
         except FederationConfigurationError as error:
@@ -247,11 +325,25 @@ def _expand_environment(
     provider_id: str,
     configuration: Mapping[str, object],
     environ: Mapping[str, str],
-) -> tuple[dict[str, object], list[ConfigurationIssue]]:
+) -> tuple[dict[str, object], list[ConfigurationIssue], frozenset[str]]:
     issues: list[ConfigurationIssue] = []
+    unresolved_fields: set[str] = set()
+
+    def mark_unresolved(field: str) -> None:
+        if field in unresolved_fields:
+            return
+        unresolved_fields.add(field)
+        issues.append(
+            _issue(
+                provider_id,
+                field,
+                "FEDERATION_ENV_UNRESOLVED",
+                "Field contains a missing, blank, or unresolved environment value",
+            )
+        )
 
     def expand(field: str, value: object) -> object:
-        if isinstance(value, dict):
+        if isinstance(value, Mapping):
             return {key: expand(f"{field}.{key}", item) for key, item in value.items()}
         if not isinstance(value, str):
             return value
@@ -259,54 +351,107 @@ def _expand_environment(
         def replace(match: re.Match[str]) -> str:
             variable = match.group(1)
             if variable not in environ:
-                issues.append(
-                    _issue(
-                        provider_id,
-                        field,
-                        "FEDERATION_ENV_UNRESOLVED",
-                        f"Environment variable {variable!r} is not set",
-                    )
-                )
+                mark_unresolved(field)
                 return match.group(0)
-            return environ[variable]
+            replacement = environ[variable]
+            if not replacement.strip() or "${" in replacement:
+                mark_unresolved(field)
+                return match.group(0)
+            return replacement
 
-        return _ENV_REFERENCE.sub(replace, value)
+        expanded_value = _ENV_REFERENCE.sub(replace, value)
+        if "${" in expanded_value:
+            mark_unresolved(field)
+        return expanded_value
 
     expanded = {field: expand(field, value) for field, value in configuration.items()}
-    return expanded, issues
+    return expanded, issues, frozenset(unresolved_fields)
 
 
-def _is_unsafe_endpoint(value: str) -> bool:
-    parsed = urlsplit(value)
-    if parsed.scheme not in {"http", "https"} or parsed.hostname is None:
-        return True
-    hostname = parsed.hostname.rstrip(".").lower()
-    if hostname == "localhost" or hostname.endswith(".localhost"):
-        return True
+def _resolve_endpoint_addresses(hostname: str, port: int) -> tuple[str, ...]:
+    address_info = socket.getaddrinfo(
+        hostname,
+        port,
+        type=socket.SOCK_STREAM,
+        proto=socket.IPPROTO_TCP,
+    )
+    return tuple(dict.fromkeys(str(sockaddr[0]) for *_, sockaddr in address_info))
+
+
+def _endpoint_addresses(
+    hostname: str,
+    port: int,
+) -> tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, ...] | None:
     try:
-        address = ipaddress.ip_address(hostname)
+        return (ipaddress.ip_address(hostname),)
     except ValueError:
-        return False
-    return address.is_private or address.is_link_local or address.is_loopback
+        pass
+    try:
+        resolved = _resolve_endpoint_addresses(hostname, port)
+    except (OSError, UnicodeError):
+        return None
+    if not resolved:
+        return None
+    addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+    for value in resolved:
+        try:
+            addresses.append(ipaddress.ip_address(value))
+        except ValueError:
+            return None
+    return tuple(addresses)
 
 
 def _endpoint_issues(
     provider_id: str,
     settings: ProviderProtocolSettings,
     application_environment: str,
+    unresolved_fields: frozenset[str],
 ) -> list[ConfigurationIssue]:
-    if provider_id == "local" and application_environment == "development":
-        return []
-    issues = []
+    issues: list[ConfigurationIssue] = []
     for field in _ENDPOINT_FIELDS:
+        if field in unresolved_fields:
+            continue
         value = getattr(settings, field, None)
-        if isinstance(value, str) and _ENV_REFERENCE.search(value) is None and _is_unsafe_endpoint(value):
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            continue
+        parsed = _parse_http_endpoint(value)
+        if parsed is None:
+            issues.append(
+                _issue(
+                    provider_id,
+                    field,
+                    "FEDERATION_ENDPOINT_INVALID",
+                    "Endpoint must be a concrete valid HTTP(S) URL",
+                )
+            )
+            continue
+        scheme, hostname, port = parsed
+        addresses = _endpoint_addresses(hostname, port)
+        if addresses is None:
             issues.append(
                 _issue(
                     provider_id,
                     field,
                     "FEDERATION_ENDPOINT_UNSAFE",
-                    f"Endpoint {value!r} must not target a private, link-local, or loopback address",
+                    "Endpoint destination could not be safely resolved",
+                )
+            )
+            continue
+        allow_loopback = (
+            provider_id == "local"
+            and application_environment == "development"
+            and scheme == "http"
+            and all(address.is_loopback for address in addresses)
+        )
+        if not allow_loopback and any(not address.is_global for address in addresses):
+            issues.append(
+                _issue(
+                    provider_id,
+                    field,
+                    "FEDERATION_ENDPOINT_UNSAFE",
+                    "Endpoint destination must be globally routable",
                 )
             )
     return issues
@@ -342,7 +487,7 @@ def _compile_active_providers(
             )
             continue
         provider, raw_configuration = catalog_entry
-        configuration, environment_issues = _expand_environment(
+        configuration, environment_issues, unresolved_fields = _expand_environment(
             provider_name,
             raw_configuration,
             environ,
@@ -365,7 +510,14 @@ def _compile_active_providers(
                     )
                 )
             continue
-        issues.extend(_endpoint_issues(provider_name, settings, application_environment))
+        issues.extend(
+            _endpoint_issues(
+                provider_name,
+                settings,
+                application_environment,
+                unresolved_fields,
+            )
+        )
         if environment_issues:
             continue
         providers.append(
