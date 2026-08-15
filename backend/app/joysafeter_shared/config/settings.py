@@ -636,6 +636,18 @@ class Settings(BaseSettings):
         validation_alias="OAUTH_CONFIG_PATH",
         description="OAuth providers configuration file path (default: config/oauth_providers.yaml)",
     )
+    identity_federation_providers: str = Field(
+        default="",
+        validation_alias="IDENTITY_FEDERATION_PROVIDERS",
+    )
+    identity_federation_config_path: Optional[str] = Field(
+        default=None,
+        validation_alias="IDENTITY_FEDERATION_CONFIG_PATH",
+    )
+    identity_federation_login_mode: str = Field(
+        default="chooser",
+        validation_alias="IDENTITY_FEDERATION_LOGIN_MODE",
+    )
 
 
 settings = Settings()  # type: ignore[call-arg]

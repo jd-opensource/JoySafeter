@@ -1,0 +1,68 @@
+providers:
+  github:
+    display_name: "GitHub"
+    icon: "github"
+    protocol: "oauth2"
+    template: "github"
+    client_id: ${OAUTH_GITHUB_CLIENT_ID}
+    client_secret: ${OAUTH_GITHUB_CLIENT_SECRET}
+
+  google:
+    display_name: "Google"
+    icon: "google"
+    protocol: "oauth2"
+    template: "google"
+    client_id: ${OAUTH_GOOGLE_CLIENT_ID}
+    client_secret: ${OAUTH_GOOGLE_CLIENT_SECRET}
+
+  microsoft:
+    display_name: "Microsoft"
+    icon: "microsoft"
+    protocol: "oauth2"
+    template: "microsoft"
+    client_id: ${OAUTH_MICROSOFT_CLIENT_ID}
+    client_secret: ${OAUTH_MICROSOFT_CLIENT_SECRET}
+
+  gitlab:
+    display_name: "GitLab"
+    icon: "gitlab"
+    protocol: "oauth2"
+    template: "gitlab"
+    client_id: ${OAUTH_GITLAB_CLIENT_ID}
+    client_secret: ${OAUTH_GITLAB_CLIENT_SECRET}
+
+  jd:
+    display_name: "JD SSO"
+    icon: "building"
+    protocol: "jd_sso"
+    client_id: ${JD_CLIENT_ID}
+    client_secret: ${JD_CLIENT_SECRET}
+    authorize_url: ${JD_AUTHORIZE_URL}
+    userinfo_url: ${JD_USERINFO_URL}
+    scope: "openid email"
+    user_mapping:
+      id: "userId"
+      email: "email"
+      name: "username"
+      avatar: ""
+
+  local:
+    display_name: "本地测试"
+    icon: "key"
+    protocol: "oauth2"
+    client_id: ${OAUTH_LOCAL_CLIENT_ID}
+    client_secret: ${OAUTH_LOCAL_CLIENT_SECRET}
+    authorize_url: "http://localhost:9090/authorize"
+    token_url: "http://localhost:9090/token"
+    userinfo_url: "http://localhost:9090/userinfo"
+    scope: "openid email profile"
+    user_mapping:
+      id: "sub"
+      email: "email"
+      name: "name"
+      avatar: "picture"
+
+settings:
+  default_redirect_url: "/managed/quickstart"
+  allow_registration: true
+  auto_link_by_email: true
