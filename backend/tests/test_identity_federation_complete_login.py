@@ -262,13 +262,16 @@ def _attempt(
     provider: str = "github",
     retry_count: int = 0,
     expires_at: datetime | None = None,
+    redirect_uri: str | None = None,
+    correlation_method: CorrelationMethod | None = None,
 ) -> LoginAttempt:
     return LoginAttempt(
         id=attempt_id,
         provider_id=ProviderId(provider),
         callback_url="/managed/dashboard",
-        redirect_uri=f"https://api.example.com/api/v1/auth/oauth/{provider}/callback",
-        correlation_method=(CorrelationMethod.SIGNED_COOKIE if provider == "jd" else CorrelationMethod.OAUTH_STATE),
+        redirect_uri=redirect_uri or f"https://api.example.com/api/v1/auth/oauth/{provider}/callback",
+        correlation_method=correlation_method
+        or (CorrelationMethod.SIGNED_COOKIE if provider == "jd" else CorrelationMethod.OAUTH_STATE),
         retry_count=retry_count,
         created_at=_NOW - timedelta(minutes=1),
         expires_at=expires_at or (_NOW + timedelta(minutes=9)),
@@ -310,6 +313,8 @@ def _coordinator(
     session_error: Exception | None = None,
     replace_error: Exception | None = None,
     attempt_ids: Iterator[str] | None = None,
+    account_gateway_configured: bool = True,
+    session_gateway_configured: bool = True,
 ) -> tuple[
     FederatedLoginCoordinator,
     _RecordingAttemptStore,
@@ -343,8 +348,8 @@ def _coordinator(
         registry=_registry(),
         adapters=resolver,
         attempt_store=store,
-        account_gateway=account_gateway,
-        session_gateway=session_gateway,
+        account_gateway=account_gateway if account_gateway_configured else None,
+        session_gateway=session_gateway if session_gateway_configured else None,
         attempt_id_factory=(lambda: next(attempt_ids)) if attempt_ids is not None else None,
         clock=lambda: _NOW,
     )
@@ -385,11 +390,37 @@ async def test_complete_login_consumes_attempt_before_adapter_account_and_sessio
         (None, "FEDERATION_ATTEMPT_INVALID"),
         (_attempt("attempt-1", provider="jd"), "FEDERATION_ATTEMPT_MISMATCH"),
         (
+            _attempt(
+                "attempt-1",
+                redirect_uri="https://api.example.com/api/v1/auth/oauth/google/callback",
+            ),
+            "FEDERATION_ATTEMPT_MISMATCH",
+        ),
+        (
+            _attempt("attempt-1", correlation_method=CorrelationMethod.SIGNED_COOKIE),
+            "FEDERATION_ATTEMPT_MISMATCH",
+        ),
+        (
+            _attempt(
+                "attempt-1",
+                expires_at=_NOW,
+                redirect_uri="https://api.example.com/api/v1/auth/oauth/google/callback",
+            ),
+            "FEDERATION_ATTEMPT_MISMATCH",
+        ),
+        (
             _attempt("attempt-1", expires_at=_NOW),
             "FEDERATION_ATTEMPT_EXPIRED",
         ),
     ],
-    ids=["missing", "provider-mismatch", "expired"],
+    ids=[
+        "missing",
+        "provider-mismatch",
+        "redirect-mismatch",
+        "correlation-mismatch",
+        "mismatch-before-expiry",
+        "expired",
+    ],
 )
 @pytest.mark.asyncio
 async def test_complete_login_rejects_consumed_attempt_before_adapter_completion(
@@ -432,6 +463,40 @@ async def test_complete_login_requires_active_provider_before_correlation_extrac
     assert events == []
 
 
+@pytest.mark.parametrize(
+    ("missing_gateway", "expected_message"),
+    [
+        ("account", "Federated account gateway is not configured"),
+        ("session", "Auth session gateway is not configured"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_complete_login_preflights_gateways_before_correlation_or_consumption(
+    missing_gateway: str,
+    expected_message: str,
+) -> None:
+    coordinator, store, adapter, account_gateway, session_gateway, events = _coordinator(
+        stored_attempt=_attempt("attempt-1"),
+        account_gateway_configured=missing_gateway != "account",
+        session_gateway_configured=missing_gateway != "session",
+    )
+
+    with pytest.raises(RuntimeError, match=expected_message):
+        await coordinator.complete_login(
+            CompleteLoginCommand(provider_id="github"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert events == []
+    assert adapter.extracted_contexts == []
+    assert adapter.completed == []
+    assert adapter.begun == []
+    assert store.consumed == []
+    assert store.replacements == []
+    assert account_gateway.calls == []
+    assert session_gateway.calls == []
+
+
 @pytest.mark.asyncio
 async def test_oauth_completion_uses_adapter_extracted_query_state() -> None:
     coordinator, store, adapter, _, _, _ = _coordinator(stored_attempt=_attempt("oauth-attempt"))
@@ -464,14 +529,26 @@ async def test_jd_completion_uses_signed_cookie_without_query_state_fallback() -
     assert store.consumed == ["jd-attempt"]
 
 
-@pytest.mark.parametrize("boundary", ["adapter", "account", "session"])
+@pytest.mark.parametrize(
+    ("boundary", "expected_events", "expected_account_calls", "expected_session_calls"),
+    [
+        ("adapter", ["extract", "consume", "complete"], 0, 0),
+        ("account", ["extract", "consume", "complete", "account"], 1, 0),
+        ("session", ["extract", "consume", "complete", "account", "session"], 1, 1),
+    ],
+)
 @pytest.mark.asyncio
-async def test_complete_login_propagates_boundary_failures_after_attempt_consumption(boundary: str) -> None:
+async def test_complete_login_propagates_boundary_failures_after_attempt_consumption(
+    boundary: str,
+    expected_events: list[str],
+    expected_account_calls: int,
+    expected_session_calls: int,
+) -> None:
     error = FederationError(
         code=f"FEDERATION_{boundary.upper()}_FAILED",
         message=f"{boundary} failed",
     )
-    coordinator, store, _, account_gateway, session_gateway, events = _coordinator(
+    coordinator, store, adapter, account_gateway, session_gateway, events = _coordinator(
         stored_attempt=_attempt("attempt-1"),
         complete_error=error if boundary == "adapter" else None,
         account_error=error if boundary == "account" else None,
@@ -486,14 +563,12 @@ async def test_complete_login_propagates_boundary_failures_after_attempt_consump
 
     assert exc_info.value is error
     assert store.consumed == ["attempt-1"]
-    assert events[:2] == ["extract", "consume"]
-    if boundary == "adapter":
-        assert account_gateway.calls == []
-        assert session_gateway.calls == []
-    elif boundary == "account":
-        assert session_gateway.calls == []
-    else:
-        assert session_gateway.calls == [("user-1", "203.0.113.10")]
+    assert events == expected_events
+    assert len(adapter.completed) == 1
+    assert adapter.begun == []
+    assert len(account_gateway.calls) == expected_account_calls
+    assert len(session_gateway.calls) == expected_session_calls
+    assert store.replacements == []
 
 
 @pytest.mark.asyncio

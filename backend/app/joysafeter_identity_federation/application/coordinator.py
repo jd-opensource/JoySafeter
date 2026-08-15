@@ -84,6 +84,8 @@ class FederatedLoginCoordinator:
         provider_id = self._parse_provider_id(command.provider_id)
         provider = self._registry.require(provider_id)
         adapter = self._adapters.require(provider.protocol)
+        account_gateway = self._require_account_gateway()
+        session_gateway = self._require_session_gateway()
         attempt_id = adapter.extract_attempt_id(context)
         attempt = await self._attempt_store.consume(attempt_id)
         if attempt is None:
@@ -91,7 +93,11 @@ class FederatedLoginCoordinator:
                 code="FEDERATION_ATTEMPT_INVALID",
                 message="Federation login attempt is invalid",
             )
-        if attempt.provider_id != provider.id:
+        if (
+            attempt.provider_id != provider.id
+            or attempt.redirect_uri != self._redirect_uri(context, provider.id)
+            or attempt.correlation_method != adapter.correlation_method
+        ):
             raise FederationError(
                 code="FEDERATION_ATTEMPT_MISMATCH",
                 message="Federation login attempt does not match the provider",
@@ -106,8 +112,6 @@ class FederatedLoginCoordinator:
         if isinstance(outcome, RestartAuthorization):
             return await self._restart_login(provider, adapter, attempt, context)
 
-        account_gateway = self._require_account_gateway()
-        session_gateway = self._require_session_gateway()
         user = await account_gateway.resolve_or_create(
             outcome.principal,
             AccountLinkPolicy(

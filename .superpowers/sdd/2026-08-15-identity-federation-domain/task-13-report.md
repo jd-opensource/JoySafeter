@@ -148,3 +148,102 @@ The scoped review base for Task 13 must be `0a7e2a5f`, because it is the actual 
 - The boundary suite requires Docker/PostgreSQL testcontainer access outside the restricted sandbox.
 - The existing SQLAlchemy table-cycle warning remains unrelated to Task 13.
 - Task 14 must inject account/session gateways before exposing callback completion through the application factory, as already specified by the plan.
+
+## Fix Round 1
+
+### Review findings addressed
+
+1. Stored attempts now match the selected active provider on all trusted callback invariants before expiry or adapter completion:
+   - `provider_id` equals the selected provider.
+   - `redirect_uri` equals the current trusted callback route derived from `CallbackContext.base_url` and the selected provider ID.
+   - `correlation_method` equals the selected adapter's declared correlation method.
+2. Attempt mismatch validation remains after atomic consume but now precedes expiry. A callback with both a route mismatch and expiry returns `FEDERATION_ATTEMPT_MISMATCH`.
+3. Required account and session gateways are preflighted after active provider and adapter resolution but before adapter correlation extraction or attempt consumption. A composition error therefore cannot consume or complete an attempt while Task 12 begin-only construction remains compatible.
+4. Adapter/account/session failure tests now assert the exact event sequence, exact account/session call counts, no restart begin call, and no replacement-store call.
+
+### Fix Round 1 RED
+
+Added the regression cases before modifying the coordinator and ran:
+
+```text
+cd backend
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache uv run pytest tests/test_identity_federation_complete_login.py -q
+```
+
+The expected failures were:
+
+```text
+5 failed, 14 passed in 0.07s
+```
+
+Failure evidence:
+
+- Redirect mismatch did not raise `FederationError`.
+- Correlation-method mismatch did not raise `FederationError`.
+- Combined redirect mismatch and expiry returned `FEDERATION_ATTEMPT_EXPIRED` instead of `FEDERATION_ATTEMPT_MISMATCH`.
+- Missing account gateway still produced `extract`, `consume`, and `complete` events before the composition `RuntimeError`.
+- Missing session gateway still produced `extract`, `consume`, and `complete` events before the composition `RuntimeError`.
+
+An earlier command attempted to apply the root-relative test path while running from `backend/`; `apply_patch` rejected the nonexistent `backend/backend/tests/...` path, and the unchanged 14-test suite passed. No file changed in that attempt, and it was not treated as RED evidence.
+
+### Fix Round 1 GREEN
+
+The minimal coordinator change preflights both gateways before extraction and compares all three stored attempt invariants before expiry. The focused suite then passed:
+
+```text
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache uv run pytest tests/test_identity_federation_complete_login.py -q
+19 passed in 0.04s
+```
+
+Task 12+13 application verification:
+
+```text
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache uv run pytest \
+  tests/test_identity_federation_begin_login.py \
+  tests/test_identity_federation_complete_login.py -q
+48 passed in 0.06s
+```
+
+State, domain, architecture, protocol, correlation, account, and session boundaries:
+
+```text
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache uv run pytest \
+  tests/test_identity_federation_state_store.py \
+  tests/test_identity_federation_domain.py \
+  tests/test_identity_federation_architecture.py \
+  tests/test_identity_federation_oauth2_adapter.py \
+  tests/test_identity_federation_jd_adapter.py \
+  tests/test_identity_federation_correlation.py \
+  tests/test_identity_federation_account_gateway.py \
+  tests/test_identity_federation_session_gateway.py -q
+129 passed, 18 warnings in 7.80s
+```
+
+Formatting and linting on the touched Python paths:
+
+```text
+uv run ruff format app/joysafeter_identity_federation/application/coordinator.py \
+  tests/test_identity_federation_complete_login.py
+2 files left unchanged
+
+uv run ruff check app/joysafeter_identity_federation/application/coordinator.py \
+  tests/test_identity_federation_complete_login.py
+All checks passed!
+```
+
+### Fix Round 1 self-review
+
+- Active-provider validation still occurs before gateway preflight, extraction, or consume.
+- Adapter resolution still follows the selected provider protocol; no protocol branch or compatibility path was added.
+- Gateway preflight is configuration validation only and adds no transaction, commit, rollback, or cross-store atomicity claim.
+- Attempt consumption remains atomic and still occurs before stored-attempt mismatch/expiry validation, preserving replay protection.
+- Mismatch validation uses the same trusted route construction as begin login and compares the adapter contract directly rather than reading protocol-specific request fields.
+- Restart semantics are unchanged; the stricter boundary failure tests prove authenticated failures never call retry begin or replacement.
+- Task 12 begin-login construction remains valid because constructor gateway parameters remain optional and only completion requires them.
+- Fix Round 1 scoped review base is `e98a470a`; the fix commit is a focused child of the original Task 13 commit.
+- Concurrent credential/deploy working-tree changes are preserved and excluded from staging.
+
+### Fix Round 1 residual risks
+
+- The Docker-backed boundary suite still emits the same 18 pre-existing SQLAlchemy table-cycle warnings.
+- Task 14 remains responsible for always injecting both gateways in the production coordinator factory.
