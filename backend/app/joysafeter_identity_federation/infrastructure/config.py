@@ -25,6 +25,7 @@ from .templates import PROVIDER_TEMPLATES
 
 _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _ENDPOINT_FIELDS = ("authorize_url", "token_url", "userinfo_url", "issuer")
+_DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
 
 class CatalogProvider(BaseModel):
@@ -231,8 +232,33 @@ def _remap_protocol_issue(provider_id: str, issue: ConfigurationIssue) -> Config
     return _issue(provider_id, issue.field, issue.code, issue.message)
 
 
+def _normalize_endpoint_hostname(hostname: str) -> str | None:
+    normalized = hostname[:-1] if hostname.endswith(".") else hostname
+    if not normalized:
+        return None
+    try:
+        return str(ipaddress.ip_address(normalized))
+    except ValueError:
+        pass
+    try:
+        normalized = normalized.encode("idna").decode("ascii").lower()
+    except UnicodeError:
+        return None
+    if len(normalized) > 253:
+        return None
+    labels = normalized.split(".")
+    if any(_DNS_LABEL.fullmatch(label) is None for label in labels):
+        return None
+    return normalized
+
+
 def _parse_http_endpoint(value: str) -> tuple[str, str, int] | None:
-    if not value or value != value.strip() or "${" in value or any(char.isspace() for char in value):
+    if (
+        not value
+        or value != value.strip()
+        or "${" in value
+        or any(char == "\\" or char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
+    ):
         return None
     try:
         parsed = urlsplit(value)
@@ -242,11 +268,14 @@ def _parse_http_endpoint(value: str) -> tuple[str, str, int] | None:
         return None
     if parsed.scheme not in {"http", "https"} or hostname is None or not parsed.netloc:
         return None
+    normalized_hostname = _normalize_endpoint_hostname(hostname)
+    if normalized_hostname is None:
+        return None
     if port is None:
         port = 443 if parsed.scheme == "https" else 80
     if port < 1:
         return None
-    return parsed.scheme, hostname.rstrip(".").lower(), port
+    return parsed.scheme, normalized_hostname, port
 
 
 def _catalog_endpoint_is_valid(value: str) -> bool:

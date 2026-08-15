@@ -496,6 +496,8 @@ def test_schema_diagnostics_do_not_expose_catalog_values(tmp_path: Path) -> None
         "not-a-url",
         "ftp://identity.example.com/authorize",
         "https://identity.example.com:70000/authorize",
+        r"http://127.0.0.1\@example.com/authorize",
+        "http://./",
         "${INVALID-NAME}",
     ],
 )
@@ -663,6 +665,8 @@ def test_local_provider_allows_loopback_endpoints_only_in_development(tmp_path: 
     ("value", "expected_code"),
     [
         ("file:///tmp/authorize", "FEDERATION_ENDPOINT_INVALID"),
+        (r"http://127.0.0.1\@example.com/authorize", "FEDERATION_ENDPOINT_INVALID"),
+        ("http://./", "FEDERATION_ENDPOINT_INVALID"),
         ("https://127.0.0.1:9090/authorize", "FEDERATION_ENDPOINT_UNSAFE"),
         ("http://10.0.0.1/authorize", "FEDERATION_ENDPOINT_UNSAFE"),
         ("http://169.254.169.254/latest/meta-data", "FEDERATION_ENDPOINT_UNSAFE"),
