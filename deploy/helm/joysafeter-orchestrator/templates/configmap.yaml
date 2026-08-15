@@ -107,6 +107,18 @@ data:
   JOYSAFETER_EVENT_STREAM_FALLBACK_TO_DB: {{ .Values.orchestrator.eventStream.fallbackToDb | quote }}
   JOYSAFETER_REDIS_QUEUE_PREFIX: "joysafeter"
 
+  # ── Agent Identity ──
+  AGENT_IDENTITY_ENABLED: {{ .Values.agentIdentity.enabled | quote }}
+  AGENT_IDENTITY_BASE_URL: {{ .Values.agentIdentity.baseUrl | quote }}
+  AGENT_IDENTITY_ALLOWED_HOSTS: {{ join "," .Values.agentIdentity.allowedHosts | quote }}
+  AGENT_IDENTITY_COOKIE_NAME: {{ .Values.agentIdentity.cookieName | quote }}
+  AGENT_IDENTITY_CONTEXT_TTL_SECONDS: {{ .Values.agentIdentity.contextTtlSeconds | quote }}
+  JD_AGENT_IDENTITY_CLIENT_ID: {{ .Values.agentIdentity.clientId | quote }}
+  JD_AGENT_IDENTITY_PLATFORM_ID: {{ .Values.agentIdentity.platformId | quote }}
+  JD_AGENT_IDENTITY_AUTH_TYPE: {{ .Values.agentIdentity.authType | quote }}
+  JD_AGENT_IDENTITY_IDENTITY_TYPE: {{ .Values.agentIdentity.identityType | quote }}
+  JD_AGENT_IDENTITY_AGENT_SCENE: {{ .Values.agentIdentity.agentScene | quote }}
+
   # ── Egress 白名单 ──
   JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS: {{ join "," .Values.egress.allowedHosts | quote }}
 

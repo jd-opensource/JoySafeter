@@ -20,6 +20,9 @@ RUN apt-get update && apt-get install -y \
 
 COPY proto ./proto
 COPY backend/app/joysafeter_orchestrator_rs ./backend/app/joysafeter_orchestrator_rs
+# src/kernel/llm_catalog.rs embeds ../../../../config/llm_catalog.yaml via
+# include_str! at compile time -> resolves to /src/backend/config/; must be present.
+COPY backend/config ./backend/config
 
 WORKDIR /src/backend/app/joysafeter_orchestrator_rs
 # aws-sdk-s3 is extremely memory-hungry to compile. Limit parallelism and relax
@@ -28,7 +31,7 @@ WORKDIR /src/backend/app/joysafeter_orchestrator_rs
 ENV CARGO_BUILD_JOBS=1
 ENV CARGO_PROFILE_RELEASE_LTO=false
 ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
-RUN cargo build --release
+RUN cargo build --release --features jd-identity
 
 FROM ${RUNTIME_IMAGE} AS runner
 

@@ -6,6 +6,8 @@
 !backend/app/
 !backend/app/joysafeter_orchestrator_rs/
 !backend/app/joysafeter_orchestrator_rs/**
+!backend/config/
+!backend/config/**
 
 **/target/
 **/.git/

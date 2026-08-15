@@ -163,6 +163,20 @@ orchestrator:
   # ── 日志 ──
   logLevel: info
 
+# ── Agent Identity (fail-closed; enable only after all fields are set) ──
+agentIdentity:
+  enabled: false
+  baseUrl: ""
+  allowedHosts: []
+  cookieName: ""
+  contextTtlSeconds: 300
+  clientId: ""
+  platformId: ""
+  authType: sso
+  identityType: cookie
+  agentScene: cloud_sandbox_skill
+  clientSecret: ""
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Envoy DaemonSet
 # ═══════════════════════════════════════════════════════════════════════════════
