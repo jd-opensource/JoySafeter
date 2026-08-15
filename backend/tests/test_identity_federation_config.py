@@ -498,6 +498,7 @@ def test_schema_diagnostics_do_not_expose_catalog_values(tmp_path: Path) -> None
         "https://identity.example.com:70000/authorize",
         r"http://127.0.0.1\@example.com/authorize",
         "http://./",
+        "http://faß.example/authorize",
         "${INVALID-NAME}",
     ],
 )
@@ -540,6 +541,51 @@ def test_expanded_active_endpoint_requires_valid_http_url(value: str, tmp_path: 
     assert ("authorize_url", "FEDERATION_ENDPOINT_INVALID") in {
         (issue.field, issue.code) for issue in exc_info.value.issues
     }
+
+
+def test_active_unicode_endpoint_authority_is_rejected_before_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    resolved_hostnames: list[str] = []
+
+    def resolve(hostname: str, _port: int) -> tuple[str, ...]:
+        resolved_hostnames.append(hostname)
+        return ("93.184.216.34",)
+
+    monkeypatch.setattr(config_module, "_resolve_endpoint_addresses", resolve)
+    environ = _complete_env()
+    environ["JD_AUTHORIZE_URL"] = "http://faß.example/authorize"
+
+    with pytest.raises(FederationConfigurationError) as exc_info:
+        _compile(tmp_path, providers="jd", login_mode="chooser", environ=environ)
+
+    assert ("authorize_url", "FEDERATION_ENDPOINT_INVALID") in {
+        (issue.field, issue.code) for issue in exc_info.value.issues
+    }
+    assert resolved_hostnames == ["sso.jd.com"]
+
+
+def test_active_ascii_punycode_endpoint_preserves_configured_url(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    resolved_hostnames: list[str] = []
+
+    def resolve(hostname: str, _port: int) -> tuple[str, ...]:
+        resolved_hostnames.append(hostname)
+        return ("93.184.216.34",)
+
+    monkeypatch.setattr(config_module, "_resolve_endpoint_addresses", resolve)
+    authorize_url = "http://xn--fa-hia.example./authorize"
+    environ = _complete_env()
+    environ["JD_AUTHORIZE_URL"] = authorize_url
+
+    compiled = _compile(tmp_path, providers="jd", login_mode="chooser", environ=environ)
+
+    provider = compiled.registry.require(ProviderId("jd"))
+    assert provider.settings.authorize_url == authorize_url
+    assert resolved_hostnames == ["xn--fa-hia.example", "sso.jd.com"]
 
 
 def test_active_endpoint_rejects_any_private_dns_answer(

@@ -233,17 +233,15 @@ def _remap_protocol_issue(provider_id: str, issue: ConfigurationIssue) -> Config
 
 
 def _normalize_endpoint_hostname(hostname: str) -> str | None:
-    normalized = hostname[:-1] if hostname.endswith(".") else hostname
+    if not hostname.isascii():
+        return None
+    normalized = (hostname[:-1] if hostname.endswith(".") else hostname).lower()
     if not normalized:
         return None
     try:
         return str(ipaddress.ip_address(normalized))
     except ValueError:
         pass
-    try:
-        normalized = normalized.encode("idna").decode("ascii").lower()
-    except UnicodeError:
-        return None
     if len(normalized) > 253:
         return None
     labels = normalized.split(".")
