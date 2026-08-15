@@ -515,9 +515,12 @@ class AuthService(BaseService):
     async def issue_login_tokens(self, user: AuthUser) -> dict:
         """Issue access/refresh/csrf tokens for an already authenticated user."""
         access_token, refresh_token, csrf_token, access_expires, refresh_expires = await self._issue_jwt_tokens(user.id)
-        return self._build_jwt_login_response(
+        response = self._build_jwt_login_response(
             user, access_token, refresh_token, csrf_token, access_expires, refresh_expires
         )
+        response["access_expires_at"] = access_expires
+        response["refresh_expires_at"] = refresh_expires
+        return response
 
     # ---------------------------------------------------------------- register/login
     async def register(

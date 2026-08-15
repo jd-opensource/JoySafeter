@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from app.joysafeter_domain.services.joysafeter_auth_service import AuthService
 from app.joysafeter_identity_federation.domain.errors import FederationError
 from app.joysafeter_identity_federation.infrastructure import session_gateway as session_gateway_module
 from app.joysafeter_identity_federation.infrastructure.session_gateway import JoySafeterAuthSessionGateway
@@ -17,6 +18,22 @@ _REFRESH_EXPIRES_AT = datetime(2026, 8, 22, 12, 30, tzinfo=timezone.utc)
 class _User:
     id: str
     is_active: bool
+    email: str = "user@example.com"
+    name: str = "User"
+    image: str | None = None
+    email_verified: bool = True
+    is_super_user: bool = False
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class _ContractAuthService(AuthService):
+    def __init__(self) -> None:
+        pass
+
+    async def _issue_jwt_tokens(self, user_id: str) -> tuple[str, str, str, datetime, datetime]:
+        assert user_id == "user-1"
+        return "access", "refresh", "csrf", _ACCESS_EXPIRES_AT, _REFRESH_EXPIRES_AT
 
 
 class _FakeUserLoader:
@@ -40,22 +57,36 @@ def _record_post_login(calls: list[str]):
     return post_login
 
 
-def _fake_auth_service(calls: list[str]):
+def _valid_token_result() -> dict[str, object]:
+    return {
+        "access_token": "access",
+        "refresh_token": "refresh",
+        "csrf_token": "csrf",
+        "access_expires_at": _ACCESS_EXPIRES_AT,
+        "refresh_expires_at": _REFRESH_EXPIRES_AT,
+    }
+
+
+def _fake_auth_service(calls: list[str], token_result: object | None = None):
     class FakeAuthService:
         def __init__(self, _db: object) -> None:
             pass
 
-        async def issue_login_tokens(self, user: _User) -> dict[str, object]:
+        async def issue_login_tokens(self, user: _User) -> object:
             calls.append(f"issue:{user.id}")
-            return {
-                "access_token": "access",
-                "refresh_token": "refresh",
-                "csrf_token": "csrf",
-                "access_expires_at": _ACCESS_EXPIRES_AT,
-                "refresh_expires_at": _REFRESH_EXPIRES_AT,
-            }
+            return _valid_token_result() if token_result is None else token_result
 
     return FakeAuthService
+
+
+@pytest.mark.asyncio
+async def test_issue_login_tokens_exposes_calculated_timezone_aware_expiries() -> None:
+    token_result = await _ContractAuthService().issue_login_tokens(_User(id="user-1", is_active=True))
+
+    assert token_result["access_expires_at"] is _ACCESS_EXPIRES_AT
+    assert token_result["refresh_expires_at"] is _REFRESH_EXPIRES_AT
+    assert _ACCESS_EXPIRES_AT.utcoffset() is not None
+    assert _REFRESH_EXPIRES_AT.utcoffset() is not None
 
 
 @pytest.mark.asyncio
@@ -91,3 +122,76 @@ async def test_session_gateway_rejects_missing_or_inactive_principals(user: _Use
     assert exc_info.value.data == {}
     assert "user-1" not in exc_info.value.message
     assert calls == ["load:user-1"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "token_result",
+    [
+        pytest.param(
+            {
+                "refresh_token": "refresh",
+                "csrf_token": "csrf",
+                "access_expires_at": _ACCESS_EXPIRES_AT,
+                "refresh_expires_at": _REFRESH_EXPIRES_AT,
+            },
+            id="missing-token-field",
+        ),
+        pytest.param(
+            {
+                "access_token": "access",
+                "refresh_token": "refresh",
+                "csrf_token": "csrf",
+                "refresh_expires_at": _REFRESH_EXPIRES_AT,
+            },
+            id="missing-expiry-field",
+        ),
+        pytest.param("not-a-token-mapping", id="non-mapping-result"),
+        pytest.param(
+            {
+                "access_token": 123,
+                "refresh_token": "refresh",
+                "csrf_token": "csrf",
+                "access_expires_at": _ACCESS_EXPIRES_AT,
+                "refresh_expires_at": _REFRESH_EXPIRES_AT,
+            },
+            id="wrong-token-type",
+        ),
+        pytest.param(
+            {
+                "access_token": "access",
+                "refresh_token": "refresh",
+                "csrf_token": "csrf",
+                "access_expires_at": datetime(2026, 8, 15, 12, 30),
+                "refresh_expires_at": _REFRESH_EXPIRES_AT,
+            },
+            id="naive-expiry",
+        ),
+        pytest.param(
+            {
+                "access_token": "access",
+                "refresh_token": "refresh",
+                "csrf_token": "csrf",
+                "access_expires_at": _ACCESS_EXPIRES_AT,
+                "refresh_expires_at": "2026-08-22T12:30:00Z",
+            },
+            id="wrong-expiry-type",
+        ),
+    ],
+)
+async def test_session_gateway_sanitizes_invalid_auth_session_contract(monkeypatch, token_result: object) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(session_gateway_module, "run_post_login_init", _record_post_login(calls))
+    monkeypatch.setattr(session_gateway_module, "AuthService", _fake_auth_service(calls, token_result))
+    gateway = JoySafeterAuthSessionGateway(
+        _fake_db(),
+        _FakeUserLoader(_User(id="user-1", is_active=True), calls),
+    )
+
+    with pytest.raises(FederationError) as exc_info:
+        await gateway.issue(user_id="user-1", ip_address="203.0.113.10")
+
+    assert exc_info.value.code == "FEDERATION_SESSION_ISSUE_FAILED"
+    assert exc_info.value.message == "Unable to issue federated session"
+    assert exc_info.value.data == {}
+    assert calls == ["load:user-1", "post_login:user-1", "issue:user-1"]
