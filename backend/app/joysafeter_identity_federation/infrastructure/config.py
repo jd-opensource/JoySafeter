@@ -1,11 +1,9 @@
 import ipaddress
 import re
-import socket
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -19,13 +17,21 @@ from ..domain.models import (
     ProviderId,
     ProviderProtocolSettings,
 )
+from .endpoint_policy import (
+    endpoint_addresses as _strict_endpoint_addresses,
+)
+from .endpoint_policy import (
+    parse_http_endpoint as _parse_http_endpoint,
+)
+from .endpoint_policy import (
+    resolve_endpoint_addresses as _default_resolve_endpoint_addresses,
+)
 from .protocols.base import ProtocolSchemaRegistry
 from .registry import ProviderRegistry
 from .templates import PROVIDER_TEMPLATES
 
 _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _ENDPOINT_FIELDS = ("authorize_url", "token_url", "userinfo_url", "issuer")
-_DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
 
 class CatalogProvider(BaseModel):
@@ -232,50 +238,6 @@ def _remap_protocol_issue(provider_id: str, issue: ConfigurationIssue) -> Config
     return _issue(provider_id, issue.field, issue.code, issue.message)
 
 
-def _normalize_endpoint_hostname(hostname: str) -> str | None:
-    if not hostname.isascii():
-        return None
-    normalized = (hostname[:-1] if hostname.endswith(".") else hostname).lower()
-    if not normalized:
-        return None
-    try:
-        return str(ipaddress.ip_address(normalized))
-    except ValueError:
-        pass
-    if len(normalized) > 253:
-        return None
-    labels = normalized.split(".")
-    if any(_DNS_LABEL.fullmatch(label) is None for label in labels):
-        return None
-    return normalized
-
-
-def _parse_http_endpoint(value: str) -> tuple[str, str, int] | None:
-    if (
-        not value
-        or value != value.strip()
-        or "${" in value
-        or any(char == "\\" or char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
-    ):
-        return None
-    try:
-        parsed = urlsplit(value)
-        hostname = parsed.hostname
-        port = parsed.port
-    except ValueError:
-        return None
-    if parsed.scheme not in {"http", "https"} or hostname is None or not parsed.netloc:
-        return None
-    normalized_hostname = _normalize_endpoint_hostname(hostname)
-    if normalized_hostname is None:
-        return None
-    if port is None:
-        port = 443 if parsed.scheme == "https" else 80
-    if port < 1:
-        return None
-    return parsed.scheme, normalized_hostname, port
-
-
 def _catalog_endpoint_is_valid(value: str) -> bool:
     if _ENV_REFERENCE.fullmatch(value) is not None:
         return True
@@ -396,36 +358,14 @@ def _expand_environment(
 
 
 def _resolve_endpoint_addresses(hostname: str, port: int) -> tuple[str, ...]:
-    address_info = socket.getaddrinfo(
-        hostname,
-        port,
-        type=socket.SOCK_STREAM,
-        proto=socket.IPPROTO_TCP,
-    )
-    return tuple(dict.fromkeys(str(sockaddr[0]) for *_, sockaddr in address_info))
+    return _default_resolve_endpoint_addresses(hostname, port)
 
 
 def _endpoint_addresses(
     hostname: str,
     port: int,
 ) -> tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, ...] | None:
-    try:
-        return (ipaddress.ip_address(hostname),)
-    except ValueError:
-        pass
-    try:
-        resolved = _resolve_endpoint_addresses(hostname, port)
-    except (OSError, UnicodeError):
-        return None
-    if not resolved:
-        return None
-    addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
-    for value in resolved:
-        try:
-            addresses.append(ipaddress.ip_address(value))
-        except ValueError:
-            return None
-    return tuple(addresses)
+    return _strict_endpoint_addresses(hostname, port, resolver=_resolve_endpoint_addresses)
 
 
 def _endpoint_issues(

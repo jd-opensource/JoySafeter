@@ -1,7 +1,10 @@
+import asyncio
+import base64
+import socket
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote_plus, urlparse
 
 import httpx
 import pytest
@@ -18,11 +21,22 @@ from app.joysafeter_identity_federation.domain.models import (
     ProviderId,
     RequestContext,
 )
+from app.joysafeter_identity_federation.infrastructure.protocols import oauth2 as oauth2_module
 from app.joysafeter_identity_federation.infrastructure.protocols.oauth2 import OAuth2Adapter
 
 pytestmark = pytest.mark.no_db
 
 ClientFactory = Callable[[], httpx.AsyncClient]
+
+
+@pytest.fixture(autouse=True)
+def _resolve_test_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        oauth2_module,
+        "_resolve_endpoint_addresses",
+        lambda _hostname, _port: ("93.184.216.34",),
+        raising=False,
+    )
 
 
 def _github_provider(
@@ -147,12 +161,20 @@ def _mock_oidc_client() -> httpx.AsyncClient:
             "discovery": (
                 200,
                 {
+                    "issuer": "https://issuer.example",
                     "authorization_endpoint": "https://issuer.example/authorize",
                     "token_endpoint": "https://issuer.example/token",
                     "userinfo_endpoint": "https://issuer.example/userinfo",
                 },
             ),
-            "token": (200, {"access_token": "access-token", "refresh_token": "refresh-token"}),
+            "token": (
+                200,
+                {
+                    "access_token": "access-token",
+                    "token_type": "Bearer",
+                    "refresh_token": "refresh-token",
+                },
+            ),
             "userinfo": (
                 200,
                 {
@@ -171,7 +193,7 @@ def _mock_oidc_client() -> httpx.AsyncClient:
 def _github_client_factory() -> ClientFactory:
     return _client_factory(
         {
-            "token": (200, {"access_token": "access-token"}),
+            "token": (200, {"access_token": "access-token", "token_type": "Bearer"}),
             "userinfo": (
                 200,
                 {
@@ -248,6 +270,134 @@ async def test_oidc_email_verified_claim_controls_principal() -> None:
     assert outcome.principal.email_verified is True
 
 
+@pytest.mark.asyncio
+async def test_oidc_subject_always_uses_standard_sub_claim() -> None:
+    provider = _oidc_provider()
+    settings = provider.settings
+    assert isinstance(settings, OAuth2ProviderSettings)
+    provider = replace(
+        provider,
+        settings=replace(
+            settings,
+            user_mapping={
+                "id": "email",
+                "email": "email",
+                "name": "name",
+                "avatar": "picture",
+            },
+        ),
+    )
+    factory = _client_factory(
+        {
+            "discovery": (
+                200,
+                {
+                    "issuer": "https://issuer.example",
+                    "authorization_endpoint": "https://issuer.example/authorize",
+                    "token_endpoint": "https://issuer.example/token",
+                    "userinfo_endpoint": "https://issuer.example/userinfo",
+                },
+            ),
+            "token": (200, {"access_token": "access-token", "token_type": "Bearer"}),
+            "userinfo": (
+                200,
+                {
+                    "sub": "stable-subject",
+                    "email": "mutable@example.com",
+                    "email_verified": True,
+                },
+            ),
+        }
+    )
+
+    outcome = await OAuth2Adapter(client_factory=factory).complete_login(
+        provider,
+        _attempt("attempt-1"),
+        _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+    )
+
+    assert outcome.principal.subject == "stable-subject"
+    assert outcome.principal.claims["id"] == "stable-subject"
+
+
+@pytest.mark.asyncio
+async def test_oidc_requires_nonblank_standard_sub_claim() -> None:
+    provider = _oidc_provider()
+    settings = provider.settings
+    assert isinstance(settings, OAuth2ProviderSettings)
+    provider = replace(provider, settings=replace(settings, user_mapping={"id": "email"}))
+    factory = _client_factory(
+        {
+            "discovery": (
+                200,
+                {
+                    "issuer": "https://issuer.example",
+                    "authorization_endpoint": "https://issuer.example/authorize",
+                    "token_endpoint": "https://issuer.example/token",
+                    "userinfo_endpoint": "https://issuer.example/userinfo",
+                },
+            ),
+            "token": (200, {"access_token": "access-token", "token_type": "Bearer"}),
+            "userinfo": (200, {"email": "mutable@example.com"}),
+        }
+    )
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(client_factory=factory).complete_login(
+            provider,
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_PRINCIPAL_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_oidc_email_verification_does_not_attest_remapped_claim() -> None:
+    provider = _oidc_provider()
+    settings = provider.settings
+    assert isinstance(settings, OAuth2ProviderSettings)
+    provider = replace(
+        provider,
+        settings=replace(
+            settings,
+            user_mapping={"id": "sub", "email": "preferred_username"},
+        ),
+    )
+    factory = _client_factory(
+        {
+            "discovery": (
+                200,
+                {
+                    "issuer": "https://issuer.example",
+                    "authorization_endpoint": "https://issuer.example/authorize",
+                    "token_endpoint": "https://issuer.example/token",
+                    "userinfo_endpoint": "https://issuer.example/userinfo",
+                },
+            ),
+            "token": (200, {"access_token": "access-token", "token_type": "Bearer"}),
+            "userinfo": (
+                200,
+                {
+                    "sub": "subject-1",
+                    "email": "verified@example.com",
+                    "preferred_username": "unverified@example.com",
+                    "email_verified": True,
+                },
+            ),
+        }
+    )
+
+    outcome = await OAuth2Adapter(client_factory=factory).complete_login(
+        provider,
+        _attempt("attempt-1"),
+        _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+    )
+
+    assert outcome.principal.email == "unverified@example.com"
+    assert outcome.principal.email_verified is False
+
+
 @pytest.mark.parametrize(
     ("query", "expected_code"),
     [
@@ -272,7 +422,13 @@ async def test_callback_query_failures_are_typed(query: dict[str, str], expected
     [
         ({"token": (502, {})}, "FEDERATION_UPSTREAM_UNAVAILABLE"),
         (
-            {"token": (200, {"access_token": "access-token"}), "userinfo": (503, {})},
+            {
+                "token": (
+                    200,
+                    {"access_token": "access-token", "token_type": "Bearer"},
+                ),
+                "userinfo": (503, {}),
+            },
             "FEDERATION_UPSTREAM_UNAVAILABLE",
         ),
     ],
@@ -290,6 +446,79 @@ async def test_upstream_failures_do_not_leak_response_data(
 
     assert exc_info.value.code == expected_code
     assert "access_token" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "token_payload",
+    [
+        {"access_token": "access-token"},
+        {"access_token": "access-token", "token_type": "mac"},
+        {"access_token": "   ", "token_type": "Bearer"},
+        {"access_token": "access-token", "token_type": 1},
+    ],
+)
+@pytest.mark.asyncio
+async def test_invalid_token_response_shape_is_sanitized_before_userinfo(
+    token_payload: dict[str, object],
+) -> None:
+    userinfo_calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal userinfo_calls
+        if request.url.path.endswith("/token"):
+            return httpx.Response(200, json=token_payload)
+        userinfo_calls += 1
+        return httpx.Response(200, json={"id": "42"})
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(
+            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        ).complete_login(
+            _github_provider(),
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_UPSTREAM_UNAVAILABLE"
+    assert "access-token" not in str(exc_info.value)
+    assert userinfo_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_bearer_token_type_is_case_insensitive() -> None:
+    outcome = await OAuth2Adapter(
+        client_factory=_client_factory(
+            {
+                "token": (200, {"access_token": "access-token", "token_type": "bEaReR"}),
+                "userinfo": (200, {"id": "42"}),
+                "emails": (200, []),
+            }
+        )
+    ).complete_login(
+        _github_provider(),
+        _attempt("attempt-1"),
+        _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+    )
+
+    assert isinstance(outcome, Authenticated)
+
+
+@pytest.mark.asyncio
+async def test_timeout_failure_is_sanitized() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("access-token upstream body", request=request)
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(
+            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        ).complete_login(
+            _github_provider(),
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_UPSTREAM_UNAVAILABLE"
+    assert "access-token" not in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -314,6 +543,7 @@ def _counting_discovery_transport() -> tuple[httpx.MockTransport, dict[str, int]
         return httpx.Response(
             200,
             json={
+                "issuer": "https://issuer.example",
                 "authorization_endpoint": "https://issuer.example/authorize",
                 "token_endpoint": "https://issuer.example/token",
                 "userinfo_endpoint": "https://issuer.example/userinfo",
@@ -334,6 +564,102 @@ async def test_oidc_discovery_is_cached_by_issuer() -> None:
     assert calls["discovery"] == 1
 
 
+@pytest.mark.parametrize(
+    "invalid_discovery",
+    [
+        {
+            "issuer": "https://other-issuer.example",
+            "authorization_endpoint": "https://issuer.example/authorize",
+            "token_endpoint": "https://issuer.example/token",
+            "userinfo_endpoint": "https://issuer.example/userinfo",
+        },
+        {
+            "issuer": "https://issuer.example",
+            "authorization_endpoint": "https://issuer.example/authorize",
+            "userinfo_endpoint": "https://issuer.example/userinfo",
+        },
+        {
+            "issuer": "https://issuer.example",
+            "authorization_endpoint": "https://issuer.example/authorize",
+            "token_endpoint": "https://faß.example/token",
+            "userinfo_endpoint": "https://issuer.example/userinfo",
+        },
+    ],
+)
+@pytest.mark.asyncio
+async def test_invalid_oidc_discovery_is_not_cached(
+    invalid_discovery: dict[str, str],
+) -> None:
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(200, json=invalid_discovery)
+        return httpx.Response(
+            200,
+            json={
+                "issuer": "https://issuer.example",
+                "authorization_endpoint": "https://issuer.example/authorize",
+                "token_endpoint": "https://issuer.example/token",
+                "userinfo_endpoint": "https://issuer.example/userinfo",
+            },
+        )
+
+    adapter = OAuth2Adapter(
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+
+    with pytest.raises(FederationError) as exc_info:
+        await adapter.begin_login(_oidc_provider(), _attempt("attempt-1"), _request_context())
+
+    assert exc_info.value.code == "FEDERATION_UPSTREAM_UNAVAILABLE"
+    await adapter.begin_login(_oidc_provider(), _attempt("attempt-2"), _request_context())
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_concurrent_discovery_cannot_publish_late_malformed_poison() -> None:
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            await asyncio.sleep(0.02)
+            return httpx.Response(
+                200,
+                json={
+                    "issuer": "https://issuer.example",
+                    "token_endpoint": "https://issuer.example/token",
+                    "userinfo_endpoint": "https://issuer.example/userinfo",
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "issuer": "https://issuer.example",
+                "authorization_endpoint": "https://issuer.example/authorize",
+                "token_endpoint": "https://issuer.example/token",
+                "userinfo_endpoint": "https://issuer.example/userinfo",
+            },
+        )
+
+    adapter = OAuth2Adapter(
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+    outcomes = await asyncio.gather(
+        adapter.begin_login(_oidc_provider(), _attempt("attempt-1"), _request_context()),
+        adapter.begin_login(_oidc_provider(), _attempt("attempt-2"), _request_context()),
+        return_exceptions=True,
+    )
+
+    assert sum(isinstance(outcome, FederationError) for outcome in outcomes) == 1
+    await adapter.begin_login(_oidc_provider(), _attempt("attempt-3"), _request_context())
+    assert calls == 2
+
+
 @pytest.mark.parametrize("auth_method", ["client_secret_basic", "client_secret_post"])
 @pytest.mark.asyncio
 async def test_token_exchange_supports_configured_client_auth_method(auth_method: str) -> None:
@@ -343,7 +669,10 @@ async def test_token_exchange_supports_configured_client_auth_method(auth_method
         nonlocal captured_request
         if request.url.path.endswith("/token"):
             captured_request = request
-            return httpx.Response(200, json={"access_token": "access-token"})
+            return httpx.Response(
+                200,
+                json={"access_token": "access-token", "token_type": "Bearer"},
+            )
         if request.url.path.endswith("/user"):
             return httpx.Response(200, json={"id": "42"})
         if request.url.path.endswith("/user/emails"):
@@ -372,6 +701,47 @@ async def test_token_exchange_supports_configured_client_auth_method(auth_method
 
 
 @pytest.mark.asyncio
+async def test_client_secret_basic_form_encodes_reserved_credentials_before_base64() -> None:
+    captured_request: httpx.Request | None = None
+    client_id = "client:id +%雪"
+    client_secret = "s:e+c%ret 雪"
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_request
+        if request.url.path.endswith("/token"):
+            captured_request = request
+            return httpx.Response(
+                200,
+                json={"access_token": "access-token", "token_type": "Bearer"},
+            )
+        if request.url.path.endswith("/user/emails"):
+            return httpx.Response(200, json=[])
+        if request.url.path.endswith("/user"):
+            return httpx.Response(200, json={"id": "42"})
+        raise AssertionError(f"Unexpected request path: {request.url.path}")
+
+    provider = _github_provider(auth_method="client_secret_basic")
+    settings = provider.settings
+    assert isinstance(settings, OAuth2ProviderSettings)
+    provider = replace(
+        provider,
+        settings=replace(settings, client_id=client_id, client_secret=client_secret),
+    )
+    await OAuth2Adapter(
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    ).complete_login(
+        provider,
+        _attempt("attempt-1"),
+        _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+    )
+
+    assert captured_request is not None
+    encoded_credentials = f"{quote_plus(client_id, safe='')}:{quote_plus(client_secret, safe='')}"
+    expected = base64.b64encode(encoded_credentials.encode()).decode()
+    assert captured_request.headers["Authorization"] == f"Basic {expected}"
+
+
+@pytest.mark.asyncio
 async def test_configured_mapping_and_userinfo_headers_shape_sanitized_claims() -> None:
     captured_headers: httpx.Headers | None = None
 
@@ -382,6 +752,7 @@ async def test_configured_mapping_and_userinfo_headers_shape_sanitized_claims() 
                 200,
                 json={
                     "access_token": "access-token",
+                    "token_type": "Bearer",
                     "refresh_token": "refresh-token",
                     "id_token": "id-token",
                 },
@@ -447,12 +818,13 @@ async def test_mapped_claims_exclude_nested_mutable_values() -> None:
             "discovery": (
                 200,
                 {
+                    "issuer": "https://issuer.example",
                     "authorization_endpoint": "https://issuer.example/authorize",
                     "token_endpoint": "https://issuer.example/token",
                     "userinfo_endpoint": "https://issuer.example/userinfo",
                 },
             ),
-            "token": (200, {"access_token": "access-token"}),
+            "token": (200, {"access_token": "access-token", "token_type": "Bearer"}),
             "userinfo": (
                 200,
                 {
@@ -560,3 +932,314 @@ async def test_callback_state_must_match_attempt() -> None:
         )
 
     assert exc_info.value.code == "FEDERATION_ATTEMPT_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_oidc_requests_pin_validated_ip_and_preserve_host_sni_and_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[httpx.Request] = []
+    resolutions: list[tuple[str, int]] = []
+
+    def resolve(hostname: str, port: int) -> tuple[str, ...]:
+        resolutions.append((hostname, port))
+        return ("93.184.216.34",)
+
+    monkeypatch.setattr(oauth2_module, "_resolve_endpoint_addresses", resolve)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/.well-known/openid-configuration"):
+            return httpx.Response(
+                200,
+                json={
+                    "issuer": "https://issuer.example",
+                    "authorization_endpoint": "https://issuer.example/authorize",
+                    "token_endpoint": "https://issuer.example/token",
+                    "userinfo_endpoint": "https://issuer.example/userinfo",
+                },
+            )
+        if request.url.path.endswith("/token"):
+            return httpx.Response(
+                200,
+                json={"access_token": "access-token", "token_type": "Bearer"},
+            )
+        if request.url.path.endswith("/userinfo"):
+            return httpx.Response(
+                200,
+                json={"sub": "subject-1", "email": "user@example.com"},
+            )
+        raise AssertionError(f"Unexpected request path: {request.url.path}")
+
+    await OAuth2Adapter(
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            follow_redirects=True,
+            timeout=None,
+        )
+    ).complete_login(
+        _oidc_provider(),
+        _attempt("attempt-1"),
+        _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+    )
+
+    assert len(requests) == 3
+    assert resolutions == [
+        ("issuer.example", 443),
+        ("issuer.example", 443),
+        ("issuer.example", 443),
+    ]
+    for request in requests:
+        assert request.url.host == "93.184.216.34"
+        assert request.headers["Host"] == "issuer.example"
+        assert request.extensions["sni_hostname"] == "issuer.example"
+        timeout = request.extensions["timeout"]
+        assert all(value is not None and 0 < value <= 10 for value in timeout.values())
+
+
+@pytest.mark.asyncio
+async def test_github_email_request_uses_pinned_host_sni_and_timeout() -> None:
+    email_request: httpx.Request | None = None
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal email_request
+        if request.url.path.endswith("/token"):
+            return httpx.Response(
+                200,
+                json={"access_token": "access-token", "token_type": "Bearer"},
+            )
+        if request.url.path.endswith("/user/emails"):
+            email_request = request
+            return httpx.Response(200, json=[])
+        if request.url.path.endswith("/user"):
+            return httpx.Response(200, json={"id": "42"})
+        raise AssertionError(f"Unexpected request path: {request.url.path}")
+
+    await OAuth2Adapter(
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            follow_redirects=True,
+            timeout=None,
+        )
+    ).complete_login(
+        _github_provider(),
+        _attempt("attempt-1"),
+        _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+    )
+
+    assert email_request is not None
+    assert email_request.url.host == "93.184.216.34"
+    assert email_request.headers["Host"] == "api.github.com"
+    assert email_request.extensions["sni_hostname"] == "api.github.com"
+    timeout = email_request.extensions["timeout"]
+    assert all(value is not None and 0 < value <= 10 for value in timeout.values())
+
+
+@pytest.mark.asyncio
+async def test_dns_resolution_failure_rejects_endpoint_before_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_resolution(_hostname: str, _port: int) -> tuple[str, ...]:
+        raise socket.gaierror("resolver unavailable")
+
+    monkeypatch.setattr(
+        oauth2_module,
+        "_resolve_endpoint_addresses",
+        fail_resolution,
+        raising=False,
+    )
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(client_factory=_unused_client_factory).complete_login(
+            _github_provider(),
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_non_global_dns_answer_rejects_endpoint_before_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        oauth2_module,
+        "_resolve_endpoint_addresses",
+        lambda _hostname, _port: ("100.64.0.1",),
+        raising=False,
+    )
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(client_factory=_unused_client_factory).complete_login(
+            _github_provider(),
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_any_unsafe_dns_answer_rejects_endpoint_before_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        oauth2_module,
+        "_resolve_endpoint_addresses",
+        lambda _hostname, _port: ("93.184.216.34", "127.0.0.1"),
+        raising=False,
+    )
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(client_factory=_unused_client_factory).complete_login(
+            _github_provider(),
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_local_provider_allows_only_all_loopback_request_answers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        oauth2_module,
+        "_resolve_endpoint_addresses",
+        lambda _hostname, _port: ("127.0.0.1", "::1"),
+    )
+    provider = _github_provider()
+    settings = provider.settings
+    assert isinstance(settings, OAuth2ProviderSettings)
+    provider = replace(
+        provider,
+        id=ProviderId("local"),
+        settings=replace(
+            settings,
+            token_url="http://localhost:9090/token",
+            userinfo_url="http://localhost:9090/user",
+        ),
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/token"):
+            return httpx.Response(
+                200,
+                json={"access_token": "access-token", "token_type": "Bearer"},
+            )
+        if request.url.path.endswith("/user"):
+            return httpx.Response(200, json={"id": "local-subject"})
+        raise AssertionError(f"Unexpected request path: {request.url.path}")
+
+    outcome = await OAuth2Adapter(
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    ).complete_login(
+        provider,
+        _attempt("attempt-1"),
+        _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+    )
+
+    assert outcome.principal.subject == "local-subject"
+
+
+@pytest.mark.asyncio
+async def test_local_provider_rejects_mixed_loopback_and_global_answers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        oauth2_module,
+        "_resolve_endpoint_addresses",
+        lambda _hostname, _port: ("127.0.0.1", "93.184.216.34"),
+    )
+    provider = _github_provider()
+    settings = provider.settings
+    assert isinstance(settings, OAuth2ProviderSettings)
+    provider = replace(
+        provider,
+        id=ProviderId("local"),
+        settings=replace(settings, token_url="http://localhost:9090/token"),
+    )
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(client_factory=_unused_client_factory).complete_login(
+            provider,
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_local_provider_rejects_https_loopback_endpoint() -> None:
+    provider = _github_provider()
+    settings = provider.settings
+    assert isinstance(settings, OAuth2ProviderSettings)
+    provider = replace(
+        provider,
+        id=ProviderId("local"),
+        settings=replace(settings, token_url="https://127.0.0.1:9090/token"),
+    )
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(client_factory=_unused_client_factory).complete_login(
+            provider,
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_token_redirect_is_not_followed_with_sensitive_form_body() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx.Response(
+                307,
+                headers={"Location": "http://169.254.169.254/latest/token"},
+            )
+        return httpx.Response(
+            200,
+            json={"access_token": "leaked-token", "token_type": "Bearer"},
+        )
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(
+            client_factory=lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(handler),
+                follow_redirects=True,
+            )
+        ).complete_login(
+            _github_provider(),
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_UPSTREAM_UNAVAILABLE"
+    assert len(requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_malformed_endpoint_is_rejected_by_task5_parser_before_http() -> None:
+    provider = _github_provider()
+    settings = provider.settings
+    assert isinstance(settings, OAuth2ProviderSettings)
+    provider = replace(
+        provider,
+        settings=replace(settings, token_url="https://faß.example/token"),
+    )
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(client_factory=_unused_client_factory).complete_login(
+            provider,
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
