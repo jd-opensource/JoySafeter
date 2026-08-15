@@ -139,3 +139,115 @@ exit 0
 
 - The Docker-backed boundary suite emits 18 pre-existing SQLAlchemy table-cycle warnings from `tests/conftest.py`.
 - Transitional configuration bootstrap functions remain intentionally public until Task 17 removes their remaining consumers.
+
+## Fix Round 1 — Coherent Configuration/Runtime Cache Lifecycle
+
+### Scope
+
+- Requested Task 14 commit: `8ac5e115725f6b7043639602ebbf29d8f85230d9`.
+- The shared branch had advanced cleanly to `abc5031c8ee5a5da9548c8dc0e6d5a64d1004a52`, a direct child of the Task 14 commit, before this fix began.
+- `bootstrap.py`, its factory tests, and this report were unchanged between those commits.
+- Fix Round 1 changes only:
+  - `backend/app/joysafeter_identity_federation/bootstrap.py`
+  - `backend/tests/test_identity_federation_bootstrap_factory.py`
+  - this report
+
+### Finding
+
+`initialize_identity_federation_configuration(force=True)` replaced `_configuration` without invalidating `_runtime`. A later `get_identity_federation_runtime()` could therefore return adapters/store and a provider registry compiled from the previous configuration. Full runtime force also published the replacement configuration before adapter/store construction completed, so a construction failure could leave a new configuration paired with the old runtime.
+
+### Fix Round 1 RED
+
+Added regressions before changing bootstrap behavior for:
+
+- forced configuration replacement followed by runtime access;
+- successful full runtime force replacing registry, adapters, and store together;
+- failed forced configuration compilation through both transitional and final initializers;
+- failed runtime construction after successful replacement compilation.
+
+Ran:
+
+```text
+cd backend
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache uv run pytest \
+  tests/test_identity_federation_bootstrap_factory.py -q
+```
+
+Observed the expected failures:
+
+```text
+2 failed, 7 passed in 0.48s
+```
+
+Failure evidence:
+
+- A successful configuration-only force returned the original cached runtime.
+- A forced runtime construction failure left `get_identity_federation_configuration()` pointing at the newly compiled configuration instead of the prior coherent pair.
+
+The successful full-force replacement and failed-compile preservation cases already behaved correctly and remain explicit regression coverage.
+
+### Fix Round 1 GREEN
+
+Replaced the two independently published globals with one frozen `_FederationCache` snapshot containing configuration and optional runtime.
+
+- `_compile_configuration()` builds a configuration candidate without publishing it.
+- `_build_runtime(configuration)` builds the codec, concrete OAuth2/JD adapters, and Redis attempt store without publishing them.
+- Successful configuration-only force publishes one snapshot containing the new configuration and no runtime, intentionally invalidating the old runtime.
+- The next ordinary runtime access builds from that exact cached configuration and publishes the coherent full snapshot.
+- Successful full runtime force compiles and builds both candidates first, then publishes configuration/runtime together with one cache assignment.
+- Failed compile or runtime construction performs no cache assignment, preserving the prior coherent pair.
+- Ordinary no-force caching and startup behavior remain unchanged.
+- No lock was added because API startup initialization is synchronous and no existing concurrent force caller exists.
+
+Focused GREEN:
+
+```text
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache uv run pytest \
+  tests/test_identity_federation_bootstrap_factory.py -q
+9 passed in 0.67s
+```
+
+### Fix Round 1 Verification
+
+Factory, startup, Tasks 12 and 13 application flows, and configuration compiler boundaries:
+
+```text
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache uv run pytest \
+  tests/test_identity_federation_bootstrap_factory.py \
+  tests/test_identity_federation_startup.py \
+  tests/test_identity_federation_begin_login.py \
+  tests/test_identity_federation_complete_login.py \
+  tests/test_identity_federation_config.py -q
+126 passed in 0.64s
+```
+
+Formatting, lint, and whitespace checks:
+
+```text
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache uv run ruff format --check \
+  app/joysafeter_identity_federation/bootstrap.py \
+  tests/test_identity_federation_bootstrap_factory.py
+2 files already formatted
+
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache uv run ruff check \
+  app/joysafeter_identity_federation/bootstrap.py \
+  tests/test_identity_federation_bootstrap_factory.py
+All checks passed!
+
+git diff --check
+exit 0
+```
+
+### Fix Round 1 Self-Review
+
+- Removing runtime invalidation from configuration force fails the stale-runtime regression.
+- Publishing configuration before runtime construction fails the construction-failure preservation regression.
+- Reusing any registry, adapter registry, or attempt store during full force fails the full replacement regression.
+- Both forced compile entry points preserve the previous cache snapshot on configuration errors.
+- Runtime construction still uses the reviewed direct HTTP client factory; endpoint pinning, Host/SNI preservation, proxy/redirect rejection, deadline enforcement, and development-only loopback capability remain inside the unchanged adapters.
+- Startup still invokes final runtime initialization and transitional configuration functions remain available for Task 17.
+- The single snapshot removes observable configuration/runtime split state without adding locking or unrelated lifecycle complexity.
+
+### Fix Round 1 Risks
+
+- Concurrent forced reinitializations would still be last-writer-wins because no lock is used. No current startup or application path performs concurrent force calls, matching the requested scope.

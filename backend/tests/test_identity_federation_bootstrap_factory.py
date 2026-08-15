@@ -2,13 +2,17 @@ from dataclasses import FrozenInstanceError, fields
 
 import pytest
 
+from app.joysafeter_identity_federation import bootstrap as bootstrap_module
 from app.joysafeter_identity_federation.bootstrap import (
     build_federated_account_service,
     build_federated_login_coordinator,
     get_federation_provider_view,
+    get_identity_federation_configuration,
     get_identity_federation_runtime,
     initialize_identity_federation,
+    initialize_identity_federation_configuration,
 )
+from app.joysafeter_identity_federation.domain.errors import FederationConfigurationError
 from app.joysafeter_identity_federation.domain.models import ProtocolId
 from app.joysafeter_identity_federation.infrastructure import config as config_module
 from app.joysafeter_identity_federation.infrastructure.account_gateway import (
@@ -111,6 +115,80 @@ def test_runtime_initialization_caches_secure_concrete_components() -> None:
 
     with pytest.raises(FrozenInstanceError):
         runtime.registry = runtime.registry
+
+
+def test_forced_configuration_replacement_rebuilds_the_next_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    initial_runtime = initialize_identity_federation(force=True)
+    initial_configuration = get_identity_federation_configuration()
+    monkeypatch.setattr(settings, "identity_federation_providers", "github")
+
+    replacement_configuration = initialize_identity_federation_configuration(force=True)
+    replacement_runtime = get_identity_federation_runtime()
+
+    assert replacement_configuration is not initial_configuration
+    assert [provider.id.value for provider in replacement_configuration.registry.list_public()] == ["github"]
+    assert replacement_runtime is not initial_runtime
+    assert replacement_runtime.registry is replacement_configuration.registry
+    assert replacement_runtime.adapters is not initial_runtime.adapters
+    assert replacement_runtime.attempt_store is not initial_runtime.attempt_store
+
+
+def test_forced_runtime_replaces_the_full_cached_pair(monkeypatch: pytest.MonkeyPatch) -> None:
+    initial_runtime = initialize_identity_federation(force=True)
+    initial_configuration = get_identity_federation_configuration()
+    monkeypatch.setattr(settings, "identity_federation_providers", "github")
+
+    replacement_runtime = initialize_identity_federation(force=True)
+    replacement_configuration = get_identity_federation_configuration()
+
+    assert replacement_configuration is not initial_configuration
+    assert replacement_runtime is not initial_runtime
+    assert replacement_runtime.registry is replacement_configuration.registry
+    assert [provider.id.value for provider in replacement_runtime.registry.list_public()] == ["github"]
+    assert replacement_runtime.adapters is not initial_runtime.adapters
+    assert replacement_runtime.attempt_store is not initial_runtime.attempt_store
+
+
+@pytest.mark.parametrize(
+    "force_initializer",
+    [initialize_identity_federation_configuration, initialize_identity_federation],
+)
+def test_failed_forced_compile_preserves_the_cached_pair(
+    monkeypatch: pytest.MonkeyPatch,
+    force_initializer,
+) -> None:
+    initial_runtime = initialize_identity_federation(force=True)
+    initial_configuration = get_identity_federation_configuration()
+    monkeypatch.setattr(settings, "identity_federation_providers", "missing")
+
+    with pytest.raises(FederationConfigurationError):
+        force_initializer(force=True)
+
+    assert get_identity_federation_configuration() is initial_configuration
+    assert get_identity_federation_runtime() is initial_runtime
+    assert initial_runtime.registry is initial_configuration.registry
+
+
+def test_failed_forced_runtime_construction_preserves_the_cached_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    initial_runtime = initialize_identity_federation(force=True)
+    initial_configuration = get_identity_federation_configuration()
+    monkeypatch.setattr(settings, "identity_federation_providers", "github")
+
+    def _raise_runtime_construction(*_args, **_kwargs):
+        raise RuntimeError("runtime construction failed")
+
+    monkeypatch.setattr(bootstrap_module, "_SignedCorrelationCodec", _raise_runtime_construction)
+
+    with pytest.raises(RuntimeError, match="runtime construction failed"):
+        initialize_identity_federation(force=True)
+
+    assert get_identity_federation_configuration() is initial_configuration
+    assert get_identity_federation_runtime() is initial_runtime
+    assert initial_runtime.registry is initial_configuration.registry
 
 
 def test_provider_view_is_frozen_ordered_and_public_only() -> None:

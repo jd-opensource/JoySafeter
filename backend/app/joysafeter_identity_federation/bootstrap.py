@@ -29,15 +29,21 @@ from .infrastructure.protocols.schemas import OAUTH2_PROTOCOL_DEFINITION as _OAU
 from .infrastructure.session_gateway import JoySafeterAuthSessionGateway as _JoySafeterAuthSessionGateway
 from .infrastructure.state_store import RedisLoginAttemptStore as _RedisLoginAttemptStore
 
-_configuration: _CompiledFederationConfiguration | None = None
-_runtime: FederationRuntime | None = None
-
 
 @dataclass(frozen=True, slots=True)
 class FederationRuntime:
     registry: ProviderRegistryPort
     adapters: ProtocolAdapterResolver
     attempt_store: LoginAttemptStore
+
+
+@dataclass(frozen=True, slots=True)
+class _FederationCache:
+    configuration: _CompiledFederationConfiguration | None = None
+    runtime: FederationRuntime | None = None
+
+
+_cache = _FederationCache()
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,24 +72,54 @@ def _schema_registry() -> _ProtocolSchemaRegistry:
     return registry
 
 
-def initialize_identity_federation_configuration(*, force: bool = False) -> _CompiledFederationConfiguration:
-    global _configuration
+def _compile_configuration() -> _CompiledFederationConfiguration:
+    return _compile_federation_configuration(
+        config_path=_config_path(),
+        active_provider_names=settings.identity_federation_providers,
+        login_mode=settings.identity_federation_login_mode,
+        application_environment=settings.environment,
+        schema_registry=_schema_registry(),
+        environ=os.environ,
+    )
 
-    if _configuration is None or force:
-        _configuration = _compile_federation_configuration(
-            config_path=_config_path(),
-            active_provider_names=settings.identity_federation_providers,
-            login_mode=settings.identity_federation_login_mode,
-            application_environment=settings.environment,
-            schema_registry=_schema_registry(),
-            environ=os.environ,
+
+def _log_configuration(configuration: _CompiledFederationConfiguration) -> None:
+    logger.bind(
+        provider_ids=[descriptor.id.value for descriptor in configuration.registry.list_public()],
+        login_mode=configuration.registry.settings.login_mode.value,
+    ).info("Identity federation configuration initialized")
+
+
+def _build_runtime(configuration: _CompiledFederationConfiguration) -> FederationRuntime:
+    correlation = _SignedCorrelationCodec(
+        secret=settings.secret_key.encode("utf-8"),
+        cookie_name="joysafeter_federation_attempt",
+    )
+    adapters = _ProtocolAdapterRegistry()
+    adapters.register(_OAuth2Adapter(client_factory=_http_client_factory))
+    adapters.register(
+        _JDSSOAdapter(
+            correlation_codec=correlation,
+            client_factory=_http_client_factory,
         )
-        logger.bind(
-            provider_ids=[descriptor.id.value for descriptor in _configuration.registry.list_public()],
-            login_mode=_configuration.registry.settings.login_mode.value,
-        ).info("Identity federation configuration initialized")
+    )
+    return FederationRuntime(
+        registry=configuration.registry,
+        adapters=adapters,
+        attempt_store=_RedisLoginAttemptStore(RedisClient.get_client),
+    )
 
-    return _configuration
+
+def initialize_identity_federation_configuration(*, force: bool = False) -> _CompiledFederationConfiguration:
+    global _cache
+
+    if _cache.configuration is None or force:
+        configuration = _compile_configuration()
+        _cache = _FederationCache(configuration=configuration)
+        _log_configuration(configuration)
+
+    assert _cache.configuration is not None
+    return _cache.configuration
 
 
 def get_identity_federation_configuration() -> _CompiledFederationConfiguration:
@@ -91,30 +127,19 @@ def get_identity_federation_configuration() -> _CompiledFederationConfiguration:
 
 
 def initialize_identity_federation(*, force: bool = False) -> FederationRuntime:
-    global _runtime
+    global _cache
 
-    if _runtime is None or force:
-        compiled = initialize_identity_federation_configuration(force=force)
-        correlation = _SignedCorrelationCodec(
-            secret=settings.secret_key.encode("utf-8"),
-            cookie_name="joysafeter_federation_attempt",
-        )
-        adapters = _ProtocolAdapterRegistry()
-        adapters.register(_OAuth2Adapter(client_factory=_http_client_factory))
-        adapters.register(
-            _JDSSOAdapter(
-                correlation_codec=correlation,
-                client_factory=_http_client_factory,
-            )
-        )
-        _runtime = FederationRuntime(
-            registry=compiled.registry,
-            adapters=adapters,
-            attempt_store=_RedisLoginAttemptStore(RedisClient.get_client),
-        )
+    if _cache.runtime is None or force:
+        configuration = _compile_configuration() if force or _cache.configuration is None else _cache.configuration
+        runtime = _build_runtime(configuration)
+        configuration_replaced = configuration is not _cache.configuration
+        _cache = _FederationCache(configuration=configuration, runtime=runtime)
+        if configuration_replaced:
+            _log_configuration(configuration)
         logger.info("Identity federation runtime initialized")
 
-    return _runtime
+    assert _cache.runtime is not None
+    return _cache.runtime
 
 
 def get_identity_federation_runtime() -> FederationRuntime:
