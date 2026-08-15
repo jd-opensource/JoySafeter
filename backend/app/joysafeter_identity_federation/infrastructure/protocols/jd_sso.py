@@ -23,7 +23,6 @@ from ...domain.models import (
 from ..correlation import SignedCorrelationCodec
 from .oauth2 import ClientFactory, OAuth2Adapter
 
-_AUTHORIZATION_PARAMETERS = frozenset({"client_id", "redirect_uri", "response_type", "scope", "state"})
 _VERIFY_TICKET_PARAMETERS = frozenset({"ticket", "url", "ip", "app", "time", "sign"})
 
 
@@ -70,7 +69,7 @@ class JDSSOAdapter(OAuth2Adapter):
         del context
         settings = self._settings(provider)
         authorize_url = await self._validate_authorization_endpoint(settings.authorize_url, provider)
-        authorization_url = self._authorization_url(authorize_url, settings, attempt.redirect_uri)
+        authorization_url = self._authorization_url(authorize_url, attempt.redirect_uri)
         expires_at = int(attempt.expires_at.timestamp())
         max_age_seconds = expires_at - int(self._now())
         if max_age_seconds <= 0:
@@ -139,23 +138,11 @@ class JDSSOAdapter(OAuth2Adapter):
     @staticmethod
     def _authorization_url(
         authorize_url: str,
-        settings: JDSSOProviderSettings,
         redirect_uri: str,
     ) -> str:
         parts = urlsplit(authorize_url)
-        query = [
-            (name, value)
-            for name, value in parse_qsl(parts.query, keep_blank_values=True)
-            if name not in _AUTHORIZATION_PARAMETERS
-        ]
-        query.extend(
-            (
-                ("client_id", settings.client_id),
-                ("redirect_uri", redirect_uri),
-                ("response_type", "code"),
-                ("scope", settings.scope),
-            )
-        )
+        query = [(name, value) for name, value in parse_qsl(parts.query, keep_blank_values=True) if name != "ReturnUrl"]
+        query.append(("ReturnUrl", redirect_uri))
         return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
     @staticmethod

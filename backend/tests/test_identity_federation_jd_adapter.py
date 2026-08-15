@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, parse_qsl, urlparse
 
 import httpx
 import pytest
@@ -58,7 +58,11 @@ def _signed(attempt_id: str) -> str:
     return _codec().sign(attempt_id, expires_at=int(_NOW) + 600)
 
 
-def _jd_provider(*, userinfo_url: str = "https://sso.jd.com/verifyTicket") -> ActiveProvider:
+def _jd_provider(
+    *,
+    authorize_url: str = "https://sso.jd.com/login",
+    userinfo_url: str = "https://sso.jd.com/verifyTicket",
+) -> ActiveProvider:
     return ActiveProvider(
         id=ProviderId("jd"),
         display_name="JD SSO",
@@ -67,7 +71,7 @@ def _jd_provider(*, userinfo_url: str = "https://sso.jd.com/verifyTicket") -> Ac
         settings=JDSSOProviderSettings(
             client_id="jd-client",
             client_secret="jd-secret",
-            authorize_url="https://sso.jd.com/login",
+            authorize_url=authorize_url,
             userinfo_url=userinfo_url,
             scope="openid email",
             user_mapping={
@@ -177,16 +181,41 @@ async def test_begin_login_sets_signed_correlation_cookie() -> None:
 
     assert action.authorization_url.startswith("https://sso.jd.com/")
     query = parse_qs(urlparse(action.authorization_url).query)
-    assert query == {
-        "client_id": ["jd-client"],
-        "redirect_uri": [_attempt("attempt-1").redirect_uri],
-        "response_type": ["code"],
-        "scope": ["openid email"],
-    }
+    assert query["ReturnUrl"] == [_attempt("attempt-1").redirect_uri]
     assert action.correlation_cookie is not None
     assert action.correlation_cookie.name == "joysafeter_federation_attempt"
     assert action.correlation_cookie.max_age_seconds == 600
     assert _codec().verify(action.correlation_cookie.value, now_epoch=int(_NOW)) == "attempt-1"
+
+
+@pytest.mark.asyncio
+async def test_begin_login_replaces_every_stale_return_url_and_preserves_unrelated_query() -> None:
+    provider = _jd_provider(
+        authorize_url=(
+            "https://sso.jd.com/login?tenant=jd&ReturnUrl=https%3A%2F%2Fold.example%2Fone"
+            "&returnurl=case-sensitive&ReturnUrl=https%3A%2F%2Fold.example%2Ftwo"
+        )
+    )
+
+    action = await _adapter().begin_login(provider, _attempt("attempt-1"), _request_context())
+
+    assert parse_qsl(urlparse(action.authorization_url).query) == [
+        ("tenant", "jd"),
+        ("returnurl", "case-sensitive"),
+        ("ReturnUrl", _attempt("attempt-1").redirect_uri),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_begin_login_does_not_synthesize_oauth_authorization_parameters() -> None:
+    action = await _adapter().begin_login(
+        _jd_provider(),
+        _attempt("attempt-1"),
+        _request_context(),
+    )
+
+    query = parse_qs(urlparse(action.authorization_url).query)
+    assert not {"client_id", "redirect_uri", "response_type", "scope", "state"} & query.keys()
 
 
 def test_extract_attempt_id_verifies_signed_cookie() -> None:
