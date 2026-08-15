@@ -473,11 +473,16 @@ def _endpoint_issues(
             and all(address.is_loopback for address in addresses)
         )
         if not allow_loopback and any(not address.is_global for address in addresses):
+            issue_code = (
+                "FEDERATION_PROVIDER_CONFIG_INVALID"
+                if provider_id == "local" and application_environment != "development"
+                else "FEDERATION_ENDPOINT_UNSAFE"
+            )
             issues.append(
                 _issue(
                     provider_id,
                     field,
-                    "FEDERATION_ENDPOINT_UNSAFE",
+                    issue_code,
                     "Endpoint destination must be globally routable",
                 )
             )

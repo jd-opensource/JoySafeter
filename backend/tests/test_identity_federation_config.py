@@ -116,6 +116,32 @@ def _compile(
     )
 
 
+def _compile_local_provider(tmp_path: Path, *, environment: str):
+    catalog = _catalog()
+    providers = catalog["providers"]
+    assert isinstance(providers, dict)
+    providers["local"] = {
+        "display_name": "Local",
+        "icon": "key",
+        "protocol": "oauth2",
+        "client_id": "local-client",
+        "client_secret": "local-secret",
+        "authorize_url": "http://127.0.0.1:9090/authorize",
+        "token_url": "http://localhost:9090/token",
+        "userinfo_url": "http://[::1]:9090/userinfo",
+        "scope": "openid",
+        "user_mapping": {"id": "sub"},
+    }
+    return _compile(
+        tmp_path,
+        providers="local",
+        login_mode="redirect",
+        environ={},
+        catalog=catalog,
+        application_environment=environment,
+    )
+
+
 @pytest.mark.parametrize(
     ("providers", "login_mode", "expected_code"),
     [
@@ -701,10 +727,25 @@ def test_local_provider_allows_loopback_endpoints_only_in_development(tmp_path: 
         )
 
     assert [(issue.field, issue.code) for issue in exc_info.value.issues] == [
-        ("authorize_url", "FEDERATION_ENDPOINT_UNSAFE"),
-        ("token_url", "FEDERATION_ENDPOINT_UNSAFE"),
-        ("userinfo_url", "FEDERATION_ENDPOINT_UNSAFE"),
+        ("authorize_url", "FEDERATION_PROVIDER_CONFIG_INVALID"),
+        ("token_url", "FEDERATION_PROVIDER_CONFIG_INVALID"),
+        ("userinfo_url", "FEDERATION_PROVIDER_CONFIG_INVALID"),
     ]
+
+
+def test_local_loopback_provider_is_allowed_only_in_development(tmp_path: Path) -> None:
+    compiled = _compile_local_provider(tmp_path, environment="development")
+    assert [item.id.value for item in compiled.registry.list_public()] == ["local"]
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_local_loopback_provider_is_rejected_outside_development(
+    tmp_path: Path, environment: str
+) -> None:
+    with pytest.raises(FederationConfigurationError) as exc_info:
+        _compile_local_provider(tmp_path, environment=environment)
+
+    assert "FEDERATION_PROVIDER_CONFIG_INVALID" in {issue.code for issue in exc_info.value.issues}
 
 
 @pytest.mark.parametrize(
