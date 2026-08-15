@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import socket
+import time
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -134,7 +135,10 @@ def _unused_client_factory() -> httpx.AsyncClient:
     async def handler(_request: httpx.Request) -> httpx.Response:
         raise AssertionError("HTTP client must not be used")
 
-    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        trust_env=False,
+    )
 
 
 def _client_factory(responses: dict[str, tuple[int, object]]) -> ClientFactory:
@@ -152,7 +156,10 @@ def _client_factory(responses: dict[str, tuple[int, object]]) -> ClientFactory:
         status_code, payload = responses[response_key]
         return httpx.Response(status_code, json=payload)
 
-    return lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return lambda: httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        trust_env=False,
+    )
 
 
 def _mock_oidc_client() -> httpx.AsyncClient:
@@ -472,7 +479,10 @@ async def test_invalid_token_response_shape_is_sanitized_before_userinfo(
 
     with pytest.raises(FederationError) as exc_info:
         await OAuth2Adapter(
-            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            client_factory=lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(handler),
+                trust_env=False,
+            )
         ).complete_login(
             _github_provider(),
             _attempt("attempt-1"),
@@ -510,7 +520,10 @@ async def test_timeout_failure_is_sanitized() -> None:
 
     with pytest.raises(FederationError) as exc_info:
         await OAuth2Adapter(
-            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            client_factory=lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(handler),
+                trust_env=False,
+            )
         ).complete_login(
             _github_provider(),
             _attempt("attempt-1"),
@@ -556,7 +569,7 @@ def _counting_discovery_transport() -> tuple[httpx.MockTransport, dict[str, int]
 @pytest.mark.asyncio
 async def test_oidc_discovery_is_cached_by_issuer() -> None:
     transport, calls = _counting_discovery_transport()
-    adapter = OAuth2Adapter(client_factory=lambda: httpx.AsyncClient(transport=transport))
+    adapter = OAuth2Adapter(client_factory=lambda: httpx.AsyncClient(transport=transport, trust_env=False))
 
     await adapter.begin_login(_oidc_provider(), _attempt("attempt-1"), _request_context())
     await adapter.begin_login(_oidc_provider(), _attempt("attempt-2"), _request_context())
@@ -608,7 +621,10 @@ async def test_invalid_oidc_discovery_is_not_cached(
         )
 
     adapter = OAuth2Adapter(
-        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            trust_env=False,
+        )
     )
 
     with pytest.raises(FederationError) as exc_info:
@@ -647,7 +663,10 @@ async def test_concurrent_discovery_cannot_publish_late_malformed_poison() -> No
         )
 
     adapter = OAuth2Adapter(
-        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            trust_env=False,
+        )
     )
     outcomes = await asyncio.gather(
         adapter.begin_login(_oidc_provider(), _attempt("attempt-1"), _request_context()),
@@ -680,7 +699,10 @@ async def test_token_exchange_supports_configured_client_auth_method(auth_method
         raise AssertionError(f"Unexpected request path: {request.url.path}")
 
     def factory() -> httpx.AsyncClient:
-        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            trust_env=False,
+        )
 
     await OAuth2Adapter(client_factory=factory).complete_login(
         _github_provider(auth_method=auth_method),
@@ -728,7 +750,10 @@ async def test_client_secret_basic_form_encodes_reserved_credentials_before_base
         settings=replace(settings, client_id=client_id, client_secret=client_secret),
     )
     await OAuth2Adapter(
-        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            trust_env=False,
+        )
     ).complete_login(
         provider,
         _attempt("attempt-1"),
@@ -787,7 +812,10 @@ async def test_configured_mapping_and_userinfo_headers_shape_sanitized_claims() 
         },
     )
     outcome = await OAuth2Adapter(
-        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            trust_env=False,
+        )
     ).complete_login(
         provider,
         _attempt("attempt-1"),
@@ -912,6 +940,7 @@ async def test_local_provider_accepts_configured_http_loopback_endpoint() -> Non
     provider = replace(
         provider,
         id=ProviderId("local"),
+        allow_http_loopback=True,
         settings=replace(settings, authorize_url="http://127.0.0.1:9090/authorize"),
     )
 
@@ -976,6 +1005,7 @@ async def test_oidc_requests_pin_validated_ip_and_preserve_host_sni_and_timeout(
             transport=httpx.MockTransport(handler),
             follow_redirects=True,
             timeout=None,
+            trust_env=False,
         )
     ).complete_login(
         _oidc_provider(),
@@ -1020,6 +1050,7 @@ async def test_github_email_request_uses_pinned_host_sni_and_timeout() -> None:
             transport=httpx.MockTransport(handler),
             follow_redirects=True,
             timeout=None,
+            trust_env=False,
         )
     ).complete_login(
         _github_provider(),
@@ -1116,6 +1147,7 @@ async def test_local_provider_allows_only_all_loopback_request_answers(
     provider = replace(
         provider,
         id=ProviderId("local"),
+        allow_http_loopback=True,
         settings=replace(
             settings,
             token_url="http://localhost:9090/token",
@@ -1134,7 +1166,10 @@ async def test_local_provider_allows_only_all_loopback_request_answers(
         raise AssertionError(f"Unexpected request path: {request.url.path}")
 
     outcome = await OAuth2Adapter(
-        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            trust_env=False,
+        )
     ).complete_login(
         provider,
         _attempt("attempt-1"),
@@ -1159,6 +1194,7 @@ async def test_local_provider_rejects_mixed_loopback_and_global_answers(
     provider = replace(
         provider,
         id=ProviderId("local"),
+        allow_http_loopback=True,
         settings=replace(settings, token_url="http://localhost:9090/token"),
     )
 
@@ -1180,6 +1216,7 @@ async def test_local_provider_rejects_https_loopback_endpoint() -> None:
     provider = replace(
         provider,
         id=ProviderId("local"),
+        allow_http_loopback=True,
         settings=replace(settings, token_url="https://127.0.0.1:9090/token"),
     )
 
@@ -1191,6 +1228,227 @@ async def test_local_provider_rejects_https_loopback_endpoint() -> None:
         )
 
     assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_local_provider_without_compiler_capability_rejects_discovered_loopback() -> None:
+    token_calls = 0
+    provider = replace(_oidc_provider(), id=ProviderId("local"), allow_http_loopback=False)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal token_calls
+        if request.url.path.endswith("/.well-known/openid-configuration"):
+            return httpx.Response(
+                200,
+                json={
+                    "issuer": "https://issuer.example",
+                    "authorization_endpoint": "https://issuer.example/authorize",
+                    "token_endpoint": "http://127.0.0.1:9090/token",
+                    "userinfo_endpoint": "https://issuer.example/userinfo",
+                },
+            )
+        if request.url.path.endswith("/token"):
+            token_calls += 1
+            return httpx.Response(
+                200,
+                json={"access_token": "access-token", "token_type": "Bearer"},
+            )
+        if request.url.path.endswith("/userinfo"):
+            return httpx.Response(200, json={"sub": "subject-1"})
+        raise AssertionError(f"Unexpected request path: {request.url.path}")
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(
+            client_factory=lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(handler),
+                trust_env=False,
+            )
+        ).complete_login(
+            provider,
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
+    assert token_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_each_https_authority_uses_fresh_client_pool_on_shared_ip() -> None:
+    factory_calls = 0
+    requests_by_client: dict[int, list[httpx.Request]] = {}
+
+    def factory() -> httpx.AsyncClient:
+        nonlocal factory_calls
+        factory_calls += 1
+        client_number = factory_calls
+        requests_by_client[client_number] = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests_by_client[client_number].append(request)
+            if request.url.path.endswith("/.well-known/openid-configuration"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "issuer": "https://issuer.example",
+                        "authorization_endpoint": "https://issuer.example/authorize",
+                        "token_endpoint": "https://token.example/token",
+                        "userinfo_endpoint": "https://userinfo.example/userinfo",
+                    },
+                )
+            if request.url.path.endswith("/token"):
+                return httpx.Response(
+                    200,
+                    json={"access_token": "access-token", "token_type": "Bearer"},
+                )
+            if request.url.path.endswith("/userinfo"):
+                return httpx.Response(200, json={"sub": "subject-1"})
+            raise AssertionError(f"Unexpected request path: {request.url.path}")
+
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            trust_env=False,
+        )
+
+    await OAuth2Adapter(client_factory=factory).complete_login(
+        _oidc_provider(),
+        _attempt("attempt-1"),
+        _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+    )
+
+    assert factory_calls == 3
+    assert [len(requests_by_client[index]) for index in range(1, 4)] == [1, 1, 1]
+    assert [requests_by_client[index][0].headers["Host"] for index in range(1, 4)] == [
+        "issuer.example",
+        "token.example",
+        "userinfo.example",
+    ]
+    assert [requests_by_client[index][0].extensions["sni_hostname"] for index in range(1, 4)] == [
+        "issuer.example",
+        "token.example",
+        "userinfo.example",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_environment_proxy_capable_client_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502)
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(
+            client_factory=lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(handler),
+                trust_env=True,
+            )
+        ).complete_login(
+            _github_provider(),
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_explicit_proxy_client_is_rejected() -> None:
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(
+            client_factory=lambda: httpx.AsyncClient(
+                proxy="http://127.0.0.1:1",
+                trust_env=False,
+            )
+        ).complete_login(
+            _github_provider(),
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_production_direct_client_factory_disables_proxies() -> None:
+    factory = getattr(oauth2_module, "direct_http_client_factory", None)
+    assert callable(factory)
+
+    async with factory() as client:
+        assert client._trust_env is False
+        assert client._mounts == {}
+
+
+@pytest.mark.asyncio
+async def test_stalled_resolver_expires_under_hard_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(oauth2_module, "_REQUEST_DEADLINE_SECONDS", 0.02, raising=False)
+
+    def stalled_resolution(_hostname: str, _port: int) -> tuple[str, ...]:
+        time.sleep(0.2)
+        return ("93.184.216.34",)
+
+    monkeypatch.setattr(oauth2_module, "_resolve_endpoint_addresses", stalled_resolution)
+    started_at = time.monotonic()
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(
+            client_factory=lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(lambda _request: httpx.Response(502)),
+                trust_env=False,
+            )
+        ).begin_login(_oidc_provider(), _attempt("attempt-1"), _request_context())
+
+    assert exc_info.value.code == "FEDERATION_UPSTREAM_UNAVAILABLE"
+    assert time.monotonic() - started_at < 0.1
+
+
+class _SlowDripJSONStream(httpx.AsyncByteStream):
+    async def __aiter__(self):
+        for chunk in (
+            b'{"access_token":',
+            b'"access-token",',
+            b'"token_type":"Bearer"}',
+        ):
+            await asyncio.sleep(0.015)
+            yield chunk
+
+
+@pytest.mark.asyncio
+async def test_slow_drip_response_expires_under_hard_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(oauth2_module, "_REQUEST_DEADLINE_SECONDS", 0.025, raising=False)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/token"):
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "application/json"},
+                stream=_SlowDripJSONStream(),
+            )
+        if request.url.path.endswith("/user/emails"):
+            return httpx.Response(200, json=[])
+        if request.url.path.endswith("/user"):
+            return httpx.Response(200, json={"id": "42"})
+        raise AssertionError(f"Unexpected request path: {request.url.path}")
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(
+            client_factory=lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(handler),
+                trust_env=False,
+            )
+        ).complete_login(
+            _github_provider(),
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_UPSTREAM_UNAVAILABLE"
 
 
 @pytest.mark.asyncio
@@ -1214,6 +1472,7 @@ async def test_token_redirect_is_not_followed_with_sensitive_form_body() -> None
             client_factory=lambda: httpx.AsyncClient(
                 transport=httpx.MockTransport(handler),
                 follow_redirects=True,
+                trust_env=False,
             )
         ).complete_login(
             _github_provider(),

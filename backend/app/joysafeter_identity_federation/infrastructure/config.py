@@ -287,9 +287,7 @@ def _validate_catalog(
                 )
             )
         configuration, template_issues = _materialize_template(provider)
-        issues.extend(
-            _issue(provider_name, issue.field, issue.code, issue.message) for issue in template_issues
-        )
+        issues.extend(_issue(provider_name, issue.field, issue.code, issue.message) for issue in template_issues)
         issues.extend(_catalog_endpoint_issues(provider_name, configuration))
         try:
             schema_registry.validate_configuration(provider.protocol, configuration)
@@ -482,15 +480,14 @@ def _compile_active_providers(
                     )
                 )
             continue
-        issues.extend(
-            _endpoint_issues(
-                provider_name,
-                settings,
-                application_environment,
-                unresolved_fields,
-            )
+        endpoint_issues = _endpoint_issues(
+            provider_name,
+            settings,
+            application_environment,
+            unresolved_fields,
         )
-        if environment_issues:
+        issues.extend(endpoint_issues)
+        if environment_issues or endpoint_issues:
             continue
         providers.append(
             ActiveProvider(
@@ -499,6 +496,7 @@ def _compile_active_providers(
                 icon=provider.icon,
                 protocol=ProtocolId(definition.protocol_id),
                 settings=settings,
+                allow_http_loopback=(provider_name == "local" and application_environment == "development"),
             )
         )
     return providers, issues

@@ -151,9 +151,7 @@ def _compile_local_provider(tmp_path: Path, *, environment: str):
         ("jd", "automatic", "FEDERATION_LOGIN_MODE_INVALID"),
     ],
 )
-def test_invalid_activation_contract_fails(
-    providers: str, login_mode: str, expected_code: str, tmp_path: Path
-) -> None:
+def test_invalid_activation_contract_fails(providers: str, login_mode: str, expected_code: str, tmp_path: Path) -> None:
     path = _write_catalog(tmp_path)
 
     with pytest.raises(FederationConfigurationError) as exc_info:
@@ -243,9 +241,7 @@ def test_catalog_requires_a_version(tmp_path: Path) -> None:
             catalog=catalog,
         )
 
-    assert [(issue.field, issue.code) for issue in exc_info.value.issues] == [
-        ("version", "FEDERATION_CONFIG_INVALID")
-    ]
+    assert [(issue.field, issue.code) for issue in exc_info.value.issues] == [("version", "FEDERATION_CONFIG_INVALID")]
 
 
 @pytest.mark.parametrize("version", [2, "1", True, 1.0])
@@ -262,9 +258,7 @@ def test_catalog_rejects_unsupported_or_mistyped_versions(version: object, tmp_p
             catalog=catalog,
         )
 
-    assert [(issue.field, issue.code) for issue in exc_info.value.issues] == [
-        ("version", "FEDERATION_CONFIG_INVALID")
-    ]
+    assert [(issue.field, issue.code) for issue in exc_info.value.issues] == [("version", "FEDERATION_CONFIG_INVALID")]
 
 
 def test_bundled_catalog_validates_without_activation_or_deployment_secrets() -> None:
@@ -379,9 +373,7 @@ def test_registry_missing_provider_raises_runtime_domain_error(tmp_path: Path) -
 
 
 @pytest.mark.parametrize("active_providers", ["", "mystery"])
-def test_unknown_protocol_is_rejected_even_when_provider_is_inactive(
-    active_providers: str, tmp_path: Path
-) -> None:
+def test_unknown_protocol_is_rejected_even_when_provider_is_inactive(active_providers: str, tmp_path: Path) -> None:
     catalog = _catalog()
     providers = catalog["providers"]
     assert isinstance(providers, dict)
@@ -406,9 +398,7 @@ def test_unknown_protocol_is_rejected_even_when_provider_is_inactive(
 
 
 @pytest.mark.parametrize("active_providers", ["", "Invalid Provider"])
-def test_invalid_provider_name_is_rejected_even_when_active(
-    active_providers: str, tmp_path: Path
-) -> None:
+def test_invalid_provider_name_is_rejected_even_when_active(active_providers: str, tmp_path: Path) -> None:
     catalog = _catalog()
     providers = catalog["providers"]
     assert isinstance(providers, dict)
@@ -463,9 +453,7 @@ def test_missing_catalog_uses_configuration_error_model(tmp_path: Path) -> None:
             environ={},
         )
 
-    assert [(issue.field, issue.code) for issue in exc_info.value.issues] == [
-        ("file", "FEDERATION_CONFIG_NOT_FOUND")
-    ]
+    assert [(issue.field, issue.code) for issue in exc_info.value.issues] == [("file", "FEDERATION_CONFIG_NOT_FOUND")]
 
 
 def test_yaml_diagnostics_do_not_expose_source_values(tmp_path: Path) -> None:
@@ -685,9 +673,7 @@ def test_active_provider_rejects_private_endpoints(field: str, tmp_path: Path) -
     with pytest.raises(FederationConfigurationError) as exc_info:
         _compile(tmp_path, providers="jd", login_mode="chooser", environ=environ)
 
-    assert (field, "FEDERATION_ENDPOINT_UNSAFE") in {
-        (issue.field, issue.code) for issue in exc_info.value.issues
-    }
+    assert (field, "FEDERATION_ENDPOINT_UNSAFE") in {(issue.field, issue.code) for issue in exc_info.value.issues}
 
 
 def test_local_provider_allows_loopback_endpoints_only_in_development(tmp_path: Path) -> None:
@@ -714,7 +700,9 @@ def test_local_provider_allows_loopback_endpoints_only_in_development(tmp_path: 
         environ={},
         catalog=catalog,
     )
-    assert compiled.registry.require(ProviderId("local")).id == ProviderId("local")
+    local_provider = compiled.registry.require(ProviderId("local"))
+    assert local_provider.id == ProviderId("local")
+    assert local_provider.allow_http_loopback is True
 
     with pytest.raises(FederationConfigurationError) as exc_info:
         _compile(
@@ -736,12 +724,48 @@ def test_local_provider_allows_loopback_endpoints_only_in_development(tmp_path: 
 def test_local_loopback_provider_is_allowed_only_in_development(tmp_path: Path) -> None:
     compiled = _compile_local_provider(tmp_path, environment="development")
     assert [item.id.value for item in compiled.registry.list_public()] == ["local"]
+    assert compiled.registry.require(ProviderId("local")).allow_http_loopback is True
 
 
 @pytest.mark.parametrize("environment", ["staging", "production"])
-def test_local_loopback_provider_is_rejected_outside_development(
-    tmp_path: Path, environment: str
+def test_global_local_provider_does_not_receive_loopback_capability(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    environment: str,
 ) -> None:
+    monkeypatch.setattr(
+        config_module,
+        "_resolve_endpoint_addresses",
+        lambda _hostname, _port: ("93.184.216.34",),
+    )
+    catalog = _catalog()
+    providers = catalog["providers"]
+    assert isinstance(providers, dict)
+    providers["local"] = {
+        "display_name": "Local",
+        "icon": "key",
+        "protocol": "oauth2",
+        "client_id": "local-client",
+        "client_secret": "local-secret",
+        "issuer": "https://issuer.example",
+        "scope": "openid",
+        "user_mapping": {"id": "sub"},
+    }
+
+    compiled = _compile(
+        tmp_path,
+        providers="local",
+        login_mode="redirect",
+        environ={},
+        catalog=catalog,
+        application_environment=environment,
+    )
+
+    assert compiled.registry.require(ProviderId("local")).allow_http_loopback is False
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_local_loopback_provider_is_rejected_outside_development(tmp_path: Path, environment: str) -> None:
     with pytest.raises(FederationConfigurationError) as exc_info:
         _compile_local_provider(tmp_path, environment=environment)
 
@@ -789,16 +813,13 @@ def test_local_development_exception_rejects_non_loopback_or_invalid_endpoints(
             catalog=catalog,
         )
 
-    assert ("authorize_url", expected_code) in {
-        (issue.field, issue.code) for issue in exc_info.value.issues
-    }
+    assert ("authorize_url", expected_code) in {(issue.field, issue.code) for issue in exc_info.value.issues}
 
 
 def test_endpoint_diagnostics_redact_credentials_query_and_fragment(tmp_path: Path) -> None:
     environ = _complete_env()
     environ["JD_AUTHORIZE_URL"] = (
-        "http://endpoint-user:endpoint-password@127.0.0.1/authorize"
-        "?token=query-secret#fragment-secret"
+        "http://endpoint-user:endpoint-password@127.0.0.1/authorize?token=query-secret#fragment-secret"
     )
 
     with pytest.raises(FederationConfigurationError) as exc_info:

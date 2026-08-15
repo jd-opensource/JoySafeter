@@ -32,10 +32,13 @@ from ..endpoint_policy import (
 ClientFactory = Callable[[], httpx.AsyncClient]
 
 _GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
-_AUTHORIZATION_PARAMETERS = frozenset(
-    {"client_id", "redirect_uri", "response_type", "scope", "state"}
-)
+_AUTHORIZATION_PARAMETERS = frozenset({"client_id", "redirect_uri", "response_type", "scope", "state"})
 _REQUEST_TIMEOUT = httpx.Timeout(10.0)
+_REQUEST_DEADLINE_SECONDS = 10.0
+
+
+def direct_http_client_factory() -> httpx.AsyncClient:
+    return httpx.AsyncClient(trust_env=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,19 +83,21 @@ class OAuth2Adapter:
         del context
         settings = self._settings(provider)
         if settings.authorize_url is None:
-            async with self._client_factory() as client:
-                if settings.issuer is None:
-                    raise FederationError(
-                        code="FEDERATION_PROVIDER_CONFIG_INVALID",
-                        message="OAuth2 provider endpoint is not configured",
-                    )
-                discovery = await self._discover(provider, settings.issuer, client)
-                authorize_url = self._validate_authorization_endpoint(
-                    discovery.authorization_endpoint,
-                    provider,
+            if settings.issuer is None:
+                raise FederationError(
+                    code="FEDERATION_PROVIDER_CONFIG_INVALID",
+                    message="OAuth2 provider endpoint is not configured",
                 )
+            discovery = await self._discover(provider, settings.issuer)
+            authorize_url = await self._validate_authorization_endpoint(
+                discovery.authorization_endpoint,
+                provider,
+            )
         else:
-            authorize_url = self._validate_authorization_endpoint(settings.authorize_url, provider)
+            authorize_url = await self._validate_authorization_endpoint(
+                settings.authorize_url,
+                provider,
+            )
 
         parts = urlsplit(authorize_url)
         query = [
@@ -109,9 +114,7 @@ class OAuth2Adapter:
                 ("state", attempt.id),
             )
         )
-        authorization_url = urlunsplit(
-            (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
-        )
+        authorization_url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
         return AuthorizationAction(authorization_url=authorization_url)
 
     async def complete_login(
@@ -139,49 +142,46 @@ class OAuth2Adapter:
             )
 
         settings = self._settings(provider)
-        async with self._client_factory() as client:
-            token_url = await self._resolve_endpoint(
-                provider,
-                settings,
-                configured_url=settings.token_url,
-                discovery_field="token_endpoint",
-                client=client,
-            )
-            access_token = await self._exchange_code(
-                client,
-                settings,
-                token_url,
-                code,
-                attempt.redirect_uri,
-            )
-            userinfo_url = await self._resolve_endpoint(
-                provider,
-                settings,
-                configured_url=settings.userinfo_url,
-                discovery_field="userinfo_endpoint",
-                client=client,
-            )
-            raw_userinfo = await self._fetch_userinfo(
-                client,
-                userinfo_url,
-                access_token,
-                settings.userinfo_headers,
-            )
-            mapped_claims = self._map_claims(raw_userinfo, settings.user_mapping)
-            is_oidc = settings.issuer is not None
-            if provider.id.value == "github":
-                email, email_verified = await self._fetch_verified_github_email(client, access_token)
-                if email is None:
-                    mapped_claims.pop("email", None)
-                else:
-                    mapped_claims["email"] = email
+        token_url = await self._resolve_endpoint(
+            provider,
+            settings,
+            configured_url=settings.token_url,
+            discovery_field="token_endpoint",
+        )
+        access_token = await self._exchange_code(
+            provider,
+            settings,
+            token_url,
+            code,
+            attempt.redirect_uri,
+        )
+        userinfo_url = await self._resolve_endpoint(
+            provider,
+            settings,
+            configured_url=settings.userinfo_url,
+            discovery_field="userinfo_endpoint",
+        )
+        raw_userinfo = await self._fetch_userinfo(
+            provider,
+            userinfo_url,
+            access_token,
+            settings.userinfo_headers,
+        )
+        mapped_claims = self._map_claims(raw_userinfo, settings.user_mapping)
+        is_oidc = settings.issuer is not None
+        if provider.id.value == "github":
+            email, email_verified = await self._fetch_verified_github_email(access_token)
+            if email is None:
+                mapped_claims.pop("email", None)
             else:
-                email = self._optional_string(mapped_claims.get("email"))
-                email_verified = (
-                    email is not None
-                    and settings.user_mapping.get("email") == "email"
-                    and raw_userinfo.get("email_verified") is True
-                )
+                mapped_claims["email"] = email
+        else:
+            email = self._optional_string(mapped_claims.get("email"))
+            email_verified = (
+                email is not None
+                and settings.user_mapping.get("email") == "email"
+                and raw_userinfo.get("email_verified") is True
+            )
 
         if is_oidc:
             subject = self._required_oidc_subject(raw_userinfo.get("sub"))
@@ -202,9 +202,7 @@ class OAuth2Adapter:
 
     @staticmethod
     def _settings(provider: ActiveProvider) -> OAuth2ProviderSettings:
-        if provider.protocol is not ProtocolId.OAUTH2 or not isinstance(
-            provider.settings, OAuth2ProviderSettings
-        ):
+        if provider.protocol is not ProtocolId.OAUTH2 or not isinstance(provider.settings, OAuth2ProviderSettings):
             raise FederationError(
                 code="FEDERATION_PROVIDER_CONFIG_INVALID",
                 message="Provider does not have valid OAuth2 settings",
@@ -218,24 +216,21 @@ class OAuth2Adapter:
         *,
         configured_url: str | None,
         discovery_field: str,
-        client: httpx.AsyncClient,
-    ) -> _PinnedEndpoint:
+    ) -> str:
         if configured_url is not None:
-            return self._pin_endpoint(configured_url, provider)
+            return configured_url
         if settings.issuer is None:
             raise FederationError(
                 code="FEDERATION_PROVIDER_CONFIG_INVALID",
                 message="OAuth2 provider endpoint is not configured",
             )
-        discovery = await self._discover(provider, settings.issuer, client)
-        endpoint = getattr(discovery, discovery_field)
-        return self._pin_endpoint(endpoint, provider)
+        discovery = await self._discover(provider, settings.issuer)
+        return getattr(discovery, discovery_field)
 
     async def _discover(
         self,
         provider: ActiveProvider,
         issuer: str,
-        client: httpx.AsyncClient,
     ) -> _OIDCDiscovery:
         cached = self._discovery_cache.get(issuer)
         if cached is not None:
@@ -245,12 +240,9 @@ class OAuth2Adapter:
             cached = self._discovery_cache.get(issuer)
             if cached is not None:
                 return cached
-            discovery_url = self._pin_endpoint(
-                f"{issuer.rstrip('/')}/.well-known/openid-configuration",
-                provider,
-            )
+            discovery_url = f"{issuer.rstrip('/')}/.well-known/openid-configuration"
             try:
-                response = await self._request(client, "GET", discovery_url)
+                response = await self._request("GET", discovery_url, provider)
                 if not response.is_success:
                     raise self._upstream_unavailable()
                 payload = response.json()
@@ -281,9 +273,9 @@ class OAuth2Adapter:
 
     async def _exchange_code(
         self,
-        client: httpx.AsyncClient,
+        provider: ActiveProvider,
         settings: OAuth2ProviderSettings,
-        token_url: _PinnedEndpoint,
+        token_url: str,
         code: str,
         redirect_uri: str,
     ) -> str:
@@ -299,9 +291,7 @@ class OAuth2Adapter:
         elif settings.token_endpoint_auth_method == "client_secret_basic":
             client_id = quote_plus(settings.client_id, safe="")
             client_secret = quote_plus(settings.client_secret, safe="")
-            credentials = base64.b64encode(
-                f"{client_id}:{client_secret}".encode()
-            ).decode()
+            credentials = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
             headers["Authorization"] = f"Basic {credentials}"
         else:
             raise FederationError(
@@ -311,9 +301,9 @@ class OAuth2Adapter:
 
         try:
             response = await self._request(
-                client,
                 "POST",
                 token_url,
+                provider,
                 data=data,
                 headers=headers,
             )
@@ -344,14 +334,19 @@ class OAuth2Adapter:
 
     async def _fetch_userinfo(
         self,
-        client: httpx.AsyncClient,
-        userinfo_url: _PinnedEndpoint,
+        provider: ActiveProvider,
+        userinfo_url: str,
         access_token: str,
         configured_headers: Mapping[str, str],
     ) -> Mapping[str, object]:
         headers = {**configured_headers, "Authorization": f"Bearer {access_token}"}
         try:
-            response = await self._request(client, "GET", userinfo_url, headers=headers)
+            response = await self._request(
+                "GET",
+                userinfo_url,
+                provider,
+                headers=headers,
+            )
             if not response.is_success:
                 raise self._upstream_unavailable()
             payload = response.json()
@@ -365,15 +360,13 @@ class OAuth2Adapter:
 
     async def _fetch_verified_github_email(
         self,
-        client: httpx.AsyncClient,
         access_token: str,
     ) -> tuple[str | None, bool]:
-        endpoint = self._pin_endpoint(_GITHUB_EMAILS_URL, None)
         try:
             response = await self._request(
-                client,
                 "GET",
-                endpoint,
+                _GITHUB_EMAILS_URL,
+                None,
                 headers={
                     "Authorization": f"Bearer {access_token}",
                     "Accept": "application/vnd.github+json",
@@ -442,34 +435,43 @@ class OAuth2Adapter:
         return normalized or None
 
     @staticmethod
-    def _validate_authorization_endpoint(
+    async def _validate_authorization_endpoint(
         endpoint: str,
         provider: ActiveProvider,
     ) -> str:
-        parsed = parse_http_endpoint(endpoint)
-        if parsed is None:
-            raise FederationError(
-                code="FEDERATION_PROVIDER_CONFIG_INVALID",
-                message="OAuth2 provider endpoint failed security validation",
-            )
-        scheme, hostname, port = parsed
-        addresses = endpoint_addresses(
-            hostname,
-            port,
-            resolver=_resolve_endpoint_addresses,
-        )
-        if not OAuth2Adapter._addresses_are_safe(addresses, provider, scheme):
-            raise FederationError(
-                code="FEDERATION_PROVIDER_CONFIG_INVALID",
-                message="OAuth2 provider endpoint failed security validation",
-            )
-        return endpoint
+        try:
+            async with asyncio.timeout(_REQUEST_DEADLINE_SECONDS):
+                await OAuth2Adapter._resolve_safe_addresses(endpoint, provider)
+                return endpoint
+        except TimeoutError:
+            raise OAuth2Adapter._upstream_unavailable() from None
 
     @staticmethod
-    def _pin_endpoint(
+    async def _pin_endpoint(
         endpoint: str,
         provider: ActiveProvider | None,
     ) -> _PinnedEndpoint:
+        scheme, hostname, addresses = await OAuth2Adapter._resolve_safe_addresses(
+            endpoint,
+            provider,
+        )
+        assert addresses
+        parsed_url = urlsplit(endpoint)
+        original_hostname = parsed_url.hostname
+        assert original_hostname is not None
+        host = f"[{original_hostname}]" if ":" in original_hostname else original_hostname
+        host_header = f"{host}:{parsed_url.port}" if parsed_url.port is not None else host
+        return _PinnedEndpoint(
+            url=httpx.URL(endpoint).copy_with(host=addresses[0].compressed),
+            host_header=host_header,
+            sni_hostname=hostname if scheme == "https" else None,
+        )
+
+    @staticmethod
+    async def _resolve_safe_addresses(
+        endpoint: str,
+        provider: ActiveProvider | None,
+    ) -> tuple[str, str, tuple[IPAddress, ...]]:
         parsed_endpoint = parse_http_endpoint(endpoint)
         if parsed_endpoint is None:
             raise FederationError(
@@ -477,7 +479,8 @@ class OAuth2Adapter:
                 message="OAuth2 provider endpoint failed security validation",
             )
         scheme, hostname, port = parsed_endpoint
-        addresses = endpoint_addresses(
+        addresses = await asyncio.to_thread(
+            endpoint_addresses,
             hostname,
             port,
             resolver=_resolve_endpoint_addresses,
@@ -488,17 +491,7 @@ class OAuth2Adapter:
                 message="OAuth2 provider endpoint failed security validation",
             )
         assert addresses is not None
-        original_url = httpx.URL(endpoint)
-        original_hostname = urlsplit(endpoint).hostname
-        assert original_hostname is not None
-        host = f"[{original_hostname}]" if ":" in original_hostname else original_hostname
-        explicit_port = urlsplit(endpoint).port
-        host_header = f"{host}:{explicit_port}" if explicit_port is not None else host
-        return _PinnedEndpoint(
-            url=original_url.copy_with(host=addresses[0].compressed),
-            host_header=host_header,
-            sni_hostname=hostname if scheme == "https" else None,
-        )
+        return scheme, hostname, addresses
 
     @staticmethod
     def _addresses_are_safe(
@@ -512,36 +505,63 @@ class OAuth2Adapter:
             return True
         return (
             provider is not None
-            and provider.id.value == "local"
+            and provider.allow_http_loopback
             and scheme == "http"
             and all(address.is_loopback for address in addresses)
         )
 
-    @staticmethod
     async def _request(
-        client: httpx.AsyncClient,
+        self,
         method: str,
-        endpoint: _PinnedEndpoint,
+        endpoint_url: str,
+        provider: ActiveProvider | None,
         *,
         data: Mapping[str, str] | None = None,
         headers: Mapping[str, str] | None = None,
     ) -> httpx.Response:
-        request_headers = dict(headers or {})
-        request_headers["Host"] = endpoint.host_header
-        extensions = (
-            {"sni_hostname": endpoint.sni_hostname}
-            if endpoint.sni_hostname is not None
-            else None
-        )
-        return await client.request(
-            method,
-            endpoint.url,
-            data=data,
-            headers=request_headers,
-            follow_redirects=False,
-            timeout=_REQUEST_TIMEOUT,
-            extensions=extensions,
-        )
+        try:
+            async with asyncio.timeout(_REQUEST_DEADLINE_SECONDS):
+                endpoint = await self._pin_endpoint(endpoint_url, provider)
+                request_headers = dict(headers or {})
+                request_headers["Host"] = endpoint.host_header
+                extensions = {"sni_hostname": endpoint.sni_hostname} if endpoint.sni_hostname is not None else None
+                async with self._client_factory() as client:
+                    self._require_direct_client(client)
+                    response = await client.request(
+                        method,
+                        endpoint.url,
+                        data=data,
+                        headers=request_headers,
+                        follow_redirects=False,
+                        timeout=_REQUEST_TIMEOUT,
+                        extensions=extensions,
+                    )
+                    await response.aread()
+                    return response
+        except TimeoutError:
+            raise self._upstream_unavailable() from None
+
+    @staticmethod
+    def _require_direct_client(client: httpx.AsyncClient) -> None:
+        if getattr(client, "_trust_env", True):
+            raise FederationError(
+                code="FEDERATION_PROVIDER_CONFIG_INVALID",
+                message="OAuth2 HTTP client must disable environment proxy configuration",
+            )
+        transports = [
+            getattr(client, "_transport", None),
+            *getattr(client, "_mounts", {}).values(),
+        ]
+        for transport in transports:
+            pool = getattr(transport, "_pool", None)
+            if pool is not None and pool.__class__.__name__ in {
+                "AsyncHTTPProxy",
+                "AsyncSOCKSProxy",
+            }:
+                raise FederationError(
+                    code="FEDERATION_PROVIDER_CONFIG_INVALID",
+                    message="OAuth2 HTTP client must not use a proxy transport",
+                )
 
     @staticmethod
     def _upstream_unavailable() -> FederationError:

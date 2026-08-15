@@ -124,6 +124,7 @@ class ActiveProvider:
     icon: str
     protocol: ProtocolId
     settings: ProviderProtocolSettings
+    allow_http_loopback: bool = False
 
 
 @dataclass(frozen=True, slots=True)

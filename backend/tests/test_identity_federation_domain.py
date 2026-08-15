@@ -8,11 +8,13 @@ from app.joysafeter_identity_federation.domain.errors import (
     FederationError,
 )
 from app.joysafeter_identity_federation.domain.models import (
+    ActiveProvider,
     CorrelationMethod,
     FederatedPrincipal,
     JDSSOProviderSettings,
     LoginAttempt,
     OAuth2ProviderSettings,
+    ProtocolId,
     ProviderId,
 )
 from app.joysafeter_identity_federation.domain.policies import AccountLinkPolicy
@@ -104,6 +106,27 @@ def test_provider_settings_freeze_mapping_fields() -> None:
     assert "email" not in jd_settings.user_mapping
     with pytest.raises(TypeError):
         oauth_settings.user_mapping["subject"] = "changed"
+
+
+def test_active_provider_loopback_capability_defaults_false() -> None:
+    provider = ActiveProvider(
+        id=ProviderId("local"),
+        display_name="Local",
+        icon="key",
+        protocol=ProtocolId.OAUTH2,
+        settings=OAuth2ProviderSettings(
+            client_id="client",
+            client_secret="secret",
+            authorize_url="https://identity.example/authorize",
+            token_url="https://identity.example/token",
+            userinfo_url="https://identity.example/userinfo",
+            issuer=None,
+            scope="openid",
+            user_mapping={"id": "sub"},
+        ),
+    )
+
+    assert provider.allow_http_loopback is False
 
 
 def test_configuration_error_renders_all_issues_in_order() -> None:
