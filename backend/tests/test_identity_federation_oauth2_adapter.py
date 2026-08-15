@@ -7,6 +7,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, quote_plus, urlparse
 
+import httpcore
 import httpx
 import pytest
 
@@ -28,6 +29,11 @@ from app.joysafeter_identity_federation.infrastructure.protocols.oauth2 import O
 pytestmark = pytest.mark.no_db
 
 ClientFactory = Callable[[], httpx.AsyncClient]
+
+
+class _UnknownProxyTransport(httpx.AsyncBaseTransport):
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, request=request)
 
 
 @pytest.fixture(autouse=True)
@@ -1331,21 +1337,41 @@ async def test_each_https_authority_uses_fresh_client_pool_on_shared_ip() -> Non
 
 
 @pytest.mark.asyncio
-async def test_environment_proxy_capable_client_is_rejected(
+async def test_default_mock_transport_client_is_accepted() -> None:
+    outcome = await OAuth2Adapter(
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200,
+                    json=(
+                        {"access_token": "access-token", "token_type": "Bearer"}
+                        if request.url.path.endswith("/token")
+                        else []
+                        if request.url.path.endswith("/user/emails")
+                        else {"id": "42"}
+                    ),
+                )
+            )
+        )
+    ).complete_login(
+        _github_provider(),
+        _attempt("attempt-1"),
+        _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+    )
+
+    assert isinstance(outcome, Authenticated)
+
+
+@pytest.mark.asyncio
+async def test_environment_derived_proxy_client_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
-
-    async def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(502)
+    for variable in ("HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "all_proxy", "no_proxy"):
+        monkeypatch.delenv(variable, raising=False)
 
     with pytest.raises(FederationError) as exc_info:
-        await OAuth2Adapter(
-            client_factory=lambda: httpx.AsyncClient(
-                transport=httpx.MockTransport(handler),
-                trust_env=True,
-            )
-        ).complete_login(
+        await OAuth2Adapter(client_factory=httpx.AsyncClient).complete_login(
             _github_provider(),
             _attempt("attempt-1"),
             _callback_context(query={"state": "attempt-1", "code": "code-1"}),
@@ -1372,12 +1398,31 @@ async def test_explicit_proxy_client_is_rejected() -> None:
 
 
 @pytest.mark.asyncio
-async def test_production_direct_client_factory_disables_proxies() -> None:
+async def test_unknown_custom_proxy_transport_is_rejected() -> None:
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(
+            client_factory=lambda: httpx.AsyncClient(
+                transport=_UnknownProxyTransport(),
+                trust_env=False,
+            )
+        ).complete_login(
+            _github_provider(),
+            _attempt("attempt-1"),
+            _callback_context(query={"state": "attempt-1", "code": "code-1"}),
+        )
+
+    assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_production_direct_client_factory_is_accepted() -> None:
     factory = getattr(oauth2_module, "direct_http_client_factory", None)
     assert callable(factory)
 
     async with factory() as client:
-        assert client._trust_env is False
+        OAuth2Adapter._require_direct_client(client)
+        assert type(client._transport) is httpx.AsyncHTTPTransport
+        assert type(client._transport._pool) is httpcore.AsyncConnectionPool
         assert client._mounts == {}
 
 

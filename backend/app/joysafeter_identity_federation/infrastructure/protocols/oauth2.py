@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import cast
 from urllib.parse import parse_qs, parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
 
+import httpcore
 import httpx
 
 from ...domain.errors import FederationError
@@ -543,25 +544,26 @@ class OAuth2Adapter:
 
     @staticmethod
     def _require_direct_client(client: httpx.AsyncClient) -> None:
-        if getattr(client, "_trust_env", True):
-            raise FederationError(
-                code="FEDERATION_PROVIDER_CONFIG_INVALID",
-                message="OAuth2 HTTP client must disable environment proxy configuration",
-            )
-        transports = [
-            getattr(client, "_transport", None),
-            *getattr(client, "_mounts", {}).values(),
-        ]
-        for transport in transports:
-            pool = getattr(transport, "_pool", None)
-            if pool is not None and pool.__class__.__name__ in {
-                "AsyncHTTPProxy",
-                "AsyncSOCKSProxy",
-            }:
-                raise FederationError(
-                    code="FEDERATION_PROVIDER_CONFIG_INVALID",
-                    message="OAuth2 HTTP client must not use a proxy transport",
-                )
+        transport = getattr(client, "_transport", None)
+        mounts = getattr(client, "_mounts", None)
+        if isinstance(mounts, dict):
+            if type(transport) is httpx.MockTransport and not any(
+                mounted_transport is not None for mounted_transport in mounts.values()
+            ):
+                return
+            if OAuth2Adapter._is_standard_direct_transport(transport) and all(
+                mounted_transport is None or OAuth2Adapter._is_standard_direct_transport(mounted_transport)
+                for mounted_transport in mounts.values()
+            ):
+                return
+        raise FederationError(
+            code="FEDERATION_PROVIDER_CONFIG_INVALID",
+            message="OAuth2 HTTP client must use an approved direct transport",
+        )
+
+    @staticmethod
+    def _is_standard_direct_transport(transport: object) -> bool:
+        return type(transport) is httpx.AsyncHTTPTransport and type(transport._pool) is httpcore.AsyncConnectionPool
 
     @staticmethod
     def _upstream_unavailable() -> FederationError:
