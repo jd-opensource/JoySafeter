@@ -15,6 +15,7 @@ contract the orchestrator depends on.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Optional, Tuple
 
 from sqlalchemy import select
@@ -36,6 +37,8 @@ from app.joysafeter_shared.ids import AgentId, SessionId, TaskId, TriggerId
 from app.joysafeter_shared.orchestrator_bridge.enqueue import enqueue_joysafeter_task
 
 logger = logging.getLogger(__name__)
+
+BeforeEnqueueHook = Callable[[JoySafeterTask], Awaitable[None]]
 
 
 def _enqueue_failed_error(*, task_id: TaskId, session_id: Optional[SessionId]) -> AppError:
@@ -147,6 +150,7 @@ class TaskSubmissionService:
         enforce_admission: bool = True,
         enforce_user_quota: bool = True,
         emit_user_message: bool = True,
+        before_enqueue: Optional[BeforeEnqueueHook] = None,
     ) -> Tuple[JoySafeterTask, bool]:
         """Persist the task, mark the session running, and enqueue it.
 
@@ -195,9 +199,13 @@ class TaskSubmissionService:
                 session_svc=session_svc,
             )
 
+        task_id = task.id
+        task_prompt = task.prompt
         try:
+            if before_enqueue is not None:
+                await before_enqueue(task)
             running_accepted = await session_svc.update_session_status_for_task_event(
-                chat_session_id, "running", task.id
+                chat_session_id, "running", task_id
             )
             if not running_accepted:
                 raise RuntimeError("Session already has another active task")
@@ -208,33 +216,39 @@ class TaskSubmissionService:
                 await session_svc.send_event(
                     chat_session_id,
                     "user.message",
-                    {"content": [{"type": "text", "text": task.prompt}], "task_id": str(task.id)},
+                    {"content": [{"type": "text", "text": task_prompt}], "task_id": str(task_id)},
                 )
             await session_svc.send_event(
                 chat_session_id,
                 "session.status_running",
-                {"task_id": str(task.id)},
+                {"task_id": str(task_id)},
             )
-            await enqueue_joysafeter_task(task.id)
+            await enqueue_joysafeter_task(task_id)
         except Exception as exc:
+            try:
+                await self.db.rollback()
+            except Exception:
+                logger.exception(
+                    "Failed to rollback task submission transaction before compensation"
+                )
             await self.tasks.update_task_error(
-                task.id,
+                task_id,
                 f"Failed to enqueue task: {exc}",
                 JoySafeterTaskStatus.FAILED,
             )
-            stop_reason = _enqueue_failed_stop_reason(task_id=task.id, session_id=chat_session_id)
+            stop_reason = _enqueue_failed_stop_reason(task_id=task_id, session_id=chat_session_id)
             try:
                 idle_accepted = await session_svc.update_session_status_for_task_event(
                     chat_session_id,
                     "idle",
-                    task.id,
+                    task_id,
                     stop_reason=stop_reason,
                 )
                 if idle_accepted:
                     await session_svc.send_event(
                         chat_session_id,
                         "session.status_idle",
-                        {"task_id": str(task.id), "stop_reason": stop_reason},
+                        {"task_id": str(task_id), "stop_reason": stop_reason},
                     )
             except Exception:
                 logger.debug(
@@ -242,7 +256,7 @@ class TaskSubmissionService:
                     chat_session_id,
                     exc_info=True,
                 )
-            raise _enqueue_failed_error(task_id=task.id, session_id=chat_session_id)
+            raise _enqueue_failed_error(task_id=task_id, session_id=chat_session_id)
 
         return task, True
 

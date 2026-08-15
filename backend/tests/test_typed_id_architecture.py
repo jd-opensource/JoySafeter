@@ -95,6 +95,10 @@ REVIEWED_ENTITY_UUID_ADAPTERS = {
         ("redis_queue_channel_payloads",),
         1,
     ),
+    "python:app/joysafeter_api/api/v1/agents.py::_cleanup_agent_identity::uuid_attr": (
+        ("redis_queue_channel_payloads",),
+        1,
+    ),
     "python:app/joysafeter_domain/services/joysafeter_file_service.py::_make_storage_key::as_uuid_call": (
         ("object_storage_keys",),
         1,
@@ -220,8 +224,8 @@ REVIEWED_ENTITY_UUID_ADAPTERS = {
         1,
     ),
     "rust:app/joysafeter_orchestrator_rs/src/kernel/sandbox_resolver.rs::as_uuid": (
-        ("physical_resource_naming",),
-        14,
+        ("physical_resource_naming", "third_party_uuid_contracts"),
+        17,
     ),
     "rust:app/joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs::as_uuid": (
         ("redis_queue_channel_payloads",),

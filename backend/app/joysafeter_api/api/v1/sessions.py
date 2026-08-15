@@ -229,9 +229,8 @@ async def _load_session_storage_mounts(db: AsyncSession, session_id: SessionId, 
 def _public_session_metadata(metadata) -> dict:
     """Strip internal-only keys before returning session metadata to clients.
 
-    ``agent_identity_context`` holds the encrypted user credential + request
-    headers used server-side for JD identity token exchange. It must never be
-    exposed to the client.
+    ``agent_identity_context`` is a reserved legacy key. Identity credentials
+    are task-scoped and must never be stored in or returned from session metadata.
     """
     if not isinstance(metadata, dict):
         return {}
@@ -1489,11 +1488,11 @@ async def _replay_pending_control_inputs(
 @router.post("/{session_id}/events", status_code=201)
 async def send_event(
     req: SendEventRequest,
-    request: Request,
     session_id: SessionId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+    request: Request = None,
 ) -> dict:
     if not isinstance(idempotency_key, str) or not idempotency_key.strip():
         idempotency_key = None
@@ -1666,8 +1665,22 @@ async def send_event(
         # Dispatch by event type
         # ----------------------------------------------------------------
         if single.type == "user.message":
+            from app.joysafeter_api.api.v1.agent_identity_capture import (
+                prepare_agent_identity_capture,
+            )
             from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
 
+            agent_obj = await AgentService(db).get_agent(
+                session.agent_id, project_id=auth_ctx.project_id
+            )
+            identity_hook = None
+            if agent_obj is not None:
+                identity_hook = await prepare_agent_identity_capture(
+                    db,
+                    request,
+                    auth_ctx,
+                    agent_obj,
+                )
             task, _created = await TaskSubmissionService(db).create_and_dispatch(
                 agent_id=session.agent_id,
                 prompt=message_text,
@@ -1682,28 +1695,8 @@ async def send_event(
                 idempotency_key=idempotency_key,
                 enforce_user_quota=auth_ctx.principal_type == "user",
                 emit_user_message=False,  # event already persisted by this endpoint
+                before_enqueue=identity_hook,
             )
-
-            # Capture the user's identity credential so the orchestrator's
-            # identity provider can consume it during sandbox resolve. The web
-            # flow posts here (not /tasks), so capture must live on this path too.
-            try:
-                from app.joysafeter_api.api.v1.agent_identity_capture import (
-                    store_agent_identity_context,
-                )
-                from app.joysafeter_api.services import JoySafeterAgentService
-
-                agent_obj = await JoySafeterAgentService(db).get_agent(
-                    session.agent_id, project_id=auth_ctx.project_id
-                )
-                if agent_obj is not None:
-                    await store_agent_identity_context(
-                        db, session_id, request, auth_ctx, agent_obj
-                    )
-            except Exception:
-                logger.exception(
-                    "[agent-identity] capture failed on session events path (non-fatal)"
-                )
             if broadcaster:
                 running_event = await svc.find_status_running_event_for_task(
                     session_id,

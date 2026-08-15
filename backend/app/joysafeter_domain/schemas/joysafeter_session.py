@@ -237,6 +237,13 @@ class CreateSessionRequest(BaseModel):
     repo_resources: list[SessionRepoResourceRequest] = Field(default_factory=list)
     storage_mounts: list[SessionStorageMountRequest] = Field(default_factory=list)
 
+    @field_validator("metadata")
+    @classmethod
+    def reject_reserved_internal_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if "agent_identity_context" in value:
+            raise ValueError("metadata.agent_identity_context is reserved for internal use")
+        return value
+
     @model_validator(mode="before")
     @classmethod
     def coerce_agent_string(cls, data: Any) -> Any:

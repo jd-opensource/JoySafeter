@@ -11,6 +11,11 @@ from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_lo
 
 
 async def run_api_startup() -> None:
+    from app.joysafeter_api.api.v1.agent_identity_capture import (
+        validate_agent_identity_configuration,
+    )
+
+    validate_agent_identity_configuration()
     await _initialize_session_broadcaster()
 
 

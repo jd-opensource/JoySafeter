@@ -45,6 +45,7 @@ from .joysafeter_storage_mount import (  # noqa: F401 — alembic discovery
     JoySafeterStorageVolume,
 )
 from .joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
+from .joysafeter_task_identity import JoySafeterTaskIdentityContext
 from .joysafeter_trigger import (  # noqa: F401 — alembic discovery
     JoySafeterTrigger,
     TriggerConcurrencyPolicy,
@@ -74,6 +75,7 @@ __all__ = [
     "JoySafeterSkillVersionFile",
     "JoySafeterTask",
     "JoySafeterTaskStatus",
+    "JoySafeterTaskIdentityContext",
     "JoySafeterSession",
     "JoySafeterSessionEvent",
     "JoySafeterSandbox",

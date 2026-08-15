@@ -1,161 +1,162 @@
-"""Agent identity context capture (provider-agnostic).
+"""Prepare task-scoped agent identity capture for HTTP submission paths."""
 
-Shared helper that captures the triggering user's identity credential and
-stores it encrypted in ``session.metadata.agent_identity_context``. This is a
-generic bridge: the API layer can access the user's HTTP request (cookies /
-headers) but does not perform any identity-provider protocol itself — the
-orchestrator's pluggable identity provider consumes this context later.
-
-What gets captured (whichever is available):
-  - an identity credential from a configured request cookie (browser flow), or
-  - a one-time identity auth code supplied by an API caller.
-
-Enablement and the cookie name are entirely env-driven, so this module carries
-no provider-specific values. It lives in its own module (not tasks.py) so both
-the task-creation path (POST /tasks) and the session-message path
-(POST /sessions/{id}/events) can call it without a circular import.
-
-Environment variables:
-  - AGENT_IDENTITY_ENABLED / AGENT_IDENTITY_BASE_URL: when neither is set,
-    capture is a no-op (feature disabled).
-  - AGENT_IDENTITY_COOKIE_NAME: name of the request cookie holding the user's
-    identity credential. Required for the browser flow; if unset, only the
-    auth-code path works.
-"""
+from __future__ import annotations
 
 import base64
-import json
+import hashlib
 import logging
 import os
-from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import Request
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
+from app.joysafeter_domain.models.joysafeter_task_identity import JoySafeterTaskIdentityContext
 
 logger = logging.getLogger(__name__)
 
+IdentityCaptureHook = Callable[[JoySafeterTask], Awaitable[None]]
+
 
 def _identity_enabled() -> bool:
-    """Whether identity capture is active (env-driven, provider-agnostic)."""
-    if os.environ.get("AGENT_IDENTITY_ENABLED", "").strip().lower() in ("1", "true", "yes"):
-        return True
-    return bool(os.environ.get("AGENT_IDENTITY_BASE_URL", "").strip())
+    return os.environ.get("AGENT_IDENTITY_ENABLED", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def _decode_vault_key(vault_key: str) -> bytes:
+    try:
+        key_bytes = (
+            bytes.fromhex(vault_key)
+            if len(vault_key) == 64
+            else base64.b64decode(vault_key, validate=True)
+        )
+    except (ValueError, TypeError) as exc:
+        raise ValueError("JOYSAFETER_VAULT_ENCRYPTION_KEY must encode a 32-byte key") from exc
+    if len(key_bytes) != 32:
+        raise ValueError("JOYSAFETER_VAULT_ENCRYPTION_KEY must encode a 32-byte key")
+    return key_bytes
+
+
+def validate_agent_identity_configuration() -> None:
+    if not _identity_enabled():
+        return
+    missing = [
+        name
+        for name in ("AGENT_IDENTITY_BASE_URL", "AGENT_IDENTITY_ALLOWED_HOSTS")
+        if not os.environ.get(name, "").strip()
+    ]
+    if missing:
+        raise RuntimeError(
+            "Agent identity is enabled but required configuration is missing: "
+            + ", ".join(missing)
+        )
+    try:
+        _decode_vault_key(os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", ""))
+        _context_ttl()
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
 
 
 def _encrypt(value: str, vault_key: str) -> str:
-    """AES-256-GCM encrypt, matching the orchestrator's VaultCipher ``enc:`` format."""
-    if not vault_key or not value:
-        return value
+    """Encrypt a credential using the shared versioned AES-256-GCM envelope."""
+    if not value:
+        raise ValueError("identity credential must be non-empty")
+    key_bytes = _decode_vault_key(vault_key)
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    nonce = os.urandom(12)
+    ciphertext = AESGCM(key_bytes).encrypt(nonce, value.encode(), None)
+    return "enc:v1:" + base64.b64encode(nonce + ciphertext).decode()
+
+
+def _context_ttl() -> timedelta:
+    raw_value = os.environ.get("AGENT_IDENTITY_CONTEXT_TTL_SECONDS", "300").strip()
     try:
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
-        key_bytes = bytes.fromhex(vault_key) if len(vault_key) == 64 else base64.b64decode(vault_key)
-        nonce = os.urandom(12)
-        aesgcm = AESGCM(key_bytes)
-        ciphertext = aesgcm.encrypt(nonce, value.encode(), None)
-        return "enc:" + base64.b64encode(nonce + ciphertext).decode()
-    except Exception:
-        return value  # plaintext fallback (orchestrator decrypt_or_passthrough handles it)
+        seconds = int(raw_value)
+    except ValueError as exc:
+        raise ValueError("AGENT_IDENTITY_CONTEXT_TTL_SECONDS must be an integer") from exc
+    if not 30 <= seconds <= 900:
+        raise ValueError("AGENT_IDENTITY_CONTEXT_TTL_SECONDS must be between 30 and 900")
+    return timedelta(seconds=seconds)
 
 
-async def store_agent_identity_context(
+async def prepare_agent_identity_capture(
     db: AsyncSession,
-    session_id,
-    request: Request,
-    auth_ctx,
-    agent,
+    request: Request | Any | None,
+    auth_ctx: Any,
+    agent: Any,
     identity_auth_code: str | None = None,
-) -> None:
-    """Capture and encrypt the triggering user's identity into session.metadata.
+) -> IdentityCaptureHook | None:
+    """Validate and encrypt identity input before a task is created.
 
-    Applies to all agents when identity capture is enabled, unless the agent
-    explicitly opts out via ``metadata.agent_identity.enabled = false``.
+    The returned hook persists the already-encrypted context for the newly
+    created task. Callers must execute it before dispatching the task.
     """
     if not _identity_enabled():
-        return  # Identity capture disabled
+        return None
 
     agent_metadata = getattr(agent, "metadata_", None) or getattr(agent, "metadata", None)
     if isinstance(agent_metadata, dict):
         identity_config = agent_metadata.get("agent_identity")
         if isinstance(identity_config, dict) and not identity_config.get("enabled", True):
-            return  # Explicit per-agent opt-out
+            return None
 
-    # --- Resolve credential: auth code (API) or request cookie (browser) ---
+    auth_code = identity_auth_code.strip() if identity_auth_code else None
     cookie_name = os.environ.get("AGENT_IDENTITY_COOKIE_NAME", "").strip()
-    identity_token = None
-    if not identity_auth_code and cookie_name:
-        identity_token = request.cookies.get(cookie_name)
+    cookies = getattr(request, "cookies", {}) if request is not None else {}
+    identity_token = cookies.get(cookie_name) if cookie_name and not auth_code else None
+    if isinstance(identity_token, str):
+        identity_token = identity_token.strip()
+    if not auth_code and not identity_token:
+        return None
 
-    if not identity_auth_code and not identity_token:
-        logger.info(
-            "[agent-identity] no identity credential for session=%s "
-            "(auth_code absent, cookie '%s' absent)",
-            session_id,
-            cookie_name or "<unset>",
-        )
-        return
+    credential_kind = "auth_code" if auth_code else "identity_token"
+    credential = auth_code or identity_token
+    assert credential is not None
+    credential_fingerprint = (
+        hashlib.sha256(credential.encode()).hexdigest() if credential_kind == "auth_code" else None
+    )
+    encrypted_credential = _encrypt(
+        credential,
+        os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", ""),
+    )
+    captured_at = datetime.now(timezone.utc)
+    expires_at = captured_at + _context_ttl()
+    project_id = getattr(auth_ctx, "project_id", None)
+    user_id = str(auth_ctx.user_id)
+    user_name = user_id
 
-    vault_key = os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", "")
+    from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 
-    # --- Resolve user account name for downstream cache keying ---
-    user_name = auth_ctx.user_id
-    try:
-        from app.joysafeter_domain.models.joysafeter_auth import AuthUser
+    result = await db.execute(select(AuthUser.email).where(AuthUser.id == auth_ctx.user_id).limit(1))
+    email = result.scalar_one_or_none()
+    if email:
+        user_name = email
 
-        result = await db.execute(
-            select(AuthUser.email).where(AuthUser.id == auth_ctx.user_id).limit(1)
-        )
-        email = result.scalar_one_or_none()
-        if email:
-            user_name = email
-    except Exception:
-        pass
-
-    # --- Build payload ---
-    context_payload: dict = {
-        "user_name": user_name,
-        "captured_at": datetime.now(timezone.utc).isoformat(),
-    }
-    if identity_auth_code:
-        context_payload["auth_code"] = _encrypt(identity_auth_code, vault_key)
-        context_payload["source"] = "auth_code"
-    else:
-        context_payload["identity_token"] = _encrypt(identity_token, vault_key)
-        context_payload["source"] = "cookie"
-
-    # NOTE: We deliberately do NOT persist the raw request headers/cookies. They
-    # contain the user's full credential set and must not sit in the DB. The
-    # orchestrator reconstructs any provider-required headers from the
-    # (encrypted) identity_token at exchange time instead.
-
-    context_data = {"agent_identity_context": context_payload}
-
-    # --- Persist ---
-    # Use CAST(... AS jsonb) instead of the ``::jsonb`` shorthand: with asyncpg
-    # the ``:name::jsonb`` form makes the driver misparse ``::`` against the
-    # ``:name`` bind marker, raising "syntax error at or near :". CAST avoids it.
-    try:
-        await db.execute(
-            text(
-                """
-                UPDATE joysafeter_sessions
-                SET metadata = COALESCE(metadata, CAST('{}' AS jsonb))
-                               || CAST(:ctx AS jsonb)
-                WHERE id = CAST(:sid AS uuid)
-                """
-            ),
-            {"ctx": json.dumps(context_data), "sid": str(session_id)},
+    async def persist(task: JoySafeterTask) -> None:
+        if getattr(task, "project_id", None) != project_id:
+            raise RuntimeError("task identity project scope does not match authenticated project")
+        db.add(
+            JoySafeterTaskIdentityContext(
+                task_id=task.id,
+                project_id=project_id,
+                user_id=user_id,
+                user_name=user_name,
+                credential_kind=credential_kind,
+                credential_fingerprint=credential_fingerprint,
+                encrypted_credential=encrypted_credential,
+                captured_at=captured_at,
+                expires_at=expires_at,
+            )
         )
         await db.commit()
-        logger.info(
-            "[agent-identity] stored identity context for session=%s source=%s",
-            session_id,
-            context_payload["source"],
-        )
-    except Exception:
-        logger.exception("[agent-identity] failed to store identity context for session=%s", session_id)
-        try:
-            await db.rollback()
-        except Exception:
-            pass
+
+    return persist

@@ -367,9 +367,6 @@ async def delete_agent(
     if not agent:
         raise _agent_not_found_error(agent_id)
 
-    # Cleanup agent identity credentials (Redis cache + identity platform)
-    await _cleanup_agent_identity(str(agent_id))
-
     if not force:
         # Check for active tasks before soft delete
         active_tasks = await svc.list_active_tasks_for_agent(agent_id, project_id=auth_ctx.project_id)
@@ -402,6 +399,7 @@ async def delete_agent(
             ) from e
         if not ok:
             raise _agent_not_found_error(agent_id)
+        await _cleanup_agent_identity(agent_id)
         return
 
     # Force delete: cascade cleanup
@@ -424,6 +422,7 @@ async def delete_agent(
         ) from e
     if not ok:
         raise _agent_not_found_error(agent_id)
+    await _cleanup_agent_identity(agent_id)
 
 
 async def _cancel_active_tasks_for_agent(agent_id: AgentId, db: AsyncSession, project_id: Optional[str] = None) -> None:
@@ -578,21 +577,10 @@ async def _destroy_sandboxes_for_agent(
 
 
 async def _cleanup_agent_identity(agent_id: AgentId) -> None:
-    """Clear cached agent identity tokens from Redis on agent deletion.
-
-    Only removes the cache entries. Any real revocation on the identity
-    platform is handled by the orchestrator's identity provider; cached
-    credentials also carry a TTL and expire naturally.
-
-    The cache key prefix is provider-defined and supplied via
-    ``AGENT_IDENTITY_CACHE_PREFIX``; when unset, cleanup is skipped.
-    Non-fatal: errors are logged but don't block agent deletion.
-    """
+    """Revoke and clear cached agent identity tokens on agent deletion."""
     import os
-
-    cache_prefix = os.environ.get("AGENT_IDENTITY_CACHE_PREFIX", "").strip()
-    if not cache_prefix:
-        return  # No cache-key convention configured — nothing to clear
+    import time
+    import uuid
 
     redis_url = os.environ.get("REDIS_URL", "")
     if not redis_url:
@@ -607,14 +595,36 @@ async def _cleanup_agent_identity(agent_id: AgentId) -> None:
             redis_url = f"redis://{redis_host}:{redis_port}/0"
 
     try:
+        import httpx
         import redis.asyncio as aioredis
 
         client = aioredis.from_url(redis_url)
-        pattern = f"{cache_prefix}:*:{agent_id}:*"
+        pattern = f"joysafeter:bot_token:*:*:{agent_id.uuid}:*:*:*"
+        base_url = os.environ.get("AGENT_IDENTITY_BASE_URL", "").strip().rstrip("/")
         deleted = 0
-        async for key in client.scan_iter(match=pattern, count=100):
-            await client.delete(key)
-            deleted += 1
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            async for key in client.scan_iter(match=pattern, count=100):
+                bot_token = await client.get(key)
+                if base_url and bot_token:
+                    if isinstance(bot_token, bytes):
+                        bot_token = bot_token.decode()
+                    try:
+                        await http.post(
+                            f"{base_url}/ai/identity/sec/api/revokeBotToken",
+                            json={
+                                "traceId": str(uuid.uuid4()),
+                                "botToken": bot_token,
+                                "timestamp": int(time.time() * 1000),
+                            },
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Agent identity token revoke failed for %s (non-fatal): %s",
+                            agent_id,
+                            exc,
+                        )
+                await client.delete(key)
+                deleted += 1
         await client.aclose()
         if deleted:
             logger.info(
