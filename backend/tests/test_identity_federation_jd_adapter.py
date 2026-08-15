@@ -172,7 +172,7 @@ def test_jd_signature_matches_reference_vector() -> None:
 
 
 @pytest.mark.asyncio
-async def test_begin_login_sets_signed_correlation_cookie() -> None:
+async def test_begin_login_matches_legacy_five_parameter_contract() -> None:
     action = await _adapter().begin_login(
         _jd_provider(),
         _attempt("attempt-1"),
@@ -181,7 +181,14 @@ async def test_begin_login_sets_signed_correlation_cookie() -> None:
 
     assert action.authorization_url.startswith("https://sso.jd.com/")
     query = parse_qs(urlparse(action.authorization_url).query)
-    assert query["ReturnUrl"] == [_attempt("attempt-1").redirect_uri]
+    assert query == {
+        "client_id": ["jd-client"],
+        "redirect_uri": [_attempt("attempt-1").redirect_uri],
+        "response_type": ["code"],
+        "scope": ["openid email"],
+        "state": ["attempt-1"],
+    }
+    assert "ReturnUrl" not in query
     assert action.correlation_cookie is not None
     assert action.correlation_cookie.name == "joysafeter_federation_attempt"
     assert action.correlation_cookie.max_age_seconds == 600
@@ -189,11 +196,12 @@ async def test_begin_login_sets_signed_correlation_cookie() -> None:
 
 
 @pytest.mark.asyncio
-async def test_begin_login_replaces_every_stale_return_url_and_preserves_unrelated_query() -> None:
+async def test_begin_login_replaces_stale_legacy_parameters_and_preserves_unrelated_query() -> None:
     provider = _jd_provider(
         authorize_url=(
-            "https://sso.jd.com/login?tenant=jd&ReturnUrl=https%3A%2F%2Fold.example%2Fone"
-            "&returnurl=case-sensitive&ReturnUrl=https%3A%2F%2Fold.example%2Ftwo"
+            "https://sso.jd.com/login?tenant=jd&client_id=stale-one&client_id=stale-two"
+            "&redirect_uri=https%3A%2F%2Fold.example%2Fcallback&response_type=token"
+            "&scope=stale&state=stale-one&state=stale-two&feature=enabled"
         )
     )
 
@@ -201,21 +209,13 @@ async def test_begin_login_replaces_every_stale_return_url_and_preserves_unrelat
 
     assert parse_qsl(urlparse(action.authorization_url).query) == [
         ("tenant", "jd"),
-        ("returnurl", "case-sensitive"),
-        ("ReturnUrl", _attempt("attempt-1").redirect_uri),
+        ("feature", "enabled"),
+        ("client_id", "jd-client"),
+        ("redirect_uri", _attempt("attempt-1").redirect_uri),
+        ("response_type", "code"),
+        ("scope", "openid email"),
+        ("state", "attempt-1"),
     ]
-
-
-@pytest.mark.asyncio
-async def test_begin_login_does_not_synthesize_oauth_authorization_parameters() -> None:
-    action = await _adapter().begin_login(
-        _jd_provider(),
-        _attempt("attempt-1"),
-        _request_context(),
-    )
-
-    query = parse_qs(urlparse(action.authorization_url).query)
-    assert not {"client_id", "redirect_uri", "response_type", "scope", "state"} & query.keys()
 
 
 def test_extract_attempt_id_verifies_signed_cookie() -> None:
@@ -227,13 +227,17 @@ def test_extract_attempt_id_verifies_signed_cookie() -> None:
 
 
 @pytest.mark.parametrize(
-    "context",
+    "cookies",
     [
-        _callback_context(query={"state": "attempt-1"}),
-        _callback_context(cookies={"joysafeter_federation_attempt": "tampered"}),
+        {},
+        {"joysafeter_federation_attempt": "tampered"},
     ],
 )
-def test_extract_attempt_id_never_falls_back_to_query_state(context: CallbackContext) -> None:
+def test_extract_attempt_id_rejects_missing_or_tampered_cookie_even_with_query_state(
+    cookies: dict[str, str],
+) -> None:
+    context = _callback_context(query={"state": "attempt-1"}, cookies=cookies)
+
     with pytest.raises(FederationError) as exc_info:
         _adapter().extract_attempt_id(context)
 
