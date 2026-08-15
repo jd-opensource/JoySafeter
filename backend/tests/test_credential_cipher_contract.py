@@ -42,6 +42,13 @@ def test_credential_cipher_rejects_plaintext_and_tampered_storage():
         cipher.decrypt_stored("enc:v1:not-valid-base64")
 
 
+def test_credential_cipher_rejects_unknown_versioned_envelope():
+    cipher = CredentialCipher(CredentialCipher.generate_key())
+
+    with pytest.raises(CredentialCiphertextError, match="Unsupported credential envelope"):
+        cipher.decrypt_stored("enc:v2:not-supported")
+
+
 def test_credential_cipher_round_trip_uses_encrypted_storage_envelope():
     cipher = CredentialCipher(CredentialCipher.generate_key())
 

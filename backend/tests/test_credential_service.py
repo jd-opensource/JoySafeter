@@ -23,6 +23,7 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
 )
 from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_shared.common.app_errors import AppError
+from app.joysafeter_shared.security.credential_cipher import CredentialCiphertextError
 
 
 async def _make_project(db_session) -> str:
@@ -68,6 +69,14 @@ async def test_create_model_ok(db_session, project_id):
     assert cred.provider == "openai"
     # Stored value is encrypted, not plaintext.
     assert cred.data["API_KEY"].startswith("enc:v1:")
+
+
+@pytest.mark.no_db
+def test_decrypt_data_rejects_non_string_storage_without_coercion():
+    svc = CredentialService(db=None)  # type: ignore[arg-type]
+
+    with pytest.raises(CredentialCiphertextError, match="must be a string"):
+        svc.decrypt_data({"API_KEY": 123})
 
 
 @pytest.mark.asyncio

@@ -23,6 +23,7 @@ from app.joysafeter_identity.config import (
 from app.joysafeter_identity.service import cleanup_agent_identity
 from app.joysafeter_shared.common.app_errors import ServiceUnavailableError
 from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
+from app.joysafeter_shared.security.credential_cipher import CredentialCipher
 
 pytestmark = pytest.mark.no_db
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -59,6 +60,25 @@ def test_identity_encryption_uses_versioned_envelope() -> None:
 
     assert encrypted.startswith("enc:v1:")
     assert "credential" not in encrypted
+
+
+def test_identity_encryption_delegates_to_shared_cipher(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    def fake_encrypt(self: CredentialCipher, value: str) -> str:
+        calls.append(value)
+        return "enc:v1:shared"
+
+    monkeypatch.setattr(CredentialCipher, "encrypt", fake_encrypt)
+
+    assert (
+        _encrypt(
+            "credential",
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        )
+        == "enc:v1:shared"
+    )
+    assert calls == ["credential"]
 
 
 @pytest.mark.parametrize("key", ["", "not-a-key", "00"])

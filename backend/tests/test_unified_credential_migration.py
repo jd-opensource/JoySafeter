@@ -14,6 +14,8 @@ from psycopg import sql
 from psycopg.types.json import Jsonb
 from testcontainers.postgres import PostgresContainer
 
+from app.joysafeter_shared.security.credential_cipher import CredentialCipher
+
 pytestmark = pytest.mark.no_db
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
@@ -21,6 +23,16 @@ ALEMBIC = Path(sys.executable).with_name("alembic")
 PRE_UNIFIED_REVISION = "20260803_000001"
 PROJECT_ID = "proj-migration"
 ORG_ID = "org-migration"
+VAULT_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+
+def _cipher(key: str = VAULT_KEY) -> CredentialCipher:
+    return CredentialCipher(key)
+
+
+def _legacy_ciphertext(plaintext: str, *, key: str = VAULT_KEY) -> str:
+    current = _cipher(key).encrypt(plaintext)
+    return "enc:" + current[len("enc:v1:") :]
 
 
 @dataclass(frozen=True)
@@ -60,6 +72,7 @@ def migration_database(postgres_server: tuple[str, int]) -> Iterator[MigrationDa
             "POSTGRES_PASSWORD": "postgres",
             "POSTGRES_DB": database_name,
             "SECRET_KEY": "test-secret-key-for-local-and-ci-runs-only",
+            "JOYSAFETER_VAULT_ENCRYPTION_KEY": VAULT_KEY,
         }
     )
     subprocess.run(
@@ -86,8 +99,12 @@ def migration_database(postgres_server: tuple[str, int]) -> Iterator[MigrationDa
 
 
 def _upgrade_head(database: MigrationDatabase) -> subprocess.CompletedProcess[str]:
+    return _upgrade_to(database, "head")
+
+
+def _upgrade_to(database: MigrationDatabase, revision: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [ALEMBIC, "upgrade", "head"],
+        [ALEMBIC, "upgrade", revision],
         cwd=BACKEND_ROOT,
         env=database.env,
         capture_output=True,
@@ -242,7 +259,7 @@ def test_migration_rejects_normalized_mcp_url_collisions_before_creating_tables(
             vault_id=vault_id,
             name="first",
             url="https://MCP.example.test/",
-            token="enc:first",
+            token=_legacy_ciphertext("first"),
         )
         _seed_vault_credential(
             connection,
@@ -250,7 +267,7 @@ def test_migration_rejects_normalized_mcp_url_collisions_before_creating_tables(
             vault_id=vault_id,
             name="second",
             url="https://mcp.example.test",
-            token="enc:second",
+            token=_legacy_ciphertext("second"),
         )
         connection.commit()
 
@@ -282,7 +299,7 @@ def test_migration_rejects_cross_table_credential_id_collisions_before_creating_
             vault_id=vault_id,
             name="id-collision-mcp",
             url="https://collision.example.test",
-            token="enc:mcp",
+            token=_legacy_ciphertext("mcp"),
         )
         connection.execute(
             """
@@ -324,7 +341,7 @@ def test_migration_renames_duplicate_mcp_names_without_data_loss(
             vault_id=older_vault_id,
             name="shared-name",
             url="https://older.example.test",
-            token="enc:older",
+            token=_legacy_ciphertext("older"),
             created_at="2026-08-13T10:00:00Z",
         )
         _seed_vault_credential(
@@ -333,7 +350,7 @@ def test_migration_renames_duplicate_mcp_names_without_data_loss(
             vault_id=newer_vault_id,
             name="shared-name",
             url="https://newer.example.test",
-            token="enc:newer",
+            token=_legacy_ciphertext("newer"),
             created_at="2026-08-14T10:00:00Z",
         )
         connection.commit()
@@ -351,10 +368,12 @@ def test_migration_renames_duplicate_mcp_names_without_data_loss(
             """
         ).fetchall()
 
-    assert rows == [
-        (older_credential_id, f"shared-name (migrated-dup {older_credential_id})", "enc:older"),
-        (newer_credential_id, "shared-name", "enc:newer"),
+    assert [(row[0], row[1]) for row in rows] == [
+        (older_credential_id, f"shared-name (migrated-dup {older_credential_id})"),
+        (newer_credential_id, "shared-name"),
     ]
+    assert all(row[2].startswith("enc:v1:") for row in rows)
+    assert [_cipher().decrypt_stored(row[2]) for row in rows] == ["older", "newer"]
 
 
 def test_migration_preserves_vault_metadata_and_prefixed_session_references(
@@ -915,6 +934,197 @@ def test_migration_converts_legacy_skill_usage_ids(
         ).fetchone()
 
     assert row == (session_id, agent_id, "1.2.3")
+
+
+def test_envelope_normalization_covers_all_persisted_credential_stores(
+    migration_database: MigrationDatabase,
+) -> None:
+    assert _upgrade_to(migration_database, "20260814_000002").returncode == 0
+
+    agent_id = uuid4()
+    session_id = uuid4()
+    task_id = uuid4()
+    model_credential_id = uuid4()
+    mcp_credential_id = uuid4()
+    group_id = uuid4()
+    repo_id = uuid4()
+    cipher = _cipher()
+    legacy_model = _legacy_ciphertext("legacy-model")
+    current_model = cipher.encrypt("current-model")
+    legacy_token = _legacy_ciphertext("legacy-token")
+    current_refresh = cipher.encrypt("current-refresh")
+    legacy_repo = _legacy_ciphertext("repo-token")
+    legacy_identity = _legacy_ciphertext("identity-token")
+
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        connection.execute(
+            """
+            INSERT INTO joysafeter_agents
+                (id, project_id, name, engine_kind, env, mcp_servers, skills, tools,
+                 agents, commands, permission_mode, metadata, version)
+            VALUES
+                (%s, %s, 'normalization-agent', 'codex', '{}'::jsonb, '[]'::jsonb,
+                 '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                 'default', '{}'::jsonb, 1)
+            """,
+            (agent_id, PROJECT_ID),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_sessions (id, project_id, agent_id, status)
+            VALUES (%s, %s, %s, 'idle')
+            """,
+            (session_id, PROJECT_ID, agent_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_tasks
+                (id, project_id, agent_id, chat_session_id, status, prompt, output,
+                 timeout_sec, retry_count, max_retries)
+            VALUES (%s, %s, %s, %s, 'pending', 'normalize', '', 7200, 0, 2)
+            """,
+            (task_id, PROJECT_ID, agent_id, session_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_credential_groups (id, project_id, name)
+            VALUES (%s, %s, 'normalization-group')
+            """,
+            (group_id, PROJECT_ID),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_credentials
+                (id, project_id, kind, name, data, provider, protocol, is_default)
+            VALUES (%s, %s, 'model', 'normalization-model', %s, 'anthropic', 'anthropic', false)
+            """,
+            (
+                model_credential_id,
+                PROJECT_ID,
+                Jsonb(
+                    {
+                        "PLAINTEXT": "plaintext-model",
+                        "LEGACY": legacy_model,
+                        "CURRENT": current_model,
+                        "EMPTY": "",
+                    }
+                ),
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_credentials
+                (id, project_id, kind, name, data, credential_type, mcp_server_url,
+                 normalized_mcp_server_url, oauth_config, group_id, is_default)
+            VALUES
+                (%s, %s, 'mcp', 'normalization-mcp', %s, 'oauth',
+                 'https://mcp.example.test', 'https://mcp.example.test', %s, %s, false)
+            """,
+            (
+                mcp_credential_id,
+                PROJECT_ID,
+                Jsonb({"token_value": legacy_token}),
+                Jsonb(
+                    {
+                        "client_id": "public-client",
+                        "client_secret": "plaintext-client-secret",
+                        "refresh_token": current_refresh,
+                        "expires_at": 123,
+                    }
+                ),
+                group_id,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_session_repos
+                (id, session_id, url, branch, mount_path, mount_name, encrypted_token)
+            VALUES (%s, %s, 'https://github.example/repo.git', '', '', 'repo', %s)
+            """,
+            (repo_id, session_id, legacy_repo),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_task_identity_contexts
+                (task_id, project_id, user_id, user_name, credential_kind,
+                 credential_fingerprint, encrypted_credential, captured_at, expires_at)
+            VALUES
+                (%s, %s, 'user-1', 'user@example.com', 'identity_token',
+                 NULL, %s, NOW(), NOW() + INTERVAL '5 minutes')
+            """,
+            (task_id, PROJECT_ID, legacy_identity),
+        )
+        connection.commit()
+
+    result = _upgrade_head(migration_database)
+    assert result.returncode == 0, result.stderr
+
+    with _connect(migration_database) as connection:
+        model_data = connection.execute(
+            "SELECT data FROM joysafeter_credentials WHERE id = %s",
+            (model_credential_id,),
+        ).fetchone()[0]
+        mcp_data, oauth_config = connection.execute(
+            "SELECT data, oauth_config FROM joysafeter_credentials WHERE id = %s",
+            (mcp_credential_id,),
+        ).fetchone()
+        repo_token = connection.execute(
+            "SELECT encrypted_token FROM joysafeter_session_repos WHERE id = %s",
+            (repo_id,),
+        ).fetchone()[0]
+        identity_token = connection.execute(
+            "SELECT encrypted_credential FROM joysafeter_task_identity_contexts WHERE task_id = %s",
+            (task_id,),
+        ).fetchone()[0]
+
+    assert model_data["EMPTY"] == ""
+    assert cipher.decrypt_stored(model_data["PLAINTEXT"]) == "plaintext-model"
+    assert cipher.decrypt_stored(model_data["LEGACY"]) == "legacy-model"
+    assert model_data["CURRENT"] == current_model
+    assert cipher.decrypt_stored(mcp_data["token_value"]) == "legacy-token"
+    assert oauth_config["client_id"] == "public-client"
+    assert oauth_config["expires_at"] == 123
+    assert cipher.decrypt_stored(oauth_config["client_secret"]) == "plaintext-client-secret"
+    assert oauth_config["refresh_token"] == current_refresh
+    assert cipher.decrypt_stored(repo_token) == "repo-token"
+    assert cipher.decrypt_stored(identity_token) == "identity-token"
+
+
+def test_envelope_normalization_wrong_key_rolls_back_revision(
+    migration_database: MigrationDatabase,
+) -> None:
+    assert _upgrade_to(migration_database, "20260814_000002").returncode == 0
+
+    credential_id = uuid4()
+    wrong_key = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+    legacy = _legacy_ciphertext("wrong-key-secret", key=wrong_key)
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        connection.execute(
+            """
+            INSERT INTO joysafeter_credentials
+                (id, project_id, kind, name, data, provider, protocol, is_default)
+            VALUES (%s, %s, 'model', 'wrong-key-model', %s, 'anthropic', 'anthropic', false)
+            """,
+            (credential_id, PROJECT_ID, Jsonb({"API_KEY": legacy})),
+        )
+        connection.commit()
+
+    result = _upgrade_head(migration_database)
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "wrong-key-model.data.API_KEY" in output
+
+    with _connect(migration_database) as connection:
+        revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        stored = connection.execute(
+            "SELECT data->>'API_KEY' FROM joysafeter_credentials WHERE id = %s",
+            (credential_id,),
+        ).fetchone()[0]
+
+    assert revision == "20260814_000002"
+    assert stored == legacy
 
 
 def test_migration_rejects_skill_usage_without_a_concrete_version(

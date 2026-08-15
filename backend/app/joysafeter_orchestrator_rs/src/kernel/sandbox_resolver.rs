@@ -1676,7 +1676,7 @@ impl SandboxResolver {
                 // P2B: OAuth refresh not yet migrated.
                 continue;
             };
-            let token = cipher.decrypt_or_passthrough(token_value).map_err(|e| {
+            let token = cipher.decrypt_envelope(token_value).map_err(|e| {
                 anyhow::anyhow!(
                     "failed to decrypt MCP credential token for server '{normalized_url}' in session {session_id}: {e}"
                 )
@@ -1745,7 +1745,7 @@ impl SandboxResolver {
             if encrypted_token.is_empty() {
                 continue;
             }
-            let token = cipher.decrypt_or_passthrough(&encrypted_token).map_err(|e| {
+            let token = cipher.decrypt_envelope(&encrypted_token).map_err(|e| {
                 anyhow::anyhow!(
                     "failed to decrypt Git token for repo '{mount_name}' in session {session_id}: {e}"
                 )
@@ -2087,16 +2087,12 @@ impl SandboxResolver {
     }
 
     fn decode_identity_context(
-        task_id: TaskId,
+        _task_id: TaskId,
         row: Option<(String, Option<String>, String, String)>,
     ) -> Option<LoadedIdentityContext> {
         let (user_id, user_name, credential_kind, encrypted_credential) = row?;
-        if !encrypted_credential.starts_with("enc:v1:") {
-            warn!(task_id = %task_id, "agent identity ciphertext has an invalid envelope");
-            return None;
-        }
         let cipher = VaultCipher::from_env();
-        let credential = cipher.decrypt_or_passthrough(&encrypted_credential).ok()?;
+        let credential = cipher.decrypt_envelope(&encrypted_credential).ok()?;
         if credential.is_empty() {
             return None;
         }
@@ -2216,7 +2212,7 @@ impl SandboxResolver {
                     .as_str()
                     .map(ToOwned::to_owned)
                     .unwrap_or_else(|| value.to_string());
-                out.insert(key.clone(), cipher.decrypt_or_passthrough(&value)?);
+                out.insert(key.clone(), cipher.decrypt_envelope(&value)?);
             }
         }
         Ok(Some(out))
@@ -2279,7 +2275,7 @@ impl SandboxResolver {
                         .as_str()
                         .map(ToOwned::to_owned)
                         .unwrap_or_else(|| value.to_string());
-                    env.insert(key.clone(), cipher.decrypt_or_passthrough(&value)?);
+                    env.insert(key.clone(), cipher.decrypt_envelope(&value)?);
                 }
             }
         }

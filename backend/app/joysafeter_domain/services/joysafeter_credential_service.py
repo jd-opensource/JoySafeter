@@ -53,7 +53,10 @@ from app.joysafeter_shared.common.app_errors import (
 )
 from app.joysafeter_shared.ids import CredentialGroupId, CredentialId, SandboxId
 from app.joysafeter_shared.mcp_url import normalize_mcp_url
-from app.joysafeter_shared.security.credential_cipher import CredentialCipher
+from app.joysafeter_shared.security.credential_cipher import (
+    CredentialCipher,
+    CredentialCiphertextError,
+)
 from app.joysafeter_shared.utils.datetime import utc_now
 
 MASKED_SECRET_PREFIX = "********"
@@ -267,7 +270,12 @@ class CredentialService:
         return {str(key): self._cipher.encrypt(str(value)) for key, value in (data or {}).items()}
 
     def decrypt_data(self, data: dict | None) -> dict[str, str]:
-        return {str(key): self._cipher.decrypt_stored(str(value)) for key, value in (data or {}).items()}
+        decrypted: dict[str, str] = {}
+        for key, value in (data or {}).items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                raise CredentialCiphertextError("Stored credential key and value must be a string")
+            decrypted[key] = self._cipher.decrypt_stored(value)
+        return decrypted
 
     def get_credential_data(self, cred: JoySafeterCredential | None) -> dict[str, str]:
         if not cred:

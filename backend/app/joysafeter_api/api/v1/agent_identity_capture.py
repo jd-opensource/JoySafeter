@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import logging
 import os
@@ -24,20 +23,14 @@ from app.joysafeter_identity.service import (
     capture_identity_credential,
     validate_provider_configuration,
 )
+from app.joysafeter_shared.security.credential_cipher import (
+    CredentialCipher,
+    CredentialCipherConfigurationError,
+)
 
 logger = logging.getLogger(__name__)
 
 IdentityCaptureHook = Callable[[JoySafeterTask], Awaitable[None]]
-
-
-def _decode_vault_key(vault_key: str) -> bytes:
-    try:
-        key_bytes = bytes.fromhex(vault_key) if len(vault_key) == 64 else base64.b64decode(vault_key, validate=True)
-    except (ValueError, TypeError) as exc:
-        raise ValueError("JOYSAFETER_VAULT_ENCRYPTION_KEY must encode a 32-byte key") from exc
-    if len(key_bytes) != 32:
-        raise ValueError("JOYSAFETER_VAULT_ENCRYPTION_KEY must encode a 32-byte key")
-    return key_bytes
 
 
 def validate_agent_identity_configuration() -> None:
@@ -46,23 +39,21 @@ def validate_agent_identity_configuration() -> None:
         return
     validate_provider_configuration()
     try:
-        _decode_vault_key(os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", ""))
+        CredentialCipher(os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", "")).require_enabled()
         _context_ttl()
     except ValueError as exc:
         raise RuntimeError(str(exc)) from exc
 
 
 def _encrypt(value: str, vault_key: str) -> str:
-    """Encrypt a credential using the shared versioned AES-256-GCM envelope."""
     if not value:
         raise ValueError("identity credential must be non-empty")
-    key_bytes = _decode_vault_key(vault_key)
-
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
-    nonce = os.urandom(12)
-    ciphertext = AESGCM(key_bytes).encrypt(nonce, value.encode(), None)
-    return "enc:v1:" + base64.b64encode(nonce + ciphertext).decode()
+    cipher = CredentialCipher(vault_key)
+    try:
+        cipher.require_enabled()
+    except CredentialCipherConfigurationError as exc:
+        raise ValueError("JOYSAFETER_VAULT_ENCRYPTION_KEY must encode a 32-byte key") from exc
+    return cipher.encrypt(value)
 
 
 def _context_ttl() -> timedelta:

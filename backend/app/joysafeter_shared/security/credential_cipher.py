@@ -8,7 +8,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 _AES_KEY_SIZE = 32
 _NONCE_SIZE = 12
 _TAG_SIZE = 16
-_ENCRYPTED_PREFIX = "enc:v1:"
+_CURRENT_ENCRYPTED_PREFIX = "enc:v1:"
+_LEGACY_ENCRYPTED_PREFIX = "enc:"
 _KEY_REQUIRED_MESSAGE = "JOYSAFETER_VAULT_ENCRYPTION_KEY is required for credential encryption"
 
 
@@ -37,15 +38,11 @@ class CredentialCipher:
             else:
                 key_bytes = base64.b64decode(key_str, validate=True)
         except (ValueError, binascii.Error):
-            self._configuration_error = (
-                "JOYSAFETER_VAULT_ENCRYPTION_KEY must be a 32-byte hex or base64 value"
-            )
+            self._configuration_error = "JOYSAFETER_VAULT_ENCRYPTION_KEY must be a 32-byte hex or base64 value"
             return
 
         if len(key_bytes) != _AES_KEY_SIZE:
-            self._configuration_error = (
-                f"JOYSAFETER_VAULT_ENCRYPTION_KEY must decode to {_AES_KEY_SIZE} bytes"
-            )
+            self._configuration_error = f"JOYSAFETER_VAULT_ENCRYPTION_KEY must decode to {_AES_KEY_SIZE} bytes"
             return
 
         self._key = key_bytes
@@ -61,15 +58,25 @@ class CredentialCipher:
 
         nonce = secrets.token_bytes(_NONCE_SIZE)
         ciphertext = AESGCM(self._key).encrypt(nonce, plaintext.encode("utf-8"), None)
-        return _ENCRYPTED_PREFIX + base64.b64encode(nonce + ciphertext).decode("ascii")
+        return _CURRENT_ENCRYPTED_PREFIX + base64.b64encode(nonce + ciphertext).decode("ascii")
+
+    @staticmethod
+    def _payload(stored: str) -> str:
+        if stored.startswith(_CURRENT_ENCRYPTED_PREFIX):
+            return stored[len(_CURRENT_ENCRYPTED_PREFIX) :]
+        if stored.startswith("enc:v") and ":" in stored[len("enc:v") :]:
+            raise CredentialCiphertextError("Unsupported credential envelope")
+        if stored.startswith(_LEGACY_ENCRYPTED_PREFIX):
+            return stored[len(_LEGACY_ENCRYPTED_PREFIX) :]
+        raise CredentialCiphertextError("Stored credential is not encrypted")
 
     def decrypt_stored(self, stored: str) -> str:
+        if stored == "":
+            return ""
         self.require_enabled()
-        if not stored.startswith(_ENCRYPTED_PREFIX):
-            raise CredentialCiphertextError("Stored credential is not encrypted")
 
         try:
-            raw = base64.b64decode(stored[len(_ENCRYPTED_PREFIX) :], validate=True)
+            raw = base64.b64decode(self._payload(stored), validate=True)
             if len(raw) < _NONCE_SIZE + _TAG_SIZE:
                 raise ValueError("ciphertext payload is too short")
             nonce = raw[:_NONCE_SIZE]
@@ -78,7 +85,22 @@ class CredentialCipher:
             plaintext = AESGCM(self._key).decrypt(nonce, ciphertext, None)
             return plaintext.decode("utf-8")
         except Exception as exc:
+            if isinstance(exc, CredentialCiphertextError):
+                raise
             raise CredentialCiphertextError("Failed to decrypt stored credential") from exc
+
+    def normalize_stored(self, stored: str) -> str:
+        if stored == "":
+            return ""
+        if stored.startswith(_CURRENT_ENCRYPTED_PREFIX):
+            self.decrypt_stored(stored)
+            return stored
+        if stored.startswith("enc:v") and ":" in stored[len("enc:v") :]:
+            raise CredentialCiphertextError("Unsupported credential envelope")
+        if stored.startswith(_LEGACY_ENCRYPTED_PREFIX):
+            self.decrypt_stored(stored)
+            return _CURRENT_ENCRYPTED_PREFIX + stored[len(_LEGACY_ENCRYPTED_PREFIX) :]
+        return self.encrypt(stored)
 
     @staticmethod
     def generate_key() -> str:

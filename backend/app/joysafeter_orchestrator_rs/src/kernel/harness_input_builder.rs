@@ -419,9 +419,7 @@ impl HarnessInputBuilder {
         let cipher = VaultCipher::from_env();
         for (key, value) in json_object_to_string_map(Some(&secret.data)) {
             if override_existing || !input.secrets.contains_key(&key) {
-                input
-                    .secrets
-                    .insert(key, cipher.decrypt_or_passthrough(&value)?);
+                input.secrets.insert(key, cipher.decrypt_envelope(&value)?);
             }
         }
 
@@ -944,15 +942,13 @@ impl HarnessInputBuilder {
             // rewritten to the Envoy egress boundary; Envoy injects the real
             // credential. Public repos (no token) keep their original URL.
             if has_token {
-                cipher
-                    .decrypt_or_passthrough(&row.encrypted_token)
-                    .map_err(|e| {
-                        anyhow::anyhow!(
+                cipher.decrypt_envelope(&row.encrypted_token).map_err(|e| {
+                    anyhow::anyhow!(
                         "failed to decrypt clone token for repo resource '{}' on session {}: {e}",
                         row.mount_name,
                         session_id
                     )
-                    })?;
+                })?;
             }
             let url = if has_token {
                 // Repoint the clone URL at the placeholder egress host + a stable
@@ -2030,7 +2026,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn harness_input_session_credential_group_credential_decrypt_failure_fails_build() {
+    async fn harness_input_session_plaintext_credential_fails_build() {
         let Some(pool) = test_pool().await else {
             return;
         };
@@ -2089,9 +2085,8 @@ mod tests {
             .await
             .expect("insert credential group");
 
-            // The token lives in the encrypted `data` JSONB under `token_value`.
-            // An `enc:v1:` envelope with invalid base64 forces the decrypt path to
-            // fail (rather than passthrough), exercising the fail-closed behavior.
+            // Residual plaintext must fail the harness build rather than being
+            // injected into the sandbox or egress boundary.
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_credentials
@@ -2106,7 +2101,7 @@ mod tests {
             .bind(mcp_url)
             .bind(&normalized)
             .bind(group_id)
-            .bind(json!({"token_value": "enc:v1:not-valid-base64"}))
+            .bind(json!({"token_value": "plaintext-token"}))
             .execute(&pool)
             .await
             .expect("insert mcp credential");
@@ -2686,19 +2681,28 @@ impl VaultCipher {
     }
 
     fn decrypt_row(&self, cred: &mut VaultCredentialRow) -> anyhow::Result<()> {
-        cred.token_value = self.decrypt_or_passthrough(&cred.token_value)?;
+        cred.token_value = self.decrypt_envelope(&cred.token_value)?;
         Ok(())
     }
 
-    pub(crate) fn decrypt_or_passthrough(&self, stored: &str) -> anyhow::Result<String> {
-        let Some(encoded) = stored.strip_prefix("enc:v1:") else {
-            return Ok(stored.to_string());
+    pub(crate) fn decrypt_envelope(&self, stored: &str) -> anyhow::Result<String> {
+        if stored.is_empty() {
+            return Ok(String::new());
+        }
+        let encoded = if let Some(encoded) = stored.strip_prefix("enc:v1:") {
+            encoded
+        } else if stored.starts_with("enc:v") && stored["enc:v".len()..].contains(':') {
+            anyhow::bail!("unsupported credential envelope");
+        } else if let Some(encoded) = stored.strip_prefix("enc:") {
+            encoded
+        } else {
+            anyhow::bail!("stored credential is not encrypted");
         };
         let Some(key) = self.key else {
             anyhow::bail!("JOYSAFETER_VAULT_ENCRYPTION_KEY is required to decrypt managed secret");
         };
         let raw = base64::engine::general_purpose::STANDARD.decode(encoded)?;
-        if raw.len() < 12 {
+        if raw.len() < 28 {
             anyhow::bail!("encrypted vault value is too short");
         }
         let (nonce_bytes, ciphertext) = raw.split_at(12);
@@ -2766,16 +2770,14 @@ mod vault_cipher_tests {
             let plaintext = entry["plaintext"].as_str().expect("plaintext");
             assert!(ciphertext.starts_with("enc:v1:"));
             let decrypted = cipher
-                .decrypt_or_passthrough(ciphertext)
+                .decrypt_envelope(ciphertext)
                 .expect("decrypt python vector");
             assert_eq!(decrypted, plaintext);
         }
     }
 
-    /// A bare `enc:` payload (no `v1:` version) is not the accepted envelope, so
-    /// it must NOT be treated as ciphertext (no legacy read path).
     #[test]
-    fn bare_enc_prefix_is_not_decrypted() {
+    fn bare_enc_prefix_is_read_as_v1() {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/fixtures/cipher_vectors.json");
         let doc: serde_json::Value =
@@ -2786,10 +2788,10 @@ mod vault_cipher_tests {
 
         let v1 = doc["vectors"][0]["ciphertext"].as_str().unwrap();
         let bare = format!("enc:{}", v1.strip_prefix("enc:v1:").unwrap());
-        // `decrypt_or_passthrough` only strips `enc:v1:`; a bare `enc:` value is
-        // returned untouched (passthrough), never AES-decrypted.
-        let out = cipher.decrypt_or_passthrough(&bare).expect("passthrough");
-        assert_eq!(out, bare);
+        let out = cipher
+            .decrypt_envelope(&bare)
+            .expect("decrypt legacy envelope");
+        assert_eq!(out, doc["vectors"][0]["plaintext"].as_str().unwrap());
     }
 
     /// Rust round-trip stays on the v1 envelope.
@@ -2801,9 +2803,23 @@ mod vault_cipher_tests {
             .expect("encrypt");
         assert!(stored.starts_with("enc:v1:"));
         assert_eq!(
-            cipher.decrypt_or_passthrough(&stored).expect("decrypt"),
+            cipher.decrypt_envelope(&stored).expect("decrypt"),
             "secret-value"
         );
+    }
+
+    #[test]
+    fn empty_string_is_the_absent_credential_sentinel() {
+        let cipher = VaultCipher::with_key([7u8; 32]);
+        assert_eq!(cipher.decrypt_envelope("").expect("empty sentinel"), "");
+    }
+
+    #[test]
+    fn plaintext_and_unknown_versions_fail_closed() {
+        let cipher = VaultCipher::with_key([7u8; 32]);
+        assert!(cipher.decrypt_envelope("plaintext-secret").is_err());
+        assert!(cipher.decrypt_envelope("enc:v2:not-supported").is_err());
+        assert!(cipher.decrypt_envelope("enc:v1:not-valid-base64").is_err());
     }
 }
 

@@ -77,21 +77,67 @@ helm install joysafeter-prod . -f values-prod.yaml -n joysafeter-prod
 
 ### 2. 升级
 
-先使用目标环境的 DB Secret 执行并确认数据库迁移。`20260814_000001` 是
-online-only 且不可逆迁移；升级前必须完成备份，迁移 preflight 失败时不得继续发布：
+`20260815_000001_normalize_credential_envelopes` 是 online-only 且不可逆的
+凭据规范化迁移。升级前必须确认数据库备份可恢复，并确认
+`JOYSAFETER_VAULT_ENCRYPTION_KEY` 与旧环境使用的是同一把密钥。不得生成新密钥
+覆盖旧值。
+
+迁移期间必须停止 API、worker、orchestrator 和所有旧 HA 实例，避免旧进程在
+最终检查后重新写入 bare `enc:` 数据。使用目标环境的 DB Secret 和 Vault Key
+执行迁移：
 
 ```bash
 cd backend
 alembic upgrade head
-alembic current  # 必须显示 20260814_000001 (head)
+alembic current  # 必须显示 20260815_000001 (head)
 ```
 
-数据库迁移成功后再升级 orchestrator：
+迁移会在写入前验证全部 `enc:` / `enc:v1:` 密文；任意错误密钥、损坏密文、
+未知 envelope 或非字符串 credential 值都会使整个事务回滚。迁移成功后，在
+恢复流量前执行不暴露凭据内容的结构检查：
+
+```sql
+WITH credential_values AS (
+    SELECT
+        jsonb_typeof(item.value) AS json_type,
+        CASE WHEN jsonb_typeof(item.value) = 'string' THEN item.value #>> '{}' END AS value
+    FROM joysafeter_credentials c
+    CROSS JOIN LATERAL jsonb_each(c.data) AS item(key, value)
+), oauth_values AS (
+    SELECT
+        jsonb_typeof(item.value) AS json_type,
+        CASE WHEN jsonb_typeof(item.value) = 'string' THEN item.value #>> '{}' END AS value
+    FROM joysafeter_credentials c
+    CROSS JOIN LATERAL jsonb_each(c.oauth_config) AS item(key, value)
+    WHERE c.oauth_config IS NOT NULL
+      AND item.key IN ('client_secret', 'refresh_token')
+), violations AS (
+    SELECT 'credentials.data' AS store FROM credential_values
+    WHERE json_type <> 'string' OR (value <> '' AND value NOT LIKE 'enc:v1:%')
+    UNION ALL
+    SELECT 'credentials.oauth_config' FROM oauth_values
+    WHERE json_type <> 'string' OR (value <> '' AND value NOT LIKE 'enc:v1:%')
+    UNION ALL
+    SELECT 'session_repos.encrypted_token' FROM joysafeter_session_repos
+    WHERE encrypted_token <> '' AND encrypted_token NOT LIKE 'enc:v1:%'
+    UNION ALL
+    SELECT 'task_identity.encrypted_credential' FROM joysafeter_task_identity_contexts
+    WHERE encrypted_credential IS NOT NULL
+      AND encrypted_credential <> ''
+      AND encrypted_credential NOT LIKE 'enc:v1:%'
+)
+SELECT store, count(*) AS violations FROM violations GROUP BY store;
+```
+
+查询必须返回 0 行。之后再升级并启动 orchestrator/API：
 
 ```bash
 helm upgrade joysafeter-pre . -f values-pre.yaml -n joysafeter-pre
 helm upgrade joysafeter-prod . -f values-prod.yaml -n joysafeter-prod
 ```
+
+验证 credential 列表读取及代表性 runner 注入后，再扩容其他实例。曾以明文落库
+的 API Key、Auth Token 必须在迁移完成后轮换。
 
 ### 3. 扩缩容
 

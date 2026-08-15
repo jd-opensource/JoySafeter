@@ -57,11 +57,39 @@ def test_round_trip_through_v1_envelope():
         assert cipher.decrypt_stored(stored) == entry["plaintext"]
 
 
-def test_bare_enc_prefix_without_version_is_rejected():
-    """A bare `enc:` payload (no `v1:` version) must be refused: v1 is the only
-    accepted envelope and there is no legacy read path."""
+def test_bare_enc_prefix_without_version_is_read_as_v1():
     cipher = _cipher()
-    entry = _load_vectors()["vectors"][0]
+    entry = next(item for item in _load_vectors()["vectors"] if item["plaintext"])
     bare = "enc:" + entry["ciphertext"][len("enc:v1:") :]
-    with pytest.raises(CredentialCiphertextError):
-        cipher.decrypt_stored(bare)
+
+    assert cipher.decrypt_stored(bare) == entry["plaintext"]
+
+
+def test_empty_string_is_the_absent_credential_sentinel():
+    assert _cipher().decrypt_stored("") == ""
+
+
+def test_unknown_versioned_envelope_is_rejected():
+    with pytest.raises(CredentialCiphertextError, match="Unsupported credential envelope"):
+        _cipher().decrypt_stored("enc:v2:not-supported")
+
+
+def test_corrupt_legacy_envelope_is_rejected():
+    with pytest.raises(CredentialCiphertextError, match="Failed to decrypt"):
+        _cipher().decrypt_stored("enc:not-valid-base64")
+
+
+def test_normalize_stored_is_idempotent_for_all_supported_generations():
+    cipher = _cipher()
+    entry = next(item for item in _load_vectors()["vectors"] if item["plaintext"])
+    current = entry["ciphertext"]
+    legacy = "enc:" + current[len("enc:v1:") :]
+
+    assert cipher.normalize_stored("") == ""
+    assert cipher.normalize_stored(current) == current
+    assert cipher.normalize_stored(legacy) == current
+
+    normalized_plaintext = cipher.normalize_stored(entry["plaintext"])
+    assert normalized_plaintext.startswith("enc:v1:")
+    assert cipher.decrypt_stored(normalized_plaintext) == entry["plaintext"]
+    assert cipher.normalize_stored(normalized_plaintext) == normalized_plaintext
