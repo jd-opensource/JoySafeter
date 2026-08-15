@@ -2662,7 +2662,7 @@ impl VaultCipher {
     pub(crate) fn validate_env_key() -> anyhow::Result<()> {
         let raw = std::env::var("JOYSAFETER_VAULT_ENCRYPTION_KEY").map_err(|_| {
             anyhow::anyhow!(
-                "JOYSAFETER_VAULT_ENCRYPTION_KEY is required when agent identity is enabled"
+                "JOYSAFETER_VAULT_ENCRYPTION_KEY is required when AGENT_IDENTITY_PROVIDER=jd"
             )
         })?;
         parse_vault_key(&raw).ok_or_else(|| {

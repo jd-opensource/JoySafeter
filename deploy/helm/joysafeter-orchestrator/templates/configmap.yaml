@@ -1,3 +1,7 @@
+{{- $agentIdentityProvider := default "none" .Values.agentIdentity.provider -}}
+{{- if not (has $agentIdentityProvider (list "none" "jd")) -}}
+{{- fail "agentIdentity.provider must be one of: none, jd" -}}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -108,7 +112,7 @@ data:
   JOYSAFETER_REDIS_QUEUE_PREFIX: "joysafeter"
 
   # ── Agent Identity ──
-  AGENT_IDENTITY_ENABLED: {{ .Values.agentIdentity.enabled | quote }}
+  AGENT_IDENTITY_PROVIDER: {{ $agentIdentityProvider | quote }}
   AGENT_IDENTITY_BASE_URL: {{ .Values.agentIdentity.baseUrl | quote }}
   AGENT_IDENTITY_ALLOWED_HOSTS: {{ join "," .Values.agentIdentity.allowedHosts | quote }}
   AGENT_IDENTITY_COOKIE_NAME: {{ .Values.agentIdentity.cookieName | quote }}

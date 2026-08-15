@@ -9,7 +9,6 @@ from sqlalchemy import inspect
 
 from app.joysafeter_api.api.v1.agent_identity_capture import (
     _encrypt,
-    _identity_enabled,
     prepare_agent_identity_capture,
     validate_agent_identity_configuration,
 )
@@ -17,6 +16,11 @@ from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.models.joysafeter_task_identity import JoySafeterTaskIdentityContext
 from app.joysafeter_domain.schemas.joysafeter_session import CreateSessionRequest
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
+from app.joysafeter_identity.config import (
+    AgentIdentityProvider,
+    resolve_agent_identity_provider,
+)
+from app.joysafeter_identity.service import cleanup_agent_identity
 from app.joysafeter_shared.common.app_errors import ServiceUnavailableError
 from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
 
@@ -42,10 +46,7 @@ def test_task_identity_context_is_task_scoped_and_cascades() -> None:
     assert foreign_key.ondelete == "CASCADE"
     assert table.c.encrypted_credential.nullable is True
     assert table.c.credential_fingerprint.nullable is True
-    assert any(
-        index.name == "uq_task_identity_auth_code_fingerprint" and index.unique
-        for index in table.indexes
-    )
+    assert any(index.name == "uq_task_identity_auth_code_fingerprint" and index.unique for index in table.indexes)
     assert table.c.expires_at.nullable is False
     assert table.c.consumed_at.nullable is True
 
@@ -66,17 +67,97 @@ def test_identity_encryption_rejects_invalid_keys(key: str) -> None:
         _encrypt("credential", key)
 
 
-def test_identity_enablement_requires_explicit_switch(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("AGENT_IDENTITY_ENABLED", raising=False)
+def test_legacy_switch_does_not_select_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    legacy_switch = "AGENT_IDENTITY_" + "ENABLED"
+    monkeypatch.delenv("AGENT_IDENTITY_PROVIDER", raising=False)
+    monkeypatch.setenv(legacy_switch, "true")
     monkeypatch.setenv("AGENT_IDENTITY_BASE_URL", "https://identity.example.com")
 
-    assert _identity_enabled() is False
+    assert resolve_agent_identity_provider() is AgentIdentityProvider.NONE
+
+
+@pytest.mark.parametrize(
+    ("provider", "expected"),
+    [
+        (None, AgentIdentityProvider.NONE),
+        ("", AgentIdentityProvider.NONE),
+        ("none", AgentIdentityProvider.NONE),
+        ("jd", AgentIdentityProvider.JD),
+        (" JD ", AgentIdentityProvider.JD),
+    ],
+)
+def test_identity_provider_selection_is_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+    provider: str | None,
+    expected: AgentIdentityProvider,
+) -> None:
+    if provider is None:
+        monkeypatch.delenv("AGENT_IDENTITY_PROVIDER", raising=False)
+    else:
+        monkeypatch.setenv("AGENT_IDENTITY_PROVIDER", provider)
+
+    assert resolve_agent_identity_provider() is expected
+
+
+def test_invalid_identity_provider_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_IDENTITY_PROVIDER", "unknown")
+
+    with pytest.raises(ValueError, match="AGENT_IDENTITY_PROVIDER"):
+        resolve_agent_identity_provider()
+
+
+def test_legacy_identity_switch_is_absent_from_runtime_and_deployment() -> None:
+    legacy_switch = "AGENT_IDENTITY_" + "ENABLED"
+    inspected_paths = [
+        REPO_ROOT / "backend/app",
+        REPO_ROOT / "backend/env.example",
+        REPO_ROOT / "deploy",
+    ]
+    legacy_references = []
+    for path in inspected_paths:
+        files = path.rglob("*") if path.is_dir() else [path]
+        for file_path in files:
+            if not file_path.is_file():
+                continue
+            if {"target", "__pycache__"} & set(file_path.parts):
+                continue
+            if legacy_switch in file_path.read_text(errors="ignore"):
+                legacy_references.append(file_path.relative_to(REPO_ROOT).as_posix())
+
+    assert legacy_references == []
+
+
+def test_disabled_identity_ignores_stale_jd_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_IDENTITY_PROVIDER", "none")
+    monkeypatch.delenv("AGENT_IDENTITY_BASE_URL", raising=False)
+    monkeypatch.delenv("AGENT_IDENTITY_ALLOWED_HOSTS", raising=False)
+    monkeypatch.delenv("JOYSAFETER_VAULT_ENCRYPTION_KEY", raising=False)
+
+    validate_agent_identity_configuration()
+
+
+@pytest.mark.asyncio
+async def test_disabled_identity_cleanup_has_no_jd_side_effects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_IDENTITY_PROVIDER", "none")
+    jd_cleanup = AsyncMock()
+    monkeypatch.setattr(
+        "app.joysafeter_identity.providers.jd.cleanup_agent_identity",
+        jd_cleanup,
+    )
+
+    await cleanup_agent_identity(AgentId.new())
+
+    jd_cleanup.assert_not_awaited()
 
 
 def test_enabled_identity_requires_complete_api_configuration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AGENT_IDENTITY_ENABLED", "true")
+    monkeypatch.setenv("AGENT_IDENTITY_PROVIDER", "jd")
     monkeypatch.delenv("AGENT_IDENTITY_BASE_URL", raising=False)
     monkeypatch.delenv("AGENT_IDENTITY_ALLOWED_HOSTS", raising=False)
 
@@ -88,7 +169,7 @@ def test_enabled_identity_requires_complete_api_configuration(
 async def test_prepared_identity_capture_persists_task_scoped_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AGENT_IDENTITY_ENABLED", "true")
+    monkeypatch.setenv("AGENT_IDENTITY_PROVIDER", "jd")
     monkeypatch.setenv(
         "JOYSAFETER_VAULT_ENCRYPTION_KEY",
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -139,7 +220,9 @@ async def test_submission_runs_identity_hook_before_enqueue(monkeypatch: pytest.
         update_task_error=AsyncMock(),
     )
     session_svc = SimpleNamespace(
-        update_session_status_for_task_event=AsyncMock(side_effect=lambda *args, **kwargs: order.append("session") or True),
+        update_session_status_for_task_event=AsyncMock(
+            side_effect=lambda *args, **kwargs: order.append("session") or True
+        ),
         send_event=AsyncMock(),
     )
 
@@ -265,30 +348,38 @@ async def test_pre_enqueue_failure_rolls_back_before_task_compensation(
 def test_preprod_orchestrator_build_and_env_wire_identity_feature() -> None:
     dockerfile = (REPO_ROOT / "deploy/docker/orchestrator-rs.Dockerfile").read_text()
     compose = (REPO_ROOT / "deploy/docker-compose.yml").read_text()
-    env_example = (REPO_ROOT / "deploy/.env.example").read_text()
+    env_examples = [
+        (REPO_ROOT / "backend/env.example").read_text(),
+        (REPO_ROOT / "deploy/.env.example").read_text(),
+        (REPO_ROOT / "deploy/.env.remote.example").read_text(),
+    ]
 
     assert "cargo build --release --features jd-identity" in dockerfile
+    assert "AGENT_IDENTITY_PROVIDER: ${AGENT_IDENTITY_PROVIDER:-none}" in compose
     for variable in (
-        "AGENT_IDENTITY_ENABLED",
+        "AGENT_IDENTITY_PROVIDER",
         "AGENT_IDENTITY_BASE_URL",
         "AGENT_IDENTITY_ALLOWED_HOSTS",
         "AGENT_IDENTITY_COOKIE_NAME",
         "AGENT_IDENTITY_CONTEXT_TTL_SECONDS",
     ):
         assert variable in compose
-        assert variable in env_example
+        assert all(variable in env_example for env_example in env_examples)
 
 
 def test_preprod_helm_identity_values_do_not_capture_orchestrator_settings() -> None:
-    values = yaml.safe_load(
-        (REPO_ROOT / "deploy/helm/joysafeter-orchestrator/values-pre.yaml").read_text()
-    )
+    configmap = (REPO_ROOT / "deploy/helm/joysafeter-orchestrator/templates/configmap.yaml").read_text()
+    base_values = yaml.safe_load((REPO_ROOT / "deploy/helm/joysafeter-orchestrator/values.yaml").read_text())
+    values = yaml.safe_load((REPO_ROOT / "deploy/helm/joysafeter-orchestrator/values-pre.yaml").read_text())
 
+    assert base_values["agentIdentity"]["provider"] == "none"
+    assert values["agentIdentity"]["provider"] == "none"
+    assert "agentIdentity.provider must be one of: none, jd" in configmap
     assert values["orchestrator"]["sandbox"]["idleTimeout"] == 120
     assert values["orchestrator"]["pool"]["minSize"] == 2
     assert values["orchestrator"]["logLevel"] == "debug"
     assert set(values["agentIdentity"]) <= {
-        "enabled",
+        "provider",
         "baseUrl",
         "allowedHosts",
         "cookieName",

@@ -275,7 +275,7 @@ impl JdAgentIdentityProvider {
         fn required(name: &str) -> anyhow::Result<String> {
             let value = std::env::var(name).unwrap_or_default();
             if value.trim().is_empty() {
-                anyhow::bail!("{name} is required when AGENT_IDENTITY_ENABLED=true");
+                anyhow::bail!("{name} is required when AGENT_IDENTITY_PROVIDER=jd");
             }
             Ok(value)
         }
@@ -737,7 +737,7 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
 
     fn has_config(&self, _agent_metadata: Option<&JsonValue>) -> bool {
         // Global mode: identity injection applies to ALL agents when the
-        // provider is enabled (AGENT_IDENTITY_ENABLED=true). No per-agent
+        // provider is selected (AGENT_IDENTITY_PROVIDER=jd). No per-agent
         // opt-in via metadata is required.
         true
     }

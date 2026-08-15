@@ -163,9 +163,9 @@ orchestrator:
   # ── 日志 ──
   logLevel: info
 
-# ── Agent Identity (fail-closed; enable only after all fields are set) ──
+# ── Agent Identity (provider: none or jd) ──
 agentIdentity:
-  enabled: false
+  provider: none
   baseUrl: ""
   allowedHosts: []
   cookieName: ""

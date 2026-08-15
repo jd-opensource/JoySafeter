@@ -95,7 +95,7 @@ REVIEWED_ENTITY_UUID_ADAPTERS = {
         ("redis_queue_channel_payloads",),
         1,
     ),
-    "python:app/joysafeter_api/api/v1/agents.py::_cleanup_agent_identity::uuid_attr": (
+    "python:app/joysafeter_identity/providers/jd.py::cleanup_agent_identity::uuid_attr": (
         ("redis_queue_channel_payloads",),
         1,
     ),

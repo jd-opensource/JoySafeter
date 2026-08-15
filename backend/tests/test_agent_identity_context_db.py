@@ -16,7 +16,7 @@ async def test_auth_code_replay_is_rejected_and_task_delete_cascades(
     db_session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AGENT_IDENTITY_ENABLED", "true")
+    monkeypatch.setenv("AGENT_IDENTITY_PROVIDER", "jd")
     monkeypatch.setenv("AGENT_IDENTITY_BASE_URL", "https://identity.example.com")
     monkeypatch.setenv("AGENT_IDENTITY_ALLOWED_HOSTS", "mcp.example.com")
     monkeypatch.setenv(

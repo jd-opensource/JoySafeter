@@ -73,9 +73,9 @@ orchestrator:
 
   logLevel: debug
 
-# Enable only after replacing these values and adding the client secret above.
+# Set provider to jd only after replacing these values and adding the client secret above.
 agentIdentity:
-  enabled: false
+  provider: none
   baseUrl: ""
   allowedHosts: []
   cookieName: ""

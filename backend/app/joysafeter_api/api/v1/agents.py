@@ -27,6 +27,7 @@ from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAg
 from app.joysafeter_domain.services.joysafeter_agent_service import _split_agent_assets
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
+from app.joysafeter_identity.service import cleanup_agent_identity
 from app.joysafeter_shared.common.app_errors import (
     AppError,
     InvalidRequestError,
@@ -399,7 +400,7 @@ async def delete_agent(
             ) from e
         if not ok:
             raise _agent_not_found_error(agent_id)
-        await _cleanup_agent_identity(agent_id)
+        await cleanup_agent_identity(agent_id)
         return
 
     # Force delete: cascade cleanup
@@ -422,7 +423,7 @@ async def delete_agent(
         ) from e
     if not ok:
         raise _agent_not_found_error(agent_id)
-    await _cleanup_agent_identity(agent_id)
+    await cleanup_agent_identity(agent_id)
 
 
 async def _cancel_active_tasks_for_agent(agent_id: AgentId, db: AsyncSession, project_id: Optional[str] = None) -> None:
@@ -574,66 +575,6 @@ async def _destroy_sandboxes_for_agent(
                 retryable=True,
                 user_action="retry",
             )
-
-
-async def _cleanup_agent_identity(agent_id: AgentId) -> None:
-    """Revoke and clear cached agent identity tokens on agent deletion."""
-    import os
-    import time
-    import uuid
-
-    redis_url = os.environ.get("REDIS_URL", "")
-    if not redis_url:
-        redis_host = os.environ.get("REDIS_HOST", "")
-        if not redis_host:
-            return
-        redis_port = os.environ.get("REDIS_PORT", "6379")
-        redis_password = os.environ.get("REDIS_PASSWORD", "")
-        if redis_password:
-            redis_url = f"redis://:{redis_password}@{redis_host}:{redis_port}/0"
-        else:
-            redis_url = f"redis://{redis_host}:{redis_port}/0"
-
-    try:
-        import httpx
-        import redis.asyncio as aioredis
-
-        client = aioredis.from_url(redis_url)
-        pattern = f"joysafeter:bot_token:*:*:{agent_id.uuid}:*:*:*"
-        base_url = os.environ.get("AGENT_IDENTITY_BASE_URL", "").strip().rstrip("/")
-        deleted = 0
-        async with httpx.AsyncClient(timeout=10.0) as http:
-            async for key in client.scan_iter(match=pattern, count=100):
-                bot_token = await client.get(key)
-                if base_url and bot_token:
-                    if isinstance(bot_token, bytes):
-                        bot_token = bot_token.decode()
-                    try:
-                        await http.post(
-                            f"{base_url}/ai/identity/sec/api/revokeBotToken",
-                            json={
-                                "traceId": str(uuid.uuid4()),
-                                "botToken": bot_token,
-                                "timestamp": int(time.time() * 1000),
-                            },
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "Agent identity token revoke failed for %s (non-fatal): %s",
-                            agent_id,
-                            exc,
-                        )
-                await client.delete(key)
-                deleted += 1
-        await client.aclose()
-        if deleted:
-            logger.info(
-                f"Cleared {deleted} agent identity cache entries for agent {agent_id}"
-            )
-    except Exception as e:
-        logger.warning(
-            f"Agent identity cache cleanup failed for {agent_id} (non-fatal): {e}"
-        )
 
 
 @router.post("/{agent_id}/archive", status_code=200)

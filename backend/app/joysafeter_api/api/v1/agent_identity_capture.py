@@ -16,27 +16,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.models.joysafeter_task_identity import JoySafeterTaskIdentityContext
+from app.joysafeter_identity.config import (
+    AgentIdentityProvider,
+    resolve_agent_identity_provider,
+)
+from app.joysafeter_identity.service import (
+    capture_identity_credential,
+    validate_provider_configuration,
+)
 
 logger = logging.getLogger(__name__)
 
 IdentityCaptureHook = Callable[[JoySafeterTask], Awaitable[None]]
 
 
-def _identity_enabled() -> bool:
-    return os.environ.get("AGENT_IDENTITY_ENABLED", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-
-
 def _decode_vault_key(vault_key: str) -> bytes:
     try:
-        key_bytes = (
-            bytes.fromhex(vault_key)
-            if len(vault_key) == 64
-            else base64.b64decode(vault_key, validate=True)
-        )
+        key_bytes = bytes.fromhex(vault_key) if len(vault_key) == 64 else base64.b64decode(vault_key, validate=True)
     except (ValueError, TypeError) as exc:
         raise ValueError("JOYSAFETER_VAULT_ENCRYPTION_KEY must encode a 32-byte key") from exc
     if len(key_bytes) != 32:
@@ -45,18 +41,10 @@ def _decode_vault_key(vault_key: str) -> bytes:
 
 
 def validate_agent_identity_configuration() -> None:
-    if not _identity_enabled():
+    provider = resolve_agent_identity_provider()
+    if provider is AgentIdentityProvider.NONE:
         return
-    missing = [
-        name
-        for name in ("AGENT_IDENTITY_BASE_URL", "AGENT_IDENTITY_ALLOWED_HOSTS")
-        if not os.environ.get(name, "").strip()
-    ]
-    if missing:
-        raise RuntimeError(
-            "Agent identity is enabled but required configuration is missing: "
-            + ", ".join(missing)
-        )
+    validate_provider_configuration()
     try:
         _decode_vault_key(os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", ""))
         _context_ttl()
@@ -100,7 +88,7 @@ async def prepare_agent_identity_capture(
     The returned hook persists the already-encrypted context for the newly
     created task. Callers must execute it before dispatching the task.
     """
-    if not _identity_enabled():
+    if resolve_agent_identity_provider() is AgentIdentityProvider.NONE:
         return None
 
     agent_metadata = getattr(agent, "metadata_", None) or getattr(agent, "metadata", None)
@@ -109,21 +97,13 @@ async def prepare_agent_identity_capture(
         if isinstance(identity_config, dict) and not identity_config.get("enabled", True):
             return None
 
-    auth_code = identity_auth_code.strip() if identity_auth_code else None
-    cookie_name = os.environ.get("AGENT_IDENTITY_COOKIE_NAME", "").strip()
-    cookies = getattr(request, "cookies", {}) if request is not None else {}
-    identity_token = cookies.get(cookie_name) if cookie_name and not auth_code else None
-    if isinstance(identity_token, str):
-        identity_token = identity_token.strip()
-    if not auth_code and not identity_token:
+    captured_credential = capture_identity_credential(request, identity_auth_code)
+    if captured_credential is None:
         return None
 
-    credential_kind = "auth_code" if auth_code else "identity_token"
-    credential = auth_code or identity_token
-    assert credential is not None
-    credential_fingerprint = (
-        hashlib.sha256(credential.encode()).hexdigest() if credential_kind == "auth_code" else None
-    )
+    credential_kind = captured_credential.kind
+    credential = captured_credential.value
+    credential_fingerprint = hashlib.sha256(credential.encode()).hexdigest() if credential_kind == "auth_code" else None
     encrypted_credential = _encrypt(
         credential,
         os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", ""),
