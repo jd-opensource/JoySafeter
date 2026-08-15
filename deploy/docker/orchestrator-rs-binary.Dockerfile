@@ -14,7 +14,6 @@ WORKDIR /app
 COPY target/x86_64-unknown-linux-gnu/release/joysafeter-orchestrator /usr/local/bin/joysafeter-orchestrator
 
 ENV RUST_LOG=info
-ENV JOYSAFETER_ENABLED=true
 ENV JOYSAFETER_GRPC_HOST=0.0.0.0
 ENV JOYSAFETER_GRPC_PORT=9090
 

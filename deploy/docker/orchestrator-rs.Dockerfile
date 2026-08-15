@@ -45,7 +45,6 @@ WORKDIR /app
 COPY --from=builder /src/backend/app/joysafeter_orchestrator_rs/target/release/joysafeter-orchestrator /usr/local/bin/joysafeter-orchestrator
 
 ENV RUST_LOG=info
-ENV JOYSAFETER_ENABLED=true
 ENV JOYSAFETER_GRPC_HOST=0.0.0.0
 ENV JOYSAFETER_GRPC_PORT=9090
 

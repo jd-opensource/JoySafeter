@@ -31,6 +31,9 @@ RUN rustup target add ${TARGET}
 
 COPY proto ./proto
 COPY backend/app/joysafeter_orchestrator_rs ./backend/app/joysafeter_orchestrator_rs
+# src/kernel/llm_catalog.rs embeds ../../../../config/llm_catalog.yaml via
+# include_str! at compile time -> resolves to /src/backend/config/; must be present.
+COPY backend/config ./backend/config
 
 WORKDIR /src/backend/app/joysafeter_orchestrator_rs
 
@@ -51,7 +54,6 @@ ARG TARGET
 COPY --from=builder /src/backend/app/joysafeter_orchestrator_rs/target/${TARGET}/release/joysafeter-orchestrator /usr/local/bin/joysafeter-orchestrator
 
 ENV RUST_LOG=info,jd_agent_identity=debug
-ENV JOYSAFETER_ENABLED=true
 ENV JOYSAFETER_GRPC_HOST=0.0.0.0
 ENV JOYSAFETER_GRPC_PORT=9090
 
