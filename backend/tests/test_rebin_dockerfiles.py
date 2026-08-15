@@ -10,6 +10,10 @@ REBIN_FILES = (
     "orchestrator-rs-rebin.Dockerfile",
     "sandbox-runner-rebin.Dockerfile",
 )
+SOURCE_ORCHESTRATOR_DOCKERFILES = (
+    "orchestrator-rs.Dockerfile",
+    "orchestrator-rs-jd.Dockerfile",
+)
 
 
 @pytest.mark.parametrize("filename", REBIN_FILES)
@@ -34,3 +38,26 @@ def test_codex_rebin_restores_codex_entrypoint() -> None:
     source = (REPO_ROOT / "deploy/docker/codex-rebin.Dockerfile").read_text()
 
     assert 'ENTRYPOINT ["/usr/local/bin/codex-entrypoint.sh"]' in source
+
+
+@pytest.mark.parametrize("filename", SOURCE_ORCHESTRATOR_DOCKERFILES)
+def test_orchestrator_source_dockerfile_copies_compile_time_inputs(filename: str) -> None:
+    source = (REPO_ROOT / "deploy/docker" / filename).read_text()
+
+    assert "COPY proto ./proto" in source
+    assert "COPY backend/app/joysafeter_orchestrator_rs ./backend/app/joysafeter_orchestrator_rs" in source
+    assert "COPY backend/config ./backend/config" in source
+    build_command = next(
+        marker for marker in ("RUN cargo build", "RUN cargo zigbuild") if marker in source
+    )
+    assert source.index("COPY backend/config ./backend/config") < source.index(build_command)
+
+
+@pytest.mark.parametrize(
+    "filename",
+    (*SOURCE_ORCHESTRATOR_DOCKERFILES, "orchestrator-rs-binary.Dockerfile"),
+)
+def test_orchestrator_dockerfiles_do_not_export_dead_global_enable_switch(filename: str) -> None:
+    source = (REPO_ROOT / "deploy/docker" / filename).read_text()
+
+    assert "JOYSAFETER_ENABLED" not in source
