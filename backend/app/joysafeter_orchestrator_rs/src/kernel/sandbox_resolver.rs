@@ -21,7 +21,9 @@ use crate::kernel::ha::{XdsAction, XdsStateStore};
 use crate::kernel::harness_input_builder::VaultCipher;
 use crate::kernel::llm_catalog::{validate_runtime_secret, RuntimeSecretBinding};
 use crate::kernel::mcp_url;
-use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
+use crate::kernel::run_spec::{
+    agent_for_execution, environment_credential_ids, environment_for_execution,
+};
 use crate::sandbox::lds_backend::{
     normalize_prefix, normalize_rewrite_base_prefix, EgressCredentialRoute, EgressExposure,
     EgressKind, SandboxCredentials, UpstreamTarget, GIT_EGRESS_HOST, MCP_EGRESS_HOST,
@@ -891,7 +893,7 @@ impl SandboxResolver {
             None => None,
         };
         let snapshot_environment = environment_for_execution(session.as_ref());
-        let agent = agent_for_execution(live_agent, session.as_ref());
+        let agent = agent_for_execution(live_agent, session.as_ref())?;
         let project_id = project_id
             .map(ToOwned::to_owned)
             .or_else(|| session.as_ref().and_then(|s| s.project_id.clone()))
@@ -965,7 +967,7 @@ impl SandboxResolver {
                     environment.as_ref(),
                     project_id.as_deref(),
                 )
-                .await,
+                .await?,
             );
 
             // Agent identity is composed into existing MCP placeholder routes.
@@ -1357,28 +1359,7 @@ impl SandboxResolver {
             // legacy list form (`secret_refs`) and the single `service_credential_id`
             // now hold canonical `cred_` ids that resolve against
             // `joysafeter_credentials` with kind=service.
-            let mut env_credential_ids: Vec<CredentialId> = Vec::new();
-            if let Some(service_credential_id) = environment
-                .config
-                .get("service_credential_id")
-                .and_then(|v| v.as_str())
-                .filter(|v| !v.trim().is_empty())
-                .and_then(|raw| CredentialId::from_public(raw).ok())
-            {
-                env_credential_ids.push(service_credential_id);
-            }
-            if let Some(secret_refs) = environment
-                .config
-                .get("secret_refs")
-                .and_then(|v| v.as_array())
-            {
-                for raw in secret_refs.iter().filter_map(|v| v.as_str()) {
-                    if let Ok(credential_id) = CredentialId::from_public(raw) {
-                        env_credential_ids.push(credential_id);
-                    }
-                }
-            }
-            for credential_id in env_credential_ids {
+            for credential_id in environment_credential_ids(&environment.config)? {
                 Self::merge_secret_ref_into_env(
                     pool,
                     &mut env,
@@ -1795,12 +1776,12 @@ impl SandboxResolver {
         pool: &PgPool,
         environment: Option<&EnvironmentRow>,
         project_id: Option<&str>,
-    ) -> Vec<EgressCredentialRoute> {
+    ) -> anyhow::Result<Vec<EgressCredentialRoute>> {
         let Some(services) = environment
             .and_then(|environment| environment.config.get("egress_services"))
             .and_then(|value| value.as_array())
         else {
-            return vec![];
+            return Ok(vec![]);
         };
 
         let mut routes = Vec::new();
@@ -1825,26 +1806,38 @@ impl SandboxResolver {
             let port = upstream.port;
             let upstream_prefix = normalize_external_upstream_prefix(&upstream.prefix);
 
-            let Some(service_credential_id) = service
-                .get("service_credential_id")
-                .and_then(|value| value.as_str())
-                .filter(|value| !value.trim().is_empty())
-                .and_then(|raw| CredentialId::from_public(raw).ok())
-            else {
-                continue;
-            };
+            let credential_value = service.get("service_credential_id").ok_or_else(|| {
+                anyhow::anyhow!("external egress service {name:?} is missing service_credential_id")
+            })?;
+            let raw_credential_id = credential_value.as_str().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "external egress service {name:?} service_credential_id must be a string"
+                )
+            })?;
+            if raw_credential_id.trim().is_empty() {
+                anyhow::bail!(
+                    "external egress service {name:?} service_credential_id must not be blank"
+                );
+            }
+            let service_credential_id = CredentialId::from_public(raw_credential_id)
+                .with_context(|| {
+                    format!(
+                        "invalid external egress service {name:?} service_credential_id {raw_credential_id:?}"
+                    )
+                })?;
             let Some(inject) = service.get("inject").and_then(|value| value.as_object()) else {
                 continue;
             };
 
-            let secret = match Self::load_secret_data(pool, service_credential_id, project_id).await
-            {
-                Ok(Some(secret)) => secret,
-                Ok(None) => continue,
-                Err(e) => {
-                    warn!(service = %name, credential_id = %service_credential_id, "Failed to load external egress secret: {e}");
-                    continue;
-                }
+            let Some(secret) = Self::load_secret_data(pool, service_credential_id, project_id)
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed to load external egress service {name:?} credential {service_credential_id}"
+                    )
+                })?
+            else {
+                continue;
             };
             let headers = match build_external_inject_headers(&secret, inject) {
                 Ok(headers) if !headers.is_empty() => headers,
@@ -1917,7 +1910,7 @@ impl SandboxResolver {
                 }
             }
         }
-        routes
+        Ok(routes)
     }
 
     /// Resolve task-scoped agent identity via the pluggable provider.
@@ -2612,22 +2605,22 @@ pub(crate) async fn rebuild_sandbox_credentials(
     pool: &PgPool,
     sandbox: &crate::db::models::JoySafeterSandbox,
     llm_egress_allowed_hosts: &[String],
-) -> SandboxCredentials {
+) -> anyhow::Result<SandboxCredentials> {
     let mut routes = Vec::new();
 
     let Some(session_id) = sandbox.chat_session_id else {
-        return SandboxCredentials {
+        return Ok(SandboxCredentials {
             routes,
             proxy_auth_token: sandbox_runner_token(sandbox),
-        };
+        });
     };
     let session = match queries::get_session(pool, session_id).await {
         Ok(Some(s)) => s,
         _ => {
-            return SandboxCredentials {
+            return Ok(SandboxCredentials {
                 routes,
                 proxy_auth_token: sandbox_runner_token(sandbox),
-            }
+            })
         }
     };
     let live_agent = match session.agent_id {
@@ -2635,7 +2628,7 @@ pub(crate) async fn rebuild_sandbox_credentials(
         None => None,
     };
     let snapshot_environment = environment_for_execution(Some(&session));
-    let agent = agent_for_execution(live_agent, Some(&session));
+    let agent = agent_for_execution(live_agent, Some(&session))?;
 
     // Re-resolve the agent env (with decrypted secrets) exactly as at creation,
     // then extract the LLM egress from it. We discard the env itself — only the
@@ -2661,17 +2654,15 @@ pub(crate) async fn rebuild_sandbox_credentials(
                 None => None,
             }
         };
-        if let Ok(resolved_env) =
+        let resolved_env =
             SandboxResolver::resolve_agent_env_from(pool, agent.as_ref(), environment.as_ref())
-                .await
-        {
-            let mut env = resolved_env.values;
-            routes.extend(SandboxResolver::extract_llm_egress(
-                &mut env,
-                resolved_env.llm_binding.as_ref(),
-                llm_egress_allowed_hosts,
-            ));
-        }
+                .await?;
+        let mut env = resolved_env.values;
+        routes.extend(SandboxResolver::extract_llm_egress(
+            &mut env,
+            resolved_env.llm_binding.as_ref(),
+            llm_egress_allowed_hosts,
+        ));
         routes.extend(
             SandboxResolver::build_external_egress(
                 pool,
@@ -2681,7 +2672,7 @@ pub(crate) async fn rebuild_sandbox_credentials(
                     .as_deref()
                     .or(agent_ref.project_id.as_deref()),
             )
-            .await,
+            .await?,
         );
     }
 
@@ -2701,10 +2692,10 @@ pub(crate) async fn rebuild_sandbox_credentials(
             "Failed to rebuild Git egress credentials during sandbox recovery: {e}"
         ),
     }
-    SandboxCredentials {
+    Ok(SandboxCredentials {
         routes,
         proxy_auth_token: sandbox_runner_token(sandbox),
-    }
+    })
 }
 
 /// Outcome of a networking reconcile attempt for one sandbox.
@@ -2755,7 +2746,7 @@ pub(crate) async fn reconcile_sandbox_networking(
         return Ok(NetworkingReconcileOutcome::NotLimited);
     }
 
-    let credentials = rebuild_sandbox_credentials(pool, sandbox, llm_egress_allowed_hosts).await;
+    let credentials = rebuild_sandbox_credentials(pool, sandbox, llm_egress_allowed_hosts).await?;
     let policy = credentials.to_policy(&sandbox_id, allowed_hosts_from_networking(networking));
     crate::sandbox::lds_backend::validate_egress_policy(&sandbox_id, &policy)?;
     let summary = crate::sandbox::lds_backend::egress_policy_summary(&sandbox_id, &policy);
@@ -3468,6 +3459,66 @@ mod egress_tests {
 
     fn allow(hosts: &[&str]) -> Vec<String> {
         hosts.iter().map(|host| host.to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn external_egress_rejects_malformed_service_credential_id() {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/unused")
+            .expect("create lazy pool");
+        let environment = EnvironmentRow {
+            config: serde_json::json!({
+                "egress_services": [
+                    {
+                        "name": "secocean",
+                        "base_url": "https://secocean.example.com",
+                        "service_credential_id": "019f891f-6539-71d3-b791-c25814af3efd",
+                        "inject": {
+                            "type": "cookie",
+                            "secret_key": "COOKIE_HEADER"
+                        }
+                    }
+                ]
+            }),
+            image_tag: None,
+        };
+
+        let error = SandboxResolver::build_external_egress(&pool, Some(&environment), None)
+            .await
+            .expect_err("bare UUID in external egress must fail");
+
+        assert!(error.to_string().contains("service_credential_id"));
+        assert!(error.to_string().contains("secocean"));
+    }
+
+    #[tokio::test]
+    async fn external_egress_rejects_non_string_service_credential_id() {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/unused")
+            .expect("create lazy pool");
+        let environment = EnvironmentRow {
+            config: serde_json::json!({
+                "egress_services": [
+                    {
+                        "name": "secocean",
+                        "base_url": "https://secocean.example.com",
+                        "service_credential_id": 7,
+                        "inject": {
+                            "type": "cookie",
+                            "secret_key": "COOKIE_HEADER"
+                        }
+                    }
+                ]
+            }),
+            image_tag: None,
+        };
+
+        let error = SandboxResolver::build_external_egress(&pool, Some(&environment), None)
+            .await
+            .expect_err("non-string external egress credential id must fail");
+
+        assert!(error.to_string().contains("service_credential_id"));
+        assert!(error.to_string().contains("secocean"));
     }
 
     #[test]

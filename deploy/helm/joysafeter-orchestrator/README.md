@@ -77,19 +77,20 @@ helm install joysafeter-prod . -f values-prod.yaml -n joysafeter-prod
 
 ### 2. 升级
 
-`20260815_000001_normalize_credential_envelopes` 是 online-only 且不可逆的
+`20260815_000001_normalize_credential_envelopes` 和
+`20260815_000002_normalize_credential_public_ids` 都是 online-only 且不可逆的
 凭据规范化迁移。升级前必须确认数据库备份可恢复，并确认
 `JOYSAFETER_VAULT_ENCRYPTION_KEY` 与旧环境使用的是同一把密钥。不得生成新密钥
 覆盖旧值。
 
 迁移期间必须停止 API、worker、orchestrator 和所有旧 HA 实例，避免旧进程在
-最终检查后重新写入 bare `enc:` 数据。使用目标环境的 DB Secret 和 Vault Key
-执行迁移：
+最终检查后重新写入 bare `enc:` 密文、裸 UUID 或旧凭据名称。使用目标环境的 DB
+Secret 和 Vault Key 执行迁移：
 
 ```bash
 cd backend
 alembic upgrade head
-alembic current  # 必须显示 20260815_000001 (head)
+alembic current  # 必须显示 20260815_000002 (head)
 ```
 
 迁移会在写入前验证全部 `enc:` / `enc:v1:` 密文；任意错误密钥、损坏密文、
@@ -129,7 +130,145 @@ WITH credential_values AS (
 SELECT store, count(*) AS violations FROM violations GROUP BY store;
 ```
 
-查询必须返回 0 行。之后再升级并启动 orchestrator/API：
+查询必须返回 0 行。随后验证环境、会话快照和 agent-version 快照内的所有凭据引用
+均为可解析、同项目、正确 kind 且仍处于 live 状态：
+
+```sql
+WITH snapshots AS (
+    SELECT
+        'sessions.agent_snapshot'::text AS source,
+        s.id::text AS owner_id,
+        s.project_id,
+        s.agent_snapshot AS snapshot
+    FROM joysafeter_sessions s
+    WHERE s.agent_snapshot IS NOT NULL
+    UNION ALL
+    SELECT
+        'agent_versions.snapshot',
+        v.id::text,
+        a.project_id,
+        v.snapshot
+    FROM joysafeter_agent_versions v
+    JOIN joysafeter_agents a ON a.id = v.agent_id
+), environment_configs AS (
+    SELECT
+        'environments.config'::text AS source,
+        e.id::text AS owner_id,
+        e.project_id,
+        e.config
+    FROM joysafeter_environments e
+    WHERE e.config IS NOT NULL
+    UNION ALL
+    SELECT
+        source || '.environment.config',
+        owner_id,
+        project_id,
+        snapshot #> '{environment,config}'
+    FROM snapshots
+    WHERE snapshot #> '{environment,config}' IS NOT NULL
+), shape_violations AS (
+    SELECT source, owner_id, 'environment config is not an object' AS reason
+    FROM environment_configs
+    WHERE jsonb_typeof(config) <> 'object'
+    UNION ALL
+    SELECT source || '.secret_refs', owner_id, 'secret_refs is not an array'
+    FROM environment_configs
+    WHERE config ? 'secret_refs'
+      AND jsonb_typeof(config->'secret_refs') <> 'array'
+    UNION ALL
+    SELECT source || '.egress_services', owner_id, 'egress_services is not an array'
+    FROM environment_configs
+    WHERE config ? 'egress_services'
+      AND jsonb_typeof(config->'egress_services') <> 'array'
+    UNION ALL
+    SELECT source || '.egress_services[' || (service.ordinality - 1) || ']', owner_id,
+           'egress service is not an object'
+    FROM environment_configs
+    CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(config->'egress_services') = 'array'
+             THEN config->'egress_services' ELSE '[]'::jsonb END
+    ) WITH ORDINALITY AS service(value, ordinality)
+    WHERE jsonb_typeof(service.value) <> 'object'
+    UNION ALL
+    SELECT source || '.secret_ref', owner_id, 'legacy secret_ref key still exists'
+    FROM snapshots
+    WHERE snapshot ? 'secret_ref'
+), refs AS (
+    SELECT
+        source || '.secret_refs[' || (ref.ordinality - 1) || ']' AS path,
+        owner_id,
+        project_id,
+        'service'::text AS expected_kind,
+        ref.value
+    FROM environment_configs
+    CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(config->'secret_refs') = 'array'
+             THEN config->'secret_refs' ELSE '[]'::jsonb END
+    ) WITH ORDINALITY AS ref(value, ordinality)
+    UNION ALL
+    SELECT
+        source || '.egress_services[' || (service.ordinality - 1) || '].service_credential_id',
+        owner_id,
+        project_id,
+        'service',
+        service.value->'service_credential_id'
+    FROM environment_configs
+    CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(config->'egress_services') = 'array'
+             THEN config->'egress_services' ELSE '[]'::jsonb END
+    ) WITH ORDINALITY AS service(value, ordinality)
+    WHERE jsonb_typeof(service.value) = 'object'
+    UNION ALL
+    SELECT
+        source || '.model_credential_id',
+        owner_id,
+        project_id,
+        'model',
+        snapshot->'model_credential_id'
+    FROM snapshots
+    WHERE snapshot ? 'model_credential_id'
+      AND snapshot->'model_credential_id' <> 'null'::jsonb
+      AND COALESCE(snapshot->>'model_credential_id', '') <> ''
+), resolved_refs AS (
+    SELECT
+        refs.*,
+        CASE
+            WHEN jsonb_typeof(value) = 'string'
+             AND value #>> '{}' ~ '^cred_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            THEN substring(value #>> '{}' FROM 6)::uuid
+        END AS credential_uuid
+    FROM refs
+), reference_violations AS (
+    SELECT
+        r.path AS source,
+        r.owner_id,
+        CASE
+            WHEN r.value IS NULL THEN 'credential reference is missing'
+            WHEN jsonb_typeof(r.value) <> 'string' THEN 'credential reference is not a string'
+            WHEN r.credential_uuid IS NULL THEN 'credential reference is not canonical cred_<uuid>'
+            WHEN c.id IS NULL THEN 'credential does not exist'
+            WHEN c.project_id IS DISTINCT FROM r.project_id THEN 'credential belongs to another project'
+            WHEN c.kind <> r.expected_kind THEN 'credential has the wrong kind'
+            WHEN c.archived_at IS NOT NULL OR c.deleted_at IS NOT NULL THEN 'credential is not live'
+        END AS reason
+    FROM resolved_refs r
+    LEFT JOIN joysafeter_credentials c ON c.id = r.credential_uuid
+    WHERE r.value IS NULL
+       OR jsonb_typeof(r.value) <> 'string'
+       OR r.credential_uuid IS NULL
+       OR c.id IS NULL
+       OR c.project_id IS DISTINCT FROM r.project_id
+       OR c.kind <> r.expected_kind
+       OR c.archived_at IS NOT NULL
+       OR c.deleted_at IS NOT NULL
+)
+SELECT source, owner_id, reason FROM shape_violations
+UNION ALL
+SELECT source, owner_id, reason FROM reference_violations
+ORDER BY source, owner_id;
+```
+
+这组查询也必须返回 0 行。之后再升级并启动 orchestrator/API：
 
 ```bash
 helm upgrade joysafeter-pre . -f values-pre.yaml -n joysafeter-pre

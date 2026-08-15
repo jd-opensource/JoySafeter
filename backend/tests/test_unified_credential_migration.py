@@ -744,7 +744,7 @@ def test_migration_classifies_snapshot_only_secret_as_model(
         ).fetchone()[0]
 
     assert credential_kind == "model"
-    assert snapshot["model_credential_id"] == str(secret_id)
+    assert snapshot["model_credential_id"] == f"cred_{secret_id}"
     assert "secret_ref" not in snapshot
 
 
@@ -1125,6 +1125,196 @@ def test_envelope_normalization_wrong_key_rolls_back_revision(
 
     assert revision == "20260814_000002"
     assert stored == legacy
+
+
+def test_head_normalizes_all_persisted_credential_references_to_public_ids(
+    migration_database: MigrationDatabase,
+) -> None:
+    agent_id = uuid4()
+    environment_id = uuid4()
+    session_id = uuid4()
+    agent_version_id = uuid4()
+    model_credential_id = uuid4()
+    service_credential_id = uuid4()
+
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        _seed_agent(
+            connection,
+            agent_id=agent_id,
+            name="public-id-agent",
+            secret_ref="model-secret",
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_secrets
+                (id, project_id, name, provider, protocol, data, is_default)
+            VALUES
+                (%s, %s, 'model-secret', 'custom', 'custom', '{}'::jsonb, false),
+                (%s, %s, 'service-secret', 'custom', 'custom', '{}'::jsonb, false)
+            """,
+            (
+                model_credential_id,
+                PROJECT_ID,
+                service_credential_id,
+                PROJECT_ID,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_environments
+                (id, project_id, name, description, image_version, config)
+            VALUES (%s, %s, 'public-id-env', '', 0, %s)
+            """,
+            (
+                environment_id,
+                PROJECT_ID,
+                Jsonb(
+                    {
+                        "secret_refs": ["service-secret"],
+                        "egress_services": [
+                            {
+                                "name": "external",
+                                "credential_ref": "service-secret",
+                            }
+                        ],
+                    }
+                ),
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_sessions
+                (id, project_id, agent_id, status, agent_snapshot)
+            VALUES (%s, %s, %s, 'idle', %s)
+            """,
+            (
+                session_id,
+                PROJECT_ID,
+                agent_id,
+                Jsonb(
+                    {
+                        "secret_ref": "model-secret",
+                        "environment": {
+                            "config": {
+                                "secret_refs": [str(service_credential_id)],
+                                "egress_services": [
+                                    {
+                                        "name": "external",
+                                        "service_credential_id": str(service_credential_id),
+                                    }
+                                ],
+                            }
+                        },
+                    }
+                ),
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_agent_versions
+                (id, agent_id, version, snapshot)
+            VALUES (%s, %s, 1, %s)
+            """,
+            (
+                agent_version_id,
+                agent_id,
+                Jsonb({"secret_ref": "model-secret"}),
+            ),
+        )
+        connection.commit()
+
+    result = _upgrade_head(migration_database)
+    assert result.returncode == 0, result.stderr
+
+    with _connect(migration_database) as connection:
+        environment_config = connection.execute(
+            "SELECT config FROM joysafeter_environments WHERE id = %s",
+            (environment_id,),
+        ).fetchone()[0]
+        session_snapshot = connection.execute(
+            "SELECT agent_snapshot FROM joysafeter_sessions WHERE id = %s",
+            (session_id,),
+        ).fetchone()[0]
+        version_snapshot = connection.execute(
+            "SELECT snapshot FROM joysafeter_agent_versions WHERE id = %s",
+            (agent_version_id,),
+        ).fetchone()[0]
+
+    model_public_id = f"cred_{model_credential_id}"
+    service_public_id = f"cred_{service_credential_id}"
+    assert environment_config["secret_refs"] == [service_public_id]
+    assert environment_config["egress_services"][0]["service_credential_id"] == service_public_id
+    assert "credential_ref" not in environment_config["egress_services"][0]
+    assert session_snapshot["model_credential_id"] == model_public_id
+    assert "secret_ref" not in session_snapshot
+    frozen_config = session_snapshot["environment"]["config"]
+    assert frozen_config["secret_refs"] == [service_public_id]
+    assert frozen_config["egress_services"][0]["service_credential_id"] == service_public_id
+    assert version_snapshot["model_credential_id"] == model_public_id
+    assert "secret_ref" not in version_snapshot
+
+
+def test_public_id_normalization_invalid_reference_rolls_back_all_rows(
+    migration_database: MigrationDatabase,
+) -> None:
+    assert _upgrade_to(migration_database, "20260815_000001").returncode == 0
+    valid_environment_id = uuid4()
+    invalid_environment_id = uuid4()
+    service_credential_id = uuid4()
+    model_credential_id = uuid4()
+
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        connection.execute(
+            """
+            INSERT INTO joysafeter_credentials
+                (id, project_id, kind, name, data, provider, protocol, is_default)
+            VALUES
+                (%s, %s, 'service', 'valid-service', '{}'::jsonb, NULL, NULL, false),
+                (%s, %s, 'model', 'wrong-kind-model', '{}'::jsonb, 'custom', 'custom', false)
+            """,
+            (
+                service_credential_id,
+                PROJECT_ID,
+                model_credential_id,
+                PROJECT_ID,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_environments
+                (id, project_id, name, description, image_version, config)
+            VALUES
+                (%s, %s, 'valid-before-invalid', '', 0, %s),
+                (%s, %s, 'invalid-kind', '', 0, %s)
+            """,
+            (
+                valid_environment_id,
+                PROJECT_ID,
+                Jsonb({"secret_refs": [str(service_credential_id)]}),
+                invalid_environment_id,
+                PROJECT_ID,
+                Jsonb({"secret_refs": [str(model_credential_id)]}),
+            ),
+        )
+        connection.commit()
+
+    result = _upgrade_head(migration_database)
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "must point to kind=service" in output
+    assert str(invalid_environment_id) in output
+
+    with _connect(migration_database) as connection:
+        revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        valid_config = connection.execute(
+            "SELECT config FROM joysafeter_environments WHERE id = %s",
+            (valid_environment_id,),
+        ).fetchone()[0]
+
+    assert revision == "20260815_000001"
+    assert valid_config["secret_refs"] == [str(service_credential_id)]
 
 
 def test_migration_rejects_skill_usage_without_a_concrete_version(

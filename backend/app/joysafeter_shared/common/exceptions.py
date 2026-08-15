@@ -5,7 +5,6 @@ from typing import Any, Iterable, Mapping
 from fastapi import HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
-from pydantic import ValidationError as PydanticValidationError
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.joysafeter_shared.common.app_errors import (
@@ -183,7 +182,7 @@ def _format_validation_errors(errors: Iterable[Mapping[str, Any]]) -> list[dict[
 
 async def request_validation_exception_handler(request: Request, exc: Exception) -> Response:
     raw_errors: list[Mapping[str, Any]] = []
-    if isinstance(exc, (RequestValidationError, PydanticValidationError)):
+    if isinstance(exc, RequestValidationError):
         raw_errors = list(exc.errors())
 
     # A failed typed-EntityId field (body or path) yields the project's frozen
@@ -218,7 +217,6 @@ def register_exception_handlers(app: Any) -> None:
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(HTTPException, http_exception_handler)
     app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
-    app.add_exception_handler(PydanticValidationError, request_validation_exception_handler)
     app.add_exception_handler(Exception, general_exception_handler)
 
 

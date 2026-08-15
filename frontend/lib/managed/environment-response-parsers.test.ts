@@ -54,4 +54,51 @@ describe('environment response parsers', () => {
       ).toThrow(TypeError)
     },
   )
+
+  it('brands nested credential ids at the API boundary', () => {
+    const environment = parseEnvironmentResponse({
+      ...rawEnvironment(),
+      config: {
+        secret_refs: [`cred_${UUID}`],
+        egress_services: [
+          {
+            name: 'secocean',
+            base_url: 'https://secocean.example.com',
+            exposure: 'placeholder',
+            inject: { type: 'cookie', secret_key: 'COOKIE_HEADER' },
+            service_credential_id: `cred_${UUID}`,
+          },
+        ],
+      },
+    })
+
+    expect(environment.config?.secret_refs?.[0]).toBe(`cred_${UUID}`)
+    expect(environment.config?.egress_services?.[0].service_credential_id).toBe(`cred_${UUID}`)
+  })
+
+  it.each([UUID, `agent_${UUID}`])('rejects invalid nested credential id %s', (credentialId) => {
+    expect(() =>
+      parseEnvironmentResponse({
+        ...rawEnvironment(),
+        config: { secret_refs: [credentialId] },
+      }),
+    ).toThrow(TypeError)
+
+    expect(() =>
+      parseEnvironmentResponse({
+        ...rawEnvironment(),
+        config: {
+          egress_services: [
+            {
+              name: 'secocean',
+              base_url: 'https://secocean.example.com',
+              exposure: 'placeholder',
+              inject: { type: 'cookie', secret_key: 'COOKIE_HEADER' },
+              service_credential_id: credentialId,
+            },
+          ],
+        },
+      }),
+    ).toThrow(TypeError)
+  })
 })

@@ -407,7 +407,7 @@ impl EnvoyManager {
                 sb,
                 llm_egress_allowed_hosts,
             )
-            .await;
+            .await?;
             let policy = creds.to_policy(&sb.id, allowed_hosts);
             if let Err(e) = validate_egress_policy(&sb.id, &policy) {
                 warn!(sandbox_id = %sb.id, error = %e, "Skipping invalid recovered egress policy");

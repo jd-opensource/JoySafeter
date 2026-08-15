@@ -969,15 +969,17 @@ async fn run_single_task(
             Some(aid) => queries::get_agent(pool, aid).await.ok().flatten(),
             None => None,
         };
-        if let Some(agent) =
-            crate::kernel::run_spec::agent_for_execution(live_agent, session.as_ref())
-        {
-            crate::kernel::harness_input_builder::extract_tool_name_sets(&agent)
-        } else {
-            (
+        match crate::kernel::run_spec::agent_for_execution(live_agent, session.as_ref()) {
+            Ok(Some(agent)) => crate::kernel::harness_input_builder::extract_tool_name_sets(&agent),
+            Ok(None) => (
                 std::collections::HashSet::new(),
                 std::collections::HashSet::new(),
-            )
+            ),
+            Err(error) => {
+                return TaskResult::Failed(format!(
+                    "invalid persisted agent snapshot for task {task_id}: {error}"
+                ));
+            }
         }
     } else {
         (

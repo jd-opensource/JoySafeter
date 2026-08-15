@@ -12,24 +12,27 @@ pub struct SnapshotEnvironment {
 pub fn agent_for_execution(
     live_agent: Option<JoySafeterAgent>,
     session: Option<&JoySafeterSession>,
-) -> Option<JoySafeterAgent> {
+) -> anyhow::Result<Option<JoySafeterAgent>> {
     let snapshot = session.and_then(|session| session.agent_snapshot.as_ref());
     if live_agent.is_none() && snapshot.is_none() {
-        return None;
+        return Ok(None);
     }
 
     let live = live_agent.as_ref();
     let session_agent_id = session.and_then(|session| session.agent_id);
-    let id = live
+    let Some(id) = live
         .map(|agent| agent.id)
         .or(session_agent_id)
-        .or_else(|| snapshot.and_then(|snapshot| snapshot_string(snapshot, "id")?.parse().ok()))?;
+        .or_else(|| snapshot.and_then(|snapshot| snapshot_string(snapshot, "id")?.parse().ok()))
+    else {
+        return Ok(None);
+    };
     let project_id = live
         .and_then(|agent| agent.project_id.clone())
         .or_else(|| session.and_then(|session| session.project_id.clone()));
     let session_version = session.and_then(|session| session.agent_version);
 
-    Some(JoySafeterAgent {
+    Ok(Some(JoySafeterAgent {
         id,
         project_id,
         name: snapshot_string_override(snapshot, "name")
@@ -78,9 +81,9 @@ pub fn agent_for_execution(
         // snapshot persists it as the canonical public id string under
         // "model_credential_id"; parse it back to a CredentialId, else fall back
         // to the live agent.
-        model_credential_id: snapshot_credential_id_override(snapshot)
+        model_credential_id: snapshot_credential_id_override(snapshot)?
             .unwrap_or_else(|| live.and_then(|agent| agent.model_credential_id)),
-    })
+    }))
 }
 
 pub fn environment_for_execution(
@@ -136,21 +139,73 @@ fn snapshot_string(snapshot: &Value, key: &str) -> Option<String> {
 /// Returns:
 ///   - `None`           → the snapshot has no `model_credential_id` key
 ///                        (fall back to the live agent);
-///   - `Some(None)`     → the key is present but null/blank/unparseable
+///   - `Some(None)`     → the key is present but null/blank
 ///                        (explicitly no credential);
 ///   - `Some(Some(id))` → the key holds a canonical `cred_` public id.
-fn snapshot_credential_id_override(snapshot: Option<&Value>) -> Option<Option<CredentialId>> {
-    snapshot.and_then(|snapshot| {
-        snapshot
-            .as_object()
-            .and_then(|object| object.get("model_credential_id"))
-            .map(|value| {
-                value
-                    .as_str()
-                    .filter(|raw| !raw.trim().is_empty())
-                    .and_then(|raw| CredentialId::from_public(raw).ok())
-            })
-    })
+fn snapshot_credential_id_override(
+    snapshot: Option<&Value>,
+) -> anyhow::Result<Option<Option<CredentialId>>> {
+    let Some(value) = snapshot
+        .and_then(Value::as_object)
+        .and_then(|object| object.get("model_credential_id"))
+    else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(Some(None));
+    }
+    let raw = value.as_str().ok_or_else(|| {
+        anyhow::anyhow!("persisted agent snapshot model_credential_id must be a string or null")
+    })?;
+    if raw.trim().is_empty() {
+        return Ok(Some(None));
+    }
+    let credential_id = CredentialId::from_public(raw).map_err(|error| {
+        anyhow::anyhow!("invalid persisted agent snapshot model_credential_id {raw:?}: {error}")
+    })?;
+    Ok(Some(Some(credential_id)))
+}
+
+pub(crate) fn environment_credential_ids(config: &Value) -> anyhow::Result<Vec<CredentialId>> {
+    let mut credential_ids = Vec::new();
+
+    if let Some(value) = config.get("service_credential_id") {
+        if !value.is_null() {
+            let raw = value.as_str().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "persisted environment service_credential_id must be a string or null"
+                )
+            })?;
+            if !raw.trim().is_empty() {
+                credential_ids.push(CredentialId::from_public(raw).map_err(|error| {
+                    anyhow::anyhow!(
+                        "invalid persisted environment service_credential_id {raw:?}: {error}"
+                    )
+                })?);
+            }
+        }
+    }
+
+    if let Some(value) = config.get("secret_refs") {
+        if !value.is_null() {
+            let refs = value.as_array().ok_or_else(|| {
+                anyhow::anyhow!("persisted environment secret_refs must be an array or null")
+            })?;
+            for (index, value) in refs.iter().enumerate() {
+                let raw = value.as_str().ok_or_else(|| {
+                    anyhow::anyhow!("persisted environment secret_refs[{index}] must be a string")
+                })?;
+                let credential_id = CredentialId::from_public(raw).map_err(|error| {
+                    anyhow::anyhow!(
+                        "invalid persisted environment secret_refs[{index}] {raw:?}: {error}"
+                    )
+                })?;
+                credential_ids.push(credential_id);
+            }
+        }
+    }
+
+    Ok(credential_ids)
 }
 
 fn snapshot_i32(snapshot: Option<&Value>, key: &str) -> Option<i32> {
@@ -178,4 +233,35 @@ fn snapshot_model_override(snapshot: Option<&Value>) -> Option<Option<String>> {
                 }
             })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{environment_credential_ids, snapshot_credential_id_override};
+
+    #[test]
+    fn snapshot_model_credential_rejects_malformed_public_id() {
+        let snapshot = json!({
+            "model_credential_id": "019f891f-6539-71d3-b791-c25814af3efd"
+        });
+
+        let error = snapshot_credential_id_override(Some(&snapshot))
+            .expect_err("bare UUID in persisted snapshot must fail");
+
+        assert!(error.to_string().contains("model_credential_id"));
+    }
+
+    #[test]
+    fn environment_secret_refs_reject_malformed_public_id() {
+        let config = json!({
+            "secret_refs": ["019f891f-6539-71d3-b791-c25814af3efd"]
+        });
+
+        let error = environment_credential_ids(&config)
+            .expect_err("bare UUID in persisted environment must fail");
+
+        assert!(error.to_string().contains("secret_refs[0]"));
+    }
 }

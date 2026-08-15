@@ -22,7 +22,7 @@ use crate::ids::{
 use crate::kernel::llm_catalog::{validate_runtime_secret, RuntimeSecretBinding};
 use crate::kernel::mcp_url;
 use crate::kernel::run_spec::{
-    agent_for_execution, environment_for_execution, SnapshotEnvironment,
+    agent_for_execution, environment_credential_ids, environment_for_execution, SnapshotEnvironment,
 };
 
 const CONVERSATION_HISTORY_EVENT_LIMIT: i64 = 100;
@@ -85,7 +85,7 @@ impl HarnessInputBuilder {
             None => None,
         };
         let snapshot_environment = environment_for_execution(session.as_ref());
-        let agent = agent_for_execution(live_agent, session.as_ref());
+        let agent = agent_for_execution(live_agent, session.as_ref())?;
 
         let mut input = HarnessInput {
             provider: agent
@@ -348,26 +348,7 @@ impl HarnessInputBuilder {
         // Environment-level credentials are referenced by id. Both the legacy
         // list form (`secret_refs`) and the single `service_credential_id` now
         // hold canonical `cred_` ids resolved against `joysafeter_credentials`.
-        let mut env_credential_ids: Vec<CredentialId> = Vec::new();
-        if let Some(service_credential_id) = environment_config
-            .get("service_credential_id")
-            .and_then(|v| v.as_str())
-            .filter(|v| !v.trim().is_empty())
-            .and_then(|raw| CredentialId::from_public(raw).ok())
-        {
-            env_credential_ids.push(service_credential_id);
-        }
-        if let Some(secret_refs) = environment_config
-            .get("secret_refs")
-            .and_then(|v| v.as_array())
-        {
-            for raw in secret_refs.iter().filter_map(|v| v.as_str()) {
-                if let Ok(credential_id) = CredentialId::from_public(raw) {
-                    env_credential_ids.push(credential_id);
-                }
-            }
-        }
-        for credential_id in env_credential_ids {
+        for credential_id in environment_credential_ids(&environment_config)? {
             self.resolve_secret_ref_into_input(
                 credential_id,
                 agent.project_id.as_deref(),

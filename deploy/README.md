@@ -247,17 +247,18 @@ cd deploy
 - 用预构建镜像部署，并固定 `BACKEND_FULL_IMAGE`、`FRONTEND_FULL_IMAGE`、`ORCHESTRATOR_RS_FULL_IMAGE`、`SKILLSPECTOR_FULL_IMAGE`。
 - 根据 CPU 调整 `SKILLSPECTOR_WORKERS` / `SKILLSPECTOR_CPUS`，避免扫描挤占 orchestrator 和 worker。
 
-## 2026-08-15 凭据 Envelope 升级门禁
+## 2026-08-15 凭据升级门禁
 
-从 `joysafeter-v2-ha` 升级到包含 `20260815_000001` 的版本时，不得在应用实例仍
-写入凭据的情况下直接执行 `alembic upgrade head`：
+从 `joysafeter-v2-ha` 升级到包含 `20260815_000001`（密文 envelope）和
+`20260815_000002`（JSON 公共 ID 修复）的版本时，不得在应用实例仍写入凭据或
+环境/会话快照的情况下直接执行 `alembic upgrade head`：
 
 1. 确认数据库备份可恢复。
 2. 保留旧环境的 `JOYSAFETER_VAULT_ENCRYPTION_KEY`，禁止自动生成替代密钥。
 3. 停止 API、worker、orchestrator 和旧 HA 实例的凭据写入。
 4. 使用包含新迁移的 backend 镜像执行 `alembic upgrade head`。
-5. `alembic current` 必须显示 `20260815_000001 (head)`。
-6. 执行 Helm README 中的结构检查，结果必须为 0 行。
+5. `alembic current` 必须显示 `20260815_000002 (head)`。
+6. 执行 Helm README 中的密文 envelope 和 credential 公共 ID 两组结构检查，结果都必须为 0 行。
 7. 启动 API/orchestrator，验证 credential 列表和实际 runner 凭据注入后再扩容。
 8. 轮换历史上以明文存储的 API Key 和 Auth Token。
 

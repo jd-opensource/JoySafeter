@@ -1,11 +1,25 @@
-import { parseEnvironmentId, parseStorageVolumeId } from '@/types/entity-id'
-import type { Environment, EnvironmentConfig, EnvironmentStorageVolume } from '@/types/managed'
+import { parseCredentialId, parseEnvironmentId, parseStorageVolumeId } from '@/types/entity-id'
+import type {
+  Environment,
+  EnvironmentConfig,
+  EnvironmentEgressService,
+  EnvironmentStorageVolume,
+} from '@/types/managed'
 
 type RawEnvironmentStorageVolume = Omit<EnvironmentStorageVolume, 'volume_id'> & {
   volume_id?: string
 }
 
-type RawEnvironmentConfig = Omit<EnvironmentConfig, 'storage_volumes'> & {
+type RawEnvironmentEgressService = Omit<EnvironmentEgressService, 'service_credential_id'> & {
+  service_credential_id: string
+}
+
+type RawEnvironmentConfig = Omit<
+  EnvironmentConfig,
+  'secret_refs' | 'egress_services' | 'storage_volumes'
+> & {
+  secret_refs?: string[]
+  egress_services?: RawEnvironmentEgressService[]
   storage_volumes?: RawEnvironmentStorageVolume[]
 }
 
@@ -22,6 +36,11 @@ export function parseEnvironmentResponse(response: unknown): Environment {
     config: raw.config
       ? {
           ...raw.config,
+          secret_refs: raw.config.secret_refs?.map(parseCredentialId),
+          egress_services: raw.config.egress_services?.map((service) => ({
+            ...service,
+            service_credential_id: parseCredentialId(service.service_credential_id),
+          })),
           storage_volumes: raw.config.storage_volumes?.map((volume) => ({
             ...volume,
             volume_id:

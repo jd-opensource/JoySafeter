@@ -387,6 +387,37 @@ async def test_soft_delete_credential_pinned_only_by_active_session_snapshot_rej
 
 
 @pytest.mark.asyncio
+async def test_service_credential_pinned_only_by_frozen_session_environment_rejected(
+    db_session, project_id
+):
+    cred_id = await _make_service_credential(db_session, project_id)
+    agent = await _make_agent(db_session, project_id)
+    session = await _make_session(db_session, agent, project_id)
+    session.agent_snapshot = {
+        **(session.agent_snapshot or {}),
+        "environment": {
+            "config": {
+                "egress_services": [
+                    {
+                        "name": "secocean",
+                        "service_credential_id": str(cred_id),
+                    }
+                ]
+            }
+        },
+    }
+    await db_session.commit()
+
+    dependencies = await CredentialService(db_session).dependencies(cred_id, project_id)
+
+    assert dependencies.environment_ids == []
+    assert dependencies.session_ids == [session.id]
+    with pytest.raises(AppError) as exc:
+        await CredentialService(db_session).soft_delete(cred_id, project_id=project_id)
+    assert exc.value.code == "CREDENTIAL_IN_USE"
+
+
+@pytest.mark.asyncio
 async def test_terminated_session_snapshot_does_not_pin_credential(db_session, project_id):
     cred_id = await _make_model_credential(db_session, project_id)
     agent = await _make_agent(db_session, project_id, model_credential_id=cred_id)

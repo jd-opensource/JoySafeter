@@ -60,6 +60,9 @@ def _build_typed_id_app() -> FastAPI:
     class Body(BaseModel):
         agent_id: AgentId
 
+    class PersistedCredential(BaseModel):
+        service_credential_id: CredentialId
+
     @app.post("/typed")
     async def _create(body: Body) -> dict:  # pragma: no cover - exercised via client
         return {"ok": str(body.agent_id)}
@@ -98,7 +101,27 @@ def _build_typed_id_app() -> FastAPI:
     ) -> dict:  # pragma: no cover - exercised via client
         return {"cred_id": str(cred_id)}
 
+    @app.get("/persisted-corruption")
+    async def _persisted_corruption() -> dict:  # pragma: no cover - exercised via client
+        PersistedCredential(service_credential_id=str(uuid.uuid4()))
+        return {"ok": True}
+
     return app
+
+
+def test_server_side_pydantic_id_failure_is_internal_not_fix_input():
+    client = TestClient(_build_typed_id_app(), raise_server_exceptions=False)
+
+    response = client.get("/persisted-corruption")
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "code": "INTERNAL_ERROR",
+        "message": "内部错误",
+        "data": None,
+        "source": "internal",
+        "retryable": False,
+    }
 
 
 def test_integration_invalid_agent_id_yields_canonical_400():

@@ -336,7 +336,7 @@ export interface EnvironmentConfig {
   packages?: EnvironmentPackages
   networking?: EnvironmentNetworking
   env_vars?: Record<string, string>
-  secret_refs?: string[]
+  secret_refs?: CredentialId[]
   egress_services?: EnvironmentEgressService[]
   storage_volumes?: EnvironmentStorageVolume[]
   mount_resources?: EnvironmentMountResource[]
