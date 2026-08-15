@@ -12,22 +12,35 @@ FORBIDDEN_DOMAIN_IMPORTS = {
 }
 
 
-def test_domain_has_no_forbidden_import_roots() -> None:
-    domain_directory = (
-        Path(__file__).resolve().parents[1] / "app" / "joysafeter_identity_federation" / "domain"
-    )
+def test_nested_domain_module_forbidden_import_is_detected(tmp_path: Path) -> None:
+    nested_module = tmp_path / "nested" / "internal.py"
+    nested_module.parent.mkdir()
+    nested_module.write_text("import fastapi\n")
+
+    assert _find_forbidden_domain_imports(tmp_path) == {"fastapi"}
+
+
+def _find_forbidden_domain_imports(domain_directory: Path) -> set[str]:
     imported_modules: set[str] = set()
 
-    for source_path in domain_directory.glob("*.py"):
+    for source_path in domain_directory.rglob("*.py"):
         for node in ast.walk(ast.parse(source_path.read_text())):
             if isinstance(node, ast.Import):
                 imported_modules.update(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imported_modules.add(node.module)
 
-    assert not {
+    return {
         imported_module
         for imported_module in imported_modules
         for forbidden_import in FORBIDDEN_DOMAIN_IMPORTS
         if imported_module == forbidden_import or imported_module.startswith(f"{forbidden_import}.")
     }
+
+
+def test_domain_has_no_forbidden_import_roots() -> None:
+    domain_directory = (
+        Path(__file__).resolve().parents[1] / "app" / "joysafeter_identity_federation" / "domain"
+    )
+
+    assert not _find_forbidden_domain_imports(domain_directory)
