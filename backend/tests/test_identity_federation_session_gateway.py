@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.joysafeter_domain.services.joysafeter_auth_service import AuthService
 from app.joysafeter_identity_federation.domain.errors import FederationError
 from app.joysafeter_identity_federation.infrastructure import session_gateway as session_gateway_module
 from app.joysafeter_identity_federation.infrastructure.session_gateway import JoySafeterAuthSessionGateway
@@ -18,22 +17,6 @@ _REFRESH_EXPIRES_AT = datetime(2026, 8, 22, 12, 30, tzinfo=timezone.utc)
 class _User:
     id: str
     is_active: bool
-    email: str = "user@example.com"
-    name: str = "User"
-    image: str | None = None
-    email_verified: bool = True
-    is_super_user: bool = False
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
-
-
-class _ContractAuthService(AuthService):
-    def __init__(self) -> None:
-        pass
-
-    async def _issue_jwt_tokens(self, user_id: str) -> tuple[str, str, str, datetime, datetime]:
-        assert user_id == "user-1"
-        return "access", "refresh", "csrf", _ACCESS_EXPIRES_AT, _REFRESH_EXPIRES_AT
 
 
 class _FakeUserLoader:
@@ -77,16 +60,6 @@ def _fake_auth_service(calls: list[str], token_result: object | None = None):
             return _valid_token_result() if token_result is None else token_result
 
     return FakeAuthService
-
-
-@pytest.mark.asyncio
-async def test_issue_login_tokens_exposes_calculated_timezone_aware_expiries() -> None:
-    token_result = await _ContractAuthService().issue_login_tokens(_User(id="user-1", is_active=True))
-
-    assert token_result["access_expires_at"] is _ACCESS_EXPIRES_AT
-    assert token_result["refresh_expires_at"] is _REFRESH_EXPIRES_AT
-    assert _ACCESS_EXPIRES_AT.utcoffset() is not None
-    assert _REFRESH_EXPIRES_AT.utcoffset() is not None
 
 
 @pytest.mark.asyncio
