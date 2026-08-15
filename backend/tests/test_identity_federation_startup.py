@@ -61,7 +61,7 @@ async def test_api_startup_does_not_swallow_federation_configuration_error(monke
     def _raise() -> None:
         raise error
 
-    monkeypatch.setattr(startup_module, "initialize_identity_federation_configuration", _raise)
+    monkeypatch.setattr(startup_module, "initialize_identity_federation", _raise)
 
     with pytest.raises(FederationConfigurationError) as exc_info:
         await startup_module.run_api_startup()

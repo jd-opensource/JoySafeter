@@ -6,13 +6,13 @@ import os
 
 from loguru import logger
 
-from app.joysafeter_identity_federation.bootstrap import initialize_identity_federation_configuration
+from app.joysafeter_identity_federation.bootstrap import initialize_identity_federation
 from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
 
 
 async def run_api_startup() -> None:
-    initialize_identity_federation_configuration()
+    initialize_identity_federation()
 
     from app.joysafeter_api.api.v1.agent_identity_capture import (
         validate_agent_identity_configuration,
