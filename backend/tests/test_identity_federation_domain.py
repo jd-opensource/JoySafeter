@@ -5,6 +5,7 @@ import pytest
 from app.joysafeter_identity_federation.domain.errors import (
     ConfigurationIssue,
     FederationConfigurationError,
+    FederationError,
 )
 from app.joysafeter_identity_federation.domain.models import (
     CorrelationMethod,
@@ -14,6 +15,7 @@ from app.joysafeter_identity_federation.domain.models import (
     OAuth2ProviderSettings,
     ProviderId,
 )
+from app.joysafeter_identity_federation.domain.policies import AccountLinkPolicy
 
 pytestmark = pytest.mark.no_db
 
@@ -114,3 +116,28 @@ def test_configuration_error_renders_all_issues_in_order() -> None:
 
     assert [issue.field for issue in error.issues] == ["client_id", "userinfo_url"]
     assert "FEDERATION_ENV_UNRESOLVED" in str(error)
+
+
+def test_auto_link_rejects_unverified_external_email() -> None:
+    policy = AccountLinkPolicy(allow_registration=True, auto_link_by_email=True)
+
+    with pytest.raises(FederationError) as exc_info:
+        policy.require_auto_link_allowed(
+            principal_email="user@example.com",
+            principal_email_verified=False,
+            existing_user_email="user@example.com",
+            existing_user_active=True,
+        )
+
+    assert exc_info.value.code == "FEDERATION_ACCOUNT_LINK_REQUIRED"
+
+
+def test_auto_link_accepts_verified_exact_normalized_email() -> None:
+    policy = AccountLinkPolicy(allow_registration=True, auto_link_by_email=True)
+
+    policy.require_auto_link_allowed(
+        principal_email=" User@Example.com ",
+        principal_email_verified=True,
+        existing_user_email="user@example.com",
+        existing_user_active=True,
+    )

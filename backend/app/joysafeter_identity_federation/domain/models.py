@@ -22,6 +22,41 @@ class CorrelationMethod(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class RequestContext:
+    base_url: str
+    request_url: str
+    client_ip: str
+    headers: Mapping[str, str]
+    cookies: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "headers", MappingProxyType(dict(self.headers)))
+        object.__setattr__(self, "cookies", MappingProxyType(dict(self.cookies)))
+
+
+@dataclass(frozen=True, slots=True)
+class CallbackContext(RequestContext):
+    query: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        RequestContext.__post_init__(self)
+        object.__setattr__(self, "query", MappingProxyType(dict(self.query)))
+
+
+@dataclass(frozen=True, slots=True)
+class CorrelationCookie:
+    name: str
+    value: str
+    max_age_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorizationAction:
+    authorization_url: str
+    correlation_cookie: CorrelationCookie | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderId:
     value: str
 
@@ -129,6 +164,16 @@ class FederatedPrincipal:
             raise ValueError("FederatedPrincipal subject must not be empty")
         object.__setattr__(self, "email", _normalize_email(self.email))
         object.__setattr__(self, "claims", _immutable_mapping(self.claims))
+
+
+@dataclass(frozen=True, slots=True)
+class Authenticated:
+    principal: FederatedPrincipal
+
+
+@dataclass(frozen=True, slots=True)
+class RestartAuthorization:
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)
