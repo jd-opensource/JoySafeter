@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use base64::Engine as _;
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use tracing::{debug, info, warn};
 use url::Url;
 use uuid::Uuid;
@@ -24,7 +24,7 @@ use crate::kernel::mcp_url;
 use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
 use crate::sandbox::lds_backend::{
     normalize_prefix, normalize_rewrite_base_prefix, EgressCredentialRoute, EgressExposure,
-    EgressKind, SandboxCredentials, UpstreamTarget, GIT_EGRESS_HOST,
+    EgressKind, SandboxCredentials, UpstreamTarget, GIT_EGRESS_HOST, MCP_EGRESS_HOST,
 };
 use crate::sandbox::mounts::{resolve_mount_resources, SandboxMount, SandboxMountFingerprint};
 use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
@@ -33,7 +33,7 @@ use super::llm_providers::credential_profile_spec;
 #[cfg(test)]
 use super::llm_providers::{CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OPENAI_API_KEY};
 
-/// Identity context loaded from session.metadata.agent_identity_context.
+/// Task-scoped identity context loaded from the internal identity table.
 struct LoadedIdentityContext {
     /// User's SSO cookie (Web scenario). Empty if auth_code is used.
     identity_token: String,
@@ -41,6 +41,8 @@ struct LoadedIdentityContext {
     auth_code: Option<String>,
     /// User name / email for cache keying.
     user_name: String,
+    /// Immutable authenticated user ID.
+    user_id: String,
 }
 
 /// Hard client-side bound on a provider networking setup/refresh call (Envoy
@@ -233,7 +235,7 @@ impl SandboxResolver {
         project_id: Option<&str>,
     ) -> anyhow::Result<(SandboxId, String)> {
         let context = self
-            .build_resolve_context(session_id, agent_id, project_id)
+            .build_resolve_context(task_id, session_id, agent_id, project_id)
             .await?;
         // Stage 1: Try to reuse existing sandbox for this session
         if let Some(sid) = session_id {
@@ -875,6 +877,7 @@ impl SandboxResolver {
 
     async fn build_resolve_context(
         &self,
+        task_id: TaskId,
         session_id: Option<SessionId>,
         agent_id: Option<AgentId>,
         project_id: Option<&str>,
@@ -965,15 +968,28 @@ impl SandboxResolver {
                 .await,
             );
 
-            // Agent identity injection (provider-based, fail-open).
-            // Resolves agentToken + user identity (SSO/ME) via the configured
-            // provider, then converts to EgressCredentialRoutes for Envoy injection.
+            // Agent identity is composed into existing MCP placeholder routes.
+            // Never create a transparent HTTPS interception route.
             if self.identity_provider.enabled() {
-                if let Some(identity_routes) = self
-                    .resolve_identity_egress_routes(agent.as_ref(), session_id)
+                let identity_hosts: Vec<String> = routes
+                    .iter()
+                    .filter(|route| {
+                        route.kind == EgressKind::Mcp
+                            && route.exposure == EgressExposure::Placeholder
+                    })
+                    .map(|route| route.upstream_host.to_lowercase())
+                    .collect();
+                if let Some(injection) = self
+                    .resolve_identity_injection(
+                        agent.as_ref(),
+                        task_id,
+                        session_id,
+                        project_id.as_deref(),
+                        &identity_hosts,
+                    )
                     .await
                 {
-                    routes.extend(identity_routes);
+                    Self::merge_identity_into_mcp_routes(&mut routes, injection);
                 }
             }
 
@@ -1678,9 +1694,9 @@ impl SandboxResolver {
             egress.push(EgressCredentialRoute {
                 id: format!("mcp:{name}"),
                 kind: EgressKind::Mcp,
-                exposure: EgressExposure::Transparent,
-                match_host: upstream.host.clone(),
-                match_prefix: normalize_prefix(&upstream.prefix),
+                exposure: EgressExposure::Placeholder,
+                match_host: MCP_EGRESS_HOST.to_string(),
+                match_prefix: format!("/mcp/{name}/"),
                 exact_path: false,
                 upstream_host: upstream.host,
                 upstream_port: upstream.port,
@@ -1688,7 +1704,7 @@ impl SandboxResolver {
                 upstream_tls: upstream.tls,
                 cluster_name: String::new(),
                 inject_headers: vec![("authorization".to_string(), format!("Bearer {token}"))],
-                remove_headers: vec![],
+                remove_headers: vec!["authorization".to_string()],
             });
         }
         Ok(egress)
@@ -1904,18 +1920,15 @@ impl SandboxResolver {
         routes
     }
 
-    /// Resolve agent identity egress routes via the pluggable provider.
-    ///
-    /// Loads the triggering user's encrypted identity from session metadata,
-    /// calls the provider to exchange tokens, and converts the result into
-    /// `EgressCredentialRoute`s for Envoy injection.
-    ///
-    /// Returns None on any failure (fail-open: sandbox works without identity).
-    async fn resolve_identity_egress_routes(
+    /// Resolve task-scoped agent identity via the pluggable provider.
+    async fn resolve_identity_injection(
         &self,
         agent: Option<&JoySafeterAgent>,
+        task_id: TaskId,
         session_id: Option<SessionId>,
-    ) -> Option<Vec<EgressCredentialRoute>> {
+        project_id: Option<&str>,
+        candidate_hosts: &[String],
+    ) -> Option<crate::kernel::agent_identity_provider::AgentIdentityInjection> {
         use crate::kernel::agent_identity_provider::IdentityResolveContext;
 
         let agent = agent?;
@@ -1933,20 +1946,40 @@ impl SandboxResolver {
             .cloned()
             .unwrap_or_else(|| serde_json::json!({}));
 
-        // Load identity context (encrypted identity_token or auth_code + user_name)
-        let identity_ctx = match self.load_identity_context(session_id).await {
-            Some(ctx) => ctx,
-            None => {
-                debug!(
-                    agent_id = %agent.id,
-                    session_id = ?session_id,
-                    "agent identity: no identity context in session.metadata, skipping"
-                );
+        let mut transaction = match self.pool.begin().await {
+            Ok(transaction) => transaction,
+            Err(error) => {
+                warn!(task_id = %task_id, error = %error, "agent identity: failed to begin claim transaction");
                 return None;
             }
         };
+        let identity_ctx =
+            match Self::load_identity_context_for_update(&mut transaction, task_id, project_id)
+                .await
+            {
+                Some(ctx) => ctx,
+                None => {
+                    debug!(
+                        agent_id = %agent.id,
+                        task_id = %task_id,
+                        "agent identity: no active task identity context, skipping"
+                    );
+                    return None;
+                }
+            };
 
-        let egress_hosts = Self::extract_agent_egress_hosts(agent);
+        let allowed_hosts = Self::identity_allowed_hosts();
+        let mut egress_hosts: Vec<String> = candidate_hosts
+            .iter()
+            .cloned()
+            .filter(|host| Self::identity_host_allowed(host, &allowed_hosts))
+            .collect();
+        egress_hosts.sort();
+        egress_hosts.dedup();
+        if egress_hosts.is_empty() {
+            debug!(agent_id = %agent.id, "agent identity: no trusted MCP hosts");
+            return None;
+        }
         debug!(
             agent_id = %agent.id,
             egress_hosts = ?egress_hosts,
@@ -1954,9 +1987,13 @@ impl SandboxResolver {
         );
 
         let context = IdentityResolveContext {
-            agent_id: agent.id.to_string(),
-            session_id: session_id.map(|id| id.to_string()).unwrap_or_default(),
-            task_id: agent.id.to_string(),
+            project_id: project_id.unwrap_or_default().to_string(),
+            user_id: identity_ctx.user_id,
+            agent_id: agent.id.as_uuid().to_string(),
+            session_id: session_id
+                .map(|id| id.as_uuid().to_string())
+                .unwrap_or_default(),
+            task_id: task_id.as_uuid().to_string(),
             identity_token: identity_ctx.identity_token,
             auth_code: identity_ctx.auth_code,
             user_name: identity_ctx.user_name,
@@ -1966,26 +2003,17 @@ impl SandboxResolver {
 
         match self.identity_provider.resolve(&context).await {
             Ok(injection) if !injection.targets.is_empty() => {
-                let routes = injection
-                    .targets
-                    .into_iter()
-                    .map(|target| EgressCredentialRoute {
-                        id: format!("agent-identity:{}", target.host),
-                        kind: EgressKind::AgentIdentity,
-                        exposure: EgressExposure::Transparent,
-                        match_host: target.host.clone(),
-                        match_prefix: "/".to_string(),
-                        exact_path: false,
-                        upstream_host: target.host,
-                        upstream_port: target.port,
-                        upstream_prefix: "/".to_string(),
-                        upstream_tls: target.tls,
-                        cluster_name: String::new(),
-                        inject_headers: target.inject_headers,
-                        remove_headers: target.remove_headers,
-                    })
-                    .collect();
-                Some(routes)
+                if !Self::consume_locked_identity_context(&mut transaction, task_id, project_id)
+                    .await
+                {
+                    warn!(task_id = %task_id, "agent identity: locked context could not be consumed");
+                    return None;
+                }
+                if let Err(error) = transaction.commit().await {
+                    warn!(task_id = %task_id, error = %error, "agent identity: failed to commit consumed context");
+                    return None;
+                }
+                Some(injection)
             }
             Ok(_) => {
                 debug!(
@@ -2005,77 +2033,158 @@ impl SandboxResolver {
         }
     }
 
-    /// Load triggering user's identity context from session metadata.
-    ///
-    /// The API layer stores `agent_identity_context` in session.metadata when
-    /// a task is created, containing either:
-    /// - `identity_token` (Web SSO: encrypted user cookie)
-    /// - `auth_code` (API: one-time BotAuthCode)
-    /// Plus `user_name` for cache keying.
+    async fn load_identity_context_for_update(
+        transaction: &mut Transaction<'_, Postgres>,
+        task_id: TaskId,
+        project_id: Option<&str>,
+    ) -> Option<LoadedIdentityContext> {
+        let row: Option<(String, Option<String>, String, String)> = sqlx::query_as(
+            r#"
+            SELECT user_id, user_name, credential_kind, encrypted_credential
+            FROM joysafeter_task_identity_contexts
+            WHERE task_id = $1
+              AND project_id IS NOT DISTINCT FROM $2
+              AND consumed_at IS NULL
+              AND expires_at > NOW()
+              AND encrypted_credential IS NOT NULL
+            FOR UPDATE
+            "#,
+        )
+        .bind(task_id)
+        .bind(project_id)
+        .fetch_optional(&mut **transaction)
+        .await
+        .ok()
+        .flatten();
+
+        Self::decode_identity_context(task_id, row)
+    }
+
     async fn load_identity_context(
         &self,
-        session_id: Option<SessionId>,
+        task_id: TaskId,
+        project_id: Option<&str>,
     ) -> Option<LoadedIdentityContext> {
-        let session_id = session_id?;
+        let row: Option<(String, Option<String>, String, String)> = sqlx::query_as(
+            r#"
+            SELECT user_id, user_name, credential_kind, encrypted_credential
+            FROM joysafeter_task_identity_contexts
+            WHERE task_id = $1
+              AND project_id IS NOT DISTINCT FROM $2
+              AND consumed_at IS NULL
+              AND expires_at > NOW()
+              AND encrypted_credential IS NOT NULL
+            "#,
+        )
+        .bind(task_id)
+        .bind(project_id)
+        .fetch_optional(&self.pool)
+        .await
+        .ok()
+        .flatten();
 
-        let row: Option<(Option<serde_json::Value>,)> =
-            sqlx::query_as("SELECT metadata FROM joysafeter_sessions WHERE id = $1")
-                .bind(session_id)
-                .fetch_optional(&self.pool)
-                .await
-                .ok()
-                .flatten();
+        Self::decode_identity_context(task_id, row)
+    }
 
-        let metadata = row?.0?;
-        let ctx = metadata.get("agent_identity_context")?;
-        let user_name = ctx.get("user_name")?.as_str()?.to_string();
-        let cipher = VaultCipher::from_env();
-
-        // Two paths: auth_code (API scenario) or identity_token (Web SSO)
-        let auth_code = ctx
-            .get("auth_code")
-            .and_then(|v| v.as_str())
-            .and_then(|v| cipher.decrypt_or_passthrough(v).ok());
-
-        let identity_token = ctx
-            .get("identity_token")
-            .and_then(|v| v.as_str())
-            .and_then(|v| cipher.decrypt_or_passthrough(v).ok())
-            .unwrap_or_default();
-
-        // Need at least one of them
-        if auth_code.is_none() && identity_token.is_empty() {
+    fn decode_identity_context(
+        task_id: TaskId,
+        row: Option<(String, Option<String>, String, String)>,
+    ) -> Option<LoadedIdentityContext> {
+        let (user_id, user_name, credential_kind, encrypted_credential) = row?;
+        if !encrypted_credential.starts_with("enc:v1:") {
+            warn!(task_id = %task_id, "agent identity ciphertext has an invalid envelope");
             return None;
         }
+        let cipher = VaultCipher::from_env();
+        let credential = cipher.decrypt_or_passthrough(&encrypted_credential).ok()?;
+        if credential.is_empty() {
+            return None;
+        }
+        let (identity_token, auth_code) = match credential_kind.as_str() {
+            "auth_code" => (String::new(), Some(credential)),
+            "identity_token" => (credential, None),
+            _ => return None,
+        };
 
         Some(LoadedIdentityContext {
             identity_token,
             auth_code,
-            user_name,
+            user_name: user_name.unwrap_or_else(|| user_id.clone()),
+            user_id,
         })
     }
 
-    /// Extract egress hostnames from agent's mcp_servers URLs.
-    /// These become the `scope` for the identity platform (domains the agent is allowed to access).
-    fn extract_agent_egress_hosts(agent: &JoySafeterAgent) -> Vec<String> {
-        let mut hosts = Vec::new();
+    async fn consume_locked_identity_context(
+        transaction: &mut Transaction<'_, Postgres>,
+        task_id: TaskId,
+        project_id: Option<&str>,
+    ) -> bool {
+        sqlx::query(
+            r#"
+            UPDATE joysafeter_task_identity_contexts
+            SET consumed_at = NOW(), encrypted_credential = NULL, updated_at = NOW()
+            WHERE task_id = $1
+              AND project_id IS NOT DISTINCT FROM $2
+              AND consumed_at IS NULL
+              AND expires_at > NOW()
+              AND encrypted_credential IS NOT NULL
+            "#,
+        )
+        .bind(task_id)
+        .bind(project_id)
+        .execute(&mut **transaction)
+        .await
+        .map(|result| result.rows_affected() == 1)
+        .unwrap_or(false)
+    }
 
-        // Extract from mcp_servers[].url
-        if let Some(mcp_servers) = agent.mcp_servers.as_ref().and_then(|v| v.as_array()) {
-            for cfg in mcp_servers {
-                if let Some(url_str) = cfg.get("url").and_then(|v| v.as_str()) {
-                    if let Ok(url) = Url::parse(url_str) {
-                        if let Some(host) = url.host_str() {
-                            hosts.push(host.to_lowercase());
-                        }
+    fn identity_allowed_hosts() -> Vec<String> {
+        std::env::var("AGENT_IDENTITY_ALLOWED_HOSTS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|host| host.trim().trim_end_matches('.').to_lowercase())
+            .filter(|host| !host.is_empty())
+            .collect()
+    }
+
+    fn identity_host_allowed(host: &str, allowed_hosts: &[String]) -> bool {
+        let host = host.trim().trim_end_matches('.').to_lowercase();
+        allowed_hosts.iter().any(|allowed| {
+            if let Some(suffix) = allowed.strip_prefix("*.") {
+                host != suffix && host.ends_with(&format!(".{suffix}"))
+            } else {
+                host == *allowed
+            }
+        })
+    }
+
+    fn merge_identity_into_mcp_routes(
+        routes: &mut [EgressCredentialRoute],
+        injection: crate::kernel::agent_identity_provider::AgentIdentityInjection,
+    ) {
+        for target in injection.targets {
+            for route in routes.iter_mut().filter(|route| {
+                route.kind == EgressKind::Mcp
+                    && route.exposure == EgressExposure::Placeholder
+                    && route.upstream_host.eq_ignore_ascii_case(&target.host)
+            }) {
+                for (name, value) in &target.inject_headers {
+                    route
+                        .inject_headers
+                        .retain(|(existing, _)| !existing.eq_ignore_ascii_case(name));
+                    route.inject_headers.push((name.clone(), value.clone()));
+                }
+                for header in &target.remove_headers {
+                    if !route
+                        .remove_headers
+                        .iter()
+                        .any(|existing| existing.eq_ignore_ascii_case(header))
+                    {
+                        route.remove_headers.push(header.clone());
                     }
                 }
             }
         }
-
-        hosts.sort();
-        hosts.dedup();
-        hosts
     }
 
     async fn load_secret_data(
@@ -3349,7 +3458,9 @@ mod egress_tests {
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
     use std::env;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::time::Duration;
     use tokio::sync::Mutex;
 
     fn env(pairs: &[(&str, &str)]) -> HashMap<String, String> {
@@ -3361,6 +3472,83 @@ mod egress_tests {
 
     fn allow(hosts: &[&str]) -> Vec<String> {
         hosts.iter().map(|host| host.to_string()).collect()
+    }
+
+    #[test]
+    fn identity_host_allowlist_is_exact_or_dot_boundary_wildcard() {
+        let allowed = vec!["api.example.com".to_string(), "*.trusted.test".to_string()];
+
+        assert!(SandboxResolver::identity_host_allowed(
+            "api.example.com",
+            &allowed
+        ));
+        assert!(SandboxResolver::identity_host_allowed(
+            "mcp.trusted.test",
+            &allowed
+        ));
+        assert!(!SandboxResolver::identity_host_allowed(
+            "evil-api.example.com",
+            &allowed
+        ));
+        assert!(!SandboxResolver::identity_host_allowed(
+            "trusted.test",
+            &allowed
+        ));
+        assert!(!SandboxResolver::identity_host_allowed(
+            "trusted.test.evil.invalid",
+            &allowed
+        ));
+    }
+
+    #[test]
+    fn identity_headers_merge_only_into_matching_mcp_placeholder_route() {
+        let mut routes = vec![EgressCredentialRoute {
+            id: "mcp:trusted".to_string(),
+            kind: EgressKind::Mcp,
+            exposure: EgressExposure::Placeholder,
+            match_host: MCP_EGRESS_HOST.to_string(),
+            match_prefix: "/mcp/trusted/".to_string(),
+            exact_path: false,
+            upstream_host: "api.example.com".to_string(),
+            upstream_port: 443,
+            upstream_prefix: "/api".to_string(),
+            upstream_tls: true,
+            cluster_name: String::new(),
+            inject_headers: vec![("authorization".to_string(), "Bearer mcp".to_string())],
+            remove_headers: vec!["authorization".to_string()],
+        }];
+
+        SandboxResolver::merge_identity_into_mcp_routes(
+            &mut routes,
+            crate::kernel::agent_identity_provider::AgentIdentityInjection {
+                targets: vec![
+                    crate::kernel::agent_identity_provider::IdentityEgressTarget {
+                        host: "api.example.com".to_string(),
+                        port: 443,
+                        tls: true,
+                        inject_headers: vec![(
+                            "X-Security-AgentToken".to_string(),
+                            "agent-token".to_string(),
+                        )],
+                        remove_headers: vec!["x-security-agenttoken".to_string()],
+                    },
+                ],
+            },
+        );
+
+        assert_eq!(routes[0].inject_headers.len(), 2);
+        assert!(routes[0]
+            .inject_headers
+            .iter()
+            .any(|(name, value)| name == "authorization" && value == "Bearer mcp"));
+        assert!(routes[0]
+            .inject_headers
+            .iter()
+            .any(|(name, value)| { name == "X-Security-AgentToken" && value == "agent-token" }));
+        assert!(routes[0]
+            .remove_headers
+            .iter()
+            .any(|name| name == "x-security-agenttoken"));
     }
 
     /// Run `extract_llm_egress` and return the single LLM route it emits, if any.
@@ -3592,6 +3780,246 @@ mod egress_tests {
                 network_isolation: crate::sandbox::provider::NetworkIsolation::Envoy,
             }
         }
+    }
+
+    #[derive(Debug, Default)]
+    struct SlowIdentityProvider {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl crate::kernel::agent_identity_provider::AgentIdentityProvider for SlowIdentityProvider {
+        fn name(&self) -> &str {
+            "slow-test"
+        }
+
+        fn enabled(&self) -> bool {
+            true
+        }
+
+        fn has_config(&self, _agent_metadata: Option<&serde_json::Value>) -> bool {
+            true
+        }
+
+        async fn resolve(
+            &self,
+            context: &crate::kernel::agent_identity_provider::IdentityResolveContext,
+        ) -> anyhow::Result<crate::kernel::agent_identity_provider::AgentIdentityInjection>
+        {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            Ok(
+                crate::kernel::agent_identity_provider::AgentIdentityInjection {
+                    targets: vec![
+                        crate::kernel::agent_identity_provider::IdentityEgressTarget {
+                            host: context.egress_hosts[0].clone(),
+                            port: 443,
+                            tls: true,
+                            inject_headers: vec![(
+                                "X-Security-AgentToken".to_string(),
+                                "agent-token".to_string(),
+                            )],
+                            remove_headers: vec!["x-security-agenttoken".to_string()],
+                        },
+                    ],
+                },
+            )
+        }
+
+        async fn cleanup(
+            &self,
+            _context: &crate::kernel::agent_identity_provider::IdentityCleanupContext,
+        ) {
+        }
+    }
+
+    #[tokio::test]
+    async fn task_identity_context_is_project_scoped_expiring_and_single_consume() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let expired_task_id = TaskId::from_uuid(Uuid::now_v7());
+        let unique = Uuid::now_v7().simple().to_string();
+        let project_id = format!("identity-project-{unique}");
+        let org_id = format!("identity-org-{unique}");
+
+        async {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_organizations
+                    (id, name, slug, storage_used_bytes, departed_member_usage)
+                VALUES ($1, $2, $3, 0, 0)
+                "#,
+            )
+            .bind(&org_id)
+            .bind(format!("Identity Org {unique}"))
+            .bind(format!("identity-org-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert organization");
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_organization_projects
+                    (id, org_id, name, slug, is_default)
+                VALUES ($1, $2, $3, $4, false)
+                "#,
+            )
+            .bind(&project_id)
+            .bind(&org_id)
+            .bind(format!("Identity Project {unique}"))
+            .bind(format!("identity-project-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert project");
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_agents (
+                    id, project_id, name, engine_kind, model, system_prompt, env,
+                    mcp_servers, skills, tools, agents, commands, permission_mode,
+                    metadata, version
+                )
+                VALUES (
+                    $1, $2, $3, 'claude', $4, '', '{}'::jsonb,
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                    '[]'::jsonb, 'bypassPermissions', '{}'::jsonb, 1
+                )
+                "#,
+            )
+            .bind(agent_id)
+            .bind(&project_id)
+            .bind(format!("identity-agent-{unique}"))
+            .bind(serde_json::json!({"id": "claude-sonnet"}))
+            .execute(&pool)
+            .await
+            .expect("insert agent");
+            for id in [task_id, expired_task_id] {
+                sqlx::query(
+                    r#"
+                    INSERT INTO joysafeter_tasks (
+                        id, project_id, agent_id, status, prompt, output,
+                        timeout_sec, retry_count, max_retries
+                    )
+                    VALUES ($1, $2, $3, 'pending', 'identity', '', 7200, 0, 2)
+                    "#,
+                )
+                .bind(id)
+                .bind(&project_id)
+                .bind(agent_id)
+                .execute(&pool)
+                .await
+                .expect("insert task");
+            }
+            let ciphertext = "enc:v1:VzniG9ulG62e3VZZD1jujN8lxiW1h/6a0Hdj1jIlJC/Wl9Rvvk7D";
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_task_identity_contexts (
+                    task_id, project_id, user_id, user_name, credential_kind,
+                    credential_fingerprint, encrypted_credential, captured_at, expires_at
+                )
+                VALUES ($1, $2, 'user-1', 'user@example.com', 'identity_token',
+                        NULL, $3, NOW(), NOW() + INTERVAL '5 minutes')
+                "#,
+            )
+            .bind(task_id)
+            .bind(&project_id)
+            .bind(ciphertext)
+            .execute(&pool)
+            .await
+            .expect("insert active identity context");
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_task_identity_contexts (
+                    task_id, project_id, user_id, user_name, credential_kind,
+                    credential_fingerprint, encrypted_credential, captured_at, expires_at
+                )
+                VALUES ($1, $2, 'user-1', 'user@example.com', 'identity_token',
+                        NULL, $3, NOW() - INTERVAL '10 minutes', NOW() - INTERVAL '5 minutes')
+                "#,
+            )
+            .bind(expired_task_id)
+            .bind(&project_id)
+            .bind(ciphertext)
+            .execute(&pool)
+            .await
+            .expect("insert expired identity context");
+
+            let identity_provider = Arc::new(SlowIdentityProvider::default());
+            let resolver = SandboxResolver::new(
+                pool.clone(),
+                Arc::new(RecordingProvider::default()),
+                JoySafeterConfig::from_env(),
+            )
+            .with_identity_provider(identity_provider.clone());
+            assert!(resolver
+                .load_identity_context(task_id, Some("wrong-project"))
+                .await
+                .is_none());
+            assert!(resolver
+                .load_identity_context(expired_task_id, Some(&project_id))
+                .await
+                .is_none());
+
+            let agent = queries::get_agent(&pool, agent_id)
+                .await
+                .expect("load agent")
+                .expect("agent exists");
+            let candidate_hosts = ["api.example.com".to_string()];
+            let first = resolver.resolve_identity_injection(
+                Some(&agent),
+                task_id,
+                None,
+                Some(&project_id),
+                &candidate_hosts,
+            );
+            let second = resolver.resolve_identity_injection(
+                Some(&agent),
+                task_id,
+                None,
+                Some(&project_id),
+                &candidate_hosts,
+            );
+            let (first, second) = tokio::join!(first, second);
+            assert_eq!(identity_provider.calls.load(Ordering::SeqCst), 1);
+            assert_eq!(
+                usize::from(first.is_some()) + usize::from(second.is_some()),
+                1
+            );
+            assert!(resolver
+                .load_identity_context(task_id, Some(&project_id))
+                .await
+                .is_none());
+            let consumed: (bool, bool) = sqlx::query_as(
+                r#"
+                SELECT consumed_at IS NOT NULL, encrypted_credential IS NULL
+                FROM joysafeter_task_identity_contexts WHERE task_id = $1
+                "#,
+            )
+            .bind(task_id)
+            .fetch_one(&pool)
+            .await
+            .expect("load consumed identity state");
+            assert_eq!(consumed, (true, true));
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_tasks WHERE agent_id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
+            .bind(&project_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organizations WHERE id = $1")
+            .bind(&org_id)
+            .execute(&pool)
+            .await;
     }
 
     #[test]

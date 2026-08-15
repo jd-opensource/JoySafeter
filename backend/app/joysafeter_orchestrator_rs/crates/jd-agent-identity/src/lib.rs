@@ -8,7 +8,7 @@
 //! - 2.3 exchangeAgentToken — BotToken → short-lived agentToken
 //! - 2.7 destroyBotToken — revoke agent identity credential
 //!
-//! BotToken is cached in Redis (key = platformId:agentId:authType:userName).
+//! BotToken is cached in Redis with tenant, immutable user, and scope dimensions.
 //! All derived tokens (agentToken, SSO ticket, ME token) are short-lived and
 //! ONLY injected via Envoy headers — never stored or passed to the sandbox.
 
@@ -263,30 +263,37 @@ pub struct JdAgentIdentityProvider {
 impl JdAgentIdentityProvider {
     /// Create from environment variables + a Redis client.
     ///
-    /// Returns None if `JD_AGENT_IDENTITY_BASE_URL` is not set (feature disabled).
-    ///
     /// Required env vars:
-    /// - JD_AGENT_IDENTITY_BASE_URL: API base URL
+    /// - AGENT_IDENTITY_BASE_URL: API base URL
     /// - JD_AGENT_IDENTITY_CLIENT_SECRET: signing secret for getSign()
     /// - JD_AGENT_IDENTITY_CLIENT_ID: 申请的应用标识
     /// - JD_AGENT_IDENTITY_PLATFORM_ID: 智能体平台ID
     /// - JD_AGENT_IDENTITY_AUTH_TYPE: 用户身份认证方式 (e.g. "sso")
     /// - JD_AGENT_IDENTITY_IDENTITY_TYPE: 用户身份凭证类型 (e.g. "cookie")
     /// - JD_AGENT_IDENTITY_AGENT_SCENE: 智能体业务场景
-    pub fn from_env(redis_client: redis::Client) -> Option<Self> {
-        let base_url = std::env::var("JD_AGENT_IDENTITY_BASE_URL").ok()?;
-        if base_url.trim().is_empty() {
-            return None;
+    pub fn from_env(redis_client: redis::Client) -> anyhow::Result<Self> {
+        fn required(name: &str) -> anyhow::Result<String> {
+            let value = std::env::var(name).unwrap_or_default();
+            if value.trim().is_empty() {
+                anyhow::bail!("{name} is required when AGENT_IDENTITY_ENABLED=true");
+            }
+            Ok(value)
         }
-        Some(Self {
+
+        let base_url = required("AGENT_IDENTITY_BASE_URL")?;
+        let allowed_hosts = required("AGENT_IDENTITY_ALLOWED_HOSTS")?;
+        if allowed_hosts.split(',').all(|host| host.trim().is_empty()) {
+            anyhow::bail!("AGENT_IDENTITY_ALLOWED_HOSTS must contain at least one host");
+        }
+        Ok(Self {
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(10))
                 .build()
                 .expect("build reqwest client"),
             base_url: base_url.trim_end_matches('/').to_string(),
-            sign_secret: std::env::var("JD_AGENT_IDENTITY_CLIENT_SECRET").unwrap_or_default(),
-            client_id: std::env::var("JD_AGENT_IDENTITY_CLIENT_ID").unwrap_or_default(),
-            platform_id: std::env::var("JD_AGENT_IDENTITY_PLATFORM_ID").unwrap_or_default(),
+            sign_secret: required("JD_AGENT_IDENTITY_CLIENT_SECRET")?,
+            client_id: required("JD_AGENT_IDENTITY_CLIENT_ID")?,
+            platform_id: required("JD_AGENT_IDENTITY_PLATFORM_ID")?,
             auth_type: std::env::var("JD_AGENT_IDENTITY_AUTH_TYPE")
                 .unwrap_or_else(|_| "sso".to_string()),
             identity_type: std::env::var("JD_AGENT_IDENTITY_IDENTITY_TYPE")
@@ -587,10 +594,22 @@ impl JdAgentIdentityProvider {
 
     // --- Redis cache ---------------------------------------------------------
 
-    fn cache_key(platform_id: &str, agent_id: &str, auth_type: &str, user_name: &str) -> String {
+    fn cache_key(
+        platform_id: &str,
+        tenant_scope: &str,
+        agent_id: &str,
+        auth_type: &str,
+        user_id: &str,
+        scope: &str,
+    ) -> String {
         format!(
-            "joysafeter:bot_token:{}:{}:{}:{}",
-            platform_id, agent_id, auth_type, user_name
+            "joysafeter:bot_token:{}:{:x}:{}:{}:{:x}:{:x}",
+            platform_id,
+            md5::compute(tenant_scope.as_bytes()),
+            agent_id,
+            auth_type,
+            md5::compute(user_id.as_bytes()),
+            md5::compute(scope.as_bytes()),
         )
     }
 
@@ -629,11 +648,15 @@ impl JdAgentIdentityProvider {
         config: &JdIdentityConfig,
         ctx: &IdentityResolveContext,
     ) -> anyhow::Result<String> {
+        let scope_str = ctx.egress_hosts.join(",");
+        let tenant_scope = format!("{}:{}", ctx.project_id, config.tenant_code);
         let key = Self::cache_key(
             &self.platform_id,
+            &tenant_scope,
             &ctx.agent_id,
             &self.auth_type,
-            &ctx.user_name,
+            &ctx.user_id,
+            &scope_str,
         );
 
         // Cache hit
@@ -644,7 +667,6 @@ impl JdAgentIdentityProvider {
 
         // Cache miss → call createBotToken
         debug!(cache_key = %key, "BotToken cache miss, creating");
-        let scope_str = ctx.egress_hosts.join(",");
         let trace_id = uuid::Uuid::new_v4().to_string();
         let timestamp = chrono::Utc::now().timestamp_millis();
         let signature =
@@ -715,7 +737,7 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
 
     fn has_config(&self, _agent_metadata: Option<&JsonValue>) -> bool {
         // Global mode: identity injection applies to ALL agents when the
-        // provider is enabled (JD_AGENT_IDENTITY_BASE_URL set). No per-agent
+        // provider is enabled (AGENT_IDENTITY_ENABLED=true). No per-agent
         // opt-in via metadata is required.
         true
     }
@@ -734,51 +756,49 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
         //    a) API scenario: auth_code → exchangeBotToken(authCode) → botToken
         //    b) Web SSO scenario: identityToken → createBotToken → botToken (cached)
         let bot_token = if let Some(ref auth_code) = context.auth_code {
-            // Path A: one-time auth code from API caller
-            let data = self
-                .api_exchange_bot_token_from_auth_code(auth_code)
-                .await?;
-            // Cache the resulting botToken for subsequent tasks in this session
             let cache_key = Self::cache_key(
                 &self.platform_id,
+                &format!("{}:{}", context.project_id, config.tenant_code),
                 &context.agent_id,
                 &self.auth_type,
-                &context.user_name,
+                &context.user_id,
+                &context.egress_hosts.join(","),
             );
-            let ttl = data.expires_in.saturating_sub(60).max(60);
-            self.cache_bot_token(&cache_key, &data.bot_token, ttl).await;
-            info!(
-                agent_id = %context.agent_id,
-                source = "auth_code",
-                expires_in = data.expires_in,
-                "Obtained BotToken via BotAuthCode"
-            );
-            data.bot_token
+            if let Some(cached) = self.get_cached_bot_token(&cache_key).await {
+                debug!(cache_key = %cache_key, "BotToken cache hit for auth-code retry");
+                cached
+            } else {
+                let data = self
+                    .api_exchange_bot_token_from_auth_code(auth_code)
+                    .await?;
+                let ttl = data.expires_in.saturating_sub(60).max(60);
+                self.cache_bot_token(&cache_key, &data.bot_token, ttl).await;
+                info!(
+                    agent_id = %context.agent_id,
+                    source = "auth_code",
+                    expires_in = data.expires_in,
+                    "Obtained BotToken via BotAuthCode"
+                );
+                data.bot_token
+            }
         } else {
             // Path B: Web SSO — create with identityToken (or use cache)
             self.get_or_create_bot_token(&config, context).await?
         };
 
-        // For exchange calls, use the first egress host as `domain`
-        let primary_domain = context.egress_hosts.first().cloned().unwrap_or_default();
-
-        // 2. Exchange BotToken → AgentToken (always, short-lived)
-        let agent_token_data = self
-            .api_exchange_agent_token(
-                &bot_token,
-                &context.agent_id,
-                &context.session_id,
-                &context.task_id,
-                &primary_domain,
-            )
-            .await?;
-
-        // 3. Build injection targets: all egress hosts get X-Security-AgentToken
         let remove_headers = vec!["x-security-agenttoken".to_string()];
-        let targets: Vec<IdentityEgressTarget> = context
-            .egress_hosts
-            .iter()
-            .map(|host| IdentityEgressTarget {
+        let mut targets = Vec::with_capacity(context.egress_hosts.len());
+        for host in &context.egress_hosts {
+            let agent_token_data = self
+                .api_exchange_agent_token(
+                    &bot_token,
+                    &context.agent_id,
+                    &context.session_id,
+                    &context.task_id,
+                    host,
+                )
+                .await?;
+            targets.push(IdentityEgressTarget {
                 host: host.clone(),
                 port: 443,
                 tls: true,
@@ -787,8 +807,8 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
                     agent_token_data.agent_token.clone(),
                 )],
                 remove_headers: remove_headers.clone(),
-            })
-            .collect();
+            });
+        }
 
         info!(
             agent_id = %context.agent_id,
@@ -800,11 +820,14 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
     }
 
     async fn cleanup(&self, context: &IdentityCleanupContext) {
-        // Scan Redis for all BotTokens matching this agent
-        let pattern = if let Some(ref user) = context.user_name {
-            format!("joysafeter:bot_token:*:{}:*:{}", context.agent_id, user)
+        let pattern = if let Some(ref user_id) = context.user_id {
+            format!(
+                "joysafeter:bot_token:*:*:{}:*:{:x}:*",
+                context.agent_id,
+                md5::compute(user_id.as_bytes())
+            )
         } else {
-            format!("joysafeter:bot_token:*:{}:*", context.agent_id)
+            format!("joysafeter:bot_token:*:*:{}:*:*:*", context.agent_id)
         };
 
         let Ok(mut conn) = self.redis_client.get_multiplexed_async_connection().await else {
@@ -812,17 +835,30 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
             return;
         };
 
-        let keys: Vec<String> = match redis::cmd("KEYS")
-            .arg(&pattern)
-            .query_async(&mut conn)
-            .await
-        {
-            Ok(keys) => keys,
-            Err(e) => {
-                warn!(error = %e, "Failed to scan BotToken keys for cleanup");
-                return;
+        let mut keys = Vec::new();
+        let mut cursor = 0_u64;
+        loop {
+            let scan: redis::RedisResult<(u64, Vec<String>)> = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(&pattern)
+                .arg("COUNT")
+                .arg(100)
+                .query_async(&mut conn)
+                .await;
+            let (next_cursor, mut batch) = match scan {
+                Ok(result) => result,
+                Err(e) => {
+                    warn!(error = %e, "Failed to scan BotToken keys for cleanup");
+                    return;
+                }
+            };
+            keys.append(&mut batch);
+            cursor = next_cursor;
+            if cursor == 0 {
+                break;
             }
-        };
+        }
 
         for key in &keys {
             if let Some(bot_token) = self.get_cached_bot_token(key).await {
@@ -840,5 +876,178 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
                 "BotToken cleanup complete"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{JdAgentIdentityProvider, JdIdentityConfig};
+    use agent_identity_trait::{AgentIdentityProvider, IdentityResolveContext};
+    use redis::AsyncCommands;
+    use serde_json::json;
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio::sync::Mutex;
+    use tokio::time::{timeout, Duration};
+
+    #[test]
+    fn cache_key_is_partitioned_by_tenant_user_and_scope() {
+        let base = JdAgentIdentityProvider::cache_key(
+            "platform",
+            "project-a:tenant-a",
+            "agent",
+            "sso",
+            "user-a",
+            "api.example.com",
+        );
+        assert_ne!(
+            base,
+            JdAgentIdentityProvider::cache_key(
+                "platform",
+                "project-b:tenant-a",
+                "agent",
+                "sso",
+                "user-a",
+                "api.example.com",
+            )
+        );
+        assert_ne!(
+            base,
+            JdAgentIdentityProvider::cache_key(
+                "platform",
+                "project-a:tenant-a",
+                "agent",
+                "sso",
+                "user-b",
+                "api.example.com",
+            )
+        );
+        assert_ne!(
+            base,
+            JdAgentIdentityProvider::cache_key(
+                "platform",
+                "project-a:tenant-a",
+                "agent",
+                "sso",
+                "user-a",
+                "other.example.com",
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn auth_code_retry_reuses_cached_bot_token_before_redeeming_code() {
+        let Some(redis_url) = std::env::var("JOYSAFETER_TEST_REDIS_URL").ok() else {
+            eprintln!("skipping Redis identity retry test: JOYSAFETER_TEST_REDIS_URL is not set");
+            return;
+        };
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind identity test server");
+        let address = listener.local_addr().expect("identity test address");
+        let observed_paths = Arc::new(Mutex::new(Vec::new()));
+        let server_paths = observed_paths.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok(Ok((mut socket, _))) =
+                    timeout(Duration::from_millis(500), listener.accept()).await
+                else {
+                    break;
+                };
+                let mut request = vec![0_u8; 8192];
+                let size = socket
+                    .read(&mut request)
+                    .await
+                    .expect("read identity request");
+                let request = String::from_utf8_lossy(&request[..size]);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .expect("identity request path")
+                    .to_string();
+                server_paths.lock().await.push(path.clone());
+                let body = if path.ends_with("/exchangeBotToken") {
+                    json!({
+                        "success": true,
+                        "code": "200",
+                        "data": {"botToken": "exchanged-bot", "expiresIn": 300}
+                    })
+                } else {
+                    json!({
+                        "success": true,
+                        "code": "200",
+                        "data": {"agentToken": "agent-token", "expiresIn": 300}
+                    })
+                }
+                .to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write identity response");
+            }
+        });
+
+        let redis_client = redis::Client::open(redis_url).expect("create Redis client");
+        let provider = JdAgentIdentityProvider {
+            http: reqwest::Client::builder()
+                .timeout(Duration::from_secs(2))
+                .build()
+                .expect("build HTTP client"),
+            base_url: format!("http://{address}"),
+            sign_secret: "secret".to_string(),
+            client_id: "client".to_string(),
+            platform_id: "platform".to_string(),
+            auth_type: "sso".to_string(),
+            identity_type: "cookie".to_string(),
+            agent_scene: "test".to_string(),
+            redis_client: redis_client.clone(),
+        };
+        let context = IdentityResolveContext {
+            project_id: "project".to_string(),
+            user_id: "user".to_string(),
+            agent_id: "agent".to_string(),
+            session_id: "session".to_string(),
+            task_id: "task".to_string(),
+            identity_token: String::new(),
+            auth_code: Some("one-time-code".to_string()),
+            user_name: "user@example.com".to_string(),
+            provider_config: json!({"tenant_code": "tenant"}),
+            egress_hosts: vec!["api.example.com".to_string()],
+        };
+        let config =
+            JdIdentityConfig::from_json(&context.provider_config).expect("identity config");
+        let cache_key = JdAgentIdentityProvider::cache_key(
+            &provider.platform_id,
+            &format!("{}:{}", context.project_id, config.tenant_code),
+            &context.agent_id,
+            &provider.auth_type,
+            &context.user_id,
+            &context.egress_hosts.join(","),
+        );
+        let mut redis = redis_client
+            .get_multiplexed_async_connection()
+            .await
+            .expect("connect Redis");
+        redis
+            .set_ex::<_, _, ()>(&cache_key, "cached-bot", 60)
+            .await
+            .expect("seed BotToken cache");
+
+        let injection = provider.resolve(&context).await.expect("resolve identity");
+        assert_eq!(injection.targets.len(), 1);
+        server.await.expect("identity test server");
+        let paths = observed_paths.lock().await.clone();
+        assert_eq!(
+            paths,
+            vec!["/ai/identity/sec/api/exchangeAgentToken".to_string()]
+        );
+        let _: () = redis.del(cache_key).await.expect("clean BotToken cache");
     }
 }

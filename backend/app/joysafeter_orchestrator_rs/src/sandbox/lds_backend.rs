@@ -170,8 +170,6 @@ pub enum EgressKind {
     Mcp,
     Git,
     External,
-    /// Agent identity injection (X-Security-AgentToken + user identity cookies).
-    AgentIdentity,
 }
 
 /// How the sandbox discovers the route.

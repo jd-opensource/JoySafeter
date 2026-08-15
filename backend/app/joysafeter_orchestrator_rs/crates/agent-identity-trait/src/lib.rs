@@ -45,6 +45,10 @@ pub struct AgentIdentityInjection {
 /// Context passed to the provider for token resolution.
 #[derive(Debug, Clone)]
 pub struct IdentityResolveContext {
+    /// Authenticated project/tenant scope.
+    pub project_id: String,
+    /// Immutable authenticated user ID.
+    pub user_id: String,
     /// Agent's unique ID.
     pub agent_id: String,
     /// Session ID (if available).
@@ -73,8 +77,8 @@ pub struct IdentityResolveContext {
 pub struct IdentityCleanupContext {
     /// Agent ID whose credentials should be cleaned up.
     pub agent_id: String,
-    /// If provided, only clean up credentials for this user.
-    pub user_name: Option<String>,
+    /// If provided, only clean up credentials for this immutable user ID.
+    pub user_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

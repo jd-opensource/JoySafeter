@@ -2659,6 +2659,18 @@ pub(crate) struct VaultCipher {
 }
 
 impl VaultCipher {
+    pub(crate) fn validate_env_key() -> anyhow::Result<()> {
+        let raw = std::env::var("JOYSAFETER_VAULT_ENCRYPTION_KEY").map_err(|_| {
+            anyhow::anyhow!(
+                "JOYSAFETER_VAULT_ENCRYPTION_KEY is required when agent identity is enabled"
+            )
+        })?;
+        parse_vault_key(&raw).ok_or_else(|| {
+            anyhow::anyhow!("JOYSAFETER_VAULT_ENCRYPTION_KEY must encode a 32-byte key")
+        })?;
+        Ok(())
+    }
+
     pub(crate) fn from_env() -> Self {
         // The vault key is process-constant, so parse it once and memoize.
         // `from_env()` is called on every credential-decrypt path (egress

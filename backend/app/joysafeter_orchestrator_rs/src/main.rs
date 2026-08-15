@@ -18,6 +18,23 @@ use std::sync::Arc;
 use config::JoySafeterConfig;
 use tracing::{error, info, warn};
 
+fn env_truthy(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes"
+    )
+}
+
+fn ensure_identity_feature_available(_enabled: bool) -> anyhow::Result<()> {
+    #[cfg(not(feature = "jd-identity"))]
+    if _enabled {
+        anyhow::bail!(
+            "AGENT_IDENTITY_ENABLED=true requires a binary built with the jd-identity feature"
+        );
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Load .env if present
@@ -95,25 +112,27 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Initialize Agent Identity Provider (pluggable, feature-gated)
+    let identity_enabled = env_truthy(&std::env::var("AGENT_IDENTITY_ENABLED").unwrap_or_default());
+    ensure_identity_feature_available(identity_enabled)?;
     let identity_provider: Arc<dyn kernel::agent_identity_provider::AgentIdentityProvider> = {
         #[cfg(feature = "jd-identity")]
         {
-            match redis_client
-                .as_ref()
-                .and_then(|rc| jd_agent_identity::JdAgentIdentityProvider::from_env(rc.clone()))
-            {
-                Some(provider) => {
-                    info!("Agent identity provider: jd-agent-identity (enabled)");
-                    Arc::new(provider)
-                }
-                None => {
-                    info!("Agent identity provider: noop (JD_AGENT_IDENTITY_BASE_URL not set)");
-                    Arc::new(kernel::agent_identity_provider::NoopAgentIdentityProvider)
-                }
+            if identity_enabled {
+                kernel::harness_input_builder::VaultCipher::validate_env_key()?;
+                let redis = redis_client.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("Redis is required when AGENT_IDENTITY_ENABLED=true")
+                })?;
+                let provider = jd_agent_identity::JdAgentIdentityProvider::from_env(redis.clone())?;
+                info!("Agent identity provider: jd-agent-identity (enabled)");
+                Arc::new(provider)
+            } else {
+                info!("Agent identity provider: noop (AGENT_IDENTITY_ENABLED is false)");
+                Arc::new(kernel::agent_identity_provider::NoopAgentIdentityProvider)
             }
         }
         #[cfg(not(feature = "jd-identity"))]
         {
+            let _ = identity_enabled;
             info!("Agent identity provider: noop (jd-identity feature not enabled)");
             Arc::new(kernel::agent_identity_provider::NoopAgentIdentityProvider)
         }
@@ -616,4 +635,28 @@ fn spawn_health_server(port: u16, ready: Arc<AtomicBool>) {
             });
         }
     });
+}
+
+#[cfg(test)]
+mod identity_config_tests {
+    #[cfg(not(feature = "jd-identity"))]
+    use super::ensure_identity_feature_available;
+    use super::env_truthy;
+
+    #[test]
+    fn identity_enablement_matches_api_truthy_values() {
+        for value in ["1", "true", "TRUE", "yes", "YES", " yes "] {
+            assert!(env_truthy(value), "{value}");
+        }
+        for value in ["", "0", "false", "on", "enabled"] {
+            assert!(!env_truthy(value), "{value}");
+        }
+    }
+
+    #[cfg(not(feature = "jd-identity"))]
+    #[test]
+    fn enabled_identity_rejects_binary_without_provider_feature() {
+        assert!(ensure_identity_feature_available(true).is_err());
+        assert!(ensure_identity_feature_available(false).is_ok());
+    }
 }
