@@ -16,6 +16,8 @@
 - Native database FK columns remain UUID; only JSONB/API values use public IDs.
 - Do not weaken global `CredentialId` parsing to accept bare UUIDs.
 - Complete all preflight validation before issuing any update.
+- Preserve deleted/archived credential identity only in terminated or archived
+  session snapshots; executable references remain live-only.
 - Preserve concurrent identity-federation commits and files.
 - Do not commit or push unless the user explicitly requests it.
 
@@ -38,6 +40,8 @@
 - [ ] Run the PostgreSQL tests and verify the old head leaves bare/legacy references.
 - [ ] Implement complete preflight, row locking, prepared updates, and irreversible downgrade.
 - [ ] Run migration unit and PostgreSQL tests and verify all pass.
+- [ ] Cover inactive historical snapshots that reference a uniquely matching
+  deleted/archived credential, plus the active-session rejection counterpart.
 - [ ] Update old head-level assertions to expect final canonical public IDs.
 - [ ] Run `alembic heads` and verify `20260815_000002 (head)`.
 

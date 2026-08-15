@@ -43,6 +43,7 @@ class _CredentialRecord(NamedTuple):
 
 class _CredentialCatalog(NamedTuple):
     by_id: dict[str, _CredentialRecord]
+    all_by_name: dict[tuple[str | None, str, str], tuple[_CredentialRecord, ...]]
     live_by_name: dict[tuple[str | None, str, str], tuple[_CredentialRecord, ...]]
 
 
@@ -58,7 +59,8 @@ def _load_catalog(connection: sa.engine.Connection) -> _CredentialCatalog:
         )
     ).mappings()
     by_id: dict[str, _CredentialRecord] = {}
-    names: dict[tuple[str | None, str, str], list[_CredentialRecord]] = {}
+    all_names: dict[tuple[str | None, str, str], list[_CredentialRecord]] = {}
+    live_names: dict[tuple[str | None, str, str], list[_CredentialRecord]] = {}
     for row in rows:
         record = _CredentialRecord(
             id=str(row["id"]),
@@ -69,11 +71,14 @@ def _load_catalog(connection: sa.engine.Connection) -> _CredentialCatalog:
             deleted=row["deleted_at"] is not None,
         )
         by_id[record.id] = record
+        key = (record.project_id, record.kind, record.name)
+        all_names.setdefault(key, []).append(record)
         if not record.archived and not record.deleted:
-            names.setdefault((record.project_id, record.kind, record.name), []).append(record)
+            live_names.setdefault(key, []).append(record)
     return _CredentialCatalog(
         by_id=by_id,
-        live_by_name={key: tuple(value) for key, value in names.items()},
+        all_by_name={key: tuple(value) for key, value in all_names.items()},
+        live_by_name={key: tuple(value) for key, value in live_names.items()},
     )
 
 
@@ -91,17 +96,17 @@ def _validate_record(
     project_id: str | None,
     expected_kind: str,
     location: str,
+    require_live: bool,
 ) -> str:
     if project_id is None or record.project_id != project_id:
         raise RuntimeError(f"Credential reference at {location} is not in the same project")
     if record.kind != expected_kind:
-        raise RuntimeError(
-            f"Credential reference at {location} must point to kind={expected_kind}, got {record.kind}"
-        )
-    if record.deleted:
-        raise RuntimeError(f"Credential reference at {location} points to a deleted credential")
-    if record.archived:
-        raise RuntimeError(f"Credential reference at {location} points to an archived credential")
+        raise RuntimeError(f"Credential reference at {location} must point to kind={expected_kind}, got {record.kind}")
+    if require_live:
+        if record.deleted:
+            raise RuntimeError(f"Credential reference at {location} points to a deleted credential")
+        if record.archived:
+            raise RuntimeError(f"Credential reference at {location} points to an archived credential")
     return record.public_id
 
 
@@ -113,6 +118,7 @@ def _normalize_reference(
     location: str,
     catalog: _CredentialCatalog,
     allow_legacy_name: bool = False,
+    require_live: bool = True,
 ) -> str:
     if not isinstance(value, str) or not value.strip():
         raise RuntimeError(f"Credential reference at {location} must be a non-empty string")
@@ -127,6 +133,7 @@ def _normalize_reference(
             project_id=project_id,
             expected_kind=expected_kind,
             location=location,
+            require_live=require_live,
         )
 
     if normalized.startswith(_CREDENTIAL_PREFIX):
@@ -134,12 +141,29 @@ def _normalize_reference(
     if not allow_legacy_name:
         raise RuntimeError(f"Credential reference at {location} is not a credential public ID: {normalized}")
 
-    matches = catalog.live_by_name.get((project_id, expected_kind, normalized), ())
+    key = (project_id, expected_kind, normalized)
+    matches = catalog.live_by_name.get(key, ()) if require_live else catalog.all_by_name.get(key, ())
+    if require_live and not matches:
+        historical_matches = catalog.all_by_name.get(key, ())
+        if len(historical_matches) == 1:
+            return _validate_record(
+                historical_matches[0],
+                project_id=project_id,
+                expected_kind=expected_kind,
+                location=location,
+                require_live=True,
+            )
     if len(matches) != 1:
         raise RuntimeError(
             f"Legacy credential name at {location} must resolve exactly once, got {len(matches)}: {normalized}"
         )
-    return matches[0].public_id
+    return _validate_record(
+        matches[0],
+        project_id=project_id,
+        expected_kind=expected_kind,
+        location=location,
+        require_live=require_live,
+    )
 
 
 def _normalize_environment_config(
@@ -148,6 +172,7 @@ def _normalize_environment_config(
     project_id: str | None,
     location: str,
     catalog: _CredentialCatalog,
+    require_live_credentials: bool = True,
 ) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise RuntimeError(f"Environment config at {location} must be a JSON object")
@@ -165,6 +190,7 @@ def _normalize_environment_config(
                 location=f"{location}.secret_refs[{index}]",
                 catalog=catalog,
                 allow_legacy_name=True,
+                require_live=require_live_credentials,
             )
             for index, reference in enumerate(refs)
         ]
@@ -192,6 +218,7 @@ def _normalize_environment_config(
                 location=f"{service_location}.service_credential_id",
                 catalog=catalog,
                 allow_legacy_name=allow_legacy_name,
+                require_live=require_live_credentials,
             )
             service.pop("credential_ref", None)
 
@@ -204,6 +231,7 @@ def _normalize_snapshot(
     project_id: str | None,
     location: str,
     catalog: _CredentialCatalog,
+    require_live_credentials: bool = True,
 ) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise RuntimeError(f"Snapshot at {location} must be a JSON object")
@@ -217,6 +245,7 @@ def _normalize_snapshot(
             expected_kind="model",
             location=f"{location}.model_credential_id",
             catalog=catalog,
+            require_live=require_live_credentials,
         )
     elif isinstance(legacy_value, str) and legacy_value.strip():
         normalized["model_credential_id"] = _normalize_reference(
@@ -226,6 +255,7 @@ def _normalize_snapshot(
             location=f"{location}.secret_ref",
             catalog=catalog,
             allow_legacy_name=True,
+            require_live=require_live_credentials,
         )
     elif model_value not in (None, ""):
         raise RuntimeError(f"Credential reference at {location}.model_credential_id must be a string or null")
@@ -240,6 +270,7 @@ def _normalize_snapshot(
             project_id=project_id,
             location=f"{location}.environment.config",
             catalog=catalog,
+            require_live_credentials=require_live_credentials,
         )
     return normalized
 
@@ -251,8 +282,7 @@ def _prepare_updates(
     environment_updates: list[dict[str, object]] = []
     environment_rows = connection.execute(
         sa.text(
-            "SELECT id, project_id, config FROM joysafeter_environments "
-            "WHERE config IS NOT NULL ORDER BY id FOR UPDATE"
+            "SELECT id, project_id, config FROM joysafeter_environments WHERE config IS NOT NULL ORDER BY id FOR UPDATE"
         )
     ).mappings()
     for row in environment_rows:
@@ -268,7 +298,7 @@ def _prepare_updates(
     session_updates: list[dict[str, object]] = []
     session_rows = connection.execute(
         sa.text(
-            "SELECT id, project_id, agent_snapshot FROM joysafeter_sessions "
+            "SELECT id, project_id, status, archived_at, agent_snapshot FROM joysafeter_sessions "
             "WHERE agent_snapshot IS NOT NULL ORDER BY id FOR UPDATE"
         )
     ).mappings()
@@ -278,6 +308,7 @@ def _prepare_updates(
             project_id=_text_id(row["project_id"]),
             location=f"joysafeter_sessions.{row['id']}.agent_snapshot",
             catalog=catalog,
+            require_live_credentials=(row["archived_at"] is None and str(row["status"]) != "terminated"),
         )
         if normalized != row["agent_snapshot"]:
             session_updates.append({"id": row["id"], "value": normalized})
@@ -321,9 +352,7 @@ def _apply_updates(
 
 def upgrade() -> None:
     if context.is_offline_mode():
-        raise RuntimeError(
-            "Migration 20260815_000002 is online-only because it validates live credential references."
-        )
+        raise RuntimeError("Migration 20260815_000002 is online-only because it validates live credential references.")
 
     connection = op.get_bind()
     catalog = _load_catalog(connection)

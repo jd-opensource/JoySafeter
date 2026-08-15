@@ -131,7 +131,8 @@ SELECT store, count(*) AS violations FROM violations GROUP BY store;
 ```
 
 查询必须返回 0 行。随后验证环境、会话快照和 agent-version 快照内的所有凭据引用
-均为可解析、同项目、正确 kind 且仍处于 live 状态：
+均为可解析、同项目且 kind 正确；当前环境、活跃会话和 agent-version 还必须指向
+live 凭据，已终止或归档的历史会话允许保留已归档/删除凭据的稳定 public ID：
 
 ```sql
 WITH snapshots AS (
@@ -139,7 +140,8 @@ WITH snapshots AS (
         'sessions.agent_snapshot'::text AS source,
         s.id::text AS owner_id,
         s.project_id,
-        s.agent_snapshot AS snapshot
+        s.agent_snapshot AS snapshot,
+        (s.archived_at IS NULL AND s.status <> 'terminated') AS require_live
     FROM joysafeter_sessions s
     WHERE s.agent_snapshot IS NOT NULL
     UNION ALL
@@ -147,7 +149,8 @@ WITH snapshots AS (
         'agent_versions.snapshot',
         v.id::text,
         a.project_id,
-        v.snapshot
+        v.snapshot,
+        true
     FROM joysafeter_agent_versions v
     JOIN joysafeter_agents a ON a.id = v.agent_id
 ), environment_configs AS (
@@ -155,7 +158,8 @@ WITH snapshots AS (
         'environments.config'::text AS source,
         e.id::text AS owner_id,
         e.project_id,
-        e.config
+        e.config,
+        true AS require_live
     FROM joysafeter_environments e
     WHERE e.config IS NOT NULL
     UNION ALL
@@ -163,7 +167,8 @@ WITH snapshots AS (
         source || '.environment.config',
         owner_id,
         project_id,
-        snapshot #> '{environment,config}'
+        snapshot #> '{environment,config}',
+        require_live
     FROM snapshots
     WHERE snapshot #> '{environment,config}' IS NOT NULL
 ), shape_violations AS (
@@ -198,6 +203,7 @@ WITH snapshots AS (
         source || '.secret_refs[' || (ref.ordinality - 1) || ']' AS path,
         owner_id,
         project_id,
+        require_live,
         'service'::text AS expected_kind,
         ref.value
     FROM environment_configs
@@ -210,6 +216,7 @@ WITH snapshots AS (
         source || '.egress_services[' || (service.ordinality - 1) || '].service_credential_id',
         owner_id,
         project_id,
+        require_live,
         'service',
         service.value->'service_credential_id'
     FROM environment_configs
@@ -223,6 +230,7 @@ WITH snapshots AS (
         source || '.model_credential_id',
         owner_id,
         project_id,
+        require_live,
         'model',
         snapshot->'model_credential_id'
     FROM snapshots
@@ -249,7 +257,9 @@ WITH snapshots AS (
             WHEN c.id IS NULL THEN 'credential does not exist'
             WHEN c.project_id IS DISTINCT FROM r.project_id THEN 'credential belongs to another project'
             WHEN c.kind <> r.expected_kind THEN 'credential has the wrong kind'
-            WHEN c.archived_at IS NOT NULL OR c.deleted_at IS NOT NULL THEN 'credential is not live'
+            WHEN r.require_live
+             AND (c.archived_at IS NOT NULL OR c.deleted_at IS NOT NULL)
+            THEN 'credential is not live'
         END AS reason
     FROM resolved_refs r
     LEFT JOIN joysafeter_credentials c ON c.id = r.credential_uuid
@@ -259,8 +269,7 @@ WITH snapshots AS (
        OR c.id IS NULL
        OR c.project_id IS DISTINCT FROM r.project_id
        OR c.kind <> r.expected_kind
-       OR c.archived_at IS NOT NULL
-       OR c.deleted_at IS NOT NULL
+       OR (r.require_live AND (c.archived_at IS NOT NULL OR c.deleted_at IS NOT NULL))
 )
 SELECT source, owner_id, reason FROM shape_violations
 UNION ALL

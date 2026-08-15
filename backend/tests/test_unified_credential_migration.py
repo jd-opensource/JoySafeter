@@ -279,9 +279,7 @@ def test_migration_rejects_normalized_mcp_url_collisions_before_creating_tables(
     assert str(first_credential_id) in output
     assert str(second_credential_id) in output
     with _connect(migration_database) as connection:
-        target_exists = connection.execute(
-            "SELECT to_regclass('joysafeter_credentials')"
-        ).fetchone()[0]
+        target_exists = connection.execute("SELECT to_regclass('joysafeter_credentials')").fetchone()[0]
     assert target_exists is None
 
 
@@ -318,9 +316,7 @@ def test_migration_rejects_cross_table_credential_id_collisions_before_creating_
     assert "share the same id" in output
     assert str(shared_credential_id) in output
     with _connect(migration_database) as connection:
-        target_exists = connection.execute(
-            "SELECT to_regclass('joysafeter_credentials')"
-        ).fetchone()[0]
+        target_exists = connection.execute("SELECT to_regclass('joysafeter_credentials')").fetchone()[0]
     assert target_exists is None
 
 
@@ -496,9 +492,7 @@ def test_migration_rejects_soft_deleted_null_project_before_creating_tables(
     assert "NULL project_id" in output
     assert str(secret_id) in output
     with _connect(migration_database) as connection:
-        target_exists = connection.execute(
-            "SELECT to_regclass('joysafeter_credentials')"
-        ).fetchone()[0]
+        target_exists = connection.execute("SELECT to_regclass('joysafeter_credentials')").fetchone()[0]
     assert target_exists is None
 
 
@@ -623,9 +617,7 @@ def test_migration_rejects_malformed_reference_json_before_creating_tables(
     assert str(malformed_secret_ref_session_id) in output
     assert "agent_snapshot.secret_ref must be a string or null" in output
     with _connect(migration_database) as connection:
-        target_exists = connection.execute(
-            "SELECT to_regclass('joysafeter_credentials')"
-        ).fetchone()[0]
+        target_exists = connection.execute("SELECT to_regclass('joysafeter_credentials')").fetchone()[0]
     assert target_exists is None
 
 
@@ -807,9 +799,7 @@ def test_migration_rejects_duplicate_default_custom_protocol_before_creating_tab
     assert str(first_secret_id) in output
     assert str(second_secret_id) in output
     with _connect(migration_database) as connection:
-        target_exists = connection.execute(
-            "SELECT to_regclass('joysafeter_credentials')"
-        ).fetchone()[0]
+        target_exists = connection.execute("SELECT to_regclass('joysafeter_credentials')").fetchone()[0]
     assert target_exists is None
 
 
@@ -1315,6 +1305,344 @@ def test_public_id_normalization_invalid_reference_rolls_back_all_rows(
 
     assert revision == "20260815_000001"
     assert valid_config["secret_refs"] == [str(service_credential_id)]
+
+
+def test_public_id_normalization_preserves_deleted_service_identity_in_inactive_session_snapshot(
+    migration_database: MigrationDatabase,
+) -> None:
+    assert _upgrade_to(migration_database, "20260815_000001").returncode == 0
+    agent_id = uuid4()
+    session_id = uuid4()
+    service_credential_id = uuid4()
+    mcp_credential_id = uuid4()
+    mcp_group_id = uuid4()
+
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        connection.execute(
+            """
+            INSERT INTO joysafeter_agents
+                (id, project_id, name, engine_kind, env, mcp_servers, skills, tools,
+                 agents, commands, permission_mode, metadata, version)
+            VALUES
+                (%s, %s, 'inactive-history-agent', 'codex', '{}'::jsonb, '[]'::jsonb,
+                 '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                 'default', '{}'::jsonb, 1)
+            """,
+            (agent_id, PROJECT_ID),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_credential_groups (id, project_id, name)
+            VALUES (%s, %s, 'legal-mcp-group')
+            """,
+            (mcp_group_id, PROJECT_ID),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_credentials
+                (id, project_id, kind, name, data, provider, protocol, is_default,
+                 mcp_server_url, normalized_mcp_server_url, credential_type, group_id,
+                 deleted_at)
+            VALUES
+                (%s, %s, 'service', 'LEGAL_MCP', '{}'::jsonb, NULL, NULL, false,
+                 NULL, NULL, NULL, NULL, now()),
+                (%s, %s, 'mcp', 'LEGAL_MCP', '{}'::jsonb, NULL, NULL, false,
+                 'https://ai-legal-test.example/legal-mcp/mcp',
+                 'https://ai-legal-test.example/legal-mcp/mcp', 'bearer', %s, NULL)
+            """,
+            (
+                service_credential_id,
+                PROJECT_ID,
+                mcp_credential_id,
+                PROJECT_ID,
+                mcp_group_id,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_sessions
+                (id, project_id, agent_id, status, archived_at, agent_snapshot)
+            VALUES
+                (%s, %s, %s, 'terminated', now(), %s)
+            """,
+            (
+                session_id,
+                PROJECT_ID,
+                agent_id,
+                Jsonb(
+                    {
+                        "environment": {
+                            "config": {
+                                "egress_services": [
+                                    {
+                                        "name": "legal_mcp",
+                                        "base_url": "https://ai-legal-test.example/legal-mcp/mcp",
+                                        "credential_ref": "LEGAL_MCP",
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                ),
+            ),
+        )
+        connection.commit()
+
+    result = _upgrade_head(migration_database)
+    assert result.returncode == 0, result.stderr
+
+    with _connect(migration_database) as connection:
+        snapshot = connection.execute(
+            "SELECT agent_snapshot FROM joysafeter_sessions WHERE id = %s",
+            (session_id,),
+        ).fetchone()[0]
+
+    service = snapshot["environment"]["config"]["egress_services"][0]
+    assert service["service_credential_id"] == f"cred_{service_credential_id}"
+    assert "credential_ref" not in service
+
+
+def test_public_id_normalization_rejects_deleted_service_in_active_session_snapshot(
+    migration_database: MigrationDatabase,
+) -> None:
+    assert _upgrade_to(migration_database, "20260815_000001").returncode == 0
+    agent_id = uuid4()
+    session_id = uuid4()
+    service_credential_id = uuid4()
+
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        connection.execute(
+            """
+            INSERT INTO joysafeter_agents
+                (id, project_id, name, engine_kind, env, mcp_servers, skills, tools,
+                 agents, commands, permission_mode, metadata, version)
+            VALUES
+                (%s, %s, 'active-history-agent', 'codex', '{}'::jsonb, '[]'::jsonb,
+                 '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                 'default', '{}'::jsonb, 1)
+            """,
+            (agent_id, PROJECT_ID),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_credentials
+                (id, project_id, kind, name, data, provider, protocol, is_default, deleted_at)
+            VALUES
+                (%s, %s, 'service', 'LEGAL_MCP', '{}'::jsonb, NULL, NULL, false, now())
+            """,
+            (service_credential_id, PROJECT_ID),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_sessions
+                (id, project_id, agent_id, status, agent_snapshot)
+            VALUES
+                (%s, %s, %s, 'idle', %s)
+            """,
+            (
+                session_id,
+                PROJECT_ID,
+                agent_id,
+                Jsonb(
+                    {
+                        "environment": {
+                            "config": {
+                                "egress_services": [
+                                    {
+                                        "name": "legal_mcp",
+                                        "credential_ref": "LEGAL_MCP",
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                ),
+            ),
+        )
+        connection.commit()
+
+    result = _upgrade_head(migration_database)
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "points to a deleted credential" in output
+    assert str(session_id) in output
+
+    with _connect(migration_database) as connection:
+        revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+
+    assert revision == "20260815_000001"
+
+
+def test_public_id_normalization_preserves_non_live_uuid_references_in_inactive_sessions(
+    migration_database: MigrationDatabase,
+) -> None:
+    assert _upgrade_to(migration_database, "20260815_000001").returncode == 0
+    agent_id = uuid4()
+    deleted_session_id = uuid4()
+    archived_session_id = uuid4()
+    deleted_credential_id = uuid4()
+    archived_credential_id = uuid4()
+
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        connection.execute(
+            """
+            INSERT INTO joysafeter_agents
+                (id, project_id, name, engine_kind, env, mcp_servers, skills, tools,
+                 agents, commands, permission_mode, metadata, version)
+            VALUES
+                (%s, %s, 'inactive-uuid-history-agent', 'codex', '{}'::jsonb, '[]'::jsonb,
+                 '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                 'default', '{}'::jsonb, 1)
+            """,
+            (agent_id, PROJECT_ID),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_credentials
+                (id, project_id, kind, name, data, provider, protocol, is_default,
+                 archived_at, deleted_at)
+            VALUES
+                (%s, %s, 'service', 'deleted-service', '{}'::jsonb, NULL, NULL, false,
+                 NULL, now()),
+                (%s, %s, 'service', 'archived-service', '{}'::jsonb, NULL, NULL, false,
+                 now(), NULL)
+            """,
+            (
+                deleted_credential_id,
+                PROJECT_ID,
+                archived_credential_id,
+                PROJECT_ID,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_sessions
+                (id, project_id, agent_id, status, archived_at, agent_snapshot)
+            VALUES
+                (%s, %s, %s, 'terminated', NULL, %s),
+                (%s, %s, %s, 'idle', now(), %s)
+            """,
+            (
+                deleted_session_id,
+                PROJECT_ID,
+                agent_id,
+                Jsonb(
+                    {
+                        "environment": {
+                            "config": {
+                                "secret_refs": [str(deleted_credential_id)],
+                            }
+                        }
+                    }
+                ),
+                archived_session_id,
+                PROJECT_ID,
+                agent_id,
+                Jsonb(
+                    {
+                        "environment": {
+                            "config": {
+                                "secret_refs": [f"cred_{archived_credential_id}"],
+                            }
+                        }
+                    }
+                ),
+            ),
+        )
+        connection.commit()
+
+    result = _upgrade_head(migration_database)
+    assert result.returncode == 0, result.stderr
+
+    with _connect(migration_database) as connection:
+        snapshots = dict(
+            connection.execute(
+                """
+                SELECT id, agent_snapshot
+                FROM joysafeter_sessions
+                WHERE id IN (%s, %s)
+                """,
+                (deleted_session_id, archived_session_id),
+            ).fetchall()
+        )
+
+    assert snapshots[deleted_session_id]["environment"]["config"]["secret_refs"] == [f"cred_{deleted_credential_id}"]
+    assert snapshots[archived_session_id]["environment"]["config"]["secret_refs"] == [f"cred_{archived_credential_id}"]
+
+
+def test_public_id_normalization_rejects_ambiguous_historical_name_in_inactive_session(
+    migration_database: MigrationDatabase,
+) -> None:
+    assert _upgrade_to(migration_database, "20260815_000001").returncode == 0
+    agent_id = uuid4()
+    session_id = uuid4()
+
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        connection.execute(
+            """
+            INSERT INTO joysafeter_agents
+                (id, project_id, name, engine_kind, env, mcp_servers, skills, tools,
+                 agents, commands, permission_mode, metadata, version)
+            VALUES
+                (%s, %s, 'ambiguous-history-agent', 'codex', '{}'::jsonb, '[]'::jsonb,
+                 '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                 'default', '{}'::jsonb, 1)
+            """,
+            (agent_id, PROJECT_ID),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_credentials
+                (id, project_id, kind, name, data, provider, protocol, is_default, deleted_at)
+            VALUES
+                (%s, %s, 'service', 'LEGAL_MCP', '{}'::jsonb, NULL, NULL, false, now()),
+                (%s, %s, 'service', 'LEGAL_MCP', '{}'::jsonb, NULL, NULL, false, now())
+            """,
+            (uuid4(), PROJECT_ID, uuid4(), PROJECT_ID),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_sessions
+                (id, project_id, agent_id, status, archived_at, agent_snapshot)
+            VALUES
+                (%s, %s, %s, 'terminated', now(), %s)
+            """,
+            (
+                session_id,
+                PROJECT_ID,
+                agent_id,
+                Jsonb(
+                    {
+                        "environment": {
+                            "config": {
+                                "egress_services": [
+                                    {
+                                        "name": "legal_mcp",
+                                        "credential_ref": "LEGAL_MCP",
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                ),
+            ),
+        )
+        connection.commit()
+
+    result = _upgrade_head(migration_database)
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "must resolve exactly once, got 2: LEGAL_MCP" in output
+    assert str(session_id) in output
+
+    with _connect(migration_database) as connection:
+        revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+
+    assert revision == "20260815_000001"
 
 
 def test_migration_rejects_skill_usage_without_a_concrete_version(

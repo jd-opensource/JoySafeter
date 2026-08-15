@@ -67,11 +67,15 @@ The migration is online-only, irreversible, and transactional:
 
 Validation rules:
 
-- Environment and frozen-environment references require a live, same-project
-  `kind='service'` credential.
-- Model snapshot references require a same-project `kind='model'` credential.
-- Legacy names must resolve to exactly one live same-project credential of the
-  required kind.
+- Current environments, active-session snapshots, and agent-version snapshots
+  require live credentials in the same project with the expected kind.
+- Terminated or archived session snapshots are immutable historical records.
+  Their references may resolve to an archived/deleted credential when the
+  same-project, same-kind historical name match is unique, preserving the
+  original credential identity without making it executable again.
+- Legacy names must resolve exactly once in the catalog appropriate to their
+  lifecycle: live-only for executable owners, all lifecycle states for
+  inactive historical sessions.
 - Null/empty optional model references remain absent.
 - Unknown keys and unrelated JSON content are preserved byte-for-byte at the
   semantic JSON level.
@@ -108,6 +112,10 @@ Validation rules:
 3. Run the migration preflight through `alembic upgrade head`.
 4. Confirm head `20260815_000002`.
 5. Run a structural query proving every credential JSON reference is canonical.
+
+The structural query always requires existence, project scope, and kind
+correctness. It requires live credentials only for current environments,
+active sessions, and agent-version snapshots.
 6. Start one API/orchestrator instance.
 7. Verify environment list/detail, representative model execution, and external
    egress credential injection before scaling out.
