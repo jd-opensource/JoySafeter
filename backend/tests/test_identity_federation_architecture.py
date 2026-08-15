@@ -39,8 +39,32 @@ def _find_forbidden_domain_imports(domain_directory: Path) -> set[str]:
 
 
 def test_domain_has_no_forbidden_import_roots() -> None:
-    domain_directory = (
-        Path(__file__).resolve().parents[1] / "app" / "joysafeter_identity_federation" / "domain"
-    )
+    domain_directory = Path(__file__).resolve().parents[1] / "app" / "joysafeter_identity_federation" / "domain"
 
     assert not _find_forbidden_domain_imports(domain_directory)
+
+
+def test_auth_service_dependency_is_limited_to_session_gateway() -> None:
+    federation_directory = Path(__file__).resolve().parents[1] / "app" / "joysafeter_identity_federation"
+
+    assert _find_auth_service_imports(federation_directory) == {Path("infrastructure/session_gateway.py")}
+
+
+def _find_auth_service_imports(federation_directory: Path) -> set[Path]:
+    auth_service_module = "app.joysafeter_domain.services.joysafeter_auth_service"
+    import_paths: set[Path] = set()
+
+    for source_path in federation_directory.rglob("*.py"):
+        imported_modules: set[str] = set()
+        for node in ast.walk(ast.parse(source_path.read_text())):
+            if isinstance(node, ast.Import):
+                imported_modules.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported_modules.add(node.module)
+        if any(
+            imported_module == auth_service_module or imported_module.startswith(f"{auth_service_module}.")
+            for imported_module in imported_modules
+        ):
+            import_paths.add(source_path.relative_to(federation_directory))
+
+    return import_paths
