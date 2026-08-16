@@ -594,6 +594,7 @@ def test_production_accepts_explicit_public_backend_url(monkeypatch: pytest.Monk
     monkeypatch.setenv("SECRET_KEY", "test-secret")
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("BACKEND_URL", "https://api.example.com")
+    monkeypatch.setenv("FRONTEND_URL", "https://app.example.com")
 
     configured = Settings(_env_file=None)
 

@@ -47,46 +47,79 @@ def _is_numeric_authority(hostname: str) -> bool:
     return bool(labels) and all(label and is_numeric_token(label) for label in labels)
 
 
-def _normalize_backend_hostname(hostname: str, *, bracketed: bool) -> str:
+def _normalize_public_origin_hostname(hostname: str, *, bracketed: bool, setting_name: str) -> str:
     try:
         address = ip_address(hostname)
     except ValueError:
         if bracketed:
-            raise ValueError("BACKEND_URL bracketed authority must be a valid IPv6 literal")
+            raise ValueError(f"{setting_name} bracketed authority must be a valid IPv6 literal")
         if _is_numeric_authority(hostname):
-            raise ValueError("BACKEND_URL numeric authority must be canonical IPv4")
+            raise ValueError(f"{setting_name} numeric authority must be canonical IPv4")
         if len(hostname) > 253:
-            raise ValueError("BACKEND_URL hostname is too long")
+            raise ValueError(f"{setting_name} hostname is too long")
         labels = hostname.split(".")
         if not labels or any(not label for label in labels):
-            raise ValueError("BACKEND_URL hostname contains an empty label")
+            raise ValueError(f"{setting_name} hostname contains an empty label")
 
         normalized_labels: list[str] = []
         for label in labels:
             try:
                 normalized_label = label.encode("idna").decode("ascii").lower()
             except UnicodeError as error:
-                raise ValueError("BACKEND_URL hostname is not valid IDNA") from error
+                raise ValueError(f"{setting_name} hostname is not valid IDNA") from error
             if len(normalized_label) > 63:
-                raise ValueError("BACKEND_URL hostname label is too long")
+                raise ValueError(f"{setting_name} hostname label is too long")
             if (
                 not normalized_label[0].isalnum()
                 or not normalized_label[-1].isalnum()
                 or any(not (character.isalnum() or character == "-") for character in normalized_label)
             ):
-                raise ValueError("BACKEND_URL hostname contains an invalid DNS label")
+                raise ValueError(f"{setting_name} hostname contains an invalid DNS label")
             normalized_labels.append(normalized_label)
 
         normalized_hostname = ".".join(normalized_labels)
         if len(normalized_hostname) > 253:
-            raise ValueError("BACKEND_URL hostname is too long")
+            raise ValueError(f"{setting_name} hostname is too long")
         return normalized_hostname
 
     if bracketed and not isinstance(address, IPv6Address):
-        raise ValueError("BACKEND_URL bracketed authority must be a valid IPv6 literal")
+        raise ValueError(f"{setting_name} bracketed authority must be a valid IPv6 literal")
     if isinstance(address, IPv6Address):
         return f"[{address.compressed}]"
     return address.compressed
+
+
+def _validate_public_origin(value: object, *, setting_name: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{setting_name} must be a non-empty HTTP(S) origin")
+    candidate = value
+    if any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in candidate):
+        raise ValueError(f"{setting_name} must not contain whitespace or control characters")
+    if "?" in candidate or "#" in candidate:
+        raise ValueError(f"{setting_name} must not contain a query or fragment delimiter")
+    try:
+        parsed = urlsplit(candidate)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError(f"{setting_name} contains an invalid authority or port") from error
+    if parsed.scheme not in {"http", "https"} or not hostname:
+        raise ValueError(f"{setting_name} must be an absolute HTTP(S) origin")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError(f"{setting_name} must not contain credentials")
+    if "%" in parsed.netloc or "\\" in parsed.netloc or parsed.netloc.endswith(":"):
+        raise ValueError(f"{setting_name} contains an invalid authority")
+    if parsed.path not in {"", "/"}:
+        raise ValueError(f"{setting_name} must contain only scheme, host, and optional port")
+    if port is not None and port == 0:
+        raise ValueError(f"{setting_name} contains an invalid port")
+    normalized_hostname = _normalize_public_origin_hostname(
+        hostname,
+        bracketed=parsed.netloc.startswith("["),
+        setting_name=setting_name,
+    )
+    normalized_port = f":{port}" if port is not None else ""
+    return f"{parsed.scheme}://{normalized_hostname}{normalized_port}"
 
 
 class Settings(BaseSettings):
@@ -138,38 +171,20 @@ class Settings(BaseSettings):
     @field_validator("backend_url", mode="before")
     @classmethod
     def _validate_backend_url(cls, value: object) -> str:
-        if not isinstance(value, str) or not value:
-            raise ValueError("BACKEND_URL must be a non-empty HTTP(S) origin")
-        candidate = value
-        if any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in candidate):
-            raise ValueError("BACKEND_URL must not contain whitespace or control characters")
-        if "?" in candidate or "#" in candidate:
-            raise ValueError("BACKEND_URL must not contain a query or fragment delimiter")
-        try:
-            parsed = urlsplit(candidate)
-            hostname = parsed.hostname
-            port = parsed.port
-        except ValueError as error:
-            raise ValueError("BACKEND_URL contains an invalid authority or port") from error
-        if parsed.scheme not in {"http", "https"} or not hostname:
-            raise ValueError("BACKEND_URL must be an absolute HTTP(S) origin")
-        if parsed.username is not None or parsed.password is not None:
-            raise ValueError("BACKEND_URL must not contain credentials")
-        if "%" in parsed.netloc or "\\" in parsed.netloc or parsed.netloc.endswith(":"):
-            raise ValueError("BACKEND_URL contains an invalid authority")
-        if parsed.path not in {"", "/"}:
-            raise ValueError("BACKEND_URL must contain only scheme, host, and optional port")
-        if port is not None and port == 0:
-            raise ValueError("BACKEND_URL contains an invalid port")
-        normalized_hostname = _normalize_backend_hostname(hostname, bracketed=parsed.netloc.startswith("["))
-        normalized_port = f":{port}" if port is not None else ""
-        return f"{parsed.scheme}://{normalized_hostname}{normalized_port}"
+        return _validate_public_origin(value, setting_name="BACKEND_URL")
 
     @model_validator(mode="after")
-    def _require_explicit_production_backend_url(self) -> "Settings":
+    def _validate_production_public_origins(self) -> "Settings":
         if self.environment.lower() == "production" and "backend_url" not in self.model_fields_set:
             raise ValueError("BACKEND_URL must be explicitly configured in production")
+        if self.environment.lower() == "production" and self.backend_url.startswith("http://"):
+            raise ValueError(
+                "BACKEND_URL must use https:// in production because Secure federation/auth cookies require HTTPS"
+            )
+        if self.environment.lower() == "production" and self.frontend_url.startswith("http://"):
+            raise ValueError("FRONTEND_URL must use https:// in production so redirects and email links remain secure")
         return self
+
     orchestrator_http_host: str = Field(
         default="127.0.0.1",
         validation_alias="ORCHESTRATOR_HTTP_HOST",
@@ -552,6 +567,11 @@ class Settings(BaseSettings):
         validation_alias="FRONTEND_URL",
         description="Frontend URL for email links and redirects",
     )
+
+    @field_validator("frontend_url", mode="before")
+    @classmethod
+    def _validate_frontend_url(cls, value: object) -> str:
+        return _validate_public_origin(value, setting_name="FRONTEND_URL")
 
     # Email / SMTP
     smtp_host: Optional[str] = Field(default=None, validation_alias="SMTP_HOST", description="SMTP server host")
