@@ -24,6 +24,7 @@ from ...domain.models import (
 from ..endpoint_policy import (
     IPAddress,
     endpoint_addresses,
+    is_trusted_private_address,
     parse_http_endpoint,
 )
 from ..endpoint_policy import (
@@ -514,6 +515,12 @@ class OAuth2Adapter:
         if not addresses:
             return False
         if all(address.is_global for address in addresses):
+            return True
+        if (
+            provider is not None
+            and provider.allow_private_network
+            and all(is_trusted_private_address(address) for address in addresses)
+        ):
             return True
         return (
             provider is not None

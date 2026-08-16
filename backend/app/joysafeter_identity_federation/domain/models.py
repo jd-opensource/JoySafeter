@@ -125,6 +125,7 @@ class ActiveProvider:
     protocol: ProtocolId
     settings: ProviderProtocolSettings
     allow_http_loopback: bool = False
+    allow_private_network: bool = False
 
 
 @dataclass(frozen=True, slots=True)

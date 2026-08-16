@@ -958,6 +958,43 @@ async def test_local_provider_accepts_configured_http_loopback_endpoint() -> Non
 
 
 @pytest.mark.asyncio
+async def test_provider_opted_into_private_network_accepts_private_endpoint() -> None:
+    provider = _github_provider()
+    settings = provider.settings
+    assert isinstance(settings, OAuth2ProviderSettings)
+    provider = replace(
+        provider,
+        allow_private_network=True,
+        settings=replace(settings, authorize_url="https://172.16.133.151/authorize"),
+    )
+
+    action = await OAuth2Adapter(client_factory=_unused_client_factory).begin_login(
+        provider, _attempt("attempt-1"), _request_context()
+    )
+
+    assert action.authorization_url.startswith("https://172.16.133.151/authorize?")
+
+
+@pytest.mark.asyncio
+async def test_private_network_opt_in_still_rejects_link_local_metadata() -> None:
+    provider = _github_provider()
+    settings = provider.settings
+    assert isinstance(settings, OAuth2ProviderSettings)
+    provider = replace(
+        provider,
+        allow_private_network=True,
+        settings=replace(settings, authorize_url="http://169.254.169.254/authorize"),
+    )
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(client_factory=_unused_client_factory).begin_login(
+            provider, _attempt("attempt-1"), _request_context()
+        )
+
+    assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
+
+
+@pytest.mark.asyncio
 async def test_callback_state_must_match_attempt() -> None:
     with pytest.raises(FederationError) as exc_info:
         await OAuth2Adapter(client_factory=_unused_client_factory).complete_login(

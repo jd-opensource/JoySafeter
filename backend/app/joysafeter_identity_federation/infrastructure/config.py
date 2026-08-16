@@ -21,6 +21,9 @@ from .endpoint_policy import (
     endpoint_addresses as _strict_endpoint_addresses,
 )
 from .endpoint_policy import (
+    is_trusted_private_address as _is_trusted_private_address,
+)
+from .endpoint_policy import (
     parse_http_endpoint as _parse_http_endpoint,
 )
 from .endpoint_policy import (
@@ -41,6 +44,7 @@ class CatalogProvider(BaseModel):
     icon: str = Field(min_length=1)
     protocol: str = Field(min_length=1)
     template: str | None = None
+    allow_private_network: bool = False
 
     def protocol_configuration(self) -> dict[str, object]:
         return dict(self.model_extra or {})
@@ -371,6 +375,7 @@ def _endpoint_issues(
     settings: ProviderProtocolSettings,
     application_environment: str,
     unresolved_fields: frozenset[str],
+    allow_private_network: bool,
 ) -> list[ConfigurationIssue]:
     issues: list[ConfigurationIssue] = []
     for field in _ENDPOINT_FIELDS:
@@ -410,7 +415,8 @@ def _endpoint_issues(
             and scheme == "http"
             and all(address.is_loopback for address in addresses)
         )
-        if not allow_loopback and any(not address.is_global for address in addresses):
+        allow_private = allow_private_network and all(_is_trusted_private_address(address) for address in addresses)
+        if not allow_loopback and not allow_private and any(not address.is_global for address in addresses):
             issue_code = (
                 "FEDERATION_PROVIDER_CONFIG_INVALID"
                 if provider_id == "local" and application_environment != "development"
@@ -485,6 +491,7 @@ def _compile_active_providers(
             settings,
             application_environment,
             unresolved_fields,
+            provider.allow_private_network,
         )
         issues.extend(endpoint_issues)
         if environment_issues or endpoint_issues:
@@ -497,6 +504,7 @@ def _compile_active_providers(
                 protocol=ProtocolId(definition.protocol_id),
                 settings=settings,
                 allow_http_loopback=(provider_name == "local" and application_environment == "development"),
+                allow_private_network=provider.allow_private_network,
             )
         )
     return providers, issues

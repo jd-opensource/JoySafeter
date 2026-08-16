@@ -847,6 +847,77 @@ def test_local_development_exception_rejects_non_loopback_or_invalid_endpoints(
     assert ("authorize_url", expected_code) in {(issue.field, issue.code) for issue in exc_info.value.issues}
 
 
+def _catalog_with_private_jd(*, allow_private_network: bool) -> dict[str, object]:
+    catalog = _catalog()
+    providers = catalog["providers"]
+    assert isinstance(providers, dict)
+    jd = providers["jd"]
+    assert isinstance(jd, dict)
+    jd["authorize_url"] = "https://ssa.jd.com/sso/login"
+    jd["userinfo_url"] = "https://ssa.jd.com/api/verifyTicket"
+    if allow_private_network:
+        jd["allow_private_network"] = True
+    return catalog
+
+
+def test_private_endpoint_is_accepted_for_provider_opted_into_private_network(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config_module, "_resolve_endpoint_addresses", lambda _host, _port: ("172.16.133.151",))
+
+    compiled = _compile(
+        tmp_path,
+        providers="jd",
+        login_mode="redirect",
+        environ={"JD_CLIENT_ID": "jd-client", "JD_CLIENT_SECRET": "jd-secret"},
+        catalog=_catalog_with_private_jd(allow_private_network=True),
+    )
+
+    provider = compiled.registry.require(ProviderId("jd"))
+    assert provider.allow_private_network is True
+
+
+def test_private_endpoint_is_rejected_without_private_network_opt_in(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config_module, "_resolve_endpoint_addresses", lambda _host, _port: ("172.16.133.151",))
+
+    with pytest.raises(FederationConfigurationError) as exc_info:
+        _compile(
+            tmp_path,
+            providers="jd",
+            login_mode="redirect",
+            environ={"JD_CLIENT_ID": "jd-client", "JD_CLIENT_SECRET": "jd-secret"},
+            catalog=_catalog_with_private_jd(allow_private_network=False),
+        )
+
+    assert ("authorize_url", "FEDERATION_ENDPOINT_UNSAFE") in {
+        (issue.field, issue.code) for issue in exc_info.value.issues
+    }
+
+
+def test_link_local_metadata_endpoint_is_rejected_even_with_private_network_opt_in(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config_module, "_resolve_endpoint_addresses", lambda _host, _port: ("169.254.169.254",))
+
+    with pytest.raises(FederationConfigurationError) as exc_info:
+        _compile(
+            tmp_path,
+            providers="jd",
+            login_mode="redirect",
+            environ={"JD_CLIENT_ID": "jd-client", "JD_CLIENT_SECRET": "jd-secret"},
+            catalog=_catalog_with_private_jd(allow_private_network=True),
+        )
+
+    assert ("authorize_url", "FEDERATION_ENDPOINT_UNSAFE") in {
+        (issue.field, issue.code) for issue in exc_info.value.issues
+    }
+
+
 def test_endpoint_diagnostics_redact_credentials_query_and_fragment(tmp_path: Path) -> None:
     environ = _complete_env()
     environ["JD_AUTHORIZE_URL"] = (

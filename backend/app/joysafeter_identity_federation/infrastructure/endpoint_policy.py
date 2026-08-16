@@ -87,3 +87,15 @@ def endpoint_addresses(
         except ValueError:
             return None
     return tuple(addresses)
+
+
+def is_trusted_private_address(address: IPAddress) -> bool:
+    """Return True for a private/internal address safe to reach when a provider opts in.
+
+    Permits RFC1918-style private networks and loopback, but never link-local
+    (169.254.0.0/16 and fe80::/10, where cloud metadata lives), multicast,
+    reserved, or unspecified addresses.
+    """
+    return address.is_private and not (
+        address.is_link_local or address.is_multicast or address.is_reserved or address.is_unspecified
+    )

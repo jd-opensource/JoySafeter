@@ -37,6 +37,7 @@ providers:
     display_name: "JD SSO"
     icon: "building"
     protocol: "jd_sso"
+    allow_private_network: true
     client_id: ${JD_CLIENT_ID}
     client_secret: ${JD_CLIENT_SECRET}
     authorize_url: ${JD_AUTHORIZE_URL}
