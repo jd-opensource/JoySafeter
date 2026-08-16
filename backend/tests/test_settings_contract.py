@@ -38,10 +38,11 @@ def test_identity_federation_settings_use_only_canonical_environment_names(monke
     assert settings.identity_federation_providers == "jd,github"
     assert settings.identity_federation_config_path == "/run/config/federation.yaml"
     assert settings.identity_federation_login_mode == "redirect"
-    assert settings.oauth_config_path == "/run/config/legacy-oauth.yaml"
+    assert "oauth_config_path" not in Settings.model_fields
+    assert not hasattr(settings, "oauth_config_path")
 
 
-def test_identity_federation_settings_do_not_fall_back_to_legacy_oauth(monkeypatch) -> None:
+def test_identity_federation_settings_ignore_removed_legacy_oauth_environment(monkeypatch) -> None:
     monkeypatch.setenv("SECRET_KEY", "test-secret")
     monkeypatch.delenv("IDENTITY_FEDERATION_PROVIDERS", raising=False)
     monkeypatch.delenv("IDENTITY_FEDERATION_CONFIG_PATH", raising=False)
@@ -50,7 +51,8 @@ def test_identity_federation_settings_do_not_fall_back_to_legacy_oauth(monkeypat
 
     settings = Settings(_env_file=None)
 
-    assert settings.oauth_config_path == "/run/config/legacy-oauth.yaml"
+    assert "oauth_config_path" not in Settings.model_fields
+    assert not hasattr(settings, "oauth_config_path")
     assert settings.identity_federation_providers == ""
     assert settings.identity_federation_config_path is None
     assert settings.identity_federation_login_mode == "chooser"

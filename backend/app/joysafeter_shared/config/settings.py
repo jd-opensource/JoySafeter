@@ -725,12 +725,7 @@ class Settings(BaseSettings):
         ),
     )
 
-    # OAuth Configuration
-    oauth_config_path: Optional[str] = Field(
-        default=None,
-        validation_alias="OAUTH_CONFIG_PATH",
-        description="OAuth providers configuration file path (default: config/oauth_providers.yaml)",
-    )
+    # Identity federation configuration
     identity_federation_providers: str = Field(
         default="",
         validation_alias="IDENTITY_FEDERATION_PROVIDERS",

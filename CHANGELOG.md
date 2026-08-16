@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## Unreleased — 2026-08-16
+
+### Identity Federation Migration
+
+- Removed the pre-federation shared runtime and service-level authorization, state, provider-loading, and account-binding
+  responsibilities; authentication sessions and post-login initialization remain on the canonical auth service.
+- Removed the legacy provider YAML files and renamed the local setup guide to
+  `backend/config/README_IDENTITY_FEDERATION_LOCAL.md`.
+- Deployment now uses only `IDENTITY_FEDERATION_PROVIDERS`, `IDENTITY_FEDERATION_CONFIG_PATH`, and
+  `IDENTITY_FEDERATION_LOGIN_MODE`; removed OAuth path, default-provider, JD token-endpoint, and orchestrator-enable
+  settings are not read as aliases.
+- Provider activation comes exclusively from `IDENTITY_FEDERATION_PROVIDERS`; existing per-provider activation or
+  automatic/default-provider settings must be removed during upgrade.
+- Internal JD deployments should activate `jd`, use `redirect` login mode, and configure only the JD client ID,
+  client secret, authorization URL, and userinfo URL.
+
+---
+
 ## v0.3.2 — 2026-04-11
 
 
@@ -256,7 +274,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   - Built-in templates for GitHub, Google, and Microsoft
   - Configurable OIDC providers: Keycloak, Authentik, GitLab
   - JD SSO support
-  - See `backend/config/oauth_providers.yaml` and `backend/config/README_OAUTH_LOCAL.md`
+  - See `backend/config/identity_federation_providers.yaml` and
+    `backend/config/README_IDENTITY_FEDERATION_LOCAL.md`
 
 - **Secure Runtime Transition**
   - Deprecated legacy insecure execution paths

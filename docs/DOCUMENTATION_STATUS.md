@@ -1,6 +1,6 @@
 # Documentation Status
 
-Last code-based review: 2026-07-09.
+Last code-based review: 2026-08-16.
 
 This file tracks the documentation state after the v2 code refactor. The source of truth is the
 current repository, not older design notes.
@@ -13,11 +13,10 @@ current repository, not older design notes.
 | `INSTALL.md` / `INSTALL_CN.md` | Replaced removed `python-orchestrator` and all-in-one Python startup instructions with `deploy.sh doctor/local`, Rust `orchestrator-rs`, prebuilt-image usage, environment checks, and troubleshooting notes. |
 | `DEVELOPMENT.md` | Updated local development commands to run Python API, Rust `orchestrator-rs`, and Python worker as separate processes; refreshed Bun-based frontend workflow and current frontend env variables. |
 | `backend/README.md` / `backend/env.example` | Updated service role names, explicit entrypoints, worker responsibilities, current backend layout, current backend runtime knobs, and the unified Docker deployment entrypoint. |
-| `backend/config/README_OAUTH_LOCAL.md` | Removed the stale bundled mock-server command and documented the current external/self-hosted mock OAuth flow. |
-| `backend/config/oauth_providers.example.yaml` | Updated the example post-login redirect from the removed `/chat` surface to `/managed/quickstart`. |
+| `backend/config/README_IDENTITY_FEDERATION_LOCAL.md` / `backend/config/identity_federation_providers.yaml` | Documented canonical Provider Catalog, activation-list, login-mode, and local OAuth2/OIDC verification flow. |
 | `frontend/README.md` / `frontend/env.example` | Updated App Router structure to the current `/managed/**` product surface and current frontend runtime/server config. |
 | `deploy/README.md` | Updated to the single existing Compose file, `doctor/local` workflow, Docker daemon CPU auto-detection, multi-arch image defaults, service collaboration topology, deployment data flow, deployment-mode selection, SkillSpector auto-prepare behavior, migrations, cloud Redis/Postgres notes, command/option matrix, and troubleshooting FAQ. |
-| `deploy/.env.example` | Updated local deployment defaults for multi-arch official images, Docker platform guidance, and `.deps/SkillSpector` as the default SkillSpector source. |
+| `deploy/.env.example` / `deploy/.env.remote.example` | Updated local deployment defaults, Docker platform guidance, SkillSpector source, and canonical identity-federation activation for the internal JD redirect example. |
 | `deploy/deploy.sh` | Added `doctor` and `local` commands that prepare env files, detect Docker daemon CPU architecture, set safe multi-arch image defaults, locate Docker socket, prepare SkillSpector, preflight compose/ports, run db migrations, and then start the local stack. Image lifecycle commands now include backend, frontend, Rust orchestrator, and SkillSpector as core deployment images. |
 | `deploy/docker-compose.yml` / deployment Dockerfiles | Updated build args and service image defaults to Docker Official Images multi-arch mirrors, removed stale single-arch defaults, aligned SkillSpector source path with `.deps/SkillSpector`, and removed stale Python-orchestrator health/port exposure from the backend image contract. |
 | `docs/api/openapi.md` | Updated response envelope, mounted router list, API key request/response details, session-first run flow, task-first response shape, and task ID path semantics from current routers/schemas. |
@@ -72,8 +71,8 @@ current repository, not older design notes.
   outside historical migration notes.
 - Relative Markdown link audit checked 30 Markdown files after excluding dependency,
   virtualenv, and `skills/**` directories.
-- Ruby YAML parsing succeeds for `deploy/docker-compose.yml`,
-  `backend/config/oauth_providers.yaml`, and `backend/config/oauth_providers.example.yaml`.
+- YAML parsing succeeds for `deploy/docker-compose.yml` and
+  `backend/config/identity_federation_providers.yaml`.
   `./deploy.sh doctor` resolves the local platform, prepares local env files and SkillSpector,
   validates compose config, and does not start containers. `docker-compose --profile local-redis
   --profile rust-orchestrator --profile init config` resolves the supported local service set with
