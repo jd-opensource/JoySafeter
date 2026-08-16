@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 from dotenv import dotenv_values
 from pydantic import ValidationError
 
@@ -212,6 +213,15 @@ def test_remote_example_uses_https_public_origin_contract(monkeypatch) -> None:
     assert settings.frontend_url == values["FRONTEND_URL"]
     assert settings.backend_url == values["BACKEND_URL"]
     assert settings.cors_origins == [values["FRONTEND_URL"]]
+
+
+def test_compose_passes_public_origins_to_backend_services() -> None:
+    compose = yaml.safe_load((REPO_ROOT / "deploy/docker-compose.yml").read_text(encoding="utf-8"))
+    common_environment = compose["x-backend-common-env"]
+
+    assert common_environment["ENVIRONMENT"] == "${ENVIRONMENT:-development}"
+    assert common_environment["BACKEND_URL"] == "${BACKEND_URL:-http://localhost:8000}"
+    assert common_environment["FRONTEND_URL"] == "${FRONTEND_URL:-http://localhost:3000}"
 
 
 def test_cookie_secure_effective_remains_forced_on_in_production(monkeypatch) -> None:

@@ -40,6 +40,9 @@ x-backend-env-files: &backend-env-files
     required: false
 
 x-backend-common-env: &backend-common-env
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  BACKEND_URL: ${BACKEND_URL:-http://localhost:8000}
+  FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
   CORS_ORIGINS: ${CORS_ORIGINS:-["${FRONTEND_URL:-http://localhost:3000}"]}
   JOYSAFETER_ENVOY_IMAGE: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.37.1}
   IDENTITY_FEDERATION_PROVIDERS: ${IDENTITY_FEDERATION_PROVIDERS:-}
