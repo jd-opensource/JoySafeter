@@ -2086,7 +2086,7 @@ Run:
 
 ```bash
 cd frontend
-bun test
+bun run test
 bun run type-check
 bun run lint
 bun run build
