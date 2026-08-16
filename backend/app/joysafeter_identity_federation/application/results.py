@@ -7,6 +7,7 @@ from ..domain.models import AuthorizationAction, CorrelationCookie
 @dataclass(frozen=True, slots=True)
 class BeginLoginResult:
     authorization_url: str
+    state: str
     correlation_cookie: CorrelationCookie | None = None
 
 

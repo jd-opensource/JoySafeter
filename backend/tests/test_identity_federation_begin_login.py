@@ -169,6 +169,7 @@ async def test_begin_login_creates_one_attempt_and_delegates_once() -> None:
 
     assert result == BeginLoginResult(
         authorization_url="https://provider.example/authorize?state=attempt-1",
+        state="attempt-1",
         correlation_cookie=adapter.cookie,
     )
     assert adapters.required == [ProtocolId.OAUTH2]

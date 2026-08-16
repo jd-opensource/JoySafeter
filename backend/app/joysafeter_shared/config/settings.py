@@ -4,12 +4,13 @@ Application configuration.
 
 import os
 import socket
+from ipaddress import IPv6Address, ip_address
 from pathlib import Path
 from typing import Annotated, List, Optional, Union
 from urllib.parse import urlsplit
 
 from loguru import logger
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine.url import make_url
 
@@ -34,6 +35,42 @@ def _is_tcp_port_open(host: str, port: int, timeout_seconds: float = 0.5) -> boo
             return True
     except OSError:
         return False
+
+
+def _normalize_backend_hostname(hostname: str) -> str:
+    try:
+        address = ip_address(hostname)
+    except ValueError:
+        if len(hostname) > 253:
+            raise ValueError("BACKEND_URL hostname is too long")
+        labels = hostname.split(".")
+        if not labels or any(not label for label in labels):
+            raise ValueError("BACKEND_URL hostname contains an empty label")
+
+        normalized_labels: list[str] = []
+        for label in labels:
+            try:
+                normalized_label = label.encode("idna").decode("ascii").lower()
+            except UnicodeError as error:
+                raise ValueError("BACKEND_URL hostname is not valid IDNA") from error
+            if len(normalized_label) > 63:
+                raise ValueError("BACKEND_URL hostname label is too long")
+            if (
+                not normalized_label[0].isalnum()
+                or not normalized_label[-1].isalnum()
+                or any(not (character.isalnum() or character == "-") for character in normalized_label)
+            ):
+                raise ValueError("BACKEND_URL hostname contains an invalid DNS label")
+            normalized_labels.append(normalized_label)
+
+        normalized_hostname = ".".join(normalized_labels)
+        if len(normalized_hostname) > 253:
+            raise ValueError("BACKEND_URL hostname is too long")
+        return normalized_hostname
+
+    if isinstance(address, IPv6Address):
+        return f"[{address.compressed}]"
+    return address.compressed
 
 
 class Settings(BaseSettings):
@@ -85,25 +122,38 @@ class Settings(BaseSettings):
     @field_validator("backend_url", mode="before")
     @classmethod
     def _validate_backend_url(cls, value: object) -> str:
-        if not isinstance(value, str) or not value.strip():
+        if not isinstance(value, str) or not value:
             raise ValueError("BACKEND_URL must be a non-empty HTTP(S) origin")
-        candidate = value.strip()
+        candidate = value
         if any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in candidate):
             raise ValueError("BACKEND_URL must not contain whitespace or control characters")
-        parsed = urlsplit(candidate)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        if "?" in candidate or "#" in candidate:
+            raise ValueError("BACKEND_URL must not contain a query or fragment delimiter")
+        try:
+            parsed = urlsplit(candidate)
+            hostname = parsed.hostname
+            port = parsed.port
+        except ValueError as error:
+            raise ValueError("BACKEND_URL contains an invalid authority or port") from error
+        if parsed.scheme not in {"http", "https"} or not hostname:
             raise ValueError("BACKEND_URL must be an absolute HTTP(S) origin")
         if parsed.username is not None or parsed.password is not None:
             raise ValueError("BACKEND_URL must not contain credentials")
         if "%" in parsed.netloc or "\\" in parsed.netloc or parsed.netloc.endswith(":"):
             raise ValueError("BACKEND_URL contains an invalid authority")
-        if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        if parsed.path not in {"", "/"}:
             raise ValueError("BACKEND_URL must contain only scheme, host, and optional port")
-        try:
-            parsed.port
-        except ValueError as error:
-            raise ValueError("BACKEND_URL contains an invalid port") from error
-        return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+        if port is not None and port == 0:
+            raise ValueError("BACKEND_URL contains an invalid port")
+        normalized_hostname = _normalize_backend_hostname(hostname)
+        normalized_port = f":{port}" if port is not None else ""
+        return f"{parsed.scheme}://{normalized_hostname}{normalized_port}"
+
+    @model_validator(mode="after")
+    def _require_explicit_production_backend_url(self) -> "Settings":
+        if self.environment.lower() == "production" and "backend_url" not in self.model_fields_set:
+            raise ValueError("BACKEND_URL must be explicitly configured in production")
+        return self
     orchestrator_http_host: str = Field(
         default="127.0.0.1",
         validation_alias="ORCHESTRATOR_HTTP_HOST",

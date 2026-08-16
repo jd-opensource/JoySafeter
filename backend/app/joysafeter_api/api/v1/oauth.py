@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -121,7 +121,7 @@ async def oauth_authorize(
 
     response = JSONResponse(
         content=success_response(
-            data={"authorization_url": result.authorization_url},
+            data={"authorization_url": result.authorization_url, "state": result.state},
             message="OAuth authorization URL generated",
         )
     )
@@ -307,25 +307,13 @@ def _redirect_with_error(error_code: str) -> RedirectResponse:
     return RedirectResponse(url=error_url, status_code=302)
 
 
-def _resolve_frontend_callback_url(callback_url: str) -> str:
-    frontend_url = settings.frontend_url.rstrip("/")
-    default_url = f"{frontend_url}/managed/quickstart"
-    candidate = callback_url.strip()
-    if not candidate:
-        return default_url
-    if candidate.startswith("/") and not candidate.startswith("//"):
-        return f"{frontend_url}{candidate}"
-    parsed_callback = urlparse(candidate)
-    parsed_frontend = urlparse(frontend_url)
-    if parsed_callback.scheme in {"http", "https"} and parsed_callback.netloc == parsed_frontend.netloc:
-        return candidate
-    if not parsed_callback.scheme and not parsed_callback.netloc:
-        return f"{frontend_url}/{candidate.lstrip('/')}"
-    return default_url
-
-
 def _create_auth_response(result: LoginSucceeded) -> RedirectResponse:
-    response = RedirectResponse(url=_resolve_frontend_callback_url(result.callback_url), status_code=302)
+    if not result.callback_url.startswith("/") or result.callback_url.startswith("//"):
+        raise RuntimeError("Federation callback path is invalid")
+    response = RedirectResponse(
+        url=f"{settings.frontend_url.rstrip('/')}{result.callback_url}",
+        status_code=302,
+    )
     cookie_kwargs: dict[str, Any] = {
         "httponly": True,
         "samesite": settings.cookie_samesite,

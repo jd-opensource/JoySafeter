@@ -139,6 +139,7 @@ def test_authorize_delegates_with_canonical_context_and_sets_correlation_cookie(
     coordinator = _Coordinator(
         begin_result=BeginLoginResult(
             authorization_url="https://github.com/login/oauth/authorize?state=attempt-1",
+            state="attempt-1",
             correlation_cookie=CorrelationCookie(
                 name="joysafeter_federation_attempt",
                 value="signed-attempt",
@@ -162,7 +163,8 @@ def test_authorize_delegates_with_canonical_context_and_sets_correlation_cookie(
     assert payload["success"] is True
     assert payload["message"] == "OAuth authorization URL generated"
     assert payload["data"] == {
-        "authorization_url": "https://github.com/login/oauth/authorize?state=attempt-1"
+        "authorization_url": "https://github.com/login/oauth/authorize?state=attempt-1",
+        "state": "attempt-1",
     }
     assert coordinator.begin_calls[0][0] == BeginLoginCommand(
         provider_id="github",
@@ -272,6 +274,42 @@ def test_callback_success_uses_result_redirect_and_auth_cookie_order(
     assert "HttpOnly" in cookies[2]
     assert cookies[3].startswith("csrf_token=csrf-token;")
     assert "HttpOnly" not in cookies[3]
+
+
+@pytest.mark.parametrize(
+    "callback_url",
+    ["https://evil.example/steal", "//evil.example/steal", "managed/dashboard"],
+)
+def test_callback_malformed_application_path_fails_closed_without_auth_cookies(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    callback_url: str,
+) -> None:
+    coordinator = _Coordinator(
+        complete_result=LoginSucceeded(
+            callback_url=callback_url,
+            access_token="access-token",
+            refresh_token="refresh-token",
+            csrf_token="csrf-token",
+            access_expires_at=_NOW + timedelta(minutes=15),
+            refresh_expires_at=_NOW + timedelta(days=7),
+        )
+    )
+    _patch_coordinator(monkeypatch, coordinator)
+
+    response = client.get("/api/v1/auth/oauth/github/callback?code=upstream-code&state=attempt-1")
+
+    assert response.status_code == 302
+    assert response.headers["location"] == (
+        "https://app.example/signin?error_code=FEDERATION_UPSTREAM_UNAVAILABLE"
+    )
+    cookies = response.headers.get_list("set-cookie")
+    assert len(cookies) == 1
+    assert cookies[0].startswith("joysafeter_federation_attempt=")
+    assert "Max-Age=0" in cookies[0]
+    assert "access-token" not in response.headers["set-cookie"]
+    assert "refresh-token" not in response.headers["set-cookie"]
+    assert "csrf-token" not in response.headers["set-cookie"]
 
 
 def test_callback_restart_clears_old_cookie_before_replacement(
@@ -428,10 +466,26 @@ def test_request_context_ignores_forwarded_ip_from_untrusted_peer(monkeypatch: p
 @pytest.mark.parametrize(
     "backend_url",
     [
+        "ftp://api.example.com",
+        "https://user:pass@api.example.com",
+        "https://api.example.com/base-path",
+        "https://api.example.com?",
+        "https://api.example.com#",
+        " https://api.example.com",
+        "https://api.example.com ",
         "https://api.example.com bad",
         "https://api.example.com%2fevil.example",
         "https://api.example.com\n.evil.example",
         "https://api.example.com:",
+        "https://api.example.com:0",
+        "https://api_example.com",
+        "https://-api.example.com",
+        "https://api-.example.com",
+        "https://.example.com",
+        "https://example..com",
+        "https://example.com.",
+        f"https://{'a' * 64}.example.com",
+        f"https://{'.'.join(['a' * 63] * 4)}",
     ],
 )
 def test_backend_url_rejects_malformed_authority_text(
@@ -461,6 +515,46 @@ def test_backend_url_normalizes_public_origin(monkeypatch: pytest.MonkeyPatch) -
     configured = Settings(_env_file=None)
 
     assert configured.backend_url == "https://api.example.com:8443"
+
+
+@pytest.mark.parametrize(
+    ("backend_url", "expected"),
+    [
+        ("http://192.0.2.10:8080/", "http://192.0.2.10:8080"),
+        ("https://[2001:db8::1]:8443", "https://[2001:db8::1]:8443"),
+        ("https://bücher.example", "https://xn--bcher-kva.example"),
+    ],
+)
+def test_backend_url_accepts_ip_literals_and_normalizes_idna_hosts(
+    monkeypatch: pytest.MonkeyPatch,
+    backend_url: str,
+    expected: str,
+) -> None:
+    monkeypatch.setenv("SECRET_KEY", "test-secret")
+    monkeypatch.setenv("BACKEND_URL", backend_url)
+
+    configured = Settings(_env_file=None)
+
+    assert configured.backend_url == expected
+
+
+def test_production_requires_explicit_backend_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SECRET_KEY", "test-secret")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("BACKEND_URL", raising=False)
+
+    with pytest.raises(ValueError, match="BACKEND_URL.*production"):
+        Settings(_env_file=None)
+
+
+def test_production_accepts_explicit_public_backend_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SECRET_KEY", "test-secret")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("BACKEND_URL", "https://api.example.com")
+
+    configured = Settings(_env_file=None)
+
+    assert configured.backend_url == "https://api.example.com"
 
 
 def test_account_list_and_unlink_use_federated_account_service(

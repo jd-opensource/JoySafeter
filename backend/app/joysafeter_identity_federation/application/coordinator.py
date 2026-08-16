@@ -73,6 +73,7 @@ class FederatedLoginCoordinator:
         await self._attempt_store.create(attempt)
         return BeginLoginResult(
             authorization_url=action.authorization_url,
+            state=attempt.id,
             correlation_cookie=action.correlation_cookie,
         )
 
