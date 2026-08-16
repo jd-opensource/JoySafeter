@@ -191,6 +191,8 @@ describe('LoginPage lifecycle', () => {
     refetchSessionMock.mockResolvedValue(undefined)
     searchParamValues.bypass_sso = 'true'
     searchParamValues.callbackUrl = '/signin#after'
+    searchParamValues.error_code = null
+    searchParamValues.error_message = null
     ;(globalThis as AuthClientMockGlobal).__joysafeterAuthClientMock = {
       forgetPassword: forgetPasswordMock,
     }
@@ -203,6 +205,61 @@ describe('LoginPage lifecycle', () => {
     vi.useRealTimers()
     delete (globalThis as AuthClientMockGlobal).__joysafeterAuthClientMock
   })
+
+  it.each([
+    ['FEDERATION_ATTEMPT_INVALID', 'auth.oauthAttemptInvalid'],
+    ['FEDERATION_ATTEMPT_MISMATCH', 'auth.oauthAttemptMismatch'],
+    ['FEDERATION_ATTEMPT_EXPIRED', 'auth.oauthAttemptExpired'],
+    ['FEDERATION_UPSTREAM_DENIED', 'auth.oauthDenied'],
+    ['FEDERATION_UPSTREAM_UNAVAILABLE', 'auth.oauthUpstreamUnavailable'],
+    ['FEDERATION_ACCOUNT_LINK_REQUIRED', 'auth.oauthAccountLinkRequired'],
+    ['FEDERATION_REGISTRATION_DISABLED', 'auth.oauthRegistrationDisabled'],
+    ['FEDERATION_SESSION_ISSUE_FAILED', 'auth.oauthSessionIssueFailed'],
+    ['FEDERATION_CALLBACK_FAILED', 'auth.oauthCallbackFailed'],
+  ])('renders the safe callback message for %s', async (errorCode, expectedMessageKey) => {
+    searchParamValues.bypass_sso = null
+    searchParamValues.error_code = errorCode
+    searchParamValues.error_message = 'sensitive upstream failure detail'
+    window.history.replaceState(
+      {},
+      '',
+      `/signin?error_code=${errorCode}&error_message=sensitive+upstream+failure+detail`,
+    )
+
+    const { default: LoginPage } = await import('./login-form')
+    const view = render(<LoginPage />)
+
+    await settle()
+
+    expect(view.getByText(expectedMessageKey)).toBeTruthy()
+    expect(view.queryByText('sensitive upstream failure detail')).toBeNull()
+    expect(managedGetMock).not.toHaveBeenCalled()
+    expect(window.location.href).toBe('http://localhost/signin')
+  })
+
+  it.each(['OAUTH_ACCESS_DENIED', 'UNRECOGNIZED_CALLBACK_CODE'])(
+    'fails safely for unsupported callback code %s',
+    async (errorCode) => {
+      searchParamValues.bypass_sso = null
+      searchParamValues.error_code = errorCode
+      searchParamValues.error_message = 'server-controlled callback message'
+      window.history.replaceState(
+        {},
+        '',
+        `/signin?error_code=${errorCode}&error_message=server-controlled+callback+message`,
+      )
+
+      const { default: LoginPage } = await import('./login-form')
+      const view = render(<LoginPage />)
+
+      await settle()
+
+      expect(view.getByText('auth.oauthError')).toBeTruthy()
+      expect(view.queryByText('server-controlled callback message')).toBeNull()
+      expect(managedGetMock).not.toHaveBeenCalled()
+      expect(window.location.href).toBe('http://localhost/signin')
+    },
+  )
 
   it('does not let an older reset-link timer close a reopened forgot password dialog', async () => {
     const { default: LoginPage } = await import('./login-form')

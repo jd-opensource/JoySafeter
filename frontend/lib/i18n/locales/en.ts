@@ -281,7 +281,19 @@ const en = {
       orContinueWith: 'Or continue with',
       signInWith: 'Sign in with {{provider}}',
       oauthError: 'Authentication failed. Please try again.',
+      oauthAttemptInvalid: 'This sign-in attempt is invalid. Please try again.',
+      oauthAttemptMismatch:
+        'This sign-in attempt does not match the selected provider. Please try again.',
+      oauthAttemptExpired: 'This sign-in attempt has expired. Please try again.',
       oauthDenied: 'Authentication was cancelled.',
+      oauthUpstreamUnavailable:
+        'The authentication provider is temporarily unavailable. Please try again later.',
+      oauthAccountLinkRequired:
+        'This account must be linked before you can sign in with this provider.',
+      oauthRegistrationDisabled: 'New account registration through this provider is disabled.',
+      oauthSessionIssueFailed:
+        'Authentication succeeded, but a sign-in session could not be created. Please try again.',
+      oauthCallbackFailed: 'Authentication could not be completed. Please try again.',
       oauthInvalidState: 'Invalid authentication state. Please try again.',
       oauthProviderNotFound: 'The selected authentication provider is unavailable.',
       oauthDiscoveryFailed:

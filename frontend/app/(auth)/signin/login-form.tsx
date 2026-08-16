@@ -86,25 +86,24 @@ const getAuthErrorMessageKey = (errorCode: string): string | null => {
 
 const getOAuthCallbackErrorKey = (errorCode?: string | null): string => {
   switch (errorCode) {
-    case 'OAUTH_ACCESS_DENIED':
+    case 'FEDERATION_ATTEMPT_INVALID':
+      return 'auth.oauthAttemptInvalid'
+    case 'FEDERATION_ATTEMPT_MISMATCH':
+      return 'auth.oauthAttemptMismatch'
+    case 'FEDERATION_ATTEMPT_EXPIRED':
+      return 'auth.oauthAttemptExpired'
+    case 'FEDERATION_UPSTREAM_DENIED':
       return 'auth.oauthDenied'
-    case 'OAUTH_STATE_INVALID':
-    case 'OAUTH_STATE_MISSING':
-    case 'OAUTH_PROVIDER_MISMATCH':
-      return 'auth.oauthInvalidState'
-    case 'OAUTH_DISCOVERY_FAILED':
-    case 'OAUTH_TOKEN_ENDPOINT_DISCOVERY_FAILED':
-    case 'OAUTH_USERINFO_ENDPOINT_DISCOVERY_FAILED':
-      return 'auth.oauthDiscoveryFailed'
-    case 'OAUTH_AUTHORIZE_URL_MISSING':
-      return 'auth.oauthAuthorizeUrlMissing'
-    case 'OAUTH_TOKEN_URL_MISSING':
-      return 'auth.oauthTokenUrlMissing'
-    case 'OAUTH_USERINFO_URL_MISSING':
-      return 'auth.oauthUserinfoUrlMissing'
-    case 'OAUTH_TOKEN_EXCHANGE_FAILED':
-    case 'OAUTH_USERINFO_FETCH_FAILED':
-      return 'auth.oauthFailed'
+    case 'FEDERATION_UPSTREAM_UNAVAILABLE':
+      return 'auth.oauthUpstreamUnavailable'
+    case 'FEDERATION_ACCOUNT_LINK_REQUIRED':
+      return 'auth.oauthAccountLinkRequired'
+    case 'FEDERATION_REGISTRATION_DISABLED':
+      return 'auth.oauthRegistrationDisabled'
+    case 'FEDERATION_SESSION_ISSUE_FAILED':
+      return 'auth.oauthSessionIssueFailed'
+    case 'FEDERATION_CALLBACK_FAILED':
+      return 'auth.oauthCallbackFailed'
     default:
       return 'auth.oauthError'
   }
@@ -241,17 +240,9 @@ export default function LoginPage() {
 
       // handle OAuth errors
       const errorCode = searchParams.get('error_code')
-      const errorMessageParam = searchParams.get('error_message')
       if (errorCode) {
         const errorKey = getOAuthCallbackErrorKey(errorCode)
-        const errorMessage =
-          errorMessageParam &&
-          (errorKey === 'auth.oauthFailed' ||
-            errorKey === 'auth.oauthError' ||
-            errorKey === 'auth.oauthDiscoveryFailed')
-            ? errorMessageParam
-            : t(errorKey)
-        setOauthError(errorMessage)
+        setOauthError(t(errorKey))
         // clear error params from URL
         const url = new URL(window.location.href)
         url.searchParams.delete('error_code')
