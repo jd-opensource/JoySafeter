@@ -882,6 +882,28 @@ def test_compiles_catalog_settings_and_template_values(tmp_path: Path) -> None:
     assert compiled.registry.settings.default_redirect_url == "/managed/quickstart"
 
 
+def test_unsupported_token_endpoint_auth_method_is_rejected_at_compile(tmp_path: Path) -> None:
+    catalog = _catalog()
+    providers = catalog["providers"]
+    assert isinstance(providers, dict)
+    github = providers["github"]
+    assert isinstance(github, dict)
+    github["token_endpoint_auth_method"] = "client_secret_jwt"
+
+    with pytest.raises(FederationConfigurationError) as exc_info:
+        _compile(
+            tmp_path,
+            providers="github",
+            login_mode="redirect",
+            environ=_github_env(),
+            catalog=catalog,
+        )
+
+    assert ("token_endpoint_auth_method", "FEDERATION_PROVIDER_CONFIG_INVALID") in {
+        (issue.field, issue.code) for issue in exc_info.value.issues
+    }
+
+
 def test_registry_provider_and_nested_mappings_are_defensively_immutable(tmp_path: Path) -> None:
     catalog = _catalog()
     compiled = _compile(

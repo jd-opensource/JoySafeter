@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -23,7 +23,7 @@ class OAuth2ConfigSchema(BaseModel):
     issuer: str | None = None
     scope: str = "openid"
     user_mapping: dict[str, str]
-    token_endpoint_auth_method: str = "client_secret_basic"
+    token_endpoint_auth_method: Literal["client_secret_basic", "client_secret_post"] = "client_secret_basic"
     userinfo_headers: dict[str, str] = Field(default_factory=dict)
 
     @field_validator(
