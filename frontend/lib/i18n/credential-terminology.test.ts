@@ -1002,8 +1002,8 @@ describe('credential domain terminology', () => {
       0,
     )
 
-    expect(inventory.counts).toEqual({ direct: 1302, dynamic: 396, total: 1698 })
-    expect(templateAdditions).toBe(349)
+    expect(inventory.counts).toEqual({ direct: 1302, dynamic: 401, total: 1703 })
+    expect(templateAdditions).toBe(354)
     expect(finiteAdditions).toBe(47)
     expect(inventory.templateDynamicLeaves).toContain(
       'managed.skills.aiAuthor.scan.status.not_scanned',
