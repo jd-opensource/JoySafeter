@@ -67,3 +67,40 @@ def test_identity_federation_settings_default_to_no_active_providers(monkeypatch
     assert settings.identity_federation_providers == ""
     assert settings.identity_federation_config_path is None
     assert settings.identity_federation_login_mode == "chooser"
+
+
+def test_backend_url_defaults_to_local_api_origin(monkeypatch) -> None:
+    monkeypatch.setenv("SECRET_KEY", "test-secret")
+    monkeypatch.delenv("BACKEND_URL", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.backend_url == "http://localhost:8000"
+
+
+def test_backend_url_accepts_and_normalizes_public_http_origin(monkeypatch) -> None:
+    monkeypatch.setenv("SECRET_KEY", "test-secret")
+    monkeypatch.setenv("BACKEND_URL", "https://api.example.com:8443/")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.backend_url == "https://api.example.com:8443"
+
+
+@pytest.mark.parametrize(
+    "backend_url",
+    [
+        "api.example.com",
+        "ftp://api.example.com",
+        "https://user:pass@api.example.com",
+        "https://api.example.com/base-path",
+        "https://api.example.com?query=1",
+        "https://api.example.com#fragment",
+    ],
+)
+def test_backend_url_rejects_non_origin_values(monkeypatch, backend_url: str) -> None:
+    monkeypatch.setenv("SECRET_KEY", "test-secret")
+    monkeypatch.setenv("BACKEND_URL", backend_url)
+
+    with pytest.raises(ValueError, match="BACKEND_URL"):
+        Settings(_env_file=None)
