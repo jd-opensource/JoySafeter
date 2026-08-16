@@ -1,6 +1,6 @@
 import asyncio
 import base64
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 from urllib.parse import parse_qs, parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
@@ -100,22 +100,17 @@ class OAuth2Adapter:
                 provider,
             )
 
-        parts = urlsplit(authorize_url)
-        query = [
-            (name, value)
-            for name, value in parse_qsl(parts.query, keep_blank_values=True)
-            if name not in _AUTHORIZATION_PARAMETERS
-        ]
-        query.extend(
-            (
+        authorization_url = self._merge_query_parameters(
+            authorize_url,
+            reserved=_AUTHORIZATION_PARAMETERS,
+            overrides=(
                 ("client_id", settings.client_id),
                 ("redirect_uri", attempt.redirect_uri),
                 ("response_type", "code"),
                 ("scope", settings.scope),
                 ("state", attempt.id),
-            )
+            ),
         )
-        authorization_url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
         return AuthorizationAction(authorization_url=authorization_url)
 
     async def complete_login(
@@ -209,6 +204,22 @@ class OAuth2Adapter:
                 message="Provider does not have valid OAuth2 settings",
             )
         return provider.settings
+
+    @staticmethod
+    def _merge_query_parameters(
+        base_url: str,
+        *,
+        reserved: frozenset[str],
+        overrides: Sequence[tuple[str, str]],
+    ) -> str:
+        parts = urlsplit(base_url)
+        query = [
+            (name, value)
+            for name, value in parse_qsl(parts.query, keep_blank_values=True)
+            if name not in reserved
+        ]
+        query.extend(overrides)
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
     async def _resolve_endpoint(
         self,

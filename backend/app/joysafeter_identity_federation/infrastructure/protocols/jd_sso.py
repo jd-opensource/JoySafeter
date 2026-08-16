@@ -1,7 +1,6 @@
 import hashlib
 import time
 from collections.abc import Callable, Mapping
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
@@ -21,9 +20,8 @@ from ...domain.models import (
     RestartAuthorization,
 )
 from ..correlation import SignedCorrelationCodec
-from .oauth2 import ClientFactory, OAuth2Adapter
+from .oauth2 import _AUTHORIZATION_PARAMETERS, ClientFactory, OAuth2Adapter
 
-_AUTHORIZATION_PARAMETERS = frozenset({"client_id", "redirect_uri", "response_type", "scope", "state"})
 _VERIFY_TICKET_PARAMETERS = frozenset({"ticket", "url", "ip", "app", "time", "sign"})
 
 
@@ -148,22 +146,17 @@ class JDSSOAdapter(OAuth2Adapter):
         redirect_uri: str,
         state: str,
     ) -> str:
-        parts = urlsplit(authorize_url)
-        query = [
-            (name, value)
-            for name, value in parse_qsl(parts.query, keep_blank_values=True)
-            if name not in _AUTHORIZATION_PARAMETERS
-        ]
-        query.extend(
-            (
+        return JDSSOAdapter._merge_query_parameters(
+            authorize_url,
+            reserved=_AUTHORIZATION_PARAMETERS,
+            overrides=(
                 ("client_id", settings.client_id),
                 ("redirect_uri", redirect_uri),
                 ("response_type", "code"),
                 ("scope", settings.scope),
                 ("state", state),
-            )
+            ),
         )
-        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
     @staticmethod
     def _verify_ticket_url(
@@ -176,23 +169,18 @@ class JDSSOAdapter(OAuth2Adapter):
         timestamp_ms: int,
         signature: str,
     ) -> str:
-        parts = urlsplit(userinfo_url)
-        query = [
-            (name, value)
-            for name, value in parse_qsl(parts.query, keep_blank_values=True)
-            if name not in _VERIFY_TICKET_PARAMETERS
-        ]
-        query.extend(
-            (
+        return JDSSOAdapter._merge_query_parameters(
+            userinfo_url,
+            reserved=_VERIFY_TICKET_PARAMETERS,
+            overrides=(
                 ("ticket", ticket),
                 ("url", request_url),
                 ("ip", client_ip),
                 ("app", client_id),
                 ("time", str(timestamp_ms)),
                 ("sign", signature),
-            )
+            ),
         )
-        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
     async def _fetch_ticket_payload(
         self,
@@ -229,7 +217,7 @@ class JDSSOAdapter(OAuth2Adapter):
         settings: JDSSOProviderSettings,
         raw_userinfo: Mapping[str, object],
     ) -> Authenticated:
-        mapped_claims = JDSSOAdapter._map_claims(raw_userinfo, settings.user_mapping)
+        mapped_claims = OAuth2Adapter._map_claims(raw_userinfo, settings.user_mapping)
         subject = OAuth2Adapter._required_subject(mapped_claims.get("id"))
         username = OAuth2Adapter._optional_string(raw_userinfo.get("username"))
         email = OAuth2Adapter._optional_string(mapped_claims.get("email"))
@@ -250,21 +238,3 @@ class JDSSOAdapter(OAuth2Adapter):
                 claims=mapped_claims,
             )
         )
-
-    @staticmethod
-    def _map_claims(
-        raw_userinfo: Mapping[str, object],
-        user_mapping: Mapping[str, str],
-    ) -> dict[str, object]:
-        claims: dict[str, object] = {}
-        for claim_name in ("id", "email", "name", "avatar"):
-            source_name = user_mapping.get(claim_name)
-            if not source_name or source_name not in raw_userinfo:
-                continue
-            value = raw_userinfo[source_name]
-            if claim_name == "id":
-                if isinstance(value, (str, int)) and not isinstance(value, bool):
-                    claims[claim_name] = value
-            elif isinstance(value, str):
-                claims[claim_name] = value
-        return claims
