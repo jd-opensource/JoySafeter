@@ -33,6 +33,7 @@ interface OAuthProvider {
 
 interface OAuthProvidersResponse {
   providers: OAuthProvider[]
+  login_mode: 'chooser' | 'redirect'
 }
 
 interface OAuthAuthorizationResponse {

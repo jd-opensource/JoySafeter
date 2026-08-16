@@ -59,6 +59,7 @@ function providerResponse() {
         icon: 'github',
       },
     ],
+    login_mode: 'chooser',
   }
 }
 
@@ -77,6 +78,18 @@ describe('OAuthButtons lifecycle', () => {
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+  })
+
+  it('renders chooser providers without authorizing before a user click', async () => {
+    vi.spyOn(apiClient, 'managedGet').mockResolvedValue(
+      providerResponse() as Awaited<ReturnType<typeof apiClient.managedGet>>,
+    )
+    const { OAuthButtons } = await import('./oauth-buttons')
+    const view = renderWithQueryClient(<OAuthButtons />)
+
+    expect(await view.findByText('auth.signInWith')).toBeTruthy()
+    expect(authorizationRequestCount()).toBe(0)
+    expect(window.location.href).toBe('http://localhost/signin')
   })
 
   it('does not redirect from an OAuth authorization response after unmount', async () => {

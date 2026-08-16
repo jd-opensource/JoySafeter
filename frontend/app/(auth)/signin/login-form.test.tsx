@@ -351,12 +351,143 @@ describe('LoginPage lifecycle', () => {
     })
   })
 
+  it('does not auto-authorize in chooser mode and clears a prior auto-attempt guard', async () => {
+    searchParamValues.bypass_sso = null
+    searchParamValues.callbackUrl = '/managed/quickstart'
+    sessionStorage.setItem('sso_auto_attempted', String(Date.now()))
+    managedGetMock.mockResolvedValueOnce({
+      providers: [
+        { id: 'github', display_name: 'GitHub', icon: 'github' },
+        { id: 'jd', display_name: 'JD SSO', icon: 'building' },
+      ],
+      login_mode: 'chooser',
+    })
+
+    const { default: LoginPage } = await import('./login-form')
+    render(<LoginPage />)
+
+    await settle()
+
+    expect(managedGetMock).toHaveBeenCalledTimes(1)
+    expect(managedGetMock).toHaveBeenCalledWith('auth/oauth/providers', {
+      withAuth: false,
+      skipManagedContext: true,
+    })
+    expect(sessionStorage.getItem('sso_auto_attempted')).toBeNull()
+    expect(window.location.href).toBe('http://localhost/signin')
+  })
+
+  it('auto-authorizes exactly once with the first backend provider in redirect mode', async () => {
+    searchParamValues.bypass_sso = null
+    searchParamValues.callbackUrl = '/managed/quickstart'
+    managedGetMock
+      .mockResolvedValueOnce({
+        providers: [
+          { id: 'jd', display_name: 'JD SSO', icon: 'building' },
+          { id: 'github', display_name: 'GitHub', icon: 'github' },
+        ],
+        login_mode: 'redirect',
+      })
+      .mockResolvedValueOnce({
+        authorization_url: '/signin#jd-sso',
+        state: 'attempt-1',
+      })
+
+    const { default: LoginPage } = await import('./login-form')
+    render(<LoginPage />)
+
+    await settle()
+
+    expect(managedGetMock).toHaveBeenCalledTimes(2)
+    expect(managedGetMock).toHaveBeenNthCalledWith(
+      2,
+      'auth/oauth/jd?callback_url=%2Fmanaged%2Fquickstart',
+      {
+        withAuth: false,
+        skipManagedContext: true,
+      },
+    )
+    expect(
+      managedGetMock.mock.calls.some(([path]) => String(path).startsWith('auth/oauth/github')),
+    ).toBe(false)
+    expect(window.location.href).toBe('http://localhost/signin#jd-sso')
+  })
+
+  it('keeps the redirect loop guard from authorizing again during its ttl', async () => {
+    searchParamValues.bypass_sso = null
+    sessionStorage.setItem('sso_auto_attempted', String(Date.now()))
+    managedGetMock.mockResolvedValueOnce({
+      providers: [{ id: 'jd', display_name: 'JD SSO', icon: 'building' }],
+      login_mode: 'redirect',
+    })
+
+    const { default: LoginPage } = await import('./login-form')
+    render(<LoginPage />)
+
+    await settle()
+
+    expect(managedGetMock).toHaveBeenCalledTimes(1)
+    expect(sessionStorage.getItem('sso_auto_attempted')).toBeTruthy()
+    expect(window.location.href).toBe('http://localhost/signin')
+  })
+
+  it('does not authorize when redirect mode has no providers', async () => {
+    searchParamValues.bypass_sso = null
+    managedGetMock.mockResolvedValueOnce({ providers: [], login_mode: 'redirect' })
+
+    const { default: LoginPage } = await import('./login-form')
+    render(<LoginPage />)
+
+    await settle()
+
+    expect(managedGetMock).toHaveBeenCalledTimes(1)
+    expect(sessionStorage.getItem('sso_auto_attempted')).toBeNull()
+    expect(window.location.href).toBe('http://localhost/signin')
+  })
+
+  it('does not loop when the provider policy request fails', async () => {
+    searchParamValues.bypass_sso = null
+    sessionStorage.setItem('sso_auto_attempted', String(Date.now()))
+    managedGetMock.mockRejectedValueOnce(new Error('provider policy unavailable'))
+
+    const { default: LoginPage } = await import('./login-form')
+    render(<LoginPage />)
+
+    await settle()
+
+    expect(managedGetMock).toHaveBeenCalledTimes(1)
+    expect(sessionStorage.getItem('sso_auto_attempted')).toBeNull()
+    expect(window.location.href).toBe('http://localhost/signin')
+  })
+
+  it('clears the auto-attempt guard when redirect authorization fails', async () => {
+    searchParamValues.bypass_sso = null
+    managedGetMock
+      .mockResolvedValueOnce({
+        providers: [{ id: 'github', display_name: 'GitHub', icon: 'github' }],
+        login_mode: 'redirect',
+      })
+      .mockRejectedValueOnce(new Error('authorization unavailable'))
+
+    const { default: LoginPage } = await import('./login-form')
+    render(<LoginPage />)
+
+    await settle()
+
+    expect(managedGetMock).toHaveBeenCalledTimes(2)
+    expect(sessionStorage.getItem('sso_auto_attempted')).toBeNull()
+    expect(window.location.href).toBe('http://localhost/signin')
+  })
+
   it('clears the SSO auto-attempt flag when authorization URL resolution is cancelled by unmount', async () => {
     searchParamValues.bypass_sso = null
     searchParamValues.callbackUrl = '/managed/quickstart'
-    const authorization = deferred<{ authorization_url: string }>()
+    const authorization = deferred<{ authorization_url: string; state: string }>()
     managedGetMock
-      .mockResolvedValueOnce({ providers: [{ id: 'okta' }] })
+      .mockResolvedValueOnce({
+        providers: [{ id: 'okta', display_name: 'Okta', icon: 'key' }],
+        login_mode: 'redirect',
+      })
       .mockReturnValueOnce(authorization.promise)
 
     const { default: LoginPage } = await import('./login-form')
@@ -380,7 +511,10 @@ describe('LoginPage lifecycle', () => {
     view.unmount()
 
     await act(async () => {
-      authorization.resolve({ authorization_url: 'https://sso.example.test/authorize' })
+      authorization.resolve({
+        authorization_url: 'https://sso.example.test/authorize',
+        state: 'attempt-1',
+      })
       await authorization.promise
       await Promise.resolve()
     })

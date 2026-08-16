@@ -43,10 +43,12 @@ interface OAuthProvider {
 
 interface OAuthProvidersResponse {
   providers: OAuthProvider[]
+  login_mode: 'chooser' | 'redirect'
 }
 
 interface OAuthAuthorizationResponse {
   authorization_url: string
+  state: string
 }
 
 const getEmailErrorKey = (reason?: string): string => {
@@ -269,9 +271,6 @@ export default function LoginPage() {
     if (sessionData?.user) return
     if (oauthError) return
     if (isBypassSso) return
-    // Prevent infinite redirect loop
-    if (hasRecentSsoAutoAttempt()) return
-    sessionStorage.setItem(SSO_AUTO_ATTEMPTED_KEY, String(Date.now()))
 
     let cancelled = false
     const redirectToSso = async () => {
@@ -280,11 +279,20 @@ export default function LoginPage() {
           withAuth: false,
           skipManagedContext: true,
         })
+        if (providersResponse.login_mode !== 'redirect') {
+          sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
+          return
+        }
+
         const ssoProvider = providersResponse.providers?.[0]?.id
         if (!ssoProvider) {
           sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
           return
         }
+
+        // Prevent infinite redirect loops only when backend policy requires redirect mode.
+        if (hasRecentSsoAutoAttempt()) return
+        sessionStorage.setItem(SSO_AUTO_ATTEMPTED_KEY, String(Date.now()))
 
         const params = new URLSearchParams()
         params.set('callback_url', callbackUrl)

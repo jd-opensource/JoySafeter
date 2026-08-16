@@ -74,7 +74,6 @@ app/
 - `NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED`：可选。控制登录页是否显示邮箱/密码注册入口；后端仍以认证配置为准。
 - `NEXT_PUBLIC_CSP_*`：CSP 安全策略相关（`NECESSARY_DOMAIN`、`CONNECT_SRC_EXTRA`、`FRAME_SRC_EXTRA`、`REPORT_URI`、`WHITELIST`、`ALLOW_EMBED`、`ENABLE_CSP_IN_DEV`、`FORCE_HTTPS`）。
 - `DISABLE_REGISTRATION` / `EMAIL_VERIFICATION_ENABLED`：可选。前端服务端用于注册页与邮箱验证 UI；后端强制策略仍看 `backend/.env`。
-- `SSO_DEFAULT_PROVIDER`：可选。设置后登录页自动跳转到该 SSO。
 
 部署时 `deploy/.env.example` 只覆盖与开发默认值不同的变量（如 `NEXT_PUBLIC_EMAIL_PASSWORD_SIGNUP_ENABLED=false`），无需重复声明所有变量。
 
