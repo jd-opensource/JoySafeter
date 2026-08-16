@@ -8,7 +8,10 @@ export default function CredentialsPage() {
   const { t } = useTranslation()
   return (
     <div>
-      <PageHeader title={t('managed.credentials.title')} subtitle={t('managed.credentials.subtitle')} />
+      <PageHeader
+        title={t('managed.credentials.title')}
+        subtitle={t('managed.credentials.subtitle')}
+      />
       <CredentialManagementShell />
     </div>
   )

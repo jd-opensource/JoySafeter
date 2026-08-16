@@ -17,7 +17,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="h-screen overflow-hidden bg-background">
       <AppSidebar />
       <main
-        className={`${isCollapsed ? 'ml-[52px]' : 'ml-[220px]'} relative z-0 h-screen overflow-auto p-5 transition-[margin] duration-200`}
+        className={`ml-[52px] ${isCollapsed ? 'sm:ml-[52px]' : 'sm:ml-[220px]'} relative z-0 h-screen overflow-auto p-3 transition-[margin] duration-200 sm:p-5`}
       >
         {children}
       </main>

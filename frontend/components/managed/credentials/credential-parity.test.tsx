@@ -186,6 +186,56 @@ vi.mock('@/components/managed/shared', () => {
 vi.mock('@/components/managed/shared/compatible-engine-badges', () => ({
   CompatibleEngineBadges: () => null,
 }))
+vi.mock('./credential-list-panel', () => ({
+  CredentialListPanel: ({
+    data,
+    actionMenu,
+    createAction,
+    showArchived,
+    onArchivedChange,
+    emptyState,
+  }: {
+    data: Array<{ id?: string }>
+    actionMenu?: (row: { id?: string }) => MenuItem[]
+    createAction?: { label: string; onClick: () => void }
+    showArchived?: boolean
+    onArchivedChange?: (value: boolean) => void
+    emptyState?: { title: string }
+  }) => {
+    const actionsByRow = data.map((row) => (actionMenu ? actionMenu(row) : []))
+    return (
+      <div data-testid="datatable" data-rows={actionsByRow.length}>
+        {createAction ? <button onClick={createAction.onClick}>{createAction.label}</button> : null}
+        {onArchivedChange ? (
+          <button
+            data-testid="show-archived-toggle"
+            onClick={() => onArchivedChange(!showArchived)}
+          >
+            toggle-archived
+          </button>
+        ) : null}
+        {data.length === 0 ? <div>{emptyState?.title}</div> : null}
+        {actionsByRow.map((actions, index) => (
+          <div key={index} data-testid={`row-${index}`} data-action-count={actions.length}>
+            {actions.length === 0 ? (
+              <span data-testid={`row-${index}-no-actions`} />
+            ) : (
+              actions.map((action) => (
+                <button
+                  key={action.label}
+                  data-testid={`action-${action.label}`}
+                  onClick={action.onClick}
+                >
+                  {action.label}
+                </button>
+              ))
+            )}
+          </div>
+        ))}
+      </div>
+    )
+  },
+}))
 vi.mock('@/components/managed/llm/llm-catalog-page-state', () => ({
   LlmCatalogPageState: ({ state }: { state: string }) => <div>catalog:{state}</div>,
 }))

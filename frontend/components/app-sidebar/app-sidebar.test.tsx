@@ -199,9 +199,24 @@ function renderSidebar(AppSidebar: React.ComponentType) {
   }
 }
 
+function setCompactViewport(matches: boolean) {
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: matches && query === '(max-width: 639px)',
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  })
+}
+
 describe('AppSidebar project switcher lifecycle', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    setCompactViewport(false)
     setProjectContext('org-a', projectA)
   })
 
@@ -215,6 +230,16 @@ describe('AppSidebar project switcher lifecycle', () => {
       organizations: [],
       projects: [],
     })
+  })
+
+  it('uses the compact navigation rail on narrow viewports', async () => {
+    setCompactViewport(true)
+    const { AppSidebar } = await import('./app-sidebar')
+
+    const view = renderSidebar(AppSidebar)
+
+    expect(view.container.querySelector('aside')).toHaveClass('w-[52px]')
+    expect(view.queryByText('sidebar.appTitle')).toBeNull()
   })
 
   it('shows the archived current project even when it is absent from the active project list', async () => {

@@ -1,22 +1,18 @@
 'use client'
 
 import { useQueryClient } from '@tanstack/react-query'
-import { Archive, Plus, RotateCcw } from 'lucide-react'
+import { Archive, RotateCcw } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
 
 import {
   ConfirmDialog,
-  DataTable,
-  FilterBar,
-  MonoId,
   RelativeTime,
   ResourceErrorState,
   StatusBadge,
   type Column,
   type FilterDef,
 } from '@/components/managed/shared'
-import { Button } from '@/components/ui/button'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
@@ -24,11 +20,14 @@ import { managedDelete, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
-import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import { filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { parseSecretResponse } from '@/lib/managed/secret-response-parsers'
 import { parseCredentialId } from '@/types/entity-id'
 import type { Secret } from '@/types/managed'
+
+import { CredentialIdentity } from './credential-identity'
+import { CredentialListPanel } from './credential-list-panel'
 
 export interface ServiceCredentialListState {
   searchQuery: string
@@ -110,7 +109,21 @@ export function ServiceCredentialList({
     [createdFilter, list.data, searchQuery, showArchived],
   )
   const filters: FilterDef[] = [
-    { ...createCreatedTimeFilter(t), value: createdFilter, onChange: setCreatedFilter },
+    {
+      key: 'created',
+      label: t('managed.filters.created'),
+      value: createdFilter,
+      onChange: (value) => {
+        setCreatedFilter(value)
+        list.goToPage(1)
+      },
+      options: [
+        { value: 'all', label: t('managed.filters.allTime') },
+        { value: '7d', label: t('managed.filters.last7d') },
+        { value: '30d', label: t('managed.filters.last30d') },
+        { value: '90d', label: t('managed.filters.last90d') },
+      ],
+    },
   ]
 
   const handleDelete = async () => {
@@ -179,11 +192,18 @@ export function ServiceCredentialList({
   }
 
   const columns: Column<Secret>[] = [
-    { key: 'id', header: t('managed.table.id'), render: (s) => <MonoId id={s.id} /> },
     {
-      key: 'name',
-      header: t('managed.table.name'),
-      render: (s) => <span className="font-medium text-foreground">{s.name}</span>,
+      key: 'identity',
+      header: t('managed.credentials.tabs.services'),
+      render: (s) => (
+        <CredentialIdentity
+          name={s.name}
+          publicId={s.id}
+          badges={s.archived_at ? <StatusBadge status="archived" /> : undefined}
+        />
+      ),
+      width: '65%',
+      truncate: false,
     },
     {
       key: 'created_at',
@@ -194,12 +214,42 @@ export function ServiceCredentialList({
         </span>
       ),
     },
-    {
-      key: 'status',
-      header: t('managed.table.status'),
-      render: (s) => <StatusBadge status={s.archived_at ? 'archived' : 'active'} />,
-    },
   ]
+
+  const rowActions = (s: Secret) =>
+    projectReadOnly || mutationPending
+      ? []
+      : [
+          ...(s.archived_at
+            ? [
+                {
+                  label: t('common.restore'),
+                  icon: <RotateCcw className="size-4" />,
+                  onClick: () => {
+                    bumpRun()
+                    setLifecycleTarget({ credential: s, action: 'restore' as const })
+                  },
+                },
+              ]
+            : [
+                {
+                  label: t('common.archive'),
+                  icon: <Archive className="size-4" />,
+                  onClick: () => {
+                    bumpRun()
+                    setLifecycleTarget({ credential: s, action: 'archive' as const })
+                  },
+                },
+              ]),
+          {
+            label: t('common.delete'),
+            onClick: () => {
+              bumpRun()
+              setDeleteTarget(s)
+            },
+            destructive: true,
+          },
+        ]
 
   if (list.isError)
     return (
@@ -214,29 +264,42 @@ export function ServiceCredentialList({
 
   return (
     <div>
-      {projectReadOnly ? null : (
-        <div className="mb-3 flex justify-end">
-          <Button
-            size="sm"
-            onClick={() => {
-              if (!scopeIsActive() || !currentProjectAllowsWrite()) return
-              onCreate()
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            {t('managed.credentials.addServiceCredential')}
-          </Button>
-        </div>
-      )}
-      <FilterBar
-        searchPlaceholder={t('managed.credentials.searchServicesOnPage')}
+      <CredentialListPanel
+        searchPlaceholder={t('managed.credentials.searchServices')}
         searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
+        onSearchChange={(value) => {
+          setSearchQuery(value)
+          list.goToPage(1)
+        }}
         filters={filters}
         showArchived={showArchived}
-        onArchivedChange={setShowArchived}
-      />
-      <DataTable
+        onArchivedChange={(value) => {
+          setShowArchived(value)
+          list.goToPage(1)
+        }}
+        createAction={
+          projectReadOnly
+            ? undefined
+            : {
+                label: t('managed.credentials.createServiceCredential'),
+                onClick: () => {
+                  if (!scopeIsActive() || !currentProjectAllowsWrite()) return
+                  onCreate()
+                },
+              }
+        }
+        emptyState={{
+          title: t('managed.credentials.emptyServicesTitle'),
+          description: t('managed.credentials.emptyServicesDescription'),
+        }}
+        noResultsState={{
+          title: t('managed.credentials.noServiceResultsTitle'),
+          description: t('managed.credentials.noResultsDescription'),
+        }}
+        onClearFilters={() => {
+          updateListState({ searchQuery: '', createdFilter: 'all', showArchived: false })
+          list.goToPage(1)
+        }}
         columns={columns}
         data={filtered}
         loading={list.isLoading}
@@ -244,41 +307,22 @@ export function ServiceCredentialList({
         onRowClick={(s) => {
           if (scopeIsActive()) router.push(`/managed/credentials/${s.id}`)
         }}
-        actionMenu={(s) =>
-          projectReadOnly || mutationPending
-            ? []
-            : [
-                ...(s.archived_at
-                  ? [
-                      {
-                        label: t('common.restore'),
-                        icon: <RotateCcw className="h-4 w-4" />,
-                        onClick: () => {
-                          bumpRun()
-                          setLifecycleTarget({ credential: s, action: 'restore' as const })
-                        },
-                      },
-                    ]
-                  : [
-                      {
-                        label: t('common.archive'),
-                        icon: <Archive className="h-4 w-4" />,
-                        onClick: () => {
-                          bumpRun()
-                          setLifecycleTarget({ credential: s, action: 'archive' as const })
-                        },
-                      },
-                    ]),
-                {
-                  label: t('common.delete'),
-                  onClick: () => {
-                    bumpRun()
-                    setDeleteTarget(s)
-                  },
-                  destructive: true,
-                },
-              ]
-        }
+        actionMenu={rowActions}
+        mobileCard={(s) => (
+          <div className="flex flex-col gap-3">
+            <CredentialIdentity
+              name={s.name}
+              publicId={s.id}
+              badges={s.archived_at ? <StatusBadge status="archived" /> : undefined}
+            />
+            <div className="text-xs">
+              <div className="text-muted-foreground">{t('managed.table.created')}</div>
+              <div className="mt-1 text-foreground">
+                <RelativeTime date={s.created_at} />
+              </div>
+            </div>
+          </div>
+        )}
         pagination={{
           hasNext: list.hasNext,
           hasPrev: list.hasPrev,
@@ -290,7 +334,6 @@ export function ServiceCredentialList({
           onPageChange: list.goToPage,
           onPageSizeChange: list.setPageSize,
         }}
-        emptyMessage={t('managed.credentials.emptyServices')}
       />
       <ConfirmDialog
         open={!projectReadOnly && Boolean(lifecycleTarget)}

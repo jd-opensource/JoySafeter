@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -251,19 +251,14 @@ describe('CredentialManagementShell', () => {
     expect(replaceMock.mock.calls.at(-1)![0] as string).not.toContain('create=')
   })
 
-  it('closes the global kind chooser when the managed project changes', async () => {
+  it('does not render a generic create action that adds a second decision step', () => {
     render(
       <Wrap>
         <CredentialManagementShell />
       </Wrap>,
     )
-
-    fireEvent.click(screen.getByRole('button', { name: 'managed.credentials.new' }))
-    expect(screen.getByText('chooser-open')).toBeInTheDocument()
-
-    act(() => setProject('project-b'))
-
-    await waitFor(() => expect(screen.queryByText('chooser-open')).toBeNull())
+    expect(screen.queryByRole('button', { name: 'managed.credentials.new' })).toBeNull()
+    expect(screen.getByText('model-add')).toBeInTheDocument()
   })
 
   it('per-tab Add on services tab opens generic locked dialog', async () => {

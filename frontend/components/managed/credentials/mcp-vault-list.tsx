@@ -1,22 +1,18 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
 import {
   ConfirmDialog,
-  DataTable,
-  FilterBar,
-  MonoId,
   RelativeTime,
   ResourceErrorState,
   StatusBadge,
   type Column,
   type FilterDef,
 } from '@/components/managed/shared'
-import { Button } from '@/components/ui/button'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
@@ -24,12 +20,15 @@ import { managedDelete, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
-import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import { filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { managedRequestOptions, type ManagedRequestScope } from '@/lib/managed/request-scope'
 import { parseVaultResponse } from '@/lib/managed/vault-response-parsers'
 import { toastError } from '@/lib/utils/toast'
 import { parseCredentialGroupId } from '@/types/entity-id'
 import type { Vault } from '@/types/managed'
+
+import { CredentialIdentity } from './credential-identity'
+import { CredentialListPanel } from './credential-list-panel'
 
 interface VaultActionVariables {
   vault: Vault
@@ -192,7 +191,21 @@ export function McpVaultList({
       matchesSearch(searchQuery, [v.id, v.name, v.archived_at ? 'archived' : 'active']),
   )
   const filters: FilterDef[] = [
-    { ...createCreatedTimeFilter(t), value: createdFilter, onChange: setCreatedFilter },
+    {
+      key: 'created',
+      label: t('managed.filters.created'),
+      value: createdFilter,
+      onChange: (value) => {
+        setCreatedFilter(value)
+        goToPage(1)
+      },
+      options: [
+        { value: 'all', label: t('managed.filters.allTime') },
+        { value: '7d', label: t('managed.filters.last7d') },
+        { value: '30d', label: t('managed.filters.last30d') },
+        { value: '90d', label: t('managed.filters.last90d') },
+      ],
+    },
   ]
 
   useEffect(() => {
@@ -213,16 +226,18 @@ export function McpVaultList({
   }, [data])
 
   const columns: Column<Vault>[] = [
-    { key: 'id', header: t('managed.table.id'), render: (v) => <MonoId id={v.id} /> },
     {
-      key: 'name',
-      header: t('managed.table.name'),
-      render: (v) => <span className="font-medium text-foreground">{v.name}</span>,
-    },
-    {
-      key: 'status',
-      header: t('managed.table.status'),
-      render: (v) => <StatusBadge status={v.archived_at ? 'archived' : 'active'} />,
+      key: 'identity',
+      header: t('managed.credentials.tabs.mcp'),
+      render: (v) => (
+        <CredentialIdentity
+          name={v.name}
+          publicId={v.id}
+          badges={v.archived_at ? <StatusBadge status="archived" /> : undefined}
+        />
+      ),
+      width: '65%',
+      truncate: false,
     },
     {
       key: 'created_at',
@@ -248,30 +263,42 @@ export function McpVaultList({
 
   return (
     <div>
-      {readOnly ? null : (
-        <div className="mb-3 flex justify-end">
-          <Button
-            size="sm"
-            onClick={() => {
-              if (!currentProjectAllowsWrite()) return
-              if (!scopeIsActive()) return
-              onCreate()
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            {t('managed.credentials.newMcpVault')}
-          </Button>
-        </div>
-      )}
-      <FilterBar
-        searchPlaceholder={t('managed.search.vaults')}
+      <CredentialListPanel
+        searchPlaceholder={t('managed.credentials.searchMcpVaults')}
         searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
+        onSearchChange={(value) => {
+          setSearchQuery(value)
+          goToPage(1)
+        }}
         filters={filters}
         showArchived={showArchived}
-        onArchivedChange={setShowArchived}
-      />
-      <DataTable
+        onArchivedChange={(value) => {
+          setShowArchived(value)
+          goToPage(1)
+        }}
+        createAction={
+          readOnly
+            ? undefined
+            : {
+                label: t('managed.credentials.newMcpVault'),
+                onClick: () => {
+                  if (!currentProjectAllowsWrite() || !scopeIsActive()) return
+                  onCreate()
+                },
+              }
+        }
+        emptyState={{
+          title: t('managed.credentials.emptyMcpTitle'),
+          description: t('managed.credentials.emptyMcpDescription'),
+        }}
+        noResultsState={{
+          title: t('managed.credentials.noMcpResultsTitle'),
+          description: t('managed.credentials.noResultsDescription'),
+        }}
+        onClearFilters={() => {
+          updateListState({ searchQuery: '', createdFilter: 'all', showArchived: false })
+          goToPage(1)
+        }}
         columns={columns}
         data={vaults}
         loading={isLoading}
@@ -285,11 +312,26 @@ export function McpVaultList({
                 {
                   label: t('common.delete'),
                   destructive: true,
-                  icon: <Trash2 className="h-3.5 w-3.5" />,
+                  icon: <Trash2 className="size-3.5" />,
                   onClick: () => openDeleteDialog(v),
                 },
               ]
         }
+        mobileCard={(v) => (
+          <div className="flex flex-col gap-3">
+            <CredentialIdentity
+              name={v.name}
+              publicId={v.id}
+              badges={v.archived_at ? <StatusBadge status="archived" /> : undefined}
+            />
+            <div className="text-xs">
+              <div className="text-muted-foreground">{t('managed.table.created')}</div>
+              <div className="mt-1 text-foreground">
+                <RelativeTime date={v.created_at} />
+              </div>
+            </div>
+          </div>
+        )}
         pagination={{
           hasNext,
           hasPrev,
@@ -301,7 +343,6 @@ export function McpVaultList({
           onPageChange: goToPage,
           onPageSizeChange: setPageSize,
         }}
-        emptyMessage={t('managed.vaults.empty')}
       />
       <ConfirmDialog
         open={!readOnly && !!archiveTarget}

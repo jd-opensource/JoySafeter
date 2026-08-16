@@ -11,6 +11,15 @@ const columns: Column<Row>[] = [
 ]
 
 describe('DataTable row accessibility', () => {
+  it('supports an embedded presentation without a nested card border', () => {
+    const { getByTestId } = render(
+      <DataTable columns={columns} data={[{ id: 'a', name: 'Row A' }]} variant="embedded" />,
+    )
+
+    expect(getByTestId('data-table-surface')).toHaveAttribute('data-variant', 'embedded')
+    expect(getByTestId('data-table-surface')).not.toHaveClass('rounded-lg', 'border')
+  })
+
   it('marks rows as keyboard-actionable when onRowClick is provided', () => {
     const onRowClick = vi.fn()
     const { getAllByRole } = render(

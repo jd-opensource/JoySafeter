@@ -1547,6 +1547,8 @@ const en = {
         lastHour: 'Last Hour',
         last24h: 'Last 24 Hours',
         last7d: 'Last 7 Days',
+        last30d: 'Last 30 Days',
+        last90d: 'Last 90 Days',
         agent: 'Agent',
         all: 'All',
         version: 'Version',
@@ -1994,8 +1996,7 @@ const en = {
       },
       credentials: {
         title: 'Models & Credentials',
-        subtitle:
-          'Model connections, service credentials, and MCP credential vaults for this project.',
+        subtitle: 'Manage model access, external-service authentication, and MCP credentials.',
         tabs: {
           models: 'Model Connections',
           services: 'Service Credentials',
@@ -2007,10 +2008,35 @@ const en = {
         addModelConnection: 'Add Model Connection',
         addServiceCredential: 'Add Service Credential',
         newMcpVault: 'New MCP Credential Vault',
+        copyPublicId: 'Copy public ID',
+        searchModels: 'Search model connections by name or ID',
+        searchServices: 'Search service credentials by name or ID',
+        searchMcpVaults: 'Search MCP credential vaults by name or ID',
         searchModelsOnPage: 'Search model connections on this page',
         searchServicesOnPage: 'Search service credentials on this page',
         emptyModels: 'No model connections yet.',
         emptyServices: 'No service credentials yet.',
+        emptyModelsTitle: 'No model connections yet',
+        emptyModelsDescription:
+          'Create a model connection so agents can use the corresponding model provider.',
+        emptyServicesTitle: 'No service credentials yet',
+        emptyServicesDescription:
+          'Store API keys, tokens, cookies, or other authentication used by external services.',
+        emptyMcpTitle: 'No MCP credential vaults yet',
+        emptyMcpDescription:
+          'Create a vault to organize authentication credentials for MCP servers.',
+        noModelResultsTitle: 'No matching model connections',
+        noServiceResultsTitle: 'No matching service credentials',
+        noMcpResultsTitle: 'No matching MCP credential vaults',
+        noResultsDescription: 'Change the search text or clear the active filters.',
+        filters: {
+          label: 'Filters',
+          open: 'Open filters',
+          clearSearch: 'Clear search',
+          clearAll: 'Clear filters',
+          removeCreated: 'Remove created-time filter',
+          removeArchived: 'Stop showing archived resources',
+        },
         chooser: {
           title: 'Create',
           description: 'Choose what to create.',

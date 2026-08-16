@@ -5,12 +5,17 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/i18n', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
-vi.mock('@/lib/api-client', () => ({ managedGet: vi.fn(), managedPost: vi.fn(), managedDelete: vi.fn() }))
+vi.mock('@/lib/api-client', () => ({
+  managedGet: vi.fn(),
+  managedPost: vi.fn(),
+  managedDelete: vi.fn(),
+}))
 vi.mock('@/lib/managed/request-scope', () => ({
   useManagedRequestScope: () => ({ orgId: 'o', projectId: 'p', key: 'o:p' }),
   managedRequestOptions: () => ({}),
   hasManagedRequestScope: () => true,
 }))
+vi.mock('./credential-list-panel', () => ({ CredentialListPanel: () => <div /> }))
 
 import { managedGet } from '@/lib/api-client'
 
@@ -25,10 +30,18 @@ function Wrap({ children }: { children: ReactNode }) {
 describe('McpVaultList', () => {
   it('lists credential-groups and never touches the LLM catalog', async () => {
     managedGetMock.mockResolvedValue({ data: [], has_more: false })
-    render(<Wrap><McpVaultList onCreate={() => {}} /></Wrap>)
-    await waitFor(() =>
-      expect(managedGetMock.mock.calls.some(([u]) => (u as string).startsWith('/credential-groups'))).toBe(true),
+    render(
+      <Wrap>
+        <McpVaultList onCreate={() => {}} />
+      </Wrap>,
     )
-    expect(managedGetMock.mock.calls.some(([u]) => (u as string).startsWith('/llm/catalog'))).toBe(false)
+    await waitFor(() =>
+      expect(
+        managedGetMock.mock.calls.some(([u]) => (u as string).startsWith('/credential-groups')),
+      ).toBe(true),
+    )
+    expect(managedGetMock.mock.calls.some(([u]) => (u as string).startsWith('/llm/catalog'))).toBe(
+      false,
+    )
   })
 })

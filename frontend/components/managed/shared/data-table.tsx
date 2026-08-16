@@ -49,6 +49,7 @@ interface DataTableProps<T> {
     onPageSizeChange?: (pageSize: number) => void
   }
   emptyMessage?: string
+  variant?: 'card' | 'embedded'
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -98,6 +99,7 @@ export function DataTable<T>({
   selectable,
   pagination,
   emptyMessage,
+  variant = 'card',
 }: DataTableProps<T>) {
   const { t } = useTranslation()
   const [selected, setSelected] = useState<Set<DataTableSelectionKey>>(new Set())
@@ -211,7 +213,11 @@ export function DataTable<T>({
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-border">
+      <div
+        data-testid="data-table-surface"
+        data-variant={variant}
+        className={variant === 'embedded' ? '' : 'rounded-lg border border-border'}
+      >
         <div className="p-8 text-center text-muted-foreground">{t('common.loading')}</div>
       </div>
     )
@@ -222,9 +228,11 @@ export function DataTable<T>({
   return (
     <div>
       <div
-        className={`relative overflow-hidden rounded-lg border border-border transition-opacity ${
-          fetching && !loading ? 'opacity-70' : ''
-        }`}
+        data-testid="data-table-surface"
+        data-variant={variant}
+        className={`relative overflow-hidden transition-opacity ${
+          variant === 'embedded' ? '' : 'rounded-lg border border-border'
+        } ${fetching && !loading ? 'opacity-70' : ''}`}
       >
         {fetching && !loading && (
           <div className="absolute left-0 right-0 top-0 z-10 h-0.5 overflow-hidden bg-primary/30">
@@ -343,7 +351,7 @@ export function DataTable<T>({
 
       {pagination && (
         <Pagination
-          className="mt-3"
+          className={variant === 'embedded' ? 'border-t border-border px-4 py-3' : 'mt-3'}
           page={pagination.page || 1}
           totalPages={pagination.totalPages || 0}
           total={0}

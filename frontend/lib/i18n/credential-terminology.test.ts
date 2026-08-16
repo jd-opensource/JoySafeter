@@ -985,7 +985,7 @@ describe('credential domain terminology', () => {
   it('inventories direct, template, and finite active translation leaves', () => {
     const inventory = getActiveTranslationInventory()
 
-    expect(inventory.sourceFileCount).toBe(252)
+    expect(inventory.sourceFileCount).toBe(254)
     expect(inventory.sourceFiles).toContain('lib/managed/errors.ts')
     expect(inventory.sourceFiles).not.toContain('lib/i18n/locales/en.ts')
     expect(inventory.sourceFiles).not.toContain(
@@ -1002,8 +1002,8 @@ describe('credential domain terminology', () => {
       0,
     )
 
-    expect(inventory.counts).toEqual({ direct: 1287, dynamic: 398, total: 1685 })
-    expect(templateAdditions).toBe(351)
+    expect(inventory.counts).toEqual({ direct: 1302, dynamic: 396, total: 1698 })
+    expect(templateAdditions).toBe(349)
     expect(finiteAdditions).toBe(47)
     expect(inventory.templateDynamicLeaves).toContain(
       'managed.skills.aiAuthor.scan.status.not_scanned',
@@ -1178,6 +1178,12 @@ describe('unified credentials surface vocabulary (P1, §3.12)', () => {
   })
   it('uses a neutral create action, not a "credential" umbrella', () => {
     expect(en.translation.managed.credentials.new).toBe('New')
+    expect(en.translation.managed.credentials.searchModels).toBe(
+      'Search model connections by name or ID',
+    )
+    expect(zh.translation.managed.credentials.searchServices).toBe('按名称或 ID 搜索服务凭据')
+    expect(en.translation.managed.credentials.filters.label).toBe('Filters')
+    expect(zh.translation.managed.credentials.emptyMcpTitle).toBe('尚未创建 MCP 凭据库')
     expect(en.translation.managed.credentials.chooser.description).toBe('Choose what to create.')
     expect(en.translation.managed.credentials.chooser.model).toBe('Model Connection')
     expect(en.translation.managed.credentials.chooser.vault).toBe('MCP Credential Vault')

@@ -1,26 +1,5 @@
 'use client'
 
-import { useRef, useState } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
-import Link from 'next/link'
-import { cn } from '@/lib/utils'
-import { useTranslation } from '@/lib/i18n'
-import { useSidebarStore } from '@/stores/sidebar/store'
-import { useSession, client } from '@/lib/auth/auth-client'
-import { useTheme } from 'next-themes'
-import { managedGet } from '@/lib/api-client'
-import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
-} from '@/components/ui/dropdown-menu'
 import {
   Zap,
   Bot,
@@ -53,14 +32,55 @@ import {
   CalendarClock,
   Webhook,
 } from 'lucide-react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { useTheme } from 'next-themes'
+import { useRef, useState, useSyncExternalStore } from 'react'
+
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+} from '@/components/ui/dropdown-menu'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
+import { managedGet } from '@/lib/api-client'
+import { useSession, client } from '@/lib/auth/auth-client'
+import { useTranslation } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { ProjectInfo } from '@/stores/managed/project-store'
-import { useProjectContext } from '@/hooks/managed/use-project-context'
+import { useSidebarStore } from '@/stores/sidebar/store'
 
 interface NavItem {
   to: string
   labelKey: string
   icon: typeof Zap
+}
+
+const COMPACT_VIEWPORT_QUERY = '(max-width: 639px)'
+
+function subscribeToCompactViewport(onChange: () => void) {
+  if (typeof window === 'undefined' || !window.matchMedia) return () => undefined
+  const mediaQuery = window.matchMedia(COMPACT_VIEWPORT_QUERY)
+  mediaQuery.addEventListener('change', onChange)
+  return () => mediaQuery.removeEventListener('change', onChange)
+}
+
+function compactViewportSnapshot() {
+  return (
+    typeof window !== 'undefined' && Boolean(window.matchMedia?.(COMPACT_VIEWPORT_QUERY).matches)
+  )
+}
+
+function useCompactViewport() {
+  return useSyncExternalStore(subscribeToCompactViewport, compactViewportSnapshot, () => false)
 }
 
 const buildItems: NavItem[] = [
@@ -507,7 +527,6 @@ function NavSection({
 
 function UserMenu({ collapsed }: { collapsed?: boolean }) {
   const { t, i18n } = useTranslation()
-  const router = useRouter()
   const session = useSession()
   const { theme, setTheme } = useTheme()
   const user = session.data?.user
@@ -605,15 +624,22 @@ export function AppSidebar() {
   const { isCollapsed, setIsCollapsed } = useSidebarStore()
   const session = useSession()
   const isPlatformAdmin = Boolean(session.data?.user?.isSuperUser)
+  const isCompactViewport = useCompactViewport()
   const toggleSidebar = () => setIsCollapsed(!isCollapsed)
 
-  if (isCollapsed) {
+  if (isCollapsed || isCompactViewport) {
     return (
       <aside className="joysafeter-sidebar fixed bottom-0 left-0 top-0 z-50 flex w-[52px] flex-col items-center border-r border-border bg-card">
         <div className="flex w-full justify-center border-b border-border p-3">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleSidebar}>
-            <PanelLeftOpen className="h-4 w-4" />
-          </Button>
+          {isCompactViewport ? (
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary">
+              <Shield className="h-3.5 w-3.5 text-primary-foreground" />
+            </div>
+          ) : (
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={toggleSidebar}>
+              <PanelLeftOpen className="h-4 w-4" />
+            </Button>
+          )}
         </div>
         <ProjectSwitcher collapsed />
         <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto py-2">

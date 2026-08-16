@@ -83,6 +83,37 @@ vi.mock('@/hooks/managed/use-scoped-actions', () => ({
     bumpRun: () => {},
   }),
 }))
+vi.mock('./credential-list-panel', () => ({
+  CredentialListPanel: ({
+    data,
+    actionMenu,
+    showArchived,
+    onArchivedChange,
+  }: {
+    data: Array<{ id: string; name: string }>
+    actionMenu: (row: { id: string; name: string }) => Array<{ label: string; onClick: () => void }>
+    showArchived?: boolean
+    onArchivedChange?: (value: boolean) => void
+  }) => (
+    <div>
+      {onArchivedChange ? (
+        <button onClick={() => onArchivedChange(!showArchived)}>
+          show-archived:{String(showArchived)}
+        </button>
+      ) : null}
+      {data.map((row) => (
+        <div key={row.id} data-testid={row.id}>
+          <span>{row.name}</span>
+          {actionMenu(row).map((item) => (
+            <button key={item.label} onClick={item.onClick}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  ),
+}))
 
 import { managedGet, managedPost } from '@/lib/api-client'
 

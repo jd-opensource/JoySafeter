@@ -1,16 +1,13 @@
 'use client'
 
 import { useQueryClient } from '@tanstack/react-query'
-import { Archive, Check, Plus, RotateCcw, Star } from 'lucide-react'
+import { Archive, Check, RotateCcw, Star } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
 
 import { LlmCatalogPageState } from '@/components/managed/llm/llm-catalog-page-state'
 import {
   ConfirmDialog,
-  DataTable,
-  FilterBar,
-  MonoId,
   RelativeTime,
   ResourceErrorState,
   StatusBadge,
@@ -19,7 +16,6 @@ import {
 } from '@/components/managed/shared'
 import { CompatibleEngineBadges } from '@/components/managed/shared/compatible-engine-badges'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
@@ -28,11 +24,14 @@ import { managedDelete, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
-import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import { filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { parseSecretResponse } from '@/lib/managed/secret-response-parsers'
 import { parseCredentialId } from '@/types/entity-id'
 import type { Secret } from '@/types/managed'
+
+import { CredentialIdentity } from './credential-identity'
+import { CredentialListPanel } from './credential-list-panel'
 
 function displayId(value: string | null) {
   if (!value) return '—'
@@ -128,12 +127,27 @@ export function ModelConnectionList({
             s.provider ?? '',
             s.protocol ?? '',
             s.model ?? '',
+            ...(s.compatible_engine_ids ?? []),
           ]),
       ),
     [createdFilter, list.data, searchQuery, showArchived],
   )
   const filters: FilterDef[] = [
-    { ...createCreatedTimeFilter(t), value: createdFilter, onChange: setCreatedFilter },
+    {
+      key: 'created',
+      label: t('managed.filters.created'),
+      value: createdFilter,
+      onChange: (value) => {
+        setCreatedFilter(value)
+        list.goToPage(1)
+      },
+      options: [
+        { value: 'all', label: t('managed.filters.allTime') },
+        { value: '7d', label: t('managed.filters.last7d') },
+        { value: '30d', label: t('managed.filters.last30d') },
+        { value: '90d', label: t('managed.filters.last90d') },
+      ],
+    },
   ]
 
   const invalidate = (scope: string) => {
@@ -228,24 +242,31 @@ export function ModelConnectionList({
   }
 
   const columns: Column<Secret>[] = [
-    { key: 'id', header: t('managed.table.id'), render: (s) => <MonoId id={s.id} /> },
     {
-      key: 'name',
-      header: t('managed.table.name'),
+      key: 'identity',
+      header: t('managed.credentials.tabs.models'),
       render: (s) => (
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{s.name}</span>
-            {s.is_default ? (
-              <Badge variant="secondary" className="gap-1">
-                <Check className="h-3 w-3" />
-                {t('managed.secrets.default')}
-              </Badge>
-            ) : null}
-          </div>
-          {s.model ? <p className="text-xs text-muted-foreground">{s.model}</p> : null}
-        </div>
+        <CredentialIdentity
+          name={s.name}
+          publicId={s.id}
+          subtitle={s.model || undefined}
+          badges={
+            s.is_default || s.archived_at ? (
+              <>
+                {s.is_default ? (
+                  <Badge variant="secondary" className="gap-1">
+                    <Check className="size-3" />
+                    {t('managed.secrets.default')}
+                  </Badge>
+                ) : null}
+                {s.archived_at ? <StatusBadge status="archived" /> : null}
+              </>
+            ) : undefined
+          }
+        />
       ),
+      width: '32%',
+      truncate: false,
     },
     {
       key: 'binding',
@@ -273,12 +294,51 @@ export function ModelConnectionList({
         </span>
       ),
     },
-    {
-      key: 'status',
-      header: t('managed.table.status'),
-      render: (s) => <StatusBadge status={s.archived_at ? 'archived' : 'active'} />,
-    },
   ]
+
+  const rowActions = (s: Secret) =>
+    projectReadOnly || mutationPending
+      ? []
+      : [
+          ...(s.kind === 'model' && !s.archived_at && !s.is_default
+            ? [
+                {
+                  label: t('managed.secrets.setDefault'),
+                  icon: <Star className="size-4" />,
+                  onClick: () => handleSetDefault(s),
+                },
+              ]
+            : []),
+          ...(s.archived_at
+            ? [
+                {
+                  label: t('common.restore'),
+                  icon: <RotateCcw className="size-4" />,
+                  onClick: () => {
+                    bumpRun()
+                    setLifecycleTarget({ credential: s, action: 'restore' as const })
+                  },
+                },
+              ]
+            : [
+                {
+                  label: t('common.archive'),
+                  icon: <Archive className="size-4" />,
+                  onClick: () => {
+                    bumpRun()
+                    setLifecycleTarget({ credential: s, action: 'archive' as const })
+                  },
+                },
+              ]),
+          {
+            label: t('common.delete'),
+            onClick: () => {
+              bumpRun()
+              setDeleteTarget(s)
+            },
+            destructive: true,
+          },
+        ]
 
   if (catalogQuery.isError)
     return <LlmCatalogPageState state="error" onRetry={() => catalogQuery.refetch()} />
@@ -296,29 +356,42 @@ export function ModelConnectionList({
 
   return (
     <div>
-      {projectReadOnly ? null : (
-        <div className="mb-3 flex justify-end">
-          <Button
-            size="sm"
-            onClick={() => {
-              if (!scopeIsActive() || !currentProjectAllowsWrite()) return
-              onCreate()
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            {t('managed.credentials.addModelConnection')}
-          </Button>
-        </div>
-      )}
-      <FilterBar
-        searchPlaceholder={t('managed.credentials.searchModelsOnPage')}
+      <CredentialListPanel
+        searchPlaceholder={t('managed.credentials.searchModels')}
         searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
+        onSearchChange={(value) => {
+          setSearchQuery(value)
+          list.goToPage(1)
+        }}
         filters={filters}
         showArchived={showArchived}
-        onArchivedChange={setShowArchived}
-      />
-      <DataTable
+        onArchivedChange={(value) => {
+          setShowArchived(value)
+          list.goToPage(1)
+        }}
+        createAction={
+          projectReadOnly
+            ? undefined
+            : {
+                label: t('managed.credentials.createModelConnection'),
+                onClick: () => {
+                  if (!scopeIsActive() || !currentProjectAllowsWrite()) return
+                  onCreate()
+                },
+              }
+        }
+        emptyState={{
+          title: t('managed.credentials.emptyModelsTitle'),
+          description: t('managed.credentials.emptyModelsDescription'),
+        }}
+        noResultsState={{
+          title: t('managed.credentials.noModelResultsTitle'),
+          description: t('managed.credentials.noResultsDescription'),
+        }}
+        onClearFilters={() => {
+          updateListState({ searchQuery: '', createdFilter: 'all', showArchived: false })
+          list.goToPage(1)
+        }}
         columns={columns}
         data={filtered}
         loading={list.isLoading}
@@ -326,50 +399,43 @@ export function ModelConnectionList({
         onRowClick={(s) => {
           if (scopeIsActive()) router.push(`/managed/credentials/${s.id}`)
         }}
-        actionMenu={(s) =>
-          projectReadOnly || mutationPending
-            ? []
-            : [
-                ...(s.kind === 'model' && !s.archived_at && !s.is_default
-                  ? [
-                      {
-                        label: t('managed.secrets.setDefault'),
-                        icon: <Star className="h-4 w-4" />,
-                        onClick: () => handleSetDefault(s),
-                      },
-                    ]
-                  : []),
-                ...(s.archived_at
-                  ? [
-                      {
-                        label: t('common.restore'),
-                        icon: <RotateCcw className="h-4 w-4" />,
-                        onClick: () => {
-                          bumpRun()
-                          setLifecycleTarget({ credential: s, action: 'restore' as const })
-                        },
-                      },
-                    ]
-                  : [
-                      {
-                        label: t('common.archive'),
-                        icon: <Archive className="h-4 w-4" />,
-                        onClick: () => {
-                          bumpRun()
-                          setLifecycleTarget({ credential: s, action: 'archive' as const })
-                        },
-                      },
-                    ]),
-                {
-                  label: t('common.delete'),
-                  onClick: () => {
-                    bumpRun()
-                    setDeleteTarget(s)
-                  },
-                  destructive: true,
-                },
-              ]
-        }
+        actionMenu={rowActions}
+        mobileCard={(s) => (
+          <div className="flex flex-col gap-3">
+            <CredentialIdentity
+              name={s.name}
+              publicId={s.id}
+              subtitle={s.model || undefined}
+              badges={
+                s.is_default || s.archived_at ? (
+                  <>
+                    {s.is_default ? (
+                      <Badge variant="secondary">{t('managed.secrets.default')}</Badge>
+                    ) : null}
+                    {s.archived_at ? <StatusBadge status="archived" /> : null}
+                  </>
+                ) : undefined
+              }
+            />
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div>
+                <div className="text-muted-foreground">{t('managed.llm.providerProtocol')}</div>
+                <div className="mt-1 font-medium text-foreground">{displayId(s.provider)}</div>
+                <div className="text-muted-foreground">{displayId(s.protocol)}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">{t('managed.table.created')}</div>
+                <div className="mt-1 text-foreground">
+                  <RelativeTime date={s.created_at} />
+                </div>
+              </div>
+            </div>
+            <CompatibleEngineBadges
+              engineIds={s.compatible_engine_ids}
+              catalog={catalogQuery.data}
+            />
+          </div>
+        )}
         pagination={{
           hasNext: list.hasNext,
           hasPrev: list.hasPrev,
@@ -381,7 +447,6 @@ export function ModelConnectionList({
           onPageChange: list.goToPage,
           onPageSizeChange: list.setPageSize,
         }}
-        emptyMessage={t('managed.credentials.emptyModels')}
       />
       <ConfirmDialog
         open={!projectReadOnly && Boolean(lifecycleTarget)}
