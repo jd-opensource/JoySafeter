@@ -2,7 +2,8 @@
 
 ## Scope
 
-- Parent commit: `40264a2c98cbb28a0de1e2dd47dccde980fd5098`.
+- Work-start HEAD: `40264a2c98cbb28a0de1e2dd47dccde980fd5098`.
+- Actual implementation commit parent: `71800cf43914c84e8a77b0b1b723f436b5797758`; the concurrent `fix production HTTPS origin contract` commit landed after validation and before the scoped frontend commit.
 - Updated the sign-in callback error mapping to match the backend `CALLBACK_REDIRECT_CODES` contract in `backend/app/joysafeter_api/api/v1/oauth.py`.
 - Added focused parameterized coverage for every stable callback code, retired `OAUTH_*` behavior, arbitrary unknown codes, URL cleanup, redirect-effect suppression, and server-message rejection.
 - Added English and Chinese user-facing messages where the existing catalog did not distinguish the stable federation failure.
