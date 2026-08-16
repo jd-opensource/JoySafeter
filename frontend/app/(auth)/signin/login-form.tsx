@@ -36,6 +36,7 @@ import { loginFormSchema, type LoginFormData } from './schemas/loginFormSchema'
 const logger = createLogger('LoginForm')
 const SSO_AUTO_ATTEMPTED_KEY = 'sso_auto_attempted'
 const SSO_AUTO_ATTEMPTED_TTL_MS = 60_000
+let ssoAutoAttemptSequence = 0
 
 interface OAuthProvider {
   id: string
@@ -132,7 +133,7 @@ function hasRecentSsoAutoAttempt(): boolean {
   const raw = sessionStorage.getItem(SSO_AUTO_ATTEMPTED_KEY)
   if (!raw) return false
 
-  const attemptedAt = Number(raw)
+  const attemptedAt = Number(raw.split(':', 1)[0])
   if (!Number.isFinite(attemptedAt)) {
     sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
     return false
@@ -144,6 +145,11 @@ function hasRecentSsoAutoAttempt(): boolean {
   }
 
   return true
+}
+
+function createSsoAutoAttemptToken(runId: number): string {
+  ssoAutoAttemptSequence += 1
+  return `${Date.now()}:${runId}:${ssoAutoAttemptSequence}`
 }
 
 export default function LoginPage() {
@@ -167,6 +173,7 @@ export default function LoginPage() {
   const loginRedirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isMountedRef = useRef(false)
   const resetRequestRunRef = useRef(0)
+  const ssoRedirectRunRef = useRef(0)
   const [, setResetStatus] = useState<{
     type: 'success' | 'error' | null
     message: string
@@ -272,13 +279,30 @@ export default function LoginPage() {
     if (oauthError) return
     if (isBypassSso) return
 
-    let cancelled = false
+    const runId = ssoRedirectRunRef.current + 1
+    ssoRedirectRunRef.current = runId
+    const abortController = new AbortController()
+    let ownedGuard: string | null = null
+    let navigationCommitted = false
+    const isCurrentRun = () =>
+      ssoRedirectRunRef.current === runId && !abortController.signal.aborted
+    const releaseOwnedGuard = () => {
+      if (!ownedGuard) return
+      if (sessionStorage.getItem(SSO_AUTO_ATTEMPTED_KEY) === ownedGuard) {
+        sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
+      }
+      ownedGuard = null
+    }
+
     const redirectToSso = async () => {
       try {
         const providersResponse = await managedGet<OAuthProvidersResponse>('auth/oauth/providers', {
           withAuth: false,
           skipManagedContext: true,
+          signal: abortController.signal,
         })
+        if (!isCurrentRun()) return
+
         if (providersResponse.login_mode !== 'redirect') {
           sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
           return
@@ -291,33 +315,46 @@ export default function LoginPage() {
         }
 
         // Prevent infinite redirect loops only when backend policy requires redirect mode.
+        if (!isCurrentRun()) return
         if (hasRecentSsoAutoAttempt()) return
-        sessionStorage.setItem(SSO_AUTO_ATTEMPTED_KEY, String(Date.now()))
+        if (!isCurrentRun()) return
+        ownedGuard = createSsoAutoAttemptToken(runId)
+        sessionStorage.setItem(SSO_AUTO_ATTEMPTED_KEY, ownedGuard)
 
         const params = new URLSearchParams()
         params.set('callback_url', callbackUrl)
+        if (!isCurrentRun()) {
+          releaseOwnedGuard()
+          return
+        }
         const response = await managedGet<OAuthAuthorizationResponse>(
           `auth/oauth/${encodeURIComponent(ssoProvider)}?${params.toString()}`,
           {
             withAuth: false,
             skipManagedContext: true,
+            signal: abortController.signal,
           },
         )
-        if (!cancelled) {
-          window.location.href = response.authorization_url
-        } else {
-          sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
-        }
+        if (!isCurrentRun()) return
+
+        navigationCommitted = true
+        window.location.href = response.authorization_url
       } catch (error) {
-        if (!cancelled) logger.warn('Failed to initiate SSO auto-redirect:', { error })
-        // No redirect happened, so clear the flag and let the next login page retry.
-        sessionStorage.removeItem(SSO_AUTO_ATTEMPTED_KEY)
+        if (!isCurrentRun()) return
+        logger.warn('Failed to initiate SSO auto-redirect:', { error })
+        releaseOwnedGuard()
       }
     }
 
     redirectToSso()
     return () => {
-      cancelled = true
+      if (ssoRedirectRunRef.current === runId) {
+        ssoRedirectRunRef.current += 1
+      }
+      abortController.abort()
+      if (!navigationCommitted) {
+        releaseOwnedGuard()
+      }
     }
   }, [mounted, sessionData?.user, oauthError, isBypassSso, callbackUrl])
 

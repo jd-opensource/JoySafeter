@@ -100,3 +100,95 @@ Results:
 ## Concerns
 
 No Task16 correctness concerns remain. Repository-wide lint still reports existing warnings outside this task, including the unchanged OAuth navigation assignment warning noted above.
+
+## Fix Round 1 — Redirect Run Ownership
+
+### Review Base
+
+- Original Task16 commit: `ed358a7c108bb8c44bae4476d74cd3f356b84fcc`.
+- Actual review base and parent of this fix commit: `a2fd5bb4c252e148b85153c87147c791be302b50`.
+- The intervening credential/config commits were preserved without reset or rewrite, and the original Task16 files were unchanged between `ed358a7c` and `a2fd5bb4`.
+
+### RED
+
+Deferred race tests were added before production changes for overlapping callback/provider requests, stale authorization completion, StrictMode, unresolved request cleanup, malformed policy, and exact guard ownership.
+
+Command:
+
+```bash
+cd frontend
+bun test app/'(auth)'/signin/login-form.test.tsx
+```
+
+Observed before the fix:
+
+```text
+15 pass
+4 fail
+```
+
+The four failures demonstrated that:
+
+- provider requests had no abort signal when a callback change superseded the run;
+- a new callback run reused the stale numeric guard instead of owning a unique token;
+- unmount could not abort a never-resolving provider request;
+- unmount could not abort a never-resolving authorization request or release its guard immediately.
+
+### GREEN
+
+The redirect effect now:
+
+- assigns every eligible effect run a monotonic run ID and `AbortController`;
+- passes the run signal to both provider and authorization `managedGet` requests;
+- checks current ownership immediately after each await and before guard creation, authorization, and navigation;
+- writes a unique timestamp/run/sequence guard while still parsing legacy numeric timestamps for TTL checks;
+- removes a guard only when its exact token is still present;
+- invalidates and aborts a superseded run during cleanup, releasing its owned guard immediately even if a promise never settles;
+- marks navigation committed before assigning `window.location.href`, so navigation cleanup preserves the loop guard;
+- treats missing or invalid `login_mode` as non-redirect and clears stale guard state;
+- preserves chooser mode, backend first-provider order, callback encoding, required authorization state typing, and the absence of `SSO_DEFAULT_PROVIDER`.
+
+Focused result:
+
+```text
+23 pass
+0 fail
+80 expect() calls
+```
+
+This includes `20` login-form lifecycle tests and `3` OAuth button lifecycle tests.
+
+### Validation
+
+```bash
+cd frontend
+bun test app/'(auth)'/signin/login-form.test.tsx components/auth/oauth-buttons.test.tsx
+bun run type-check
+./node_modules/.bin/eslint 'app/(auth)/signin/login-form.tsx' 'app/(auth)/signin/login-form.test.tsx' components/auth/oauth-buttons.tsx components/auth/oauth-buttons.test.tsx
+bun run lint
+./node_modules/.bin/prettier --check 'app/(auth)/signin/login-form.tsx' 'app/(auth)/signin/login-form.test.tsx' components/auth/oauth-buttons.tsx components/auth/oauth-buttons.test.tsx
+cd ..
+git diff --check
+```
+
+Results:
+
+- Focused tests: `23 passed`.
+- Type check: passed.
+- Scoped lint: `0 errors`; the unchanged OAuth button navigation line retains its pre-existing warning.
+- Full lint: exited successfully with `0 errors` and `593` existing repository warnings.
+- Scoped Prettier check: passed.
+
+### Self-Review
+
+- Confirmed stale provider resolution cannot begin authorization.
+- Confirmed stale authorization resolution cannot navigate or remove the current run's guard.
+- Confirmed StrictMode authorizes only once with the current callback URL.
+- Confirmed unresolved provider and authorization requests are aborted on unmount.
+- Confirmed owned guard cleanup is immediate, exact-token only, and skipped after committed navigation.
+- Confirmed legacy numeric guards retain TTL behavior and missing/invalid policy fails safe.
+- Confirmed no backend, credential, filter, i18n, env, README, OAuth button production, or shared API-client files were modified for this round.
+
+### Fix Round 1 Concerns
+
+No Task16 race correctness concern remains. Repository-wide lint warnings are unchanged from the prior round.

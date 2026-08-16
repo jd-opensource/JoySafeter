@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { JSDOM } from 'jsdom'
+import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const forgetPasswordMock = vi.fn()
@@ -162,6 +163,10 @@ function deferred<T>() {
     reject = rej
   })
   return { promise, resolve, reject }
+}
+
+function oauthRequests(prefix: string) {
+  return managedGetMock.mock.calls.filter(([path]) => String(path).startsWith(prefix))
 }
 
 // testing-library's waitFor polls on real timers, which vi.useFakeTimers()
@@ -369,10 +374,14 @@ describe('LoginPage lifecycle', () => {
     await settle()
 
     expect(managedGetMock).toHaveBeenCalledTimes(1)
-    expect(managedGetMock).toHaveBeenCalledWith('auth/oauth/providers', {
-      withAuth: false,
-      skipManagedContext: true,
-    })
+    expect(managedGetMock).toHaveBeenCalledWith(
+      'auth/oauth/providers',
+      expect.objectContaining({
+        withAuth: false,
+        skipManagedContext: true,
+        signal: expect.any(AbortSignal),
+      }),
+    )
     expect(sessionStorage.getItem('sso_auto_attempted')).toBeNull()
     expect(window.location.href).toBe('http://localhost/signin')
   })
@@ -394,7 +403,7 @@ describe('LoginPage lifecycle', () => {
       })
 
     const { default: LoginPage } = await import('./login-form')
-    render(<LoginPage />)
+    const view = render(<LoginPage />)
 
     await settle()
 
@@ -402,15 +411,159 @@ describe('LoginPage lifecycle', () => {
     expect(managedGetMock).toHaveBeenNthCalledWith(
       2,
       'auth/oauth/jd?callback_url=%2Fmanaged%2Fquickstart',
-      {
+      expect.objectContaining({
         withAuth: false,
         skipManagedContext: true,
-      },
+        signal: expect.any(AbortSignal),
+      }),
     )
     expect(
       managedGetMock.mock.calls.some(([path]) => String(path).startsWith('auth/oauth/github')),
     ).toBe(false)
     expect(window.location.href).toBe('http://localhost/signin#jd-sso')
+
+    const committedGuard = sessionStorage.getItem('sso_auto_attempted')
+    expect(committedGuard).toBeTruthy()
+    view.unmount()
+    expect(sessionStorage.getItem('sso_auto_attempted')).toBe(committedGuard)
+  })
+
+  it('ignores an overlapping stale provider response after the callback changes', async () => {
+    searchParamValues.bypass_sso = null
+    searchParamValues.callbackUrl = '/first-callback'
+    const firstProviders = deferred<{
+      providers: Array<{ id: string; display_name: string; icon: string }>
+      login_mode: 'redirect'
+    }>()
+    const secondProviders = deferred<{
+      providers: Array<{ id: string; display_name: string; icon: string }>
+      login_mode: 'redirect'
+    }>()
+    managedGetMock
+      .mockReturnValueOnce(firstProviders.promise)
+      .mockReturnValueOnce(secondProviders.promise)
+      .mockResolvedValueOnce({ authorization_url: '/signin#current-provider', state: 'attempt-2' })
+
+    const { default: LoginPage } = await import('./login-form')
+    const view = render(<LoginPage />)
+
+    await settle()
+    expect(oauthRequests('auth/oauth/providers')).toHaveLength(1)
+
+    searchParamValues.callbackUrl = '/second-callback'
+    view.rerender(<LoginPage />)
+    await settle()
+
+    expect(oauthRequests('auth/oauth/providers')).toHaveLength(2)
+    expect(oauthRequests('auth/oauth/providers')[0]?.[1]?.signal?.aborted).toBe(true)
+
+    await act(async () => {
+      firstProviders.resolve({
+        providers: [{ id: 'stale', display_name: 'Stale', icon: 'key' }],
+        login_mode: 'redirect',
+      })
+      await firstProviders.promise
+      await Promise.resolve()
+    })
+
+    expect(oauthRequests('auth/oauth/stale')).toHaveLength(0)
+
+    await act(async () => {
+      secondProviders.resolve({
+        providers: [{ id: 'current', display_name: 'Current', icon: 'key' }],
+        login_mode: 'redirect',
+      })
+      await secondProviders.promise
+      await Promise.resolve()
+    })
+    await settle()
+
+    expect(managedGetMock).toHaveBeenCalledWith(
+      'auth/oauth/current?callback_url=%2Fsecond-callback',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
+    expect(window.location.href).toBe('http://localhost/signin#current-provider')
+  })
+
+  it('does not let stale authorization resolution navigate or clear the current guard', async () => {
+    searchParamValues.bypass_sso = null
+    searchParamValues.callbackUrl = '/first-callback'
+    const staleAuthorization = deferred<{ authorization_url: string; state: string }>()
+    const currentAuthorization = deferred<{ authorization_url: string; state: string }>()
+    managedGetMock
+      .mockResolvedValueOnce({
+        providers: [{ id: 'first', display_name: 'First', icon: 'key' }],
+        login_mode: 'redirect',
+      })
+      .mockReturnValueOnce(staleAuthorization.promise)
+      .mockResolvedValueOnce({
+        providers: [{ id: 'second', display_name: 'Second', icon: 'key' }],
+        login_mode: 'redirect',
+      })
+      .mockReturnValueOnce(currentAuthorization.promise)
+
+    const { default: LoginPage } = await import('./login-form')
+    const view = render(<LoginPage />)
+
+    await settle()
+    const staleGuard = sessionStorage.getItem('sso_auto_attempted')
+    expect(staleGuard).toBeTruthy()
+
+    searchParamValues.callbackUrl = '/second-callback'
+    view.rerender(<LoginPage />)
+    await settle()
+
+    const currentGuard = sessionStorage.getItem('sso_auto_attempted')
+    expect(currentGuard).toBeTruthy()
+    expect(currentGuard).not.toBe(staleGuard)
+    expect(oauthRequests('auth/oauth/first')[0]?.[1]?.signal?.aborted).toBe(true)
+
+    await act(async () => {
+      staleAuthorization.resolve({ authorization_url: '/signin#stale', state: 'attempt-1' })
+      await staleAuthorization.promise
+      await Promise.resolve()
+    })
+
+    expect(window.location.href).toBe('http://localhost/signin')
+    expect(sessionStorage.getItem('sso_auto_attempted')).toBe(currentGuard)
+
+    await act(async () => {
+      currentAuthorization.resolve({ authorization_url: '/signin#current', state: 'attempt-2' })
+      await currentAuthorization.promise
+      await Promise.resolve()
+    })
+
+    expect(window.location.href).toBe('http://localhost/signin#current')
+    expect(sessionStorage.getItem('sso_auto_attempted')).toBe(currentGuard)
+  })
+
+  it('authorizes exactly once with the current callback under StrictMode', async () => {
+    searchParamValues.bypass_sso = null
+    searchParamValues.callbackUrl = '/strict-current'
+    managedGetMock.mockImplementation((path) => {
+      if (String(path) === 'auth/oauth/providers') {
+        return Promise.resolve({
+          providers: [{ id: 'github', display_name: 'GitHub', icon: 'github' }],
+          login_mode: 'redirect',
+        })
+      }
+      return Promise.resolve({ authorization_url: '/signin#strict', state: 'attempt-1' })
+    })
+
+    const { default: LoginPage } = await import('./login-form')
+    render(
+      <StrictMode>
+        <LoginPage />
+      </StrictMode>,
+    )
+
+    await settle()
+
+    expect(oauthRequests('auth/oauth/github')).toHaveLength(1)
+    expect(oauthRequests('auth/oauth/github')[0]?.[0]).toBe(
+      'auth/oauth/github?callback_url=%2Fstrict-current',
+    )
+    expect(window.location.href).toBe('http://localhost/signin#strict')
   })
 
   it('keeps the redirect loop guard from authorizing again during its ttl', async () => {
@@ -445,10 +598,32 @@ describe('LoginPage lifecycle', () => {
     expect(window.location.href).toBe('http://localhost/signin')
   })
 
-  it('does not loop when the provider policy request fails', async () => {
+  it('does not disturb an unowned guard when the provider policy request fails', async () => {
     searchParamValues.bypass_sso = null
-    sessionStorage.setItem('sso_auto_attempted', String(Date.now()))
+    const existingGuard = String(Date.now())
+    sessionStorage.setItem('sso_auto_attempted', existingGuard)
     managedGetMock.mockRejectedValueOnce(new Error('provider policy unavailable'))
+
+    const { default: LoginPage } = await import('./login-form')
+    render(<LoginPage />)
+
+    await settle()
+
+    expect(managedGetMock).toHaveBeenCalledTimes(1)
+    expect(sessionStorage.getItem('sso_auto_attempted')).toBe(existingGuard)
+    expect(window.location.href).toBe('http://localhost/signin')
+  })
+
+  it.each([
+    ['missing', undefined],
+    ['invalid', 'auto'],
+  ])('fails safe for %s login_mode and clears a stale guard', async (_label, loginMode) => {
+    searchParamValues.bypass_sso = null
+    sessionStorage.setItem('sso_auto_attempted', `${Date.now()}:older-run`)
+    managedGetMock.mockResolvedValueOnce({
+      providers: [{ id: 'github', display_name: 'GitHub', icon: 'github' }],
+      ...(loginMode === undefined ? {} : { login_mode: loginMode }),
+    })
 
     const { default: LoginPage } = await import('./login-form')
     render(<LoginPage />)
@@ -494,17 +669,22 @@ describe('LoginPage lifecycle', () => {
     const view = render(<LoginPage />)
 
     await settle()
-    expect(managedGetMock).toHaveBeenCalledWith('auth/oauth/providers', {
-      withAuth: false,
-      skipManagedContext: true,
-    })
+    expect(managedGetMock).toHaveBeenCalledWith(
+      'auth/oauth/providers',
+      expect.objectContaining({
+        withAuth: false,
+        skipManagedContext: true,
+        signal: expect.any(AbortSignal),
+      }),
+    )
     await settle()
     expect(managedGetMock).toHaveBeenCalledWith(
       'auth/oauth/okta?callback_url=%2Fmanaged%2Fquickstart',
-      {
+      expect.objectContaining({
         withAuth: false,
         skipManagedContext: true,
-      },
+        signal: expect.any(AbortSignal),
+      }),
     )
 
     expect(sessionStorage.getItem('sso_auto_attempted')).toBeTruthy()
@@ -521,5 +701,76 @@ describe('LoginPage lifecycle', () => {
 
     expect(window.location.href).toBe('http://localhost/signin')
     expect(sessionStorage.getItem('sso_auto_attempted')).toBeNull()
+  })
+
+  it('aborts a never-resolving provider request immediately on unmount', async () => {
+    searchParamValues.bypass_sso = null
+    const providers = deferred<{
+      providers: Array<{ id: string; display_name: string; icon: string }>
+      login_mode: 'redirect'
+    }>()
+    managedGetMock.mockReturnValueOnce(providers.promise)
+
+    const { default: LoginPage } = await import('./login-form')
+    const view = render(<LoginPage />)
+
+    await settle()
+    const providerSignal = oauthRequests('auth/oauth/providers')[0]?.[1]?.signal
+    expect(providerSignal).toBeInstanceOf(AbortSignal)
+    expect(providerSignal.aborted).toBe(false)
+
+    view.unmount()
+
+    expect(providerSignal.aborted).toBe(true)
+    expect(sessionStorage.getItem('sso_auto_attempted')).toBeNull()
+  })
+
+  it('aborts a never-resolving authorization and releases its owned guard on unmount', async () => {
+    searchParamValues.bypass_sso = null
+    const authorization = deferred<{ authorization_url: string; state: string }>()
+    managedGetMock
+      .mockResolvedValueOnce({
+        providers: [{ id: 'github', display_name: 'GitHub', icon: 'github' }],
+        login_mode: 'redirect',
+      })
+      .mockReturnValueOnce(authorization.promise)
+
+    const { default: LoginPage } = await import('./login-form')
+    const view = render(<LoginPage />)
+
+    await settle()
+    const authorizationSignal = oauthRequests('auth/oauth/github')[0]?.[1]?.signal
+    expect(authorizationSignal).toBeInstanceOf(AbortSignal)
+    expect(authorizationSignal.aborted).toBe(false)
+    expect(sessionStorage.getItem('sso_auto_attempted')).toBeTruthy()
+
+    view.unmount()
+
+    expect(authorizationSignal.aborted).toBe(true)
+    expect(sessionStorage.getItem('sso_auto_attempted')).toBeNull()
+  })
+
+  it('does not remove a replacement guard when cancelling an older authorization run', async () => {
+    searchParamValues.bypass_sso = null
+    const authorization = deferred<{ authorization_url: string; state: string }>()
+    managedGetMock
+      .mockResolvedValueOnce({
+        providers: [{ id: 'github', display_name: 'GitHub', icon: 'github' }],
+        login_mode: 'redirect',
+      })
+      .mockReturnValueOnce(authorization.promise)
+
+    const { default: LoginPage } = await import('./login-form')
+    const view = render(<LoginPage />)
+
+    await settle()
+    const ownedGuard = sessionStorage.getItem('sso_auto_attempted')
+    expect(ownedGuard).toBeTruthy()
+
+    const replacementGuard = `${Date.now()}:replacement-run`
+    sessionStorage.setItem('sso_auto_attempted', replacementGuard)
+    view.unmount()
+
+    expect(sessionStorage.getItem('sso_auto_attempted')).toBe(replacementGuard)
   })
 })
