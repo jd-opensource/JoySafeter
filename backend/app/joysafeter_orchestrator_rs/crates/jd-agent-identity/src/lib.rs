@@ -735,22 +735,21 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
         true
     }
 
-    fn has_config(&self, _agent_metadata: Option<&JsonValue>) -> bool {
-        // Global mode: identity injection applies to ALL agents when the
-        // provider is selected (AGENT_IDENTITY_PROVIDER=jd). No per-agent
-        // opt-in via metadata is required.
-        true
+    fn has_config(&self, agent_metadata: Option<&JsonValue>) -> bool {
+        match agent_metadata.and_then(|metadata| metadata.get("agent_identity")) {
+            Some(config) => JdIdentityConfig::from_json(config).is_some(),
+            None => true,
+        }
     }
 
     async fn resolve(
         &self,
         context: &IdentityResolveContext,
     ) -> anyhow::Result<AgentIdentityInjection> {
-        // Config is optional now; parse if present, else use defaults.
-        let config =
-            JdIdentityConfig::from_json(&context.provider_config).unwrap_or(JdIdentityConfig {
-                tenant_code: String::new(),
-            });
+        let Some(config) = JdIdentityConfig::from_json(&context.provider_config) else {
+            debug!(agent_id = %context.agent_id, "Agent identity explicitly disabled");
+            return Ok(AgentIdentityInjection::default());
+        };
 
         // 1. Get BotToken — two paths:
         //    a) API scenario: auth_code → exchangeBotToken(authCode) → botToken
@@ -890,6 +889,69 @@ mod tests {
     use tokio::net::TcpListener;
     use tokio::sync::Mutex;
     use tokio::time::{timeout, Duration};
+
+    fn provider_for_config_tests() -> JdAgentIdentityProvider {
+        JdAgentIdentityProvider {
+            http: reqwest::Client::builder()
+                .timeout(Duration::from_millis(100))
+                .build()
+                .expect("build HTTP client"),
+            base_url: "http://127.0.0.1:1".to_string(),
+            sign_secret: "secret".to_string(),
+            client_id: "client".to_string(),
+            platform_id: "platform".to_string(),
+            auth_type: "sso".to_string(),
+            identity_type: "cookie".to_string(),
+            agent_scene: "test".to_string(),
+            redis_client: redis::Client::open("redis://127.0.0.1:1/").expect("create Redis client"),
+        }
+    }
+
+    #[test]
+    fn absent_agent_identity_config_uses_global_default() {
+        let provider = provider_for_config_tests();
+
+        assert!(provider.has_config(None));
+        assert!(provider.has_config(Some(&json!({}))));
+    }
+
+    #[test]
+    fn explicit_enabled_agent_identity_config_is_active() {
+        let provider = provider_for_config_tests();
+
+        assert!(provider.has_config(Some(&json!({"agent_identity": {"enabled": true}}))));
+    }
+
+    #[test]
+    fn explicit_disabled_agent_identity_config_is_inactive() {
+        let provider = provider_for_config_tests();
+
+        assert!(!provider.has_config(Some(&json!({"agent_identity": {"enabled": false}}))));
+    }
+
+    #[tokio::test]
+    async fn resolve_explicit_disabled_config_returns_no_injection() {
+        let provider = provider_for_config_tests();
+        let context = IdentityResolveContext {
+            project_id: "project".to_string(),
+            user_id: "user".to_string(),
+            agent_id: "agent".to_string(),
+            session_id: "session".to_string(),
+            task_id: "task".to_string(),
+            identity_token: "identity-token".to_string(),
+            auth_code: None,
+            user_name: "user@example.com".to_string(),
+            provider_config: json!({"enabled": false}),
+            egress_hosts: vec!["api.example.com".to_string()],
+        };
+
+        let injection = timeout(Duration::from_millis(250), provider.resolve(&context))
+            .await
+            .expect("disabled resolve must not perform network I/O")
+            .expect("disabled resolve");
+
+        assert!(injection.targets.is_empty());
+    }
 
     #[test]
     fn cache_key_is_partitioned_by_tenant_user_and_scope() {
