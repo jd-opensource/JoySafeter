@@ -16,12 +16,16 @@ class CallbackUrlPolicy:
 
     def resolve(self, callback_url: str | None) -> str:
         resolved = self.default_redirect_url if callback_url is None else callback_url
-        if not self._is_valid(resolved):
+        return self.validate(resolved)
+
+    @classmethod
+    def validate(cls, callback_url: object) -> str:
+        if not isinstance(callback_url, str) or not cls._is_valid(callback_url):
             raise FederationError(
                 code="FEDERATION_CALLBACK_URL_INVALID",
                 message="Federation callback URL is invalid",
             )
-        return resolved
+        return callback_url
 
     @classmethod
     def _is_valid(cls, value: str) -> bool:

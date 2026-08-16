@@ -278,12 +278,26 @@ def test_callback_success_uses_result_redirect_and_auth_cookie_order(
 
 @pytest.mark.parametrize(
     "callback_url",
-    ["https://evil.example/steal", "//evil.example/steal", "managed/dashboard"],
+    [
+        "https://evil.example/steal",
+        "//evil.example/steal",
+        "managed/dashboard",
+        "/managed\\evil",
+        "/%2f%2fevil.example/path",
+        "/%5cevil.example/path",
+        "/%25evil.example/path",
+        "/../admin",
+        "/%2e%2e/admin",
+        "/managed\nnext",
+        "/managed path",
+        "/%GG",
+        123,
+    ],
 )
 def test_callback_malformed_application_path_fails_closed_without_auth_cookies(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
-    callback_url: str,
+    callback_url: object,
 ) -> None:
     coordinator = _Coordinator(
         complete_result=LoginSucceeded(
@@ -301,7 +315,7 @@ def test_callback_malformed_application_path_fails_closed_without_auth_cookies(
 
     assert response.status_code == 302
     assert response.headers["location"] == (
-        "https://app.example/signin?error_code=FEDERATION_UPSTREAM_UNAVAILABLE"
+        "https://app.example/signin?error_code=FEDERATION_CALLBACK_FAILED"
     )
     cookies = response.headers.get_list("set-cookie")
     assert len(cookies) == 1
@@ -478,6 +492,15 @@ def test_request_context_ignores_forwarded_ip_from_untrusted_peer(monkeypatch: p
         "https://api.example.com\n.evil.example",
         "https://api.example.com:",
         "https://api.example.com:0",
+        "https://[v1.fe]",
+        "https://[example.com]",
+        "https://127.1",
+        "https://010.0.0.1",
+        "https://2130706433",
+        "https://0x7f000001",
+        "https://0x7f.1",
+        "https://127.0.0",
+        "https://127.0.0.1.2",
         "https://api_example.com",
         "https://-api.example.com",
         "https://api-.example.com",

@@ -356,6 +356,44 @@ def _coordinator(
     return coordinator, store, adapter, account_gateway, session_gateway, events
 
 
+@pytest.mark.parametrize(
+    "malicious_callback_url",
+    [
+        "https://evil.example/steal",
+        "//evil.example/steal",
+        "managed/dashboard",
+        "/managed\\evil",
+        "/%2f%2fevil.example/path",
+        "/%5cevil.example/path",
+        "/%25evil.example/path",
+        "/../admin",
+        "/%2e%2e/admin",
+        "/managed\nnext",
+        "/managed path",
+        "/%GG",
+        123,
+    ],
+)
+def test_login_succeeded_redirect_path_revalidates_after_mutation(malicious_callback_url: object) -> None:
+    result = LoginSucceeded(
+        callback_url="/managed/dashboard",
+        access_token="access-token",
+        refresh_token="refresh-token",
+        csrf_token="csrf-token",
+        access_expires_at=_ACCESS_EXPIRES_AT,
+        refresh_expires_at=_REFRESH_EXPIRES_AT,
+    )
+
+    assert result.redirect_path == "/managed/dashboard"
+
+    object.__setattr__(result, "callback_url", malicious_callback_url)
+
+    with pytest.raises(FederationError) as exc_info:
+        _ = result.redirect_path
+
+    assert exc_info.value.code == "FEDERATION_CALLBACK_FAILED"
+
+
 @pytest.mark.asyncio
 async def test_complete_login_consumes_attempt_before_adapter_account_and_session_work() -> None:
     attempt = _attempt("attempt-1")

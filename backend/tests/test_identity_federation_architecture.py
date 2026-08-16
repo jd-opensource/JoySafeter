@@ -115,6 +115,7 @@ async def _callback_url_fallback(protocol, db):
     assert _oauth_api_architecture_violations(source) == {
         "call:commit",
         "call:get_protocol_handler",
+        "call:urlparse",
         "callback-helper:_callback_url_fallback",
         "import:app.joysafeter_identity_federation.application.callback_policy",
         "import:app.joysafeter_shared.cache.redis",
@@ -125,38 +126,104 @@ async def _callback_url_fallback(protocol, db):
     }
 
 
-def _oauth_api_architecture_violations(source: str) -> set[str]:
-    violations: set[str] = set()
+def test_oauth_api_architecture_analyzer_resolves_url_aliases_and_raw_callback_access() -> None:
+    source = """
+import urllib.parse as parser
+from urllib import parse as url_tools
+from urllib.parse import urljoin as combine
 
-    for node in ast.walk(ast.parse(source)):
+def _safe_destination(result):
+    raw = result.callback_url
+    return (
+        parser.urlparse(raw),
+        url_tools.urlsplit(raw),
+        url_tools.unquote(raw),
+        combine("https://app.example", raw),
+    )
+"""
+
+    assert _oauth_api_architecture_violations(source) == {
+        "call:unquote",
+        "call:urljoin",
+        "call:urlparse",
+        "call:urlsplit",
+        "import:urllib.parse",
+        "import:urljoin",
+        "raw-attribute:callback_url",
+    }
+
+
+def test_oauth_api_architecture_analyzer_allows_urlencode_only() -> None:
+    source = """
+from urllib.parse import urlencode as encode_query
+
+def redirect_error(code):
+    return encode_query({"error_code": code})
+"""
+
+    assert _oauth_api_architecture_violations(source) == set()
+
+
+def _oauth_api_architecture_violations(source: str) -> set[str]:
+    tree = ast.parse(source)
+    violations: set[str] = set()
+    aliases: dict[str, str] = {}
+
+    for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if _matches_import_root(alias.name, FORBIDDEN_OAUTH_IMPORT_ROOTS):
                     violations.add(f"import:{alias.name}")
+                if alias.name == "urllib.parse":
+                    bound_name = alias.asname or "urllib"
+                    aliases[bound_name] = "urllib.parse" if alias.asname else "urllib"
+                    violations.add("import:urllib.parse")
         elif isinstance(node, ast.ImportFrom) and node.module:
             if _matches_import_root(node.module, FORBIDDEN_OAUTH_IMPORT_ROOTS):
                 violations.add(f"import:{node.module}")
             for alias in node.names:
+                bound_name = alias.asname or alias.name
                 if alias.name in FORBIDDEN_OAUTH_SYMBOLS:
                     violations.add(f"symbol:{alias.name}")
-                if node.module == "urllib.parse" and alias.name in {"urlparse", "urlsplit"}:
-                    violations.add(f"import:{alias.name}")
-        elif isinstance(node, ast.Name) and node.id in FORBIDDEN_OAUTH_SYMBOLS:
+
+                if node.module == "urllib" and alias.name == "parse":
+                    aliases[bound_name] = "urllib.parse"
+                    violations.add("import:urllib.parse")
+                elif node.module == "urllib.parse":
+                    aliases[bound_name] = f"urllib.parse.{alias.name}"
+                    if alias.name != "urlencode":
+                        violations.add(f"import:{alias.name}")
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in FORBIDDEN_OAUTH_SYMBOLS:
             violations.add(f"symbol:{node.id}")
+        elif isinstance(node, ast.Attribute) and node.attr == "callback_url":
+            violations.add("raw-attribute:callback_url")
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if _is_forbidden_oauth_callback_helper(node.name):
                 violations.add(f"callback-helper:{node.name}")
         elif isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name) and (
-                node.func.id in FORBIDDEN_OAUTH_CALLS or _is_forbidden_oauth_callback_helper(node.func.id)
-            ):
-                violations.add(f"call:{node.func.id}")
-            elif isinstance(node.func, ast.Attribute) and node.func.attr in {"commit", "rollback"}:
+            qualified_call = _qualified_ast_name(node.func, aliases)
+            call_name = qualified_call.rsplit(".", 1)[-1]
+            if call_name in FORBIDDEN_OAUTH_CALLS or _is_forbidden_oauth_callback_helper(call_name):
+                violations.add(f"call:{call_name}")
+            if qualified_call.startswith("urllib.parse.") and call_name != "urlencode":
+                violations.add(f"call:{call_name}")
+            if isinstance(node.func, ast.Attribute) and node.func.attr in {"commit", "rollback"}:
                 violations.add(f"call:{node.func.attr}")
         elif isinstance(node, ast.Constant) and node.value == "jd_sso":
             violations.add("protocol-branch:jd_sso")
 
     return violations
+
+
+def _qualified_ast_name(node: ast.AST, aliases: dict[str, str]) -> str:
+    if isinstance(node, ast.Name):
+        return aliases.get(node.id, node.id)
+    if isinstance(node, ast.Attribute):
+        parent = _qualified_ast_name(node.value, aliases)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return ""
 
 
 def _matches_import_root(module: str, roots: set[str]) -> bool:

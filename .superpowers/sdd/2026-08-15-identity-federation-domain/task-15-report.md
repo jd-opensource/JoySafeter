@@ -446,3 +446,212 @@ All checks passed!
 - IDNA normalization uses Python's standard `idna` codec and strict post-encoding DNS-label checks; it does not add a new external IDNA dependency.
 - The focused settings verification command includes the concurrently modified `test_settings_contract.py`, but that file is not part of this fix-round diff or commit. All new regression coverage needed by Fix Round 1 is committed in `test_identity_federation_api.py`.
 - No full backend or frontend suite was run; verification remained limited to the explicitly requested Task 12/13/API/bootstrap/settings and adjacent protocol/cookie boundaries.
+
+## Fix Round 2 — 2026-08-16
+
+### Starting State and Scope
+
+Finding 1 from Fix Round 1 remained closed. Before this round began, the shared worktree had advanced from Task 15 commit `3d0d868e` to descendant `7f53bea2` through the unrelated frontend credential-management commit `feat(credentials): streamline management workflows`. That commit was preserved; no reset or history rewrite was performed.
+
+Fix Round 2 changes are limited to:
+
+- `backend/app/joysafeter_shared/config/settings.py`
+- `backend/app/joysafeter_identity_federation/application/callback_policy.py`
+- `backend/app/joysafeter_identity_federation/application/results.py`
+- `backend/app/joysafeter_api/api/v1/oauth.py`
+- `backend/tests/test_identity_federation_complete_login.py`
+- `backend/tests/test_identity_federation_api.py`
+- `backend/tests/test_identity_federation_architecture.py`
+- this report
+
+The unrelated unstaged `backend/tests/test_settings_contract.py` modification was preserved and excluded.
+
+### RED — Canonical Authority Shape
+
+Task 15-owned real `Settings(_env_file=None)` tests set the `BACKEND_URL` environment alias and added:
+
+- bracketed RFCFuture and bracketed DNS authorities;
+- shortened, octal-looking, integer-style, hexadecimal, too-few-octet, and too-many-octet IPv4-shaped authorities.
+
+RED command:
+
+```bash
+cd backend
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache \
+  uv run pytest \
+    tests/test_identity_federation_api.py::test_backend_url_rejects_malformed_authority_text -q
+```
+
+```text
+8 failed, 21 passed in 0.54s
+```
+
+`[v1.fe]`, `127.1`, `010.0.0.1`, `2130706433`, `0x7f000001`, `0x7f.1`, `127.0.0`, and `127.0.0.1.2` were incorrectly accepted. Bracketed DNS was already rejected by `urlsplit` and remained explicit regression coverage.
+
+### GREEN — Canonical Authority Shape
+
+- Preserves whether the original authority was bracketed instead of treating the bracket-stripped hostname as DNS.
+- Requires every bracketed authority to parse as a real IPv6 literal and canonicalizes it with `IPv6Address.compressed`.
+- If `ip_address()` rejects a host whose complete label set is decimal/hex numeric tokens, rejects it instead of applying DNS/IDNA normalization.
+- Continues accepting canonical IPv4, canonicalized IPv6, `localhost`, and valid strict IDNA/DNS names.
+
+```bash
+cd backend
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache \
+  uv run pytest \
+    tests/test_identity_federation_api.py::test_backend_url_rejects_malformed_authority_text \
+    tests/test_identity_federation_api.py::test_backend_url_accepts_ip_literals_and_normalizes_idna_hosts -q
+```
+
+```text
+32 passed in 0.49s
+```
+
+### RED — Application-Owned Callback Invariant
+
+Task 13 tests required a `LoginSucceeded.redirect_path` property to return the valid path and revalidate after malicious `object.__setattr__` mutation. API tests supplied bad fake facade data covering:
+
+- absolute, network-path, and relative values;
+- backslashes;
+- encoded slash/backslash/percent;
+- literal and encoded dot segments;
+- control characters and whitespace;
+- malformed percent escapes.
+
+Initial RED command:
+
+```bash
+cd backend
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache \
+  uv run pytest \
+    tests/test_identity_federation_complete_login.py::test_login_succeeded_redirect_path_revalidates_after_mutation \
+    tests/test_identity_federation_api.py::test_callback_malformed_application_path_fails_closed_without_auth_cookies -q
+```
+
+```text
+24 failed in 0.64s
+```
+
+The application result had no validated property, and API-local leading-slash checks allowed most malformed values to issue auth cookies.
+
+After the property implementation, a non-string malicious mutation exposed one more fail-closed gap:
+
+```text
+2 failed, 24 passed in 0.58s
+```
+
+The raw `int` caused `AttributeError` inside the policy and mapped to `FEDERATION_UPSTREAM_UNAVAILABLE` rather than the required stable callback failure.
+
+### GREEN — Application-Owned Callback Invariant
+
+- Added public `CallbackUrlPolicy.validate`, reused by both begin-login resolution and result access.
+- Added `LoginSucceeded.redirect_path`; every access validates the backing `callback_url`, including after frozen-dataclass bypass mutation or bad fake data.
+- Converts all invalid result values to application error `FEDERATION_CALLBACK_FAILED` without including the rejected value.
+- `oauth.py` reads only `result.redirect_path`, performs no callback parsing/policy/default/same-origin fallback, and joins the validated application path to the configured frontend origin.
+- Callback mapping redirects with only `FEDERATION_CALLBACK_FAILED`, clears the federation correlation cookie, and emits no auth, refresh, or CSRF cookies.
+
+```text
+25 passed in 0.57s
+```
+
+for the string matrix plus successful valid callback, followed by:
+
+```text
+26 passed in 0.52s
+```
+
+after the non-string bad-facade case was closed.
+
+### RED — Alias-Aware Architecture Enforcement
+
+Architecture mutations added:
+
+- `import urllib.parse as parser`;
+- `from urllib import parse as url_tools`;
+- `from urllib.parse import urljoin as combine`;
+- aliased `urlparse`, `urlsplit`, `unquote`, and `urljoin` calls;
+- a renamed non-callback helper with inline `result.callback_url` access;
+- an allow case for aliased `urlencode` only.
+
+```bash
+cd backend
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache \
+  uv run pytest \
+    tests/test_identity_federation_architecture.py::test_oauth_api_architecture_analyzer_detects_forbidden_ast_shapes \
+    tests/test_identity_federation_architecture.py::test_oauth_api_architecture_analyzer_resolves_url_aliases_and_raw_callback_access \
+    tests/test_identity_federation_architecture.py::test_oauth_api_architecture_analyzer_allows_urlencode_only -q
+```
+
+```text
+2 failed, 1 passed in 0.03s
+```
+
+The old analyzer missed the aliased parsing calls, renamed/inline policy, and raw callback attribute access; `urlencode` correctly remained allowed.
+
+### GREEN — Alias-Aware Architecture Enforcement
+
+- Builds an import alias map for `import urllib.parse`, `from urllib import parse`, and `from urllib.parse import ... as ...`.
+- Resolves qualified call names through aliases.
+- Rejects every `urllib.parse` import/call except the required `urlencode` import/call.
+- Rejects any `.callback_url` attribute access in `oauth.py`, independently of helper naming or inline placement.
+- Retains the existing Redis/OAuth service/protocol/config/JD/transaction and callback-helper constraints.
+
+```text
+7 passed in 0.04s
+```
+
+### Fix Round 2 Final Verification
+
+Focused Task 12/13/API/architecture/async/bootstrap/settings command:
+
+```bash
+cd backend
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache \
+  uv run pytest \
+    tests/test_identity_federation_begin_login.py \
+    tests/test_identity_federation_complete_login.py \
+    tests/test_identity_federation_api.py \
+    tests/test_identity_federation_architecture.py \
+    tests/test_oauth_async_boundary_contract.py \
+    tests/test_identity_federation_bootstrap_factory.py \
+    tests/test_settings_contract.py -q
+```
+
+```text
+162 passed in 0.71s
+```
+
+Adjacent protocol/state/session/cookie boundaries:
+
+```bash
+cd backend
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache \
+  uv run pytest \
+    tests/test_identity_federation_oauth2_adapter.py \
+    tests/test_identity_federation_jd_adapter.py \
+    tests/test_identity_federation_state_store.py \
+    tests/test_identity_federation_correlation.py \
+    tests/test_identity_federation_session_gateway.py \
+    tests/test_auth_service_login_tokens.py \
+    tests/test_csrf_protection_contract.py -q
+```
+
+```text
+107 passed, 6 warnings in 0.90s
+```
+
+The six warnings remain the existing httpx per-request cookie deprecation warnings in `test_csrf_protection_contract.py`.
+
+Ruff and diff whitespace:
+
+```text
+All checks passed!
+```
+
+### Fix Round 2 Self-Review and Risks
+
+- Finding 1 remained closed: authorize state behavior was not changed.
+- Numeric-host rejection applies only when every hostname label is a decimal or hexadecimal numeric token and `ip_address()` rejects the complete host; ordinary DNS/IDNA names with mixed labels remain accepted.
+- Callback policy remains owned by the application layer; API architecture now prevents both raw callback access and URL parsing imports/calls.
+- The focused settings command executes the unrelated modified `test_settings_contract.py`, but that file is excluded from this commit; every new Fix Round 2 setting regression is in `test_identity_federation_api.py`.
+- No full backend/frontend suite was run; verification was limited to the requested Task 12/13/API/bootstrap/settings and adjacent protocol/cookie boundaries.

@@ -51,6 +51,7 @@ CALLBACK_REDIRECT_CODES = {
     "FEDERATION_ACCOUNT_LINK_REQUIRED": "FEDERATION_ACCOUNT_LINK_REQUIRED",
     "FEDERATION_REGISTRATION_DISABLED": "FEDERATION_REGISTRATION_DISABLED",
     "FEDERATION_SESSION_ISSUE_FAILED": "FEDERATION_SESSION_ISSUE_FAILED",
+    "FEDERATION_CALLBACK_FAILED": "FEDERATION_CALLBACK_FAILED",
 }
 
 _AUTHORIZE_FALLBACK_CODE = "FEDERATION_UPSTREAM_UNAVAILABLE"
@@ -308,10 +309,8 @@ def _redirect_with_error(error_code: str) -> RedirectResponse:
 
 
 def _create_auth_response(result: LoginSucceeded) -> RedirectResponse:
-    if not result.callback_url.startswith("/") or result.callback_url.startswith("//"):
-        raise RuntimeError("Federation callback path is invalid")
     response = RedirectResponse(
-        url=f"{settings.frontend_url.rstrip('/')}{result.callback_url}",
+        url=f"{settings.frontend_url.rstrip('/')}{result.redirect_path}",
         status_code=302,
     )
     cookie_kwargs: dict[str, Any] = {

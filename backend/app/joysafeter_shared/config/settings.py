@@ -37,10 +37,24 @@ def _is_tcp_port_open(host: str, port: int, timeout_seconds: float = 0.5) -> boo
         return False
 
 
-def _normalize_backend_hostname(hostname: str) -> str:
+def _is_numeric_authority(hostname: str) -> bool:
+    def is_numeric_token(token: str) -> bool:
+        if token.lower().startswith("0x"):
+            return len(token) > 2 and all(character in "0123456789abcdefABCDEF" for character in token[2:])
+        return token.isdigit()
+
+    labels = hostname.split(".")
+    return bool(labels) and all(label and is_numeric_token(label) for label in labels)
+
+
+def _normalize_backend_hostname(hostname: str, *, bracketed: bool) -> str:
     try:
         address = ip_address(hostname)
     except ValueError:
+        if bracketed:
+            raise ValueError("BACKEND_URL bracketed authority must be a valid IPv6 literal")
+        if _is_numeric_authority(hostname):
+            raise ValueError("BACKEND_URL numeric authority must be canonical IPv4")
         if len(hostname) > 253:
             raise ValueError("BACKEND_URL hostname is too long")
         labels = hostname.split(".")
@@ -68,6 +82,8 @@ def _normalize_backend_hostname(hostname: str) -> str:
             raise ValueError("BACKEND_URL hostname is too long")
         return normalized_hostname
 
+    if bracketed and not isinstance(address, IPv6Address):
+        raise ValueError("BACKEND_URL bracketed authority must be a valid IPv6 literal")
     if isinstance(address, IPv6Address):
         return f"[{address.compressed}]"
     return address.compressed
@@ -145,7 +161,7 @@ class Settings(BaseSettings):
             raise ValueError("BACKEND_URL must contain only scheme, host, and optional port")
         if port is not None and port == 0:
             raise ValueError("BACKEND_URL contains an invalid port")
-        normalized_hostname = _normalize_backend_hostname(hostname)
+        normalized_hostname = _normalize_backend_hostname(hostname, bracketed=parsed.netloc.startswith("["))
         normalized_port = f":{port}" if port is not None else ""
         return f"{parsed.scheme}://{normalized_hostname}{normalized_port}"
 
