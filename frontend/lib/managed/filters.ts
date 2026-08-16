@@ -21,15 +21,27 @@ export function filterByCreatedTime(createdAt: string, filter: string): boolean 
   }
 }
 
-export function createCreatedTimeFilter(t: (key: string) => string) {
+export type CreatedTimeRange = '1h' | '24h' | '7d' | '30d' | '90d'
+
+const DEFAULT_CREATED_TIME_RANGES: CreatedTimeRange[] = ['1h', '24h', '7d']
+
+export function createCreatedTimeFilter(
+  t: (key: string) => string,
+  ranges: CreatedTimeRange[] = DEFAULT_CREATED_TIME_RANGES,
+) {
+  const optionsByRange: Record<CreatedTimeRange, { value: CreatedTimeRange; label: string }> = {
+    '1h': { value: '1h', label: t('managed.filters.lastHour') },
+    '24h': { value: '24h', label: t('managed.filters.last24h') },
+    '7d': { value: '7d', label: t('managed.filters.last7d') },
+    '30d': { value: '30d', label: t('managed.filters.last30d') },
+    '90d': { value: '90d', label: t('managed.filters.last90d') },
+  }
   return {
     key: 'created',
     label: t('managed.filters.created'),
     options: [
       { value: 'all', label: t('managed.filters.allTime') },
-      { value: '1h', label: t('managed.filters.lastHour') },
-      { value: '24h', label: t('managed.filters.last24h') },
-      { value: '7d', label: t('managed.filters.last7d') },
+      ...ranges.map((range) => optionsByRange[range]),
     ],
   }
 }

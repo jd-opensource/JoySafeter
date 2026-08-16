@@ -24,21 +24,34 @@ import { managedDelete, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
-import { filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import { filterByCreatedTime, createCreatedTimeFilter, matchesSearch } from '@/lib/managed/filters'
+import { findProtocol, findProvider } from '@/lib/managed/llm-catalog'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { parseSecretResponse } from '@/lib/managed/secret-response-parsers'
 import { parseCredentialId } from '@/types/entity-id'
+import type { LlmCatalog } from '@/types/llm'
 import type { Secret } from '@/types/managed'
 
 import { CredentialIdentity } from './credential-identity'
 import { CredentialListPanel } from './credential-list-panel'
 
-function displayId(value: string | null) {
-  if (!value) return '—'
+function titleCaseId(value: string): string {
   return value
     .split('_')
     .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
     .join(' ')
+}
+
+function providerLabel(catalog: LlmCatalog | undefined, value: string | null): string {
+  if (!value) return '—'
+  const provider = catalog ? findProvider(catalog, value) : null
+  return provider?.display_name ?? titleCaseId(value)
+}
+
+function protocolLabel(catalog: LlmCatalog | undefined, value: string | null): string {
+  if (!value) return '—'
+  const protocol = catalog ? findProtocol(catalog, value) : null
+  return protocol?.display_name ?? titleCaseId(value)
 }
 
 export interface ModelConnectionListState {
@@ -134,19 +147,12 @@ export function ModelConnectionList({
   )
   const filters: FilterDef[] = [
     {
-      key: 'created',
-      label: t('managed.filters.created'),
+      ...createCreatedTimeFilter(t, ['7d', '30d', '90d']),
       value: createdFilter,
       onChange: (value) => {
         setCreatedFilter(value)
         list.goToPage(1)
       },
-      options: [
-        { value: 'all', label: t('managed.filters.allTime') },
-        { value: '7d', label: t('managed.filters.last7d') },
-        { value: '30d', label: t('managed.filters.last30d') },
-        { value: '90d', label: t('managed.filters.last90d') },
-      ],
     },
   ]
 
@@ -273,8 +279,8 @@ export function ModelConnectionList({
       header: t('managed.llm.providerProtocol'),
       render: (s) => (
         <div className="text-xs">
-          <p className="font-medium text-foreground">{displayId(s.provider)}</p>
-          <p className="text-muted-foreground">{displayId(s.protocol)}</p>
+          <p className="font-medium text-foreground">{providerLabel(catalogQuery.data, s.provider)}</p>
+          <p className="text-muted-foreground">{protocolLabel(catalogQuery.data, s.protocol)}</p>
         </div>
       ),
     },
@@ -420,8 +426,8 @@ export function ModelConnectionList({
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div>
                 <div className="text-muted-foreground">{t('managed.llm.providerProtocol')}</div>
-                <div className="mt-1 font-medium text-foreground">{displayId(s.provider)}</div>
-                <div className="text-muted-foreground">{displayId(s.protocol)}</div>
+                <div className="mt-1 font-medium text-foreground">{providerLabel(catalogQuery.data, s.provider)}</div>
+                <div className="text-muted-foreground">{protocolLabel(catalogQuery.data, s.protocol)}</div>
               </div>
               <div>
                 <div className="text-muted-foreground">{t('managed.table.created')}</div>

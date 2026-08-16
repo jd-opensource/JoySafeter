@@ -20,7 +20,7 @@ import { managedDelete, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
-import { filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import { filterByCreatedTime, createCreatedTimeFilter, matchesSearch } from '@/lib/managed/filters'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { parseSecretResponse } from '@/lib/managed/secret-response-parsers'
 import { parseCredentialId } from '@/types/entity-id'
@@ -110,19 +110,12 @@ export function ServiceCredentialList({
   )
   const filters: FilterDef[] = [
     {
-      key: 'created',
-      label: t('managed.filters.created'),
+      ...createCreatedTimeFilter(t, ['7d', '30d', '90d']),
       value: createdFilter,
       onChange: (value) => {
         setCreatedFilter(value)
         list.goToPage(1)
       },
-      options: [
-        { value: 'all', label: t('managed.filters.allTime') },
-        { value: '7d', label: t('managed.filters.last7d') },
-        { value: '30d', label: t('managed.filters.last30d') },
-        { value: '90d', label: t('managed.filters.last90d') },
-      ],
     },
   ]
 

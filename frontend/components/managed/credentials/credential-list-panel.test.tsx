@@ -9,6 +9,8 @@ vi.mock('@/components/managed/shared/data-table', () => ({
       {data.map((row) => row.id).join(',')}
     </div>
   ),
+  dataTableSelectionKey: (row: unknown, index: number) =>
+    row && typeof row === 'object' && 'id' in row ? (row as { id: string }).id : index,
 }))
 vi.mock('@/components/ui/pagination', () => ({
   Pagination: () => <div data-testid="mobile-pagination" />,

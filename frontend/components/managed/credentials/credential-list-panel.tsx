@@ -4,7 +4,7 @@ import { Filter, Plus, Search, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { ActionMenu, type MenuItem } from '@/components/managed/shared/action-menu'
-import { DataTable, type Column } from '@/components/managed/shared/data-table'
+import { DataTable, dataTableSelectionKey, type Column } from '@/components/managed/shared/data-table'
 import type { FilterDef } from '@/components/managed/shared/filter-bar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -297,11 +297,7 @@ export function CredentialListPanel<T>({
               const label = mobileCardAriaLabel?.(row) ?? inferredCardLabel(row)
               return (
                 <article
-                  key={
-                    row && typeof row === 'object' && 'id' in row
-                      ? String((row as { id: unknown }).id)
-                      : index
-                  }
+                  key={dataTableSelectionKey(row, index)}
                   className="relative flex items-start gap-3 rounded-lg border border-border bg-background p-4 text-left"
                 >
                   {onRowClick ? (
