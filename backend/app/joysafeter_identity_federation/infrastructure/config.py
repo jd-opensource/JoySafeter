@@ -21,6 +21,12 @@ from .endpoint_policy import (
     endpoint_addresses as _strict_endpoint_addresses,
 )
 from .endpoint_policy import (
+    is_loopback_endpoint_address as _is_loopback_endpoint_address,
+)
+from .endpoint_policy import (
+    is_public_endpoint_address as _is_public_endpoint_address,
+)
+from .endpoint_policy import (
     is_trusted_private_address as _is_trusted_private_address,
 )
 from .endpoint_policy import (
@@ -413,10 +419,11 @@ def _endpoint_issues(
             provider_id == "local"
             and application_environment == "development"
             and scheme == "http"
-            and all(address.is_loopback for address in addresses)
+            and all(_is_loopback_endpoint_address(address) for address in addresses)
         )
+        allow_public = all(_is_public_endpoint_address(address) for address in addresses)
         allow_private = allow_private_network and all(_is_trusted_private_address(address) for address in addresses)
-        if not allow_loopback and not allow_private and any(not address.is_global for address in addresses):
+        if not allow_public and not allow_loopback and not allow_private:
             issue_code = (
                 "FEDERATION_PROVIDER_CONFIG_INVALID"
                 if provider_id == "local" and application_environment != "development"

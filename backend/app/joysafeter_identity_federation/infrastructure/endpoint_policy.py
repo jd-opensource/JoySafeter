@@ -8,6 +8,12 @@ IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 AddressResolver = Callable[[str, int], tuple[str, ...]]
 
 _DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+_TRUSTED_PRIVATE_IPV4_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+)
+_TRUSTED_PRIVATE_IPV6_NETWORKS = (ipaddress.ip_network("fc00::/7"),)
 
 
 def normalize_endpoint_hostname(hostname: str) -> str | None:
@@ -92,10 +98,44 @@ def endpoint_addresses(
 def is_trusted_private_address(address: IPAddress) -> bool:
     """Return True for a private/internal address safe to reach when a provider opts in.
 
-    Permits RFC1918-style private networks and loopback, but never link-local
-    (169.254.0.0/16 and fe80::/10, where cloud metadata lives), multicast,
-    reserved, or unspecified addresses.
+    Permits private networks, but never loopback, link-local (169.254.0.0/16
+    and fe80::/10, where cloud metadata lives), multicast, reserved,
+    unspecified, or IPv4-mapped IPv6 addresses.
     """
-    return address.is_private and not (
-        address.is_link_local or address.is_multicast or address.is_reserved or address.is_unspecified
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        return False
+    if (
+        address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
+    ):
+        return False
+    networks = (
+        _TRUSTED_PRIVATE_IPV4_NETWORKS
+        if isinstance(address, ipaddress.IPv4Address)
+        else _TRUSTED_PRIVATE_IPV6_NETWORKS
+    )
+    return any(address in network for network in networks)
+
+
+def is_loopback_endpoint_address(address: IPAddress) -> bool:
+    """Return True only for native loopback addresses, never IPv4-mapped IPv6."""
+    return not (
+        isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None
+    ) and address.is_loopback
+
+
+def is_public_endpoint_address(address: IPAddress) -> bool:
+    """Return True only for an unambiguous globally routable unicast address."""
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        return False
+    return address.is_global and not (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
     )

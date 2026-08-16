@@ -994,6 +994,63 @@ async def test_private_network_opt_in_still_rejects_link_local_metadata() -> Non
     assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
 
 
+@pytest.mark.parametrize(
+    "authorize_url",
+    [
+        "https://127.0.0.1/authorize",
+        "https://224.0.0.1/authorize",
+        "https://[ff02::1]/authorize",
+        "https://[::ffff:10.0.0.1]/authorize",
+        "https://[::ffff:224.0.0.1]/authorize",
+        "https://192.0.2.1/authorize",
+        "https://198.18.0.1/authorize",
+        "https://[2001:db8::1]/authorize",
+    ],
+)
+@pytest.mark.asyncio
+async def test_private_network_opt_in_rejects_non_private_special_addresses(
+    authorize_url: str,
+) -> None:
+    provider = _github_provider()
+    settings = provider.settings
+    assert isinstance(settings, OAuth2ProviderSettings)
+    provider = replace(
+        provider,
+        allow_private_network=True,
+        settings=replace(settings, authorize_url=authorize_url),
+    )
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(client_factory=_unused_client_factory).begin_login(
+            provider, _attempt("attempt-1"), _request_context()
+        )
+
+    assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_local_provider_rejects_ipv4_mapped_loopback_endpoint() -> None:
+    provider = _github_provider()
+    settings = provider.settings
+    assert isinstance(settings, OAuth2ProviderSettings)
+    provider = replace(
+        provider,
+        id=ProviderId("local"),
+        allow_http_loopback=True,
+        settings=replace(
+            settings,
+            authorize_url="http://[::ffff:127.0.0.1]:9090/authorize",
+        ),
+    )
+
+    with pytest.raises(FederationError) as exc_info:
+        await OAuth2Adapter(client_factory=_unused_client_factory).begin_login(
+            provider, _attempt("attempt-1"), _request_context()
+        )
+
+    assert exc_info.value.code == "FEDERATION_PROVIDER_CONFIG_INVALID"
+
+
 @pytest.mark.asyncio
 async def test_callback_state_must_match_attempt() -> None:
     with pytest.raises(FederationError) as exc_info:

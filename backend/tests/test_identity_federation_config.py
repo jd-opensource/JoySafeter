@@ -812,6 +812,7 @@ def test_local_loopback_provider_is_rejected_outside_development(tmp_path: Path,
         ("https://127.0.0.1:9090/authorize", "FEDERATION_ENDPOINT_UNSAFE"),
         ("http://10.0.0.1/authorize", "FEDERATION_ENDPOINT_UNSAFE"),
         ("http://169.254.169.254/latest/meta-data", "FEDERATION_ENDPOINT_UNSAFE"),
+        ("http://[::ffff:127.0.0.1]:9090/authorize", "FEDERATION_ENDPOINT_UNSAFE"),
     ],
 )
 def test_local_development_exception_rejects_non_loopback_or_invalid_endpoints(
@@ -903,6 +904,44 @@ def test_link_local_metadata_endpoint_is_rejected_even_with_private_network_opt_
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config_module, "_resolve_endpoint_addresses", lambda _host, _port: ("169.254.169.254",))
+
+    with pytest.raises(FederationConfigurationError) as exc_info:
+        _compile(
+            tmp_path,
+            providers="jd",
+            login_mode="redirect",
+            environ={"JD_CLIENT_ID": "jd-client", "JD_CLIENT_SECRET": "jd-secret"},
+            catalog=_catalog_with_private_jd(allow_private_network=True),
+        )
+
+    assert ("authorize_url", "FEDERATION_ENDPOINT_UNSAFE") in {
+        (issue.field, issue.code) for issue in exc_info.value.issues
+    }
+
+
+@pytest.mark.parametrize(
+    "resolved_address",
+    [
+        "127.0.0.1",
+        "224.0.0.1",
+        "ff02::1",
+        "::ffff:10.0.0.1",
+        "::ffff:224.0.0.1",
+        "192.0.2.1",
+        "198.18.0.1",
+        "2001:db8::1",
+    ],
+)
+def test_private_network_opt_in_rejects_non_private_special_addresses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    resolved_address: str,
+) -> None:
+    monkeypatch.setattr(
+        config_module,
+        "_resolve_endpoint_addresses",
+        lambda _host, _port: (resolved_address,),
+    )
 
     with pytest.raises(FederationConfigurationError) as exc_info:
         _compile(

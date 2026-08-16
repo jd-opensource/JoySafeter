@@ -24,6 +24,8 @@ from ...domain.models import (
 from ..endpoint_policy import (
     IPAddress,
     endpoint_addresses,
+    is_loopback_endpoint_address,
+    is_public_endpoint_address,
     is_trusted_private_address,
     parse_http_endpoint,
 )
@@ -514,7 +516,7 @@ class OAuth2Adapter:
     ) -> bool:
         if not addresses:
             return False
-        if all(address.is_global for address in addresses):
+        if all(is_public_endpoint_address(address) for address in addresses):
             return True
         if (
             provider is not None
@@ -526,7 +528,7 @@ class OAuth2Adapter:
             provider is not None
             and provider.allow_http_loopback
             and scheme == "http"
-            and all(address.is_loopback for address in addresses)
+            and all(is_loopback_endpoint_address(address) for address in addresses)
         )
 
     async def _request(
