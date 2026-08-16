@@ -209,6 +209,26 @@ def test_authorize_maps_stable_federation_errors(
     assert response.json()["code"] == code
 
 
+def test_authorize_state_store_unavailable_returns_stable_error_without_url(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    coordinator = _Coordinator(
+        begin_error=FederationError(
+            code="FEDERATION_STATE_STORE_UNAVAILABLE",
+            message="internal redis connection detail",
+            retryable=True,
+        )
+    )
+    _patch_coordinator(monkeypatch, coordinator)
+
+    response = client.get("/api/v1/auth/oauth/github")
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "FEDERATION_STATE_STORE_UNAVAILABLE"
+    assert "authorization_url" not in str(response.json())
+
+
 def test_authorize_unknown_federation_error_maps_to_stable_unavailable_code(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

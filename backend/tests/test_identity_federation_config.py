@@ -181,6 +181,18 @@ def test_redirect_uses_first_of_multiple_active_providers(tmp_path: Path) -> Non
     assert public_providers[0].id == ProviderId("jd")
 
 
+def test_single_jd_redirect_compiles_exact_provider_list(tmp_path: Path) -> None:
+    compiled = _compile(
+        tmp_path,
+        providers="jd",
+        login_mode="redirect",
+        environ=_complete_env(),
+    )
+
+    assert compiled.registry.settings.login_mode is LoginMode.REDIRECT
+    assert [provider.id.value for provider in compiled.registry.list_public()] == ["jd"]
+
+
 @pytest.mark.parametrize(
     ("providers", "expected_fields"),
     [
@@ -288,6 +300,25 @@ def test_active_provider_reports_every_unresolved_environment_value(tmp_path: Pa
     assert [(issue.field, issue.code) for issue in exc_info.value.issues] == [
         ("client_secret", "FEDERATION_ENV_UNRESOLVED"),
         ("authorize_url", "FEDERATION_ENV_UNRESOLVED"),
+        ("userinfo_url", "FEDERATION_ENV_UNRESOLVED"),
+    ]
+
+
+def test_broken_jd_aggregates_missing_client_secret_and_userinfo_url(tmp_path: Path) -> None:
+    environ = _complete_env()
+    environ.pop("JD_CLIENT_SECRET")
+    environ.pop("JD_USERINFO_URL")
+
+    with pytest.raises(FederationConfigurationError) as exc_info:
+        _compile(
+            tmp_path,
+            providers="jd",
+            login_mode="redirect",
+            environ=environ,
+        )
+
+    assert [(issue.field, issue.code) for issue in exc_info.value.issues] == [
+        ("client_secret", "FEDERATION_ENV_UNRESOLVED"),
         ("userinfo_url", "FEDERATION_ENV_UNRESOLVED"),
     ]
 
