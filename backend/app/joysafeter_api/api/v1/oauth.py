@@ -1,372 +1,178 @@
-"""
-JoySafeter v2 OAuth/OIDC auth API endpoints.
+"""Identity federation HTTP routes exposed through the legacy OAuth paths."""
 
-Provides OAuth login flow APIs:
-- GET /auth/oauth/providers - list enabled providers
-- GET /auth/oauth/{provider} - start OAuth authorization
-- GET /auth/oauth/{provider}/callback - handle OAuth callback
+from __future__ import annotations
 
-Multi-protocol support:
-- oauth2 (standard): GitHub, Google, Microsoft, GitLab, etc.
-- jd_sso (JD SSA): JD enterprise login
-"""
-
-import json
-import secrets
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any
 from urllib.parse import urlencode, urlparse
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_domain.services.joysafeter_auth_service import AuthService, OAuthService
-from app.joysafeter_shared.cache.redis import RedisClient
-from app.joysafeter_shared.common.app_errors import InvalidRequestError
-from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
-from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
-from app.joysafeter_shared.common.dependencies import get_db
+from app.joysafeter_identity_federation.application.commands import BeginLoginCommand, CompleteLoginCommand
+from app.joysafeter_identity_federation.application.results import LoginRestarted, LoginSucceeded
+from app.joysafeter_identity_federation.bootstrap import (
+    build_federated_account_service,
+    build_federated_login_coordinator,
+    get_federation_provider_view,
+)
+from app.joysafeter_identity_federation.domain.errors import FederationError
+from app.joysafeter_identity_federation.domain.models import (
+    CallbackContext,
+    CorrelationCookie,
+    ProviderId,
+    RequestContext,
+)
+from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ServiceUnavailableError
+from app.joysafeter_shared.common.dependencies import get_current_user, get_db
 from app.joysafeter_shared.common.response import success_response
 from app.joysafeter_shared.config.settings import settings
-from app.joysafeter_shared.oauth import get_oauth_config, get_protocol_handler
+from app.joysafeter_shared.rate_limit import get_client_ip
 
-LOG_PREFIX = "[OAuthAPI]"
 router = APIRouter(tags=["joysafeter-oauth"])
 
+_CORRELATION_COOKIE_NAME = "joysafeter_federation_attempt"
 
-def _oauth_api_error_payload(
-    *,
-    code: str,
-    message: str,
-    operation: str,
-    provider: str | None = None,
-    state: str | None = None,
-    data: dict[str, object] | None = None,
-    detail: str | None = None,
-    retryable: bool = True,
-    user_action: str | None = "retry",
-) -> dict[str, object]:
-    payload_data: dict[str, object] = {}
-    if provider is not None:
-        payload_data["provider"] = provider
-    if state is not None:
-        payload_data["state_prefix"] = state[:20]
-    if data:
-        payload_data.update(data)
-    return async_boundary_error_payload(
-        code=code,
-        message=message,
-        boundary="oauth_api",
-        operation=operation,
-        data=payload_data,
-        source="api",
-        retryable=retryable,
-        user_action=user_action,
-        detail=detail,
-    )
+AUTHORIZE_HTTP_STATUS = {
+    "FEDERATION_PROVIDER_NOT_ACTIVE": 404,
+    "FEDERATION_CALLBACK_URL_INVALID": 400,
+    "FEDERATION_STATE_STORE_UNAVAILABLE": 503,
+}
 
+CALLBACK_REDIRECT_CODES = {
+    "FEDERATION_ATTEMPT_INVALID": "FEDERATION_ATTEMPT_INVALID",
+    "FEDERATION_ATTEMPT_MISMATCH": "FEDERATION_ATTEMPT_MISMATCH",
+    "FEDERATION_ATTEMPT_EXPIRED": "FEDERATION_ATTEMPT_EXPIRED",
+    "FEDERATION_UPSTREAM_DENIED": "FEDERATION_UPSTREAM_DENIED",
+    "FEDERATION_UPSTREAM_UNAVAILABLE": "FEDERATION_UPSTREAM_UNAVAILABLE",
+    "FEDERATION_ACCOUNT_LINK_REQUIRED": "FEDERATION_ACCOUNT_LINK_REQUIRED",
+    "FEDERATION_REGISTRATION_DISABLED": "FEDERATION_REGISTRATION_DISABLED",
+    "FEDERATION_SESSION_ISSUE_FAILED": "FEDERATION_SESSION_ISSUE_FAILED",
+}
 
-# ==================== Response Models ====================
+_AUTHORIZE_FALLBACK_CODE = "FEDERATION_UPSTREAM_UNAVAILABLE"
 
 
 class OAuthProviderInfo(BaseModel):
-    """OAuth provider info (no sensitive fields)."""
-
     id: str
     display_name: str
     icon: str
 
 
 class OAuthProvidersResponse(BaseModel):
-    """OAuth provider list response."""
+    providers: list[OAuthProviderInfo]
+    login_mode: str
 
-    providers: List[OAuthProviderInfo]
+
+class UserOAuthAccount(BaseModel):
+    id: str
+    provider: str
+    provider_account_id: str
+    email: str | None
+    created_at: datetime
 
 
-# ==================== API Endpoints ====================
+class UserOAuthAccountsResponse(BaseModel):
+    accounts: list[UserOAuthAccount]
 
 
 @router.get("/providers", response_model=OAuthProvidersResponse)
 async def list_oauth_providers() -> OAuthProvidersResponse:
-    """
-    List enabled OAuth providers.
-
-    Used by frontend to render SSO buttons.
-    """
-    oauth_config = get_oauth_config()
-    providers = oauth_config.list_providers()
-
-    return OAuthProvidersResponse(providers=[OAuthProviderInfo(**p) for p in providers])
+    view = get_federation_provider_view()
+    return OAuthProvidersResponse(
+        providers=[
+            OAuthProviderInfo(
+                id=provider.id,
+                display_name=provider.display_name,
+                icon=provider.icon,
+            )
+            for provider in view.providers
+        ],
+        login_mode=view.login_mode,
+    )
 
 
 @router.get("/{provider}")
 async def oauth_authorize(
     provider: str,
     request: Request,
-    callback_url: Optional[str] = Query(None, description="Redirect URL after successful login"),
+    callback_url: str | None = Query(None, description="Redirect URL after successful login"),
     db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
-    """
-    Start OAuth authorization flow.
+) -> JSONResponse:
+    try:
+        coordinator = build_federated_login_coordinator(db)
+        result = await coordinator.begin_login(
+            BeginLoginCommand(provider_id=provider, callback_url=callback_url),
+            _request_context(request),
+        )
+    except FederationError as error:
+        raise _authorize_error(error) from error
+    except Exception as unexpected_error:
+        logger.bind(error_type=type(unexpected_error).__name__).error("Identity federation authorization failed")
+        raise ServiceUnavailableError(
+            "Identity federation authorization failed",
+            code=_AUTHORIZE_FALLBACK_CODE,
+            retryable=True,
+            user_action="retry",
+        ) from unexpected_error
 
-    Redirect users to the provider's authorization page.
-
-    Args:
-        provider: Provider key (e.g. "github", "google", "jd")
-        callback_url: Redirect URL after login (optional)
-    """
-    oauth_config = get_oauth_config()
-    oauth_service = OAuthService(db)
-
-    # Build callback URL
-    base_url = _get_base_url(request)
-    redirect_uri = f"{base_url}/api/v1/auth/oauth/{provider}/callback"
-
-    # Generate state (includes callback_url)
-    state = secrets.token_urlsafe(32)
-    state_data = {
-        "provider": provider,
-        "redirect_uri": redirect_uri,
-        "callback_url": callback_url or oauth_config.settings.default_redirect_url,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-    authorization_url, resolved_state = await oauth_service.generate_authorization_url(
-        provider_name=provider,
-        redirect_uri=redirect_uri,
-        state=state,
+    response = JSONResponse(
+        content=success_response(
+            data={"authorization_url": result.authorization_url},
+            message="OAuth authorization URL generated",
+        )
     )
-
-    # Store state after generating the authorization URL. OAuthService also writes
-    # state metadata, so this final write preserves callback_url for the callback.
-    state_data["state"] = resolved_state
-    if RedisClient.is_available():
-        try:
-            await RedisClient.set(f"oauth_state:{resolved_state}", json.dumps(state_data), expire=600)
-        except Exception as e:
-            logger.bind(
-                error=_oauth_api_error_payload(
-                    code="OAUTH_API_STATE_STORE_FAILED",
-                    message="Failed to store OAuth state in Redis",
-                    operation="store_state",
-                    provider=provider,
-                    state=resolved_state,
-                    detail=e.__class__.__name__,
-                )
-            ).warning(f"{LOG_PREFIX} Failed to store state in Redis")
-
-    logger.info(f"{LOG_PREFIX} Generated authorization URL for {provider}")
-    return success_response(
-        data={
-            "authorization_url": authorization_url,
-            "state": resolved_state,
-        },
-        message="OAuth authorization URL generated",
-    )
+    _set_correlation_cookie(response, result.correlation_cookie)
+    return response
 
 
 @router.get("/{provider}/callback")
 async def oauth_callback(
     provider: str,
     request: Request,
-    code: Optional[str] = Query(None, description="Auth code (required for OAuth2, optional for JD SSO)"),
-    state: Optional[str] = Query(None, description="State parameter (optional for JD SSO)"),
-    error: Optional[str] = Query(None, description="Error message"),
-    error_description: Optional[str] = Query(None, description="Error description"),
-    retry: int = Query(0, description="Internal retry counter to avoid redirect loops"),
+    code: str | None = Query(None, description="Auth code"),
+    state: str | None = Query(None, description="State parameter"),
+    error: str | None = Query(None, description="Provider error"),
+    error_description: str | None = Query(None, description="Provider error description"),
+    retry: int = Query(0, description="Legacy callback parameter"),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
-    """
-    Handle OAuth callback.
-
-    Validate authorization, fetch user info, create/link user, issue JWT tokens.
-
-    Multi-protocol support (by provider protocol field):
-    - oauth2 (standard): exchange code for token, then userinfo
-    - jd_sso (JD SSA): use Cookie + verifyTicket for userinfo
-    """
-    oauth_config = get_oauth_config()
-    frontend_url = settings.frontend_url.rstrip("/")
-
-    # Handle user denial
-    if error:
-        log_boundary_failure_loguru(
-            logger,
-            boundary="oauth_api",
-            code="OAUTH_PROVIDER_ACCESS_DENIED",
-            message="OAuth provider returned an access denial",
-            operation="handle_callback_denial",
-            data={"provider": provider, "oauth_error": error, "has_description": bool(error_description)},
-            retryable=False,
-            user_action="retry_login",
-        )
-        return _redirect_with_error(frontend_url, "OAUTH_ACCESS_DENIED", error_description or error)
-
-    # 2. Load provider config (needed to detect protocol)
-    provider_config = oauth_config.get_provider(provider)
-    if not provider_config:
-        log_boundary_failure_loguru(
-            logger,
-            boundary="oauth_api",
-            code="OAUTH_PROVIDER_NOT_FOUND",
-            message="OAuth provider not found",
-            operation="load_oauth_provider",
-            data={"provider": provider},
-            retryable=False,
-            user_action="check_configuration",
-        )
-        return _redirect_with_error(frontend_url, "OAUTH_PROVIDER_NOT_FOUND")
-
-    # 1. Validate state (JD SSO can skip; it relies on Cookie, not auth code)
-    callback_url = oauth_config.settings.default_redirect_url
-    state_data: dict[Any, Any] | None = {}
-
-    if state:
-        # Validate when state is present
-        state_data, callback_url = await _validate_state(state, oauth_config)
-        if state_data is None:
-            return _redirect_with_error(frontend_url, "OAUTH_STATE_INVALID")
-
-        # Validate provider match
-        if state_data.get("provider") != provider:
-            log_boundary_failure_loguru(
-                logger,
-                boundary="oauth_api",
-                code="OAUTH_PROVIDER_MISMATCH",
-                message="OAuth callback provider mismatch",
-                operation="validate_callback_provider",
-                data={"provider": provider, "expected_provider": str(state_data.get("provider") or "")},
-                retryable=False,
-                user_action="retry_login",
-            )
-            return _redirect_with_error(frontend_url, "OAUTH_PROVIDER_MISMATCH")
-    elif provider_config.protocol != "jd_sso":
-        # Non-JD SSO protocols require state
-        log_boundary_failure_loguru(
-            logger,
-            boundary="oauth_api",
-            code="OAUTH_STATE_MISSING",
-            message="OAuth callback missing state parameter",
-            operation="validate_callback_state",
-            data={"provider": provider, "protocol": provider_config.protocol},
-            retryable=False,
-            user_action="retry_login",
-        )
-        return _redirect_with_error(frontend_url, "OAUTH_STATE_MISSING")
-
+    del code, state, error, error_description, retry
     try:
-        # 3. Use protocol handler to fetch user info
-        handler = get_protocol_handler(provider_config.protocol)
-        redirect_uri = (state_data or {}).get(
-            "redirect_uri"
-        ) or f"{_get_base_url(request)}/api/v1/auth/oauth/{provider}/callback"
-
-        logger.info(f"{LOG_PREFIX} Processing {provider_config.protocol} callback for {provider}")
-
-        user_info = await handler.get_user_info(
-            request=request,
-            provider_config=provider_config,
-            code=code,
-            redirect_uri=redirect_uri,
+        coordinator = build_federated_login_coordinator(db)
+        result = await coordinator.complete_login(
+            CompleteLoginCommand(provider_id=provider),
+            _request_context(request, callback=True),
         )
 
-        # 4. Find or create user
-        oauth_service = OAuthService(db)
-        user, is_new_user = await oauth_service.find_or_create_user(
-            provider_name=provider,
-            provider_account_id=user_info.provider_id,
-            email=user_info.email,
-            name=user_info.name,
-            avatar=user_info.avatar,
-            tokens={},  # Tokens handled by protocol handler
-            raw_userinfo=user_info.raw,
+        if isinstance(result, LoginSucceeded):
+            response = _create_auth_response(result)
+            _clear_correlation_cookie(response, first=True)
+            return response
+
+        if isinstance(result, LoginRestarted):
+            response = RedirectResponse(url=result.authorization_action.authorization_url, status_code=302)
+            _clear_correlation_cookie(response)
+            _set_correlation_cookie(response, result.authorization_action.correlation_cookie)
+            return response
+
+        raise RuntimeError("Unsupported federation result")
+    except FederationError as federation_error:
+        error_code = CALLBACK_REDIRECT_CODES.get(
+            federation_error.code,
+            "FEDERATION_UPSTREAM_UNAVAILABLE",
         )
-
-        # 5. Commit transaction & post-login init
-        await db.commit()
-        ip_address = _get_client_ip(request)
-
-        from app.joysafeter_domain.services.joysafeter_auth_service import run_post_login_init
-
-        await run_post_login_init(db, user, ip_address)
-
-        # 6. Issue JWT tokens and persist refresh session.
-        auth_service = AuthService(db)
-        token_result = await auth_service.issue_login_tokens(user)
-
-        # 7. Set cookies and redirect
-        response = _create_auth_response(
-            frontend_url=frontend_url,
-            callback_url=callback_url,
-            access_token=token_result["access_token"],
-            refresh_token=token_result["refresh_token"],
-            csrf_token=token_result["csrf_token"],
-        )
-
-        logger.info(
-            f"{LOG_PREFIX} OAuth login successful",
-            extra={"provider": provider, "user_id": user.id, "is_new_user": is_new_user},
-        )
-
+        response = _redirect_with_error(error_code)
+        _clear_correlation_cookie(response)
         return response
-
-    except InvalidRequestError:
-        raise
-    except ValueError as e:
-        # Validation error raised by protocol handler
-        log_boundary_failure_loguru(
-            logger,
-            boundary="oauth_api",
-            code="OAUTH_CALLBACK_VALIDATION_FAILED",
-            message="OAuth callback validation failed",
-            operation="process_oauth_callback",
-            error=e,
-            data={"provider": provider, "protocol": provider_config.protocol},
-            retryable=provider_config.protocol == "jd_sso" and retry < 1,
-            user_action="retry_login",
-        )
-        await db.rollback()
-        # JD SSO: missing sso.jd.com cookie likely means the JD session was not yet
-        # established. Redirect back to the authorize URL once to let JD set the cookie
-        # (seamless if the user already has a JD session), instead of failing immediately.
-        if provider_config.protocol == "jd_sso" and retry < 1:
-            logger.info(f"{LOG_PREFIX} JD SSO retry: redirecting back to authorize URL")
-            return await _redirect_to_jd_authorize(request, provider, callback_url, retry + 1, db)
-        return _redirect_with_error(frontend_url, "OAUTH_CALLBACK_INVALID", str(e))
-    except Exception as e:
-        log_boundary_failure_loguru(
-            logger,
-            boundary="oauth_api",
-            code="OAUTH_CALLBACK_FAILED",
-            message="OAuth callback failed",
-            operation="process_oauth_callback",
-            error=e,
-            data={"provider": provider, "protocol": provider_config.protocol},
-        )
-        await db.rollback()
-        return _redirect_with_error(frontend_url, "OAUTH_CALLBACK_FAILED", str(e))
-
-
-# ==================== User OAuth Account Management ====================
-
-
-class UserOAuthAccount(BaseModel):
-    """User OAuth account info."""
-
-    id: str
-    provider: str
-    provider_account_id: str
-    email: Optional[str]
-    created_at: datetime
-
-
-class UserOAuthAccountsResponse(BaseModel):
-    """User OAuth account list response."""
-
-    accounts: List[UserOAuthAccount]
+    except Exception as unexpected_error:
+        logger.bind(error_type=type(unexpected_error).__name__).error("Identity federation callback failed")
+        response = _redirect_with_error("FEDERATION_UPSTREAM_UNAVAILABLE")
+        _clear_correlation_cookie(response)
+        return response
 
 
 @router.get("/accounts/me", response_model=UserOAuthAccountsResponse)
@@ -374,23 +180,18 @@ async def get_my_oauth_accounts(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> UserOAuthAccountsResponse:
-    """Get OAuth account bindings for current user."""
-    from app.joysafeter_shared.common.dependencies import get_current_user
-
     current_user = await get_current_user(None, request, db)
-    oauth_service = OAuthService(db)
-    accounts = await oauth_service.get_user_oauth_accounts(current_user.id)
-
+    accounts = await build_federated_account_service(db).list_accounts(current_user.id)
     return UserOAuthAccountsResponse(
         accounts=[
             UserOAuthAccount(
-                id=acc.id,
-                provider=acc.provider,
-                provider_account_id=acc.provider_account_id,
-                email=acc.email,
-                created_at=acc.created_at,
+                id=account.id,
+                provider=account.provider_id.value,
+                provider_account_id=account.subject,
+                email=account.email,
+                created_at=account.created_at,
             )
-            for acc in accounts
+            for account in accounts
         ]
     )
 
@@ -400,201 +201,132 @@ async def unlink_oauth_account(
     provider: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
-    """Unlink OAuth account."""
-    from app.joysafeter_shared.common.dependencies import get_current_user
-
+) -> dict[str, Any]:
     current_user = await get_current_user(None, request, db)
-    oauth_service = OAuthService(db)
-    success = await oauth_service.unlink_oauth_account(current_user.id, provider)
-
-    if success:
-        await db.commit()
-
+    try:
+        provider_id = ProviderId(provider)
+        success = await build_federated_account_service(db).unlink(current_user.id, provider_id)
+    except ValueError as error:
+        raise InvalidRequestError("OAuth provider is invalid", code="OAUTH_PROVIDER_NOT_FOUND") from error
+    except FederationError as error:
+        if error.code == "FEDERATION_LAST_ACCOUNT_UNLINK_FORBIDDEN":
+            raise InvalidRequestError(
+                "Cannot unlink the only OAuth account. Please set a password first.",
+                code="OAUTH_LAST_ACCOUNT_UNLINK_FORBIDDEN",
+            ) from error
+        if error.code == "FEDERATION_USER_NOT_FOUND":
+            raise InvalidRequestError("User not found", code="USER_NOT_FOUND") from error
+        raise
     return {"success": success, "provider": provider}
 
 
-# ==================== Helpers ====================
+def _request_context(request: Request, *, callback: bool = False) -> RequestContext | CallbackContext:
+    base_url = settings.backend_url.rstrip("/")
+    raw_path = request.scope.get("raw_path")
+    if isinstance(raw_path, bytes):
+        path = raw_path.decode("latin-1")
+    else:
+        path = request.url.path
+    query_string = request.scope.get("query_string", b"")
+    if isinstance(query_string, bytes):
+        query = query_string.decode("latin-1")
+    else:
+        query = str(query_string)
+    request_url = f"{base_url}{path}"
+    if query:
+        request_url = f"{request_url}?{query}"
+    values = {
+        "base_url": base_url,
+        "request_url": request_url,
+        "client_ip": get_client_ip(request),
+        "headers": dict(request.headers),
+        "cookies": dict(request.cookies),
+    }
+    if callback:
+        return CallbackContext(query=dict(request.query_params), **values)
+    return RequestContext(**values)
 
 
-def _get_base_url(request: Request) -> str:
-    """Get base URL, with proxy support."""
-    base_url = str(request.base_url).rstrip("/")
-    forwarded_proto = _first_forwarded_header_value(request.headers.get("x-forwarded-proto"))
-    forwarded_host = _first_forwarded_header_value(request.headers.get("x-forwarded-host"))
-    if forwarded_host:
-        proto = forwarded_proto or request.url.scheme
-        base_url = f"{proto}://{forwarded_host}"
-    return base_url
+def _authorize_error(error: FederationError) -> InvalidRequestError | NotFoundError | ServiceUnavailableError:
+    public_code = error.code if error.code in AUTHORIZE_HTTP_STATUS else _AUTHORIZE_FALLBACK_CODE
+    status_code = AUTHORIZE_HTTP_STATUS.get(public_code, 503)
+    kwargs = {
+        "message": "Identity federation authorization failed",
+        "code": public_code,
+        "retryable": error.retryable if public_code == error.code else True,
+        "user_action": error.user_action if public_code == error.code else "retry",
+    }
+    if status_code == 404:
+        return NotFoundError(**kwargs)
+    if status_code == 503:
+        return ServiceUnavailableError(**kwargs)
+    return InvalidRequestError(**kwargs)
 
 
-def _first_forwarded_header_value(value: Optional[str]) -> Optional[str]:
-    if not value:
-        return None
-    return value.split(",", 1)[0].strip() or None
+def _correlation_cookie_kwargs() -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "httponly": True,
+        "secure": settings.cookie_secure_effective,
+        "samesite": settings.cookie_samesite,
+        "path": "/",
+    }
+    if settings.cookie_domain:
+        kwargs["domain"] = settings.cookie_domain
+    return kwargs
 
 
-async def _redirect_to_jd_authorize(
-    request: Request,
-    provider: str,
-    callback_url: str,
-    retry: int,
-    db: AsyncSession,
-) -> RedirectResponse:
-    """
-    Re-redirect to the JD SSO authorize URL when the sso.jd.com cookie is missing.
-
-    This gives JD SSO a chance to establish its session and set the cookie.
-    If the user already has a JD session this is seamless (no password prompt).
-    The retry counter on the callback redirect_uri prevents infinite loops.
-    """
-    oauth_service = OAuthService(db)
-    base_url = _get_base_url(request)
-    # Embed retry counter in the callback so the loop terminates after one retry
-    redirect_uri = f"{base_url}/api/v1/auth/oauth/{provider}/callback?retry={retry}"
-
-    state = secrets.token_urlsafe(32)
-    authorization_url, resolved_state = await oauth_service.generate_authorization_url(
-        provider_name=provider,
-        redirect_uri=redirect_uri,
-        state=state,
+def _set_correlation_cookie(response: JSONResponse | RedirectResponse, cookie: CorrelationCookie | None) -> None:
+    if cookie is None:
+        return
+    response.set_cookie(
+        key=cookie.name,
+        value=cookie.value,
+        max_age=cookie.max_age_seconds,
+        **_correlation_cookie_kwargs(),
     )
 
-    if RedisClient.is_available():
-        try:
-            state_data = {
-                "provider": provider,
-                "redirect_uri": redirect_uri,
-                "callback_url": callback_url,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "state": resolved_state,
-            }
-            await RedisClient.set(f"oauth_state:{resolved_state}", json.dumps(state_data), expire=600)
-        except Exception as e:
-            logger.bind(
-                error=_oauth_api_error_payload(
-                    code="OAUTH_API_RETRY_STATE_STORE_FAILED",
-                    message="Failed to store OAuth retry state in Redis",
-                    operation="store_retry_state",
-                    provider=provider,
-                    state=resolved_state,
-                    detail=e.__class__.__name__,
-                )
-            ).warning(f"{LOG_PREFIX} Failed to store retry state in Redis")
 
-    return RedirectResponse(url=authorization_url, status_code=302)
+def _clear_correlation_cookie(response: RedirectResponse, *, first: bool = False) -> None:
+    before = list(response.raw_headers) if first else None
+    if first:
+        response.raw_headers = [header for header in response.raw_headers if header[0].lower() != b"set-cookie"]
+    response.delete_cookie(
+        key=_CORRELATION_COOKIE_NAME,
+        domain=settings.cookie_domain,
+        path="/",
+        secure=settings.cookie_secure_effective,
+        httponly=True,
+        samesite=settings.cookie_samesite,
+    )
+    if before is not None:
+        response.raw_headers.extend(header for header in before if header[0].lower() == b"set-cookie")
 
 
-def _get_client_ip(request: Request) -> str:
-    """Get client IP, with proxy support."""
-    ip = request.client.host if request.client else "unknown"
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        ip = forwarded_for.split(",")[0].strip()
-    return ip
-
-
-def _redirect_with_error(frontend_url: str, error_code: str, message: Optional[str] = None) -> RedirectResponse:
-    """Build error redirect response."""
-    params = {"error_code": error_code}
-    if message:
-        params["error_message"] = message
-    error_url = f"{frontend_url}/signin?{urlencode(params)}"
+def _redirect_with_error(error_code: str) -> RedirectResponse:
+    error_url = f"{settings.frontend_url.rstrip('/')}/signin?{urlencode({'error_code': error_code})}"
     return RedirectResponse(url=error_url, status_code=302)
 
 
-def _resolve_frontend_callback_url(frontend_url: str, callback_url: str) -> str:
-    frontend_url = frontend_url.rstrip("/")
+def _resolve_frontend_callback_url(callback_url: str) -> str:
+    frontend_url = settings.frontend_url.rstrip("/")
     default_url = f"{frontend_url}/managed/quickstart"
-    callback_url = (callback_url or "").strip()
-    if not callback_url:
+    candidate = callback_url.strip()
+    if not candidate:
         return default_url
-
-    if callback_url.startswith("/") and not callback_url.startswith("//"):
-        return f"{frontend_url}{callback_url}"
-
-    parsed_callback = urlparse(callback_url)
+    if candidate.startswith("/") and not candidate.startswith("//"):
+        return f"{frontend_url}{candidate}"
+    parsed_callback = urlparse(candidate)
     parsed_frontend = urlparse(frontend_url)
-    if parsed_callback.scheme in ("http", "https") and parsed_callback.netloc == parsed_frontend.netloc:
-        return callback_url
-
+    if parsed_callback.scheme in {"http", "https"} and parsed_callback.netloc == parsed_frontend.netloc:
+        return candidate
     if not parsed_callback.scheme and not parsed_callback.netloc:
-        return f"{frontend_url}/{callback_url.lstrip('/')}"
-
-    log_boundary_failure_loguru(
-        logger,
-        boundary="oauth_api",
-        code="OAUTH_CALLBACK_URL_BLOCKED",
-        message="Blocked unsafe OAuth callback URL",
-        operation="resolve_frontend_callback_url",
-        data={"frontend_host": parsed_frontend.netloc, "callback_host": parsed_callback.netloc or ""},
-        retryable=False,
-        user_action="check_configuration",
-    )
+        return f"{frontend_url}/{candidate.lstrip('/')}"
     return default_url
 
 
-async def _validate_state(state: str, oauth_config) -> tuple[Optional[Dict], str]:
-    """Validate state and return state_data and callback_url."""
-    callback_url = oauth_config.settings.default_redirect_url
-
-    # `state` is the login-CSRF nonce; Redis is its authoritative store. If the
-    # store is unavailable we cannot confirm the nonce, so fail CLOSED (reject
-    # the login) rather than open. Availability of login during a Redis outage
-    # is deliberately traded away — a CSRF control must never be silently
-    # disabled by an infrastructure failure.
-    if not RedisClient.is_available():
-        return None, callback_url
-
-    try:
-        state_key = f"oauth_state:{state}"
-        state_data_str = await RedisClient.get(state_key)
-        if state_data_str:
-            state_data = json.loads(state_data_str)
-            callback_url = state_data.get("callback_url", callback_url)
-            await RedisClient.delete(state_key)
-            return state_data, callback_url
-        else:
-            log_boundary_failure_loguru(
-                logger,
-                boundary="oauth_api",
-                code="OAUTH_STATE_INVALID",
-                message="OAuth state is invalid or expired",
-                operation="validate_state",
-                data={"state_prefix": state[:20]},
-                retryable=False,
-                user_action="retry_login",
-            )
-            return None, callback_url
-    except Exception as e:
-        logger.bind(
-            error=_oauth_api_error_payload(
-                code="OAUTH_API_STATE_VALIDATE_FAILED",
-                message="Failed to validate OAuth state from Redis",
-                operation="validate_state",
-                state=state,
-                detail=e.__class__.__name__,
-            )
-        ).warning(f"{LOG_PREFIX} Failed to validate state")
-        # Same fail-closed rationale as the Redis-unavailable branch: a lookup
-        # error means the nonce is unverifiable, so reject rather than proceed.
-        return None, callback_url
-
-
-def _create_auth_response(
-    frontend_url: str,
-    callback_url: str,
-    access_token: str,
-    refresh_token: str,
-    csrf_token: str,
-) -> RedirectResponse:
-    """Create redirect response with auth cookies."""
-    final_url = _resolve_frontend_callback_url(frontend_url, callback_url)
-
-    response = RedirectResponse(url=final_url, status_code=302)
-
-    # Cookie defaults
-    cookie_kwargs: Dict[str, Any] = {
+def _create_auth_response(result: LoginSucceeded) -> RedirectResponse:
+    response = RedirectResponse(url=_resolve_frontend_callback_url(result.callback_url), status_code=302)
+    cookie_kwargs: dict[str, Any] = {
         "httponly": True,
         "samesite": settings.cookie_samesite,
         "secure": settings.cookie_secure_effective,
@@ -602,17 +334,22 @@ def _create_auth_response(
     }
     if settings.cookie_domain:
         cookie_kwargs["domain"] = settings.cookie_domain
-
-    # Access token
-    access_expires = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-    response.set_cookie(key=settings.cookie_name, value=access_token, expires=access_expires, **cookie_kwargs)
-
-    # Refresh token
-    refresh_expires = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
-    response.set_cookie(key="refresh_token", value=refresh_token, expires=refresh_expires, **cookie_kwargs)
-
-    # CSRF token (not httponly)
-    csrf_kwargs = {**cookie_kwargs, "httponly": False}
-    response.set_cookie(key="csrf_token", value=csrf_token, expires=access_expires, **csrf_kwargs)
-
+    response.set_cookie(
+        key=settings.cookie_name,
+        value=result.access_token,
+        expires=result.access_expires_at,
+        **cookie_kwargs,
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=result.refresh_token,
+        expires=result.refresh_expires_at,
+        **cookie_kwargs,
+    )
+    response.set_cookie(
+        key="csrf_token",
+        value=result.csrf_token,
+        expires=result.access_expires_at,
+        **{**cookie_kwargs, "httponly": False},
+    )
     return response

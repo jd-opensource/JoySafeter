@@ -1,14 +1,20 @@
 from types import SimpleNamespace
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from app.joysafeter_api.api.v1 import oauth as oauth_api
 from app.joysafeter_domain.services import joysafeter_auth_service as auth_service_module
 from app.joysafeter_domain.services.joysafeter_auth_service import AuthService, OAuthService
+from app.joysafeter_identity_federation.domain.errors import FederationError
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
+from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.oauth.config import OAuthProviderConfig
 from app.joysafeter_shared.oauth.protocols import oauth2 as oauth2_protocol
 from app.joysafeter_shared.oauth.protocols.oauth2 import OAuth2Handler
+
+pytestmark = pytest.mark.no_db
 
 
 class _FakeLogger:
@@ -125,36 +131,26 @@ def _oauth_provider(**kwargs) -> OAuthProviderConfig:
     return OAuthProviderConfig(**data)
 
 
-@pytest.mark.asyncio
-async def test_oauth_api_state_validate_failure_logs_structured_boundary_error(monkeypatch):
-    fake_logger = _FakeLogger()
-    monkeypatch.setattr(oauth_api, "RedisClient", _FailingRedis)
-    monkeypatch.setattr(oauth_api, "logger", fake_logger)
+def test_oauth_api_maps_facade_state_store_failure_without_leaking_detail(monkeypatch):
+    class _Coordinator:
+        async def begin_login(self, command, context):
+            del command, context
+            raise FederationError(
+                code="FEDERATION_STATE_STORE_UNAVAILABLE",
+                message="redis connection reset secret-host.internal",
+            )
 
-    state_data, callback_url = await oauth_api._validate_state(
-        "state-1234567890",
-        SimpleNamespace(settings=SimpleNamespace(default_redirect_url="/managed/quickstart")),
-    )
+    monkeypatch.setattr(oauth_api, "build_federated_login_coordinator", lambda _db: _Coordinator(), raising=False)
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.include_router(oauth_api.router, prefix="/api/v1/auth/oauth")
+    app.dependency_overrides[oauth_api.get_db] = lambda: object()
 
-    assert state_data is None
-    assert callback_url == "/managed/quickstart"
-    assert fake_logger.messages == [("warning", "[OAuthAPI] Failed to validate state")]
-    assert fake_logger.bound == {
-        "error": {
-            "type": "error",
-            "code": "OAUTH_API_STATE_VALIDATE_FAILED",
-            "message": "Failed to validate OAuth state from Redis",
-            "data": {
-                "boundary": "oauth_api",
-                "operation": "validate_state",
-                "state_prefix": "state-1234567890",
-            },
-            "source": "api",
-            "retryable": True,
-            "user_action": "retry",
-            "detail": "RuntimeError",
-        }
-    }
+    response = TestClient(app).get("/api/v1/auth/oauth/github")
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "FEDERATION_STATE_STORE_UNAVAILABLE"
+    assert "secret-host" not in response.text
 
 
 @pytest.mark.asyncio

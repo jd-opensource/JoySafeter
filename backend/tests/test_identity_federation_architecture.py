@@ -1,6 +1,10 @@
 import ast
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.no_db
+
 FORBIDDEN_DOMAIN_IMPORTS = {
     "fastapi",
     "sqlalchemy",
@@ -68,3 +72,22 @@ def _find_auth_service_imports(federation_directory: Path) -> set[Path]:
             import_paths.add(source_path.relative_to(federation_directory))
 
     return import_paths
+
+
+def test_oauth_api_is_a_thin_federation_http_adapter() -> None:
+    oauth_path = Path(__file__).resolve().parents[1] / "app" / "joysafeter_api" / "api" / "v1" / "oauth.py"
+    oauth_source = oauth_path.read_text()
+
+    for forbidden in (
+        "RedisClient",
+        "OAuthService",
+        "AuthService",
+        "get_oauth_config",
+        "get_protocol_handler",
+        '== "jd_sso"',
+        "_redirect_to_jd_authorize",
+        "_validate_state",
+        ".commit(",
+        ".rollback(",
+    ):
+        assert forbidden not in oauth_source

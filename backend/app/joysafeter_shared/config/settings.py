@@ -6,6 +6,7 @@ import os
 import socket
 from pathlib import Path
 from typing import Annotated, List, Optional, Union
+from urllib.parse import urlsplit
 
 from loguru import logger
 from pydantic import Field, field_validator
@@ -75,6 +76,34 @@ class Settings(BaseSettings):
         validation_alias="BACKEND_PORT",
         description="Backend server port",
     )
+    backend_url: str = Field(
+        default="http://localhost:8000",
+        validation_alias="BACKEND_URL",
+        description="Canonical public backend origin used to construct externally visible API URLs",
+    )
+
+    @field_validator("backend_url", mode="before")
+    @classmethod
+    def _validate_backend_url(cls, value: object) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("BACKEND_URL must be a non-empty HTTP(S) origin")
+        candidate = value.strip()
+        if any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in candidate):
+            raise ValueError("BACKEND_URL must not contain whitespace or control characters")
+        parsed = urlsplit(candidate)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("BACKEND_URL must be an absolute HTTP(S) origin")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("BACKEND_URL must not contain credentials")
+        if "%" in parsed.netloc or "\\" in parsed.netloc or parsed.netloc.endswith(":"):
+            raise ValueError("BACKEND_URL contains an invalid authority")
+        if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+            raise ValueError("BACKEND_URL must contain only scheme, host, and optional port")
+        try:
+            parsed.port
+        except ValueError as error:
+            raise ValueError("BACKEND_URL contains an invalid port") from error
+        return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
     orchestrator_http_host: str = Field(
         default="127.0.0.1",
         validation_alias="ORCHESTRATOR_HTTP_HOST",
