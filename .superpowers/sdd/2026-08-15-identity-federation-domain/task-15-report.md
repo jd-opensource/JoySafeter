@@ -655,3 +655,102 @@ All checks passed!
 - Callback policy remains owned by the application layer; API architecture now prevents both raw callback access and URL parsing imports/calls.
 - The focused settings command executes the unrelated modified `test_settings_contract.py`, but that file is excluded from this commit; every new Fix Round 2 setting regression is in `test_identity_federation_api.py`.
 - No full backend/frontend suite was run; verification was limited to the requested Task 12/13/API/bootstrap/settings and adjacent protocol/cookie boundaries.
+
+## Fix Round 3 — 2026-08-16
+
+### Scope
+
+The only remaining finding was an architecture-test alias bypass. No runtime code changed. Fix Round 3 is limited to:
+
+- `backend/tests/test_identity_federation_architecture.py`
+- this report
+
+The unrelated unstaged `backend/tests/test_settings_contract.py` modification was preserved and excluded.
+
+### RED — Top-Level `urllib` Alias
+
+A mutation test added exactly this bypass shape:
+
+```python
+import urllib as tools
+
+tools.parse.urlsplit(value)
+tools.parse.urlparse(value)
+tools.parse.urljoin("https://app.example", value)
+tools.parse.unquote(value)
+```
+
+RED command:
+
+```bash
+cd backend
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache \
+  uv run pytest \
+    tests/test_identity_federation_architecture.py::test_oauth_api_architecture_analyzer_resolves_top_level_urllib_alias -q
+```
+
+```text
+1 failed in 0.03s
+assert set() == {'call:unquote', 'call:urljoin', 'call:urlparse', 'call:urlsplit'}
+```
+
+The analyzer resolved `urllib.parse` imports and `from urllib import parse` aliases, but did not bind a top-level `urllib` import alias before walking the chained attributes.
+
+### GREEN — Top-Level `urllib` Alias
+
+The import pass now records `import urllib` and `import urllib as <alias>` bindings as qualified `urllib` names. Existing recursive attribute resolution therefore converts `tools.parse.urlsplit` and analogous calls to `urllib.parse.*`, where the existing forbidden-call rule rejects every parser/join/unquote call except `urlencode`.
+
+Architecture GREEN:
+
+```bash
+cd backend
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache \
+  uv run pytest tests/test_identity_federation_architecture.py -q
+```
+
+```text
+8 passed in 0.04s
+```
+
+This includes:
+
+- direct `urllib.parse` imports;
+- `urllib.parse` module aliases;
+- `from urllib import parse` aliases;
+- the new top-level `urllib as tools` chain;
+- aliased forbidden calls;
+- renamed helper and inline raw `.callback_url` mutations;
+- the allowed `from urllib.parse import urlencode as ...` case.
+
+### Fix Round 3 Verification
+
+Task 15 focused command:
+
+```bash
+cd backend
+UV_CACHE_DIR=/private/tmp/joysafeter-uv-cache \
+  uv run pytest \
+    tests/test_identity_federation_begin_login.py \
+    tests/test_identity_federation_complete_login.py \
+    tests/test_identity_federation_api.py \
+    tests/test_identity_federation_architecture.py \
+    tests/test_oauth_async_boundary_contract.py \
+    tests/test_identity_federation_bootstrap_factory.py \
+    tests/test_settings_contract.py -q
+```
+
+```text
+163 passed in 0.79s
+```
+
+Ruff and diff whitespace:
+
+```text
+All checks passed!
+```
+
+### Fix Round 3 Risks
+
+- No runtime behavior changed; this round only closes a static architecture-enforcement bypass.
+- The focused command executes the unrelated modified `test_settings_contract.py`, but that file is excluded from the fix-round diff and commit.
+- No full backend/frontend suite was run because the requested scope was architecture plus Task 15 focused tests.

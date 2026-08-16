@@ -153,6 +153,27 @@ def _safe_destination(result):
     }
 
 
+def test_oauth_api_architecture_analyzer_resolves_top_level_urllib_alias() -> None:
+    source = """
+import urllib as tools
+
+def inspect_destination(value):
+    return (
+        tools.parse.urlsplit(value),
+        tools.parse.urlparse(value),
+        tools.parse.urljoin("https://app.example", value),
+        tools.parse.unquote(value),
+    )
+"""
+
+    assert _oauth_api_architecture_violations(source) == {
+        "call:unquote",
+        "call:urljoin",
+        "call:urlparse",
+        "call:urlsplit",
+    }
+
+
 def test_oauth_api_architecture_analyzer_allows_urlencode_only() -> None:
     source = """
 from urllib.parse import urlencode as encode_query
@@ -178,6 +199,8 @@ def _oauth_api_architecture_violations(source: str) -> set[str]:
                     bound_name = alias.asname or "urllib"
                     aliases[bound_name] = "urllib.parse" if alias.asname else "urllib"
                     violations.add("import:urllib.parse")
+                elif alias.name == "urllib":
+                    aliases[alias.asname or "urllib"] = "urllib"
         elif isinstance(node, ast.ImportFrom) and node.module:
             if _matches_import_root(node.module, FORBIDDEN_OAUTH_IMPORT_ROOTS):
                 violations.add(f"import:{node.module}")
