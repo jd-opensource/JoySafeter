@@ -462,8 +462,8 @@ export function LlmSecretConfigurator({
         </Alert>
       ) : null}
       {connectionTestIsFresh ? (
-        <Alert>
-          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+        <Alert variant="success">
+          <CheckCircle2 className="h-4 w-4" />
           <AlertDescription>{t('managed.llm.connectionVerified')}</AlertDescription>
         </Alert>
       ) : null}
