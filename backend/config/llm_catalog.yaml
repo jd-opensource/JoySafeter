@@ -35,21 +35,21 @@ credential_profiles:
       - key: ANTHROPIC_API_KEY
         label: API Key
         type: secret
-        help_text: Anthropic API key.
+        help_text: 官方 Anthropic 用 x-api-key 鉴权;中转网关一般用 Bearer(见鉴权方式)。
       - key: ANTHROPIC_AUTH_TOKEN
         label: Auth Token
         type: secret
-        help_text: Bearer token for an Anthropic-compatible gateway.
+        help_text: Bearer token(Anthropic 兼容中转网关)。表单会按鉴权方式自动使用其一。
         advanced: true
       - key: ANTHROPIC_BASE_URL
         label: Base URL
         type: url
         placeholder: https://api.anthropic.com
-        advanced: true
       - key: ANTHROPIC_MODEL
         label: Model
         type: text
         placeholder: claude-sonnet-4-5
+        help_text: 上游真实模型 ID(而非显示名),如 claude-3-5-sonnet-...。
     required_any_of:
       - [ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN]
     base_url_key: ANTHROPIC_BASE_URL
