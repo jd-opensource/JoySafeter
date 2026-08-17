@@ -19,6 +19,7 @@ from app.joysafeter_domain.credentials.material import (
     CREDENTIAL_MATERIAL_MAX_VALUE_LENGTH,
 )
 from app.joysafeter_domain.credentials.types import CredentialKind
+from app.joysafeter_domain.llm.anthropic_auth import AUTH_SCHEME_AUTO
 from app.joysafeter_shared.ids import CredentialGroupId, CredentialId
 
 # --- data contract limits (flat dict[str, str]) ---------------------------------
@@ -43,6 +44,9 @@ class CreateCredentialRequest(BaseModel):
     kind: CredentialKind
     name: str
     data: dict[str, str] = Field(default_factory=dict)
+    # anthropic auth-scheme intent; resolved by normalize_anthropic_auth on the
+    # server when provider=="anthropic" (ignored for other providers).
+    auth_scheme: str = AUTH_SCHEME_AUTO
     # kind=model
     provider: Optional[str] = None
     protocol: Optional[str] = None
@@ -73,6 +77,7 @@ class UpdateCredentialRequest(BaseModel):
     # boundary. Only name/data/is_default may change (is_default only for model).
     name: Optional[str] = None
     data: Optional[dict[str, str]] = None
+    auth_scheme: str = AUTH_SCHEME_AUTO
     is_default: Optional[bool] = None
 
     @field_validator("name")
@@ -113,6 +118,7 @@ class TestCredentialRequest(BaseModel):
     provider: str
     protocol: str
     data: dict[str, str] = Field(default_factory=dict)
+    auth_scheme: str = AUTH_SCHEME_AUTO
 
 
 class CredentialTestResponse(BaseModel):

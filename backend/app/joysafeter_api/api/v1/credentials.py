@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
+from app.joysafeter_domain.llm.anthropic_auth import normalize_anthropic_auth
 from app.joysafeter_domain.llm.catalog import LlmCatalogError, get_llm_catalog
 from app.joysafeter_domain.llm.compatibility import (
     LlmCompatibilityError,
@@ -208,6 +209,8 @@ async def _test_credential_connectivity(req: TestCredentialRequest) -> Credentia
     data = {str(k): str(v) for k, v in (req.data or {}).items()}
     provider = req.provider
     protocol = req.protocol
+    if provider == "anthropic":
+        data = normalize_anthropic_auth(data, req.auth_scheme)
     binding = validate_provider_protocol(provider, protocol)
     validate_credential_data(provider, protocol, data)
     profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
@@ -321,6 +324,9 @@ async def create_credential(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
     svc = CredentialService(db, auto_commit=False)
+    if req.provider == "anthropic":
+        data = {str(k): str(v) for k, v in (req.data or {}).items()}
+        req.data = normalize_anthropic_auth(data, req.auth_scheme)
     cred = await svc.create(req, project_id=auth_ctx.project_id)
     await audit_joysafeter_event(
         db,
@@ -401,6 +407,11 @@ async def update_credential(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
     svc = CredentialService(db, auto_commit=False)
+    if req.data is not None:
+        existing = await svc._get_or_raise(credential_id, project_id=auth_ctx.project_id)
+        if getattr(existing, "provider", None) == "anthropic":
+            data = {str(k): str(v) for k, v in req.data.items()}
+            req.data = normalize_anthropic_auth(data, req.auth_scheme)
     cred = await svc.update(credential_id, req, project_id=auth_ctx.project_id)
     await audit_joysafeter_event(
         db,

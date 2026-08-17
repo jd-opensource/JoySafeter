@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 
+from app.joysafeter_domain.credentials.types import CredentialKind
 from app.joysafeter_domain.llm.catalog import (
     CredentialProfile,
     EngineCapability,
@@ -11,7 +12,6 @@ from app.joysafeter_domain.llm.catalog import (
     ProviderProtocolBinding,
     get_llm_catalog,
 )
-from app.joysafeter_domain.schemas.joysafeter_credential import CredentialKind
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
 
 logger = logging.getLogger(__name__)
