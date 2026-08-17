@@ -235,7 +235,7 @@ impl K8sProvider {
             // port → all egress hangs. Matches the LDS pipe path and the mount below.
             env.push(json!({
                 "name": "JOYSAFETER_EGRESS_HTTP_SOCKET_PATH",
-                "value": format!("/sockets/{}/http.sock", config.sandbox_id)
+                "value": format!("/sockets/{sandbox_uuid}/http.sock")
             }));
 
             let socket_host_dir = self
