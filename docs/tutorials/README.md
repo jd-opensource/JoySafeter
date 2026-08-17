@@ -8,10 +8,13 @@
 
 | # | 教程 | 核心内容 | 难度 |
 |---|------|---------|------|
+| 00 | [新手上手手册](./00-getting-started.md) | 零基础终端用户的完整主线：登录 → 模型接入 → 建 Agent → 跑会话 → 拿结果 | ⭐ 入门 |
 | 01 | [引擎、协议、模型供应商与模型配置](./01-model-provider-setup.md) | 通过统一 LLM Catalog 创建 Provider/Protocol 模型配置，并按 Engine 兼容性选择 | ⭐ 入门 |
 | 02 | [为 Agent 接入 MCP 工具](./02-mcp-service-setup.md) | 在 Agent 编辑器配置 URL 型 `mcp_servers`；凭据放托管智能体 → MCP 凭据库（`/managed/vaults`）；运行时经 gRPC 下发 | ⭐⭐ 进阶 |
 | 03 | [Skills 的导入、安全扫描、投递与消费](./03-skills-usage.md) | SKILL.md → skillspector 扫描 → Rust orchestrator 打包 → 沙箱解压消费的闭环 | ⭐⭐ 进阶 |
 | 04 | [构建并运行一个 Agent](./04-agent-build-and-run.md) | 引擎/模型/技能/工具/MCP 组装 → 开 Session → SSE 实时观察 → 干预/停止 | ⭐⭐ 进阶 |
+| 05 | [用触发器让智能体自动运行](./05-triggers.md) | 计划（Cron）/ Webhook / 手动触发；签名鉴权、投递过滤、会话模式、自动禁用 | ⭐⭐ 进阶 |
+| 06 | [用环境控制沙箱的网络与运行时](./06-environments.md) | 网络策略（限制/不限制）、允许主机、第三方服务出站鉴权（服务凭据、真实凭据不进沙箱）、数据卷 | ⭐⭐ 进阶 |
 
 ---
 
