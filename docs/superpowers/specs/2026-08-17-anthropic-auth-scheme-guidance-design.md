@@ -1,0 +1,109 @@
+# Anthropic 鉴权字段引导重设计
+
+- 日期: 2026-08-17
+- 分支: joysafeter-v2-0814
+- 状态: 待评审
+
+## 背景与问题
+
+JoySafeter 模型接入(anthropic 协议)当前把鉴权拆成两个裸密钥字段:`ANTHROPIC_API_KEY`
+(注入 `x-api-key` 头)和 `ANTHROPIC_AUTH_TOKEN`(注入 `Authorization: Bearer` 头,且被标为
+advanced 折叠)。二者对应上游的两种鉴权方式:
+
+- 官方 Anthropic(`api.anthropic.com`)只认 `x-api-key`。
+- 国内 Anthropic 兼容中转网关(京东云 `ai-api.jdcloud.com` 等)只认 `Authorization: Bearer`。
+
+2026-08-17 实测:一条 Claude-Opus-4.6 凭据把 key 填进了 `ANTHROPIC_API_KEY`,而 base_url 指向
+京东云网关,网关返回 `401 {"message":"missing or invalid Authorization header"}`,会话报
+`API Error: 400 异常apikey`。根因是**鉴权头填错字段**——网关要 Bearer,凭据却给了 x-api-key。
+把 key 移到 `ANTHROPIC_AUTH_TOKEN` 后即恢复(已确认)。
+
+痛点:用户无法从"API Key / Auth Token"两个字段名判断该填哪个;而国内用户绝大多数用 Bearer
+中转网关(这也是 CC-switch 等工具默认写 `ANTHROPIC_AUTH_TOKEN` 的原因),当前 UI 却把 Auth Token
+藏进 advanced、默认引导填 API Key,恰好把多数人带向错误字段,失败信息又晦涩。
+
+## 目标
+
+- 用户只填**一把 key**,不必理解 `x-api-key` vs `Authorization: Bearer` 的 header 细节。
+- 系统按 base_url **自动判断**鉴权方式(官方=x-api-key,其余=Bearer)。
+- 自动判错时,提供一个**开关**让用户手动指定鉴权方式。
+- 杜绝"两个鉴权字段同时填"导致的歧义。
+- 不触碰下游 Envoy 注入、沙箱 egress 等已验证的链路;改动集中在"表单 + 保存映射"。
+
+非目标:不改 openai 协议的鉴权;不自动迁移存量凭据;不改 Rust 注入映射与 Envoy。
+
+## 用户体验(页面)
+
+anthropic 模型接入表单的鉴权区从"两个裸字段"改为:
+
+1. **API Key**(必填,单个密钥输入框)——合并原 API Key / Auth Token 两个字段。
+2. **鉴权方式**开关,三态:
+   - `自动`(默认):base_url 为官方 `api.anthropic.com` → x-api-key;其余 → Bearer。
+     开关下方小字实时显示当前判定(例:"当前将使用 Bearer(中转网关)")。
+   - `x-api-key(官方)`:手动锁定 x-api-key。
+   - `Bearer(中转网关)`:手动锁定 Bearer。
+   手动扳定后不再随 base_url 变化。
+3. **Base URL**、**Model** 保留。Model 增加帮助文案:提示填上游真实 model id(而非显示名)。
+
+编辑已有凭据时:按 `data` 里哪个鉴权字段非空反推开关初值(`ANTHROPIC_API_KEY` 非空→x-api-key,
+`ANTHROPIC_AUTH_TOKEN` 非空→Bearer),key 回填到单一输入框。
+
+## 数据行为(保存映射)
+
+表单内部状态:`{ apiKey, authScheme: auto|xapikey|bearer, baseUrl, model }`。**保存时**解析成
+现有 `data` JSONB 的 env 键,下游一律不变:
+
+1. 求有效方式:`auto` → 官方 host 判 x-api-key,否则 Bearer;非 auto → 用用户所选。
+2. `xapikey` → key 写入 `ANTHROPIC_API_KEY`,`ANTHROPIC_AUTH_TOKEN` 置空/不写。
+3. `bearer` → key 写入 `ANTHROPIC_AUTH_TOKEN`,`ANTHROPIC_API_KEY` 置空/不写。
+4. 二者**互斥**,永不同时非空。
+
+因此持久化结构不变(仍是 `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_MODEL`/
+`ANTHROPIC_BASE_URL`),Rust 注入映射(`llm_providers.rs`)、Envoy、沙箱**零改动**。开关状态本身
+不单独持久化,由"哪个字段非空"隐式表达。
+
+"官方 host" 判定:base_url 主机名等于 `api.anthropic.com`(忽略大小写/末尾斜杠;为空时按官方处理,
+因为空 base_url 走 Anthropic 默认端点)。判定规则集中一处(前后端共用同一常量/函数,避免分叉)。
+
+## 影响的层
+
+- **前端** `frontend/components/managed/llm/llm-secret-configurator.tsx`:anthropic profile 的鉴权区
+  改为"单 key + 方式开关"的定制渲染(其余 profile 保持通用渲染);base_url 联动自动判定提示;保存时
+  执行上述映射;编辑回填反推。
+- **前端** `frontend/lib/managed/secret-keys.ts` 及相关校验:调整 anthropic 分组的字段呈现。
+- **后端 catalog** `backend/config/llm_catalog.yaml` 的 `anthropic_standard` profile:文案/可见性微调
+  (base_url 是否仍 advanced、help_text 更新)。**约束:该 yaml 同时被 Rust orchestrator
+  `include_str!` 嵌入,任何结构改动必须 Python(pydantic)与 Rust(serde)双端 parse 兼容;优先只改
+  值/文案,不新增 schema 概念。**
+- **校验**:保存前保证鉴权二选一恰好一个非空(替换现有 `required_any_of` 两字段写法的用户可见提示);
+  model/base_url 保持规则。
+- **i18n**:新增开关三态标签 + 帮助文案的中英文案,纳入既有 i18n 清单与术语一致性测试。
+
+实现策略(前端定制渲染 vs 给 catalog 加"鉴权方式组"的通用 schema)在实现计划阶段定;本设计倾向
+**前端定制 + 保存映射**的最小改动路线,因为开关是输入期交互、持久化仍是既有 env 字段,且能避开改动
+Rust 共享的 yaml schema。
+
+## 连接测试与失败可读性
+
+- 保留现有 `/credentials/test`,作为判错兜底信号。
+- (可选,若成本低)当上游返回鉴权类 4xx 时,回显更可读的提示(例:"网关要求 Bearer,请把鉴权方式切到
+  Bearer")。此项可放后续,不阻塞主改动。
+
+## 兼容与迁移
+
+- 不自动迁移存量凭据。老数据 `ANTHROPIC_API_KEY` 非空者照常工作;打开编辑时按反推规则回填开关,用户可
+  一键切到 Bearer 重存。
+- 下游(Rust/Envoy/沙箱)不变,存量会话不受影响。
+
+## 测试
+
+- 前端单测:auto 判定(官方→xapikey、京东云→bearer)、手动覆盖锁定、保存映射互斥、编辑回填反推。
+- 后端:catalog 加载/校验通过;credentials 创建接口对 anthropic 的二选一校验;Rust orchestrator 仍能
+  `include_str!` 解析改后的 yaml(cargo 构建/相关测试)。
+- i18n 术语一致性测试通过。
+
+## 风险
+
+- 共享 yaml 的双端 parse 兼容(最大风险)——优先只改文案/可见性,不动结构;若必须加字段,需同时验证
+  Rust 侧解析不 deny_unknown_fields 或同步更新其 struct。
+- 自动判定对"用 x-api-key 的非官方中转"会判错——由手动开关兜底。
