@@ -348,6 +348,17 @@ docker compose --profile local-redis --profile rust-orchestrator --profile init 
 docker compose --profile rust-orchestrator --profile init run --rm db-init
 ```
 
+### 迁移报 `password authentication failed for user "postgres"` 怎么办？
+
+数据库密码与数据卷不一致。**根因**：PostgreSQL 只在首次初始化空卷时采用 `POSTGRES_PASSWORD`，卷建成后改 `deploy/.env` 的 `DATABASE_URL` / `POSTGRES_PASSWORD` 都不会更新库内密码。`./deploy.sh local` 现在会在迁移前校验并交互询问是否重置数据卷；手工修复二选一：
+
+```bash
+# 保留数据：把库内密码改成 .env 里配置的值
+docker exec -it joysafeter-db psql -U postgres -c "ALTER USER postgres PASSWORD '<.env 里的密码>';"
+# 丢弃数据：删卷后用当前 .env 密码重新初始化
+cd deploy && docker compose down -v && ./deploy.sh local
+```
+
 ### 云 Redis / 云 PostgreSQL 怎么用？
 
 使用云 Redis 时不要启用 `local-redis` profile，并在 `deploy/.env` 设置 `REDIS_URL`。云 PostgreSQL 同理，覆盖 `POSTGRES_HOST`、`POSTGRES_PORT`、`POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB`、`POSTGRES_SSL`。

@@ -2,6 +2,7 @@ use serde_json::Value;
 
 use crate::db::models::{JoySafeterAgent, JoySafeterSession};
 use crate::ids::CredentialId;
+use crate::kernel::credentials::error::CredentialRuntimeError;
 
 #[derive(Debug, Clone)]
 pub struct SnapshotEnvironment {
@@ -155,13 +156,17 @@ fn snapshot_credential_id_override(
         return Ok(Some(None));
     }
     let raw = value.as_str().ok_or_else(|| {
-        anyhow::anyhow!("persisted agent snapshot model_credential_id must be a string or null")
+        anyhow::Error::new(CredentialRuntimeError::CorruptRecord)
+            .context("persisted agent snapshot model_credential_id must be a string or null")
     })?;
     if raw.trim().is_empty() {
-        return Ok(Some(None));
+        return Err(anyhow::Error::new(CredentialRuntimeError::CorruptRecord)
+            .context("persisted agent snapshot model_credential_id must not be blank"));
     }
     let credential_id = CredentialId::from_public(raw).map_err(|error| {
-        anyhow::anyhow!("invalid persisted agent snapshot model_credential_id {raw:?}: {error}")
+        anyhow::Error::new(CredentialRuntimeError::CorruptRecord).context(format!(
+            "invalid persisted agent snapshot model_credential_id {raw:?}: {error}"
+        ))
     })?;
     Ok(Some(Some(credential_id)))
 }
@@ -172,33 +177,37 @@ pub(crate) fn environment_credential_ids(config: &Value) -> anyhow::Result<Vec<C
     if let Some(value) = config.get("service_credential_id") {
         if !value.is_null() {
             let raw = value.as_str().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "persisted environment service_credential_id must be a string or null"
-                )
+                anyhow::Error::new(CredentialRuntimeError::CorruptRecord)
+                    .context("persisted environment service_credential_id must be a string or null")
             })?;
-            if !raw.trim().is_empty() {
-                credential_ids.push(CredentialId::from_public(raw).map_err(|error| {
-                    anyhow::anyhow!(
-                        "invalid persisted environment service_credential_id {raw:?}: {error}"
-                    )
-                })?);
+            if raw.trim().is_empty() {
+                return Err(anyhow::Error::new(CredentialRuntimeError::CorruptRecord)
+                    .context("persisted environment service_credential_id must not be blank"));
             }
+            credential_ids.push(CredentialId::from_public(raw).map_err(|error| {
+                anyhow::Error::new(CredentialRuntimeError::CorruptRecord).context(format!(
+                    "invalid persisted environment service_credential_id {raw:?}: {error}"
+                ))
+            })?);
         }
     }
 
     if let Some(value) = config.get("secret_refs") {
         if !value.is_null() {
             let refs = value.as_array().ok_or_else(|| {
-                anyhow::anyhow!("persisted environment secret_refs must be an array or null")
+                anyhow::Error::new(CredentialRuntimeError::CorruptRecord)
+                    .context("persisted environment secret_refs must be an array or null")
             })?;
             for (index, value) in refs.iter().enumerate() {
                 let raw = value.as_str().ok_or_else(|| {
-                    anyhow::anyhow!("persisted environment secret_refs[{index}] must be a string")
+                    anyhow::Error::new(CredentialRuntimeError::CorruptRecord).context(format!(
+                        "persisted environment secret_refs[{index}] must be a string"
+                    ))
                 })?;
                 let credential_id = CredentialId::from_public(raw).map_err(|error| {
-                    anyhow::anyhow!(
+                    anyhow::Error::new(CredentialRuntimeError::CorruptRecord).context(format!(
                         "invalid persisted environment secret_refs[{index}] {raw:?}: {error}"
-                    )
+                    ))
                 })?;
                 credential_ids.push(credential_id);
             }

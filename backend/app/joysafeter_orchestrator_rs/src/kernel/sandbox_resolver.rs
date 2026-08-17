@@ -17,9 +17,16 @@ use crate::ids::{
     AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId,
     SessionResourceId, TaskId,
 };
+use crate::kernel::credentials::contract::canonical_auth_scheme;
+use crate::kernel::credentials::error::{
+    credential_material_field, credential_material_object, require_bound_project,
+    validate_bound_credential, BoundCredentialState, CredentialRuntimeError,
+};
 use crate::kernel::ha::{XdsAction, XdsStateStore};
 use crate::kernel::harness_input_builder::VaultCipher;
-use crate::kernel::llm_catalog::{validate_runtime_secret, RuntimeSecretBinding};
+use crate::kernel::llm_catalog::{
+    validate_runtime_secret, validate_runtime_secret_material, RuntimeSecretBinding,
+};
 use crate::kernel::mcp_url;
 use crate::kernel::run_spec::{
     agent_for_execution, environment_credential_ids, environment_for_execution,
@@ -1626,17 +1633,36 @@ impl SandboxResolver {
             return Ok(vec![]);
         }
 
-        let rows: Vec<(Option<String>, serde_json::Value)> = sqlx::query_as(
+        let project_id = agent
+            .project_id
+            .as_deref()
+            .filter(|project_id| !project_id.trim().is_empty())
+            .ok_or(CredentialRuntimeError::ProjectMismatch)?;
+
+        let credential_states = sqlx::query_as::<_, CredentialStateRow>(
             r#"
-            SELECT normalized_mcp_server_url, data
+            SELECT id, project_id, archived_at, deleted_at
             FROM joysafeter_credentials
             WHERE group_id = ANY($1)
-              AND kind = 'mcp'
-              AND archived_at IS NULL
-              AND deleted_at IS NULL
             "#,
         )
         .bind(&group_ids)
+        .fetch_all(pool)
+        .await?;
+        for state in &credential_states {
+            validate_bound_credential(Some(project_id), state.id, Some(state.state()))?;
+        }
+
+        let rows: Vec<McpRuntimeCredentialRow> = sqlx::query_as(
+            r#"
+            SELECT id, project_id, kind, normalized_mcp_server_url, credential_type,
+                   data, archived_at, deleted_at
+            FROM joysafeter_credentials
+            WHERE group_id = ANY($1) AND project_id = $2
+            "#,
+        )
+        .bind(&group_ids)
+        .bind(project_id)
         .fetch_all(pool)
         .await
         .map_err(|e| {
@@ -1648,20 +1674,20 @@ impl SandboxResolver {
         // unique index on normalized_mcp_server_url and rejects cross-group URL
         // conflicts at write time, so a single deterministic key is sufficient.
         let mut token_by_url: HashMap<String, String> = HashMap::new();
-        for (normalized_url, data) in rows {
-            let Some(normalized_url) = normalized_url else {
-                continue;
-            };
-            let Some(token_value) = data.get("token_value").and_then(|v| v.as_str()) else {
-                // OAuth-only or malformed credential: no static bearer to inject.
-                // P2B: OAuth refresh not yet migrated.
-                continue;
-            };
-            let token = cipher.decrypt_envelope(token_value).map_err(|e| {
-                anyhow::anyhow!(
-                    "failed to decrypt MCP credential token for server '{normalized_url}' in session {session_id}: {e}"
-                )
-            })?;
+        for row in rows {
+            validate_bound_credential(Some(project_id), row.id, Some(row.state()))?;
+            if row.kind != "mcp" {
+                return Err(CredentialRuntimeError::KindMismatch.into());
+            }
+            canonical_auth_scheme(&row.credential_type)?;
+            let normalized_url = row
+                .normalized_mcp_server_url
+                .ok_or(CredentialRuntimeError::FieldMissing)?;
+            let material = credential_material_object(&row.data)?;
+            let token_value = credential_material_field(material, "token_value")?;
+            let token = cipher
+                .decrypt_envelope(token_value)
+                .map_err(|_| CredentialRuntimeError::EnvelopeInvalid)?;
             token_by_url.insert(normalized_url, token);
         }
 
@@ -1671,7 +1697,7 @@ impl SandboxResolver {
                 continue;
             };
             let upstream = UpstreamTarget::from_url(&url)
-                .map_err(|e| anyhow::anyhow!("invalid MCP server URL '{url}': {e}"))?;
+                .map_err(|_| CredentialRuntimeError::CorruptRecord)?;
             egress.push(EgressCredentialRoute {
                 id: format!("mcp:{name}"),
                 kind: EgressKind::Mcp,
@@ -1777,76 +1803,62 @@ impl SandboxResolver {
         environment: Option<&EnvironmentRow>,
         project_id: Option<&str>,
     ) -> anyhow::Result<Vec<EgressCredentialRoute>> {
-        let Some(services) = environment
-            .and_then(|environment| environment.config.get("egress_services"))
-            .and_then(|value| value.as_array())
-        else {
+        let Some(environment) = environment else {
             return Ok(vec![]);
         };
+        let Some(services) = environment.config.get("egress_services") else {
+            return Ok(vec![]);
+        };
+        let services = services
+            .as_array()
+            .ok_or(CredentialRuntimeError::CorruptRecord)?;
 
         let mut routes = Vec::new();
         for service in services {
-            let Some(name) = service.get("name").and_then(|value| value.as_str()) else {
-                continue;
-            };
+            let name = service
+                .get("name")
+                .and_then(|value| value.as_str())
+                .ok_or(CredentialRuntimeError::FieldMissing)?;
             let name = sanitize_external_service_name(name);
             if name.is_empty() {
-                continue;
+                return Err(CredentialRuntimeError::CorruptRecord.into());
             }
 
-            let Some(base_url) = service.get("base_url").and_then(|value| value.as_str()) else {
-                continue;
-            };
-            let Ok(upstream) = UpstreamTarget::from_url(base_url) else {
-                warn!(service = %name, "Invalid external egress service base_url");
-                continue;
-            };
+            let base_url = service
+                .get("base_url")
+                .and_then(|value| value.as_str())
+                .ok_or(CredentialRuntimeError::FieldMissing)?;
+            let upstream = UpstreamTarget::from_url(base_url)
+                .map_err(|_| CredentialRuntimeError::CorruptRecord)?;
             let host = upstream.host;
             let tls = upstream.tls;
             let port = upstream.port;
             let upstream_prefix = normalize_external_upstream_prefix(&upstream.prefix);
 
-            let credential_value = service.get("service_credential_id").ok_or_else(|| {
-                anyhow::anyhow!("external egress service {name:?} is missing service_credential_id")
-            })?;
-            let raw_credential_id = credential_value.as_str().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "external egress service {name:?} service_credential_id must be a string"
-                )
-            })?;
+            let credential_value = service
+                .get("service_credential_id")
+                .ok_or_else(|| CredentialRuntimeError::FieldMissing)?;
+            let raw_credential_id = credential_value
+                .as_str()
+                .ok_or_else(|| CredentialRuntimeError::CorruptRecord)?;
             if raw_credential_id.trim().is_empty() {
-                anyhow::bail!(
-                    "external egress service {name:?} service_credential_id must not be blank"
-                );
+                return Err(CredentialRuntimeError::FieldMissing.into());
             }
             let service_credential_id = CredentialId::from_public(raw_credential_id)
-                .with_context(|| {
-                    format!(
-                        "invalid external egress service {name:?} service_credential_id {raw_credential_id:?}"
-                    )
-                })?;
-            let Some(inject) = service.get("inject").and_then(|value| value.as_object()) else {
-                continue;
-            };
+                .map_err(|_| CredentialRuntimeError::CorruptRecord)?;
+            let inject = service
+                .get("inject")
+                .and_then(|value| value.as_object())
+                .ok_or(CredentialRuntimeError::FieldMissing)?;
 
-            let Some(secret) = Self::load_secret_data(pool, service_credential_id, project_id)
+            let secret = Self::load_secret_data(pool, service_credential_id, project_id)
                 .await
                 .with_context(|| {
                     format!(
                         "failed to load external egress service {name:?} credential {service_credential_id}"
                     )
-                })?
-            else {
-                continue;
-            };
-            let headers = match build_external_inject_headers(&secret, inject) {
-                Ok(headers) if !headers.is_empty() => headers,
-                Ok(_) => continue,
-                Err(e) => {
-                    warn!(service = %name, credential_id = %service_credential_id, "Failed to build external egress headers: {e}");
-                    continue;
-                }
-            };
+                })?;
+            let headers = build_external_inject_headers(&secret, inject)?;
 
             let remove_headers = vec![
                 "authorization".to_string(),
@@ -2180,12 +2192,13 @@ impl SandboxResolver {
         pool: &PgPool,
         credential_id: CredentialId,
         project_id: Option<&str>,
-    ) -> anyhow::Result<Option<HashMap<String, String>>> {
-        let secret: Option<(serde_json::Value,)> = sqlx::query_as(
+    ) -> anyhow::Result<HashMap<String, String>> {
+        let project_id = require_bound_project(project_id, credential_id)?;
+        let secret = sqlx::query_as::<_, RuntimeSecretRow>(
             r#"
-            SELECT data FROM joysafeter_credentials
-            WHERE id = $1 AND project_id = $2 AND kind = 'service'
-              AND archived_at IS NULL AND deleted_at IS NULL
+            SELECT project_id, kind, provider, protocol, data, archived_at, deleted_at
+            FROM joysafeter_credentials
+            WHERE id = $1 AND project_id = $2
             "#,
         )
         .bind(credential_id)
@@ -2193,22 +2206,48 @@ impl SandboxResolver {
         .fetch_optional(pool)
         .await?;
 
-        let Some((data,)) = secret else {
-            return Ok(None);
+        let diagnostic_state = if secret.is_none() {
+            sqlx::query_as::<_, CredentialStateRow>(
+                r#"
+                SELECT id, project_id, archived_at, deleted_at
+                FROM joysafeter_credentials
+                WHERE id = $1
+                "#,
+            )
+            .bind(credential_id)
+            .fetch_optional(pool)
+            .await?
+        } else {
+            None
         };
+
+        validate_bound_credential(
+            Some(project_id),
+            credential_id,
+            secret
+                .as_ref()
+                .map(RuntimeSecretRow::state)
+                .or_else(|| diagnostic_state.as_ref().map(CredentialStateRow::state)),
+        )?;
+        let secret = secret.ok_or(CredentialRuntimeError::NotFound)?;
+        if secret.kind != "service" {
+            return Err(CredentialRuntimeError::KindMismatch.into());
+        }
 
         let cipher = VaultCipher::from_env();
         let mut out = HashMap::new();
-        if let Some(obj) = data.as_object() {
-            for (key, value) in obj {
-                let value = value
-                    .as_str()
-                    .map(ToOwned::to_owned)
-                    .unwrap_or_else(|| value.to_string());
-                out.insert(key.clone(), cipher.decrypt_envelope(&value)?);
-            }
+        for (key, value) in credential_material_object(&secret.data)? {
+            let value = value
+                .as_str()
+                .ok_or(CredentialRuntimeError::CorruptRecord)?;
+            out.insert(
+                key.clone(),
+                cipher
+                    .decrypt_envelope(value)
+                    .map_err(|_| CredentialRuntimeError::EnvelopeInvalid)?,
+            );
         }
-        Ok(Some(out))
+        Ok(out)
     }
 
     async fn merge_secret_ref_into_env(
@@ -2219,11 +2258,12 @@ impl SandboxResolver {
         override_existing: bool,
         runtime_engine_kind: Option<&str>,
     ) -> anyhow::Result<Option<RuntimeSecretBinding>> {
+        let project_id = require_bound_project(project_id, credential_id)?;
         let secret = sqlx::query_as::<_, RuntimeSecretRow>(
             r#"
-            SELECT kind, provider, protocol, data FROM joysafeter_credentials
-            WHERE id = $1 AND archived_at IS NULL AND deleted_at IS NULL
-              AND ($2::text IS NULL OR project_id = $2)
+            SELECT project_id, kind, provider, protocol, data, archived_at, deleted_at
+            FROM joysafeter_credentials
+            WHERE id = $1 AND project_id = $2
             "#,
         )
         .bind(credential_id)
@@ -2231,20 +2271,53 @@ impl SandboxResolver {
         .fetch_optional(pool)
         .await?;
 
-        let Some(secret) = secret else {
-            return Ok(None);
+        let diagnostic_state = if secret.is_none() {
+            sqlx::query_as::<_, CredentialStateRow>(
+                r#"
+                SELECT id, project_id, archived_at, deleted_at
+                FROM joysafeter_credentials
+                WHERE id = $1
+                "#,
+            )
+            .bind(credential_id)
+            .fetch_optional(pool)
+            .await?
+        } else {
+            None
         };
 
+        validate_bound_credential(
+            Some(project_id),
+            credential_id,
+            secret
+                .as_ref()
+                .map(RuntimeSecretRow::state)
+                .or_else(|| diagnostic_state.as_ref().map(CredentialStateRow::state)),
+        )?;
+        let secret = secret.ok_or(CredentialRuntimeError::NotFound)?;
+
         let binding = if let Some(engine_kind) = runtime_engine_kind {
-            Some(validate_runtime_secret(
-                engine_kind,
-                &secret.kind,
-                secret.provider.as_deref(),
-                secret.protocol.as_deref(),
-            )?)
+            Some(
+                validate_runtime_secret(
+                    engine_kind,
+                    &secret.kind,
+                    secret.provider.as_deref(),
+                    secret.protocol.as_deref(),
+                )
+                .map_err(|error| match error {
+                    crate::kernel::llm_catalog::LlmCatalogError::SecretKindInvalid { .. } => {
+                        CredentialRuntimeError::KindMismatch
+                    }
+                    crate::kernel::llm_catalog::LlmCatalogError::ProviderRequired
+                    | crate::kernel::llm_catalog::LlmCatalogError::ProtocolRequired => {
+                        CredentialRuntimeError::FieldMissing
+                    }
+                    _ => CredentialRuntimeError::CorruptRecord,
+                })?,
+            )
         } else {
             if secret.kind != "service" {
-                anyhow::bail!("environment credential must have kind=service");
+                return Err(CredentialRuntimeError::KindMismatch.into());
             }
             None
         };
@@ -2260,16 +2333,23 @@ impl SandboxResolver {
             }
         }
 
+        let material = credential_material_object(&secret.data)?;
+        if let Some(binding) = binding.as_ref() {
+            validate_runtime_secret_material(binding, material)?;
+        }
+
         let cipher = VaultCipher::from_env();
-        if let Some(obj) = secret.data.as_object() {
-            for (key, value) in obj {
-                if override_existing || !env.contains_key(key) {
-                    let value = value
-                        .as_str()
-                        .map(ToOwned::to_owned)
-                        .unwrap_or_else(|| value.to_string());
-                    env.insert(key.clone(), cipher.decrypt_envelope(&value)?);
-                }
+        for (key, value) in material {
+            if override_existing || !env.contains_key(key) {
+                let value = value
+                    .as_str()
+                    .ok_or(CredentialRuntimeError::CorruptRecord)?;
+                env.insert(
+                    key.clone(),
+                    cipher
+                        .decrypt_envelope(value)
+                        .map_err(|_| CredentialRuntimeError::EnvelopeInvalid)?,
+                );
             }
         }
 
@@ -2614,17 +2694,11 @@ pub(crate) async fn rebuild_sandbox_credentials(
             proxy_auth_token: sandbox_runner_token(sandbox),
         });
     };
-    let session = match queries::get_session(pool, session_id).await {
-        Ok(Some(s)) => s,
-        _ => {
-            return Ok(SandboxCredentials {
-                routes,
-                proxy_auth_token: sandbox_runner_token(sandbox),
-            })
-        }
-    };
+    let session = queries::get_session(pool, session_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("sandbox recovery session {session_id} was not found"))?;
     let live_agent = match session.agent_id {
-        Some(aid) => queries::get_agent(pool, aid).await.ok().flatten(),
+        Some(aid) => queries::get_agent(pool, aid).await?,
         None => None,
     };
     let snapshot_environment = environment_for_execution(Some(&session));
@@ -2646,10 +2720,7 @@ pub(crate) async fn rebuild_sandbox_credentials(
                 .filter(|v| !v.trim().is_empty())
             {
                 Some(env_ref) => {
-                    load_environment_row(pool, env_ref, agent_ref.project_id.as_deref())
-                        .await
-                        .ok()
-                        .flatten()
+                    load_environment_row(pool, env_ref, agent_ref.project_id.as_deref()).await?
                 }
                 None => None,
             }
@@ -2676,14 +2747,7 @@ pub(crate) async fn rebuild_sandbox_credentials(
         );
     }
 
-    match SandboxResolver::build_mcp_egress(pool, Some(session_id), agent.as_ref()).await {
-        Ok(mcp) => routes.extend(mcp),
-        Err(e) => warn!(
-            session_id = %session_id,
-            sandbox_id = %sandbox.id,
-            "Failed to rebuild MCP egress credentials during sandbox recovery: {e}"
-        ),
-    }
+    routes.extend(SandboxResolver::build_mcp_egress(pool, Some(session_id), agent.as_ref()).await?);
     match SandboxResolver::build_git_egress(pool, Some(session_id)).await {
         Ok(git) => routes.extend(git),
         Err(e) => warn!(
@@ -2825,20 +2889,69 @@ async fn load_environment_row(
     env_ref: &str,
     project_id: Option<&str>,
 ) -> anyhow::Result<Option<EnvironmentRow>> {
-    if let Ok(env_id) = EnvironmentId::from_public(env_ref) {
-        return Ok(sqlx::query_as::<_, EnvironmentRow>(
+    let project_id = project_id
+        .filter(|project_id| !project_id.trim().is_empty())
+        .ok_or(CredentialRuntimeError::ProjectMismatch)?;
+    let (environment, diagnostic_project) = if let Ok(env_id) = EnvironmentId::from_public(env_ref)
+    {
+        let environment = sqlx::query_as::<_, EnvironmentRow>(
             r#"
             SELECT config, image_tag FROM joysafeter_environments
-            WHERE id = $1 AND deleted_at IS NULL
-              AND ($2::text IS NULL OR project_id = $2)
+            WHERE id = $1 AND deleted_at IS NULL AND project_id = $2
             "#,
         )
         .bind(env_id)
         .bind(project_id)
         .fetch_optional(pool)
-        .await?);
+        .await?;
+        let diagnostic_project = if environment.is_none() {
+            sqlx::query_as::<_, (String,)>(
+                "SELECT project_id FROM joysafeter_environments WHERE id = $1 AND deleted_at IS NULL",
+            )
+            .bind(env_id)
+            .fetch_optional(pool)
+            .await?
+        } else {
+            None
+        };
+        (environment, diagnostic_project)
+    } else {
+        let name = env_ref.trim();
+        if name.is_empty() {
+            return Err(CredentialRuntimeError::CorruptRecord.into());
+        }
+        let environment = sqlx::query_as::<_, EnvironmentRow>(
+            r#"
+            SELECT config, image_tag FROM joysafeter_environments
+            WHERE name = $1 AND deleted_at IS NULL AND project_id = $2
+            "#,
+        )
+        .bind(name)
+        .bind(project_id)
+        .fetch_optional(pool)
+        .await?;
+        let diagnostic_project = if environment.is_none() {
+            sqlx::query_as::<_, (String,)>(
+                "SELECT project_id FROM joysafeter_environments WHERE name = $1 AND deleted_at IS NULL",
+            )
+            .bind(name)
+            .fetch_optional(pool)
+            .await?
+        } else {
+            None
+        };
+        (environment, diagnostic_project)
+    };
+    if environment.is_some() {
+        return Ok(environment);
     }
-    Ok(None)
+    match diagnostic_project {
+        Some((actual_project,)) if actual_project != project_id => {
+            Err(CredentialRuntimeError::ProjectMismatch.into())
+        }
+        Some(_) => Err(CredentialRuntimeError::CorruptRecord.into()),
+        None => Err(CredentialRuntimeError::NotFound.into()),
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -3296,10 +3409,63 @@ struct ResolvedAgentEnv {
 
 #[derive(Debug, sqlx::FromRow)]
 struct RuntimeSecretRow {
+    project_id: String,
     kind: String,
     provider: Option<String>,
     protocol: Option<String>,
     data: serde_json::Value,
+    archived_at: Option<chrono::DateTime<chrono::Utc>>,
+    deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl RuntimeSecretRow {
+    fn state(&self) -> BoundCredentialState<'_> {
+        BoundCredentialState {
+            project_id: &self.project_id,
+            archived: self.archived_at.is_some(),
+            deleted: self.deleted_at.is_some(),
+        }
+    }
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct CredentialStateRow {
+    id: CredentialId,
+    project_id: String,
+    archived_at: Option<chrono::DateTime<chrono::Utc>>,
+    deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl CredentialStateRow {
+    fn state(&self) -> BoundCredentialState<'_> {
+        BoundCredentialState {
+            project_id: &self.project_id,
+            archived: self.archived_at.is_some(),
+            deleted: self.deleted_at.is_some(),
+        }
+    }
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct McpRuntimeCredentialRow {
+    id: CredentialId,
+    project_id: String,
+    kind: String,
+    normalized_mcp_server_url: Option<String>,
+    credential_type: String,
+    data: serde_json::Value,
+    archived_at: Option<chrono::DateTime<chrono::Utc>>,
+    deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl McpRuntimeCredentialRow {
+    fn state(&self) -> BoundCredentialState<'_> {
+        BoundCredentialState {
+            project_id: &self.project_id,
+            archived: self.archived_at.is_some(),
+            deleted: self.deleted_at.is_some(),
+        }
+    }
 }
 
 fn sanitize_external_service_name(name: &str) -> String {
@@ -3389,7 +3555,7 @@ fn effective_prefixes(prefix_sets: Vec<Vec<serde_json::Value>>) -> Vec<serde_jso
 fn build_external_inject_headers(
     secret: &HashMap<String, String>,
     inject: &serde_json::Map<String, serde_json::Value>,
-) -> anyhow::Result<Vec<(String, String)>> {
+) -> Result<Vec<(String, String)>, CredentialRuntimeError> {
     let typ = inject
         .get("type")
         .and_then(|value| value.as_str())
@@ -3397,12 +3563,14 @@ fn build_external_inject_headers(
     match typ {
         "bearer" => {
             let key = inject
-                .get("secret_key")
+                .get("credential_field")
+                .or_else(|| inject.get("secret_key"))
                 .and_then(|value| value.as_str())
                 .unwrap_or("ACCESS_TOKEN");
             let token = secret
                 .get(key)
-                .ok_or_else(|| anyhow::anyhow!("missing secret key {key}"))?;
+                .filter(|value| !value.is_empty())
+                .ok_or(CredentialRuntimeError::FieldMissing)?;
             let header = inject
                 .get("header")
                 .and_then(|value| value.as_str())
@@ -3411,12 +3579,14 @@ fn build_external_inject_headers(
         }
         "api_key" | "raw_header" => {
             let key = inject
-                .get("secret_key")
+                .get("credential_field")
+                .or_else(|| inject.get("secret_key"))
                 .and_then(|value| value.as_str())
                 .unwrap_or("API_KEY");
             let value = secret
                 .get(key)
-                .ok_or_else(|| anyhow::anyhow!("missing secret key {key}"))?;
+                .filter(|value| !value.is_empty())
+                .ok_or(CredentialRuntimeError::FieldMissing)?;
             let header = inject
                 .get("header")
                 .and_then(|value| value.as_str())
@@ -3425,16 +3595,18 @@ fn build_external_inject_headers(
         }
         "cookie" => {
             let key = inject
-                .get("secret_key")
+                .get("credential_field")
+                .or_else(|| inject.get("secret_key"))
                 .and_then(|value| value.as_str())
                 .unwrap_or("COOKIE_HEADER");
             let cookie_header = secret
                 .get(key)
-                .ok_or_else(|| anyhow::anyhow!("missing secret key {key}"))?
+                .filter(|value| !value.is_empty())
+                .ok_or(CredentialRuntimeError::FieldMissing)?
                 .clone();
             Ok(vec![("cookie".to_string(), cookie_header)])
         }
-        other => anyhow::bail!("unsupported external egress inject type {other}"),
+        _ => Err(CredentialRuntimeError::UnsupportedScheme),
     }
 }
 
@@ -3449,6 +3621,9 @@ mod egress_tests {
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::Mutex;
+
+    const ENCRYPTED_HELLO_WORLD: &str =
+        "enc:v1:VzniG9ulG62e3VZZD1jujN8lxiW1h/6a0Hdj1jIlJC/Wl9Rvvk7D";
 
     fn env(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs
@@ -3487,8 +3662,10 @@ mod egress_tests {
             .await
             .expect_err("bare UUID in external egress must fail");
 
-        assert!(error.to_string().contains("service_credential_id"));
-        assert!(error.to_string().contains("secocean"));
+        assert_eq!(
+            error.downcast_ref(),
+            Some(&CredentialRuntimeError::CorruptRecord)
+        );
     }
 
     #[tokio::test]
@@ -3517,8 +3694,10 @@ mod egress_tests {
             .await
             .expect_err("non-string external egress credential id must fail");
 
-        assert!(error.to_string().contains("service_credential_id"));
-        assert!(error.to_string().contains("secocean"));
+        assert_eq!(
+            error.downcast_ref(),
+            Some(&CredentialRuntimeError::CorruptRecord)
+        );
     }
 
     #[test]
@@ -3609,7 +3788,7 @@ mod egress_tests {
     ) -> Option<EgressCredentialRoute> {
         let binding = crate::kernel::llm_catalog::validate_runtime_secret(
             "native",
-            "llm",
+            "model",
             Some(provider_id),
             Some(protocol_id),
         )
@@ -4115,7 +4294,7 @@ mod egress_tests {
     fn llm_egress_uses_catalog_binding_instead_of_key_inference() {
         let binding = crate::kernel::llm_catalog::validate_runtime_secret(
             "native",
-            "llm",
+            "model",
             Some("deepseek"),
             Some("chat_completions"),
         )
@@ -5058,7 +5237,7 @@ mod egress_tests {
             .bind(mcp_url)
             .bind(&normalized)
             .bind(group_id)
-            .bind(serde_json::json!({"token_value": "vault-token"}))
+            .bind(serde_json::json!({"token_value": ENCRYPTED_HELLO_WORLD}))
             .execute(&pool)
             .await
             .expect("insert mcp credential");
@@ -5066,17 +5245,18 @@ mod egress_tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
+                    id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata, version
                 )
                 VALUES (
-                    $1, $2, 'claude', $3, '', '{}'::jsonb, $4,
+                    $1, $2, $3, 'claude', $4, '', '{}'::jsonb, $5,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
                     'bypassPermissions', '{}'::jsonb, 1
                 )
                 "#,
             )
             .bind(agent_id)
+            .bind(&project_id)
             .bind(format!("resolver-vault-alias-agent-{unique}"))
             .bind(serde_json::json!({"id": "claude-sonnet"}))
             .bind(serde_json::json!([{
@@ -5090,12 +5270,13 @@ mod egress_tests {
 
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_sessions (id, agent_id, status)
-                VALUES ($1, $2, 'idle')
+                INSERT INTO joysafeter_sessions (id, agent_id, project_id, status)
+                VALUES ($1, $2, $3, 'idle')
                 "#,
             )
             .bind(session_id)
             .bind(agent_id)
+            .bind(&project_id)
             .execute(&pool)
             .await
             .expect("insert session");
@@ -5131,7 +5312,7 @@ mod egress_tests {
                 egress[0].inject_headers,
                 vec![(
                     "authorization".to_string(),
-                    "Bearer vault-token".to_string()
+                    "Bearer hello-world".to_string()
                 )]
             );
         }

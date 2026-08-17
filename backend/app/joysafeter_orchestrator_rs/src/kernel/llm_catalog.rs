@@ -4,6 +4,9 @@ use std::sync::LazyLock;
 use serde::Deserialize;
 use thiserror::Error;
 
+use super::credentials::contract::CredentialContract;
+use super::credentials::error::{credential_material_field, CredentialRuntimeError};
+
 const RAW_CATALOG: &str = include_str!("../../../../config/llm_catalog.yaml");
 
 static CATALOG: LazyLock<Result<LlmCatalog, LlmCatalogError>> =
@@ -98,6 +101,31 @@ pub struct RuntimeSecretBinding {
     pub default_base_url: Option<String>,
     pub base_url_key: String,
     pub model_key: Option<String>,
+    pub required_material_fields: Vec<String>,
+    pub required_material_alternatives: Vec<Vec<String>>,
+}
+
+pub fn validate_runtime_secret_material(
+    binding: &RuntimeSecretBinding,
+    material: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), CredentialRuntimeError> {
+    for field in &binding.required_material_fields {
+        credential_material_field(material, field)?;
+    }
+    for alternatives in &binding.required_material_alternatives {
+        let mut found = false;
+        for field in alternatives {
+            match credential_material_field(material, field) {
+                Ok(_) => found = true,
+                Err(CredentialRuntimeError::FieldMissing) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        if !found {
+            return Err(CredentialRuntimeError::FieldMissing);
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
@@ -108,7 +136,7 @@ pub enum LlmCatalogError {
     EngineUnknown { engine_kind: String },
     #[error("LLM engine is disabled: {engine_kind}")]
     EngineDisabled { engine_kind: String },
-    #[error("runtime LLM secret must have kind=llm, got {kind}")]
+    #[error("runtime LLM credential must have kind=model, got {kind}")]
     SecretKindInvalid { kind: String },
     #[error("runtime LLM secret provider is required")]
     ProviderRequired,
@@ -320,7 +348,7 @@ fn validate_runtime_secret_with_catalog(
         });
     }
 
-    if kind != "llm" {
+    if !CredentialContract::embedded().is_model_kind(kind) {
         return Err(LlmCatalogError::SecretKindInvalid {
             kind: kind.to_string(),
         });
@@ -392,6 +420,13 @@ fn validate_runtime_secret_with_catalog(
             .clone()
             .unwrap_or_else(|| "BASE_URL".to_string()),
         model_key: profile.model_key.clone(),
+        required_material_fields: profile
+            .fields
+            .iter()
+            .filter(|field| field.required)
+            .map(|field| field.key.clone())
+            .collect(),
+        required_material_alternatives: profile.required_any_of.clone(),
     })
 }
 
@@ -408,6 +443,7 @@ pub fn validate_runtime_secret(
 mod tests {
     use super::{
         catalog, parse_catalog, validate_runtime_secret, validate_runtime_secret_with_catalog,
+        CredentialContract,
     };
 
     #[test]
@@ -447,9 +483,18 @@ mod tests {
 
     #[test]
     fn valid_runtime_secret_resolves_profile_metadata() {
-        let binding =
-            validate_runtime_secret("codex", "llm", Some("openai"), Some("openai_responses"))
-                .expect("OpenAI Responses must be valid for Codex");
+        let model_kind = CredentialContract::embedded()
+            .is_model_kind("model")
+            .then_some("model")
+            .expect("credential domain contract must define model as its first kind");
+
+        let binding = validate_runtime_secret(
+            "codex",
+            model_kind,
+            Some("openai"),
+            Some("openai_responses"),
+        )
+        .expect("OpenAI Responses must be valid for Codex");
 
         assert_eq!(binding.protocol_id, "openai_responses");
         assert_eq!(binding.credential_profile_id, "openai_bearer");
@@ -472,22 +517,25 @@ mod tests {
         .is_err());
         assert!(validate_runtime_secret(
             "codex",
-            "llm",
+            "model",
             Some("deepseek"),
             Some("openai_responses")
         )
         .is_err());
-        assert!(
-            validate_runtime_secret("claude", "llm", Some("openai"), Some("openai_responses"))
-                .is_err()
-        );
+        assert!(validate_runtime_secret(
+            "claude",
+            "model",
+            Some("openai"),
+            Some("openai_responses")
+        )
+        .is_err());
     }
 
     #[test]
     fn validation_errors_never_include_secret_values() {
         let secret_value = "sk-never-log-this-value";
         let error =
-            validate_runtime_secret("claude", "llm", Some("openai"), Some("openai_responses"))
+            validate_runtime_secret("claude", "model", Some("openai"), Some("openai_responses"))
                 .expect_err("OpenAI Responses must not be valid for Claude")
                 .to_string();
 
@@ -506,7 +554,7 @@ mod tests {
         assert!(validate_runtime_secret_with_catalog(
             &catalog,
             "codex",
-            "llm",
+            "model",
             Some("openai"),
             Some("openai_responses"),
         )

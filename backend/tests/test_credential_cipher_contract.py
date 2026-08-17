@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from app.joysafeter_shared.config.settings import joysafeter_config
@@ -9,6 +12,10 @@ from app.joysafeter_shared.security.credential_cipher import (
 )
 
 pytestmark = pytest.mark.no_db
+
+_CREDENTIAL_DOMAIN_CONTRACT = json.loads(
+    (Path(__file__).resolve().parents[1] / "contracts" / "credential_domain_contract.json").read_text()
+)
 
 
 def test_credential_cipher_requires_configured_key_for_every_operation():
@@ -54,6 +61,6 @@ def test_credential_cipher_round_trip_uses_encrypted_storage_envelope():
 
     stored = cipher.encrypt("secret-value")
 
-    assert stored.startswith("enc:")
+    assert stored.startswith(_CREDENTIAL_DOMAIN_CONTRACT["encryption_envelope"] + ":")
     assert stored != "secret-value"
     assert cipher.decrypt_stored(stored) == "secret-value"

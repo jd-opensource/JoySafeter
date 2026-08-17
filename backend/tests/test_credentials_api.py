@@ -31,7 +31,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 from starlette.testclient import TestClient
 
-from app.joysafeter_api.api.v1 import network_policy_refresh
 from app.joysafeter_api.api.v1.credential_groups import router as credential_groups_router
 from app.joysafeter_api.api.v1.credentials import router as credentials_router
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
@@ -40,6 +39,7 @@ from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.services.joysafeter_security_audit_service import SecurityAuditService
+from app.joysafeter_infrastructure.credentials import network_policy_adapter
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
@@ -372,13 +372,13 @@ def test_credential_update_nudges_live_sandbox_after_commit(client, monkeypatch)
     sandbox_id = asyncio.get_event_loop().run_until_complete(create_sandbox())
     nudged: list[str] = []
 
-    async def record_nudge(target_sandbox_id, **kwargs):
-        nudged.append(str(target_sandbox_id))
-        return True
+    async def record_nudge(target_sandbox_ids, **kwargs):
+        nudged.extend(str(target_sandbox_id) for target_sandbox_id in target_sandbox_ids)
+        return len(target_sandbox_ids)
 
     monkeypatch.setattr(
-        network_policy_refresh,
-        "publish_to_sandbox_owner_via_redis",
+        network_policy_adapter,
+        "nudge_sandbox_network_policy_refreshes",
         record_nudge,
     )
 

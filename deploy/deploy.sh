@@ -77,6 +77,19 @@ get_docker_platform() {
     get_host_platform
 }
 
+# 按 Docker daemon 架构推导华为云 mirror 的 BuildKit 镜像
+# 注意 ddn-k8s mirror 的 tag 约定不对称：
+#   arm64 -> buildx-stable-1-linuxarm64（带架构后缀）
+#   amd64 -> buildx-stable-1（plain tag 即 amd64；该 mirror 无 -linuxamd64 tag）
+# buildkit 容器运行在 daemon 上，故取 daemon 架构
+huawei_buildkit_image() {
+    local base="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/moby/buildkit"
+    case "$(get_docker_platform)" in
+        linux/arm64) echo "$base:buildx-stable-1-linuxarm64" ;;
+        *)           echo "$base:buildx-stable-1" ;;
+    esac
+}
+
 # 默认多平台构建：amd64 + arm64
 DEFAULT_PLATFORMS="linux/amd64,linux/arm64"
 PLATFORMS="" # 初始为空，稍后根据命令和系统动态设置
@@ -88,6 +101,11 @@ USE_BUILDX="${USE_BUILDX:-true}"
 #                         默认 docker.m.daocloud.io （DaoCloud 国内 CDN）
 BASE_IMAGE_REGISTRY="${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}"
 DOCKER_MIRROR="${DOCKER_MIRROR:-docker.m.daocloud.io}"
+# BuildKit builder 镜像（multiarch builder 启动 buildx_buildkit_multiarch0 容器时使用）。
+# 留空则使用 buildx 默认的 docker.io/moby/buildkit:buildx-stable-1。
+# 无法访问 docker.io 的网络下，设为可达的 mirror，例如：
+#   BUILDKIT_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/moby/buildkit:buildx-stable-1-linuxarm64
+BUILDKIT_IMAGE="${BUILDKIT_IMAGE:-}"
 # 是否禁用 Docker 构建缓存（默认使用缓存）
 NO_CACHE="${NO_CACHE:-false}"
 # pip/uv 镜像源配置（默认使用清华大学镜像源）
@@ -182,6 +200,7 @@ show_usage() {
   RUST_IMAGE             Rust 编译镜像（默认: 从 BASE_IMAGE_REGISTRY 派生）
   BASE_IMAGE_REGISTRY    官方库镜像前缀（默认: public.ecr.aws/docker/library/）
   DOCKER_MIRROR          第三方镜像代理前缀（默认: docker.m.daocloud.io）
+  BUILDKIT_IMAGE         BuildKit builder 镜像（默认: 空=用 buildx 默认 docker.io/moby/buildkit）
   SKILLSPECTOR_SOURCE_PATH SkillSpector 源码路径（local 默认: ../.deps/SkillSpector）
   SKILLSPECTOR_REPO_URL    SkillSpector 缺失时克隆的仓库地址
   NO_CACHE               是否禁用构建缓存（默认: false，使用缓存）
@@ -731,6 +750,159 @@ wait_for_local_redis() {
     exit 1
 }
 
+# 解析出迁移实际使用的数据库凭据，写入全局 DB_CHECK_USER/PASS/NAME。
+# 优先级与应用一致：deploy/.env 的 DATABASE_URL 优先于 POSTGRES_* 拆分参数
+# （见 deploy/.env 注释），DATABASE_URL 为空再回退 backend/.env，最后回退
+# compose 默认值 postgres/postgres/joysafeter。
+# 注意：DATABASE_URL 中若密码含被 URL 编码的特殊字符，这里不做解码，可能导致
+# 误报；本地默认密码为纯文本，通常无此问题。
+resolve_db_credentials() {
+    local deploy_env="$SCRIPT_DIR/.env"
+    local backend_env="$PROJECT_ROOT/backend/.env"
+
+    local url
+    url="$(read_env_value "$deploy_env" "DATABASE_URL")"
+    [ -z "$url" ] && url="$(read_env_value "$backend_env" "DATABASE_URL")"
+
+    if [ -n "$url" ]; then
+        local rest userpass hostpart dbpart
+        rest="${url#*://}"          # user:pass@host:port/db?params
+        userpass="${rest%%@*}"      # user:pass
+        hostpart="${rest#*@}"       # host:port/db?params
+        dbpart="${hostpart#*/}"     # db?params
+        DB_CHECK_USER="${userpass%%:*}"
+        DB_CHECK_PASS="${userpass#*:}"
+        DB_CHECK_NAME="${dbpart%%\?*}"
+    else
+        DB_CHECK_USER=""
+        DB_CHECK_PASS=""
+        DB_CHECK_NAME=""
+    fi
+
+    [ -z "$DB_CHECK_USER" ] && DB_CHECK_USER="$(read_env_value "$deploy_env" "POSTGRES_USER")"
+    [ -z "$DB_CHECK_USER" ] && DB_CHECK_USER="$(read_env_value "$backend_env" "POSTGRES_USER")"
+    [ -z "$DB_CHECK_USER" ] && DB_CHECK_USER="postgres"
+
+    [ -z "$DB_CHECK_PASS" ] && DB_CHECK_PASS="$(read_env_value "$deploy_env" "POSTGRES_PASSWORD")"
+    [ -z "$DB_CHECK_PASS" ] && DB_CHECK_PASS="$(read_env_value "$backend_env" "POSTGRES_PASSWORD")"
+    [ -z "$DB_CHECK_PASS" ] && DB_CHECK_PASS="postgres"
+
+    [ -z "$DB_CHECK_NAME" ] && DB_CHECK_NAME="$(read_env_value "$deploy_env" "POSTGRES_DB")"
+    [ -z "$DB_CHECK_NAME" ] && DB_CHECK_NAME="$(read_env_value "$backend_env" "POSTGRES_DB")"
+    [ -z "$DB_CHECK_NAME" ] && DB_CHECK_NAME="joysafeter"
+
+    # 显式返回 0：末行的 `[ -z ] && ...` 在变量已有值时判假返回非零，
+    # 会成为函数返回值，在 set -e 下导致调用方中断。
+    return 0
+}
+
+# 等待 Postgres 接受连接（pg_isready 不校验密码，只探测服务就绪）。
+wait_for_local_postgres() {
+    local timeout_seconds="${LOCAL_DB_READY_TIMEOUT_SECONDS:-60}"
+    local elapsed=0
+
+    log_info "等待本地 PostgreSQL 就绪..."
+    while [ "$elapsed" -lt "$timeout_seconds" ]; do
+        if compose_local_env --profile local-redis --profile rust-orchestrator exec -T postgres \
+            pg_isready -U "$DB_CHECK_USER" -d "$DB_CHECK_NAME" >/dev/null 2>&1; then
+            log_success "本地 PostgreSQL 已就绪"
+            return 0
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    log_error "本地 PostgreSQL 在 ${timeout_seconds}s 内未就绪；请检查 docker compose logs postgres"
+    exit 1
+}
+
+# 删除数据库命名卷并重建 postgres 容器。仅在用户明确确认后调用（会清空本地库全部数据）。
+reset_local_db_volume() {
+    log_warning "重置数据库数据卷（将删除本地数据库全部数据）..."
+    compose_local_env --profile local-redis --profile rust-orchestrator rm -sf postgres >/dev/null 2>&1 || true
+
+    # 卷名带 compose 项目前缀（如 deploy_joysafeter-db-data），用后缀匹配以适配任意前缀。
+    local vol
+    vol="$(docker volume ls --format '{{.Name}}' | grep -E '(^|_)joysafeter-db-data$' | head -1)"
+    if [ -n "$vol" ]; then
+        if ! docker volume rm "$vol" >/dev/null 2>&1; then
+            log_error "无法删除数据卷 $vol（可能仍被容器占用）；请手动执行 cd deploy && docker compose down -v 后重试"
+            exit 1
+        fi
+        log_success "已删除数据库数据卷 $vol"
+    else
+        log_warning "未找到 joysafeter-db-data 数据卷，跳过删除"
+    fi
+
+    compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build postgres
+    wait_for_local_postgres
+}
+
+# 用配置的凭据真正连库，验证密码是否与卷内固化的密码一致。
+# 命中 "password authentication failed" 时交互询问是否重置数据卷；
+# 其他错误如实报出并退出，绝不对未知错误执行破坏性重置。
+verify_local_db_credentials() {
+    resolve_db_credentials
+    wait_for_local_postgres
+
+    log_info "校验数据库连接凭据（用户 ${DB_CHECK_USER} / 库 ${DB_CHECK_NAME}）..."
+    # 用服务名 postgres（走网络接口）连接，命中 pg_hba 的 scram-sha-256 规则，
+    # 与 alembic/应用一致；127.0.0.1 在容器内命中 trust 规则会跳过密码校验，不可用。
+    # set -e 下命令替换失败会中断脚本，故用 || true 兜底，把失败留给下方分支处理。
+    local out
+    out="$(compose_local_env --profile local-redis --profile rust-orchestrator exec -T postgres \
+        env PGPASSWORD="$DB_CHECK_PASS" psql -h postgres -U "$DB_CHECK_USER" -d "$DB_CHECK_NAME" -tAc 'select 1' 2>&1 || true)"
+
+    if printf '%s' "$out" | grep -q '^1$'; then
+        log_success "数据库凭据校验通过"
+        return 0
+    fi
+
+    if ! printf '%s' "$out" | grep -qi 'password authentication failed'; then
+        log_error "数据库连接失败（非密码问题）："
+        printf '%s\n' "$out" >&2
+        log_error "请检查 postgres 服务状态：cd deploy && docker compose logs postgres"
+        exit 1
+    fi
+
+    # 密码不匹配：解释根因（Postgres 只在首次初始化空卷时采用 POSTGRES_PASSWORD，
+    # 之后永久沿用卷内固化的旧密码，改 .env 无效）。
+    log_error "数据库密码校验失败：配置的密码与现有数据卷中固化的密码不一致。"
+    log_warning "原因：PostgreSQL 只在【首次初始化空卷】时采用 POSTGRES_PASSWORD；"
+    log_warning "     卷一旦建成，改 .env / DATABASE_URL 都不会更新库内密码。"
+    log_warning "解决办法二选一："
+    log_warning "  1) 保留数据：docker exec -it joysafeter-db psql -U ${DB_CHECK_USER} -c \"ALTER USER ${DB_CHECK_USER} PASSWORD '<你在.env里配置的密码>';\""
+    log_warning "  2) 丢弃数据：删除数据卷后用当前 .env 密码重新初始化（下面可直接执行）"
+
+    if [ ! -t 0 ]; then
+        log_error "当前为非交互环境，不自动重置数据卷。请修正密码或手动执行：cd deploy && docker compose down -v"
+        exit 1
+    fi
+
+    local reply
+    printf "${YELLOW}是否删除数据库数据卷并用当前 .env 密码重新初始化？此操作会清空本地库全部数据 [y/N]: ${NC}" >&2
+    read -r reply < /dev/tty || reply=""
+    case "$reply" in
+        y|Y|yes|YES)
+            reset_local_db_volume
+            log_info "重置后重新校验数据库凭据..."
+            out="$(compose_local_env --profile local-redis --profile rust-orchestrator exec -T postgres \
+                env PGPASSWORD="$DB_CHECK_PASS" psql -h postgres -U "$DB_CHECK_USER" -d "$DB_CHECK_NAME" -tAc 'select 1' 2>&1 || true)"
+            if printf '%s' "$out" | grep -q '^1$'; then
+                log_success "重置完成，数据库凭据校验通过"
+                return 0
+            fi
+            log_error "重置后仍无法连接："
+            printf '%s\n' "$out" >&2
+            exit 1
+            ;;
+        *)
+            log_error "已取消。请修正 .env 中的数据库密码后重试。"
+            exit 1
+            ;;
+    esac
+}
+
 run_local_migrations() {
     (
         cd "$SCRIPT_DIR"
@@ -738,6 +910,7 @@ run_local_migrations() {
         compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build postgres redis skillspector
 
         wait_for_local_redis
+        verify_local_db_credentials
 
         log_info "运行数据库迁移..."
         compose_local_env --profile local-redis --profile rust-orchestrator --profile init run --rm db-init
@@ -870,9 +1043,25 @@ init_buildx() {
             return
         fi
 
+        # 组装 builder 创建参数；指定 BUILDKIT_IMAGE 时用它启动 buildkit 容器，
+        # 避免无法访问 docker.io 的网络下回退拉取 docker.io/moby/buildkit 而超时
+        local create_opts=(--name multiarch --driver docker-container --driver-opt network=host)
+        if [ -n "$BUILDKIT_IMAGE" ]; then
+            create_opts+=(--driver-opt "image=$BUILDKIT_IMAGE")
+        fi
+
         if ! docker buildx ls | grep -q "multiarch"; then
             log_info "创建 multiarch builder..."
-            docker buildx create --name multiarch --driver docker-container --driver-opt network=host --use 2>/dev/null || \
+            [ -n "$BUILDKIT_IMAGE" ] && log_info "使用 BuildKit 镜像: $BUILDKIT_IMAGE"
+            docker buildx create "${create_opts[@]}" --use 2>/dev/null || \
+            docker buildx use multiarch 2>/dev/null || true
+        elif [ -n "$BUILDKIT_IMAGE" ] && \
+             ! docker buildx inspect multiarch 2>/dev/null | grep -qF "image=\"$BUILDKIT_IMAGE\""; then
+            # 已存在 builder 但未使用指定的 BUILDKIT_IMAGE：重建，否则启动仍会回退到 docker.io
+            log_warning "现有 multiarch builder 未使用指定的 BuildKit 镜像，重建中..."
+            log_info "使用 BuildKit 镜像: $BUILDKIT_IMAGE"
+            docker buildx rm multiarch 2>/dev/null || true
+            docker buildx create "${create_opts[@]}" --use 2>/dev/null || \
             docker buildx use multiarch 2>/dev/null || true
         else
             log_info "使用现有的 multiarch builder"
@@ -1674,6 +1863,11 @@ main() {
                     huawei)
                         BASE_IMAGE_REGISTRY="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/"
                         DOCKER_MIRROR="swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io"
+                        # 未显式指定时，按架构推导华为云 BuildKit 镜像，避免 buildx 回退拉 docker.io
+                        if [ -z "$BUILDKIT_IMAGE" ]; then
+                            BUILDKIT_IMAGE="$(huawei_buildkit_image)"
+                            log_info "自动推导 BuildKit 镜像: $BUILDKIT_IMAGE"
+                        fi
                         ;;
                     daocloud)
                         BASE_IMAGE_REGISTRY="docker.m.daocloud.io/library/"

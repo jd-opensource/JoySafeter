@@ -9,26 +9,25 @@ extra fields) so malformed input is rejected before it reaches the service.
 from __future__ import annotations
 
 from datetime import datetime
-from enum import StrEnum
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.joysafeter_domain.credentials.material import (
+    CREDENTIAL_MATERIAL_MAX_FIELD_NAME_LENGTH,
+    CREDENTIAL_MATERIAL_MAX_FIELDS,
+    CREDENTIAL_MATERIAL_MAX_VALUE_LENGTH,
+)
+from app.joysafeter_domain.credentials.types import CredentialKind
 from app.joysafeter_shared.ids import CredentialGroupId, CredentialId
 
 # --- data contract limits (flat dict[str, str]) ---------------------------------
 # Named constants for the size bounds the service enforces on every credential's
 # `data` payload. Chosen to comfortably fit real credentials (multiple keys, long
 # base64/JWT values) while bounding storage + encryption cost per row.
-CREDENTIAL_DATA_MAX_FIELDS = 50
-CREDENTIAL_DATA_MAX_KEY_LENGTH = 128
-CREDENTIAL_DATA_MAX_VALUE_LENGTH = 8192
-
-
-class CredentialKind(StrEnum):
-    MODEL = "model"
-    MCP = "mcp"
-    SERVICE = "service"
+CREDENTIAL_DATA_MAX_FIELDS = CREDENTIAL_MATERIAL_MAX_FIELDS
+CREDENTIAL_DATA_MAX_KEY_LENGTH = CREDENTIAL_MATERIAL_MAX_FIELD_NAME_LENGTH
+CREDENTIAL_DATA_MAX_VALUE_LENGTH = CREDENTIAL_MATERIAL_MAX_VALUE_LENGTH
 
 
 def _normalize_name(name: str) -> str:
@@ -100,6 +99,7 @@ class CreateCredentialGroupRequest(BaseModel):
     @classmethod
     def _norm_name(cls, v: str) -> str:
         return _normalize_name(v)
+
 
 # --- test-connection request/response (ported from the secrets API) -------------
 # A model credential's provider/protocol/data are validated against the LLM

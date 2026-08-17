@@ -2,6 +2,7 @@
 pub mod agent_identity_config;
 pub mod agent_identity_provider;
 pub mod command_listener;
+pub mod credentials;
 pub mod engine_adapter;
 pub mod ha;
 pub mod harness_input_builder;

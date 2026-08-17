@@ -135,7 +135,9 @@ backend/data/
 # Scripts, logs, docs (not for git)
 scripts/
 logs/
-backend/scripts/
+backend/scripts/*
+!backend/scripts/
+!backend/scripts/credential_p0_5_preflight.py
 backend/logs/
 backend/docs/
 

@@ -19,7 +19,14 @@ use crate::ids::{
     CredentialGroupId, CredentialId, EnvironmentId, SandboxId, SessionId, SkillId,
     SkillSecurityScanId, SkillUsageId, SkillVersionId, TaskId,
 };
-use crate::kernel::llm_catalog::{validate_runtime_secret, RuntimeSecretBinding};
+use crate::kernel::credentials::contract::canonical_auth_scheme;
+use crate::kernel::credentials::error::{
+    credential_material_field, credential_material_object, require_bound_credential_id,
+    require_bound_project, validate_bound_credential, BoundCredentialState, CredentialRuntimeError,
+};
+use crate::kernel::llm_catalog::{
+    validate_runtime_secret, validate_runtime_secret_material, RuntimeSecretBinding,
+};
 use crate::kernel::mcp_url;
 use crate::kernel::run_spec::{
     agent_for_execution, environment_credential_ids, environment_for_execution, SnapshotEnvironment,
@@ -124,8 +131,10 @@ impl HarnessInputBuilder {
 
             self.resolve_environment_env(agent, snapshot_environment.as_ref(), &mut input)
                 .await?;
-            if let Some(binding) = self.resolve_agent_secret(agent, &mut input).await? {
-                resolve_model_from_binding(&mut input, &binding);
+            match self.resolve_agent_secret(agent, &mut input).await {
+                Ok(binding) => resolve_model_from_binding(&mut input, &binding),
+                Err(error) if error.downcast_ref() == Some(&CredentialRuntimeError::NotBound) => {}
+                Err(error) => return Err(error),
             }
             input
                 .env
@@ -134,8 +143,15 @@ impl HarnessInputBuilder {
         }
 
         if let Some(ref session) = session {
-            self.resolve_vault_credentials(session.id, &mut input.mcp_servers)
-                .await?;
+            self.resolve_vault_credentials(
+                session.id,
+                session
+                    .project_id
+                    .as_deref()
+                    .or_else(|| agent.as_ref().and_then(|agent| agent.project_id.as_deref())),
+                &mut input.mcp_servers,
+            )
+            .await?;
             self.load_memory_stores(session.id, &mut input).await?;
             self.load_session_files(session.id, &mut input).await?;
             self.load_session_repos(session.id, &mut input).await?;
@@ -299,20 +315,20 @@ impl HarnessInputBuilder {
         &self,
         agent: &crate::db::models::JoySafeterAgent,
         input: &mut HarnessInput,
-    ) -> anyhow::Result<Option<RuntimeSecretBinding>> {
-        let Some(model_credential_id) = agent.model_credential_id else {
-            return Ok(None);
-        };
-
+    ) -> anyhow::Result<RuntimeSecretBinding> {
+        let model_credential_id = require_bound_credential_id(agent.model_credential_id)?;
         let engine_kind = input.provider.clone();
-        self.resolve_secret_ref_into_input(
-            model_credential_id,
-            agent.project_id.as_deref(),
-            input,
-            true,
-            Some(&engine_kind),
-        )
-        .await
+
+        let binding = self
+            .resolve_secret_ref_into_input(
+                model_credential_id,
+                agent.project_id.as_deref(),
+                input,
+                true,
+                Some(&engine_kind),
+            )
+            .await?;
+        binding.ok_or_else(|| CredentialRuntimeError::CorruptRecord.into())
     }
 
     async fn resolve_environment_env(
@@ -370,11 +386,12 @@ impl HarnessInputBuilder {
         override_existing: bool,
         runtime_engine_kind: Option<&str>,
     ) -> anyhow::Result<Option<RuntimeSecretBinding>> {
+        let project_id = require_bound_project(project_id, credential_id)?;
         let secret = sqlx::query_as::<_, SecretRow>(
             r#"
-            SELECT kind, provider, protocol, data FROM joysafeter_credentials
-            WHERE id = $1 AND archived_at IS NULL AND deleted_at IS NULL
-              AND ($2::text IS NULL OR project_id = $2)
+            SELECT project_id, kind, provider, protocol, data, archived_at, deleted_at
+            FROM joysafeter_credentials
+            WHERE id = $1 AND project_id = $2
             "#,
         )
         .bind(credential_id)
@@ -382,9 +399,30 @@ impl HarnessInputBuilder {
         .fetch_optional(&self.pool)
         .await?;
 
-        let Some(secret) = secret else {
-            return Ok(None);
+        let diagnostic_state = if secret.is_none() {
+            sqlx::query_as::<_, CredentialStateRow>(
+                r#"
+                SELECT id, project_id, archived_at, deleted_at
+                FROM joysafeter_credentials
+                WHERE id = $1
+                "#,
+            )
+            .bind(credential_id)
+            .fetch_optional(&self.pool)
+            .await?
+        } else {
+            None
         };
+
+        validate_bound_credential(
+            Some(project_id),
+            credential_id,
+            secret
+                .as_ref()
+                .map(SecretRow::state)
+                .or_else(|| diagnostic_state.as_ref().map(CredentialStateRow::state)),
+        )?;
+        let secret = secret.ok_or(CredentialRuntimeError::NotFound)?;
 
         let binding = runtime_engine_kind
             .map(|engine_kind| {
@@ -395,12 +433,39 @@ impl HarnessInputBuilder {
                     secret.protocol.as_deref(),
                 )
             })
-            .transpose()?;
+            .transpose()
+            .map_err(|error| match error {
+                crate::kernel::llm_catalog::LlmCatalogError::SecretKindInvalid { .. } => {
+                    CredentialRuntimeError::KindMismatch
+                }
+                crate::kernel::llm_catalog::LlmCatalogError::ProviderRequired
+                | crate::kernel::llm_catalog::LlmCatalogError::ProtocolRequired => {
+                    CredentialRuntimeError::FieldMissing
+                }
+                _ => CredentialRuntimeError::CorruptRecord,
+            })?;
+
+        if runtime_engine_kind.is_none() && secret.kind != "service" {
+            return Err(CredentialRuntimeError::KindMismatch.into());
+        }
+
+        let material = credential_material_object(&secret.data)?;
+        if let Some(binding) = binding.as_ref() {
+            validate_runtime_secret_material(binding, material)?;
+        }
 
         let cipher = VaultCipher::from_env();
-        for (key, value) in json_object_to_string_map(Some(&secret.data)) {
-            if override_existing || !input.secrets.contains_key(&key) {
-                input.secrets.insert(key, cipher.decrypt_envelope(&value)?);
+        for (key, value) in material {
+            let value = value
+                .as_str()
+                .ok_or(CredentialRuntimeError::CorruptRecord)?;
+            if override_existing || !input.secrets.contains_key(key) {
+                input.secrets.insert(
+                    key.clone(),
+                    cipher
+                        .decrypt_envelope(value)
+                        .map_err(|_| CredentialRuntimeError::EnvelopeInvalid)?,
+                );
             }
         }
 
@@ -669,6 +734,7 @@ impl HarnessInputBuilder {
     async fn resolve_vault_credentials(
         &self,
         session_id: SessionId,
+        project_id: Option<&str>,
         mcp_servers: &mut Vec<proto::McpConfig>,
     ) -> anyhow::Result<()> {
         // Credential groups bound to the session gate which MCP credentials the
@@ -695,6 +761,24 @@ impl HarnessInputBuilder {
             return Ok(());
         }
 
+        let project_id = project_id
+            .filter(|project_id| !project_id.trim().is_empty())
+            .ok_or(CredentialRuntimeError::ProjectMismatch)?;
+
+        let credential_states = sqlx::query_as::<_, CredentialStateRow>(
+            r#"
+            SELECT id, project_id, archived_at, deleted_at
+            FROM joysafeter_credentials
+            WHERE group_id = ANY($1)
+            "#,
+        )
+        .bind(&group_ids)
+        .fetch_all(&self.pool)
+        .await?;
+        for state in &credential_states {
+            validate_bound_credential(Some(project_id), state.id, Some(state.state()))?;
+        }
+
         let vault_cipher = VaultCipher::from_env();
         // Map normalized_url -> credential. Python enforces a per-group unique
         // index on normalized_mcp_server_url and rejects cross-group URL conflicts
@@ -703,33 +787,35 @@ impl HarnessInputBuilder {
         let mut creds_by_url: HashMap<String, VaultCredentialRow> = HashMap::new();
         let creds = sqlx::query_as::<_, VaultCredentialRow>(
             r#"
-            SELECT id, normalized_mcp_server_url,
+            SELECT id, project_id, kind, normalized_mcp_server_url,
                    COALESCE(data->>'token_value', '') AS token_value,
-                   credential_type, oauth_config
+                   credential_type, oauth_config, data, archived_at, deleted_at
             FROM joysafeter_credentials
-            WHERE group_id = ANY($1)
-              AND kind = 'mcp'
-              AND archived_at IS NULL
-              AND deleted_at IS NULL
+            WHERE group_id = ANY($1) AND project_id = $2
             "#,
         )
         .bind(&group_ids)
+        .bind(project_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| {
             anyhow::anyhow!("failed to load MCP credentials for session {session_id}: {e}")
         })?;
         for mut cred in creds {
-            let Some(normalized_url) = cred.normalized_mcp_server_url.clone() else {
-                continue;
-            };
-            vault_cipher.decrypt_row(&mut cred).map_err(|e| {
-                anyhow::anyhow!(
-                    "failed to decrypt vault credential {} for session {}: {e}",
-                    cred.id,
-                    session_id
-                )
-            })?;
+            validate_bound_credential(Some(project_id), cred.id, Some(cred.state()))?;
+            if cred.kind != "mcp" {
+                return Err(CredentialRuntimeError::KindMismatch.into());
+            }
+            canonical_auth_scheme(&cred.credential_type)?;
+            let normalized_url = cred
+                .normalized_mcp_server_url
+                .clone()
+                .ok_or(CredentialRuntimeError::FieldMissing)?;
+            let material = credential_material_object(&cred.data)?;
+            credential_material_field(material, "token_value")?;
+            vault_cipher
+                .decrypt_row(&mut cred)
+                .map_err(|_| CredentialRuntimeError::EnvelopeInvalid)?;
             creds_by_url.insert(normalized_url, cred);
         }
 
@@ -1188,8 +1274,12 @@ mod tests {
         AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId,
         SessionResourceId, SkillSecurityScanId, TaskId,
     };
+    use crate::kernel::credentials::error::CredentialRuntimeError;
     use crate::kernel::llm_catalog::validate_runtime_secret;
     use uuid::Uuid;
+
+    const ENCRYPTED_HELLO_WORLD: &str =
+        "enc:v1:VzniG9ulG62e3VZZD1jujN8lxiW1h/6a0Hdj1jIlJC/Wl9Rvvk7D";
 
     fn database_url() -> Option<String> {
         env::var("JOYSAFETER_TEST_DATABASE_URL")
@@ -1214,9 +1304,13 @@ mod tests {
 
     #[test]
     fn model_resolution_uses_catalog_profile_key_only() {
-        let binding =
-            validate_runtime_secret("native", "llm", Some("deepseek"), Some("chat_completions"))
-                .expect("DeepSeek Chat Completions must be valid for Native");
+        let binding = validate_runtime_secret(
+            "native",
+            "model",
+            Some("deepseek"),
+            Some("chat_completions"),
+        )
+        .expect("DeepSeek Chat Completions must be valid for Native");
         let mut input = HarnessInput {
             provider: "native".to_string(),
             secrets: HashMap::from([
@@ -1489,7 +1583,7 @@ mod tests {
             .bind(snapshot_credential_id)
             .bind(&project_id)
             .bind(format!("snapshot-credential-{unique}"))
-            .bind(json!({"ANTHROPIC_API_KEY": "snapshot-key"}))
+            .bind(json!({"ANTHROPIC_API_KEY": ENCRYPTED_HELLO_WORLD}))
             .execute(&pool)
             .await
             .expect("insert snapshot test credential");
@@ -1504,7 +1598,7 @@ mod tests {
             .bind(live_credential_id)
             .bind(&project_id)
             .bind(format!("live-credential-{unique}"))
-            .bind(json!({"OPENAI_API_KEY": "live-key"}))
+            .bind(json!({"OPENAI_API_KEY": ENCRYPTED_HELLO_WORLD}))
             .execute(&pool)
             .await
             .expect("insert live test credential");
@@ -1591,7 +1685,7 @@ mod tests {
             assert!(!input.env.contains_key("LIVE_AGENT_ONLY"));
             assert_eq!(
                 input.secrets.get("ANTHROPIC_API_KEY").map(String::as_str),
-                Some("snapshot-key")
+                Some("hello-world")
             );
             assert_eq!(
                 input.setup_commands,
@@ -1877,7 +1971,7 @@ mod tests {
             .bind(mcp_url)
             .bind(&normalized)
             .bind(group_id)
-            .bind(json!({"token_value": "vault-token"}))
+            .bind(json!({"token_value": ENCRYPTED_HELLO_WORLD}))
             .execute(&pool)
             .await
             .expect("insert mcp credential");
@@ -1885,17 +1979,18 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
+                    id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata, version
                 )
                 VALUES (
-                    $1, $2, 'claude', $3, '', '{}'::jsonb, $4,
+                    $1, $2, $3, 'claude', $4, '', '{}'::jsonb, $5,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
                     'bypassPermissions', '{}'::jsonb, 1
                 )
                 "#,
             )
             .bind(agent_id)
+            .bind(&project_id)
             .bind(format!("vault-alias-agent-{unique}"))
             .bind(json!({"id": "claude-sonnet"}))
             .bind(json!([{
@@ -1909,12 +2004,13 @@ mod tests {
 
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_sessions (id, agent_id, status)
-                VALUES ($1, $2, 'idle')
+                INSERT INTO joysafeter_sessions (id, agent_id, project_id, status)
+                VALUES ($1, $2, $3, 'idle')
                 "#,
             )
             .bind(session_id)
             .bind(agent_id)
+            .bind(&project_id)
             .execute(&pool)
             .await
             .expect("insert session");
@@ -1960,10 +2056,7 @@ mod tests {
             assert_eq!(input.mcp_servers[0].name, "secure-mcp");
             assert_eq!(
                 input.mcp_servers[0].url,
-                format!(
-                    "http://{}/mcp/secure-mcp/",
-                    crate::sandbox::lds_backend::MCP_EGRESS_HOST
-                )
+                "http://mcp.vault-alias.example/api"
             );
             assert!(input.mcp_servers[0].headers.is_empty());
         }
@@ -2090,17 +2183,18 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_agents (
-                    id, name, engine_kind, model, system_prompt, env, mcp_servers,
+                    id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata, version
                 )
                 VALUES (
-                    $1, $2, 'claude', $3, '', '{}'::jsonb, $4,
+                    $1, $2, $3, 'claude', $4, '', '{}'::jsonb, $5,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
                     'bypassPermissions', '{}'::jsonb, 1
                 )
                 "#,
             )
             .bind(agent_id)
+            .bind(&project_id)
             .bind(format!("vault-decrypt-fail-agent-{unique}"))
             .bind(json!({"id": "claude-sonnet"}))
             .bind(json!([{
@@ -2114,12 +2208,13 @@ mod tests {
 
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_sessions (id, agent_id, status)
-                VALUES ($1, $2, 'idle')
+                INSERT INTO joysafeter_sessions (id, agent_id, project_id, status)
+                VALUES ($1, $2, $3, 'idle')
                 "#,
             )
             .bind(session_id)
             .bind(agent_id)
+            .bind(&project_id)
             .execute(&pool)
             .await
             .expect("insert session");
@@ -2160,12 +2255,10 @@ mod tests {
                 .build(&task, "sandbox-ext", SandboxId::from_uuid(Uuid::now_v7()))
                 .await
                 .expect_err("broken vault credential must fail harness input build");
-            let message = err.to_string();
-            assert!(
-                message.contains("failed to decrypt vault credential"),
-                "{message}"
+            assert_eq!(
+                err.downcast_ref(),
+                Some(&CredentialRuntimeError::EnvelopeInvalid)
             );
-            assert!(message.contains(&credential_id.to_string()), "{message}");
         }
         .await;
 
@@ -2209,7 +2302,7 @@ mod tests {
     #[test]
     fn resolve_model_uses_openai_profile_for_pi() {
         let binding =
-            validate_runtime_secret("pi", "llm", Some("openai"), Some("chat_completions"))
+            validate_runtime_secret("pi", "model", Some("openai"), Some("chat_completions"))
                 .expect("OpenAI Chat Completions must be valid for Pi");
         let mut input = HarnessInput {
             provider: "pi".to_string(),
@@ -2226,7 +2319,7 @@ mod tests {
     #[test]
     fn resolve_model_uses_anthropic_profile_for_pi() {
         let binding =
-            validate_runtime_secret("pi", "llm", Some("anthropic"), Some("anthropic_messages"))
+            validate_runtime_secret("pi", "model", Some("anthropic"), Some("anthropic_messages"))
                 .expect("Anthropic Messages must be valid for Pi");
         let mut input = HarnessInput {
             provider: "pi".to_string(),
@@ -2243,7 +2336,7 @@ mod tests {
     #[test]
     fn resolve_model_noop_when_already_set() {
         let binding =
-            validate_runtime_secret("pi", "llm", Some("openai"), Some("openai_responses"))
+            validate_runtime_secret("pi", "model", Some("openai"), Some("openai_responses"))
                 .expect("OpenAI Responses must be valid for Pi");
         let mut input = HarnessInput {
             provider: "pi".to_string(),
@@ -2813,15 +2906,48 @@ fn parse_vault_key(raw: &str) -> Option<[u8; 32]> {
 
 #[derive(Debug, FromRow)]
 struct SecretRow {
+    project_id: String,
     kind: String,
     provider: Option<String>,
     protocol: Option<String>,
     data: serde_json::Value,
+    archived_at: Option<chrono::DateTime<Utc>>,
+    deleted_at: Option<chrono::DateTime<Utc>>,
+}
+
+impl SecretRow {
+    fn state(&self) -> BoundCredentialState<'_> {
+        BoundCredentialState {
+            project_id: &self.project_id,
+            archived: self.archived_at.is_some(),
+            deleted: self.deleted_at.is_some(),
+        }
+    }
+}
+
+#[derive(Debug, FromRow)]
+struct CredentialStateRow {
+    id: CredentialId,
+    project_id: String,
+    archived_at: Option<chrono::DateTime<Utc>>,
+    deleted_at: Option<chrono::DateTime<Utc>>,
+}
+
+impl CredentialStateRow {
+    fn state(&self) -> BoundCredentialState<'_> {
+        BoundCredentialState {
+            project_id: &self.project_id,
+            archived: self.archived_at.is_some(),
+            deleted: self.deleted_at.is_some(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, FromRow)]
 struct VaultCredentialRow {
     id: CredentialId,
+    project_id: String,
+    kind: String,
     normalized_mcp_server_url: Option<String>,
     /// Static-bearer token, sourced from the encrypted `data->>'token_value'`
     /// JSONB field (see the SELECT that populates this row). Empty when the
@@ -2829,6 +2955,19 @@ struct VaultCredentialRow {
     token_value: String,
     credential_type: String,
     oauth_config: Option<serde_json::Value>,
+    data: serde_json::Value,
+    archived_at: Option<chrono::DateTime<Utc>>,
+    deleted_at: Option<chrono::DateTime<Utc>>,
+}
+
+impl VaultCredentialRow {
+    fn state(&self) -> BoundCredentialState<'_> {
+        BoundCredentialState {
+            project_id: &self.project_id,
+            archived: self.archived_at.is_some(),
+            deleted: self.deleted_at.is_some(),
+        }
+    }
 }
 
 #[derive(Debug, FromRow)]

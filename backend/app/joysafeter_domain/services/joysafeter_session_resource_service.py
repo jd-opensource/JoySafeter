@@ -8,6 +8,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_application.credentials.composition import compose_repository_access_material_adapter
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessionFile
 from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
@@ -19,7 +20,6 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
     SessionRepoResourceRequest,
     SessionRepoResourceResponse,
 )
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_domain.services.joysafeter_file_service import FileService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
@@ -169,8 +169,10 @@ class SessionResourceService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self._file_svc = FileService(get_storage())
-        self._secret_svc = CredentialService(db)
         self._session_svc = SessionService(db)
+        from app.joysafeter_shared.config.settings import joysafeter_config
+
+        self._repository_material = compose_repository_access_material_adapter(joysafeter_config.vault_encryption_key)
 
     async def get_project_session_or_raise(
         self,
@@ -330,9 +332,7 @@ class SessionResourceService:
             )
             encrypted_token = ""
             if resource.authorization_token:
-                encrypted_token = self._secret_svc.encrypt_data_for_storage({"token": resource.authorization_token})[
-                    "token"
-                ]
+                encrypted_token = self._repository_material.protect_repository_token(resource.authorization_token)
             prepared.append(
                 PreparedSessionRepoResource(
                     url=url,
@@ -539,9 +539,7 @@ class SessionResourceService:
                 user_action="refresh",
             )
         row.encrypted_token = (
-            self._secret_svc.encrypt_data_for_storage({"token": authorization_token})["token"]
-            if authorization_token
-            else ""
+            self._repository_material.protect_repository_token(authorization_token) if authorization_token else ""
         )
         await self.db.commit()
         await self.db.refresh(row)

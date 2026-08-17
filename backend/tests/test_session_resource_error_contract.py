@@ -12,6 +12,7 @@ from app.joysafeter_api.api.v1.sessions import (
     list_session_resources,
     update_repo_resource_token,
 )
+from app.joysafeter_application.credentials.composition import compose_repository_access_material_adapter
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
@@ -32,8 +33,8 @@ from app.joysafeter_domain.services.joysafeter_session_resource_service import S
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.config.settings import joysafeter_config
 from app.joysafeter_shared.ids import FileId, MemoryStoreId, SessionResourceId
-from app.joysafeter_shared.security.credential_cipher import CredentialCipher
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -479,10 +480,7 @@ async def test_create_session_file_and_repo_share_workspace_namespace_without_cr
 
 
 @pytest.mark.asyncio
-async def test_session_repo_resources_keep_token_encrypted_and_never_echoed(db_session, monkeypatch):
-    cipher = CredentialCipher(CredentialCipher.generate_key())
-    monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_credential_service._cipher", cipher)
-
+async def test_session_repo_resources_keep_token_encrypted_and_never_echoed(db_session):
     agent = await _create_agent(db_session)
     response = await create_session(
         CreateSessionRequest(
@@ -531,9 +529,8 @@ async def test_session_repo_resources_keep_token_encrypted_and_never_echoed(db_s
 
 
 @pytest.mark.asyncio
-async def test_session_resource_service_keeps_parent_project_boundary_for_repo_children(db_session, monkeypatch):
-    cipher = CredentialCipher(CredentialCipher.generate_key())
-    monkeypatch.setattr("app.joysafeter_domain.services.joysafeter_credential_service._cipher", cipher)
+async def test_session_resource_service_keeps_parent_project_boundary_for_repo_children(db_session):
+    material = compose_repository_access_material_adapter(joysafeter_config.vault_encryption_key)
     project, session = await _create_project_session(db_session, "SessionResourceSvcProject")
     other_project, _ = await _create_project_session(db_session, "SessionResourceSvcOtherProject")
     project_id = project.id
@@ -544,7 +541,7 @@ async def test_session_resource_service_keeps_parent_project_boundary_for_repo_c
         branch="main",
         mount_name="private",
         mount_path="/workspace/private",
-        encrypted_token=cipher.encrypt("old-token"),
+        encrypted_token=material.protect_repository_token("old-token"),
     )
     db_session.add(row)
     await db_session.commit()

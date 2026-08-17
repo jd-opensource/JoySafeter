@@ -13,6 +13,7 @@ from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_application.credentials.composition import compose_task_identity_material_adapter
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.models.joysafeter_task_identity import JoySafeterTaskIdentityContext
 from app.joysafeter_identity.config import (
@@ -23,10 +24,7 @@ from app.joysafeter_identity.service import (
     capture_identity_credential,
     validate_provider_configuration,
 )
-from app.joysafeter_shared.security.credential_cipher import (
-    CredentialCipher,
-    CredentialCipherConfigurationError,
-)
+from app.joysafeter_infrastructure.task_identity.material_adapter import TaskIdentityMaterialConfigurationError
 
 logger = logging.getLogger(__name__)
 
@@ -39,21 +37,17 @@ def validate_agent_identity_configuration() -> None:
         return
     validate_provider_configuration()
     try:
-        CredentialCipher(os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", "")).require_enabled()
+        compose_task_identity_material_adapter(os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", "")).require_enabled()
         _context_ttl()
     except ValueError as exc:
         raise RuntimeError(str(exc)) from exc
 
 
 def _encrypt(value: str, vault_key: str) -> str:
-    if not value:
-        raise ValueError("identity credential must be non-empty")
-    cipher = CredentialCipher(vault_key)
     try:
-        cipher.require_enabled()
-    except CredentialCipherConfigurationError as exc:
+        return compose_task_identity_material_adapter(vault_key).protect_identity_credential(value)
+    except TaskIdentityMaterialConfigurationError as exc:
         raise ValueError("JOYSAFETER_VAULT_ENCRYPTION_KEY must encode a 32-byte key") from exc
-    return cipher.encrypt(value)
 
 
 def _context_ttl() -> timedelta:
