@@ -44,9 +44,29 @@ const catalog = {
           options: [],
           advanced: false,
         },
+        {
+          key: 'ANTHROPIC_AUTH_TOKEN',
+          label: 'Auth Token',
+          type: 'secret',
+          required: false,
+          placeholder: null,
+          help_text: null,
+          options: [],
+          advanced: true,
+        },
+        {
+          key: 'ANTHROPIC_BASE_URL',
+          label: 'Base URL',
+          type: 'url',
+          required: false,
+          placeholder: null,
+          help_text: null,
+          options: [],
+          advanced: false,
+        },
       ],
-      required_any_of: [['ANTHROPIC_API_KEY']],
-      base_url_key: null,
+      required_any_of: [['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']],
+      base_url_key: 'ANTHROPIC_BASE_URL',
       model_key: null,
     },
     {
@@ -251,5 +271,36 @@ describe('LlmSecretConfigurator', () => {
     })
 
     expect(onCreated).not.toHaveBeenCalled()
+  })
+
+  it('renders a single key input and an auth-scheme selector for anthropic', () => {
+    render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
+    expect(screen.getByLabelText('API Key')).toBeTruthy()
+    expect(screen.queryByLabelText('Auth Token')).toBeNull()
+    expect(screen.getByLabelText('Auth Method')).toBeTruthy()
+  })
+
+  it('previews Bearer when base url is a gateway host', () => {
+    render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
+    expect(screen.getByText(/x-api-key/)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Base URL'), {
+      target: { value: 'http://ai-api.jdcloud.com/anthropic' },
+    })
+    expect(screen.getByText(/Bearer/)).toBeTruthy()
+  })
+
+  it('submits auth_scheme for anthropic credentials', async () => {
+    const create = deferred<unknown>()
+    managedPostMock.mockReturnValueOnce(create.promise)
+    render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'k' } })
+    fireEvent.change(screen.getByPlaceholderText('managed.llm.configurationNamePlaceholder'), {
+      target: { value: 'Claude key' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'managed.llm.createConfiguration' }))
+    await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
+    const [, body] = managedPostMock.mock.calls[0]
+    expect(body.auth_scheme).toBe('auto')
+    expect(body.data.ANTHROPIC_API_KEY).toBe('k')
   })
 })

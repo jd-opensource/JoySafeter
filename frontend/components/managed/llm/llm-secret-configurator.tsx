@@ -13,6 +13,11 @@ import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import {
+  type AnthropicAuthScheme,
+  inferSchemeFromValues,
+  resolveAnthropicScheme,
+} from '@/lib/managed/anthropic-auth'
+import {
   getAllProviderProtocolOptions,
   getProviderProtocolOptions,
   stableConnectionFingerprint,
@@ -71,6 +76,7 @@ export function LlmSecretConfigurator({
   const [providerId, setProviderId] = useState('')
   const [protocolId, setProtocolId] = useState('')
   const [values, setValues] = useState<Record<string, string>>({})
+  const [authScheme, setAuthScheme] = useState<AnthropicAuthScheme>('auto')
   const [name, setName] = useState('')
   const [isDefault, setIsDefault] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -120,6 +126,7 @@ export function LlmSecretConfigurator({
   const connectionTestIsFresh =
     testedFingerprint !== null && testedFingerprint === currentFingerprint
   const connectionTestIsStale = testedFingerprint !== null && !connectionTestIsFresh
+  const isAnthropic = selectedOption?.credentialProfile.id === 'anthropic_standard'
 
   useEffect(() => {
     if (selectedOption) return
@@ -142,9 +149,14 @@ export function LlmSecretConfigurator({
   }, [options, providerId, selectedOption])
 
   useEffect(() => {
-    setValues((previous) =>
-      selectedOption ? valuesForProfile(selectedOption.credentialProfile.fields, previous) : {},
-    )
+    let inferred: Record<string, string> = {}
+    setValues((previous) => {
+      inferred = selectedOption
+        ? valuesForProfile(selectedOption.credentialProfile.fields, previous)
+        : {}
+      return inferred
+    })
+    setAuthScheme(inferSchemeFromValues(inferred))
     setValidationError(null)
     setRequestError(null)
     setTestMessage(null)
@@ -177,10 +189,15 @@ export function LlmSecretConfigurator({
   }
 
   const visibleFields =
-    selectedOption?.credentialProfile.fields.filter((field) => !field.advanced || showAdvanced) ??
-    []
+    selectedOption?.credentialProfile.fields.filter(
+      (field) =>
+        (!field.advanced || showAdvanced) &&
+        !(isAnthropic && field.key === 'ANTHROPIC_AUTH_TOKEN'),
+    ) ?? []
   const advancedFieldCount =
-    selectedOption?.credentialProfile.fields.filter((field) => field.advanced).length ?? 0
+    selectedOption?.credentialProfile.fields.filter(
+      (field) => field.advanced && !(isAnthropic && field.key === 'ANTHROPIC_AUTH_TOKEN'),
+    ).length ?? 0
 
   const runValidation = () => {
     if (!providerId || !protocolId || !selectedOption) {
@@ -210,7 +227,12 @@ export function LlmSecretConfigurator({
     try {
       const result = await managedPost<{ ok: boolean; message: string }>(
         '/credentials/test',
-        { provider: providerId, protocol: protocolId, data: values },
+        {
+          provider: providerId,
+          protocol: protocolId,
+          data: values,
+          auth_scheme: isAnthropic ? authScheme : undefined,
+        },
         managedRequestOptions(action.requestScope),
       )
       if (!isCurrentAction(action.runId, action.scope)) return
@@ -251,6 +273,7 @@ export function LlmSecretConfigurator({
           protocol: protocolId,
           data: values,
           is_default: isDefault,
+          auth_scheme: isAnthropic ? authScheme : undefined,
         },
         managedRequestOptions(action.requestScope),
       )
@@ -369,6 +392,29 @@ export function LlmSecretConfigurator({
               </div>
             ))}
           </div>
+          {isAnthropic ? (
+            <div className="space-y-2">
+              <FormFieldLabel htmlFor="llm-anthropic-auth-scheme">Auth Method</FormFieldLabel>
+              <select
+                id="llm-anthropic-auth-scheme"
+                aria-label="Auth Method"
+                value={authScheme}
+                disabled={readOnly}
+                onChange={(event) => setAuthScheme(event.target.value as AnthropicAuthScheme)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="auto">Auto</option>
+                <option value="xapikey">x-api-key</option>
+                <option value="bearer">Bearer</option>
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Resolved:{' '}
+                {resolveAnthropicScheme(values['ANTHROPIC_BASE_URL'] ?? '', authScheme) === 'bearer'
+                  ? 'Bearer'
+                  : 'x-api-key'}
+              </p>
+            </div>
+          ) : null}
           {advancedFieldCount > 0 ? (
             <Button
               type="button"
