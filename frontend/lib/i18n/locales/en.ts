@@ -1337,6 +1337,12 @@ const en = {
         },
       },
       llm: {
+        authScheme: 'Auth method',
+        authSchemeAuto: 'Auto (from Base URL)',
+        authSchemeApiKey: 'API Key (official Anthropic)',
+        authSchemeBearer: 'Bearer (compatible gateway)',
+        authSchemePreviewApiKey: 'Will use API Key auth',
+        authSchemePreviewBearer: 'Will use Bearer auth',
         catalogLoadFailed: 'Failed to load the LLM compatibility catalog.',
         catalogIdentityUnavailable:
           'This Model Connection references a provider or protocol that is no longer available in the current catalog. Create a new Model Connection before using it.',

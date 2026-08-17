@@ -277,21 +277,26 @@ describe('LlmSecretConfigurator', () => {
     render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
     expect(screen.getByLabelText('API Key')).toBeTruthy()
     expect(screen.queryByLabelText('Auth Token')).toBeNull()
-    expect(screen.getByLabelText('Auth Method')).toBeTruthy()
+    expect(screen.getByLabelText('managed.llm.authScheme')).toBeTruthy()
   })
 
   it('previews Bearer when base url is a gateway host', () => {
     render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
-    // Anchor on the resolved-preview line's full text (the scheme <option> labels
-    // also contain "x-api-key"/"Bearer", so a loose /x-api-key/ matches multiple).
+    // Anchor on the resolved-preview line's full text. In the test env t returns the
+    // key, so the preview shows the preview key while the <option> labels show the
+    // separate scheme keys — no overlap.
     expect(
-      screen.getByText((_content, el) => el?.textContent === 'Resolved: x-api-key'),
+      screen.getByText(
+        (_content, el) => el?.textContent === 'managed.llm.authSchemePreviewApiKey',
+      ),
     ).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Base URL'), {
       target: { value: 'http://ai-api.jdcloud.com/anthropic' },
     })
     expect(
-      screen.getByText((_content, el) => el?.textContent === 'Resolved: Bearer'),
+      screen.getByText(
+        (_content, el) => el?.textContent === 'managed.llm.authSchemePreviewBearer',
+      ),
     ).toBeTruthy()
   })
 

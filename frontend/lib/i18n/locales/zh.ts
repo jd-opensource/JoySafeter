@@ -1378,6 +1378,12 @@ const zh = {
         },
       },
       llm: {
+        authScheme: '鉴权方式',
+        authSchemeAuto: '自动(按接口地址判断)',
+        authSchemeApiKey: 'API Key(官方 Anthropic)',
+        authSchemeBearer: 'Bearer(中转网关)',
+        authSchemePreviewApiKey: '当前将使用 API Key 方式',
+        authSchemePreviewBearer: '当前将使用 Bearer 方式',
         catalogLoadFailed: '加载大模型兼容目录失败。',
         catalogIdentityUnavailable:
           '该模型连接引用的供应商或协议已不在当前目录中，现为只读状态。请新建可用的模型连接后再替换使用。',

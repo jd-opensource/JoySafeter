@@ -14,6 +14,12 @@ export const SECRET_KEY_GROUPS: SecretKeyGroup[] = [
     labelKey: 'managed.secrets.keyGroups.claude',
     icon: 'C',
     bgColor: '#f97316',
+    // Autocomplete suggestions for the generic Service Credential key picker
+    // (SecretKeySelect) only. These keys do NOT render editable inputs on their
+    // own: the anthropic Model Connection form (LlmSecretConfigurator) is the
+    // single source of truth for anthropic rendering. It exposes ANTHROPIC_API_KEY
+    // plus the auth-method switch, and hides ANTHROPIC_AUTH_TOKEN so there is no
+    // second raw Auth Token box.
     keys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_MODEL', 'ANTHROPIC_BASE_URL'],
   },
   {

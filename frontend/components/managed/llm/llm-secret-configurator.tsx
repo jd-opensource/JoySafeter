@@ -394,24 +394,25 @@ export function LlmSecretConfigurator({
           </div>
           {isAnthropic ? (
             <div className="space-y-2">
-              <FormFieldLabel htmlFor="llm-anthropic-auth-scheme">Auth Method</FormFieldLabel>
+              <FormFieldLabel htmlFor="llm-anthropic-auth-scheme">
+                {t('managed.llm.authScheme')}
+              </FormFieldLabel>
               <select
                 id="llm-anthropic-auth-scheme"
-                aria-label="Auth Method"
+                aria-label={t('managed.llm.authScheme')}
                 value={authScheme}
                 disabled={readOnly}
                 onChange={(event) => setAuthScheme(event.target.value as AnthropicAuthScheme)}
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
-                <option value="auto">Auto</option>
-                <option value="xapikey">x-api-key</option>
-                <option value="bearer">Bearer</option>
+                <option value="auto">{t('managed.llm.authSchemeAuto')}</option>
+                <option value="xapikey">{t('managed.llm.authSchemeApiKey')}</option>
+                <option value="bearer">{t('managed.llm.authSchemeBearer')}</option>
               </select>
               <p className="text-xs text-muted-foreground">
-                Resolved:{' '}
                 {resolveAnthropicScheme(values['ANTHROPIC_BASE_URL'] ?? '', authScheme) === 'bearer'
-                  ? 'Bearer'
-                  : 'x-api-key'}
+                  ? t('managed.llm.authSchemePreviewBearer')
+                  : t('managed.llm.authSchemePreviewApiKey')}
               </p>
             </div>
           ) : null}
