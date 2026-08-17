@@ -282,11 +282,17 @@ describe('LlmSecretConfigurator', () => {
 
   it('previews Bearer when base url is a gateway host', () => {
     render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
-    expect(screen.getByText(/x-api-key/)).toBeTruthy()
+    // Anchor on the resolved-preview line's full text (the scheme <option> labels
+    // also contain "x-api-key"/"Bearer", so a loose /x-api-key/ matches multiple).
+    expect(
+      screen.getByText((_content, el) => el?.textContent === 'Resolved: x-api-key'),
+    ).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Base URL'), {
       target: { value: 'http://ai-api.jdcloud.com/anthropic' },
     })
-    expect(screen.getByText(/Bearer/)).toBeTruthy()
+    expect(
+      screen.getByText((_content, el) => el?.textContent === 'Resolved: Bearer'),
+    ).toBeTruthy()
   })
 
   it('submits auth_scheme for anthropic credentials', async () => {
