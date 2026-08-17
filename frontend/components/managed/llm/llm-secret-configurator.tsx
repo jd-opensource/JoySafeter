@@ -13,6 +13,8 @@ import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import {
+  ANTHROPIC_AUTH_SCHEME,
+  ANTHROPIC_ENV,
   type AnthropicAuthScheme,
   inferSchemeFromValues,
   resolveAnthropicScheme,
@@ -76,7 +78,7 @@ export function LlmSecretConfigurator({
   const [providerId, setProviderId] = useState('')
   const [protocolId, setProtocolId] = useState('')
   const [values, setValues] = useState<Record<string, string>>({})
-  const [authScheme, setAuthScheme] = useState<AnthropicAuthScheme>('auto')
+  const [authScheme, setAuthScheme] = useState<AnthropicAuthScheme>(ANTHROPIC_AUTH_SCHEME.auto)
   const [name, setName] = useState('')
   const [isDefault, setIsDefault] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -192,11 +194,11 @@ export function LlmSecretConfigurator({
     selectedOption?.credentialProfile.fields.filter(
       (field) =>
         (!field.advanced || showAdvanced) &&
-        !(isAnthropic && field.key === 'ANTHROPIC_AUTH_TOKEN'),
+        !(isAnthropic && field.key === ANTHROPIC_ENV.authToken),
     ) ?? []
   const advancedFieldCount =
     selectedOption?.credentialProfile.fields.filter(
-      (field) => field.advanced && !(isAnthropic && field.key === 'ANTHROPIC_AUTH_TOKEN'),
+      (field) => field.advanced && !(isAnthropic && field.key === ANTHROPIC_ENV.authToken),
     ).length ?? 0
 
   const runValidation = () => {
@@ -405,12 +407,17 @@ export function LlmSecretConfigurator({
                 onChange={(event) => setAuthScheme(event.target.value as AnthropicAuthScheme)}
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
-                <option value="auto">{t('managed.llm.authSchemeAuto')}</option>
-                <option value="xapikey">{t('managed.llm.authSchemeApiKey')}</option>
-                <option value="bearer">{t('managed.llm.authSchemeBearer')}</option>
+                <option value={ANTHROPIC_AUTH_SCHEME.auto}>{t('managed.llm.authSchemeAuto')}</option>
+                <option value={ANTHROPIC_AUTH_SCHEME.xapikey}>
+                  {t('managed.llm.authSchemeApiKey')}
+                </option>
+                <option value={ANTHROPIC_AUTH_SCHEME.bearer}>
+                  {t('managed.llm.authSchemeBearer')}
+                </option>
               </select>
               <p className="text-xs text-muted-foreground">
-                {resolveAnthropicScheme(values['ANTHROPIC_BASE_URL'] ?? '', authScheme) === 'bearer'
+                {resolveAnthropicScheme(values[ANTHROPIC_ENV.baseUrl] ?? '', authScheme) ===
+                ANTHROPIC_AUTH_SCHEME.bearer
                   ? t('managed.llm.authSchemePreviewBearer')
                   : t('managed.llm.authSchemePreviewApiKey')}
               </p>

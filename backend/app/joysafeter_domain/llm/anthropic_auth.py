@@ -12,7 +12,7 @@ tested header always matches the runtime-injected header.
 
 from __future__ import annotations
 
-from urllib.parse import urlparse
+from app.joysafeter_shared.llm.base_url import normalize_llm_host
 
 OFFICIAL_ANTHROPIC_HOST = "api.anthropic.com"
 
@@ -25,18 +25,9 @@ AUTH_SCHEME_XAPIKEY = "xapikey"
 AUTH_SCHEME_BEARER = "bearer"
 
 
-def _host_of(base_url: str) -> str:
-    raw = (base_url or "").strip()
-    if not raw:
-        return ""
-    if "://" not in raw:
-        raw = "http://" + raw
-    return (urlparse(raw).hostname or "").lower()
-
-
 def is_official_anthropic(base_url: str) -> bool:
-    host = _host_of(base_url)
-    return host == "" or host == OFFICIAL_ANTHROPIC_HOST
+    host = normalize_llm_host(base_url or "")
+    return host is None or host == OFFICIAL_ANTHROPIC_HOST
 
 
 def resolve_auth_scheme(base_url: str, requested: str) -> str:

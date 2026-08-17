@@ -1,4 +1,16 @@
-export type AnthropicAuthScheme = 'auto' | 'xapikey' | 'bearer'
+export const ANTHROPIC_AUTH_SCHEME = {
+  auto: 'auto',
+  xapikey: 'xapikey',
+  bearer: 'bearer',
+} as const
+
+export type AnthropicAuthScheme = (typeof ANTHROPIC_AUTH_SCHEME)[keyof typeof ANTHROPIC_AUTH_SCHEME]
+
+export const ANTHROPIC_ENV = {
+  apiKey: 'ANTHROPIC_API_KEY',
+  authToken: 'ANTHROPIC_AUTH_TOKEN',
+  baseUrl: 'ANTHROPIC_BASE_URL',
+} as const
 
 const OFFICIAL_HOST = 'api.anthropic.com'
 
@@ -20,13 +32,15 @@ export function isOfficialAnthropic(baseUrl: string): boolean {
 export function resolveAnthropicScheme(
   baseUrl: string,
   requested: AnthropicAuthScheme,
-): 'xapikey' | 'bearer' {
-  if (requested === 'xapikey' || requested === 'bearer') return requested
-  return isOfficialAnthropic(baseUrl) ? 'xapikey' : 'bearer'
+): typeof ANTHROPIC_AUTH_SCHEME.xapikey | typeof ANTHROPIC_AUTH_SCHEME.bearer {
+  if (requested === ANTHROPIC_AUTH_SCHEME.xapikey || requested === ANTHROPIC_AUTH_SCHEME.bearer) {
+    return requested
+  }
+  return isOfficialAnthropic(baseUrl) ? ANTHROPIC_AUTH_SCHEME.xapikey : ANTHROPIC_AUTH_SCHEME.bearer
 }
 
 export function inferSchemeFromValues(values: Record<string, string>): AnthropicAuthScheme {
-  if ((values.ANTHROPIC_AUTH_TOKEN || '').trim()) return 'bearer'
-  if ((values.ANTHROPIC_API_KEY || '').trim()) return 'xapikey'
-  return 'auto'
+  if ((values[ANTHROPIC_ENV.authToken] || '').trim()) return ANTHROPIC_AUTH_SCHEME.bearer
+  if ((values[ANTHROPIC_ENV.apiKey] || '').trim()) return ANTHROPIC_AUTH_SCHEME.xapikey
+  return ANTHROPIC_AUTH_SCHEME.auto
 }
