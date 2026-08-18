@@ -17,14 +17,14 @@ type TerminologyExpectation = readonly [
 ]
 
 const terminologyExpectations: readonly TerminologyExpectation[] = [
-  ['navigation', 'nav.secrets', 'Connections & Credentials', '模型与凭据'],
+  ['navigation', 'nav.secrets', 'Credentials', '凭据'],
   ['navigation', 'nav.vaults', 'MCP Credential Vaults', 'MCP 凭据库'],
   ['navigation', 'nav.apiKeys', 'Project Access Tokens', '项目访问令牌'],
   [
     'connections and credentials',
     'managed.secrets.title',
-    'Connections & Credentials',
-    '模型与凭据',
+    'Credentials',
+    '凭据',
   ],
   [
     'connections and credentials',
@@ -42,8 +42,8 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   [
     'connections and credentials',
     'managed.secrets.backToList',
-    'Back to Connections & Credentials',
-    '返回模型与凭据',
+    'Back to Credentials',
+    '返回凭据',
   ],
   [
     'connections and credentials',
@@ -60,8 +60,8 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   [
     'connections and credentials',
     'managed.search.secrets',
-    'Search connections and credentials by name or ID',
-    '按名称或 ID 搜索模型与凭据',
+    'Search credentials by name or ID',
+    '按名称或 ID 搜索凭据',
   ],
   ['model and service', 'managed.llm.modelConfiguration', 'Model Connection', '模型连接'],
   ['model and service', 'managed.llm.genericSecret', 'Service Credential', '服务凭据'],
@@ -76,8 +76,8 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   [
     'model connection states',
     'managed.llm.catalogIdentityUnavailable',
-    'This Model Connection references a provider or protocol that is no longer available in the current catalog. Create a new Model Connection before using it.',
-    '该模型连接引用的供应商或协议已不在当前目录中，现为只读状态。请新建可用的模型连接后再替换使用。',
+    'The provider or protocol used by this Model Connection is no longer supported, so it is read-only. Create a new Model Connection to replace it.',
+    '该模型连接使用的供应商或协议已不再受支持，当前仅可查看、无法编辑。请新建一条模型连接来替换它。',
   ],
   [
     'model connection states',
@@ -143,8 +143,8 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   [
     'model connection states',
     'managed.llm.noConfigurationHint',
-    'Do not bind a Model Connection. The agent will not receive model credentials from Connections & Credentials.',
-    '不绑定模型连接；系统不会从模型与凭据中向该智能体注入模型凭据。',
+    'Do not bind a Model Connection. The agent will not receive model credentials.',
+    '不绑定模型连接；系统不会向该智能体注入模型凭据。',
   ],
   [
     'MCP credential vault errors',
@@ -1002,7 +1002,7 @@ describe('credential domain terminology', () => {
       0,
     )
 
-    expect(inventory.counts).toEqual({ direct: 1308, dynamic: 401, total: 1709 })
+    expect(inventory.counts).toEqual({ direct: 1309, dynamic: 401, total: 1710 })
     expect(templateAdditions).toBe(354)
     expect(finiteAdditions).toBe(47)
     expect(inventory.templateDynamicLeaves).toContain(
@@ -1170,8 +1170,8 @@ describe('credential domain terminology', () => {
 
 describe('unified credentials surface vocabulary (P1, §3.12)', () => {
   it('lands the merged menu + tab labels as Model Connection (not 模型接入)', () => {
-    expect(en.translation.nav.credentials).toBe('Models & Credentials')
-    expect(zh.translation.nav.credentials).toBe('模型与凭据')
+    expect(en.translation.nav.credentials).toBe('Credentials')
+    expect(zh.translation.nav.credentials).toBe('凭据')
     expect(en.translation.managed.credentials.tabs.models).toBe('Model Connections')
     expect(zh.translation.managed.credentials.tabs.models).toBe('模型连接')
     expect(zh.translation.managed.llm.modelConfiguration).toBe('模型连接')

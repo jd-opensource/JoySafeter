@@ -15,6 +15,7 @@ use crate::db::{
     queries,
 };
 use crate::ids::{AgentId, EnvironmentId, SandboxId, SessionId, TaskId};
+use crate::kernel::credentials::error::CredentialRuntimeError;
 use crate::kernel::ha::BridgeStore;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_resolver::SandboxResolver;
@@ -203,8 +204,15 @@ pub fn spawn_scheduler(
 
                     if let Err(e) = result {
                         error!(task_id = %task_id, "Failed to schedule task: {e}");
-                        handle_scheduling_failure(&resolver_pool, &queue, task_id, &e.to_string())
-                            .await;
+                        let permanent_code = permanent_scheduling_failure_code(&e);
+                        handle_scheduling_failure(
+                            &resolver_pool,
+                            &queue,
+                            task_id,
+                            &e.to_string(),
+                            permanent_code,
+                        )
+                        .await;
                     }
                     drop(_sched_permit);
                 });
@@ -407,11 +415,24 @@ async fn create_session_and_attach_to_scheduling_task(
     Ok(Some(session))
 }
 
+/// Returns a stable machine code when the scheduling error is a permanent
+/// credential-resolution failure (corrupt/unsupported/mismatched material that
+/// can never succeed on retry). Transient failures (resolver timeouts, Docker
+/// hiccups, transient DB errors) return `None` and keep normal retry behavior.
+///
+/// The `.context(...)` wrappers used at the credential error sites preserve the
+/// original type, so `downcast_ref` still recovers the `CredentialRuntimeError`.
+fn permanent_scheduling_failure_code(err: &anyhow::Error) -> Option<&'static str> {
+    err.downcast_ref::<CredentialRuntimeError>()
+        .map(|credential_error| credential_error.contract_code())
+}
+
 async fn handle_scheduling_failure(
     pool: &PgPool,
     _queue: &TaskQueue,
     task_id: TaskId,
     reason: &str,
+    permanent_code: Option<&str>,
 ) {
     let task = match queries::get_task(pool, task_id).await {
         Ok(Some(task)) => task,
@@ -434,7 +455,10 @@ async fn handle_scheduling_failure(
         let _ = queries::complete_sandbox_task(pool, sandbox_id).await;
     }
 
-    if task.retry_count < task.max_retries {
+    // Permanent credential failures can never succeed on retry. Fail fast to a
+    // terminal state carrying the machine code instead of burning retries while
+    // the UI shows a misleading "rescheduling" status.
+    if permanent_code.is_none() && task.retry_count < task.max_retries {
         let next_retry_count = task.retry_count + 1;
         let backoff = scheduling_retry_backoff(next_retry_count);
         match queries::increment_scheduling_retry_keep_scheduling(
@@ -499,13 +523,17 @@ async fn handle_scheduling_failure(
         return;
     }
 
+    let stop_reason = match permanent_code {
+        Some(code) => json!({"type": "error", "message": reason, "code": code}),
+        None => json!({"type": "error", "message": reason}),
+    };
     mark_terminal_task_and_session_idle(
         pool,
         task_id,
         task.session_id,
         "failed",
         reason,
-        json!({"type": "error", "message": reason}),
+        stop_reason,
     )
     .await;
 }
@@ -901,6 +929,28 @@ mod tests {
         assert_eq!(scheduling_retry_backoff(99), Duration::from_secs(60));
     }
 
+    #[test]
+    fn permanent_failure_code_detects_credential_errors_through_context() {
+        // Credential errors are wrapped with `.context(...)` at the origin sites;
+        // downcast must still recover the typed error so we classify them permanent.
+        let corrupt = anyhow::Error::new(CredentialRuntimeError::CorruptRecord)
+            .context("invalid persisted agent snapshot model_credential_id \"old-key\"");
+        assert_eq!(
+            permanent_scheduling_failure_code(&corrupt),
+            Some("corrupt_record")
+        );
+
+        let unsupported = anyhow::Error::new(CredentialRuntimeError::UnsupportedScheme);
+        assert_eq!(
+            permanent_scheduling_failure_code(&unsupported),
+            Some("unsupported_scheme")
+        );
+
+        // Transient scheduling failures must NOT be classified permanent.
+        let transient = anyhow::anyhow!("sandbox resolution timed out after 120s");
+        assert_eq!(permanent_scheduling_failure_code(&transient), None);
+    }
+
     #[tokio::test]
     async fn scheduler_auto_session_attach_skips_task_that_left_scheduling_without_leaking_session()
     {
@@ -997,7 +1047,7 @@ mod tests {
             .expect("attach sandbox to task");
 
         let result = async {
-            handle_scheduling_failure(&pool, &test_queue(), task_id, "resolver failed").await;
+            handle_scheduling_failure(&pool, &test_queue(), task_id, "resolver failed", None).await;
 
             let task: (String, i32, Option<Uuid>, i32, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id, schedule_attempts, next_schedule_at FROM joysafeter_tasks WHERE id = $1",
@@ -1080,7 +1130,8 @@ mod tests {
             .expect("attach running sandbox to task");
 
         let result = async {
-            handle_scheduling_failure(&pool, &test_queue(), task_id, "late resolver failure").await;
+            handle_scheduling_failure(&pool, &test_queue(), task_id, "late resolver failure", None)
+                .await;
 
             let task: (String, i32, Option<SandboxId>, Option<String>) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id, error FROM joysafeter_tasks WHERE id = $1",
@@ -1147,7 +1198,8 @@ mod tests {
                 .await;
 
         let result = async {
-            handle_scheduling_failure(&pool, &test_queue(), task_id, "resolver exhausted").await;
+            handle_scheduling_failure(&pool, &test_queue(), task_id, "resolver exhausted", None)
+                .await;
 
             let task: (String, i32, Option<String>) = sqlx::query_as(
                 "SELECT status, retry_count, error FROM joysafeter_tasks WHERE id = $1",
@@ -1188,6 +1240,99 @@ mod tests {
                 event.1,
                 json!({"task_id": task_id.to_string(), "stop_reason": stop_reason})
             );
+        }
+        .await;
+
+        cleanup_scheduler_rows(&pool, task_id, session_id, Some(agent_id), None).await;
+        result
+    }
+
+    #[tokio::test]
+    async fn scheduler_permanent_credential_failure_fails_fast_without_retry() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let unique = Uuid::now_v7().simple().to_string();
+        let agent_id = create_scheduler_agent(&pool, &unique).await;
+        let session_id = create_scheduler_session(&pool, Some(agent_id), "running").await;
+        // retry_count 0 of max_retries 2: a transient failure would reschedule,
+        // but a permanent credential failure must terminate immediately.
+        let task_id =
+            create_scheduler_task(&pool, Some(agent_id), session_id, "scheduling", 0, 2, None)
+                .await;
+
+        let result = async {
+            handle_scheduling_failure(
+                &pool,
+                &test_queue(),
+                task_id,
+                "credential record is corrupt",
+                Some("corrupt_record"),
+            )
+            .await;
+
+            let task: (String, i32, Option<String>) = sqlx::query_as(
+                "SELECT status, retry_count, error FROM joysafeter_tasks WHERE id = $1",
+            )
+            .bind(task_id)
+            .fetch_one(&pool)
+            .await
+            .expect("load permanently failed task");
+            // Failed immediately, no retry consumed, no rescheduling detour.
+            assert_eq!(task.0, "failed");
+            assert_eq!(task.1, 0);
+            assert_eq!(task.2.as_deref(), Some("credential record is corrupt"));
+
+            let stop_reason = json!({
+                "type": "error",
+                "message": "credential record is corrupt",
+                "code": "corrupt_record"
+            });
+            let session: (String, Option<Value>) =
+                sqlx::query_as("SELECT status, stop_reason FROM joysafeter_sessions WHERE id = $1")
+                    .bind(session_id)
+                    .fetch_one(&pool)
+                    .await
+                    .expect("load idle session");
+            assert_eq!(session.0, "idle");
+            assert_eq!(session.1, Some(stop_reason.clone()));
+
+            // The terminal event carries the machine code so the UI can surface
+            // a localized reason instead of a silent "session idle".
+            let event: (String, Value) = sqlx::query_as(
+                r#"
+                SELECT event_type, payload
+                FROM joysafeter_session_events
+                WHERE session_id = $1
+                ORDER BY seq DESC
+                LIMIT 1
+                "#,
+            )
+            .bind(session_id)
+            .fetch_one(&pool)
+            .await
+            .expect("load terminal event");
+            assert_eq!(event.0, "session.status_idle");
+            assert_eq!(
+                event.1,
+                json!({"task_id": task_id.to_string(), "stop_reason": stop_reason})
+            );
+
+            // No rescheduling status event was emitted on the way to failure.
+            let rescheduling_events: i64 = sqlx::query_scalar(
+                r#"
+                SELECT COUNT(*)
+                FROM joysafeter_session_events
+                WHERE session_id = $1
+                  AND event_type = 'session.status_rescheduling'
+                "#,
+            )
+            .bind(session_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count rescheduling events");
+            assert_eq!(rescheduling_events, 0);
         }
         .await;
 

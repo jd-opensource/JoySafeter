@@ -118,6 +118,11 @@ function getPreview(
   if (eventType === 'session.status_running')
     return withCollapsedCount(t('managed.sessions.events.sessionRunning'))
   if (eventType === 'session.status_idle') {
+    const failureReason = errorIdleReason(event, t)
+    if (failureReason)
+      return withCollapsedCount(
+        t('managed.sessions.events.sessionFailed', { reason: failureReason }),
+      )
     if (isRequiresActionIdle(event))
       return withCollapsedCount(t('managed.sessions.events.sessionRequiresAction'))
     return withCollapsedCount(t('managed.sessions.events.sessionIdle'))
@@ -227,6 +232,30 @@ function isRequiresActionIdle(event: SessionEvent): boolean {
     event.stop_reason !== null &&
     (event.stop_reason as { type?: string }).type === 'requires_action'
   )
+}
+
+// A session that stops with an error stop_reason (e.g. a permanent credential
+// failure raised at schedule time) must surface WHY instead of rendering a
+// silent "session idle". Prefer a localized reason keyed by the machine `code`
+// the orchestrator emits, falling back to the raw message.
+function errorIdleReason(
+  event: SessionEvent,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string | null {
+  const stopReason = event.stop_reason
+  if (typeof stopReason !== 'object' || stopReason === null) return null
+  const { type, message, code } = stopReason as {
+    type?: string
+    message?: string
+    code?: string
+  }
+  if (type !== 'error') return null
+  if (code) {
+    const key = `managed.sessions.events.credentialFailure.${code}`
+    const localized = t(key)
+    if (localized !== key) return localized
+  }
+  return message || t('managed.sessions.events.sessionIdle')
 }
 
 const TOOL_USE_TYPES = new Set([

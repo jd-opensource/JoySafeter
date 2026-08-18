@@ -76,8 +76,8 @@ const en = {
       platformStorageVolumes: 'Storage Volumes',
       networkPolicyDiagnostics: 'Network Policy Diagnostics',
       resourceSkills: 'Skills',
-      secrets: 'Connections & Credentials',
-      credentials: 'Models & Credentials',
+      secrets: 'Credentials',
+      credentials: 'Credentials',
       memory: 'Memory',
       manage: 'Manage',
       members: 'Members',
@@ -839,6 +839,18 @@ const en = {
           sessionRunning: 'Session running',
           sessionIdle: 'Session idle',
           sessionRequiresAction: 'Waiting for action',
+          sessionFailed: 'Session failed: {{reason}}',
+          credentialFailure: {
+            corrupt_record: 'the credential/key data is corrupt or in an old format',
+            envelope_invalid: 'the credential could not be decrypted',
+            unsupported_scheme: 'the credential auth scheme is no longer supported',
+            kind_mismatch: 'the credential kind does not match the binding',
+            field_missing: 'the credential is missing a required field',
+            not_found: 'the credential no longer exists',
+            archived: 'the credential is archived',
+            not_bound: 'no credential is bound',
+            project_mismatch: 'the credential belongs to a different project',
+          },
           approvalBannerTitle: 'Agent wants to use {{tool}}',
           approvalApprove: 'Approve',
           approvalDeny: 'Deny',
@@ -1345,7 +1357,7 @@ const en = {
         authSchemePreviewBearer: 'Will use Bearer auth',
         catalogLoadFailed: 'Failed to load the LLM compatibility catalog.',
         catalogIdentityUnavailable:
-          'This Model Connection references a provider or protocol that is no longer available in the current catalog. Create a new Model Connection before using it.',
+          'The provider or protocol used by this Model Connection is no longer supported, so it is read-only. Create a new Model Connection to replace it.',
         chooseEngineFirst: 'Choose an engine first to see compatible Model Connections.',
         chooseProtocol: 'Choose a protocol',
         chooseProvider: 'Choose a model provider',
@@ -1401,7 +1413,7 @@ const en = {
         unknownProtocol: 'Unknown protocol',
         unknownProvider: 'Unknown provider',
         noConfigurationHint:
-          'Do not bind a Model Connection. The agent will not receive model credentials from Connections & Credentials.',
+          'Do not bind a Model Connection. The agent will not receive model credentials.',
       },
       quickstart: {
         title: 'Quickstart',
@@ -1578,7 +1590,7 @@ const en = {
         environments: 'Search environments by name, ID, type, or status',
         vaults: 'Search MCP credential vaults by name, ID, or status',
         triggers: 'Search triggers by name, description, or ID',
-        secrets: 'Search connections and credentials by name or ID',
+        secrets: 'Search credentials by name or ID',
         memoryStores: 'Search memory stores by name, ID, or description',
         files: 'Search files by name, ID, or type',
         apiKeys: 'Search project access tokens by name, prefix, or role',
@@ -2013,7 +2025,7 @@ const en = {
         },
       },
       credentials: {
-        title: 'Models & Credentials',
+        title: 'Credentials',
         subtitle: 'Manage model access, external-service authentication, and MCP credentials.',
         tabs: {
           models: 'Model Connections',
@@ -2063,7 +2075,7 @@ const en = {
         redirecting: 'Redirecting…',
       },
       secrets: {
-        title: 'Connections & Credentials',
+        title: 'Credentials',
         subtitle: 'Manage model connections and service credentials for this project.',
         new: 'New Connection or Credential',
         empty: 'No model connections or service credentials yet.',
@@ -2109,7 +2121,7 @@ const en = {
           'Archive "{{name}}"? It will become read-only and unavailable for new use until restored.',
         restoreTitle: 'Restore Connection or Credential',
         restoreDescription: 'Restore "{{name}}" and make it available for use again?',
-        backToList: 'Back to Connections & Credentials',
+        backToList: 'Back to Credentials',
       },
       memoryStores: {
         title: 'Memory Stores',
