@@ -14,7 +14,7 @@ use tracing::{info, warn};
 use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::lds_backend::{DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend, SandboxCredentials};
 use super::mounts::SandboxMount;
-use super::pod_watcher::PodWatcher;
+use super::pod_watcher::{NodeLearnedHook, PodWatcher};
 use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
     SandboxProvider, SandboxStatus,
@@ -106,7 +106,18 @@ impl K8sProvider {
 
         // Start PodWatcher — background Watch stream keeps local pod cache synced.
         // status() and list_active() read from this cache (zero API calls).
-        let pod_watcher = PodWatcher::new(client.clone(), &config.k8s_namespace);
+        //
+        // Wire a node-learned hook so the moment K8s binds a sandbox pod to a node
+        // (Watch Apply), we register `sandbox_id → nodeName` with the xDS server.
+        // Node-aware filtering then delivers the sandbox's Envoy listener
+        // immediately, instead of waiting on setup_networking's ~5s poll or the
+        // networking reconcile loop — closing the egress-gap window at start.
+        let node_learned: Option<NodeLearnedHook> = xds_service.clone().map(|xds| {
+            let hook: NodeLearnedHook =
+                Arc::new(move |sandbox_id, node| xds.set_sandbox_node(sandbox_id, node));
+            hook
+        });
+        let pod_watcher = PodWatcher::new(client.clone(), &config.k8s_namespace, node_learned);
 
         // pids_limit has no per-pod equivalent in the K8s pod spec (it is a
         // node-level kubelet setting, `podPidsLimit`). Warn once so operators

@@ -147,8 +147,10 @@ impl SandboxController {
     /// Runs every 15s. Bounded batch per tick so a large backlog can't stall the
     /// loop; oldest-degraded sandboxes are retried first.
     async fn networking_reconcile_loop(self: &Arc<Self>) {
-        // Only meaningful for providers with egress management (Docker+Envoy).
-        // Other providers (Daytona/E2B/k8s) manage networking externally.
+        // Runs for any provider with Envoy egress management — both Docker
+        // (single Envoy) and K8s (per-node Envoy DaemonSet + gRPC xDS). Providers
+        // without egress management (Daytona/E2B) manage networking externally and
+        // skip this loop.
         if !self.provider.capabilities().has_egress_management {
             return;
         }
