@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 
+import { AgentModelSummary } from '@/components/managed/agent/agent-model-summary'
 import { ServiceCredentialSelect } from '@/components/managed/shared'
 import { CronEditor } from '@/components/managed/triggers/cron-editor'
 import { Button } from '@/components/ui/button'
@@ -33,10 +34,13 @@ import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { useServiceCredentials } from '@/hooks/managed/use-service-credentials'
 import { managedGet } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
+import { getAgentModelSearchTokens } from '@/lib/managed/agent-model-display'
 import { apiResourceId } from '@/lib/managed/api-paths'
 import { detectBrowserTimezone, isValidCron } from '@/lib/managed/cron'
 import { toastOperationError } from '@/lib/managed/errors'
+import { parseModelCredentialReference } from '@/lib/managed/environment-response-parsers'
 import { hasManagedRequestScope, managedRequestOptions } from '@/lib/managed/request-scope'
+import { parseModelConnectionSummaryResponse } from '@/lib/managed/secret-response-parsers'
 import {
   useCreateAgentTrigger,
   useUpdateAgentTrigger,
@@ -52,21 +56,34 @@ import {
   parseEnvironmentId,
   parseSessionId,
   type AgentId,
+  type CredentialId,
   type EnvironmentId,
   type SessionId,
 } from '@/types/entity-id'
+import type { ModelConnectionSummary } from '@/types/managed'
 
 interface AgentOption {
   id: AgentId
   name: string
   engine_kind?: string | null
   model?: { id?: string } | null
+  model_credential_id?: CredentialId | null
+  model_connection?: ModelConnectionSummary | null
   archived_at?: string | null
 }
 
 function parseAgentOption(value: unknown): AgentOption {
-  const raw = value as Omit<AgentOption, 'id'> & { id: string }
-  return { ...raw, id: parseAgentId(raw.id) }
+  const raw = value as Omit<AgentOption, 'id' | 'model_credential_id' | 'model_connection'> & {
+    id: string
+    model_credential_id?: string | null
+    model_connection?: unknown
+  }
+  return {
+    ...raw,
+    id: parseAgentId(raw.id),
+    model_credential_id: parseModelCredentialReference(raw),
+    model_connection: raw.model_connection ? parseModelConnectionSummaryResponse(raw.model_connection) : null,
+  }
 }
 
 interface EnvironmentOption {
@@ -393,7 +410,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
       (a) =>
         a.name.toLowerCase().includes(q) ||
         a.engine_kind?.toLowerCase().includes(q) ||
-        a.model?.id?.toLowerCase().includes(q),
+        getAgentModelSearchTokens(a).some((token) => token.toLowerCase().includes(q)),
     )
   }, [agents, agentSearch])
 
@@ -687,11 +704,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
                             {a.engine_kind}
                           </span>
                         )}
-                        {a.model?.id && (
-                          <span className="shrink-0 truncate text-[10px] text-muted-foreground">
-                            {a.model.id}
-                          </span>
-                        )}
+                        <AgentModelSummary agent={a} className="shrink truncate" showMeta={false} />
                       </div>
                     </SelectItem>
                   ))}

@@ -72,6 +72,7 @@ import { parseSessionEventListResponse } from '@/lib/managed/event-response-pars
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
 import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
 import { getSessionDisplayTitle } from '@/lib/managed/session-display'
+import { AgentModelSummary } from '@/components/managed/agent/agent-model-summary'
 import {
   parseFileListResponse,
   parseSessionFileResourceResponse,
@@ -1676,11 +1677,9 @@ function AgentDrawer({
               {/* Model */}
               <section>
                 <h3 className="mb-1 text-sm font-semibold text-foreground">
-                  {t('managed.sessions.model')}
+                  {t('managed.modelDisplay.connection')}
                 </h3>
-                <p className="font-mono text-sm text-muted-foreground">
-                  {displayAgent.model?.id || '-'}
-                </p>
+                <AgentModelSummary agent={displayAgent} detail />
               </section>
 
               {/* System prompt */}

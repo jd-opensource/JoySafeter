@@ -5,6 +5,7 @@ import { Archive, ArchiveRestore, ArrowRight, Loader2, Pencil, Play, Plus } from
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
+import { AgentModelSummary } from '@/components/managed/agent/agent-model-summary'
 import {
   PageHeader,
   FilterBar,
@@ -26,6 +27,7 @@ import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { toast } from '@/hooks/use-toast'
 import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
+import { getAgentModelSearchTokens } from '@/lib/managed/agent-model-display'
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
 import { apiResourceId, apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
@@ -114,7 +116,7 @@ export default function AgentListPage() {
       matchesSearch(searchQuery, [
         a.id,
         a.name,
-        a.model?.id,
+        ...getAgentModelSearchTokens(a),
         a.engine_kind,
         getEngineKindLabel(a.engine_kind),
         a.archived_at ? 'archived' : 'active',
@@ -288,11 +290,11 @@ export default function AgentListPage() {
       ),
     },
     {
-      key: 'model',
-      header: `${t('managed.table.model')} / ${t('managed.agents.engineKind')}`,
+      key: 'model_connection',
+      header: `${t('managed.modelDisplay.connection')} / ${t('managed.agents.engineKind')}`,
       render: (a) => (
         <div className="min-w-0">
-          <div className="truncate text-foreground">{a.model?.id || '-'}</div>
+          <AgentModelSummary agent={a} />
           <div className="mt-0.5 truncate text-xs text-muted-foreground">
             {t('managed.agents.engineKind')}: {getEngineKindLabel(a.engine_kind)}
           </div>

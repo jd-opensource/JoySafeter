@@ -17,6 +17,7 @@ import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { isEntityId, parseSessionId } from '@/types/entity-id'
 import type { Session } from '@/types/managed'
 import { Button } from '@/components/ui/button'
+import { AgentModelSummary } from '@/components/managed/agent/agent-model-summary'
 import { PageHeader } from '@/components/managed/shared'
 import { FilterBar, type FilterDef } from '@/components/managed/shared'
 import { DataTable, type Column } from '@/components/managed/shared'
@@ -26,6 +27,7 @@ import { RelativeTime } from '@/components/managed/shared'
 import { ResourceErrorState } from '@/components/managed/shared'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { toastOperationError } from '@/lib/managed/errors'
+import { getAgentModelSearchTokens } from '@/lib/managed/agent-model-display'
 import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
 import { getSessionDisplayTitle } from '@/lib/managed/session-display'
 import { CreateSessionDialog } from './components/create-session-dialog'
@@ -98,7 +100,7 @@ export default function SessionListPage() {
         s.status,
         s.agent?.name,
         s.agent?.id,
-        s.agent?.model?.id,
+        ...getAgentModelSearchTokens(s.agent),
         s.agent?.engine_kind,
         getEngineKindLabel(s.agent?.engine_kind),
       ]),
@@ -141,13 +143,14 @@ export default function SessionListPage() {
     },
     {
       key: 'agent',
-      header: `${t('managed.table.agent')} / ${t('managed.agents.engineKind')}`,
+      header: `${t('managed.table.agent')} / ${t('managed.modelDisplay.connection')}`,
       render: (s) => (
         <div className="min-w-0">
           <div className="truncate text-foreground">{s.agent?.name || '-'}</div>
           <div className="mt-0.5 truncate text-xs text-muted-foreground">
             {t('managed.agents.engineKind')}: {getEngineKindLabel(s.agent?.engine_kind)}
           </div>
+          <AgentModelSummary agent={s.agent} />
         </div>
       ),
     },

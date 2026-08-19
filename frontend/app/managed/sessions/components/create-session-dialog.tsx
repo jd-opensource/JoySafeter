@@ -14,6 +14,7 @@ import {
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { AgentModelSummary } from '@/components/managed/agent/agent-model-summary'
 import {
   AdvancedSection,
   FormActionBar,
@@ -41,6 +42,7 @@ import {
 } from '@/components/ui/select'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
+import { getAgentModelSearchTokens } from '@/lib/managed/agent-model-display'
 import { apiResourceId } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import {
@@ -218,7 +220,14 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     const buckets = new Map<string, typeof activeAgents>()
     for (const a of activeAgents) {
       const label = labelFor(a.engine_kind)
-      if (q && !a.name.toLowerCase().includes(q) && !label.toLowerCase().includes(q)) continue
+      if (
+        q &&
+        !a.name.toLowerCase().includes(q) &&
+        !label.toLowerCase().includes(q) &&
+        !getAgentModelSearchTokens(a).some((token) => token.toLowerCase().includes(q))
+      ) {
+        continue
+      }
       if (!buckets.has(label)) buckets.set(label, [])
       buckets.get(label)!.push(a)
     }
@@ -646,11 +655,14 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                             const isLast = aIdx === groupAgents.length - 1
                             return (
                               <SelectItem key={a.id} value={a.id}>
-                                <span className="flex items-center gap-1.5">
+                                <span className="flex items-start gap-1.5">
                                   <span className="w-3 shrink-0 text-[11px] text-muted-foreground/40">
                                     {isLast ? '└' : '├'}
                                   </span>
-                                  <span className="truncate">{a.name}</span>
+                                  <span className="min-w-0">
+                                    <span className="block truncate">{a.name}</span>
+                                    <AgentModelSummary agent={a} showMeta={false} />
+                                  </span>
                                 </span>
                               </SelectItem>
                             )
@@ -682,6 +694,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                           '未配置默认运行环境',
                         )}
                   </div>
+                  <AgentModelSummary agent={selectedAgent} className="mt-1" />
                 </div>
               )}
             </div>

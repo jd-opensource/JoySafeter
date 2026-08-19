@@ -601,6 +601,14 @@ const zh = {
           },
         },
       },
+      modelDisplay: {
+        connection: '模型连接',
+        defaultConnection: '默认',
+        connectionUnavailable: '绑定的模型连接不可用',
+        connectionUnavailableHint: '已绑定的模型连接无法加载。',
+        unbound: '未绑定模型连接',
+        unboundHint: '该智能体不会注入模型凭据。',
+      },
       agents: {
         title: '智能体',
         subtitle: '创建和管理自主智能体。',

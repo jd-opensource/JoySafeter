@@ -138,7 +138,17 @@ describe('AgentListPage', () => {
       {
         id: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f122',
         name: 'Research Agent',
-        model: { id: 'GPT-4.1' },
+        model: { id: 'Legacy Model' },
+        model_credential_id: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f124',
+        model_connection: {
+          id: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f124',
+          name: 'GPT-4.1',
+          provider: 'openai',
+          protocol: 'chat_completions',
+          model: 'GPT-4.1',
+          is_default: true,
+          archived_at: null,
+        },
         engine_kind: 'pi',
         archived_at: null,
         created_at: '2026-08-07T00:00:00Z',
@@ -150,8 +160,11 @@ describe('AgentListPage', () => {
   it('shows the engine as secondary model information instead of a separate column', () => {
     renderPage()
 
-    expect(screen.getByText('managed.table.model / managed.agents.engineKind')).toBeTruthy()
+    expect(
+      screen.getByText('managed.modelDisplay.connection / managed.agents.engineKind'),
+    ).toBeTruthy()
     expect(screen.getByText('GPT-4.1')).toBeTruthy()
+    expect(screen.queryByText('Legacy Model')).toBeNull()
     expect(screen.getByText('managed.agents.engineKind: Pi')).toBeTruthy()
     expect(screen.queryByText('managed.table.engineKind')).toBeNull()
   })

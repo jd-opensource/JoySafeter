@@ -27,6 +27,7 @@ import {
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { VersionDiffView } from '@/components/managed/agent/version-diff-view'
+import { AgentModelSummary } from '@/components/managed/agent/agent-model-summary'
 import type { Agent, AgentTool, McpServer, Session } from '@/types/managed'
 import { parseAgentId, parseSessionId } from '@/types/entity-id'
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
@@ -743,11 +744,9 @@ function AgentConfig({ agent, versions: apiVersions }: { agent: Agent; versions:
           {/* Model */}
           <section>
             <h3 className="mb-1 text-sm font-medium text-foreground">
-              {t('managed.agents.model')}
+              {t('managed.modelDisplay.connection')}
             </h3>
-            <p className="font-mono text-sm text-muted-foreground">
-              {selectedAgent.model?.id || '-'}
-            </p>
+            <AgentModelSummary agent={selectedAgent} detail />
           </section>
 
           {/* System prompt */}

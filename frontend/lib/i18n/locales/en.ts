@@ -532,6 +532,14 @@ const en = {
           },
         },
       },
+      modelDisplay: {
+        connection: 'Model Connection',
+        defaultConnection: 'Default',
+        connectionUnavailable: 'Bound model connection unavailable',
+        connectionUnavailableHint: 'The bound model connection could not be loaded.',
+        unbound: 'No model connection',
+        unboundHint: 'The agent will not receive model credentials.',
+      },
       agents: {
         title: 'Agents',
         subtitle: 'Create and manage autonomous agents.',
