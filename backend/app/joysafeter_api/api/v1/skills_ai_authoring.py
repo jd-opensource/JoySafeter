@@ -28,14 +28,18 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_application.credentials.composition import compose_credential_application
+from app.joysafeter_domain.credentials.bindings import EngineKind
 from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_domain.llm.compatibility import (
     LlmCompatibilityError,
     validate_credential_data,
-    validate_provider_protocol,
 )
-from app.joysafeter_domain.schemas.joysafeter_credential import CredentialKind
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
+from app.joysafeter_domain.llm.model_inference_policy import (
+    ModelInferenceMaterialFieldMissingError,
+    build_model_inference_policy,
+)
+from app.joysafeter_domain.services.credential_binding_errors import raise_public_credential_error
 from app.joysafeter_domain.services.joysafeter_skill_authoring import (
     stream_authoring_chat,
 )
@@ -76,6 +80,34 @@ def _authoring_base_url_error(exc: LLMBaseUrlError, *, credential_id: Credential
         data=data,
         user_action="fix_input",
     )
+
+
+def _raise_authoring_compatibility_error(
+    exc: LlmCompatibilityError,
+    *,
+    credential_id: CredentialId,
+    provider: str,
+    protocol: str,
+) -> None:
+    if exc.code == "LLM_SECRET_CREDENTIALS_INCOMPLETE" and (exc.data or {}).get("required_fields") == [
+        "OPENAI_API_KEY"
+    ]:
+        raise InvalidRequestError(
+            code="SKILL_AUTHORING_SECRET_MISSING_KEY",
+            message="Credential missing OPENAI_API_KEY.",
+            data={"credential_id": str(credential_id), "required_key": "OPENAI_API_KEY"},
+            user_action="fix_input",
+        ) from exc
+    raise InvalidRequestError(
+        code="SKILL_AUTHORING_SECRET_INCOMPATIBLE",
+        message="Skill authoring model configuration is invalid.",
+        data={
+            "credential_id": str(credential_id),
+            "provider": provider,
+            "protocol": protocol,
+        },
+        user_action="fix_input",
+    ) from exc
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────
@@ -236,60 +268,55 @@ async def authoring_chat(
     (optional, defaults to api.openai.com), ``OPENAI_MODEL`` (optional,
     defaults to ``gpt-5.5``).
     """
-    svc = CredentialService(db)
-    cred = await svc.get(req.model_credential_id, project_id=auth_ctx.project_id)
-    if not cred:
-        raise NotFoundError(
-            code="CREDENTIAL_NOT_FOUND",
-            message="Credential not found.",
-            data={"credential_id": str(req.model_credential_id)},
-            user_action="fix_input",
-        )
-    if (
-        cred.kind != CredentialKind.MODEL.value
-        or not cred.provider
-        or cred.protocol != "openai_responses"
-    ):
-        raise InvalidRequestError(
-            code="SKILL_AUTHORING_SECRET_INCOMPATIBLE",
-            message="Skill authoring requires an OpenAI Responses compatible model configuration.",
-            data={
-                "credential_id": str(req.model_credential_id),
-                "kind": cred.kind,
-                "provider": cred.provider,
-                "protocol": cred.protocol,
-                "required_protocol": "openai_responses",
-            },
-            user_action="fix_input",
-        )
+    application = compose_credential_application(
+        db,
+        auto_commit=False,
+        compatibility_mode=False,
+    )
     try:
-        binding = validate_provider_protocol(cred.provider, cred.protocol)
-        data = svc.get_credential_data(cred)
-        validate_credential_data(cred.provider, cred.protocol, data)
+        binding = build_model_inference_policy(
+            get_llm_catalog(),
+            project_id=auth_ctx.project_id,
+            credential_id=req.model_credential_id,
+            engine_kind=EngineKind.CODEX,
+            model_id=None,
+        )
+        validated, resolution = await application.binding_service.validate_model_inference(binding)
+        material = await application.material_adapter.load(validated)
+    except ModelInferenceMaterialFieldMissingError as exc:
+        provider = exc.provider_id
+        protocol = exc.protocol_id
+        try:
+            validate_credential_data(provider, protocol, {})
+        except LlmCompatibilityError as compatibility_error:
+            _raise_authoring_compatibility_error(
+                compatibility_error,
+                credential_id=req.model_credential_id,
+                provider=provider,
+                protocol=protocol,
+            )
+        raise AssertionError("Catalog profile with missing required material must fail validation") from exc
+    except Exception as exc:
+        raise_public_credential_error(
+            exc,
+            credential_id=req.model_credential_id,
+            not_found_user_action="fix_input",
+        )
+    data = {str(field_name): value for field_name, value in material.fields.items()}
+    provider = resolution.provider_id
+    protocol = resolution.protocol_id
+    try:
+        validate_credential_data(provider, protocol, data)
     except LlmCompatibilityError as exc:
-        if exc.code == "LLM_SECRET_CREDENTIALS_INCOMPLETE" and (exc.data or {}).get(
-            "required_fields"
-        ) == ["OPENAI_API_KEY"]:
-            raise InvalidRequestError(
-                code="SKILL_AUTHORING_SECRET_MISSING_KEY",
-                message="Credential missing OPENAI_API_KEY.",
-                data={"credential_id": str(req.model_credential_id), "required_key": "OPENAI_API_KEY"},
-                user_action="fix_input",
-            ) from exc
-        raise InvalidRequestError(
-            code="SKILL_AUTHORING_SECRET_INCOMPATIBLE",
-            message="Skill authoring model configuration is invalid.",
-            data={
-                "credential_id": str(req.model_credential_id),
-                "provider": cred.provider,
-                "protocol": cred.protocol,
-            },
-            user_action="fix_input",
-        ) from exc
-    profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
+        _raise_authoring_compatibility_error(
+            exc,
+            credential_id=req.model_credential_id,
+            provider=provider,
+            protocol=protocol,
+        )
     api_key = data.get("OPENAI_API_KEY") or ""
-    base_url_key = profile.base_url_key or "BASE_URL"
-    base_url = data.get(base_url_key) or binding.default_base_url
+    base_url_key = resolution.base_url_key or "BASE_URL"
+    base_url = data.get(base_url_key) or resolution.default_base_url
     if not base_url:
         raise InvalidRequestError(
             code="SKILL_AUTHORING_BASE_URL_REQUIRED",
@@ -301,7 +328,7 @@ async def authoring_chat(
         base_url = validate_llm_base_url(base_url, key=base_url_key)
     except LLMBaseUrlError as exc:
         raise _authoring_base_url_error(exc, credential_id=req.model_credential_id) from None
-    model = data.get(profile.model_key) if profile.model_key else None
+    model = data.get(resolution.model_key) if resolution.model_key else None
     model = model or "gpt-5.5"
 
     history = [m.model_dump() for m in req.messages]

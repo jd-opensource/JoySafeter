@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import FrozenInstanceError, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +12,11 @@ from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.agent_identity_capture import _encrypt
 from app.joysafeter_application.credentials import composition as credential_composition
-from app.joysafeter_application.credentials.binding_service import ValidatedCredentialBinding
+from app.joysafeter_application.credentials.binding_service import (
+    BindingIssuanceAuthority,
+    CredentialBindingService,
+    ValidatedCredentialBinding,
+)
 from app.joysafeter_application.credentials.composition import compose_credential_application
 from app.joysafeter_application.credentials.ports import (
     CredentialAuditEntry,
@@ -35,7 +39,6 @@ from app.joysafeter_domain.credentials import (
     EnvironmentInjectionBinding,
     HttpEgressBinding,
     McpGroupBinding,
-    ModelCatalogContext,
     ModelInferenceBinding,
     ProjectId,
     ReferenceSurfaceDescriptor,
@@ -46,6 +49,8 @@ from app.joysafeter_domain.credentials import (
 from app.joysafeter_domain.credentials.bindings import EgressInjectKind, EgressInjectPolicy
 from app.joysafeter_domain.credentials.dependencies import ReferenceScannerId, ReferenceSurfaceId
 from app.joysafeter_domain.credentials.types import NormalizedEndpoint
+from app.joysafeter_domain.llm.catalog import get_llm_catalog
+from app.joysafeter_domain.llm.model_inference_policy import build_model_inference_policy
 from app.joysafeter_domain.models.joysafeter_credential import (
     JoySafeterCredential,
     JoySafeterCredentialGroup,
@@ -55,10 +60,14 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.models.joysafeter_security_audit_log import SecurityAuditLog
 from app.joysafeter_domain.schemas.joysafeter_credential import (
+    CreateCredentialGroupRequest,
     CreateCredentialRequest,
     UpdateCredentialRequest,
 )
 from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
+from app.joysafeter_infrastructure.credentials.audit_adapter import (
+    SqlAlchemyCredentialAuditAdapter,
+)
 from app.joysafeter_infrastructure.credentials.material_adapter import (
     ManagedCredentialMaterialAdapter,
 )
@@ -84,6 +93,54 @@ def _imports(path: Path) -> set[str]:
     return imported
 
 
+def _transaction_ownership_violations(source: str) -> set[str]:
+    tree = ast.parse(source)
+    violations: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in {"commit", "rollback"}:
+            violations.add(node.attr)
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value in {"commit", "rollback"}
+        ):
+            violations.add(str(node.args[1].value))
+    return violations
+
+
+def test_credential_transaction_ownership_is_application_only() -> None:
+    paths = (
+        APP_ROOT / "joysafeter_api/api/v1/credentials.py",
+        APP_ROOT / "joysafeter_api/api/v1/credential_groups.py",
+        APP_ROOT / "joysafeter_domain/services/joysafeter_credential_service.py",
+        APP_ROOT / "joysafeter_domain/services/joysafeter_credential_group_service.py",
+        APP_ROOT / "joysafeter_infrastructure/credentials/sqlalchemy_repository.py",
+    )
+    for path in paths:
+        assert not _transaction_ownership_violations(path.read_text()), path
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        ("async def bypass(db):\n    await db.commit()\n", "commit"),
+        ("async def bypass(db):\n    alias = db\n    await alias.rollback()\n", "rollback"),
+        ("async def bypass(db):\n    finish = db.commit\n    await finish()\n", "commit"),
+        ("def bypass(db, helper):\n    return helper(db.commit)\n", "commit"),
+        ("async def bypass(ctx):\n    await ctx.session.commit()\n", "commit"),
+        ("async def bypass(db):\n    await getattr(db, 'rollback')()\n", "rollback"),
+    ),
+)
+def test_transaction_ownership_guard_rejects_alias_helper_and_attribute_bypasses(
+    source: str,
+    expected: str,
+) -> None:
+    assert expected in _transaction_ownership_violations(source)
+
+
 def _calls(path: Path) -> set[str]:
     tree = ast.parse(path.read_text())
     called: set[str] = set()
@@ -95,6 +152,127 @@ def _calls(path: Path) -> set[str]:
         elif isinstance(node.func, ast.Attribute):
             called.add(node.func.attr)
     return called
+
+
+def _credential_boundary_violations(source: str) -> set[str]:
+    tree = ast.parse(source)
+    forbidden_calls = {
+        "CredentialCipher",
+        "LegacyV1MaterialProtector",
+        "decrypt",
+        "get_credential_data",
+        "reveal_values",
+    }
+    sensitive_attributes = {"kind", "material", "state"}
+    scope_types = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+    violations: set[str] = set()
+
+    def call_name(node: ast.expr) -> str | None:
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            return node.attr
+        return None
+
+    def dotted_name(node: ast.expr) -> str | None:
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            parent = dotted_name(node.value)
+            return f"{parent}.{node.attr}" if parent else node.attr
+        return None
+
+    def scope_nodes(scope: ast.AST) -> list[ast.AST]:
+        if isinstance(scope, ast.Lambda):
+            pending = [scope.body]
+        else:
+            pending = list(getattr(scope, "body", ()))
+        nodes: list[ast.AST] = []
+        while pending:
+            node = pending.pop()
+            nodes.append(node)
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, scope_types):
+                    continue
+                pending.append(child)
+        return nodes
+
+    def target_names(node: ast.AST) -> set[str]:
+        if isinstance(node, ast.Name):
+            return {node.id}
+        if isinstance(node, (ast.List, ast.Tuple)):
+            return {name for item in node.elts for name in target_names(item)}
+        return set()
+
+    def is_credential_source(node: ast.AST, aliases: set[str]) -> bool:
+        if isinstance(node, (ast.Await, ast.Starred, ast.Yield, ast.YieldFrom)):
+            return node.value is not None and is_credential_source(node.value, aliases)
+        if isinstance(node, ast.Name):
+            return node.id in aliases
+        if isinstance(node, ast.Attribute):
+            return is_credential_source(node.value, aliases)
+        if isinstance(node, ast.Subscript):
+            return is_credential_source(node.value, aliases)
+        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            return any(is_credential_source(item, aliases) for item in node.elts)
+        if isinstance(node, ast.IfExp):
+            return is_credential_source(node.body, aliases) or is_credential_source(node.orelse, aliases)
+        if not isinstance(node, ast.Call):
+            return False
+        path = (dotted_name(node.func) or "").lower()
+        leaf = call_name(node.func) or ""
+        if ".credentials." in path or path.endswith(".credentials"):
+            return True
+        if "credential" in path and leaf.lower().startswith(
+            ("create", "fetch", "find", "get", "load", "read", "resolve", "update")
+        ):
+            return True
+        if "credential" in leaf.lower() and leaf.lower().startswith(
+            ("fetch", "find", "get", "load", "read", "resolve")
+        ):
+            return True
+        if leaf == "select" and any(isinstance(arg, ast.Name) and "credential" in arg.id.lower() for arg in node.args):
+            return True
+        if isinstance(node.func, ast.Attribute) and is_credential_source(node.func.value, aliases):
+            return True
+        return any(is_credential_source(arg, aliases) for arg in node.args)
+
+    for call in (node for node in ast.walk(tree) if isinstance(node, ast.Call)):
+        name = call_name(call.func)
+        if name in forbidden_calls:
+            violations.add(name)
+
+    scopes = [tree, *(node for node in ast.walk(tree) if isinstance(node, scope_types[1:]))]
+    for scope in scopes:
+        nodes = scope_nodes(scope)
+        aliases: set[str] = set()
+        changed = True
+        while changed:
+            changed = False
+            for node in nodes:
+                assignments: list[tuple[ast.AST, ast.AST]] = []
+                if isinstance(node, ast.Assign):
+                    assignments.extend((target, node.value) for target in node.targets)
+                elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                    assignments.append((node.target, node.value))
+                elif isinstance(node, ast.NamedExpr):
+                    assignments.append((node.target, node.value))
+                elif isinstance(node, (ast.For, ast.AsyncFor)):
+                    assignments.append((node.target, node.iter))
+                for target, value in assignments:
+                    if not is_credential_source(value, aliases):
+                        continue
+                    before = len(aliases)
+                    aliases.update(target_names(target))
+                    changed = changed or len(aliases) != before
+        for node in nodes:
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr in sensitive_attributes
+                and is_credential_source(node.value, aliases)
+            ):
+                violations.add(node.attr)
+    return violations
 
 
 def test_legacy_credential_service_is_an_application_facade() -> None:
@@ -133,6 +311,62 @@ def test_new_infrastructure_does_not_import_api_layer() -> None:
         assert not any(name.startswith("app.joysafeter_api") for name in _imports(path)), path
 
 
+def test_persistent_consumers_have_ast_aware_credential_boundary_guards() -> None:
+    paths = (
+        APP_ROOT / "joysafeter_domain/services/joysafeter_agent_service.py",
+        APP_ROOT / "joysafeter_domain/services/joysafeter_trigger_service.py",
+        APP_ROOT / "joysafeter_domain/services/joysafeter_trigger_webhook_auth_service.py",
+        APP_ROOT / "joysafeter_api/api/v1/environments.py",
+        APP_ROOT / "joysafeter_domain/services/joysafeter_environment_service.py",
+        APP_ROOT / "joysafeter_domain/services/joysafeter_session_service.py",
+    )
+    forbidden_imports = {
+        "app.joysafeter_domain.services.joysafeter_credential_service",
+        "app.joysafeter_domain.services.joysafeter_credential_group_service",
+        "app.joysafeter_infrastructure.sensitive_material.legacy_v1",
+    }
+    for path in paths:
+        assert not (_imports(path) & forbidden_imports), path
+        assert not _credential_boundary_violations(path.read_text()), path
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        ("def bypass(payload):\n    return decrypt(payload)\n", "decrypt"),
+        ("def bypass(helper, payload):\n    return helper.decrypt(payload)\n", "decrypt"),
+        (
+            "async def bypass(repo, credential_id):\n"
+            "    row = await repo.credentials.get_resource(credential_id)\n"
+            "    return row.kind\n",
+            "kind",
+        ),
+        (
+            "async def bypass(repo, credential_id):\n"
+            "    row = await repo.load_credential(credential_id)\n"
+            "    alias = row\n"
+            "    return alias.material\n",
+            "material",
+        ),
+        (
+            "async def bypass(credential_repository, credential_id):\n"
+            "    record = await credential_repository.get(credential_id)\n"
+            "    alias = record\n"
+            "    return alias.state\n",
+            "state",
+        ),
+    ),
+)
+def test_persistent_consumer_ast_guard_rejects_bypass_fixtures(source: str, expected: str) -> None:
+    assert expected in _credential_boundary_violations(source)
+
+
+def test_persistent_consumer_ast_guard_allows_unrelated_state_fields() -> None:
+    source = "def allowed(task, provider, document):\n    return task.state, provider.kind, document.material\n"
+
+    assert not _credential_boundary_violations(source)
+
+
 def test_purpose_material_adapters_import_only_neutral_legacy_protector() -> None:
     expected = "app.joysafeter_infrastructure.sensitive_material.legacy_v1"
     for relative_path in (
@@ -153,24 +387,28 @@ def test_purpose_material_adapters_import_only_neutral_legacy_protector() -> Non
 @dataclass
 class _EncryptedMaterialRepository:
     fields: dict[str, str]
+    load_count: int = 0
 
     async def load_encrypted_material(self, credential_id: CredentialId, project_id: ProjectId) -> dict[str, str]:
+        self.load_count += 1
         return dict(self.fields)
 
 
 @pytest.mark.asyncio
-async def test_managed_material_adapter_returns_only_binding_authorized_fields() -> None:
-    protector = LegacyV1MaterialProtector(TEST_KEY)
-    repository = _EncryptedMaterialRepository(
-        {
-            "TOKEN": protector.protect("allowed"),
-            "OTHER": protector.protect("must-not-leak"),
-        }
+async def test_managed_material_adapter_returns_only_binding_authorized_fields(db_session) -> None:
+    project_id = await _make_project(db_session)
+    application = compose_credential_application(db_session)
+    credential = await application.resource_service.create(
+        CreateCredentialRequest(
+            kind="service",
+            name="authorized-fields",
+            data={"TOKEN": "allowed", "OTHER": "must-not-leak"},
+        ),
+        project_id=project_id,
     )
-    adapter = ManagedCredentialMaterialAdapter(repository, protector)
     binding = HttpEgressBinding(
-        project_id=ProjectId("project-1"),
-        credential_id=CredentialId("credential-1"),
+        project_id=ProjectId(project_id),
+        credential_id=CredentialId(str(credential.id)),
         endpoint=NormalizedEndpoint("https://example.com/api"),
         inject=EgressInjectPolicy(
             kind=EgressInjectKind.BEARER,
@@ -178,33 +416,32 @@ async def test_managed_material_adapter_returns_only_binding_authorized_fields()
         ),
     )
 
-    resolved = await adapter.load(
-        ValidatedCredentialBinding(
-            binding=binding,
-            authorized_fields=frozenset({CredentialFieldName("TOKEN")}),
-        )
-    )
+    validated = await application.binding_service.validate(binding)
+    resolved = await application.material_adapter.load(validated)
 
     assert dict(resolved.fields) == {CredentialFieldName("TOKEN"): "allowed"}
     assert "must-not-leak" not in repr(resolved)
 
 
 @pytest.mark.asyncio
-async def test_environment_injection_is_the_only_binding_that_can_load_all_fields() -> None:
-    protector = LegacyV1MaterialProtector(TEST_KEY)
-    repository = _EncryptedMaterialRepository(
-        {
-            "TOKEN": protector.protect("one"),
-            "SECOND": protector.protect("two"),
-        }
+async def test_environment_injection_is_the_only_binding_that_can_load_all_fields(db_session) -> None:
+    project_id = await _make_project(db_session)
+    application = compose_credential_application(db_session)
+    credential = await application.resource_service.create(
+        CreateCredentialRequest(
+            kind="service",
+            name="environment-fields",
+            data={"TOKEN": "one", "SECOND": "two"},
+        ),
+        project_id=project_id,
     )
-    adapter = ManagedCredentialMaterialAdapter(repository, protector)
     binding = EnvironmentInjectionBinding(
-        project_id=ProjectId("project-1"),
-        credential_id=CredentialId("credential-1"),
+        project_id=ProjectId(project_id),
+        credential_id=CredentialId(str(credential.id)),
     )
 
-    resolved = await adapter.load(ValidatedCredentialBinding.all_fields(binding))
+    validated = await application.binding_service.validate(binding)
+    resolved = await application.material_adapter.load(validated)
 
     assert dict(resolved.fields) == {
         CredentialFieldName("TOKEN"): "one",
@@ -225,6 +462,49 @@ def test_non_environment_binding_cannot_request_all_fields() -> None:
 
     with pytest.raises(ValueError, match="Environment Injection"):
         ValidatedCredentialBinding.all_fields(binding)
+
+
+def test_model_validated_binding_cannot_be_caller_constructed_with_fields() -> None:
+    binding = ModelInferenceBinding(
+        project_id=ProjectId("project-1"),
+        credential_id=CredentialId("credential-1"),
+        engine_kind=EngineKind.CODEX,
+        model_id=None,
+    )
+
+    with pytest.raises(TypeError, match="dedicated model inference"):
+        ValidatedCredentialBinding(
+            binding=binding,
+            authorized_fields=frozenset({CredentialFieldName("UNRELATED_SECRET")}),
+        )
+
+    assert not hasattr(ValidatedCredentialBinding, "_model_inference")
+
+
+@pytest.mark.asyncio
+async def test_material_adapter_rejects_forged_model_validation_before_repository_load() -> None:
+    protector = LegacyV1MaterialProtector(TEST_KEY)
+    repository = _EncryptedMaterialRepository({"UNRELATED_SECRET": protector.protect("must-not-load")})
+    adapter = ManagedCredentialMaterialAdapter(repository, protector, BindingIssuanceAuthority())
+    binding = ModelInferenceBinding(
+        project_id=ProjectId("project-1"),
+        credential_id=CredentialId("credential-1"),
+        engine_kind=EngineKind.CODEX,
+        model_id=None,
+    )
+    forged = object.__new__(ValidatedCredentialBinding)
+    object.__setattr__(forged, "binding", binding)
+    object.__setattr__(
+        forged,
+        "authorized_fields",
+        frozenset({CredentialFieldName("UNRELATED_SECRET")}),
+    )
+    object.__setattr__(forged, "requests_all_fields", False)
+
+    with pytest.raises(TypeError, match="not issued"):
+        await adapter.load(forged)
+
+    assert repository.load_count == 0
 
 
 def test_purpose_specific_adapters_share_only_legacy_v1_protector() -> None:
@@ -268,6 +548,32 @@ class _FakeAudit:
 
     async def append(self, entry: CredentialAuditEntry) -> None:
         self.entries.append(entry)
+
+
+@dataclass
+class _CapturingDb:
+    added: list[Any] = field(default_factory=list)
+
+    def add(self, value: Any) -> None:
+        self.added.append(value)
+
+
+@pytest.mark.asyncio
+async def test_audit_adapter_target_type_cannot_be_overridden_by_details() -> None:
+    db = _CapturingDb()
+    adapter = SqlAlchemyCredentialAuditAdapter(db)
+
+    await adapter.append(
+        CredentialAuditEntry(
+            action="environment.credentials.updated",
+            project_id="project-1",
+            target_type="environment",
+            target_id="environment-1",
+            details={"target_type": "credential"},
+        )
+    )
+
+    assert db.added[0].details["target_type"] == "environment"
 
 
 @dataclass
@@ -343,7 +649,11 @@ def test_managed_adapter_is_the_only_importer_of_domain_reveal_seam() -> None:
 
 def test_managed_adapter_protects_domain_material_without_exposing_reveal_capability() -> None:
     protector = LegacyV1MaterialProtector(TEST_KEY)
-    adapter = ManagedCredentialMaterialAdapter(_EncryptedMaterialRepository({}), protector)
+    adapter = ManagedCredentialMaterialAdapter(
+        _EncryptedMaterialRepository({}),
+        protector,
+        BindingIssuanceAuthority(),
+    )
     material = CredentialMaterial({CredentialFieldName("TOKEN"): SensitiveValue("managed-value")})
 
     protected = adapter.protect(material)
@@ -371,8 +681,66 @@ async def test_production_composition_binding_service_maps_sqlalchemy_resource(d
             kind="model",
             name="composed-model",
             provider="openai",
-            protocol="openai",
-            data={"API_KEY": "secret"},
+            protocol="openai_responses",
+            data={"OPENAI_API_KEY": "secret"},
+        ),
+        project_id=project_id,
+    )
+    binding = build_model_inference_policy(
+        get_llm_catalog(),
+        project_id=project_id,
+        credential_id=credential.id,
+        engine_kind=EngineKind.CODEX,
+        model_id="gpt-test",
+    )
+
+    validated, resolution = await application.binding_service.validate_model_inference(binding)
+
+    assert validated.binding is binding
+    assert validated.authorized_fields == frozenset({CredentialFieldName("OPENAI_API_KEY")})
+    assert resolution.credential_profile_id == "openai_bearer"
+
+
+def test_canonical_composition_owns_catalog_and_shared_issuance_authority(db_session) -> None:
+    application = compose_credential_application(db_session)
+
+    assert application.binding_service._catalog is get_llm_catalog()
+    assert application.binding_service._issuance_authority is application.material_adapter._issuance_authority
+    assert not any(
+        marker in name.lower()
+        for name in dir(application.binding_service._issuance_authority)
+        for marker in ("register", "issue", "add")
+    )
+    assert not any(
+        marker in name.lower() for name in dir(application.binding_service) for marker in ("register", "issue")
+    )
+
+
+def test_binding_service_rejects_real_caller_supplied_catalog() -> None:
+    forged_catalog = get_llm_catalog().model_copy(deep=True)
+
+    with pytest.raises(TypeError, match="BindingIssuanceAuthority"):
+        CredentialBindingService(_FakeCredentialRepository(), forged_catalog)
+
+
+def test_composition_cannot_substitute_catalog_for_binding_service() -> None:
+    source = (APP_ROOT / "joysafeter_application/credentials/composition.py").read_text()
+
+    assert "CredentialBindingService(repository, get_llm_catalog())" not in source
+    assert "CredentialBindingService(repository, issuance_authority)" in source
+
+
+@pytest.mark.asyncio
+async def test_generic_binding_validation_rejects_model_inference(db_session) -> None:
+    project_id = await _make_project(db_session)
+    application = compose_credential_application(db_session)
+    credential = await application.resource_service.create(
+        CreateCredentialRequest(
+            kind="model",
+            name="generic-model-path",
+            provider="openai",
+            protocol="openai_responses",
+            data={"OPENAI_API_KEY": "secret"},
         ),
         project_id=project_id,
     )
@@ -380,22 +748,151 @@ async def test_production_composition_binding_service_maps_sqlalchemy_resource(d
         project_id=ProjectId(project_id),
         credential_id=CredentialId(str(credential.id)),
         engine_kind=EngineKind.CODEX,
-        model_id="gpt-test",
+        model_id=None,
     )
 
-    validated = await application.binding_service.validate(
-        binding,
-        requested_fields=frozenset({CredentialFieldName("API_KEY")}),
-        catalog_context=ModelCatalogContext(
-            provider_id="openai",
-            protocol_id="openai",
-            engine_kind=EngineKind.CODEX,
-            model_ids=frozenset({"gpt-test"}),
+    with pytest.raises(TypeError, match="dedicated model inference"):
+        await application.binding_service.validate(binding)
+
+    with pytest.raises(TypeError, match="requested_fields"):
+        await application.binding_service.validate(
+            binding,
+            requested_fields=frozenset({CredentialFieldName("UNRELATED_SECRET")}),
+        )
+
+
+@pytest.mark.asyncio
+async def test_tampered_validated_model_binding_cannot_reach_material_repository(db_session) -> None:
+    project_id = await _make_project(db_session)
+    application = compose_credential_application(db_session)
+    credential = await application.resource_service.create(
+        CreateCredentialRequest(
+            kind="model",
+            name="tamper-model",
+            provider="openai",
+            protocol="openai_responses",
+            data={"OPENAI_API_KEY": "secret"},
         ),
+        project_id=project_id,
     )
+    binding = build_model_inference_policy(
+        get_llm_catalog(),
+        project_id=project_id,
+        credential_id=credential.id,
+        engine_kind=EngineKind.CODEX,
+        model_id=None,
+    )
+    validated, _resolution = await application.binding_service.validate_model_inference(binding)
+    object.__setattr__(
+        validated,
+        "authorized_fields",
+        frozenset({CredentialFieldName("UNRELATED_SECRET")}),
+    )
+    load_count = 0
+    repository = application.material_adapter._repository
+    original_load = repository.load_encrypted_material
 
-    assert validated.binding is binding
-    assert validated.authorized_fields == frozenset({CredentialFieldName("API_KEY")})
+    async def observe_load(credential_id, scoped_project_id):
+        nonlocal load_count
+        load_count += 1
+        return await original_load(credential_id, scoped_project_id)
+
+    repository.load_encrypted_material = observe_load
+
+    with pytest.raises(TypeError, match="mutated"):
+        await application.material_adapter.load(validated)
+
+    assert load_count == 0
+
+    with pytest.raises(TypeError, match="dedicated model inference"):
+        await application.binding_service.validate_reference(binding)
+
+
+@pytest.mark.asyncio
+async def test_copied_validated_binding_identity_cannot_reach_material_repository(db_session) -> None:
+    project_id = await _make_project(db_session)
+    application = compose_credential_application(db_session)
+    credential = await application.resource_service.create(
+        CreateCredentialRequest(
+            kind="model",
+            name="copied-model-binding",
+            provider="openai",
+            protocol="openai_responses",
+            data={"OPENAI_API_KEY": "secret"},
+        ),
+        project_id=project_id,
+    )
+    binding = build_model_inference_policy(
+        get_llm_catalog(),
+        project_id=project_id,
+        credential_id=credential.id,
+        engine_kind=EngineKind.CODEX,
+        model_id=None,
+    )
+    validated, _resolution = await application.binding_service.validate_model_inference(binding)
+    copied = object.__new__(ValidatedCredentialBinding)
+    for name in (
+        "binding",
+        "authorized_fields",
+        "requests_all_fields",
+        "_model_validation_seal",
+        "_integrity",
+    ):
+        if hasattr(validated, name):
+            object.__setattr__(copied, name, getattr(validated, name))
+    load_count = 0
+    repository = application.material_adapter._repository
+    original_load = repository.load_encrypted_material
+
+    async def observe_load(credential_id, scoped_project_id):
+        nonlocal load_count
+        load_count += 1
+        return await original_load(credential_id, scoped_project_id)
+
+    repository.load_encrypted_material = observe_load
+
+    with pytest.raises(TypeError, match="not issued"):
+        await application.material_adapter.load(copied)
+
+    assert load_count == 0
+
+
+@pytest.mark.asyncio
+async def test_validated_binding_is_frozen_and_cannot_cross_compositions(db_session) -> None:
+    project_id = await _make_project(db_session)
+    issuing_application = compose_credential_application(db_session)
+    other_application = compose_credential_application(db_session)
+    credential = await issuing_application.resource_service.create(
+        CreateCredentialRequest(
+            kind="model",
+            name="cross-composition-model",
+            provider="openai",
+            protocol="openai_responses",
+            data={"OPENAI_API_KEY": "secret"},
+        ),
+        project_id=project_id,
+    )
+    binding = build_model_inference_policy(
+        get_llm_catalog(),
+        project_id=project_id,
+        credential_id=credential.id,
+        engine_kind=EngineKind.CODEX,
+        model_id=None,
+    )
+    validated, _resolution = await issuing_application.binding_service.validate_model_inference(binding)
+
+    with pytest.raises(FrozenInstanceError):
+        validated.authorized_fields = frozenset({CredentialFieldName("UNRELATED_SECRET")})
+
+    with pytest.raises(TypeError, match="not issued"):
+        await other_application.material_adapter.load(validated)
+
+
+def test_binding_service_module_has_no_reproducible_model_seal_recipe() -> None:
+    from app.joysafeter_application.credentials import binding_service
+
+    assert not hasattr(binding_service, "_MODEL_VALIDATION_SEAL")
+    assert not hasattr(binding_service, "_validation_integrity")
 
 
 @pytest.mark.asyncio
@@ -576,6 +1073,72 @@ async def test_post_commit_nudge_failure_is_best_effort(db_session, monkeypatch)
     assert updated.name == "nudge-updated"
 
 
+@pytest.mark.asyncio
+async def test_idempotent_resource_and_group_lifecycle_skip_transition_audit_and_nudge(
+    db_session,
+    monkeypatch,
+) -> None:
+    project_id = await _make_project(db_session)
+    application = compose_credential_application(db_session)
+    credential = await application.resource_service.create(
+        CreateCredentialRequest(kind="service", name="idempotent-audit", data={"TOKEN": "old"}),
+        project_id=project_id,
+    )
+    group = await application.group_service.create(
+        CreateCredentialGroupRequest(name="idempotent-audit-group"),
+        project_id=project_id,
+    )
+    audit_actions: list[str] = []
+    nudge_calls = 0
+    original_append = application.uow.audit.append
+
+    async def record_audit(entry):
+        audit_actions.append(entry.action)
+        await original_append(entry)
+
+    async def record_nudge():
+        nonlocal nudge_calls
+        nudge_calls += 1
+
+    monkeypatch.setattr(application.uow.audit, "append", record_audit)
+    monkeypatch.setattr(application.uow.impacts, "nudge_after_commit", record_nudge)
+
+    resource_operations = (
+        application.resource_service.archive,
+        application.resource_service.restore,
+        application.resource_service.soft_delete,
+    )
+    group_operations = (
+        application.group_service.archive,
+        application.group_service.restore,
+        application.group_service.soft_delete,
+    )
+    for operation in resource_operations:
+        await operation(credential.id, project_id=project_id)
+        expected_audits = len(audit_actions)
+        expected_nudges = nudge_calls
+        await operation(credential.id, project_id=project_id)
+        assert len(audit_actions) == expected_audits
+        assert nudge_calls == expected_nudges
+    for operation in group_operations:
+        await operation(group.id, project_id=project_id)
+        expected_audits = len(audit_actions)
+        expected_nudges = nudge_calls
+        await operation(group.id, project_id=project_id)
+        assert len(audit_actions) == expected_audits
+        assert nudge_calls == expected_nudges
+
+    assert audit_actions == [
+        "credential.archived",
+        "credential.restored",
+        "credential.deleted",
+        "credential_group.archived",
+        "credential_group.restored",
+        "credential_group.deleted",
+    ]
+    assert nudge_calls == 6
+
+
 def test_credential_impact_is_authoritative_typed_contract() -> None:
     impact = CredentialImpact(
         usage=CredentialUsage.HTTP_EGRESS,
@@ -747,12 +1310,11 @@ def test_canonical_composition_rejects_invalid_ephemeral_registration(
         compose_credential_application(db_session)
 
 
-def test_canonical_composition_registers_validated_task5_scanners(db_session) -> None:
+def test_canonical_composition_registers_validated_dependency_scanners(db_session) -> None:
     application = compose_credential_application(db_session)
 
     assert application.snapshot_service.descriptors
     application.snapshot_service.validate_scanner_registration()
-    assert all(
-        isinstance(application.snapshot_service.scanner(descriptor.scanner_id), NoPersistentDependencyScanner)
-        for descriptor in application.snapshot_service.descriptors
-    )
+    for descriptor in application.snapshot_service.descriptors:
+        scanner = application.snapshot_service.scanner(descriptor.scanner_id)
+        assert descriptor.persistent is not isinstance(scanner, NoPersistentDependencyScanner)

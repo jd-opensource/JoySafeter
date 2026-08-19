@@ -59,6 +59,10 @@ def test_invalid_auth_method_gets_semantic_error():
     _assert_invalid("TRIGGER_AUTH_METHODS_INVALID", type="webhook", webhook_auth_credential_id=_CRED_ID, auth_methods=["magic-link"])
 
 
+def test_legacy_token_auth_method_remains_valid():
+    _validate(type="webhook", webhook_auth_credential_id=_CRED_ID, auth_methods=["token"])
+
+
 def test_cron_rejects_both_cron_expr_and_run_at():
     _assert_invalid("TRIGGER_CRON_SCHEDULE_REQUIRED", cron_expr="* * * * *", run_at=_FUTURE)
 

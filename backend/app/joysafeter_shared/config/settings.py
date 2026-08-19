@@ -6,7 +6,7 @@ import os
 import socket
 from ipaddress import IPv6Address, ip_address
 from pathlib import Path
-from typing import Annotated, List, Optional, Union
+from typing import Annotated, List, Literal, Optional, Union
 from urllib.parse import urlsplit
 
 from loguru import logger
@@ -154,6 +154,11 @@ class Settings(BaseSettings):
         default="development",
         validation_alias="ENVIRONMENT",
         description="Application environment (development, staging, production)",
+    )
+    credential_dependency_registry_mode: Literal["shadow", "enforce"] = Field(
+        default="shadow",
+        validation_alias="CREDENTIAL_DEPENDENCY_REGISTRY_MODE",
+        description="Credential dependency registry authority mode",
     )
 
     # Server

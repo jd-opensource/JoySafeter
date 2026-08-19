@@ -14,6 +14,7 @@ from app.joysafeter_shared.utils.cron import validate_cron, validate_timezone
 _SUPPORTED_TRIGGER_TYPES = frozenset(supported_kinds())
 _SUPPORTED_SESSION_MODES = frozenset({"fresh", "reuse", "pinned", "keyed"})
 _SUPPORTED_CONCURRENCY_POLICIES = frozenset(policy.value for policy in TriggerConcurrencyPolicy)
+_SUPPORTED_WEBHOOK_AUTH_METHODS = frozenset({"hmac", "bearer", "token"})
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,11 @@ class TriggerConfigPolicy:
         cls.plan_update(trigger, fields)
 
     @classmethod
+    def validate_update_fields_before_lookup(cls, fields: dict[str, Any]) -> None:
+        if "auth_methods" in fields:
+            cls._validate_auth_methods(fields["auth_methods"], trigger_type="webhook")
+
+    @classmethod
     def plan_update(cls, trigger: JoySafeterTrigger, fields: dict[str, Any]) -> TriggerUpdatePlan:
         session_mode = fields["session_mode"] if "session_mode" in fields else trigger.session_mode
         pinned_session_id = fields["pinned_session_id"] if "pinned_session_id" in fields else trigger.pinned_session_id
@@ -154,7 +160,7 @@ class TriggerConfigPolicy:
                 config=config,
             )
         verify_secret = trigger.type == "webhook" and bool(
-            {"webhook_auth_credential_id", "webhook_auth_field"} & fields.keys()
+            {"webhook_auth_credential_id", "webhook_auth_field", "auth_methods"} & fields.keys()
         )
         effective_credential_id = fields.get("webhook_auth_credential_id", trigger.webhook_auth_credential_id)
         effective_field = fields.get("webhook_auth_field", trigger.webhook_auth_field)
@@ -296,7 +302,6 @@ class TriggerConfigPolicy:
     ) -> None:
         if trigger_type != "webhook":
             return
-        auth_methods = cls.webhook_auth_methods(config)
         if not webhook_auth_credential_id:
             raise RequestValidationAppError(
                 code="TRIGGER_SECRET_REQUIRED",
@@ -311,21 +316,31 @@ class TriggerConfigPolicy:
                 data={"type": trigger_type},
                 user_action="fix_input",
             )
-        if not auth_methods:
-            raw_auth_methods = config.get("auth_methods") if isinstance(config, dict) else None
-            code = (
-                "TRIGGER_AUTH_METHODS_REQUIRED"
-                if raw_auth_methods is None or raw_auth_methods == []
-                else "TRIGGER_AUTH_METHODS_INVALID"
-            )
-            message = (
-                "auth_methods is required and must not be empty"
-                if code == "TRIGGER_AUTH_METHODS_REQUIRED"
-                else "auth_methods contains unsupported values"
-            )
+        raw_auth_methods = config.get("auth_methods") if isinstance(config, dict) else None
+        cls._validate_auth_methods(raw_auth_methods, trigger_type=trigger_type)
+
+    @staticmethod
+    def _validate_auth_methods(raw_auth_methods: object, *, trigger_type: str) -> None:
+        is_empty = raw_auth_methods is None
+        if not is_empty:
+            try:
+                is_empty = len(raw_auth_methods) == 0  # type: ignore[arg-type]
+            except TypeError:
+                is_empty = False
+        if is_empty:
             raise RequestValidationAppError(
-                code=code,
-                message=message,
+                code="TRIGGER_AUTH_METHODS_REQUIRED",
+                message="auth_methods is required and must not be empty",
+                data={"type": trigger_type},
+                user_action="fix_input",
+            )
+        if not isinstance(raw_auth_methods, list) or any(
+            not isinstance(method, str) or method not in _SUPPORTED_WEBHOOK_AUTH_METHODS
+            for method in raw_auth_methods
+        ):
+            raise RequestValidationAppError(
+                code="TRIGGER_AUTH_METHODS_INVALID",
+                message="auth_methods contains an unsupported method",
                 data={"type": trigger_type},
                 user_action="fix_input",
             )

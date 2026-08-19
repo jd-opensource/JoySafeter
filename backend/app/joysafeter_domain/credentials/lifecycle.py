@@ -64,15 +64,17 @@ def decide_group_lifecycle(
 
 
 def _target_state(state: CredentialState, command: CredentialLifecycleCommand) -> CredentialState:
-    if state is CredentialState.DELETED:
-        raise CredentialLifecycleError("deleted resources have no lifecycle transitions")
     if command is CredentialLifecycleCommand.ARCHIVE:
+        if state is CredentialState.ARCHIVED:
+            return state
         if state is not CredentialState.ACTIVE:
-            raise CredentialLifecycleError("only active resources can be archived")
+            raise CredentialLifecycleError("deleted resources cannot be archived")
         return CredentialState.ARCHIVED
     if command is CredentialLifecycleCommand.RESTORE:
+        if state is CredentialState.ACTIVE:
+            return state
         if state is not CredentialState.ARCHIVED:
-            raise CredentialLifecycleError("only archived resources can be restored")
+            raise CredentialLifecycleError("deleted resources cannot be restored")
         return CredentialState.ACTIVE
     if command is CredentialLifecycleCommand.DELETE:
         return CredentialState.DELETED

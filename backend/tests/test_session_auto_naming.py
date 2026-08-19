@@ -89,7 +89,7 @@ async def test_create_session_api_auto_names_agent_shortcut(
 ):
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_session_service.platform_now",
+        "app.joysafeter_application.credentials.snapshot_service.platform_now",
         lambda: datetime(2026, 8, 10, 16, 5, tzinfo=timezone.utc),
     )
 

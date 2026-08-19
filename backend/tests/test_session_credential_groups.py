@@ -17,8 +17,11 @@ is no TestClient):
    snapshot cannot be deleted even after the agent has been rebound away).
 """
 
+import ast
 import asyncio
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -26,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.joysafeter_application.credentials.snapshot_service import CreateCredentialAwareSession
 from app.joysafeter_domain.models.joysafeter_credential import JoySafeterSessionCredentialGroup
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
@@ -71,8 +75,8 @@ async def _make_model_credential(db_session, project_id: str) -> CredentialId:
         CreateCredentialRequest(
             kind="model",
             name=f"m-{uuid.uuid4()}",
-            provider="openai",
-            protocol="openai",
+            provider="anthropic",
+            protocol="anthropic_messages",
             data={"API_KEY": "sk-secret"},
         ),
         project_id=project_id,
@@ -141,6 +145,34 @@ def test_vault_ids_removed_from_model_and_schema():
     assert "credential_group_ids" in CreateSessionRequest.model_fields
 
 
+def test_session_group_binding_uses_live_mcp_policy_service() -> None:
+    source = (
+        Path(__file__).resolve().parents[1] / "app/joysafeter_domain/services/joysafeter_session_service.py"
+    ).read_text()
+    assert "McpGroupBinding" in source
+    assert "application.group_service.validate_binding" in source
+    assert "from app.joysafeter_domain.services.joysafeter_credential_group_service import" not in source
+
+    tree = ast.parse(source)
+    parents: dict[ast.AST, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"NormalizedMcpUrl", "McpGroupBinding"}
+    ]
+    assert calls
+    for call in calls:
+        parent = parents.get(call)
+        while parent is not None and not isinstance(parent, ast.Try):
+            parent = parents.get(parent)
+        assert isinstance(parent, ast.Try), ast.unparse(call)
+
+
 @pytest.mark.asyncio
 async def test_create_session_binds_credential_groups(db_session, project_id):
     group_id = await _make_group(db_session, project_id)
@@ -151,12 +183,16 @@ async def test_create_session_binds_credential_groups(db_session, project_id):
     assert await svc.get_credential_group_ids(session.id) == [group_id]
 
     rows = (
-        await db_session.execute(
-            select(JoySafeterSessionCredentialGroup.credential_group_id).where(
-                JoySafeterSessionCredentialGroup.session_id == session.id
+        (
+            await db_session.execute(
+                select(JoySafeterSessionCredentialGroup.credential_group_id).where(
+                    JoySafeterSessionCredentialGroup.session_id == session.id
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert list(rows) == [group_id]
 
 
@@ -197,6 +233,20 @@ async def test_create_session_archived_group_rejected(db_session, project_id):
 
 
 @pytest.mark.asyncio
+async def test_create_session_deleted_group_rejected(db_session, project_id):
+    group_id = await _make_group(db_session, project_id)
+    group = await CredentialGroupService(db_session).get(group_id, project_id=project_id)
+    group.deleted_at = datetime.now(timezone.utc)
+    await db_session.commit()
+    agent = await _make_agent(db_session, project_id)
+
+    with pytest.raises(AppError) as exc:
+        await _make_session(db_session, agent, project_id, group_ids=[group_id])
+
+    assert exc.value.code == "SESSION_CREDENTIAL_GROUP_NOT_FOUND"
+
+
+@pytest.mark.asyncio
 async def test_create_session_cross_group_url_conflict_rejected(db_session, project_id):
     g1 = await _make_group(db_session, project_id)
     g2 = await _make_group(db_session, project_id)
@@ -209,12 +259,68 @@ async def test_create_session_cross_group_url_conflict_rejected(db_session, proj
 
 
 @pytest.mark.asyncio
+async def test_create_session_rejects_declared_and_live_group_url_conflict(db_session, project_id):
+    group_id = await _make_group(db_session, project_id)
+    await _add_mcp_member(db_session, group_id, project_id, "https://mcp.example.com/sse")
+    agent = await _make_agent(db_session, project_id)
+    snapshot = JoySafeterAgentService(db_session).build_execution_snapshot(agent)
+    snapshot["mcp_servers"] = [{"type": "url", "url": "HTTPS://MCP.example.com:443/sse/"}]
+
+    with pytest.raises(AppError) as exc:
+        await SessionService(db_session).create_session(
+            agent_id=agent.id,
+            agent_name=agent.name,
+            credential_group_ids=[group_id],
+            agent_snapshot=snapshot,
+            project_id=project_id,
+        )
+
+    assert exc.value.code == "CREDENTIAL_GROUP_URL_CONFLICT"
+
+
+@pytest.mark.asyncio
+async def test_create_session_maps_malformed_declared_mcp_url_to_conflict(db_session, project_id):
+    group_id = await _make_group(db_session, project_id)
+    agent = await _make_agent(db_session, project_id)
+    snapshot = JoySafeterAgentService(db_session).build_execution_snapshot(agent)
+    snapshot["mcp_servers"] = [{"type": "url", "url": "not-a-url"}]
+
+    with pytest.raises(AppError) as exc:
+        await SessionService(db_session).create_session(
+            agent_id=agent.id,
+            agent_name=agent.name,
+            credential_group_ids=[group_id],
+            agent_snapshot=snapshot,
+            project_id=project_id,
+        )
+
+    assert exc.value.code == "CREDENTIAL_GROUP_URL_CONFLICT"
+
+
+@pytest.mark.asyncio
+async def test_create_session_maps_non_string_declared_mcp_url_to_conflict(db_session, project_id):
+    group_id = await _make_group(db_session, project_id)
+    agent = await _make_agent(db_session, project_id)
+    snapshot = JoySafeterAgentService(db_session).build_execution_snapshot(agent)
+    snapshot["mcp_servers"] = [{"type": "url", "url": 123}]
+
+    with pytest.raises(AppError) as exc:
+        await SessionService(db_session).create_session(
+            agent_id=agent.id,
+            agent_name=agent.name,
+            credential_group_ids=[group_id],
+            agent_snapshot=snapshot,
+            project_id=project_id,
+        )
+
+    assert exc.value.code == "CREDENTIAL_GROUP_URL_CONFLICT"
+
+
+@pytest.mark.asyncio
 async def test_create_session_ignores_archived_member_url_conflict(db_session, project_id):
     g1 = await _make_group(db_session, project_id)
     g2 = await _make_group(db_session, project_id)
-    archived_credential_id = await _add_mcp_member(
-        db_session, g1, project_id, "https://mcp.example.com/sse"
-    )
+    archived_credential_id = await _add_mcp_member(db_session, g1, project_id, "https://mcp.example.com/sse")
     await CredentialGroupService(db_session).archive_credential(
         g1,
         archived_credential_id,
@@ -246,9 +352,7 @@ async def test_add_member_rejects_url_conflict_for_already_bound_session(db_sess
 async def test_add_member_ignores_archived_peer_url_for_bound_session(db_session, project_id):
     g1 = await _make_group(db_session, project_id)
     g2 = await _make_group(db_session, project_id)
-    archived_credential_id = await _add_mcp_member(
-        db_session, g1, project_id, "https://mcp.example.com/sse"
-    )
+    archived_credential_id = await _add_mcp_member(db_session, g1, project_id, "https://mcp.example.com/sse")
     await _add_mcp_member(db_session, g2, project_id, "https://other.example.com/sse")
     agent = await _make_agent(db_session, project_id)
     await _make_session(db_session, agent, project_id, group_ids=[g1, g2])
@@ -258,9 +362,7 @@ async def test_add_member_ignores_archived_peer_url_for_bound_session(db_session
         project_id=project_id,
     )
 
-    credential_id = await _add_mcp_member(
-        db_session, g2, project_id, "HTTPS://MCP.example.com:443/sse/"
-    )
+    credential_id = await _add_mcp_member(db_session, g2, project_id, "HTTPS://MCP.example.com:443/sse/")
 
     assert credential_id is not None
 
@@ -269,9 +371,7 @@ async def test_add_member_ignores_archived_peer_url_for_bound_session(db_session
 async def test_restore_mcp_member_rejects_url_conflict_for_bound_session(db_session, project_id):
     g1 = await _make_group(db_session, project_id)
     g2 = await _make_group(db_session, project_id)
-    archived_credential_id = await _add_mcp_member(
-        db_session, g1, project_id, "https://mcp.example.com/sse"
-    )
+    archived_credential_id = await _add_mcp_member(db_session, g1, project_id, "https://mcp.example.com/sse")
     await CredentialGroupService(db_session).archive_credential(
         g1,
         archived_credential_id,
@@ -291,9 +391,7 @@ async def test_restore_mcp_member_rejects_url_conflict_for_bound_session(db_sess
 
 
 @pytest.mark.asyncio
-async def test_generic_mcp_create_rejects_url_conflict_for_already_bound_session(
-    db_session, project_id
-):
+async def test_generic_mcp_create_rejects_url_conflict_for_already_bound_session(db_session, project_id):
     g1 = await _make_group(db_session, project_id)
     g2 = await _make_group(db_session, project_id)
     await _add_mcp_member(db_session, g1, project_id, "https://mcp.example.com/sse")
@@ -361,9 +459,7 @@ async def test_soft_delete_credential_referenced_by_environment_config_rejected(
 
 
 @pytest.mark.asyncio
-async def test_soft_delete_credential_pinned_only_by_active_session_snapshot_rejected(
-    db_session, project_id
-):
+async def test_soft_delete_credential_pinned_only_by_active_session_snapshot_rejected(db_session, project_id):
     """Audit Blocker 1: a live session's ``agent_snapshot`` pins the credential id.
 
     Even after the agent is rebound away (its live column no longer points at the
@@ -387,9 +483,7 @@ async def test_soft_delete_credential_pinned_only_by_active_session_snapshot_rej
 
 
 @pytest.mark.asyncio
-async def test_service_credential_pinned_only_by_frozen_session_environment_rejected(
-    db_session, project_id
-):
+async def test_service_credential_pinned_only_by_frozen_session_environment_rejected(db_session, project_id):
     cred_id = await _make_service_credential(db_session, project_id)
     agent = await _make_agent(db_session, project_id)
     session = await _make_session(db_session, agent, project_id)
@@ -433,15 +527,14 @@ async def test_terminated_session_snapshot_does_not_pin_credential(db_session, p
 
 
 @pytest.mark.asyncio
-async def test_mcp_credential_in_use_via_group_session_binding(db_session, project_id):
+async def test_live_mcp_group_member_can_be_removed_after_session_binding(db_session, project_id):
     group_id = await _make_group(db_session, project_id)
     mcp_cred_id = await _add_mcp_member(db_session, group_id, project_id, "https://mcp.example.com/sse")
     agent = await _make_agent(db_session, project_id)
     await _make_session(db_session, agent, project_id, group_ids=[group_id])
 
-    with pytest.raises(AppError) as exc:
-        await CredentialService(db_session).soft_delete(mcp_cred_id, project_id=project_id)
-    assert exc.value.code == "CREDENTIAL_IN_USE"
+    deleted = await CredentialService(db_session).soft_delete(mcp_cred_id, project_id=project_id)
+    assert deleted.deleted_at is not None
 
 
 @pytest.mark.asyncio
@@ -475,49 +568,40 @@ async def test_group_archive_serializes_against_concurrent_session_binding(
     agent = await _make_agent(db_session, project_id)
     engine = create_async_engine(postgres_url, poolclass=NullPool)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    archive_scanned = asyncio.Event()
+    archive_locked = asyncio.Event()
     release_archive = asyncio.Event()
-    binding_validated = asyncio.Event()
 
     try:
         async with session_factory() as archive_db, session_factory() as binding_db:
             group_service = CredentialGroupService(archive_db)
-            original_reject = group_service._reject_if_bound_to_active_session
+            original_lock = group_service._application.uow.groups.lock_credential_group
 
-            async def pause_after_binding_scan(candidate_group_id, scoped_project_id):
-                await original_reject(candidate_group_id, scoped_project_id)
-                archive_scanned.set()
+            async def pause_after_group_lock(candidate_group_id, *, project_id=None):
+                await original_lock(candidate_group_id, project_id=project_id)
+                archive_locked.set()
                 await release_archive.wait()
 
-            group_service._reject_if_bound_to_active_session = pause_after_binding_scan
+            group_service._application.uow.groups.lock_credential_group = pause_after_group_lock
 
             session_service = SessionService(binding_db)
-            original_validate = session_service._validate_credential_groups
 
-            async def observe_binding_validation(candidate_group_ids, scoped_project_id):
-                await original_validate(candidate_group_ids, scoped_project_id)
-                binding_validated.set()
-
-            session_service._validate_credential_groups = observe_binding_validation
-
-            archive_task = asyncio.create_task(
-                group_service.archive(group_id, project_id=project_id)
-            )
-            await asyncio.wait_for(archive_scanned.wait(), timeout=2)
+            archive_task = asyncio.create_task(group_service.archive(group_id, project_id=project_id))
+            await asyncio.wait_for(archive_locked.wait(), timeout=2)
             binding_task = asyncio.create_task(
-                session_service.create_session(
-                    agent_id=agent.id,
-                    agent_name=agent.name,
-                    credential_group_ids=[group_id],
-                    project_id=project_id,
+                session_service.create_session_from_source(
+                    CreateCredentialAwareSession(
+                        project_id=project_id,
+                        agent_id=agent.id,
+                        credential_group_ids=(group_id,),
+                    )
                 )
             )
 
             try:
-                await asyncio.wait_for(binding_validated.wait(), timeout=0.25)
-                binding_passed_while_archive_was_open = True
+                await asyncio.wait_for(asyncio.shield(binding_task), timeout=0.25)
+                binding_completed_while_archive_was_locked = True
             except TimeoutError:
-                binding_passed_while_archive_was_open = False
+                binding_completed_while_archive_was_locked = False
 
             release_archive.set()
             archive_result, binding_result = await asyncio.gather(
@@ -527,7 +611,7 @@ async def test_group_archive_serializes_against_concurrent_session_binding(
             )
 
             assert not isinstance(archive_result, Exception)
-            assert binding_passed_while_archive_was_open is False
+            assert binding_completed_while_archive_was_locked is False
             assert isinstance(binding_result, AppError)
             assert binding_result.code == "SESSION_CREDENTIAL_GROUP_ARCHIVED"
     finally:

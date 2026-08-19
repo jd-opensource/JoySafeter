@@ -36,13 +36,16 @@ class SqlAlchemyCredentialImpactAdapter:
         for impact in pending:
             if impact.source_id is None:
                 continue
-            await nudge_sandbox_network_policy_refreshes(
-                [SandboxId.from_public(sandbox_id) for sandbox_id in impact.affected_sandbox_ids],
+            sandbox_ids = [SandboxId.from_public(sandbox_id) for sandbox_id in impact.affected_sandbox_ids]
+            nudged = await nudge_sandbox_network_policy_refreshes(
+                sandbox_ids,
                 project_id=str(impact.project_id),
                 reason=impact.reason or "credential_changed",
                 source_type=impact.source,
                 source_id=impact.source_id,
             )
+            if nudged != len(sandbox_ids):
+                raise RuntimeError(f"credential impact nudge reached {nudged} of {len(sandbox_ids)} sandboxes")
 
     def clear_pending(self) -> None:
         self._pending.clear()

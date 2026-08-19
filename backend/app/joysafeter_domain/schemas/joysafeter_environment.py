@@ -12,6 +12,10 @@ from pydantic import (
     model_validator,
 )
 
+from app.joysafeter_domain.credentials.references import (
+    CredentialReferenceCodec,
+    canonicalize_environment_for_read,
+)
 from app.joysafeter_shared.ids import CredentialId, EnvironmentId, registered_entity_id_prefix
 
 SUPPORTED_EGRESS_INJECT_TYPES = {"bearer", "api_key", "raw_header", "cookie"}
@@ -32,6 +36,7 @@ FORBIDDEN_MOUNT_PATHS = {
     "/var/run",
     "/sockets",
 }
+_REFERENCE_CODEC = CredentialReferenceCodec()
 
 
 def _trim_string(value: Optional[str]) -> Optional[str]:
@@ -288,6 +293,13 @@ class EnvironmentConfig(BaseModel):
     egress_services: list[EgressService] = Field(default_factory=list)
     mount_resources: list[MountResource] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def decode_credential_reference_aliases(cls, value: object) -> object:
+        if isinstance(value, dict):
+            return canonicalize_environment_for_read(value)
+        return value
+
     @model_validator(mode="after")
     def validate_egress_services(self) -> "EnvironmentConfig":
         names: set[str] = set()
@@ -318,6 +330,8 @@ EnvironmentSecretReferenceSource = Literal["secret_refs", "egress_services"]
 class EnvironmentSecretReference(NamedTuple):
     credential_id: CredentialId
     source: EnvironmentSecretReferenceSource
+    index: int | None = None
+    path: str | None = None
 
 
 def _coerce_credential_id(value: object) -> Optional[CredentialId]:
@@ -337,31 +351,28 @@ def _coerce_credential_id(value: object) -> Optional[CredentialId]:
 def extract_environment_secret_references(
     config: EnvironmentConfig | dict[str, Any] | None,
 ) -> list[EnvironmentSecretReference]:
-    raw = config.model_dump() if isinstance(config, EnvironmentConfig) else config
-    if not isinstance(raw, dict):
+    raw = config.model_dump(mode="json") if isinstance(config, EnvironmentConfig) else config
+    if raw is None:
         return []
-
-    references: list[EnvironmentSecretReference] = []
-    seen: set[CredentialId] = set()
-
-    def append(value: object, source: EnvironmentSecretReferenceSource) -> None:
-        credential_id = _coerce_credential_id(value)
-        if credential_id is None or credential_id in seen:
-            return
-        seen.add(credential_id)
-        references.append(EnvironmentSecretReference(credential_id, source))
-
-    direct_refs = raw.get("secret_refs")
-    if isinstance(direct_refs, list):
-        for value in direct_refs:
-            append(value, "secret_refs")
-
-    services = raw.get("egress_services")
-    if isinstance(services, list):
-        for service in services:
-            if isinstance(service, dict):
-                append(service.get("service_credential_id"), "egress_services")
-
+    decoded = _REFERENCE_CODEC.decode_environment(raw)
+    references = [
+        EnvironmentSecretReference(
+            CredentialId.from_public(str(reference.credential_id)),
+            "secret_refs",
+            reference.index,
+            f"secret_refs[{reference.index}]" if reference.index is not None else "service_credential_id",
+        )
+        for reference in decoded.direct_references
+    ]
+    references.extend(
+        EnvironmentSecretReference(
+            CredentialId.from_public(str(reference.credential_id)),
+            "egress_services",
+            reference.index,
+            f"egress_services[{reference.index}]",
+        )
+        for reference in decoded.http_egress
+    )
     return references
 
 

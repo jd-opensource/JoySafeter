@@ -8,6 +8,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, Header, Query, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_application.credentials.snapshot_service import CreateCredentialAwareSession
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRequest as CreateTaskRequest
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskResponse as CreateTaskResponse
@@ -376,21 +377,17 @@ async def create_task(
     session_svc = None
     if not chat_session_id:
         environment_ref = req.environment_ref or getattr(agent, "environment_ref", None)
-        effective_environment = requested_environment
         if environment_ref and requested_environment is None:
-            effective_environment = await _load_task_environment_or_raise(db, environment_ref, auth_ctx.project_id)
+            await _load_task_environment_or_raise(db, environment_ref, auth_ctx.project_id)
         session_svc = SessionService(db)
-        session = await session_svc.create_session(
-            agent_id=agent.id,
-            title=f"Task: {req.prompt[:80]}",
-            environment_ref=environment_ref,
-            agent_version=getattr(agent, "version", None),
-            agent_snapshot=agent_svc.build_execution_snapshot(
-                agent,
-                environment=effective_environment,
+        session = await session_svc.create_session_from_source(
+            CreateCredentialAwareSession(
+                project_id=auth_ctx.project_id,
+                agent_id=agent.id,
                 environment_ref=environment_ref,
-            ),
-            project_id=auth_ctx.project_id,
+                title=f"Task: {req.prompt[:80]}",
+                caller="task",
+            )
         )
         chat_session_id = session.id
         auto_created_session_id = session.id

@@ -10,6 +10,15 @@ from sqlalchemy import and_, func, select, update
 from sqlalchemy import delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_application.credentials.composition import compose_credential_application
+from app.joysafeter_domain.credentials.references import (
+    build_agent_execution_snapshot,
+    build_environment_execution_snapshot,
+)
+from app.joysafeter_domain.credentials.types import CredentialId as DomainCredentialId
+from app.joysafeter_domain.credentials.types import ProjectId
+from app.joysafeter_domain.llm.catalog import get_llm_catalog
+from app.joysafeter_domain.llm.model_inference_policy import build_model_inference_policy
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
 from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemoryStore
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
@@ -22,6 +31,7 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterCreateAgentRequest,
     JoySafeterUpdateAgentRequest,
 )
+from app.joysafeter_domain.services.credential_binding_errors import raise_public_credential_error
 from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
 from app.joysafeter_shared.ids import AgentId, CredentialId, SessionId, SkillId
@@ -76,17 +86,7 @@ class JoySafeterAgentService:
 
     @staticmethod
     def build_environment_execution_snapshot(environment: Any, *, environment_ref: Optional[str]) -> Optional[dict]:
-        if environment is None:
-            return None
-        environment_id = getattr(environment, "id", None)
-        return {
-            "ref": environment_ref,
-            "id": str(environment_id) if environment_id is not None else None,
-            "name": getattr(environment, "name", None),
-            "config": getattr(environment, "config", None) or {},
-            "image_tag": getattr(environment, "image_tag", None),
-            "image_version": getattr(environment, "image_version", None),
-        }
+        return build_environment_execution_snapshot(environment, environment_ref=environment_ref)
 
     @staticmethod
     def build_execution_snapshot(
@@ -97,35 +97,13 @@ class JoySafeterAgentService:
         version: Optional[int] = None,
     ) -> dict:
         skills, agents, commands = _split_agent_assets(agent.skills or [])
-        effective_environment_ref = environment_ref if environment_ref is not None else agent.environment_ref
-        snapshot = {
-            "schema": "joysafeter.agent_execution_snapshot.v1",
-            "id": str(agent.id),
-            "version": version if version is not None else agent.version,
-            "name": agent.name,
-            "engine_kind": agent.engine_kind,
-            "model": agent.model,
-            "system": agent.system_prompt,
-            "description": agent.description,
-            "metadata": agent.metadata_,
-            "env": agent.env,
-            "mcp_servers": agent.mcp_servers,
-            "skills": skills,
-            "agents": agents,
-            "commands": commands,
-            "tools": agent.tools,
-            "permission_mode": agent.permission_mode,
-            "multiagent": agent.multiagent,
-            "environment_ref": effective_environment_ref,
-            "model_credential_id": str(agent.model_credential_id) if agent.model_credential_id else None,
-        }
-        environment_snapshot = JoySafeterAgentService.build_environment_execution_snapshot(
-            environment,
-            environment_ref=effective_environment_ref,
+        return build_agent_execution_snapshot(
+            agent,
+            environment=environment,
+            environment_ref=environment_ref,
+            version=version,
+            split_assets=(skills, agents, commands),
         )
-        if environment_snapshot is not None:
-            snapshot["environment"] = environment_snapshot
-        return snapshot
 
     def _skill_ref_id(self, item: Any) -> Optional[SkillId]:
         value = getattr(item, "skill_id", None)
@@ -216,9 +194,8 @@ class JoySafeterAgentService:
     ) -> None:
         """Ensure an agent's model_credential_id references a usable model credential.
 
-        The credential must exist in the same project, be of kind ``model``, and
-        not be archived/soft-deleted (``CredentialService.get`` already filters
-        soft-deleted rows). project_id-less (global) agents cannot pin a
+        The credential must exist in the same project, satisfy model binding
+        policy, and remain active. Project-less (global) agents cannot pin a
         project-scoped credential, so a supplied id is rejected outright.
         """
         if model_credential_id is None:
@@ -229,28 +206,20 @@ class JoySafeterAgentService:
                 message="Credential not found",
                 data={"credential_id": str(model_credential_id)},
             )
-        from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
-
-        credential_service = CredentialService(self.db)
+        application = compose_credential_application(self.db, auto_commit=False)
         if acquire_lock:
-            await credential_service.lock_credential(
-                model_credential_id,
-                project_id=project_id,
+            await application.uow.credentials.lock_credential(model_credential_id, project_id=project_id)
+        try:
+            binding = build_model_inference_policy(
+                get_llm_catalog(),
+                project_id=ProjectId(project_id),
+                credential_id=DomainCredentialId(str(model_credential_id)),
+                engine_kind=self._binding_engine_kind,
+                model_id=self._binding_model_id,
             )
-        cred = await credential_service.get(model_credential_id, project_id=project_id)
-        if cred is None or cred.archived_at is not None:
-            raise NotFoundError(
-                code="CREDENTIAL_NOT_FOUND",
-                message="Credential not found",
-                data={"credential_id": str(model_credential_id)},
-            )
-        if cred.kind != "model":
-            raise InvalidRequestError(
-                code="CREDENTIAL_KIND_INVALID",
-                message="Agent model reference must point to a model credential",
-                data={"credential_id": str(model_credential_id), "kind": cred.kind},
-                user_action="fix_input",
-            )
+            await application.binding_service.validate_model_inference_reference(binding)
+        except Exception as exc:
+            raise_public_credential_error(exc, credential_id=model_credential_id)
 
     async def _count_active_tasks_for_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> int:
         if project_id is not None and not await self.get_agent(agent_id, project_id=project_id):
@@ -303,6 +272,8 @@ class JoySafeterAgentService:
         self, req: JoySafeterCreateAgentRequest, project_id: Optional[str] = None
     ) -> JoySafeterAgent:
         await self._validate_skill_refs(list(req.skills or []), project_id)
+        self._binding_engine_kind = req.engine_kind.value
+        self._binding_model_id = req.model.id if hasattr(req.model, "id") else req.model
         await self._validate_model_credential_ref(req.model_credential_id, project_id)
         model_data = None
         if req.model:
@@ -354,6 +325,39 @@ class JoySafeterAgentService:
         result = await self.db.execute(select(JoySafeterAgent).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
+    async def lock_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> Optional[JoySafeterAgent]:
+        conditions = [
+            JoySafeterAgent.id == agent_id,
+            JoySafeterAgent.deleted_at.is_(None),
+        ]
+        if project_id is not None:
+            conditions.append(JoySafeterAgent.project_id == project_id)
+        result = await self.db.execute(
+            select(JoySafeterAgent).where(and_(*conditions)).execution_options(populate_existing=True).with_for_update()
+        )
+        return result.scalar_one_or_none()
+
+    async def _lock_lifecycle_aggregate(
+        self,
+        agent_id: AgentId,
+        *,
+        project_id: Optional[str],
+        all_trigger_projects: bool = False,
+    ) -> tuple[Any, list[JoySafeterTrigger], Optional[JoySafeterAgent]]:
+        """Acquire the shared Trigger→Agent lifecycle lock order.
+
+        Scheduler firing locks Trigger before Snapshot creation locks Agent. Every
+        destructive Agent lifecycle path uses the same order before blocker scans,
+        Session mutation, Trigger mutation, or deletion decisions.
+        """
+        from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
+
+        trigger_service = JoySafeterTriggerService(self.db)
+        trigger_project_id = None if all_trigger_projects else project_id
+        triggers = await trigger_service.lock_for_agent_lifecycle(agent_id, project_id=trigger_project_id)
+        agent = await self.lock_agent(agent_id, project_id=project_id)
+        return trigger_service, triggers, agent
+
     async def get_agent_by_name(self, name: str, project_id: Optional[str] = None) -> Optional[JoySafeterAgent]:
         conditions = [
             JoySafeterAgent.name == name,
@@ -388,7 +392,7 @@ class JoySafeterAgentService:
         req: JoySafeterUpdateAgentRequest,
         project_id: Optional[str] = None,
     ) -> Optional[JoySafeterAgent]:
-        agent = await self.get_agent(agent_id, project_id=project_id)
+        agent = await self.lock_agent(agent_id, project_id=project_id)
         if not agent:
             return None
 
@@ -448,18 +452,19 @@ class JoySafeterAgentService:
             agent.environment_ref = req.environment_ref
             changed = True
         if "model_credential_id" in req.model_fields_set and req.model_credential_id != agent.model_credential_id:
-            from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
-
             credential_ids = [
                 credential_id
                 for credential_id in (agent.model_credential_id, req.model_credential_id)
                 if credential_id is not None
             ]
             if project_id is not None:
-                await CredentialService(self.db).lock_credentials(
+                await compose_credential_application(self.db, auto_commit=False).uow.credentials.lock_credentials(
                     credential_ids,
                     project_id=project_id,
                 )
+            self._binding_engine_kind = req.engine_kind.value if req.engine_kind is not None else agent.engine_kind
+            selected_model = req.model if req.model is not None else agent.model
+            self._binding_model_id = selected_model.id if hasattr(selected_model, "id") else selected_model
             await self._validate_model_credential_ref(
                 req.model_credential_id,
                 project_id,
@@ -485,7 +490,10 @@ class JoySafeterAgentService:
         force: bool = False,
         project_id: Optional[str] = None,
     ) -> bool:
-        agent = await self.get_agent(agent_id, project_id=project_id)
+        trigger_service, triggers, agent = await self._lock_lifecycle_aggregate(
+            agent_id,
+            project_id=project_id,
+        )
         if not agent:
             return False
 
@@ -493,9 +501,7 @@ class JoySafeterAgentService:
             if await self._count_active_tasks_for_agent(agent_id, project_id=project_id) > 0:
                 raise ValueError("Agent has active tasks. Use force=true to delete.")
 
-        from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
-
-        await JoySafeterTriggerService(self.db).pause_for_agent_triggers(agent_id)
+        trigger_service.pause_locked_agent_triggers(triggers)
         agent.deleted_at = utc_now()
         await self.db.commit()
         return True
@@ -512,7 +518,10 @@ class JoySafeterAgentService:
         Returns (archived, archived_session_ids). archived is False when the
         agent does not exist; True (with an empty list) when already archived.
         """
-        agent = await self.get_agent(agent_id, project_id=project_id)
+        trigger_service, triggers, agent = await self._lock_lifecycle_aggregate(
+            agent_id,
+            project_id=project_id,
+        )
         if not agent:
             return False, []
         if agent.archived_at:
@@ -532,9 +541,7 @@ class JoySafeterAgentService:
 
         now = utc_now()
         await self._archive_session_ids_if_no_active_tasks(session_ids, now)
-        from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
-
-        await JoySafeterTriggerService(self.db).pause_for_agent_archive(agent_id)
+        trigger_service.pause_locked_agent_triggers(triggers)
         agent.archived_at = now
         agent.updated_at = now
         await self.db.commit()
@@ -547,19 +554,20 @@ class JoySafeterAgentService:
         project scope). Returns True when restored, or when it was already active
         (idempotent, no side effects). Already-terminated sessions are left as-is.
         """
-        agent = await self.get_agent(agent_id, project_id=project_id)
+        trigger_service, triggers, agent = await self._lock_lifecycle_aggregate(
+            agent_id,
+            project_id=project_id,
+        )
         if not agent:
             return False
         if agent.archived_at is None:
             return True
 
-        from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
-
         now = utc_now()
         agent.archived_at = None
         agent.updated_at = now
         await self.db.flush()  # make cleared archived_at visible to _next_run_or_pause
-        await JoySafeterTriggerService(self.db).resume_after_agent_restore(agent_id)
+        await trigger_service.resume_locked_agent_triggers(triggers)
         await self.db.commit()
         return True
 
@@ -592,7 +600,11 @@ class JoySafeterAgentService:
         await self.db.flush()
 
     async def hard_delete_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> bool:
-        agent = await self.get_agent(agent_id, project_id=project_id)
+        _trigger_service, _triggers, agent = await self._lock_lifecycle_aggregate(
+            agent_id,
+            project_id=project_id,
+            all_trigger_projects=True,
+        )
         if not agent:
             return False
         if await self._count_active_tasks_for_agent(agent_id, project_id=project_id) > 0:
@@ -629,7 +641,11 @@ class JoySafeterAgentService:
         return True
 
     async def archive_sessions_for_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> list[SessionId]:
-        if project_id is not None and not await self.get_agent(agent_id, project_id=project_id):
+        _trigger_service, _triggers, agent = await self._lock_lifecycle_aggregate(
+            agent_id,
+            project_id=project_id,
+        )
+        if agent is None:
             return []
         if await self._count_active_tasks_for_agent(agent_id, project_id=project_id) > 0:
             raise ValueError("Agent has active tasks. Stop or cancel them before archiving sessions.")

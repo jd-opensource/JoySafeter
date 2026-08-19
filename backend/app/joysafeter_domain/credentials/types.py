@@ -54,7 +54,10 @@ class NormalizedEndpoint(str):
 
 class NormalizedMcpUrl(str):
     def __new__(cls, value: str) -> NormalizedMcpUrl:
-        return str.__new__(cls, _normalize_http_url(value, label="MCP URL"))
+        normalized = _normalize_http_url(value, label="MCP URL")
+        if normalized.endswith("/"):
+            normalized = normalized.rstrip("/")
+        return str.__new__(cls, normalized)
 
 
 def make_project_id(value: str) -> ProjectId:

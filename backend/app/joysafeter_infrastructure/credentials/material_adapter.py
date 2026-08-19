@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from app.joysafeter_application.credentials.binding_service import (
+    BindingIssuanceAuthority,
     ResolvedCredentialMaterial,
     ValidatedCredentialBinding,
 )
@@ -20,9 +21,13 @@ class ManagedCredentialMaterialAdapter:
         self,
         repository: EncryptedCredentialMaterialRepositoryPort | None,
         protector: LegacyV1MaterialProtector,
+        issuance_authority: BindingIssuanceAuthority,
     ) -> None:
+        if type(issuance_authority) is not BindingIssuanceAuthority:
+            raise TypeError("ManagedCredentialMaterialAdapter requires BindingIssuanceAuthority")
         self._repository = repository
         self._protector = protector
+        self._issuance_authority = issuance_authority
 
     def bind_repository(self, repository: EncryptedCredentialMaterialRepositoryPort) -> None:
         if self._repository is not None:
@@ -30,6 +35,7 @@ class ManagedCredentialMaterialAdapter:
         self._repository = repository
 
     async def load(self, binding: ValidatedCredentialBinding) -> ResolvedCredentialMaterial:
+        self._issuance_authority.validate(binding)
         if self._repository is None:
             raise RuntimeError("managed credential material repository is not bound")
         encrypted = await self._repository.load_encrypted_material(

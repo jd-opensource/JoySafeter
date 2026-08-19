@@ -73,22 +73,18 @@ def patch_deps(monkeypatch):
         async def get_session(self, session_id, project_id=None):
             return None
 
-        async def create_session(self, **kwargs):
+        async def create_session_from_source(self, command):
             session = SimpleNamespace(
                 id=uuid.uuid4(),
-                agent_id=kwargs["agent_id"],
+                agent_id=command.agent_id,
                 status=SessionStatus.IDLE.value,
                 archived_at=None,
-                metadata_=kwargs.get("metadata") or {},
+                metadata_=dict(command.metadata or {}),
             )
             state["created"].append(session)
             return session
 
     monkeypatch.setattr("app.joysafeter_domain.services.agent_trigger_execution.SessionService", FakeSessionService)
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.agent_trigger_execution.JoySafeterAgentService.build_execution_snapshot",
-        lambda *a, **k: {"snapshot": True},
-    )
     return state
 
 

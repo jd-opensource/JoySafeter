@@ -11,10 +11,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
 from app.joysafeter_domain.models.joysafeter_credential import (
     JoySafeterCredential,
     JoySafeterCredentialGroup,
@@ -77,25 +76,11 @@ def _member_response(cred: JoySafeterCredential, svc: CredentialService) -> Cred
 @router.post("", status_code=201)
 async def create_credential_group(
     req: CreateCredentialGroupRequest,
-    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialGroupResponse:
-    svc = CredentialGroupService(db, auto_commit=False)
+    svc = CredentialGroupService(db, compatibility_mode=False)
     group = await svc.create(req, project_id=auth_ctx.project_id)
-    await audit_joysafeter_event(
-        db,
-        request,
-        auth_ctx,
-        event_type="credential_group.created",
-        target_type="credential_group",
-        target_id=str(group.id),
-        details={"name": group.name},
-        commit=False,
-        best_effort=False,
-    )
-    await db.commit()
-    await svc.nudge_pending_network_policy_refreshes()
     return _group_response(group)
 
 
@@ -137,77 +122,48 @@ async def get_credential_group(
 @router.patch("/{group_id}")
 async def update_credential_group(
     req: UpdateCredentialGroupRequest,
-    request: Request,
     group_id: CredentialGroupId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialGroupResponse:
-    svc = CredentialGroupService(db, auto_commit=False)
+    svc = CredentialGroupService(db, compatibility_mode=False)
     group = await svc.update(group_id, req, project_id=auth_ctx.project_id)
-    await audit_joysafeter_event(
-        db,
-        request,
-        auth_ctx,
-        event_type="credential_group.updated",
-        target_type="credential_group",
-        target_id=str(group.id),
-        details={"name": group.name},
-        commit=False,
-        best_effort=False,
-    )
-    await db.commit()
-    await svc.nudge_pending_network_policy_refreshes()
     return _group_response(group)
 
 
 @router.delete("/{group_id}", status_code=204)
 async def delete_credential_group(
-    request: Request,
     group_id: CredentialGroupId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:
-    svc = CredentialGroupService(db, auto_commit=False)
+    svc = CredentialGroupService(db, compatibility_mode=False)
     # soft_delete raises CREDENTIAL_IN_USE (409) when bound to an active session.
-    group = await svc.soft_delete(group_id, project_id=auth_ctx.project_id)
-    await audit_joysafeter_event(
-        db,
-        request,
-        auth_ctx,
-        event_type="credential_group.deleted",
-        target_type="credential_group",
-        target_id=str(group.id),
-        details={"name": group.name},
-        commit=False,
-        best_effort=False,
-    )
-    await db.commit()
-    await svc.nudge_pending_network_policy_refreshes()
+    await svc.soft_delete(group_id, project_id=auth_ctx.project_id)
 
 
 @router.post("/{group_id}/archive")
 async def archive_credential_group(
-    request: Request,
     group_id: CredentialGroupId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialGroupResponse:
-    svc = CredentialGroupService(db, auto_commit=False)
+    svc = CredentialGroupService(db, compatibility_mode=False)
     # archive raises CREDENTIAL_IN_USE (409) when bound to an active session.
     group = await svc.archive(group_id, project_id=auth_ctx.project_id)
-    await audit_joysafeter_event(
-        db,
-        request,
-        auth_ctx,
-        event_type="credential_group.archived",
-        target_type="credential_group",
-        target_id=str(group.id),
-        details={"name": group.name},
-        commit=False,
-        best_effort=False,
+    return _group_response(group)
+
+
+@router.post("/{group_id}/restore")
+async def restore_credential_group(
+    group_id: CredentialGroupId,
+    db: AsyncSession = Depends(get_db),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+) -> CredentialGroupResponse:
+    group = await CredentialGroupService(db, compatibility_mode=False).restore(
+        group_id,
+        project_id=auth_ctx.project_id,
     )
-    await db.commit()
-    await svc.nudge_pending_network_policy_refreshes()
     return _group_response(group)
 
 
@@ -237,92 +193,37 @@ async def list_credential_group_members(
 @router.post("/{group_id}/members", status_code=201)
 async def add_credential_group_member(
     req: AddGroupCredentialRequest,
-    request: Request,
     group_id: CredentialGroupId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
-    svc = CredentialGroupService(db, auto_commit=False)
+    svc = CredentialGroupService(db, compatibility_mode=False)
     cred = await svc.add_credential(group_id, req, project_id=auth_ctx.project_id)
-    await audit_joysafeter_event(
-        db,
-        request,
-        auth_ctx,
-        event_type="credential_group.member_added",
-        target_type="credential",
-        target_id=str(cred.id),
-        details={
-            "credential_group_id": str(group_id),
-            "name": cred.name,
-            "mcp_server_url": cred.mcp_server_url,
-            "keys": sorted((cred.data or {}).keys()),
-        },
-        commit=False,
-        best_effort=False,
-    )
-    await db.commit()
-    await svc.nudge_pending_network_policy_refreshes()
     return _member_response(cred, CredentialService(db))
 
 
 @router.post("/{group_id}/members/{credential_id}/archive")
 async def archive_credential_group_member(
-    request: Request,
     group_id: CredentialGroupId,
     credential_id: CredentialId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
-    svc = CredentialGroupService(db, auto_commit=False)
+    svc = CredentialGroupService(db, compatibility_mode=False)
     cred = await svc.archive_credential(
         group_id,
         credential_id,
         project_id=auth_ctx.project_id,
     )
-    await audit_joysafeter_event(
-        db,
-        request,
-        auth_ctx,
-        event_type="credential_group.member_archived",
-        target_type="credential",
-        target_id=str(credential_id),
-        details={
-            "credential_group_id": str(group_id),
-            "name": cred.name,
-            "mcp_server_url": cred.mcp_server_url,
-        },
-        commit=False,
-        best_effort=False,
-    )
-    await db.commit()
-    await svc.nudge_pending_network_policy_refreshes()
     return _member_response(cred, CredentialService(db))
 
 
 @router.delete("/{group_id}/members/{credential_id}", status_code=204)
 async def remove_credential_group_member(
-    request: Request,
     group_id: CredentialGroupId,
     credential_id: CredentialId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:
-    svc = CredentialGroupService(db, auto_commit=False)
-    cred = await svc.remove_credential(group_id, credential_id, project_id=auth_ctx.project_id)
-    await audit_joysafeter_event(
-        db,
-        request,
-        auth_ctx,
-        event_type="credential_group.member_removed",
-        target_type="credential",
-        target_id=str(credential_id),
-        details={
-            "credential_group_id": str(group_id),
-            "name": cred.name,
-            "mcp_server_url": cred.mcp_server_url,
-        },
-        commit=False,
-        best_effort=False,
-    )
-    await db.commit()
-    await svc.nudge_pending_network_policy_refreshes()
+    svc = CredentialGroupService(db, compatibility_mode=False)
+    await svc.remove_credential(group_id, credential_id, project_id=auth_ctx.project_id)

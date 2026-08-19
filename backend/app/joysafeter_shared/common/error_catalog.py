@@ -58,6 +58,18 @@ CATALOG: dict[str, CatalogEntry] = {
         default_message="Credential is archived",
         user_action="refresh",
     ),
+    "CREDENTIAL_STATE_INVALID": CatalogEntry(
+        code="CREDENTIAL_STATE_INVALID",
+        error_class=ResourceConflictError,
+        default_message="Credential state is invalid for this operation",
+        user_action="refresh",
+    ),
+    "CREDENTIAL_CORRUPT": CatalogEntry(
+        code="CREDENTIAL_CORRUPT",
+        error_class=InvalidRequestError,
+        default_message="Credential record is corrupt",
+        user_action="refresh",
+    ),
     "CREDENTIAL_FIELD_MISSING": CatalogEntry(
         code="CREDENTIAL_FIELD_MISSING",
         error_class=InvalidRequestError,

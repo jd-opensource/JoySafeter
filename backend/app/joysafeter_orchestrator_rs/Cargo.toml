@@ -123,6 +123,10 @@ jd-identity = ["dep:jd-agent-identity"]
 [build-dependencies]
 tonic-build = "0.12"
 
+[dev-dependencies]
+proc-macro2 = "1.0.106"
+syn = { version = "2.0.117", features = ["full", "visit"] }
+
 # ---------------------------------------------------------------------------
 # Build profile optimization — reduce target/ size from ~10GB to ~3-4GB
 # ---------------------------------------------------------------------------

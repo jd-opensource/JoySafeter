@@ -9,14 +9,13 @@ from typing import Any, Optional
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_application.credentials.snapshot_service import CreateCredentialAwareSession
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, SessionStatus
 from app.joysafeter_domain.models.joysafeter_task import (
     JOYSAFETER_TERMINAL_STATUSES,
     JoySafeterTask,
 )
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
-from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import TriggerRuntimeGate
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
@@ -155,9 +154,7 @@ class AgentTriggerExecutor:
             session = None
             if config.reusable_session_id is not None:
                 session = await session_svc.get_session(config.reusable_session_id, project_id=config.project_id)
-                if session is not None and (
-                    session.archived_at is not None or session.agent_id != config.agent.id
-                ):
+                if session is not None and (session.archived_at is not None or session.agent_id != config.agent.id):
                     session = None
             if session is not None and session.status == SessionStatus.IDLE.value:
                 return session, False
@@ -182,30 +179,21 @@ class AgentTriggerExecutor:
             if keyed_session is not None and keyed_session.status == SessionStatus.IDLE.value:
                 return keyed_session, False
 
-        environment = None
-        if config.environment_ref:
-            environment = await EnvironmentService(self.db).get_environment_by_ref(
-                config.environment_ref,
-                project_id=config.project_id,
-            )
         session_metadata: dict[str, Any] = {
             "trigger_source": config.source,
             **(config.metadata or {}),
         }
         if keyed_value:
             session_metadata["trigger_session_key"] = keyed_value
-        session = await session_svc.create_session(
-            agent_id=config.agent.id,
-            title=f"Triggered: {config.name}",
-            environment_ref=config.environment_ref,
-            agent_version=getattr(config.agent, "version", None),
-            agent_snapshot=JoySafeterAgentService.build_execution_snapshot(
-                config.agent,
-                environment=environment,
+        session = await session_svc.create_session_from_source(
+            CreateCredentialAwareSession(
+                project_id=config.project_id,
+                agent_id=config.agent.id,
                 environment_ref=config.environment_ref,
-            ),
-            project_id=config.project_id,
-            metadata=session_metadata,
+                title=f"Triggered: {config.name}",
+                metadata=session_metadata,
+                caller="trigger",
+            )
         )
         return session, True
 

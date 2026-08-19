@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from error_contract_helpers import handled_app_error_payload
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 from starlette.requests import Request
@@ -27,7 +27,7 @@ from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_trigger import TriggerCreateRequest, TriggerUpdateRequest
-from app.joysafeter_domain.services.agent_trigger_execution import AgentTriggerExecutor
+from app.joysafeter_domain.services.agent_trigger_execution import AgentTriggerExecutor, render_prompt_template
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
@@ -484,6 +484,153 @@ async def test_scheduler_recovers_created_task_when_state_write_was_missed(db_se
 
 
 @pytest.mark.asyncio
+async def test_scheduler_fire_rereads_claimed_trigger_before_deriving_command(
+    db_session,
+    postgres_url,
+    monkeypatch,
+):
+    redis = _FakeQueueRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", factory)
+    try:
+        _, project, agent = await _create_project_with_agent(db_session, name="LockedTriggerCommand")
+        trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="locked-trigger-command")
+        claimed = await JoySafeterTriggerService(db_session).claim_due_cron_triggers(
+            worker_id="locked-command-worker",
+            limit=1,
+            lock_grace_sec=120,
+        )
+        assert [row.id for row in claimed] == [trigger.id]
+        fired_slot = claimed[0].next_run_at
+        assert fired_slot is not None
+
+        async with factory() as mutate_db:
+            await mutate_db.execute(
+                update(JoySafeterTrigger)
+                .where(JoySafeterTrigger.id == trigger.id)
+                .values(prompt_template="use locked trigger state")
+            )
+            await mutate_db.commit()
+
+        outcome = await SchedulerLoop(worker_id="locked-command-worker")._fire(claimed[0], fired_slot)
+        assert outcome.status == "fired"
+        task = await db_session.scalar(
+            select(JoySafeterTask).where(JoySafeterTask.id == outcome.task_id).execution_options(populate_existing=True)
+        )
+        assert task is not None
+        assert task.prompt == "use locked trigger state"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_replace_captures_command_before_cancellation_releases_trigger_lock(
+    db_session,
+    postgres_url,
+    monkeypatch,
+):
+    redis = _FakeQueueRedis()
+    monkeypatch.setattr(
+        "app.joysafeter_shared.cache.redis.RedisClient.get_client",
+        staticmethod(lambda: redis),
+    )
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", factory)
+    try:
+        _, project, agent = await _create_project_with_agent(db_session, name="ReplaceLockedCommand")
+        trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="replace-locked-command")
+        trigger.concurrency_policy = "replace"
+        trigger.prompt_template = "command captured under trigger lock"
+        old_session = JoySafeterSession(agent_id=agent.id, project_id=project.id, status="running")
+        db_session.add(old_session)
+        await db_session.flush()
+        db_session.add(
+            JoySafeterTask(
+                agent_id=agent.id,
+                chat_session_id=old_session.id,
+                trigger_id=trigger.id,
+                project_id=project.id,
+                prompt="prior scheduled slot",
+                status=JoySafeterTaskStatus.PENDING.value,
+            )
+        )
+        await db_session.commit()
+
+        claimed = await JoySafeterTriggerService(db_session).claim_due_cron_triggers(
+            worker_id="replace-locked-command-worker",
+            limit=1,
+            lock_grace_sec=120,
+        )
+        assert [row.id for row in claimed] == [trigger.id]
+        fired_slot = claimed[0].next_run_at
+        assert fired_slot is not None
+
+        trigger_locked = asyncio.Event()
+        writer_attempted = asyncio.Event()
+        writer_committed = asyncio.Event()
+        render_saw_writer_commit: list[bool] = []
+
+        original_get_claimed = JoySafeterTriggerService.get_claimed_for_fire
+
+        async def observed_get_claimed(self, trigger_id, *, expected_locked_by):
+            locked = await original_get_claimed(
+                self,
+                trigger_id,
+                expected_locked_by=expected_locked_by,
+            )
+            trigger_locked.set()
+            await asyncio.wait_for(writer_attempted.wait(), timeout=3)
+            return locked
+
+        original_cancel = TaskCancellationService.cancel
+
+        async def cancel_then_wait_for_writer(self, task, *, reason):
+            relayed = await original_cancel(self, task, reason=reason)
+            await asyncio.wait_for(writer_committed.wait(), timeout=3)
+            return relayed
+
+        def observe_render(template, payload):
+            render_saw_writer_commit.append(writer_committed.is_set())
+            return render_prompt_template(template, payload)
+
+        monkeypatch.setattr(JoySafeterTriggerService, "get_claimed_for_fire", observed_get_claimed)
+        monkeypatch.setattr(TaskCancellationService, "cancel", cancel_then_wait_for_writer)
+        monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.render_prompt_template", observe_render)
+
+        async def mutate_trigger_after_lock() -> None:
+            await trigger_locked.wait()
+            async with factory() as mutate_db:
+                writer_attempted.set()
+                await mutate_db.execute(
+                    update(JoySafeterTrigger)
+                    .where(JoySafeterTrigger.id == trigger.id)
+                    .values(prompt_template="racing command after cancellation commit")
+                )
+                await mutate_db.commit()
+            writer_committed.set()
+
+        writer_task = asyncio.create_task(mutate_trigger_after_lock())
+        outcome = await SchedulerLoop(worker_id="replace-locked-command-worker")._fire(claimed[0], fired_slot)
+        await writer_task
+
+        assert outcome.status == "fired"
+        assert render_saw_writer_commit == [False]
+        task = await db_session.scalar(
+            select(JoySafeterTask).where(JoySafeterTask.id == outcome.task_id).execution_options(populate_existing=True)
+        )
+        assert task is not None
+        assert task.prompt == "command captured under trigger lock"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_scheduler_claim_preserves_global_trigger_support(db_session):
     agent = JoySafeterAgent(name=f"global-trigger-agent-{uuid.uuid4()}", project_id=None)
     db_session.add(agent)
@@ -795,6 +942,133 @@ async def test_agent_archive_pauses_target_triggers_without_disabling_user_inten
     assert archived_trigger.next_run_at is None
     assert archived_trigger.locked_by is None
     assert archived_trigger.locked_at is None
+
+
+@pytest.mark.asyncio
+async def test_agent_archive_uses_trigger_then_agent_lock_order_without_scheduler_deadlock(
+    db_session,
+    postgres_url,
+):
+    _, project, agent = await _create_project_with_agent(db_session, name="AgentArchiveLockOrder")
+    trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="agent-archive-lock-order")
+    agent_id = agent.id
+    trigger_id = trigger.id
+    claimed = await JoySafeterTriggerService(db_session).claim_due_cron_triggers(
+        worker_id="agent-lock-order-worker",
+        limit=1,
+        lock_grace_sec=120,
+    )
+    assert [row.id for row in claimed] == [trigger_id]
+
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as scheduler_db, factory() as lifecycle_db:
+            await scheduler_db.execute(text("SET LOCAL deadlock_timeout = '100ms'"))
+            await lifecycle_db.execute(text("SET LOCAL deadlock_timeout = '100ms'"))
+
+            locked_trigger = await JoySafeterTriggerService(scheduler_db).get_claimed_for_fire(
+                trigger_id,
+                expected_locked_by="agent-lock-order-worker",
+            )
+            assert locked_trigger is not None
+
+            lifecycle_pid = await lifecycle_db.scalar(text("SELECT pg_backend_pid()"))
+            assert lifecycle_pid is not None
+            archive_future = asyncio.create_task(
+                JoySafeterAgentService(lifecycle_db).archive_agent_with_sessions(
+                    agent_id,
+                    project_id=project.id,
+                )
+            )
+            await _wait_for_backend_lock_wait(db_session, pid=lifecycle_pid)
+
+            locked_agent = await asyncio.wait_for(
+                JoySafeterAgentService(scheduler_db).lock_agent(agent_id, project_id=project.id),
+                timeout=3,
+            )
+            assert locked_agent is not None
+            await scheduler_db.commit()
+
+            archived, archived_session_ids = await asyncio.wait_for(archive_future, timeout=3)
+            assert archived is True
+            assert archived_session_ids == []
+
+        db_session.expire_all()
+        archived_agent = await db_session.scalar(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))
+        archived_trigger = await db_session.scalar(select(JoySafeterTrigger).where(JoySafeterTrigger.id == trigger_id))
+        assert archived_agent is not None and archived_agent.archived_at is not None
+        assert archived_trigger is not None and archived_trigger.next_run_at is None
+        assert archived_trigger.locked_by is None
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_prelocks_mismatched_project_trigger_before_agent(
+    db_session,
+    postgres_url,
+):
+    organization, project, agent = await _create_project_with_agent(db_session, name="HardDeleteLegacyTrigger")
+    legacy_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=organization.id,
+        name="Legacy Trigger Project",
+        slug=f"legacy-trigger-project-{uuid.uuid4()}",
+    )
+    db_session.add(legacy_project)
+    await db_session.commit()
+    await db_session.refresh(legacy_project)
+    legacy_trigger = await _create_due_trigger(
+        db_session,
+        project=legacy_project,
+        agent=agent,
+        name="hard-delete-legacy-trigger",
+    )
+    agent_id = agent.id
+    trigger_id = legacy_trigger.id
+    legacy_trigger.locked_by = "hard-delete-legacy-worker"
+    legacy_trigger.locked_at = utc_now()
+    await db_session.commit()
+
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as scheduler_db, factory() as delete_db:
+            await scheduler_db.execute(text("SET LOCAL deadlock_timeout = '100ms'"))
+            await delete_db.execute(text("SET LOCAL deadlock_timeout = '100ms'"))
+
+            locked_trigger = await JoySafeterTriggerService(scheduler_db).get_claimed_for_fire(
+                trigger_id,
+                expected_locked_by="hard-delete-legacy-worker",
+            )
+            assert locked_trigger is not None
+
+            delete_pid = await delete_db.scalar(text("SELECT pg_backend_pid()"))
+            assert delete_pid is not None
+            delete_future = asyncio.create_task(
+                JoySafeterAgentService(delete_db).hard_delete_agent(
+                    agent_id,
+                    project_id=project.id,
+                )
+            )
+            await _wait_for_backend_lock_wait(db_session, pid=delete_pid)
+
+            locked_agent = await asyncio.wait_for(
+                JoySafeterAgentService(scheduler_db).lock_agent(agent_id, project_id=project.id),
+                timeout=3,
+            )
+            assert locked_agent is not None
+            await scheduler_db.commit()
+
+            deleted = await asyncio.wait_for(delete_future, timeout=3)
+            assert deleted is True
+
+        db_session.expire_all()
+        assert await db_session.scalar(select(JoySafeterAgent.id).where(JoySafeterAgent.id == agent_id)) is None
+        assert await db_session.scalar(select(JoySafeterTrigger.id).where(JoySafeterTrigger.id == trigger_id)) is None
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio
@@ -2403,10 +2677,16 @@ async def test_scheduler_replace_cancels_pending_prior_task_and_fires_replacemen
         trigger_id = trigger.id
         old_task_id = old_task.id
         old_session_id = old_session.id
-        fired_slot = trigger.next_run_at
+        claimed = await JoySafeterTriggerService(db_session).claim_due_cron_triggers(
+            worker_id="replace-pending-worker",
+            limit=1,
+            lock_grace_sec=120,
+        )
+        assert [row.id for row in claimed] == [trigger_id]
+        fired_slot = claimed[0].next_run_at
         assert fired_slot is not None
 
-        outcome = await SchedulerLoop(worker_id="replace-pending-worker")._fire(trigger, fired_slot)
+        outcome = await SchedulerLoop(worker_id="replace-pending-worker")._fire(claimed[0], fired_slot)
 
         assert outcome.status == "fired"
         assert outcome.task_id is not None

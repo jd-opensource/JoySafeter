@@ -11,9 +11,11 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
 from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
+from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
+from app.joysafeter_shared.common.app_errors import RequestValidationAppError
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import CredentialId
+from app.joysafeter_shared.ids import AgentId, CredentialId, TriggerId
 
 
 async def _make_service_credential(db_session, project_id: str) -> CredentialId:
@@ -99,6 +101,75 @@ async def test_create_invalid_webhook_auth_method_returns_semantic_error_without
     assert resp.json()["code"] == "TRIGGER_AUTH_METHODS_INVALID"
     assert resp.json()["user_action"] == "fix_input"
     assert resp.json()["data"] == {"type": "webhook"}
+
+
+@pytest.mark.no_db
+@pytest.mark.asyncio
+async def test_update_invalid_webhook_auth_method_returns_semantic_error_without_db_access():
+    app = _app(_NoDb(), _ctx())
+    async with _client(app) as client:
+        resp = await client.patch(
+            f"/api/v1/triggers/{TriggerId.new()}",
+            json={"auth_methods": ["magic-link"]},
+        )
+
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "TRIGGER_AUTH_METHODS_INVALID"
+    assert resp.json()["user_action"] == "fix_input"
+    assert resp.json()["data"] == {"type": "webhook"}
+
+
+@pytest.mark.no_db
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "auth_methods",
+    (
+        123,
+        "hmac",
+        {"hmac": True},
+        [["hmac"]],
+        [123],
+    ),
+    ids=("non-iterable", "string", "mapping", "unhashable-item", "non-string-item"),
+)
+async def test_direct_create_rejects_malformed_auth_methods_before_db_access(auth_methods):
+    service = JoySafeterTriggerService(_NoDb())
+
+    with pytest.raises(RequestValidationAppError) as exc:
+        await service.create(
+            name=f"bad-auth-{uuid.uuid4()}",
+            type="webhook",
+            agent_id=AgentId.new(),
+            prompt_template="run",
+            webhook_auth_credential_id=CredentialId.new(),
+            webhook_auth_field="WEBHOOK_SECRET",
+            auth_methods=auth_methods,
+            project_id="proj-http",
+        )
+
+    assert exc.value.code == "TRIGGER_AUTH_METHODS_INVALID"
+
+
+@pytest.mark.no_db
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "auth_methods",
+    (
+        123,
+        "hmac",
+        {"hmac": True},
+        [["hmac"]],
+        [123],
+    ),
+    ids=("non-iterable", "string", "mapping", "unhashable-item", "non-string-item"),
+)
+async def test_direct_update_rejects_malformed_auth_methods_before_db_access(auth_methods):
+    service = JoySafeterTriggerService(_NoDb())
+
+    with pytest.raises(RequestValidationAppError) as exc:
+        await service.update(TriggerId.new(), "proj-http", auth_methods=auth_methods)
+
+    assert exc.value.code == "TRIGGER_AUTH_METHODS_INVALID"
 
 
 @pytest.mark.no_db

@@ -8,6 +8,7 @@ from sqlalchemy import ColumnElement, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_application.credentials.composition import compose_credential_application
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_task import (
@@ -238,9 +239,8 @@ class JoySafeterTriggerService:
             environment_ref=environment_ref,
         )
         if type == "webhook" and webhook_auth_credential_id and webhook_auth_field:
-            from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
-
-            await CredentialService(self.db).lock_credential(
+            application = compose_credential_application(self.db, auto_commit=False)
+            await application.uow.credentials.lock_credential(
                 webhook_auth_credential_id,
                 project_id=project_id,
             )
@@ -248,6 +248,7 @@ class JoySafeterTriggerService:
                 webhook_auth_credential_id=webhook_auth_credential_id,
                 webhook_auth_field=webhook_auth_field,
                 project_id=project_id,
+                auth_methods=auth_methods,
             )
         # Defer schedule arming to ``_next_run_or_pause`` so create/update/restore
         # all honor the same project pause/archive, agent, environment, recurring
@@ -319,6 +320,17 @@ class JoySafeterTriggerService:
         result = await self.db.execute(TriggerRuntimeGate.lock_stmt(trigger_id, project_id))
         return result.scalar_one_or_none()
 
+    async def get_claimed_for_fire(
+        self,
+        trigger_id: TriggerId,
+        *,
+        expected_locked_by: str,
+    ) -> Optional[JoySafeterTrigger]:
+        trigger = await self._get_for_update(trigger_id)
+        if trigger is None or trigger.locked_by != expected_locked_by:
+            return None
+        return trigger
+
     async def get_by_name(
         self,
         name: str,
@@ -364,6 +376,7 @@ class JoySafeterTriggerService:
     async def update(
         self, trigger_id: TriggerId, project_id: Optional[str], **fields: Any
     ) -> Optional[JoySafeterTrigger]:
+        TriggerConfigPolicy.validate_update_fields_before_lookup(fields)
         trigger = await self._get_for_update(trigger_id, project_id=project_id)
         if trigger is None:
             return None
@@ -379,9 +392,8 @@ class JoySafeterTriggerService:
                 environment_ref=plan.next_environment_ref,
             )
         if plan.webhook_auth_credential_id_to_verify is not None and plan.webhook_auth_field_to_verify is not None:
-            from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
-
-            await CredentialService(self.db).lock_credential(
+            application = compose_credential_application(self.db, auto_commit=False)
+            await application.uow.credentials.lock_credential(
                 plan.webhook_auth_credential_id_to_verify,
                 project_id=trigger.project_id,
             )
@@ -390,6 +402,11 @@ class JoySafeterTriggerService:
                 webhook_auth_field=plan.webhook_auth_field_to_verify,
                 project_id=trigger.project_id,
                 trigger_id=trigger.id,
+                auth_methods=(
+                    plan.fields.get("auth_methods")
+                    if "auth_methods" in plan.fields
+                    else (trigger.config or {}).get("auth_methods")
+                ),
             )
         plan.apply_to(trigger)
         if plan.recompute_next_run:
@@ -515,26 +532,51 @@ class JoySafeterTriggerService:
             trigger.slot_attempts = 0
             self._sync_config(trigger)
 
-    async def pause_for_agent_archive(self, agent_id: AgentId) -> None:
-        """Pause cron triggers targeting an archived agent without deleting audit state."""
-        await self.pause_for_agent_triggers(agent_id)
+    async def lock_for_agent_lifecycle(
+        self,
+        agent_id: AgentId,
+        *,
+        project_id: Optional[str] = None,
+    ) -> builtins.list[JoySafeterTrigger]:
+        """Lock every Trigger row before an Agent lifecycle transaction locks Agent.
 
-    async def pause_for_agent_triggers(self, agent_id: AgentId) -> None:
-        """Clear cron due slots for an agent that cannot run triggers."""
+        Global order: deterministic Trigger IDs, then Agent, then Session/source/
+        Credential rows. Scheduler firing already starts with one Trigger row and
+        then locks Agent during Snapshot creation, so lifecycle writers must never
+        hold Agent while acquiring Trigger locks.
+        """
+        conditions = [JoySafeterTrigger.agent_id == agent_id]
+        if project_id is not None:
+            conditions.append(JoySafeterTrigger.project_id == project_id)
         result = await self.db.execute(
-            select(JoySafeterTrigger).where(
-                JoySafeterTrigger.agent_id == agent_id,
-                JoySafeterTrigger.type == "cron",
-                JoySafeterTrigger.deleted_at.is_(None),
-            )
+            select(JoySafeterTrigger)
+            .where(*conditions)
+            .order_by(JoySafeterTrigger.id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
         )
-        for trigger in result.scalars().all():
+        return list(result.scalars().all())
+
+    def pause_locked_agent_triggers(self, triggers: Sequence[JoySafeterTrigger]) -> None:
+        """Pause live cron Trigger rows already locked by `lock_for_agent_lifecycle`."""
+        for trigger in triggers:
+            if trigger.type != "cron" or trigger.deleted_at is not None:
+                continue
             trigger.next_run_at = None
             trigger.locked_by = None
             trigger.locked_at = None
             trigger.pending_slot_at = None
             trigger.slot_attempts = 0
             self._sync_config(trigger)
+
+    async def pause_for_agent_archive(self, agent_id: AgentId, *, project_id: Optional[str] = None) -> None:
+        """Pause cron triggers targeting an archived agent without deleting audit state."""
+        await self.pause_for_agent_triggers(agent_id, project_id=project_id)
+
+    async def pause_for_agent_triggers(self, agent_id: AgentId, *, project_id: Optional[str] = None) -> None:
+        """Clear cron due slots for an agent that cannot run triggers."""
+        triggers = await self.lock_for_agent_lifecycle(agent_id, project_id=project_id)
+        self.pause_locked_agent_triggers(triggers)
 
     async def resume_after_project_restore(self, project_id: str) -> None:
         """Recompute cron trigger fire slots after a project is restored.
@@ -567,7 +609,24 @@ class JoySafeterTriggerService:
             trigger.next_run_at = await self._next_run_or_pause(trigger)
             self._sync_config(trigger)
 
-    async def resume_after_agent_restore(self, agent_id: AgentId) -> None:
+    async def resume_locked_agent_triggers(self, triggers: Sequence[JoySafeterTrigger]) -> None:
+        """Resume live cron Trigger rows already locked by `lock_for_agent_lifecycle`."""
+        for trigger in triggers:
+            if trigger.type != "cron" or trigger.deleted_at is not None:
+                continue
+            trigger.locked_by = None
+            trigger.locked_at = None
+            trigger.pending_slot_at = None
+            trigger.slot_attempts = 0
+            trigger.next_run_at = await self._next_run_or_pause(trigger)
+            self._sync_config(trigger)
+
+    async def resume_after_agent_restore(
+        self,
+        agent_id: AgentId,
+        *,
+        project_id: Optional[str] = None,
+    ) -> None:
         """Recompute cron trigger fire slots after an agent is restored from archive.
 
         The caller owns the transaction and must clear the agent's ``archived_at``
@@ -576,20 +635,8 @@ class JoySafeterTriggerService:
         (and those whose project/environment is still paused/archived) stay paused
         with no due slot.
         """
-        result = await self.db.execute(
-            select(JoySafeterTrigger).where(
-                JoySafeterTrigger.agent_id == agent_id,
-                JoySafeterTrigger.type == "cron",
-                JoySafeterTrigger.deleted_at.is_(None),
-            )
-        )
-        for trigger in result.scalars().all():
-            trigger.locked_by = None
-            trigger.locked_at = None
-            trigger.pending_slot_at = None
-            trigger.slot_attempts = 0
-            trigger.next_run_at = await self._next_run_or_pause(trigger)
-            self._sync_config(trigger)
+        triggers = await self.lock_for_agent_lifecycle(agent_id, project_id=project_id)
+        await self.resume_locked_agent_triggers(triggers)
 
     async def get_active_tasks(self, trigger_id: TriggerId) -> Sequence[JoySafeterTask]:
         result = await self.db.execute(

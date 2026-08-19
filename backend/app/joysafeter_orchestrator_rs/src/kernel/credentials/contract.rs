@@ -94,11 +94,53 @@ pub struct CredentialReferenceContract {
     legacy_aliases: HashMap<String, Vec<String>>,
     #[allow(dead_code)]
     legacy_decoder_keys: Vec<String>,
+    normalization: CredentialReferenceNormalization,
+    fixture_matrix: CredentialReferenceFixtureMatrix,
+    reference_paths: Vec<CredentialReferencePath>,
     #[allow(dead_code)]
     consumer_surfaces: Vec<String>,
     error_categories: HashMap<String, String>,
-    #[allow(dead_code)]
     test_vectors: Vec<serde_json::Value>,
+    parity_vectors: Vec<CredentialReferenceParityVector>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialReferenceNormalization {
+    inject_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialReferenceFixtureMatrix {
+    pub generator: String,
+    pub credential_id: String,
+    pub secondary_credential_id: String,
+    pub credential_field: String,
+    pub inject_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialReferencePath {
+    pub schemas: Vec<String>,
+    pub document: String,
+    pub path: String,
+    pub value_kind: String,
+    pub surface: String,
+    pub scanner_fixture: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialReferenceParityVector {
+    pub name: String,
+    pub category: String,
+    pub document: String,
+    pub input: serde_json::Value,
+    pub result: String,
+    pub expected_credential_ids: Option<Vec<String>>,
+    pub expected_inject_types: Option<Vec<String>>,
 }
 
 impl CredentialReferenceContract {
@@ -108,6 +150,62 @@ impl CredentialReferenceContract {
 
     pub fn error_category(&self, value: &str) -> Option<&str> {
         self.error_categories.get(value).map(String::as_str)
+    }
+
+    pub fn snapshot_schema_name(&self, value: Option<&str>) -> Option<&str> {
+        self.snapshot_schemas
+            .iter()
+            .find_map(|(name, schema)| (schema.as_deref() == value).then_some(name.as_str()))
+    }
+
+    pub fn snapshot_schema_value(&self, name: &str) -> Option<&str> {
+        self.snapshot_schemas.get(name).and_then(Option::as_deref)
+    }
+
+    pub fn inject_type_normalization(&self) -> &str {
+        &self.normalization.inject_type
+    }
+
+    pub fn reference_paths(&self) -> &[CredentialReferencePath] {
+        &self.reference_paths
+    }
+
+    pub fn is_registered_reference_key(&self, key: &str) -> bool {
+        self.canonical_reference_keys
+            .iter()
+            .any(|candidate| candidate == key)
+            || self
+                .legacy_decoder_keys
+                .iter()
+                .any(|candidate| candidate == key)
+            || self
+                .legacy_aliases
+                .values()
+                .flatten()
+                .any(|candidate| candidate == key)
+            || self.reference_paths.iter().any(|entry| {
+                entry
+                    .path
+                    .trim_start_matches("$.")
+                    .split('.')
+                    .map(|segment| segment.trim_end_matches("[*]"))
+                    .any(|segment| segment == key)
+            })
+    }
+
+    #[cfg(test)]
+    pub fn fixture_matrix(&self) -> &CredentialReferenceFixtureMatrix {
+        &self.fixture_matrix
+    }
+
+    #[cfg(test)]
+    pub fn parity_vectors(&self) -> &[CredentialReferenceParityVector] {
+        &self.parity_vectors
+    }
+
+    #[cfg(test)]
+    pub fn test_vectors(&self) -> &[serde_json::Value] {
+        &self.test_vectors
     }
 }
 

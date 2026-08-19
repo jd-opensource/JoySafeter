@@ -11,8 +11,8 @@ class SqlAlchemyCredentialAuditAdapter:
     async def append(self, entry: CredentialAuditEntry) -> None:
         details = {
             "project_id": entry.project_id,
-            "target_type": "credential",
             **dict(entry.details),
+            "target_type": entry.target_type,
         }
         if entry.target_id is not None:
             details["target_id"] = entry.target_id

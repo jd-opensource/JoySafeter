@@ -1,10 +1,8 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::path::{Component, Path};
 
-use aes_gcm::aead::{Aead, KeyInit};
-use aes_gcm::{Aes256Gcm, Nonce};
 use base64::Engine as _;
-use chrono::Utc;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use sha2::{Digest, Sha256};
@@ -16,18 +14,20 @@ use uuid::Uuid;
 use crate::db::queries;
 use crate::grpc::proto;
 use crate::ids::{
-    CredentialGroupId, CredentialId, EnvironmentId, SandboxId, SessionId, SkillId,
-    SkillSecurityScanId, SkillUsageId, SkillVersionId, TaskId,
+    CredentialId, EnvironmentId, SandboxId, SessionId, SkillId, SkillSecurityScanId, SkillUsageId,
+    SkillVersionId, TaskId,
 };
-use crate::kernel::credentials::contract::canonical_auth_scheme;
-use crate::kernel::credentials::error::{
-    credential_material_field, credential_material_object, require_bound_credential_id,
-    require_bound_project, validate_bound_credential, BoundCredentialState, CredentialRuntimeError,
+use crate::kernel::credentials::error::{require_bound_credential_id, CredentialRuntimeError};
+use crate::kernel::credentials::mcp::resolve_mcp_members;
+use crate::kernel::credentials::model::resolve_model_credential;
+use crate::kernel::credentials::record::ProjectId;
+use crate::kernel::credentials::service::{
+    resolve_service_credential, ResolvedServiceCredential, ServiceUsage,
 };
-use crate::kernel::llm_catalog::{
-    validate_runtime_secret, validate_runtime_secret_material, RuntimeSecretBinding,
-};
+use crate::kernel::credentials::store::CredentialStore;
+use crate::kernel::llm_catalog::RuntimeCredentialBinding;
 use crate::kernel::mcp_url;
+use crate::kernel::repository_access::material::RepositoryAccessMaterialAdapter;
 use crate::kernel::run_spec::{
     agent_for_execution, environment_credential_ids, environment_for_execution, SnapshotEnvironment,
 };
@@ -45,7 +45,7 @@ pub struct HarnessInputBuilder {
     pool: PgPool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct HarnessInput {
     pub provider: String,
     pub model: Option<String>,
@@ -70,6 +70,36 @@ pub struct HarnessInput {
     pub max_turns: u32,
     /// "append" (default) or "replace" — controls --append-system-prompt vs --system-prompt
     pub system_prompt_mode: String,
+}
+
+impl fmt::Debug for HarnessInput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("HarnessInput")
+            .field("provider", &self.provider)
+            .field("model", &self.model)
+            .field("system_prompt", &"<redacted>")
+            .field("prompt", &"<redacted>")
+            .field("env", &"<redacted>")
+            .field("secrets", &"<redacted>")
+            .field("permission_mode", &self.permission_mode)
+            .field("session_id", &self.session_id)
+            .field("mcp_servers", &self.mcp_servers.len())
+            .field("custom_tools", &self.custom_tools.len())
+            .field("skills", &self.skills.len())
+            .field("setup_commands", &"<redacted>")
+            .field("memory_system_prompt", &"<redacted>")
+            .field("memory_mounts", &self.memory_mounts.len())
+            .field("files", &self.files.len())
+            .field("file_refs", &self.file_refs.len())
+            .field("repos", &self.repos.len())
+            .field("allowed_tools", &self.allowed_tools.len())
+            .field("ask_tools", &self.ask_tools.len())
+            .field("work_dir", &self.work_dir)
+            .field("max_turns", &self.max_turns)
+            .field("system_prompt_mode", &self.system_prompt_mode)
+            .finish()
+    }
 }
 
 impl HarnessInputBuilder {
@@ -131,7 +161,7 @@ impl HarnessInputBuilder {
 
             self.resolve_environment_env(agent, snapshot_environment.as_ref(), &mut input)
                 .await?;
-            match self.resolve_agent_secret(agent, &mut input).await {
+            match self.resolve_agent_credential(agent, &mut input).await {
                 Ok(binding) => resolve_model_from_binding(&mut input, &binding),
                 Err(error) if error.downcast_ref() == Some(&CredentialRuntimeError::NotBound) => {}
                 Err(error) => return Err(error),
@@ -143,7 +173,7 @@ impl HarnessInputBuilder {
         }
 
         if let Some(ref session) = session {
-            self.resolve_vault_credentials(
+            self.resolve_mcp_group_credentials(
                 session.id,
                 session
                     .project_id
@@ -311,16 +341,16 @@ impl HarnessInputBuilder {
         .map_err(Into::into)
     }
 
-    async fn resolve_agent_secret(
+    async fn resolve_agent_credential(
         &self,
         agent: &crate::db::models::JoySafeterAgent,
         input: &mut HarnessInput,
-    ) -> anyhow::Result<RuntimeSecretBinding> {
+    ) -> anyhow::Result<RuntimeCredentialBinding> {
         let model_credential_id = require_bound_credential_id(agent.model_credential_id)?;
         let engine_kind = input.provider.clone();
 
         let binding = self
-            .resolve_secret_ref_into_input(
+            .resolve_credential_ref_into_input(
                 model_credential_id,
                 agent.project_id.as_deref(),
                 input,
@@ -365,7 +395,7 @@ impl HarnessInputBuilder {
         // list form (`secret_refs`) and the single `service_credential_id` now
         // hold canonical `cred_` ids resolved against `joysafeter_credentials`.
         for credential_id in environment_credential_ids(&environment_config)? {
-            self.resolve_secret_ref_into_input(
+            self.resolve_credential_ref_into_input(
                 credential_id,
                 agent.project_id.as_deref(),
                 input,
@@ -378,98 +408,46 @@ impl HarnessInputBuilder {
         Ok(())
     }
 
-    async fn resolve_secret_ref_into_input(
+    async fn resolve_credential_ref_into_input(
         &self,
         credential_id: CredentialId,
         project_id: Option<&str>,
         input: &mut HarnessInput,
         override_existing: bool,
         runtime_engine_kind: Option<&str>,
-    ) -> anyhow::Result<Option<RuntimeSecretBinding>> {
-        let project_id = require_bound_project(project_id, credential_id)?;
-        let secret = sqlx::query_as::<_, SecretRow>(
-            r#"
-            SELECT project_id, kind, provider, protocol, data, archived_at, deleted_at
-            FROM joysafeter_credentials
-            WHERE id = $1 AND project_id = $2
-            "#,
-        )
-        .bind(credential_id)
-        .bind(project_id)
-        .fetch_optional(&self.pool)
-        .await?;
+    ) -> anyhow::Result<Option<RuntimeCredentialBinding>> {
+        let project_id =
+            ProjectId::parse(project_id.ok_or(CredentialRuntimeError::ProjectMismatch)?)?;
+        let record = CredentialStore::new(self.pool.clone())
+            .get_active(&project_id, credential_id)
+            .await?;
 
-        let diagnostic_state = if secret.is_none() {
-            sqlx::query_as::<_, CredentialStateRow>(
-                r#"
-                SELECT id, project_id, archived_at, deleted_at
-                FROM joysafeter_credentials
-                WHERE id = $1
-                "#,
-            )
-            .bind(credential_id)
-            .fetch_optional(&self.pool)
-            .await?
-        } else {
-            None
+        if let Some(engine_kind) = runtime_engine_kind {
+            let resolved = resolve_model_credential(&record, engine_kind)?;
+            for (key, value) in resolved.material.iter() {
+                if override_existing || !input.secrets.contains_key(key) {
+                    input.secrets.insert(key.to_string(), value.to_string());
+                }
+            }
+            return Ok(Some(resolved.runtime_binding()));
+        }
+
+        let resolved = resolve_service_credential(&record, ServiceUsage::EnvironmentInjection)?;
+        let ResolvedServiceCredential::Environment(material) = resolved else {
+            return Err(CredentialRuntimeError::CorruptRecord.into());
         };
-
-        validate_bound_credential(
-            Some(project_id),
-            credential_id,
-            secret
-                .as_ref()
-                .map(SecretRow::state)
-                .or_else(|| diagnostic_state.as_ref().map(CredentialStateRow::state)),
-        )?;
-        let secret = secret.ok_or(CredentialRuntimeError::NotFound)?;
-
-        let binding = runtime_engine_kind
-            .map(|engine_kind| {
-                validate_runtime_secret(
-                    engine_kind,
-                    &secret.kind,
-                    secret.provider.as_deref(),
-                    secret.protocol.as_deref(),
-                )
-            })
-            .transpose()
-            .map_err(|error| match error {
-                crate::kernel::llm_catalog::LlmCatalogError::SecretKindInvalid { .. } => {
-                    CredentialRuntimeError::KindMismatch
-                }
-                crate::kernel::llm_catalog::LlmCatalogError::ProviderRequired
-                | crate::kernel::llm_catalog::LlmCatalogError::ProtocolRequired => {
-                    CredentialRuntimeError::FieldMissing
-                }
-                _ => CredentialRuntimeError::CorruptRecord,
-            })?;
-
-        if runtime_engine_kind.is_none() && secret.kind != "service" {
-            return Err(CredentialRuntimeError::KindMismatch.into());
-        }
-
-        let material = credential_material_object(&secret.data)?;
-        if let Some(binding) = binding.as_ref() {
-            validate_runtime_secret_material(binding, material)?;
-        }
-
-        let cipher = VaultCipher::from_env();
+        let material = material
+            .as_object()
+            .ok_or(CredentialRuntimeError::CorruptRecord)?;
         for (key, value) in material {
             let value = value
                 .as_str()
                 .ok_or(CredentialRuntimeError::CorruptRecord)?;
             if override_existing || !input.secrets.contains_key(key) {
-                input.secrets.insert(
-                    key.clone(),
-                    cipher
-                        .decrypt_envelope(value)
-                        .map_err(|_| CredentialRuntimeError::EnvelopeInvalid)?,
-                );
+                input.secrets.insert(key.clone(), value.to_string());
             }
         }
-
-        Ok(binding)
+        Ok(None)
     }
 
     async fn resolve_skill_archives(
@@ -731,103 +709,26 @@ impl HarnessInputBuilder {
         .map_err(Into::into)
     }
 
-    async fn resolve_vault_credentials(
+    async fn resolve_mcp_group_credentials(
         &self,
         session_id: SessionId,
         project_id: Option<&str>,
         mcp_servers: &mut Vec<proto::McpConfig>,
     ) -> anyhow::Result<()> {
-        // Credential groups bound to the session gate which MCP credentials the
-        // session may use.
-        let group_ids: Vec<CredentialGroupId> = sqlx::query_as::<_, (CredentialGroupId,)>(
-            r#"
-            SELECT credential_group_id
-            FROM joysafeter_session_credential_groups
-            WHERE session_id = $1
-            "#,
-        )
-        .bind(session_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "failed to load session credential groups for session {session_id}: {e}"
-            )
-        })?
-        .into_iter()
-        .map(|(id,)| id)
-        .collect();
-        if group_ids.is_empty() {
-            return Ok(());
-        }
-
-        let project_id = project_id
-            .filter(|project_id| !project_id.trim().is_empty())
-            .ok_or(CredentialRuntimeError::ProjectMismatch)?;
-
-        let credential_states = sqlx::query_as::<_, CredentialStateRow>(
-            r#"
-            SELECT id, project_id, archived_at, deleted_at
-            FROM joysafeter_credentials
-            WHERE group_id = ANY($1)
-            "#,
-        )
-        .bind(&group_ids)
-        .fetch_all(&self.pool)
-        .await?;
-        for state in &credential_states {
-            validate_bound_credential(Some(project_id), state.id, Some(state.state()))?;
-        }
-
-        let vault_cipher = VaultCipher::from_env();
-        // Map normalized_url -> credential. Python enforces a per-group unique
-        // index on normalized_mcp_server_url and rejects cross-group URL conflicts
-        // at write time, so a single deterministic key per normalized URL suffices
-        // (no last-write-wins nondeterminism).
-        let mut creds_by_url: HashMap<String, VaultCredentialRow> = HashMap::new();
-        let creds = sqlx::query_as::<_, VaultCredentialRow>(
-            r#"
-            SELECT id, project_id, kind, normalized_mcp_server_url,
-                   COALESCE(data->>'token_value', '') AS token_value,
-                   credential_type, oauth_config, data, archived_at, deleted_at
-            FROM joysafeter_credentials
-            WHERE group_id = ANY($1) AND project_id = $2
-            "#,
-        )
-        .bind(&group_ids)
-        .bind(project_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!("failed to load MCP credentials for session {session_id}: {e}")
-        })?;
-        for mut cred in creds {
-            validate_bound_credential(Some(project_id), cred.id, Some(cred.state()))?;
-            if cred.kind != "mcp" {
-                return Err(CredentialRuntimeError::KindMismatch.into());
-            }
-            canonical_auth_scheme(&cred.credential_type)?;
-            let normalized_url = cred
-                .normalized_mcp_server_url
-                .clone()
-                .ok_or(CredentialRuntimeError::FieldMissing)?;
-            let material = credential_material_object(&cred.data)?;
-            credential_material_field(material, "token_value")?;
-            vault_cipher
-                .decrypt_row(&mut cred)
-                .map_err(|_| CredentialRuntimeError::EnvelopeInvalid)?;
-            creds_by_url.insert(normalized_url, cred);
-        }
+        let project_id =
+            ProjectId::parse(project_id.ok_or(CredentialRuntimeError::ProjectMismatch)?)?;
+        let members = CredentialStore::new(self.pool.clone())
+            .load_session_mcp_members(&project_id, session_id)
+            .await?;
+        let credentials = resolve_mcp_members(&members)?;
+        let credential_urls = credentials
+            .into_iter()
+            .map(|credential| credential.normalized_server_url)
+            .collect::<std::collections::HashSet<_>>();
 
         for mcp in mcp_servers {
             let normalized = mcp_url::normalize(&mcp.url);
-            if let Some(cred) = creds_by_url.get_mut(&normalized) {
-                // Trigger OAuth refresh so the DB token stays fresh; the actual
-                // token is injected at the Envoy egress boundary (built separately
-                // from the same DB rows), never written into the sandbox.
-                if let Err(e) = self.maybe_refresh_oauth(cred, &vault_cipher).await {
-                    warn!(credential_id = %cred.id, "OAuth refresh failed: {e}");
-                }
+            if credential_urls.contains(&normalized) {
                 // Downgrade the URL to plaintext http:// so the sandbox sends a
                 // normal HTTP proxy request (not a CONNECT tunnel). This lets Envoy
                 // see the request headers and inject the credential. Envoy then
@@ -839,43 +740,6 @@ impl HarnessInputBuilder {
             }
         }
         Ok(())
-    }
-
-    async fn maybe_refresh_oauth(
-        &self,
-        cred: &mut VaultCredentialRow,
-        _cipher: &VaultCipher,
-    ) -> anyhow::Result<String> {
-        // Only OAuth-backed credentials are refreshable; static bearers resolve
-        // their token as-is.
-        if cred.credential_type != "oauth" && cred.credential_type != "mcp_oauth" {
-            return Ok(cred.token_value.clone());
-        }
-        let Some(oauth) = cred.oauth_config.as_ref().and_then(|v| v.as_object()) else {
-            return Ok(cred.token_value.clone());
-        };
-
-        let now = Utc::now().timestamp();
-        let expires_at = oauth
-            .get("expires_at")
-            .and_then(|v| {
-                v.as_i64()
-                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-            })
-            .unwrap_or(0);
-        if expires_at != 0 && now < expires_at - 300 {
-            return Ok(cred.token_value.clone());
-        }
-
-        // P2B: OAuth refresh not yet migrated. The unified `joysafeter_credentials`
-        // schema stores the token inside the encrypted `data` JSONB and the
-        // per-provider refresh flow (network call + write-back) is deferred to
-        // P2B (design §3.14). Until then we resolve the token that is already
-        // present in `data`/`oauth_config` and skip the network refresh + DB
-        // write-back entirely (the old UPDATE targeted the dropped
-        // `joysafeter_vault_credentials` table and is intentionally NOT retargeted
-        // here). Static-bearer credentials are unaffected and keep working.
-        Ok(cred.token_value.clone())
     }
 
     async fn load_memory_stores(
@@ -973,10 +837,10 @@ impl HarnessInputBuilder {
         Ok(())
     }
 
-    /// Load session-scoped GitHub repository resources and decrypt their clone
-    /// tokens. Repos live on the session
+    /// Load session-scoped GitHub repository resources and validate their clone
+    /// material through the Repository Access adapter. Repos live on the session
     /// (``joysafeter_session_repos``), not on ``agent.metadata``; the token is
-    /// stored encrypted and decrypted here just before handing it to the runner.
+    /// and never expose clone material to the runner.
     async fn load_session_repos(
         &self,
         session_id: SessionId,
@@ -1001,22 +865,14 @@ impl HarnessInputBuilder {
             return Ok(());
         }
 
-        let cipher = VaultCipher::from_env();
+        let material_adapter = RepositoryAccessMaterialAdapter::from_env();
         for (idx, row) in rows.into_iter().enumerate() {
-            let has_token = !row.encrypted_token.is_empty();
-            // Validate the token decrypts (so we fail fast / skip bad rows), but
+            let token = material_adapter.reveal_optional(&row.encrypted_token)?;
+            let has_token = token.is_some();
+            // Validate the token through the adapter, but
             // never hand it to the sandbox. When a token exists, the clone URL is
             // rewritten to the Envoy egress boundary; Envoy injects the real
             // credential. Public repos (no token) keep their original URL.
-            if has_token {
-                cipher.decrypt_envelope(&row.encrypted_token).map_err(|e| {
-                    anyhow::anyhow!(
-                        "failed to decrypt clone token for repo resource '{}' on session {}: {e}",
-                        row.mount_name,
-                        session_id
-                    )
-                })?;
-            }
             let url = if has_token {
                 // Repoint the clone URL at the placeholder egress host + a stable
                 // per-repo slug over plaintext http:// — the sandbox never learns
@@ -1631,13 +1487,14 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_sessions (
-                    id, agent_id, status, agent_version, agent_snapshot, environment_ref
+                    id, agent_id, project_id, status, agent_version, agent_snapshot, environment_ref
                 )
-                VALUES ($1, $2, 'idle', 7, $3, $4)
+                VALUES ($1, $2, $3, 'idle', 7, $4, $5)
                 "#,
             )
             .bind(session_id)
             .bind(agent_id)
+            .bind(&project_id)
             .bind(&snapshot)
             .bind(&environment_ref)
             .execute(&pool)
@@ -2366,7 +2223,7 @@ fn json_object_to_string_map(value: Option<&serde_json::Value>) -> HashMap<Strin
         .unwrap_or_default()
 }
 
-fn resolve_model_from_binding(input: &mut HarnessInput, binding: &RuntimeSecretBinding) {
+fn resolve_model_from_binding(input: &mut HarnessInput, binding: &RuntimeCredentialBinding) {
     if input.model.is_some() || input.secrets.is_empty() {
         return;
     }
@@ -2721,253 +2578,6 @@ fn safe_archive_path(file: &SkillFileForArchive) -> Option<String> {
 
 async fn load_session_file_resource(row: &SessionFileRow) -> anyhow::Result<Vec<u8>> {
     crate::sandbox::storage::read_file(&row.storage_key).await
-}
-
-pub(crate) struct VaultCipher {
-    key: Option<[u8; 32]>,
-}
-
-impl VaultCipher {
-    pub(crate) fn validate_env_key() -> anyhow::Result<()> {
-        let raw = std::env::var("JOYSAFETER_VAULT_ENCRYPTION_KEY").map_err(|_| {
-            anyhow::anyhow!(
-                "JOYSAFETER_VAULT_ENCRYPTION_KEY is required when AGENT_IDENTITY_PROVIDER=jd"
-            )
-        })?;
-        parse_vault_key(&raw).ok_or_else(|| {
-            anyhow::anyhow!("JOYSAFETER_VAULT_ENCRYPTION_KEY must encode a 32-byte key")
-        })?;
-        Ok(())
-    }
-
-    pub(crate) fn from_env() -> Self {
-        // The vault key is process-constant, so parse it once and memoize.
-        // `from_env()` is called on every credential-decrypt path (egress
-        // builders, harness input, secret merge); re-reading the env var and
-        // re-parsing the key each time is wasted work.
-        static KEY: std::sync::OnceLock<Option<[u8; 32]>> = std::sync::OnceLock::new();
-        let key = *KEY.get_or_init(|| {
-            std::env::var("JOYSAFETER_VAULT_ENCRYPTION_KEY")
-                .ok()
-                .and_then(|raw| parse_vault_key(&raw))
-        });
-        Self { key }
-    }
-
-    fn decrypt_row(&self, cred: &mut VaultCredentialRow) -> anyhow::Result<()> {
-        cred.token_value = self.decrypt_envelope(&cred.token_value)?;
-        Ok(())
-    }
-
-    pub(crate) fn decrypt_envelope(&self, stored: &str) -> anyhow::Result<String> {
-        if stored.is_empty() {
-            return Ok(String::new());
-        }
-        let encoded = if let Some(encoded) = stored.strip_prefix("enc:v1:") {
-            encoded
-        } else if stored.starts_with("enc:v") && stored["enc:v".len()..].contains(':') {
-            anyhow::bail!("unsupported credential envelope");
-        } else if let Some(encoded) = stored.strip_prefix("enc:") {
-            encoded
-        } else {
-            anyhow::bail!("stored credential is not encrypted");
-        };
-        let Some(key) = self.key else {
-            anyhow::bail!("JOYSAFETER_VAULT_ENCRYPTION_KEY is required to decrypt managed secret");
-        };
-        let raw = base64::engine::general_purpose::STANDARD.decode(encoded)?;
-        if raw.len() < 28 {
-            anyhow::bail!("encrypted vault value is too short");
-        }
-        let (nonce_bytes, ciphertext) = raw.split_at(12);
-        let cipher = Aes256Gcm::new_from_slice(&key)
-            .map_err(|_| anyhow::anyhow!("invalid vault encryption key"))?;
-        let plaintext = cipher
-            .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
-            .map_err(|_| anyhow::anyhow!("failed to decrypt vault credential"))?;
-        Ok(String::from_utf8(plaintext)?)
-    }
-
-    #[cfg(test)]
-    fn encrypt_or_passthrough(&self, plaintext: &str) -> anyhow::Result<String> {
-        let Some(key) = self.key else {
-            return Ok(plaintext.to_string());
-        };
-        let nonce_bytes: [u8; 12] = rand::random();
-        let cipher = Aes256Gcm::new_from_slice(&key)
-            .map_err(|_| anyhow::anyhow!("invalid vault encryption key"))?;
-        let ciphertext = cipher
-            .encrypt(Nonce::from_slice(&nonce_bytes), plaintext.as_bytes())
-            .map_err(|_| anyhow::anyhow!("failed to encrypt vault credential"))?;
-        let mut raw = nonce_bytes.to_vec();
-        raw.extend_from_slice(&ciphertext);
-        Ok(format!(
-            "enc:v1:{}",
-            base64::engine::general_purpose::STANDARD.encode(raw)
-        ))
-    }
-}
-
-#[cfg(test)]
-impl VaultCipher {
-    fn with_key(key: [u8; 32]) -> Self {
-        Self { key: Some(key) }
-    }
-}
-
-#[cfg(test)]
-mod vault_cipher_tests {
-    use super::{parse_vault_key, VaultCipher};
-    use std::path::PathBuf;
-
-    /// Loads the shared `cipher_vectors.json` produced by the Python cipher and
-    /// proves Python-encrypt -> Rust-decrypt interop: every `enc:v1:` ciphertext
-    /// must decrypt to its recorded plaintext under the fixed fixture key.
-    #[test]
-    fn decrypts_python_generated_v1_vectors() {
-        // CARGO_MANIFEST_DIR = backend/app/joysafeter_orchestrator_rs;
-        // fixture lives at backend/tests/fixtures/cipher_vectors.json.
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures/cipher_vectors.json");
-        let doc: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&path).expect("read cipher vectors"))
-                .expect("parse cipher vectors");
-
-        assert_eq!(doc["envelope"], "enc:v1:");
-        let key = parse_vault_key(doc["key"].as_str().expect("key string")).expect("valid key");
-        let cipher = VaultCipher::with_key(key);
-
-        let vectors = doc["vectors"].as_array().expect("vectors array");
-        assert!(!vectors.is_empty(), "expected cross-language vectors");
-        for entry in vectors {
-            let ciphertext = entry["ciphertext"].as_str().expect("ciphertext");
-            let plaintext = entry["plaintext"].as_str().expect("plaintext");
-            assert!(ciphertext.starts_with("enc:v1:"));
-            let decrypted = cipher
-                .decrypt_envelope(ciphertext)
-                .expect("decrypt python vector");
-            assert_eq!(decrypted, plaintext);
-        }
-    }
-
-    #[test]
-    fn bare_enc_prefix_is_read_as_v1() {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures/cipher_vectors.json");
-        let doc: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&path).expect("read cipher vectors"))
-                .expect("parse cipher vectors");
-        let key = parse_vault_key(doc["key"].as_str().unwrap()).unwrap();
-        let cipher = VaultCipher::with_key(key);
-
-        let v1 = doc["vectors"][0]["ciphertext"].as_str().unwrap();
-        let bare = format!("enc:{}", v1.strip_prefix("enc:v1:").unwrap());
-        let out = cipher
-            .decrypt_envelope(&bare)
-            .expect("decrypt legacy envelope");
-        assert_eq!(out, doc["vectors"][0]["plaintext"].as_str().unwrap());
-    }
-
-    /// Rust round-trip stays on the v1 envelope.
-    #[test]
-    fn round_trip_uses_v1_envelope() {
-        let cipher = VaultCipher::with_key([7u8; 32]);
-        let stored = cipher
-            .encrypt_or_passthrough("secret-value")
-            .expect("encrypt");
-        assert!(stored.starts_with("enc:v1:"));
-        assert_eq!(
-            cipher.decrypt_envelope(&stored).expect("decrypt"),
-            "secret-value"
-        );
-    }
-
-    #[test]
-    fn empty_string_is_the_absent_credential_sentinel() {
-        let cipher = VaultCipher::with_key([7u8; 32]);
-        assert_eq!(cipher.decrypt_envelope("").expect("empty sentinel"), "");
-    }
-
-    #[test]
-    fn plaintext_and_unknown_versions_fail_closed() {
-        let cipher = VaultCipher::with_key([7u8; 32]);
-        assert!(cipher.decrypt_envelope("plaintext-secret").is_err());
-        assert!(cipher.decrypt_envelope("enc:v2:not-supported").is_err());
-        assert!(cipher.decrypt_envelope("enc:v1:not-valid-base64").is_err());
-    }
-}
-
-fn parse_vault_key(raw: &str) -> Option<[u8; 32]> {
-    let bytes = hex::decode(raw)
-        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(raw))
-        .ok()?;
-    bytes.try_into().ok()
-}
-
-#[derive(Debug, FromRow)]
-struct SecretRow {
-    project_id: String,
-    kind: String,
-    provider: Option<String>,
-    protocol: Option<String>,
-    data: serde_json::Value,
-    archived_at: Option<chrono::DateTime<Utc>>,
-    deleted_at: Option<chrono::DateTime<Utc>>,
-}
-
-impl SecretRow {
-    fn state(&self) -> BoundCredentialState<'_> {
-        BoundCredentialState {
-            project_id: &self.project_id,
-            archived: self.archived_at.is_some(),
-            deleted: self.deleted_at.is_some(),
-        }
-    }
-}
-
-#[derive(Debug, FromRow)]
-struct CredentialStateRow {
-    id: CredentialId,
-    project_id: String,
-    archived_at: Option<chrono::DateTime<Utc>>,
-    deleted_at: Option<chrono::DateTime<Utc>>,
-}
-
-impl CredentialStateRow {
-    fn state(&self) -> BoundCredentialState<'_> {
-        BoundCredentialState {
-            project_id: &self.project_id,
-            archived: self.archived_at.is_some(),
-            deleted: self.deleted_at.is_some(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, FromRow)]
-struct VaultCredentialRow {
-    id: CredentialId,
-    project_id: String,
-    kind: String,
-    normalized_mcp_server_url: Option<String>,
-    /// Static-bearer token, sourced from the encrypted `data->>'token_value'`
-    /// JSONB field (see the SELECT that populates this row). Empty when the
-    /// credential carries no static bearer (e.g. OAuth-only, deferred to P2B).
-    token_value: String,
-    credential_type: String,
-    oauth_config: Option<serde_json::Value>,
-    data: serde_json::Value,
-    archived_at: Option<chrono::DateTime<Utc>>,
-    deleted_at: Option<chrono::DateTime<Utc>>,
-}
-
-impl VaultCredentialRow {
-    fn state(&self) -> BoundCredentialState<'_> {
-        BoundCredentialState {
-            project_id: &self.project_id,
-            archived: self.archived_at.is_some(),
-            deleted: self.deleted_at.is_some(),
-        }
-    }
 }
 
 #[derive(Debug, FromRow)]

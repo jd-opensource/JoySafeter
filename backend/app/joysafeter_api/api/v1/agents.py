@@ -5,6 +5,12 @@ from typing import Any, Optional, cast
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.api.v1.model_connection_summary import (
+    load_model_connection_summaries,
+    maybe_credential_id,
+    normalize_agent_model,
+)
+from app.joysafeter_domain.credentials.references import snapshot_model_credential_id
 from app.joysafeter_domain.llm.compatibility import (
     validate_engine,
 )
@@ -21,6 +27,7 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterUpdateAgentRequest as UpdateAgentRequest,
 )
+from app.joysafeter_domain.schemas.joysafeter_credential import ModelCredentialSummary
 from app.joysafeter_domain.schemas.joysafeter_session import SessionResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterTaskResponse as TaskResponse
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService as AgentService
@@ -151,13 +158,13 @@ async def _validate_environment_ref(
         )
 
 
-def _agent_to_response(agent) -> AgentResponse:
+def _agent_to_response(agent, *, model_connection: ModelCredentialSummary | None = None) -> AgentResponse:
     skills, agents, commands = _split_agent_assets(agent.skills or [])
     return AgentResponse(
         id=agent.id,
         name=agent.name,
         engine_kind=agent.engine_kind,
-        model=cast(Any, agent.model),
+        model=cast(Any, normalize_agent_model(agent.model)),
         system=agent.system_prompt,
         description=agent.description,
         metadata=agent.metadata_,
@@ -171,10 +178,27 @@ def _agent_to_response(agent) -> AgentResponse:
         version=agent.version,
         environment_ref=agent.environment_ref,
         model_credential_id=agent.model_credential_id,
+        model_connection=model_connection,
         created_at=agent.created_at,
         updated_at=agent.updated_at,
         archived_at=agent.archived_at,
     )
+
+
+async def _agent_model_connection(
+    db: AsyncSession,
+    agent,
+    *,
+    project_id: str | None,
+) -> ModelCredentialSummary | None:
+    if not agent.model_credential_id:
+        return None
+    summaries = await load_model_connection_summaries(
+        db,
+        [agent.model_credential_id],
+        project_id=project_id,
+    )
+    return summaries.get(agent.model_credential_id)
 
 
 @router.post("", status_code=201)
@@ -194,7 +218,10 @@ async def create_agent(
     )
     svc = AgentService(db)
     agent = await svc.create_agent(req, project_id=auth_ctx.project_id)
-    return _agent_to_response(agent)
+    return _agent_to_response(
+        agent,
+        model_connection=await _agent_model_connection(db, agent, project_id=auth_ctx.project_id),
+    )
 
 
 @router.get("")
@@ -210,7 +237,15 @@ async def list_agents(
         limit, after_id, include_archived=include_archived, project_id=auth_ctx.project_id
     )
 
-    data = [_agent_to_response(agent) for agent in agents]
+    model_connections = await load_model_connection_summaries(
+        db,
+        (agent.model_credential_id for agent in agents),
+        project_id=auth_ctx.project_id,
+    )
+    data = [
+        _agent_to_response(agent, model_connection=model_connections.get(agent.model_credential_id))
+        for agent in agents
+    ]
     return PaginatedResponse(
         data=data,
         has_more=has_more,
@@ -229,7 +264,10 @@ async def get_agent(
     agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
         raise _agent_not_found_error(agent_id)
-    return _agent_to_response(agent)
+    return _agent_to_response(
+        agent,
+        model_connection=await _agent_model_connection(db, agent, project_id=auth_ctx.project_id),
+    )
 
 
 @router.post("/{agent_id}")
@@ -241,7 +279,7 @@ async def update_agent(
 ) -> AgentResponse:
     svc = AgentService(db)
     # Fetch current agent first for MCP cross-validation context
-    current_agent = await svc.get_agent(agent_id, project_id=auth_ctx.project_id)
+    current_agent = await svc.lock_agent(agent_id, project_id=auth_ctx.project_id)
     if not current_agent:
         raise _agent_not_found_error(agent_id)
 
@@ -332,9 +370,15 @@ async def update_agent(
     after_snapshot = _agent_snapshot(agent)
     if before_snapshot == after_snapshot:
         # No real change — return existing agent without bumping version
-        return _agent_to_response(current_agent)
+        return _agent_to_response(
+            current_agent,
+            model_connection=await _agent_model_connection(db, current_agent, project_id=auth_ctx.project_id),
+        )
 
-    return _agent_to_response(agent)
+    return _agent_to_response(
+        agent,
+        model_connection=await _agent_model_connection(db, agent, project_id=auth_ctx.project_id),
+    )
 
 
 @router.get("/{agent_id}/delete_preview")
@@ -654,10 +698,17 @@ async def list_agent_sessions(
         include_archived=include_archived,
     )
 
+    model_connections = await load_model_connection_summaries(
+        db,
+        [agent.model_credential_id],
+        project_id=auth_ctx.project_id,
+    )
+    model_connection = model_connections.get(agent.model_credential_id)
+
     def _session_to_response(session) -> SessionResponse:
         from app.joysafeter_api.api.v1.sessions import _session_to_response as _s2r
 
-        return _s2r(session, agent)
+        return _s2r(session, agent, model_connection=model_connection)
 
     data = [_session_to_response(s) for s in sessions]
     return PaginatedResponse(
@@ -681,7 +732,26 @@ async def list_agent_versions(
     if not agent:
         raise _agent_not_found_error(agent_id)
     versions, has_more = await svc.list_versions(agent_id, limit, before_version, project_id=auth_ctx.project_id)
-    data = [AgentVersionResponse.model_validate(v) for v in versions]
+    model_connections = await load_model_connection_summaries(
+        db,
+        (
+            maybe_credential_id(snapshot_model_credential_id(v.snapshot))
+            for v in versions
+            if isinstance(v.snapshot, dict)
+        ),
+        project_id=auth_ctx.project_id,
+    )
+    data = []
+    for version in versions:
+        item = AgentVersionResponse.model_validate(version)
+        snapshot = dict(item.snapshot)
+        credential_id = maybe_credential_id(snapshot_model_credential_id(snapshot))
+        snapshot["model"] = normalize_agent_model(snapshot.get("model"))
+        model_connection = model_connections.get(credential_id)
+        if model_connection is not None:
+            snapshot["model_connection"] = model_connection.model_dump(mode="json")
+        item.snapshot = snapshot
+        data.append(item)
     return PaginatedResponse(
         data=data,
         has_more=has_more,

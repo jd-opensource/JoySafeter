@@ -14,22 +14,26 @@ use crate::config::JoySafeterConfig;
 use crate::db::models::{JoySafeterAgent, JoySafeterSandbox};
 use crate::db::queries;
 use crate::ids::{
-    AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId,
-    SessionResourceId, TaskId,
+    AgentId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId, SessionResourceId, TaskId,
 };
-use crate::kernel::credentials::contract::canonical_auth_scheme;
-use crate::kernel::credentials::error::{
-    credential_material_field, credential_material_object, require_bound_project,
-    validate_bound_credential, BoundCredentialState, CredentialRuntimeError,
+use crate::kernel::credentials::error::CredentialRuntimeError;
+use crate::kernel::credentials::mcp::resolve_mcp_members;
+use crate::kernel::credentials::model::resolve_model_credential;
+use crate::kernel::credentials::record::ProjectId;
+use crate::kernel::credentials::reference::decode_environment;
+use crate::kernel::credentials::service::{
+    resolve_service_credential, ResolvedServiceCredential, ServiceUsage,
 };
+use crate::kernel::credentials::store::CredentialStore;
 use crate::kernel::ha::{XdsAction, XdsStateStore};
-use crate::kernel::harness_input_builder::VaultCipher;
-use crate::kernel::llm_catalog::{
-    validate_runtime_secret, validate_runtime_secret_material, RuntimeSecretBinding,
-};
+use crate::kernel::llm_catalog::RuntimeCredentialBinding;
 use crate::kernel::mcp_url;
+use crate::kernel::repository_access::material::RepositoryAccessMaterialAdapter;
 use crate::kernel::run_spec::{
     agent_for_execution, environment_credential_ids, environment_for_execution,
+};
+use crate::kernel::task_identity::material::{
+    TaskIdentityMaterialAdapter, TaskIdentityMaterialError,
 };
 use crate::sandbox::lds_backend::{
     normalize_prefix, normalize_rewrite_base_prefix, EgressCredentialRoute, EgressExposure,
@@ -54,6 +58,57 @@ struct LoadedIdentityContext {
     user_id: String,
 }
 
+type LoadedIdentityRow = (String, Option<String>, String, String);
+type PersistedIdentityRow = (String, Option<String>, String, Option<String>);
+
+fn require_identity_material(
+    row: Option<PersistedIdentityRow>,
+) -> Result<Option<LoadedIdentityRow>, TaskIdentityContextError> {
+    row.map(
+        |(user_id, user_name, credential_kind, encrypted_credential)| {
+            Ok((
+                user_id,
+                user_name,
+                credential_kind,
+                encrypted_credential.ok_or(TaskIdentityMaterialError::FieldMissing)?,
+            ))
+        },
+    )
+    .transpose()
+}
+
+impl std::fmt::Debug for LoadedIdentityContext {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LoadedIdentityContext")
+            .field("identity_token", &"<redacted>")
+            .field("auth_code", &self.auth_code.as_ref().map(|_| "<redacted>"))
+            .field("user_name", &self.user_name)
+            .field("user_id", &self.user_id)
+            .finish()
+    }
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+enum TaskIdentityContextError {
+    #[error("task identity database operation failed")]
+    Database,
+    #[error("task identity project does not match")]
+    ProjectMismatch,
+    #[error(transparent)]
+    Material(#[from] TaskIdentityMaterialError),
+    #[error("task identity credential kind is invalid")]
+    KindInvalid,
+    #[error("task identity has no trusted egress hosts")]
+    NoTrustedHosts,
+    #[error("task identity provider returned no injection targets")]
+    EmptyInjection,
+    #[error("task identity provider failed")]
+    Provider,
+    #[error("task identity claim changed while locked")]
+    ClaimConflict,
+}
+
 /// Hard client-side bound on a provider networking setup/refresh call (Envoy
 /// socket prep + xDS push + ACK/socket-readiness wait). The individual steps are
 /// bounded, but this outer bound guarantees the sandbox-provisioning path can
@@ -65,7 +120,7 @@ const SETUP_NETWORKING_TIMEOUT: std::time::Duration = std::time::Duration::from_
 
 #[cfg(test)]
 mod protocol_env_tests {
-    use super::model_protocol_env_value;
+    use super::{model_protocol_env_value, model_protocol_provider_switch};
 
     #[test]
     fn maps_known_protocols() {
@@ -89,6 +144,25 @@ mod protocol_env_tests {
         assert_eq!(model_protocol_env_value(""), None);
         assert_eq!(model_protocol_env_value("   "), None);
     }
+
+    #[test]
+    fn openai_family_protocols_get_ccb_provider_switch() {
+        assert_eq!(
+            model_protocol_provider_switch("openai_responses"),
+            Some("CLAUDE_CODE_USE_OPENAI")
+        );
+        assert_eq!(
+            model_protocol_provider_switch(" chat_completions "),
+            Some("CLAUDE_CODE_USE_OPENAI")
+        );
+    }
+
+    #[test]
+    fn anthropic_and_custom_protocols_get_no_switch() {
+        assert_eq!(model_protocol_provider_switch("anthropic_messages"), None);
+        assert_eq!(model_protocol_provider_switch("custom"), None);
+        assert_eq!(model_protocol_provider_switch(""), None);
+    }
 }
 
 /// Normalizes a stored secret `protocol` into the container-env signal read by
@@ -98,6 +172,18 @@ fn model_protocol_env_value(protocol: &str) -> Option<String> {
     match protocol.trim() {
         "" | "custom" => None,
         other => Some(other.to_string()),
+    }
+}
+
+/// Maps a stored secret `protocol` to the ccb provider-switch env var that flips
+/// the native harness off its default Anthropic path. ccb ignores `OPENAI_BASE_URL`
+/// on its own — without `CLAUDE_CODE_USE_OPENAI` set it stays in first-party
+/// Anthropic mode and demands a login, so OpenAI-family models fail with
+/// "Not logged in". Returns `None` for Anthropic/custom/blank, which need no switch.
+fn model_protocol_provider_switch(protocol: &str) -> Option<&'static str> {
+    match protocol.trim() {
+        "openai_responses" | "chat_completions" => Some("CLAUDE_CODE_USE_OPENAI"),
+        _ => None,
     }
 }
 
@@ -138,6 +224,8 @@ pub struct SandboxResolver {
     xds_store: Option<Arc<dyn XdsStateStore>>,
     /// Pluggable agent identity provider for outbound credential injection.
     identity_provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
+    identity_allowed_hosts: Vec<String>,
+    task_identity_material: Option<TaskIdentityMaterialAdapter>,
 }
 
 impl SandboxResolver {
@@ -153,6 +241,8 @@ impl SandboxResolver {
             identity_provider: Arc::new(
                 crate::kernel::agent_identity_provider::NoopAgentIdentityProvider,
             ),
+            identity_allowed_hosts: Self::identity_allowed_hosts_from_env(),
+            task_identity_material: None,
         }
     }
 
@@ -162,6 +252,21 @@ impl SandboxResolver {
         provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
     ) -> Self {
         self.identity_provider = provider;
+        self
+    }
+
+    #[cfg(test)]
+    fn with_identity_allowed_hosts(mut self, allowed_hosts: Vec<String>) -> Self {
+        self.identity_allowed_hosts = allowed_hosts;
+        self
+    }
+
+    #[cfg(test)]
+    fn with_task_identity_material_adapter(
+        mut self,
+        material: TaskIdentityMaterialAdapter,
+    ) -> Self {
+        self.task_identity_material = Some(material);
         self
     }
 
@@ -996,7 +1101,7 @@ impl SandboxResolver {
                         project_id.as_deref(),
                         &identity_hosts,
                     )
-                    .await
+                    .await?
                 {
                     Self::merge_identity_into_mcp_routes(&mut routes, injection);
                 }
@@ -1367,7 +1472,7 @@ impl SandboxResolver {
             // now hold canonical `cred_` ids that resolve against
             // `joysafeter_credentials` with kind=service.
             for credential_id in environment_credential_ids(&environment.config)? {
-                Self::merge_secret_ref_into_env(
+                Self::merge_credential_ref_into_env(
                     pool,
                     &mut env,
                     credential_id,
@@ -1380,7 +1485,7 @@ impl SandboxResolver {
         }
 
         if let Some(model_credential_id) = agent.model_credential_id {
-            let llm_binding = Self::merge_secret_ref_into_env(
+            let llm_binding = Self::merge_credential_ref_into_env(
                 pool,
                 &mut env,
                 model_credential_id,
@@ -1429,7 +1534,7 @@ impl SandboxResolver {
     /// provider defaults come from the validated Provider/Protocol binding.
     fn extract_llm_egress(
         env: &mut HashMap<String, String>,
-        binding: Option<&RuntimeSecretBinding>,
+        binding: Option<&RuntimeCredentialBinding>,
         allowed_hosts: &[String],
     ) -> Vec<EgressCredentialRoute> {
         let Some(binding) = binding else {
@@ -1609,87 +1714,20 @@ impl SandboxResolver {
             return Ok(vec![]);
         }
 
-        // Load the credential groups bound to the session, then the MCP
-        // credentials in those groups, keyed by their canonical normalized URL.
-        let group_ids: Vec<CredentialGroupId> = sqlx::query_as::<_, (CredentialGroupId,)>(
-            r#"
-            SELECT credential_group_id
-            FROM joysafeter_session_credential_groups
-            WHERE session_id = $1
-            "#,
-        )
-        .bind(session_id)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "failed to load session credential groups for MCP egress in session {session_id}: {e}"
-            )
-        })?
-        .into_iter()
-        .map(|(id,)| id)
-        .collect();
-        if group_ids.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let project_id = agent
-            .project_id
-            .as_deref()
-            .filter(|project_id| !project_id.trim().is_empty())
-            .ok_or(CredentialRuntimeError::ProjectMismatch)?;
-
-        let credential_states = sqlx::query_as::<_, CredentialStateRow>(
-            r#"
-            SELECT id, project_id, archived_at, deleted_at
-            FROM joysafeter_credentials
-            WHERE group_id = ANY($1)
-            "#,
-        )
-        .bind(&group_ids)
-        .fetch_all(pool)
-        .await?;
-        for state in &credential_states {
-            validate_bound_credential(Some(project_id), state.id, Some(state.state()))?;
-        }
-
-        let rows: Vec<McpRuntimeCredentialRow> = sqlx::query_as(
-            r#"
-            SELECT id, project_id, kind, normalized_mcp_server_url, credential_type,
-                   data, archived_at, deleted_at
-            FROM joysafeter_credentials
-            WHERE group_id = ANY($1) AND project_id = $2
-            "#,
-        )
-        .bind(&group_ids)
-        .bind(project_id)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!("failed to load MCP credentials for session {session_id}: {e}")
-        })?;
-
-        let cipher = VaultCipher::from_env();
-        // Map normalized_url -> decrypted token. Python enforces a per-group
-        // unique index on normalized_mcp_server_url and rejects cross-group URL
-        // conflicts at write time, so a single deterministic key is sufficient.
-        let mut token_by_url: HashMap<String, String> = HashMap::new();
-        for row in rows {
-            validate_bound_credential(Some(project_id), row.id, Some(row.state()))?;
-            if row.kind != "mcp" {
-                return Err(CredentialRuntimeError::KindMismatch.into());
-            }
-            canonical_auth_scheme(&row.credential_type)?;
-            let normalized_url = row
-                .normalized_mcp_server_url
-                .ok_or(CredentialRuntimeError::FieldMissing)?;
-            let material = credential_material_object(&row.data)?;
-            let token_value = credential_material_field(material, "token_value")?;
-            let token = cipher
-                .decrypt_envelope(token_value)
-                .map_err(|_| CredentialRuntimeError::EnvelopeInvalid)?;
-            token_by_url.insert(normalized_url, token);
-        }
+        let project_id = ProjectId::parse(
+            agent
+                .project_id
+                .as_deref()
+                .ok_or(CredentialRuntimeError::ProjectMismatch)?,
+        )?;
+        let members = CredentialStore::new(pool.clone())
+            .load_session_mcp_members(&project_id, session_id)
+            .await?;
+        let credentials = resolve_mcp_members(&members)?;
+        let token_by_url = credentials
+            .into_iter()
+            .map(|credential| (credential.normalized_server_url, credential.token))
+            .collect::<HashMap<_, _>>();
 
         let mut egress = Vec::new();
         for (name, url) in mcp_servers {
@@ -1746,20 +1784,12 @@ impl SandboxResolver {
             )
         })?;
 
-        let cipher = VaultCipher::from_env();
+        let material_adapter = RepositoryAccessMaterialAdapter::from_env();
         let mut egress = Vec::new();
         for (idx, (url, mount_name, encrypted_token)) in rows.into_iter().enumerate() {
-            if encrypted_token.is_empty() {
+            let Some(token) = material_adapter.reveal_optional(&encrypted_token)? else {
                 continue;
-            }
-            let token = cipher.decrypt_envelope(&encrypted_token).map_err(|e| {
-                anyhow::anyhow!(
-                    "failed to decrypt Git token for repo '{mount_name}' in session {session_id}: {e}"
-                )
-            })?;
-            if token.is_empty() {
-                continue;
-            }
+            };
             let upstream = UpstreamTarget::from_url(&url)
                 .map_err(|e| anyhow::anyhow!("invalid Git repo URL '{url}': {e}"))?;
             // Preserve the repo path so Envoy rewrites /git/<slug>/ back to the
@@ -1806,59 +1836,47 @@ impl SandboxResolver {
         let Some(environment) = environment else {
             return Ok(vec![]);
         };
-        let Some(services) = environment.config.get("egress_services") else {
-            return Ok(vec![]);
-        };
-        let services = services
-            .as_array()
-            .ok_or(CredentialRuntimeError::CorruptRecord)?;
+        let decoded = decode_environment(&environment.config)?;
 
         let mut routes = Vec::new();
-        for service in services {
-            let name = service
-                .get("name")
-                .and_then(|value| value.as_str())
+        for reference in decoded.http_egress {
+            let name = reference
+                .name
+                .as_deref()
                 .ok_or(CredentialRuntimeError::FieldMissing)?;
             let name = sanitize_external_service_name(name);
             if name.is_empty() {
                 return Err(CredentialRuntimeError::CorruptRecord.into());
             }
 
-            let base_url = service
-                .get("base_url")
-                .and_then(|value| value.as_str())
-                .ok_or(CredentialRuntimeError::FieldMissing)?;
-            let upstream = UpstreamTarget::from_url(base_url)
+            let upstream = UpstreamTarget::from_url(&reference.endpoint)
                 .map_err(|_| CredentialRuntimeError::CorruptRecord)?;
             let host = upstream.host;
             let tls = upstream.tls;
             let port = upstream.port;
             let upstream_prefix = normalize_external_upstream_prefix(&upstream.prefix);
 
-            let credential_value = service
-                .get("service_credential_id")
-                .ok_or_else(|| CredentialRuntimeError::FieldMissing)?;
-            let raw_credential_id = credential_value
-                .as_str()
-                .ok_or_else(|| CredentialRuntimeError::CorruptRecord)?;
-            if raw_credential_id.trim().is_empty() {
-                return Err(CredentialRuntimeError::FieldMissing.into());
-            }
-            let service_credential_id = CredentialId::from_public(raw_credential_id)
-                .map_err(|_| CredentialRuntimeError::CorruptRecord)?;
-            let inject = service
-                .get("inject")
-                .and_then(|value| value.as_object())
-                .ok_or(CredentialRuntimeError::FieldMissing)?;
-
-            let secret = Self::load_secret_data(pool, service_credential_id, project_id)
+            let service_credential_id = reference.credential_id;
+            let credential_field = reference.credential_field.as_str();
+            let credential_value = Self::load_service_egress_field(
+                pool,
+                service_credential_id,
+                project_id,
+                credential_field,
+            )
                 .await
                 .with_context(|| {
                     format!(
                         "failed to load external egress service {name:?} credential {service_credential_id}"
                     )
-                })?;
-            let headers = build_external_inject_headers(&secret, inject)?;
+            })?;
+            let secret = HashMap::from([(credential_field.to_string(), credential_value)]);
+            let headers = build_external_inject_headers(
+                &secret,
+                &reference.inject_kind,
+                credential_field,
+                reference.header.as_deref(),
+            )?;
 
             let remove_headers = vec![
                 "authorization".to_string(),
@@ -1871,18 +1889,7 @@ impl SandboxResolver {
             // Transparent route(s): sandbox calls the real host over plaintext http.
             // Envoy matches the real host vhost, injects the credential, and
             // TLS-originates to the real upstream when needed.
-            let allowed_paths: Vec<String> = service
-                .get("allowed_paths")
-                .and_then(|value| value.as_array())
-                .map(|values| {
-                    values
-                        .iter()
-                        .filter_map(|value| value.as_str())
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect()
-                })
-                .unwrap_or_default();
+            let allowed_paths = reference.allowed_paths;
 
             if allowed_paths.is_empty() {
                 routes.push(EgressCredentialRoute {
@@ -1933,13 +1940,18 @@ impl SandboxResolver {
         session_id: Option<SessionId>,
         project_id: Option<&str>,
         candidate_hosts: &[String],
-    ) -> Option<crate::kernel::agent_identity_provider::AgentIdentityInjection> {
+    ) -> Result<
+        Option<crate::kernel::agent_identity_provider::AgentIdentityInjection>,
+        TaskIdentityContextError,
+    > {
         use crate::kernel::agent_identity_provider::IdentityResolveContext;
 
-        let agent = agent?;
+        let Some(agent) = agent else {
+            return Ok(None);
+        };
         if !self.identity_provider.has_config(agent.metadata.as_ref()) {
             debug!(agent_id = %agent.id, "agent identity: provider disabled, skipping");
-            return None;
+            return Ok(None);
         }
 
         // Provider config is optional (global mode); pass agent_identity block if
@@ -1951,39 +1963,32 @@ impl SandboxResolver {
             .cloned()
             .unwrap_or_else(|| serde_json::json!({}));
 
-        let mut transaction = match self.pool.begin().await {
-            Ok(transaction) => transaction,
-            Err(error) => {
-                warn!(task_id = %task_id, error = %error, "agent identity: failed to begin claim transaction");
-                return None;
-            }
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| TaskIdentityContextError::Database)?;
+        let Some(identity_ctx) = self
+            .load_identity_context_for_update(&mut transaction, task_id, project_id)
+            .await?
+        else {
+            debug!(
+                agent_id = %agent.id,
+                task_id = %task_id,
+                "agent identity: no active task identity context, skipping"
+            );
+            return Ok(None);
         };
-        let identity_ctx =
-            match Self::load_identity_context_for_update(&mut transaction, task_id, project_id)
-                .await
-            {
-                Some(ctx) => ctx,
-                None => {
-                    debug!(
-                        agent_id = %agent.id,
-                        task_id = %task_id,
-                        "agent identity: no active task identity context, skipping"
-                    );
-                    return None;
-                }
-            };
 
-        let allowed_hosts = Self::identity_allowed_hosts();
         let mut egress_hosts: Vec<String> = candidate_hosts
             .iter()
             .cloned()
-            .filter(|host| Self::identity_host_allowed(host, &allowed_hosts))
+            .filter(|host| Self::identity_host_allowed(host, &self.identity_allowed_hosts))
             .collect();
         egress_hosts.sort();
         egress_hosts.dedup();
         if egress_hosts.is_empty() {
-            debug!(agent_id = %agent.id, "agent identity: no trusted MCP hosts");
-            return None;
+            return Err(TaskIdentityContextError::NoTrustedHosts);
         }
         debug!(
             agent_id = %agent.id,
@@ -2009,118 +2014,142 @@ impl SandboxResolver {
         match self.identity_provider.resolve(&context).await {
             Ok(injection) if !injection.targets.is_empty() => {
                 if !Self::consume_locked_identity_context(&mut transaction, task_id, project_id)
-                    .await
+                    .await?
                 {
-                    warn!(task_id = %task_id, "agent identity: locked context could not be consumed");
-                    return None;
+                    return Err(TaskIdentityContextError::ClaimConflict);
                 }
-                if let Err(error) = transaction.commit().await {
-                    warn!(task_id = %task_id, error = %error, "agent identity: failed to commit consumed context");
-                    return None;
-                }
-                Some(injection)
+                transaction
+                    .commit()
+                    .await
+                    .map_err(|_| TaskIdentityContextError::Database)?;
+                Ok(Some(injection))
             }
-            Ok(_) => {
-                debug!(
-                    agent_id = %agent.id,
-                    "agent identity: provider returned no injection targets (no egress hosts?), skipping"
-                );
-                None
-            }
+            Ok(_) => Err(TaskIdentityContextError::EmptyInjection),
             Err(e) => {
                 warn!(
                     agent_id = %agent.id,
                     error = %e,
-                    "Agent identity resolve failed (sandbox continues without identity)"
+                    "agent identity provider failed"
                 );
-                None
+                Err(TaskIdentityContextError::Provider)
             }
         }
     }
 
     async fn load_identity_context_for_update(
+        &self,
         transaction: &mut Transaction<'_, Postgres>,
         task_id: TaskId,
         project_id: Option<&str>,
-    ) -> Option<LoadedIdentityContext> {
-        let row: Option<(String, Option<String>, String, String)> = sqlx::query_as(
+    ) -> Result<Option<LoadedIdentityContext>, TaskIdentityContextError> {
+        let persisted_project: Option<Option<String>> = sqlx::query_scalar(
             r#"
-            SELECT user_id, user_name, credential_kind, encrypted_credential
+            SELECT project_id
             FROM joysafeter_task_identity_contexts
             WHERE task_id = $1
-              AND project_id IS NOT DISTINCT FROM $2
-              AND consumed_at IS NULL
-              AND expires_at > NOW()
-              AND encrypted_credential IS NOT NULL
             FOR UPDATE
             "#,
         )
         .bind(task_id)
-        .bind(project_id)
         .fetch_optional(&mut **transaction)
         .await
-        .ok()
-        .flatten();
+        .map_err(|_| TaskIdentityContextError::Database)?;
+        let Some(persisted_project) = persisted_project else {
+            return Ok(None);
+        };
+        if persisted_project.as_deref() != project_id {
+            return Err(TaskIdentityContextError::ProjectMismatch);
+        }
 
-        Self::decode_identity_context(task_id, row)
+        let row: Option<(String, Option<String>, String, Option<String>)> = sqlx::query_as(
+            r#"
+            SELECT user_id, user_name, credential_kind, encrypted_credential
+            FROM joysafeter_task_identity_contexts
+            WHERE task_id = $1
+              AND consumed_at IS NULL
+              AND expires_at > NOW()
+            "#,
+        )
+        .bind(task_id)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| TaskIdentityContextError::Database)?;
+
+        self.decode_identity_context(task_id, require_identity_material(row)?)
     }
 
     async fn load_identity_context(
         &self,
         task_id: TaskId,
         project_id: Option<&str>,
-    ) -> Option<LoadedIdentityContext> {
-        let row: Option<(String, Option<String>, String, String)> = sqlx::query_as(
+    ) -> Result<Option<LoadedIdentityContext>, TaskIdentityContextError> {
+        let persisted_project: Option<Option<String>> = sqlx::query_scalar(
+            r#"
+            SELECT project_id
+            FROM joysafeter_task_identity_contexts
+            WHERE task_id = $1
+            "#,
+        )
+        .bind(task_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| TaskIdentityContextError::Database)?;
+        let Some(persisted_project) = persisted_project else {
+            return Ok(None);
+        };
+        if persisted_project.as_deref() != project_id {
+            return Err(TaskIdentityContextError::ProjectMismatch);
+        }
+
+        let row: Option<(String, Option<String>, String, Option<String>)> = sqlx::query_as(
             r#"
             SELECT user_id, user_name, credential_kind, encrypted_credential
             FROM joysafeter_task_identity_contexts
             WHERE task_id = $1
-              AND project_id IS NOT DISTINCT FROM $2
               AND consumed_at IS NULL
               AND expires_at > NOW()
-              AND encrypted_credential IS NOT NULL
             "#,
         )
         .bind(task_id)
-        .bind(project_id)
         .fetch_optional(&self.pool)
         .await
-        .ok()
-        .flatten();
+        .map_err(|_| TaskIdentityContextError::Database)?;
 
-        Self::decode_identity_context(task_id, row)
+        self.decode_identity_context(task_id, require_identity_material(row)?)
     }
 
     fn decode_identity_context(
+        &self,
         _task_id: TaskId,
         row: Option<(String, Option<String>, String, String)>,
-    ) -> Option<LoadedIdentityContext> {
-        let (user_id, user_name, credential_kind, encrypted_credential) = row?;
-        let cipher = VaultCipher::from_env();
-        let credential = cipher.decrypt_envelope(&encrypted_credential).ok()?;
-        if credential.is_empty() {
-            return None;
-        }
+    ) -> Result<Option<LoadedIdentityContext>, TaskIdentityContextError> {
+        let Some((user_id, user_name, credential_kind, encrypted_credential)) = row else {
+            return Ok(None);
+        };
+        let credential = match &self.task_identity_material {
+            Some(material) => material.reveal(&encrypted_credential)?,
+            None => TaskIdentityMaterialAdapter::from_env().reveal(&encrypted_credential)?,
+        };
         let (identity_token, auth_code) = match credential_kind.as_str() {
             "auth_code" => (String::new(), Some(credential)),
             "identity_token" => (credential, None),
-            _ => return None,
+            _ => return Err(TaskIdentityContextError::KindInvalid),
         };
 
-        Some(LoadedIdentityContext {
+        Ok(Some(LoadedIdentityContext {
             identity_token,
             auth_code,
             user_name: user_name.unwrap_or_else(|| user_id.clone()),
             user_id,
-        })
+        }))
     }
 
     async fn consume_locked_identity_context(
         transaction: &mut Transaction<'_, Postgres>,
         task_id: TaskId,
         project_id: Option<&str>,
-    ) -> bool {
-        sqlx::query(
+    ) -> Result<bool, TaskIdentityContextError> {
+        let result = sqlx::query(
             r#"
             UPDATE joysafeter_task_identity_contexts
             SET consumed_at = NOW(), encrypted_credential = NULL, updated_at = NOW()
@@ -2135,11 +2164,11 @@ impl SandboxResolver {
         .bind(project_id)
         .execute(&mut **transaction)
         .await
-        .map(|result| result.rows_affected() == 1)
-        .unwrap_or(false)
+        .map_err(|_| TaskIdentityContextError::Database)?;
+        Ok(result.rows_affected() == 1)
     }
 
-    fn identity_allowed_hosts() -> Vec<String> {
+    fn identity_allowed_hosts_from_env() -> Vec<String> {
         std::env::var("AGENT_IDENTITY_ALLOWED_HOSTS")
             .unwrap_or_default()
             .split(',')
@@ -2188,172 +2217,83 @@ impl SandboxResolver {
         }
     }
 
-    async fn load_secret_data(
+    async fn load_service_egress_field(
         pool: &PgPool,
         credential_id: CredentialId,
         project_id: Option<&str>,
-    ) -> anyhow::Result<HashMap<String, String>> {
-        let project_id = require_bound_project(project_id, credential_id)?;
-        let secret = sqlx::query_as::<_, RuntimeSecretRow>(
-            r#"
-            SELECT project_id, kind, provider, protocol, data, archived_at, deleted_at
-            FROM joysafeter_credentials
-            WHERE id = $1 AND project_id = $2
-            "#,
-        )
-        .bind(credential_id)
-        .bind(project_id)
-        .fetch_optional(pool)
-        .await?;
-
-        let diagnostic_state = if secret.is_none() {
-            sqlx::query_as::<_, CredentialStateRow>(
-                r#"
-                SELECT id, project_id, archived_at, deleted_at
-                FROM joysafeter_credentials
-                WHERE id = $1
-                "#,
-            )
-            .bind(credential_id)
-            .fetch_optional(pool)
-            .await?
-        } else {
-            None
-        };
-
-        validate_bound_credential(
-            Some(project_id),
-            credential_id,
-            secret
-                .as_ref()
-                .map(RuntimeSecretRow::state)
-                .or_else(|| diagnostic_state.as_ref().map(CredentialStateRow::state)),
-        )?;
-        let secret = secret.ok_or(CredentialRuntimeError::NotFound)?;
-        if secret.kind != "service" {
-            return Err(CredentialRuntimeError::KindMismatch.into());
+        field: &str,
+    ) -> anyhow::Result<String> {
+        let project_id =
+            ProjectId::parse(project_id.ok_or(CredentialRuntimeError::ProjectMismatch)?)?;
+        let record = CredentialStore::new(pool.clone())
+            .get_active(&project_id, credential_id)
+            .await?;
+        match resolve_service_credential(&record, ServiceUsage::HttpEgressField { field })? {
+            ResolvedServiceCredential::HttpEgressField(value) => Ok(value),
+            ResolvedServiceCredential::Environment(_) => {
+                Err(CredentialRuntimeError::CorruptRecord.into())
+            }
         }
-
-        let cipher = VaultCipher::from_env();
-        let mut out = HashMap::new();
-        for (key, value) in credential_material_object(&secret.data)? {
-            let value = value
-                .as_str()
-                .ok_or(CredentialRuntimeError::CorruptRecord)?;
-            out.insert(
-                key.clone(),
-                cipher
-                    .decrypt_envelope(value)
-                    .map_err(|_| CredentialRuntimeError::EnvelopeInvalid)?,
-            );
-        }
-        Ok(out)
     }
 
-    async fn merge_secret_ref_into_env(
+    async fn merge_credential_ref_into_env(
         pool: &PgPool,
         env: &mut HashMap<String, String>,
         credential_id: CredentialId,
         project_id: Option<&str>,
         override_existing: bool,
         runtime_engine_kind: Option<&str>,
-    ) -> anyhow::Result<Option<RuntimeSecretBinding>> {
-        let project_id = require_bound_project(project_id, credential_id)?;
-        let secret = sqlx::query_as::<_, RuntimeSecretRow>(
-            r#"
-            SELECT project_id, kind, provider, protocol, data, archived_at, deleted_at
-            FROM joysafeter_credentials
-            WHERE id = $1 AND project_id = $2
-            "#,
-        )
-        .bind(credential_id)
-        .bind(project_id)
-        .fetch_optional(pool)
-        .await?;
+    ) -> anyhow::Result<Option<RuntimeCredentialBinding>> {
+        let project_id =
+            ProjectId::parse(project_id.ok_or(CredentialRuntimeError::ProjectMismatch)?)?;
+        let record = CredentialStore::new(pool.clone())
+            .get_active(&project_id, credential_id)
+            .await?;
 
-        let diagnostic_state = if secret.is_none() {
-            sqlx::query_as::<_, CredentialStateRow>(
-                r#"
-                SELECT id, project_id, archived_at, deleted_at
-                FROM joysafeter_credentials
-                WHERE id = $1
-                "#,
-            )
-            .bind(credential_id)
-            .fetch_optional(pool)
-            .await?
-        } else {
-            None
-        };
-
-        validate_bound_credential(
-            Some(project_id),
-            credential_id,
-            secret
-                .as_ref()
-                .map(RuntimeSecretRow::state)
-                .or_else(|| diagnostic_state.as_ref().map(CredentialStateRow::state)),
-        )?;
-        let secret = secret.ok_or(CredentialRuntimeError::NotFound)?;
-
-        let binding = if let Some(engine_kind) = runtime_engine_kind {
-            Some(
-                validate_runtime_secret(
-                    engine_kind,
-                    &secret.kind,
-                    secret.provider.as_deref(),
-                    secret.protocol.as_deref(),
-                )
-                .map_err(|error| match error {
-                    crate::kernel::llm_catalog::LlmCatalogError::SecretKindInvalid { .. } => {
-                        CredentialRuntimeError::KindMismatch
+        if let Some(engine_kind) = runtime_engine_kind {
+            let resolved = resolve_model_credential(&record, engine_kind)?;
+            if override_existing {
+                if let Some(protocol) = record.protocol.as_deref() {
+                    if let Some(value) = model_protocol_env_value(protocol) {
+                        env.insert("JOYSAFETER_MODEL_PROTOCOL".to_string(), value);
                     }
-                    crate::kernel::llm_catalog::LlmCatalogError::ProviderRequired
-                    | crate::kernel::llm_catalog::LlmCatalogError::ProtocolRequired => {
-                        CredentialRuntimeError::FieldMissing
-                    }
-                    _ => CredentialRuntimeError::CorruptRecord,
-                })?,
-            )
-        } else {
-            if secret.kind != "service" {
-                return Err(CredentialRuntimeError::KindMismatch.into());
-            }
-            None
-        };
-
-        // The agent's primary secret (override_existing) defines the model wire
-        // protocol for the sandbox. Environment-level secret_refs must not clobber
-        // it. pi-entrypoint.sh maps this to the models.json `api` field.
-        if override_existing {
-            if let Some(protocol) = secret.protocol.as_deref() {
-                if let Some(value) = model_protocol_env_value(protocol) {
-                    env.insert("JOYSAFETER_MODEL_PROTOCOL".to_string(), value);
                 }
             }
+            // ccb only routes to a non-Anthropic provider when the matching
+            // CLAUDE_CODE_USE_* switch is set; the egress-repointed base URL and
+            // placeholder key are otherwise ignored and the native harness falls
+            // back to the Anthropic /login gate ("Not logged in").
+            if let Some(protocol) = record.protocol.as_deref() {
+                if let Some(switch) = model_protocol_provider_switch(protocol) {
+                    if override_existing || !env.contains_key(switch) {
+                        env.insert(switch.to_string(), "1".to_string());
+                    }
+                }
+            }
+            for (key, value) in resolved.material.iter() {
+                if override_existing || !env.contains_key(key) {
+                    env.insert(key.to_string(), value.to_string());
+                }
+            }
+            return Ok(Some(resolved.runtime_binding()));
         }
 
-        let material = credential_material_object(&secret.data)?;
-        if let Some(binding) = binding.as_ref() {
-            validate_runtime_secret_material(binding, material)?;
-        }
-
-        let cipher = VaultCipher::from_env();
+        let resolved = resolve_service_credential(&record, ServiceUsage::EnvironmentInjection)?;
+        let ResolvedServiceCredential::Environment(material) = resolved else {
+            return Err(CredentialRuntimeError::CorruptRecord.into());
+        };
+        let material = material
+            .as_object()
+            .ok_or(CredentialRuntimeError::CorruptRecord)?;
         for (key, value) in material {
             if override_existing || !env.contains_key(key) {
                 let value = value
                     .as_str()
                     .ok_or(CredentialRuntimeError::CorruptRecord)?;
-                env.insert(
-                    key.clone(),
-                    cipher
-                        .decrypt_envelope(value)
-                        .map_err(|_| CredentialRuntimeError::EnvelopeInvalid)?,
-                );
+                env.insert(key.clone(), value.to_string());
             }
         }
-
-        Ok(binding)
+        Ok(None)
     }
 
     async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
@@ -3404,68 +3344,7 @@ struct EnvironmentRow {
 #[derive(Debug, Default)]
 struct ResolvedAgentEnv {
     values: HashMap<String, String>,
-    llm_binding: Option<RuntimeSecretBinding>,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct RuntimeSecretRow {
-    project_id: String,
-    kind: String,
-    provider: Option<String>,
-    protocol: Option<String>,
-    data: serde_json::Value,
-    archived_at: Option<chrono::DateTime<chrono::Utc>>,
-    deleted_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-impl RuntimeSecretRow {
-    fn state(&self) -> BoundCredentialState<'_> {
-        BoundCredentialState {
-            project_id: &self.project_id,
-            archived: self.archived_at.is_some(),
-            deleted: self.deleted_at.is_some(),
-        }
-    }
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct CredentialStateRow {
-    id: CredentialId,
-    project_id: String,
-    archived_at: Option<chrono::DateTime<chrono::Utc>>,
-    deleted_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-impl CredentialStateRow {
-    fn state(&self) -> BoundCredentialState<'_> {
-        BoundCredentialState {
-            project_id: &self.project_id,
-            archived: self.archived_at.is_some(),
-            deleted: self.deleted_at.is_some(),
-        }
-    }
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct McpRuntimeCredentialRow {
-    id: CredentialId,
-    project_id: String,
-    kind: String,
-    normalized_mcp_server_url: Option<String>,
-    credential_type: String,
-    data: serde_json::Value,
-    archived_at: Option<chrono::DateTime<chrono::Utc>>,
-    deleted_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-impl McpRuntimeCredentialRow {
-    fn state(&self) -> BoundCredentialState<'_> {
-        BoundCredentialState {
-            project_id: &self.project_id,
-            archived: self.archived_at.is_some(),
-            deleted: self.deleted_at.is_some(),
-        }
-    }
+    llm_binding: Option<RuntimeCredentialBinding>,
 }
 
 fn sanitize_external_service_name(name: &str) -> String {
@@ -3554,53 +3433,30 @@ fn effective_prefixes(prefix_sets: Vec<Vec<serde_json::Value>>) -> Vec<serde_jso
 
 fn build_external_inject_headers(
     secret: &HashMap<String, String>,
-    inject: &serde_json::Map<String, serde_json::Value>,
+    inject_kind: &str,
+    credential_field: &str,
+    header: Option<&str>,
 ) -> Result<Vec<(String, String)>, CredentialRuntimeError> {
-    let typ = inject
-        .get("type")
-        .and_then(|value| value.as_str())
-        .unwrap_or("bearer");
-    match typ {
+    match inject_kind {
         "bearer" => {
-            let key = inject
-                .get("credential_field")
-                .or_else(|| inject.get("secret_key"))
-                .and_then(|value| value.as_str())
-                .unwrap_or("ACCESS_TOKEN");
             let token = secret
-                .get(key)
+                .get(credential_field)
                 .filter(|value| !value.is_empty())
                 .ok_or(CredentialRuntimeError::FieldMissing)?;
-            let header = inject
-                .get("header")
-                .and_then(|value| value.as_str())
-                .unwrap_or("authorization");
+            let header = header.unwrap_or("authorization");
             Ok(vec![(header.to_string(), format!("Bearer {token}"))])
         }
         "api_key" | "raw_header" => {
-            let key = inject
-                .get("credential_field")
-                .or_else(|| inject.get("secret_key"))
-                .and_then(|value| value.as_str())
-                .unwrap_or("API_KEY");
             let value = secret
-                .get(key)
+                .get(credential_field)
                 .filter(|value| !value.is_empty())
                 .ok_or(CredentialRuntimeError::FieldMissing)?;
-            let header = inject
-                .get("header")
-                .and_then(|value| value.as_str())
-                .unwrap_or("x-api-key");
+            let header = header.unwrap_or("x-api-key");
             Ok(vec![(header.to_string(), value.clone())])
         }
         "cookie" => {
-            let key = inject
-                .get("credential_field")
-                .or_else(|| inject.get("secret_key"))
-                .and_then(|value| value.as_str())
-                .unwrap_or("COOKIE_HEADER");
             let cookie_header = secret
-                .get(key)
+                .get(credential_field)
                 .filter(|value| !value.is_empty())
                 .ok_or(CredentialRuntimeError::FieldMissing)?
                 .clone();
@@ -3613,6 +3469,7 @@ fn build_external_inject_headers(
 #[cfg(test)]
 mod egress_tests {
     use super::*;
+    use crate::ids::CredentialGroupId;
     use async_trait::async_trait;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
@@ -3624,6 +3481,10 @@ mod egress_tests {
 
     const ENCRYPTED_HELLO_WORLD: &str =
         "enc:v1:VzniG9ulG62e3VZZD1jujN8lxiW1h/6a0Hdj1jIlJC/Wl9Rvvk7D";
+    const TEST_IDENTITY_KEY: [u8; 32] = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+        25, 26, 27, 28, 29, 30, 31,
+    ];
 
     fn env(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs
@@ -4013,6 +3874,76 @@ mod egress_tests {
         calls: AtomicUsize,
     }
 
+    #[derive(Debug, Default)]
+    struct EmptyIdentityProvider {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl crate::kernel::agent_identity_provider::AgentIdentityProvider for EmptyIdentityProvider {
+        fn name(&self) -> &str {
+            "empty-test"
+        }
+
+        fn enabled(&self) -> bool {
+            true
+        }
+
+        fn has_config(&self, _agent_metadata: Option<&serde_json::Value>) -> bool {
+            true
+        }
+
+        async fn resolve(
+            &self,
+            _context: &crate::kernel::agent_identity_provider::IdentityResolveContext,
+        ) -> anyhow::Result<crate::kernel::agent_identity_provider::AgentIdentityInjection>
+        {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(crate::kernel::agent_identity_provider::AgentIdentityInjection { targets: vec![] })
+        }
+
+        async fn cleanup(
+            &self,
+            _context: &crate::kernel::agent_identity_provider::IdentityCleanupContext,
+        ) {
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct FailingIdentityProvider {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl crate::kernel::agent_identity_provider::AgentIdentityProvider for FailingIdentityProvider {
+        fn name(&self) -> &str {
+            "failing-test"
+        }
+
+        fn enabled(&self) -> bool {
+            true
+        }
+
+        fn has_config(&self, _agent_metadata: Option<&serde_json::Value>) -> bool {
+            true
+        }
+
+        async fn resolve(
+            &self,
+            _context: &crate::kernel::agent_identity_provider::IdentityResolveContext,
+        ) -> anyhow::Result<crate::kernel::agent_identity_provider::AgentIdentityInjection>
+        {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            anyhow::bail!("deterministic identity provider failure")
+        }
+
+        async fn cleanup(
+            &self,
+            _context: &crate::kernel::agent_identity_provider::IdentityCleanupContext,
+        ) {
+        }
+    }
+
     #[async_trait]
     impl crate::kernel::agent_identity_provider::AgentIdentityProvider for SlowIdentityProvider {
         fn name(&self) -> &str {
@@ -4067,6 +3998,8 @@ mod egress_tests {
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let task_id = TaskId::from_uuid(Uuid::now_v7());
         let expired_task_id = TaskId::from_uuid(Uuid::now_v7());
+        let malformed_task_id = TaskId::from_uuid(Uuid::now_v7());
+        let invalid_kind_task_id = TaskId::from_uuid(Uuid::now_v7());
         let unique = Uuid::now_v7().simple().to_string();
         let project_id = format!("identity-project-{unique}");
         let org_id = format!("identity-org-{unique}");
@@ -4120,7 +4053,7 @@ mod egress_tests {
             .execute(&pool)
             .await
             .expect("insert agent");
-            for id in [task_id, expired_task_id] {
+            for id in [task_id, expired_task_id, malformed_task_id] {
                 sqlx::query(
                     r#"
                     INSERT INTO joysafeter_tasks (
@@ -4170,6 +4103,50 @@ mod egress_tests {
             .execute(&pool)
             .await
             .expect("insert expired identity context");
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_task_identity_contexts (
+                    task_id, project_id, user_id, user_name, credential_kind,
+                    credential_fingerprint, encrypted_credential, captured_at, expires_at
+                )
+                VALUES ($1, $2, 'user-1', 'user@example.com', 'identity_token',
+                        NULL, $3, NOW(), NOW() + INTERVAL '5 minutes')
+                "#,
+            )
+            .bind(malformed_task_id)
+            .bind(&project_id)
+            .bind("enc:v1:not-base64")
+            .execute(&pool)
+            .await
+            .expect("insert malformed identity context");
+
+            let key_error_provider = Arc::new(SlowIdentityProvider::default());
+            let key_error_resolver = SandboxResolver::new(
+                pool.clone(),
+                Arc::new(RecordingProvider::default()),
+                JoySafeterConfig::from_env(),
+            )
+            .with_identity_provider(key_error_provider.clone())
+            .with_identity_allowed_hosts(allow(&["api.example.com"]))
+            .with_task_identity_material_adapter(TaskIdentityMaterialAdapter::without_key());
+            let key_error_agent = queries::get_agent(&pool, agent_id)
+                .await
+                .expect("load key-error agent")
+                .expect("key-error agent exists");
+            assert_eq!(
+                key_error_resolver
+                    .resolve_identity_injection(
+                        Some(&key_error_agent),
+                        task_id,
+                        None,
+                        Some(&project_id),
+                        &["api.example.com".to_string()],
+                    )
+                    .await
+                    .unwrap_err(),
+                TaskIdentityContextError::Material(TaskIdentityMaterialError::KeyInvalid)
+            );
+            assert_eq!(key_error_provider.calls.load(Ordering::SeqCst), 0);
 
             let identity_provider = Arc::new(SlowIdentityProvider::default());
             let resolver = SandboxResolver::new(
@@ -4177,20 +4154,142 @@ mod egress_tests {
                 Arc::new(RecordingProvider::default()),
                 JoySafeterConfig::from_env(),
             )
-            .with_identity_provider(identity_provider.clone());
-            assert!(resolver
-                .load_identity_context(task_id, Some("wrong-project"))
-                .await
-                .is_none());
+            .with_identity_provider(identity_provider.clone())
+            .with_identity_allowed_hosts(allow(&["api.example.com"]))
+            .with_task_identity_material_adapter(
+                TaskIdentityMaterialAdapter::with_key(TEST_IDENTITY_KEY),
+            );
+            assert_eq!(
+                resolver
+                    .load_identity_context(task_id, Some("wrong-project"))
+                    .await
+                    .unwrap_err(),
+                TaskIdentityContextError::ProjectMismatch
+            );
             assert!(resolver
                 .load_identity_context(expired_task_id, Some(&project_id))
                 .await
+                .expect("expired lookup is an absence")
                 .is_none());
+
+            assert_eq!(
+                resolver
+                    .resolve_identity_injection(
+                        Some(
+                            &queries::get_agent(&pool, agent_id)
+                                .await
+                                .expect("load agent")
+                                .expect("agent exists"),
+                        ),
+                        malformed_task_id,
+                        None,
+                        Some(&project_id),
+                        &["api.example.com".to_string()],
+                    )
+                    .await
+                    .unwrap_err(),
+                TaskIdentityContextError::Material(TaskIdentityMaterialError::EnvelopeInvalid)
+            );
+            assert_eq!(identity_provider.calls.load(Ordering::SeqCst), 0);
 
             let agent = queries::get_agent(&pool, agent_id)
                 .await
                 .expect("load agent")
                 .expect("agent exists");
+            let no_host_provider = Arc::new(SlowIdentityProvider::default());
+            let no_host_resolver = SandboxResolver::new(
+                pool.clone(),
+                Arc::new(RecordingProvider::default()),
+                JoySafeterConfig::from_env(),
+            )
+            .with_identity_provider(no_host_provider.clone())
+            .with_identity_allowed_hosts(allow(&["other.example.com"]))
+            .with_task_identity_material_adapter(
+                TaskIdentityMaterialAdapter::with_key(TEST_IDENTITY_KEY),
+            );
+            assert_eq!(
+                no_host_resolver
+                    .resolve_identity_injection(
+                        Some(&agent),
+                        task_id,
+                        None,
+                        Some(&project_id),
+                        &["api.example.com".to_string()],
+                    )
+                    .await
+                    .unwrap_err(),
+                TaskIdentityContextError::NoTrustedHosts
+            );
+            assert_eq!(no_host_provider.calls.load(Ordering::SeqCst), 0);
+
+            let empty_provider = Arc::new(EmptyIdentityProvider::default());
+            let empty_resolver = SandboxResolver::new(
+                pool.clone(),
+                Arc::new(RecordingProvider::default()),
+                JoySafeterConfig::from_env(),
+            )
+            .with_identity_provider(empty_provider.clone())
+            .with_identity_allowed_hosts(allow(&["api.example.com"]))
+            .with_task_identity_material_adapter(
+                TaskIdentityMaterialAdapter::with_key(TEST_IDENTITY_KEY),
+            );
+            assert_eq!(
+                empty_resolver
+                    .resolve_identity_injection(
+                        Some(&agent),
+                        task_id,
+                        None,
+                        Some(&project_id),
+                        &["api.example.com".to_string()],
+                    )
+                    .await
+                    .unwrap_err(),
+                TaskIdentityContextError::EmptyInjection
+            );
+            assert_eq!(empty_provider.calls.load(Ordering::SeqCst), 1);
+
+            let failing_provider = Arc::new(FailingIdentityProvider::default());
+            let failing_resolver = SandboxResolver::new(
+                pool.clone(),
+                Arc::new(RecordingProvider::default()),
+                JoySafeterConfig::from_env(),
+            )
+            .with_identity_provider(failing_provider.clone())
+            .with_identity_allowed_hosts(allow(&["api.example.com"]))
+            .with_task_identity_material_adapter(
+                TaskIdentityMaterialAdapter::with_key(TEST_IDENTITY_KEY),
+            );
+            assert_eq!(
+                failing_resolver
+                    .resolve_identity_injection(
+                        Some(&agent),
+                        task_id,
+                        None,
+                        Some(&project_id),
+                        &["api.example.com".to_string()],
+                    )
+                    .await
+                    .unwrap_err(),
+                TaskIdentityContextError::Provider
+            );
+            assert_eq!(failing_provider.calls.load(Ordering::SeqCst), 1);
+
+            assert_eq!(
+                resolver
+                    .decode_identity_context(
+                        invalid_kind_task_id,
+                        Some((
+                            "user-1".to_string(),
+                            Some("user@example.com".to_string()),
+                            "future_identity".to_string(),
+                            ENCRYPTED_HELLO_WORLD.to_string(),
+                        )),
+                    )
+                    .unwrap_err(),
+                TaskIdentityContextError::KindInvalid
+            );
+            assert_eq!(identity_provider.calls.load(Ordering::SeqCst), 0);
+
             let candidate_hosts = ["api.example.com".to_string()];
             let first = resolver.resolve_identity_injection(
                 Some(&agent),
@@ -4207,6 +4306,8 @@ mod egress_tests {
                 &candidate_hosts,
             );
             let (first, second) = tokio::join!(first, second);
+            let first = first.expect("first identity claim resolves without error");
+            let second = second.expect("second identity claim resolves without error");
             assert_eq!(identity_provider.calls.load(Ordering::SeqCst), 1);
             assert_eq!(
                 usize::from(first.is_some()) + usize::from(second.is_some()),
@@ -4215,6 +4316,7 @@ mod egress_tests {
             assert!(resolver
                 .load_identity_context(task_id, Some(&project_id))
                 .await
+                .expect("consumed lookup is an absence")
                 .is_none());
             let consumed: (bool, bool) = sqlx::query_as(
                 r#"
@@ -4246,6 +4348,28 @@ mod egress_tests {
             .bind(&org_id)
             .execute(&pool)
             .await;
+    }
+
+    #[tokio::test]
+    async fn task_identity_sql_errors_are_not_optional_absence() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let resolver = SandboxResolver::new(
+            pool.clone(),
+            Arc::new(RecordingProvider::default()),
+            JoySafeterConfig::from_env(),
+        )
+        .with_identity_allowed_hosts(allow(&["api.example.com"]));
+        pool.close().await;
+
+        assert_eq!(
+            resolver
+                .load_identity_context(TaskId::from_uuid(Uuid::now_v7()), Some("project"))
+                .await
+                .unwrap_err(),
+            TaskIdentityContextError::Database
+        );
     }
 
     #[test]

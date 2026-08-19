@@ -107,15 +107,15 @@ def patch_executor_dependencies(monkeypatch):
         async def get_session(self, session_id, project_id=None):
             return state["sessions"].get(session_id)
 
-        async def create_session(self, **kwargs):
+        async def create_session_from_source(self, command):
             session = SimpleNamespace(
                 id=SessionId.new(),
-                agent_id=kwargs["agent_id"],
+                agent_id=command.agent_id,
                 status=SessionStatus.IDLE.value,
                 archived_at=None,
-                title=kwargs.get("title"),
-                environment_ref=kwargs.get("environment_ref"),
-                metadata_=kwargs.get("metadata") or {},
+                title=command.title,
+                environment_ref=command.environment_ref,
+                metadata_=dict(command.metadata or {}),
             )
             state["sessions"][session.id] = session
             state["created"].append(session)
@@ -123,10 +123,6 @@ def patch_executor_dependencies(monkeypatch):
 
     monkeypatch.setattr("app.joysafeter_domain.services.agent_trigger_execution.SessionService", FakeSessionService)
     monkeypatch.setattr("app.joysafeter_domain.services.agent_trigger_execution.TaskSubmissionService", _FakeSubmission)
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.agent_trigger_execution.JoySafeterAgentService.build_execution_snapshot",
-        lambda *args, **kwargs: {"snapshot": True},
-    )
     return state
 
 

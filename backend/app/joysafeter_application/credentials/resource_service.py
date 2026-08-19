@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
-from .ports import CredentialAuditEntry, CredentialUnitOfWork
+from .ports import CredentialAuditEntry, CredentialUnitOfWork, MutationOutcome
 
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
+credential_nudge_failures: Counter[str] = Counter()
 
 
 class CredentialResourceService:
@@ -32,12 +34,24 @@ class CredentialResourceService:
         action: str,
         project_id: str,
         target_id: str | None = None,
+        target_type: str = "credential",
     ) -> T:
         try:
-            result = await operation()
+            raw_result = await operation()
+            outcome = raw_result if isinstance(raw_result, MutationOutcome) else MutationOutcome(raw_result, True)
+            result = outcome.value
+            if not outcome.changed:
+                if self._manage_transaction:
+                    await self._uow.commit()
+                return result
             resolved_target_id = target_id or str(getattr(result, "id", "")) or None
             await self._uow.audit.append(
-                CredentialAuditEntry(action=action, project_id=project_id, target_id=resolved_target_id)
+                CredentialAuditEntry(
+                    action=action,
+                    project_id=project_id,
+                    target_type=target_type,
+                    target_id=resolved_target_id,
+                )
             )
             take_pending_impacts = getattr(self._uow.credentials, "take_pending_impacts", None)
             pending_impacts = () if take_pending_impacts is None else take_pending_impacts()
@@ -63,6 +77,7 @@ class CredentialResourceService:
             try:
                 await self._uow.impacts.nudge_after_commit()
             except Exception:
+                credential_nudge_failures["after_commit"] += 1
                 logger.warning("credential impact nudge failed after commit", exc_info=True)
         return result
 
@@ -149,6 +164,7 @@ class CredentialResourceService:
         try:
             await self._uow.impacts.nudge_after_commit()
         except Exception:
+            credential_nudge_failures["compatibility_after_commit"] += 1
             logger.warning("credential impact nudge failed after compatibility commit", exc_info=True)
 
     def encrypt_data_for_storage(self, data: dict[str, str] | None) -> dict[str, str]:

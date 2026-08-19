@@ -14,6 +14,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.api.v1.model_connection_summary import (
+    load_model_connection_summaries,
+    maybe_credential_id,
+    normalize_agent_model,
+)
+from app.joysafeter_application.credentials.snapshot_service import CreateCredentialAwareSession
+from app.joysafeter_domain.credentials.references import snapshot_model_credential_id
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog
 from app.joysafeter_domain.models.joysafeter_storage_mount import JoySafeterSessionStorageMount
@@ -35,10 +42,10 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
     SingleEventRequest,
     UpdateRepoResourceRequest,
 )
+from app.joysafeter_domain.schemas.joysafeter_credential import ModelCredentialSummary
 from app.joysafeter_domain.schemas.joysafeter_skill import SkillUsageResponse as SessionSkillUsageResponse
 from app.joysafeter_domain.schemas.joysafeter_task import MAX_PROMPT_CHARS
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService as AgentService
-from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_session_resource_service import SessionResourceService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
@@ -59,6 +66,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.ids import (
     AgentId,
+    CredentialId,
     EnvironmentId,
     EventId,
     MemoryStoreId,
@@ -163,31 +171,6 @@ def _validate_sandbox_file_path(path: str | None) -> str:
     return value if value.startswith("/") else f"/workspace/{value}"
 
 
-async def _validate_session_environment_ref(
-    db: AsyncSession,
-    environment_ref: str,
-    project_id: Optional[str],
-) -> Any | None:
-    if not environment_ref:
-        return None
-    env = await EnvironmentService(db).get_environment_by_ref(environment_ref, project_id=project_id)
-    if not env:
-        raise RequestValidationAppError(
-            code="SESSION_ENVIRONMENT_NOT_FOUND",
-            message=f"Environment not found: {environment_ref}",
-            data={"environment_ref": environment_ref},
-            user_action="fix_input",
-        )
-    if env.archived_at is not None:
-        raise ResourceConflictError(
-            code="ENVIRONMENT_ARCHIVED",
-            message=f"Environment is archived: {environment_ref}",
-            data={"environment_ref": environment_ref, "environment_id": str(env.id)},
-            user_action="refresh",
-        )
-    return env
-
-
 def _extract_host(url: str) -> str | None:
     try:
         from urllib.parse import urlparse
@@ -237,21 +220,39 @@ def _public_session_metadata(metadata) -> dict:
     return {k: v for k, v in metadata.items() if k != "agent_identity_context"}
 
 
+def _session_model_credential_id(session, agent=None) -> CredentialId | None:
+    if agent is not None and agent.model_credential_id:
+        return agent.model_credential_id
+    snapshot = session.agent_snapshot or {}
+    if not isinstance(snapshot, dict):
+        return None
+    return maybe_credential_id(snapshot_model_credential_id(snapshot))
+
+
 def _session_to_response(
-    session, agent=None, resources=None, repo_resources=None, storage_mounts=None, credential_group_ids=None
+    session,
+    agent=None,
+    resources=None,
+    repo_resources=None,
+    storage_mounts=None,
+    credential_group_ids=None,
+    model_connection: ModelCredentialSummary | None = None,
 ) -> SessionResponse:
     agent_snapshot = session.agent_snapshot or {}
+    model_credential_id = _session_model_credential_id(session, agent)
     agent_data = SessionAgent(
         id=session.agent_id,
         version=session.agent_version or 1,
         name=agent.name if agent else agent_snapshot.get("name", ""),
         engine_kind=agent.engine_kind if agent else agent_snapshot.get("engine_kind"),
         description=agent.description if agent else agent_snapshot.get("description"),
-        model=agent.model if agent else agent_snapshot.get("model"),
+        model=normalize_agent_model(agent.model if agent else agent_snapshot.get("model")),
         system=agent.system_prompt if agent else agent_snapshot.get("system"),
         tools=agent.tools if agent else agent_snapshot.get("tools") or [],
         skills=agent.skills if agent else agent_snapshot.get("skills") or [],
         mcp_servers=agent.mcp_servers if agent else agent_snapshot.get("mcp_servers") or [],
+        model_credential_id=model_credential_id,
+        model_connection=model_connection,
     )
     usage_data = session.usage or {}
     resource_responses = []
@@ -364,52 +365,8 @@ async def create_session(
             user_action="refresh",
         )
 
-    # --- Build agent_snapshot ---
-    agent_version = agent.version
-    agent_snapshot: dict
-    if pinned_version is not None:
-        snapshot = await agent_svc.get_agent_version_snapshot(agent.id, pinned_version, project_id=auth_ctx.project_id)
-        if snapshot is None:
-            raise NotFoundError(
-                code="SESSION_AGENT_VERSION_NOT_FOUND",
-                message=f"Agent version {pinned_version} not found",
-                data={"agent_id": str(agent.id), "version": pinned_version},
-                user_action="refresh",
-            )
-        agent_version = pinned_version
-        agent_snapshot = snapshot
-        effective_environment_ref = environment_ref or snapshot.get("environment_ref") or agent.environment_ref
-    else:
-        effective_environment_ref = environment_ref or agent.environment_ref
-        agent_snapshot = agent_svc.build_execution_snapshot(agent, version=agent_version)
-
-    environment = await _validate_session_environment_ref(db, effective_environment_ref or "", auth_ctx.project_id)
-    if pinned_version is None:
-        agent_snapshot = agent_svc.build_execution_snapshot(
-            agent,
-            environment=environment,
-            environment_ref=effective_environment_ref,
-            version=agent_version,
-        )
-    else:
-        environment_snapshot = agent_svc.build_environment_execution_snapshot(
-            environment,
-            environment_ref=effective_environment_ref,
-        )
-        agent_snapshot = {**agent_snapshot, "environment_ref": effective_environment_ref}
-        if environment_snapshot is not None:
-            agent_snapshot = {**agent_snapshot, "environment": environment_snapshot}
-
     storage_svc = StorageMountService(db)
     await storage_svc.validate_mount_resources(req.storage_mounts, auth_ctx.project_id)
-    if req.storage_mounts:
-        env_snapshot = dict(agent_snapshot.get("environment") or {})
-        env_config = dict(env_snapshot.get("config") or {})
-        existing_mounts = list(env_config.get("mount_resources") or [])
-        session_mounts = [mount.model_dump() for mount in req.storage_mounts]
-        env_config["mount_resources"] = existing_mounts + session_mounts
-        env_snapshot["config"] = env_config
-        agent_snapshot = {**agent_snapshot, "environment": env_snapshot}
 
     # --- Compute mount_name for each resource ---
     from app.joysafeter_domain.services.joysafeter_memory_service import MemoryService
@@ -454,16 +411,18 @@ async def create_session(
     )
 
     svc = SessionService(db)
-    session = await svc.create_session(
-        agent_id=agent.id,
-        agent_name=agent.name,
-        title=req.title,
-        metadata=req.metadata,
-        credential_group_ids=req.credential_group_ids,
-        environment_ref=effective_environment_ref,
-        agent_version=agent_version,
-        agent_snapshot=agent_snapshot,
-        project_id=auth_ctx.project_id,
+    session = await svc.create_session_from_source(
+        CreateCredentialAwareSession(
+            project_id=auth_ctx.project_id,
+            agent_id=agent.id,
+            pinned_agent_version=pinned_version,
+            environment_ref=environment_ref or None,
+            credential_group_ids=tuple(req.credential_group_ids),
+            title=req.title,
+            metadata=req.metadata,
+            caller="session_api",
+            environment_mount_resources=tuple(mount.model_dump() for mount in req.storage_mounts),
+        )
     )
 
     resources = []
@@ -516,6 +475,11 @@ async def create_session(
 
     repo_records = await resource_svc.list_repo_records(session.id, project_id=auth_ctx.project_id)
     storage_mount_records = await _load_session_storage_mounts(db, session.id, auth_ctx.project_id)
+    model_connections = await load_model_connection_summaries(
+        db,
+        [agent.model_credential_id],
+        project_id=auth_ctx.project_id,
+    )
     return _session_to_response(
         session,
         agent,
@@ -523,6 +487,7 @@ async def create_session(
         repo_resources=repo_records,
         storage_mounts=storage_mount_records,
         credential_group_ids=req.credential_group_ids,
+        model_connection=model_connections.get(agent.model_credential_id),
     )
 
 
@@ -575,12 +540,18 @@ async def list_sessions(
         for mount in mount_result.scalars().all():
             storage_mounts_by_session.setdefault(mount.session_id, []).append(mount)
     group_ids_by_session = await svc.credential_group_ids_map([s.id for s in sessions])
+    model_connections = await load_model_connection_summaries(
+        db,
+        (_session_model_credential_id(s, agents_by_id.get(s.agent_id)) for s in sessions),
+        project_id=auth_ctx.project_id,
+    )
     data = [
         _session_to_response(
             s,
             agents_by_id.get(s.agent_id),
             storage_mounts=storage_mounts_by_session.get(s.id, []),
             credential_group_ids=group_ids_by_session.get(s.id, []),
+            model_connection=model_connections.get(_session_model_credential_id(s, agents_by_id.get(s.agent_id))),
         )
         for s in sessions
     ]
@@ -614,6 +585,12 @@ async def get_session(
     if session.agent_id:
         agent_svc = AgentService(db)
         agent = await agent_svc.get_agent(session.agent_id, project_id=auth_ctx.project_id)
+    model_connections = await load_model_connection_summaries(
+        db,
+        [_session_model_credential_id(session, agent)],
+        project_id=auth_ctx.project_id,
+    )
+    model_credential_id = _session_model_credential_id(session, agent)
     return _session_to_response(
         session,
         agent=agent,
@@ -621,6 +598,7 @@ async def get_session(
         repo_resources=repo_records,
         storage_mounts=storage_mount_records,
         credential_group_ids=await svc.get_credential_group_ids(session_id),
+        model_connection=model_connections.get(model_credential_id),
     )
 
 
@@ -1670,9 +1648,7 @@ async def send_event(
             )
             from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
 
-            agent_obj = await AgentService(db).get_agent(
-                session.agent_id, project_id=auth_ctx.project_id
-            )
+            agent_obj = await AgentService(db).get_agent(session.agent_id, project_id=auth_ctx.project_id)
             identity_hook = None
             if agent_obj is not None:
                 identity_hook = await prepare_agent_identity_capture(

@@ -7,15 +7,12 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
 
 use crate::config::JoySafeterConfig;
-use crate::db::{
-    models::{JoySafeterAgent, JoySafeterSession},
-    queries,
-};
-use crate::ids::{AgentId, EnvironmentId, SandboxId, SessionId, TaskId};
-use crate::kernel::credentials::error::CredentialRuntimeError;
+use crate::db::queries;
+use crate::ids::{AgentId, SessionId, TaskId};
+use crate::kernel::credentials::snapshot;
+use crate::kernel::credentials::{error::CredentialRuntimeError, CredentialStore, ProjectId};
 use crate::kernel::ha::BridgeStore;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_resolver::SandboxResolver;
@@ -25,15 +22,6 @@ const QUEUE_POP_TIMEOUT: Duration = Duration::from_secs(1);
 const DB_REPAIR_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 const SCHEDULING_RETRY_BASE_BACKOFF: Duration = Duration::from_secs(5);
 const SCHEDULING_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(60);
-
-#[derive(Debug, sqlx::FromRow)]
-struct SchedulerEnvironmentSnapshot {
-    id: EnvironmentId,
-    name: String,
-    config: Value,
-    image_tag: Option<String>,
-    image_version: i32,
-}
 
 /// Task scheduler — consumes Redis task candidates, claims them in DB, resolves
 /// sandboxes, and dispatches.
@@ -285,11 +273,20 @@ async fn schedule_single_task(
 
     // --- Auto-create session if needed ---
     if session_id.is_none() {
-        let agent_snapshot = build_agent_execution_snapshot(pool, &agent).await?;
-
-        let Some(new_session) =
-            create_session_and_attach_to_scheduling_task(pool, task_id, &agent, &agent_snapshot)
-                .await?
+        let project_id = ProjectId::parse(
+            project_id.ok_or_else(|| anyhow::anyhow!("scheduler task project is required"))?,
+        )?;
+        let credential_store = CredentialStore::new(pool.clone());
+        let Some(new_session) = snapshot::create_scheduler_session(
+            pool,
+            &credential_store,
+            snapshot::SchedulerSnapshotCommand {
+                task_id,
+                agent_id: agent.id,
+                project_id,
+            },
+        )
+        .await?
         else {
             info!(task_id = %task_id, "Task left scheduling before auto-session attach, skipping");
             return Ok(());
@@ -364,55 +361,6 @@ async fn schedule_single_task(
     );
 
     Ok(())
-}
-
-async fn create_session_and_attach_to_scheduling_task(
-    pool: &PgPool,
-    task_id: TaskId,
-    agent: &JoySafeterAgent,
-    agent_snapshot: &Value,
-) -> anyhow::Result<Option<JoySafeterSession>> {
-    let mut tx = pool.begin().await?;
-    let session_id = SessionId::from_uuid(Uuid::now_v7());
-
-    let session = sqlx::query_as::<_, JoySafeterSession>(
-        r#"
-        INSERT INTO joysafeter_sessions
-            (id, agent_id, project_id, status, agent_snapshot, environment_ref, created_at, updated_at)
-        VALUES ($1, $2, $3, 'idle', $4, $5, NOW(), NOW())
-        RETURNING *
-        "#,
-    )
-    .bind(session_id)
-    .bind(agent.id)
-    .bind(agent.project_id.as_deref())
-    .bind(agent_snapshot)
-    .bind(agent.environment_ref.as_deref())
-    .fetch_one(&mut *tx)
-    .await?;
-
-    let attach_result = sqlx::query(
-        r#"
-        UPDATE joysafeter_tasks
-        SET chat_session_id = $2,
-            updated_at = NOW()
-        WHERE id = $1
-          AND status = 'scheduling'
-          AND chat_session_id IS NULL
-        "#,
-    )
-    .bind(task_id)
-    .bind(session.id)
-    .execute(&mut *tx)
-    .await?;
-
-    if attach_result.rows_affected() == 0 {
-        tx.rollback().await?;
-        return Ok(None);
-    }
-
-    tx.commit().await?;
-    Ok(Some(session))
 }
 
 /// Returns a stable machine code when the scheduling error is a permanent
@@ -603,101 +551,15 @@ async fn mark_terminal_task_and_session_idle(
     }
 }
 
-async fn build_agent_execution_snapshot(
-    pool: &PgPool,
-    agent: &JoySafeterAgent,
-) -> anyhow::Result<Value> {
-    let mut snapshot = json!({
-        "schema": "joysafeter.agent_execution_snapshot.v1",
-        "id": agent.id.to_string(),
-        "version": agent.version,
-        "name": agent.name.clone(),
-        "engine_kind": agent.engine_kind.clone(),
-        "description": agent.description.clone(),
-        "model": agent.model.clone(),
-        "system": agent.system_prompt.clone(),
-        "metadata": agent.metadata.clone(),
-        "env": agent.env.clone(),
-        "tools": agent.tools.clone(),
-        "skills": agent.skills.clone(),
-        "agents": agent.agents.clone(),
-        "commands": agent.commands.clone(),
-        "mcp_servers": agent.mcp_servers.clone(),
-        "permission_mode": agent.permission_mode.clone(),
-        "multiagent": agent.multiagent.clone(),
-        "environment_ref": agent.environment_ref.clone(),
-        "model_credential_id": agent.model_credential_id.map(|id| id.to_string()),
-    });
-
-    if let Some(environment_ref) = agent.environment_ref.as_deref() {
-        if let Some(environment) =
-            load_environment_snapshot(pool, environment_ref, agent.project_id.as_deref()).await?
-        {
-            if let Some(object) = snapshot.as_object_mut() {
-                object.insert(
-                    "environment".to_string(),
-                    json!({
-                        "ref": environment_ref,
-                        "id": environment.id.to_string(),
-                        "name": environment.name,
-                        "config": environment.config,
-                        "image_tag": environment.image_tag,
-                        "image_version": environment.image_version,
-                    }),
-                );
-            }
-        }
-    }
-
-    Ok(snapshot)
-}
-
-async fn load_environment_snapshot(
-    pool: &PgPool,
-    environment_ref: &str,
-    project_id: Option<&str>,
-) -> anyhow::Result<Option<SchedulerEnvironmentSnapshot>> {
-    let normalized = environment_ref.trim();
-    if normalized.is_empty() {
-        return Ok(None);
-    }
-
-    if let Ok(environment_id) = EnvironmentId::from_public(normalized) {
-        return Ok(sqlx::query_as::<_, SchedulerEnvironmentSnapshot>(
-            r#"
-            SELECT id, name, config, image_tag, image_version
-            FROM joysafeter_environments
-            WHERE id = $1 AND deleted_at IS NULL
-              AND ($2::text IS NULL OR project_id = $2)
-            "#,
-        )
-        .bind(environment_id)
-        .bind(project_id)
-        .fetch_optional(pool)
-        .await?);
-    }
-
-    Ok(sqlx::query_as::<_, SchedulerEnvironmentSnapshot>(
-        r#"
-        SELECT id, name, config, image_tag, image_version
-        FROM joysafeter_environments
-        WHERE name = $1 AND deleted_at IS NULL
-          AND ($2::text IS NULL OR project_id = $2)
-        "#,
-    )
-    .bind(normalized)
-    .bind(project_id)
-    .fetch_optional(pool)
-    .await?)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ids::{EnvironmentId, SandboxId};
     use crate::kernel::sandbox_bridge::BridgeRegistry;
     use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
     use sqlx::postgres::PgPoolOptions;
     use std::env;
+    use uuid::Uuid;
 
     fn database_url() -> Option<String> {
         env::var("JOYSAFETER_TEST_DATABASE_URL")
@@ -1471,7 +1333,7 @@ mod tests {
 
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
-        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
         let environment_ref = environment_id.to_string();
 
@@ -1518,23 +1380,73 @@ mod tests {
             .await
             .expect("insert agent");
 
-            let agent = queries::get_agent(&pool, agent_id)
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_tasks (
+                    id, agent_id, status, prompt, output, timeout_sec,
+                    retry_count, max_retries
+                )
+                VALUES ($1, $2, 'scheduling', 'snapshot test', '', 7200, 0, 3)
+                "#,
+            )
+            .bind(task_id)
+            .bind(agent_id)
+            .execute(&pool)
+            .await
+            .expect("insert scheduling task");
+            let store = CredentialStore::new(pool.clone());
+            let organization_id = format!("scheduler-snapshot-test-org-{unique}");
+            let project_id = format!("scheduler-snapshot-test-project-{unique}");
+            sqlx::query(
+                "INSERT INTO joysafeter_organizations (id, name, slug, storage_used_bytes, departed_member_usage) VALUES ($1, $2, $3, 0, 0)",
+            )
+            .bind(&organization_id)
+            .bind("Scheduler Snapshot Test Org")
+            .bind(format!("scheduler-snapshot-test-org-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert scheduler test organization");
+            sqlx::query(
+                "INSERT INTO joysafeter_organization_projects (id, org_id, name, slug, is_default) VALUES ($1, $2, $3, $4, false)",
+            )
+            .bind(&project_id)
+            .bind(&organization_id)
+            .bind("Scheduler Snapshot Test Project")
+            .bind(format!("scheduler-snapshot-test-project-{unique}"))
+            .execute(&pool)
+            .await
+            .expect("insert scheduler test project");
+            sqlx::query("UPDATE joysafeter_agents SET project_id = $2 WHERE id = $1")
+                .bind(agent_id)
+                .bind(&project_id)
+                .execute(&pool)
                 .await
-                .expect("load agent")
-                .expect("agent exists");
-            let snapshot = build_agent_execution_snapshot(&pool, &agent)
+                .expect("scope scheduler test agent");
+            sqlx::query("UPDATE joysafeter_environments SET project_id = $2 WHERE id = $1")
+                .bind(environment_id)
+                .bind(&project_id)
+                .execute(&pool)
                 .await
-                .expect("build scheduler snapshot");
-            queries::create_session(
+                .expect("scope scheduler test environment");
+            sqlx::query("UPDATE joysafeter_tasks SET project_id = $2 WHERE id = $1")
+                .bind(task_id)
+                .bind(&project_id)
+                .execute(&pool)
+                .await
+                .expect("scope scheduler test task");
+            let session = snapshot::create_scheduler_session(
                 &pool,
-                session_id,
-                Some(agent_id),
-                None,
-                Some(&snapshot),
-                agent.environment_ref.as_deref(),
+                &store,
+                snapshot::SchedulerSnapshotCommand {
+                    task_id,
+                    agent_id,
+                    project_id: ProjectId::parse(&project_id).expect("scheduler test project"),
+                },
             )
             .await
-            .expect("create scheduler session");
+            .expect("create scheduler session")
+            .expect("task remains scheduling");
+            let session_id = session.id;
 
             sqlx::query(
                 r#"
@@ -1625,8 +1537,12 @@ mod tests {
         }
         .await;
 
-        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
-            .bind(session_id)
+        let _ = sqlx::query("DELETE FROM joysafeter_tasks WHERE id = $1")
+            .bind(task_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE agent_id = $1")
+            .bind(agent_id)
             .execute(&pool)
             .await;
         let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
@@ -1635,6 +1551,14 @@ mod tests {
             .await;
         let _ = sqlx::query("DELETE FROM joysafeter_environments WHERE id = $1")
             .bind(environment_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
+            .bind(format!("scheduler-snapshot-test-project-{unique}"))
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organizations WHERE id = $1")
+            .bind(format!("scheduler-snapshot-test-org-{unique}"))
             .execute(&pool)
             .await;
     }

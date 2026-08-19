@@ -153,7 +153,7 @@ class TriggerRuntimeGate:
         conditions = [JoySafeterTrigger.id == trigger_id, JoySafeterTrigger.deleted_at.is_(None)]
         if project_id is not None:
             conditions.append(JoySafeterTrigger.project_id == project_id)
-        return select(JoySafeterTrigger).where(*conditions).with_for_update()
+        return select(JoySafeterTrigger).where(*conditions).execution_options(populate_existing=True).with_for_update()
 
     @staticmethod
     def trigger_not_found_error(trigger_id: TriggerId) -> NotFoundError:

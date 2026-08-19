@@ -154,6 +154,16 @@ class CredentialResponse(BaseModel):
     updated_at: datetime
 
 
+class ModelCredentialSummary(BaseModel):
+    id: CredentialId
+    name: str
+    provider: Optional[str] = None
+    protocol: Optional[str] = None
+    model: Optional[str] = None
+    is_default: bool = False
+    archived_at: Optional[datetime] = None
+
+
 class CredentialGroupResponse(BaseModel):
     id: CredentialGroupId
     name: str

@@ -14,10 +14,13 @@ from pydantic import (
     model_validator,
 )
 
+from app.joysafeter_domain.schemas.joysafeter_agent import JoySafeterModelConfig
+from app.joysafeter_domain.schemas.joysafeter_credential import ModelCredentialSummary
 from app.joysafeter_domain.schemas.joysafeter_environment import MountResource
 from app.joysafeter_shared.ids import (
     AgentId,
     CredentialGroupId,
+    CredentialId,
     EventId,
     FileId,
     MemoryStoreId,
@@ -58,27 +61,33 @@ class SessionAgent(BaseModel):
     name: str
     engine_kind: Optional[str] = None
     description: Optional[str] = None
-    model: Optional[Dict[str, Any]] = None
+    model: Optional[JoySafeterModelConfig] = None
     system: Optional[str] = None
     tools: list[Dict[str, Any]] = Field(default_factory=list)
     skills: list[Dict[str, Any]] = Field(default_factory=list)
     mcp_servers: list[Dict[str, Any]] = Field(default_factory=list)
     multiagent: Optional[Dict[str, Any]] = None
+    model_credential_id: Optional[CredentialId] = None
+    model_connection: Optional[ModelCredentialSummary] = None
 
     @classmethod
     def from_agent(cls, agent) -> "SessionAgent":
+        model = agent.model
+        if isinstance(model, str):
+            model = JoySafeterModelConfig(id=model)
         return cls(
             id=agent.id,
             version=agent.version,
             name=agent.name,
             engine_kind=getattr(agent, "engine_kind", None),
             description=agent.description,
-            model=agent.model,
+            model=model,
             system=agent.system_prompt,
             tools=agent.tools or [],
             skills=agent.skills or [],
             mcp_servers=agent.mcp_servers or [],
             multiagent=agent.multiagent,
+            model_credential_id=getattr(agent, "model_credential_id", None),
         )
 
 

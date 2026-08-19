@@ -3,20 +3,12 @@
 //! Provides the joysafeter kernel: gRPC server for sandbox-runner connections,
 //! task scheduling, sandbox lifecycle management, and event persistence.
 
-mod config;
-mod db;
-mod events;
-mod grpc;
-mod ids;
-mod kernel;
-mod runtime_config;
-mod sandbox;
-
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use config::JoySafeterConfig;
-use kernel::agent_identity_config::AgentIdentityProviderKind;
+use joysafeter_orchestrator::config::JoySafeterConfig;
+use joysafeter_orchestrator::kernel::agent_identity_config::AgentIdentityProviderKind;
+use joysafeter_orchestrator::{db, events, grpc, kernel, runtime_config, sandbox};
 use tracing::{error, info, warn};
 
 #[tokio::main]
@@ -107,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
             AgentIdentityProviderKind::Jd => {
                 #[cfg(feature = "jd-identity")]
                 {
-                    kernel::harness_input_builder::VaultCipher::validate_env_key()?;
+                    kernel::sensitive_material::legacy_v1::LegacyV1MaterialProtector::validate_env_key()?;
                     let redis = redis_client.as_ref().ok_or_else(|| {
                         anyhow::anyhow!("Redis is required when AGENT_IDENTITY_PROVIDER=jd")
                     })?;

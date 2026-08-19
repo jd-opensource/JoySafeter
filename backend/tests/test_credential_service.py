@@ -95,9 +95,7 @@ async def test_name_unique_per_kind(db_session, project_id):
     assert exc.value.code == "CREDENTIAL_NAME_EXISTS"
     # Different kind, same name -> OK.
     cred = await svc.create(
-        CreateCredentialRequest(
-            kind="model", name="dup", provider="openai", protocol="openai", data={"API_KEY": "x"}
-        ),
+        CreateCredentialRequest(kind="model", name="dup", provider="openai", protocol="openai", data={"API_KEY": "x"}),
         project_id=project_id,
     )
     assert cred.name == "dup"
@@ -175,9 +173,7 @@ async def test_data_contract_rejects_oversize(db_session, project_id):
     svc = CredentialService(db_session)
     with pytest.raises(AppError) as exc:
         await svc.create(
-            CreateCredentialRequest(
-                kind="service", name="s1", data={"TOKEN": "x" * 9000}
-            ),
+            CreateCredentialRequest(kind="service", name="s1", data={"TOKEN": "x" * 9000}),
             project_id=project_id,
         )
     assert exc.value.code == "CREDENTIAL_FIELD_INVALID"
@@ -221,9 +217,7 @@ async def test_set_and_clear_default(db_session, project_id):
 
 
 @pytest.mark.asyncio
-async def test_set_default_rejects_archived_credential_without_clearing_active_default(
-    db_session, project_id
-):
+async def test_set_default_rejects_archived_credential_without_clearing_active_default(db_session, project_id):
     svc = CredentialService(db_session)
     active = await svc.create(
         CreateCredentialRequest(
@@ -271,6 +265,134 @@ async def test_lifecycle_archive_restore_soft_delete(db_session, project_id):
     await svc.soft_delete(cred.id, project_id=project_id)
     # Soft-deleted credentials are not returned by get().
     assert await svc.get(cred.id, project_id=project_id) is None
+
+
+@pytest.mark.asyncio
+async def test_archived_resource_rejects_update_and_default_mutation(db_session, project_id):
+    svc = CredentialService(db_session)
+    cred = await svc.create(
+        CreateCredentialRequest(
+            kind="model",
+            name="archived-matrix",
+            provider="openai",
+            protocol="openai",
+            data={"API_KEY": "secret"},
+        ),
+        project_id=project_id,
+    )
+    await svc.archive(cred.id, project_id=project_id)
+
+    for operation in (
+        lambda: svc.update(
+            cred.id,
+            UpdateCredentialRequest(name="must-not-change"),
+            project_id=project_id,
+        ),
+        lambda: svc.clear_default(cred.id, project_id=project_id),
+    ):
+        with pytest.raises(AppError) as exc:
+            await operation()
+        assert exc.value.code == "CREDENTIAL_ARCHIVED"
+
+
+@pytest.mark.asyncio
+async def test_deleted_resource_rejects_patch_and_default_mutation_without_clearing_live_default(
+    db_session, project_id
+):
+    svc = CredentialService(db_session)
+    live_default = await svc.create(
+        CreateCredentialRequest(
+            kind="model",
+            name="live-default",
+            provider="openai",
+            protocol="openai",
+            data={"API_KEY": "live"},
+            is_default=True,
+        ),
+        project_id=project_id,
+    )
+    deleted = await svc.create(
+        CreateCredentialRequest(
+            kind="model",
+            name="deleted-default-candidate",
+            provider="openai",
+            protocol="openai",
+            data={"API_KEY": "deleted"},
+        ),
+        project_id=project_id,
+    )
+    deleted_id = deleted.id
+    await svc.soft_delete(deleted_id, project_id=project_id)
+
+    operations = (
+        lambda: svc.update(
+            deleted_id,
+            UpdateCredentialRequest(name="must-not-change"),
+            project_id=project_id,
+        ),
+        lambda: svc.set_default(deleted_id, project_id=project_id),
+        lambda: svc.clear_default(deleted_id, project_id=project_id),
+    )
+    for operation in operations:
+        with pytest.raises(AppError) as exc:
+            await operation()
+        assert exc.value.code == "CREDENTIAL_NOT_FOUND"
+        assert (await svc.get(live_default.id, project_id=project_id)).is_default is True
+
+
+@pytest.mark.asyncio
+async def test_resource_lifecycle_commands_are_idempotent_and_clear_default(db_session, project_id):
+    svc = CredentialService(db_session)
+    cred = await svc.create(
+        CreateCredentialRequest(
+            kind="model",
+            name="idempotent-model",
+            provider="openai",
+            protocol="openai",
+            data={"API_KEY": "secret"},
+            is_default=True,
+        ),
+        project_id=project_id,
+    )
+
+    first_archive = await svc.archive(cred.id, project_id=project_id)
+    second_archive = await svc.archive(cred.id, project_id=project_id)
+    assert first_archive.archived_at == second_archive.archived_at
+    assert second_archive.is_default is False
+
+    first_restore = await svc.restore(cred.id, project_id=project_id)
+    second_restore = await svc.restore(cred.id, project_id=project_id)
+    assert first_restore.archived_at is None
+    assert second_restore.archived_at is None
+
+    await svc.soft_delete(cred.id, project_id=project_id)
+    await svc.soft_delete(cred.id, project_id=project_id)
+    assert await svc.get(cred.id, project_id=project_id) is None
+
+
+@pytest.mark.asyncio
+async def test_legacy_disabled_mcp_oauth_cannot_restore(db_session, project_id):
+    group = JoySafeterCredentialGroup(project_id=project_id, name="legacy-oauth-group")
+    db_session.add(group)
+    await db_session.flush()
+    credential = JoySafeterCredential(
+        project_id=project_id,
+        kind="mcp",
+        name="legacy-oauth-member",
+        data={"token_value": "legacy"},
+        mcp_server_url="https://legacy.example.com/mcp",
+        normalized_mcp_server_url="https://legacy.example.com/mcp",
+        credential_type="oauth",
+        group_id=group.id,
+    )
+    db_session.add(credential)
+    await db_session.commit()
+
+    svc = CredentialService(db_session)
+    await svc.archive(credential.id, project_id=project_id)
+    with pytest.raises(AppError) as exc:
+        await svc.restore(credential.id, project_id=project_id)
+    assert exc.value.code == "CREDENTIAL_AUTH_SCHEME_DISABLED"
 
 
 @pytest.mark.asyncio

@@ -106,12 +106,22 @@ from typing import Optional
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_application.credentials.composition import compose_credential_application
+from app.joysafeter_application.credentials.snapshot_service import (
+    CreateCredentialAwareSession,
+    create_session_from_source,
+)
+from app.joysafeter_domain.credentials.bindings import McpGroupBinding
+from app.joysafeter_domain.credentials.policies import CredentialPolicyError, CredentialPolicyErrorCode
+from app.joysafeter_domain.credentials.types import CredentialGroupId as DomainCredentialGroupId
+from app.joysafeter_domain.credentials.types import NormalizedMcpUrl, ProjectId
 from app.joysafeter_domain.models.joysafeter_credential import JoySafeterSessionCredentialGroup
 from app.joysafeter_domain.models.joysafeter_session import (
     JoySafeterSession,
     JoySafeterSessionEvent,
     SessionStatus,
 )
+from app.joysafeter_domain.services.credential_binding_errors import raise_public_credential_error
 from app.joysafeter_shared.common.app_errors import ConflictError, NotFoundError, ResourceConflictError
 from app.joysafeter_shared.utils.datetime import platform_now, utc_now
 from app.joysafeter_shared.utils.locks import session_advisory_lock_key
@@ -300,6 +310,13 @@ class SessionService:
         display_agent_name = (agent_name or "").strip() or "Session"
         return f"{display_agent_name} · {platform_now().strftime('%m-%d %H:%M')}"
 
+    async def create_session_from_source(
+        self,
+        command: CreateCredentialAwareSession,
+    ) -> JoySafeterSession:
+        application = compose_credential_application(self.db, auto_commit=False)
+        return await create_session_from_source(command, application.uow)
+
     async def create_session(
         self,
         agent_id: AgentId,
@@ -311,13 +328,17 @@ class SessionService:
         agent_snapshot: Optional[dict] = None,
         project_id: Optional[str] = None,
         agent_name: Optional[str] = None,
+        commit: bool = True,
     ) -> JoySafeterSession:
         # Dedupe preserving order; the association table's composite PK would also
         # reject dupes, but we normalize up front so the bind validation and the
         # persisted set match exactly.
         group_ids = list(dict.fromkeys(credential_group_ids or []))
         if group_ids:
-            await self._validate_credential_groups(group_ids, project_id)
+            if agent_snapshot is None:
+                await self._validate_credential_groups(group_ids, project_id)
+            else:
+                await self._validate_credential_groups(group_ids, project_id, agent_snapshot=agent_snapshot)
 
         kwargs = dict(
             agent_id=agent_id,
@@ -341,14 +362,19 @@ class SessionService:
                     credential_group_id=group_id,
                 )
             )
-        await self.db.commit()
-        await self.db.refresh(session)
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(session)
+        else:
+            await self.db.flush()
         return session
 
     async def _validate_credential_groups(
         self,
         group_ids: list[CredentialGroupId],
         project_id: Optional[str],
+        *,
+        agent_snapshot: Optional[dict] = None,
     ) -> None:
         """Validate a session's credential-group binding before persisting it.
 
@@ -358,29 +384,38 @@ class SessionService:
         (delegated to ``CredentialGroupService.check_url_conflict_for_session``,
         which raises ``CREDENTIAL_GROUP_URL_CONFLICT``).
         """
-        from app.joysafeter_domain.services.joysafeter_credential_group_service import (
-            CredentialGroupService,
-        )
-
-        grp_svc = CredentialGroupService(self.db)
-        await grp_svc.lock_groups(group_ids, project_id=project_id)
-        for group_id in group_ids:
-            group = await grp_svc.get(group_id, project_id=project_id or "")
-            if group is None:
-                raise NotFoundError(
-                    code="SESSION_CREDENTIAL_GROUP_NOT_FOUND",
-                    message=f"Credential group not found: {group_id}",
-                    data={"credential_group_id": str(group_id)},
-                    user_action="refresh",
-                )
-            if group.archived_at is not None:
+        if project_id is None:
+            raise NotFoundError(code="SESSION_CREDENTIAL_GROUP_NOT_FOUND", message="Credential group not found")
+        application = compose_credential_application(self.db, auto_commit=False)
+        for group_id in sorted(group_ids, key=str):
+            await application.uow.credentials.lock_credential_group(group_id, project_id=project_id)
+        try:
+            binding = McpGroupBinding(
+                project_id=ProjectId(project_id),
+                group_ids=tuple(DomainCredentialGroupId(str(group_id)) for group_id in group_ids),
+                declared_server_urls=tuple(
+                    NormalizedMcpUrl(item["url"])
+                    for item in ((agent_snapshot or {}).get("mcp_servers") or [])
+                    if isinstance(item, dict) and "url" in item
+                ),
+            )
+            await application.group_service.validate_binding(binding)
+        except CredentialPolicyError as exc:
+            if exc.code is CredentialPolicyErrorCode.ARCHIVED:
                 raise ResourceConflictError(
-                    code="SESSION_CREDENTIAL_GROUP_ARCHIVED",
-                    message=f"Credential group is archived: {group_id}",
-                    data={"credential_group_id": str(group_id)},
-                    user_action="refresh",
-                )
-        await grp_svc.check_url_conflict_for_session(group_ids, project_id or "")
+                    code="SESSION_CREDENTIAL_GROUP_ARCHIVED", message="Credential group is archived"
+                ) from exc
+            if exc.code in {
+                CredentialPolicyErrorCode.GROUP_MISMATCH,
+                CredentialPolicyErrorCode.DELETED,
+                CredentialPolicyErrorCode.PROJECT_MISMATCH,
+            }:
+                raise NotFoundError(
+                    code="SESSION_CREDENTIAL_GROUP_NOT_FOUND", message="Credential group not found"
+                ) from exc
+            raise_public_credential_error(exc)
+        except (TypeError, ValueError) as exc:
+            raise_public_credential_error(exc, constructor_error="url_conflict")
 
     async def get_credential_group_ids(self, session_id: SessionId) -> list[CredentialGroupId]:
         result = await self.db.execute(
@@ -390,9 +425,7 @@ class SessionService:
         )
         return list(result.scalars().all())
 
-    async def credential_group_ids_map(
-        self, session_ids: list[SessionId]
-    ) -> dict[SessionId, list[CredentialGroupId]]:
+    async def credential_group_ids_map(self, session_ids: list[SessionId]) -> dict[SessionId, list[CredentialGroupId]]:
         """Batch-load bound credential-group ids for a set of sessions (list view)."""
         if not session_ids:
             return {}
@@ -406,7 +439,6 @@ class SessionService:
         for session_id, group_id in result.all():
             out.setdefault(session_id, []).append(group_id)
         return out
-
 
     async def get_session(
         self,

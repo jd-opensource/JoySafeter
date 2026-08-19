@@ -17,6 +17,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.joysafeter_domain.schemas.joysafeter_credential import ModelCredentialSummary
 from app.joysafeter_shared.ids import AgentId, CredentialId, SkillId
 
 
@@ -216,6 +217,7 @@ class JoySafeterAgentResponse(BaseModel):
     version: int
     environment_ref: Optional[str] = None
     model_credential_id: Optional[CredentialId] = None
+    model_connection: Optional[ModelCredentialSummary] = None
     created_at: datetime
     updated_at: datetime
     archived_at: Optional[datetime] = None

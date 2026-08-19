@@ -33,13 +33,21 @@ from starlette.testclient import TestClient
 
 from app.joysafeter_api.api.v1.credential_groups import router as credential_groups_router
 from app.joysafeter_api.api.v1.credentials import router as credentials_router
+from app.joysafeter_application.credentials.composition import CredentialApplication
+from app.joysafeter_application.credentials.resource_service import credential_nudge_failures
+from app.joysafeter_domain.credentials.dependencies import (
+    CredentialDependency,
+    DependencyDisposition,
+)
+from app.joysafeter_domain.credentials.types import CredentialId as DomainCredentialId
+from app.joysafeter_domain.credentials.types import ProjectId
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredential
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
-from app.joysafeter_domain.services.joysafeter_security_audit_service import SecurityAuditService
 from app.joysafeter_infrastructure.credentials import network_policy_adapter
+from app.joysafeter_infrastructure.credentials.audit_adapter import SqlAlchemyCredentialAuditAdapter
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
@@ -47,6 +55,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     get_joysafeter_auth_context,
     require_joysafeter_write,
 )
+from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.ids import CredentialId
 
@@ -180,6 +189,41 @@ def test_credential_create_list_get_masked_default_archive_restore(client) -> No
     assert resp.status_code == 404
 
 
+def test_deleted_resource_routes_fail_closed_without_clearing_live_default(client) -> None:
+    api, _project_id, _factory = client
+    live_default_id = api.post(
+        "/credentials",
+        json={
+            "kind": "model",
+            "name": "route-live-default",
+            "provider": "openai",
+            "protocol": "openai",
+            "data": {"API_KEY": "live"},
+            "is_default": True,
+        },
+    ).json()["id"]
+    deleted_id = api.post(
+        "/credentials",
+        json={
+            "kind": "model",
+            "name": "route-deleted-default",
+            "provider": "openai",
+            "protocol": "openai",
+            "data": {"API_KEY": "deleted"},
+        },
+    ).json()["id"]
+    assert api.delete(f"/credentials/{deleted_id}").status_code == 204
+
+    responses = (
+        api.patch(f"/credentials/{deleted_id}", json={"name": "must-not-change"}),
+        api.post(f"/credentials/{deleted_id}/default"),
+    )
+    for response in responses:
+        assert response.status_code == 404, response.text
+        assert response.json()["code"] == "CREDENTIAL_NOT_FOUND"
+        assert api.get(f"/credentials/{live_default_id}").json()["is_default"] is True
+
+
 def test_credential_list_filters_archived_before_pagination_without_changing_default(client) -> None:
     api, _project_id, _factory = client
     active = api.post(
@@ -226,10 +270,10 @@ def test_credential_list_filters_archived_before_pagination_without_changing_def
 def test_credential_create_rolls_back_when_audit_write_fails(client, monkeypatch) -> None:
     api, project_id, session_factory = client
 
-    async def fail_log_event(self, **kwargs):
+    async def fail_log_event(self, entry):
         raise RuntimeError("audit db unavailable")
 
-    monkeypatch.setattr(SecurityAuditService, "log_event", fail_log_event)
+    monkeypatch.setattr(SqlAlchemyCredentialAuditAdapter, "append", fail_log_event)
 
     with pytest.raises(RuntimeError, match="audit db unavailable"):
         api.post(
@@ -375,6 +419,7 @@ def test_credential_update_nudges_live_sandbox_after_commit(client, monkeypatch)
     async def record_nudge(target_sandbox_ids, **kwargs):
         nudged.extend(str(target_sandbox_id) for target_sandbox_id in target_sandbox_ids)
         return len(target_sandbox_ids)
+        return len(target_sandbox_ids)
 
     monkeypatch.setattr(
         network_policy_adapter,
@@ -388,6 +433,32 @@ def test_credential_update_nudges_live_sandbox_after_commit(client, monkeypatch)
     )
     assert response.status_code == 200, response.text
     assert nudged == [sandbox_id]
+
+
+def test_nudge_failure_is_observable_and_does_not_change_success_response(client, monkeypatch, caplog) -> None:
+    api, _project_id, _factory = client
+    credential_id = api.post(
+        "/credentials",
+        json={
+            "kind": "service",
+            "name": "nudge-failure",
+            "data": {"TOKEN": "old"},
+        },
+    ).json()["id"]
+
+    async def fail_nudge(self):
+        raise RuntimeError("relay unavailable")
+
+    monkeypatch.setattr(network_policy_adapter.SqlAlchemyCredentialImpactAdapter, "nudge_after_commit", fail_nudge)
+    before = credential_nudge_failures["after_commit"]
+    response = api.patch(
+        f"/credentials/{credential_id}",
+        json={"data": {"TOKEN": "new"}},
+    )
+
+    assert response.status_code == 200, response.text
+    assert credential_nudge_failures["after_commit"] == before + 1
+    assert "credential impact nudge failed after commit" in caplog.text
 
 
 def test_delete_credential_in_use_returns_409(client) -> None:
@@ -530,16 +601,218 @@ def test_group_list_filters_archived_before_pagination(client) -> None:
     }
 
 
+def test_group_restore_endpoint_and_duplicate_lifecycle_requests_are_idempotent(client) -> None:
+    api, _project_id, _factory = client
+    created = api.post("/credential-groups", json={"name": "restore-endpoint"})
+    group_id = created.json()["id"]
+
+    first_archive = api.post(f"/credential-groups/{group_id}/archive")
+    second_archive = api.post(f"/credential-groups/{group_id}/archive")
+    assert first_archive.status_code == second_archive.status_code == 200
+
+    first_restore = api.post(f"/credential-groups/{group_id}/restore")
+    second_restore = api.post(f"/credential-groups/{group_id}/restore")
+    assert first_restore.status_code == second_restore.status_code == 200
+    assert first_restore.json()["archived_at"] is None
+    assert second_restore.json()["archived_at"] is None
+
+
+def test_generic_and_group_member_endpoints_share_archived_group_decision(client) -> None:
+    api, _project_id, _factory = client
+    group_id = api.post("/credential-groups", json={"name": "shared-policy"}).json()["id"]
+    member_id = api.post(
+        f"/credential-groups/{group_id}/members",
+        json={
+            "name": "shared-policy-member",
+            "mcp_server_url": "https://shared-policy.example.com/mcp",
+            "data": {"token_value": "secret"},
+        },
+    ).json()["id"]
+    assert api.post(f"/credential-groups/{group_id}/archive").status_code == 200
+
+    generic = api.post(f"/credentials/{member_id}/archive")
+    member = api.post(f"/credential-groups/{group_id}/members/{member_id}/archive")
+    assert generic.status_code == member.status_code == 409
+    assert generic.json()["code"] == member.json()["code"] == "CREDENTIAL_GROUP_ARCHIVED"
+
+
+@pytest.mark.parametrize(
+    ("generic_method", "generic_suffix", "member_method", "member_suffix"),
+    [
+        ("post", "/archive", "post", "/archive"),
+        ("delete", "", "delete", ""),
+    ],
+)
+def test_generic_and_group_member_lifecycle_share_registry_enforce_authority(
+    client,
+    monkeypatch,
+    generic_method,
+    generic_suffix,
+    member_method,
+    member_suffix,
+) -> None:
+    api, project_id, _factory = client
+    group_id = api.post("/credential-groups", json={"name": f"registry-group-{generic_method}"}).json()["id"]
+    member_id = api.post(
+        f"/credential-groups/{group_id}/members",
+        json={
+            "name": f"registry-member-{generic_method}",
+            "mcp_server_url": f"https://registry-{generic_method}.example.com/mcp",
+            "data": {"token_value": "secret"},
+        },
+    ).json()["id"]
+
+    scanner_calls: list[str] = []
+
+    async def registry_only_blocker(self, scan_project_id, scan_credential_id):
+        assert str(scan_project_id) == project_id
+        assert str(scan_credential_id) == member_id
+        scanner_calls.append(str(scan_credential_id))
+        return (
+            CredentialDependency(
+                surface_id="registry_only_test_surface",
+                project_id=ProjectId(project_id),
+                source_id="registry-only-session",
+                credential_id=DomainCredentialId(member_id),
+                group_id=None,
+                dispositions=frozenset(
+                    {
+                        DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
+                        DependencyDisposition.BLOCK_RESOURCE_DELETE,
+                    }
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(settings, "credential_dependency_registry_mode", "enforce")
+    monkeypatch.setattr(
+        CredentialApplication,
+        "scan_resource_dependencies",
+        registry_only_blocker,
+    )
+
+    generic = getattr(api, generic_method)(f"/credentials/{member_id}{generic_suffix}")
+    member = getattr(api, member_method)(f"/credential-groups/{group_id}/members/{member_id}{member_suffix}")
+
+    assert generic.status_code == member.status_code == 409
+    assert generic.json()["code"] == member.json()["code"] == "CREDENTIAL_IN_USE"
+    assert generic.json()["data"] == member.json()["data"]
+    assert scanner_calls == [member_id, member_id]
+
+
+@pytest.mark.parametrize(
+    ("generic_method", "generic_suffix", "member_method", "member_suffix"),
+    [
+        ("post", "/archive", "post", "/archive"),
+        ("delete", "", "delete", ""),
+    ],
+)
+def test_archived_member_group_precedes_registry_blocker_for_both_endpoints(
+    client,
+    monkeypatch,
+    generic_method,
+    generic_suffix,
+    member_method,
+    member_suffix,
+) -> None:
+    api, project_id, _factory = client
+    group_id = api.post("/credential-groups", json={"name": f"priority-group-{generic_method}"}).json()["id"]
+    member_id = api.post(
+        f"/credential-groups/{group_id}/members",
+        json={
+            "name": f"priority-member-{generic_method}",
+            "mcp_server_url": f"https://priority-{generic_method}.example.com/mcp",
+            "data": {"token_value": "secret"},
+        },
+    ).json()["id"]
+    assert api.post(f"/credential-groups/{group_id}/archive").status_code == 200
+    scanner_calls: list[str] = []
+
+    async def registry_only_blocker(self, scan_project_id, scan_credential_id):
+        assert str(scan_project_id) == project_id
+        assert str(scan_credential_id) == member_id
+        scanner_calls.append(str(scan_credential_id))
+        return (
+            CredentialDependency(
+                surface_id="registry_only_priority_surface",
+                project_id=ProjectId(project_id),
+                source_id="registry-only-priority-session",
+                credential_id=DomainCredentialId(member_id),
+                group_id=None,
+                dispositions=frozenset(
+                    {
+                        DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
+                        DependencyDisposition.BLOCK_RESOURCE_DELETE,
+                    }
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(settings, "credential_dependency_registry_mode", "enforce")
+    monkeypatch.setattr(CredentialApplication, "scan_resource_dependencies", registry_only_blocker)
+
+    generic = getattr(api, generic_method)(f"/credentials/{member_id}{generic_suffix}")
+    member = getattr(api, member_method)(f"/credential-groups/{group_id}/members/{member_id}{member_suffix}")
+
+    assert generic.status_code == member.status_code == 409
+    assert generic.json()["code"] == member.json()["code"] == "CREDENTIAL_GROUP_ARCHIVED"
+    assert generic.json()["data"] == member.json()["data"] == {"credential_group_id": group_id}
+    assert scanner_calls == []
+
+
+@pytest.mark.parametrize(
+    ("member_method", "member_suffix"),
+    [("post", "/archive"), ("delete", "")],
+)
+def test_wrong_group_membership_precedes_registry_observation(
+    client,
+    monkeypatch,
+    member_method,
+    member_suffix,
+) -> None:
+    api, project_id, _factory = client
+    owning_group_id = api.post("/credential-groups", json={"name": f"owning-{member_method}"}).json()["id"]
+    wrong_group_id = api.post("/credential-groups", json={"name": f"wrong-{member_method}"}).json()["id"]
+    member_id = api.post(
+        f"/credential-groups/{owning_group_id}/members",
+        json={
+            "name": f"wrong-membership-{member_method}",
+            "mcp_server_url": f"https://wrong-membership-{member_method}.example.com/mcp",
+            "data": {"token_value": "secret"},
+        },
+    ).json()["id"]
+    assert api.post(f"/credential-groups/{wrong_group_id}/archive").status_code == 200
+    scanner_calls: list[str] = []
+
+    async def registry_only_blocker(self, scan_project_id, scan_credential_id):
+        assert str(scan_project_id) == project_id
+        scanner_calls.append(str(scan_credential_id))
+        return ()
+
+    monkeypatch.setattr(settings, "credential_dependency_registry_mode", "enforce")
+    monkeypatch.setattr(CredentialApplication, "scan_resource_dependencies", registry_only_blocker)
+
+    response = getattr(api, member_method)(f"/credential-groups/{wrong_group_id}/members/{member_id}{member_suffix}")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "CREDENTIAL_NOT_FOUND"
+    assert response.json()["data"] == {
+        "credential_id": member_id,
+        "credential_group_id": wrong_group_id,
+    }
+    assert scanner_calls == []
+
+
 def test_group_member_create_rolls_back_when_audit_write_fails(client, monkeypatch) -> None:
     api, project_id, session_factory = client
     response = api.post("/credential-groups", json={"name": "atomic-group"})
     assert response.status_code == 201, response.text
     group_id = response.json()["id"]
 
-    async def fail_log_event(self, **kwargs):
+    async def fail_log_event(self, entry):
         raise RuntimeError("audit db unavailable")
 
-    monkeypatch.setattr(SecurityAuditService, "log_event", fail_log_event)
+    monkeypatch.setattr(SqlAlchemyCredentialAuditAdapter, "append", fail_log_event)
 
     with pytest.raises(RuntimeError, match="audit db unavailable"):
         api.post(

@@ -368,6 +368,15 @@ class SchedulerLoop:
             submission = TaskSubmissionService(db)
             trigger_svc = JoySafeterTriggerService(db)
 
+            locked_trigger = await trigger_svc.get_claimed_for_fire(
+                trigger.id,
+                expected_locked_by=self._worker_id,
+            )
+            if locked_trigger is None:
+                logger.info("Trigger %s claim is no longer owned; skipping fire", trigger.id)
+                return _FireOutcome(status="skipped")
+            trigger = locked_trigger
+
             block_reason = await trigger_svc.trigger_runtime_block_reason(trigger)
             if block_reason is not None:
                 logger.info("Trigger %s skipped before fire: %s", trigger.id, block_reason)
@@ -399,6 +408,53 @@ class SchedulerLoop:
                     session_id=getattr(existing_task, "chat_session_id", None),
                     payload=provider.build_payload(trigger, fired_slot=fired_slot),
                 )
+
+            # Capture one immutable execution command while the claimed Trigger
+            # row is still locked. REPLACE cancellation commits internally and
+            # therefore releases this lock; no Trigger field may be consulted
+            # after that boundary to assemble the replacement run.
+            agent = await JoySafeterAgentService(db).get_agent(trigger.agent_id, project_id=trigger.project_id)
+            if agent is None:
+                logger.warning("Trigger %s targets missing agent %s; skipping", trigger.id, trigger.agent_id)
+                return _FireOutcome(status="skipped")
+            if getattr(agent, "archived_at", None) is not None:
+                logger.warning("Trigger %s targets archived agent %s; skipping", trigger.id, trigger.agent_id)
+                return _FireOutcome(status="skipped")
+
+            environment_ref = trigger.environment_ref or getattr(agent, "environment_ref", None)
+            if environment_ref:
+                environment = await EnvironmentService(db).get_environment_by_ref(
+                    environment_ref,
+                    project_id=trigger.project_id,
+                )
+                if environment is None:
+                    logger.warning("Trigger %s targets missing environment %s; skipping", trigger.id, environment_ref)
+                    return _FireOutcome(status="skipped")
+                if getattr(environment, "archived_at", None) is not None:
+                    logger.warning("Trigger %s targets archived environment %s; skipping", trigger.id, environment_ref)
+                    return _FireOutcome(status="skipped")
+
+            payload = provider.build_payload(trigger, fired_slot=fired_slot)
+            run_config = AgentTriggerRunConfig(
+                agent=agent,
+                name=trigger.name,
+                source=f"trigger:cron:{trigger.id}",
+                prompt=render_prompt_template(trigger.prompt_template, payload),
+                environment_ref=environment_ref,
+                timeout_sec=trigger.timeout_sec,
+                max_retries=trigger.max_retries,
+                project_id=trigger.project_id,
+                user_id=trigger.user_id,
+                org_id=trigger.org_id,
+                idempotency_key=idempotency_key,
+                session_mode=getattr(trigger, "session_mode", "fresh"),
+                pinned_session_id=getattr(trigger, "pinned_session_id", None),
+                reusable_session_id=getattr(trigger, "reusable_session_id", None),
+                session_key=render_session_key(getattr(trigger, "session_key", None), payload),
+                trigger_id=trigger.id,
+                metadata={"trigger_id": str(trigger.id), "trigger_type": "cron"},
+                system_prompt=getattr(trigger, "system_prompt", None),
+            )
 
             # Concurrency policy: decide whether this fire may proceed.
             policy = trigger.concurrency_policy
@@ -432,51 +488,8 @@ class SchedulerLoop:
                 enforce_user_quota=False,
             )
 
-            # Resolve the agent the trigger targets.
-            agent = await JoySafeterAgentService(db).get_agent(trigger.agent_id, project_id=trigger.project_id)
-            if agent is None:
-                logger.warning("Trigger %s targets missing agent %s; skipping", trigger.id, trigger.agent_id)
-                return _FireOutcome(status="skipped")
-            if getattr(agent, "archived_at", None) is not None:
-                logger.warning("Trigger %s targets archived agent %s; skipping", trigger.id, trigger.agent_id)
-                return _FireOutcome(status="skipped")
-
-            environment_ref = trigger.environment_ref or getattr(agent, "environment_ref", None)
-            if environment_ref:
-                environment = await EnvironmentService(db).get_environment_by_ref(
-                    environment_ref,
-                    project_id=trigger.project_id,
-                )
-                if environment is None:
-                    logger.warning("Trigger %s targets missing environment %s; skipping", trigger.id, environment_ref)
-                    return _FireOutcome(status="skipped")
-                if getattr(environment, "archived_at", None) is not None:
-                    logger.warning("Trigger %s targets archived environment %s; skipping", trigger.id, environment_ref)
-                    return _FireOutcome(status="skipped")
-
-            payload = provider.build_payload(trigger, fired_slot=fired_slot)
-            rendered_prompt = render_prompt_template(trigger.prompt_template, payload)
             result = await AgentTriggerExecutor(db).run(
-                AgentTriggerRunConfig(
-                    agent=agent,
-                    name=trigger.name,
-                    source=f"trigger:cron:{trigger.id}",
-                    prompt=rendered_prompt,
-                    environment_ref=environment_ref,
-                    timeout_sec=trigger.timeout_sec,
-                    max_retries=trigger.max_retries,
-                    project_id=trigger.project_id,
-                    user_id=trigger.user_id,
-                    org_id=trigger.org_id,
-                    idempotency_key=idempotency_key,
-                    session_mode=getattr(trigger, "session_mode", "fresh"),
-                    pinned_session_id=getattr(trigger, "pinned_session_id", None),
-                    reusable_session_id=getattr(trigger, "reusable_session_id", None),
-                    session_key=render_session_key(getattr(trigger, "session_key", None), payload),
-                    trigger_id=trigger.id,
-                    metadata={"trigger_id": str(trigger.id), "trigger_type": "cron"},
-                    system_prompt=getattr(trigger, "system_prompt", None),
-                ),
+                run_config,
                 enforce_user_quota=False,
             )
             if result.created:

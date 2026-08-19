@@ -15,14 +15,17 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_application.credentials.composition import compose_credential_application
 from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_domain.llm.compatibility import (
-    LlmCompatibilityError,
     validate_credential_data,
-    validate_secret_for_engine,
 )
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
-from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
+from app.joysafeter_domain.llm.model_inference_policy import (
+    ModelInferenceMaterialFieldMissingError,
+    build_model_inference_policy,
+)
+from app.joysafeter_domain.services.credential_binding_errors import raise_public_credential_error
+from app.joysafeter_shared.common.app_errors import InvalidRequestError
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, require_joysafeter_write
 from app.joysafeter_shared.common.stream_errors import async_error_payload
@@ -713,44 +716,41 @@ async def quickstart_chat(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ):
-    svc = CredentialService(db)
-    cred = await svc.get(req.model_credential_id, project_id=auth_ctx.project_id)
-    if not cred:
-        raise NotFoundError(
-            code="CREDENTIAL_NOT_FOUND",
-            message="Credential not found",
-            data={"credential_id": str(req.model_credential_id), "engine_kind": req.engine_kind},
-            user_action="fix_input",
-        )
-
+    application = compose_credential_application(
+        db,
+        auto_commit=False,
+        compatibility_mode=False,
+    )
     try:
-        binding = validate_secret_for_engine(
-            req.engine_kind,
-            cred.kind,
-            cred.provider,
-            cred.protocol,
+        binding = build_model_inference_policy(
+            get_llm_catalog(),
+            project_id=auth_ctx.project_id,
+            credential_id=req.model_credential_id,
+            engine_kind=req.engine_kind,
+            model_id=req.agent_context.model if req.agent_context is not None else None,
         )
-    except LlmCompatibilityError as exc:
-        raise InvalidRequestError(
-            code="QUICKSTART_SECRET_INCOMPATIBLE",
-            message=f"Credential '{req.model_credential_id}' is not compatible with engine_kind '{req.engine_kind}'",
-            data={
-                "credential_id": str(req.model_credential_id),
-                "engine_kind": req.engine_kind,
-                "kind": cred.kind,
-                "provider": cred.provider,
-                "protocol": cred.protocol,
-            },
-            user_action="fix_input",
-        ) from exc
-
-    data = svc.get_credential_data(cred)
-    provider = cred.provider or ""
-    protocol = cred.protocol or ""
+        validated, resolution = await application.binding_service.validate_model_inference(binding)
+        material = await application.material_adapter.load(validated)
+    except ModelInferenceMaterialFieldMissingError as exc:
+        validate_credential_data(
+            exc.provider_id,
+            exc.protocol_id,
+            {},
+        )
+        raise AssertionError("Catalog profile with missing required material must fail validation") from exc
+    except Exception as exc:
+        raise_public_credential_error(
+            exc,
+            credential_id=req.model_credential_id,
+            data={"engine_kind": req.engine_kind},
+            not_found_user_action="fix_input",
+        )
+    data = {str(field_name): value for field_name, value in material.fields.items()}
+    provider = resolution.provider_id
+    protocol = resolution.protocol_id
     validate_credential_data(provider, protocol, data)
-    profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
-    base_url_key = profile.base_url_key or "BASE_URL"
-    base_url = data.get(base_url_key) or binding.default_base_url
+    base_url_key = resolution.base_url_key or "BASE_URL"
+    base_url = data.get(base_url_key) or resolution.default_base_url
     if not base_url:
         raise InvalidRequestError(
             code="QUICKSTART_BASE_URL_REQUIRED",
@@ -762,7 +762,7 @@ async def quickstart_chat(
         base_url = validate_llm_base_url(base_url, key=base_url_key)
     except LLMBaseUrlError as exc:
         raise _quickstart_base_url_error(exc, provider=provider) from None
-    model = data.get(profile.model_key) if profile.model_key else None
+    model = data.get(resolution.model_key) if resolution.model_key else None
 
     system_prompt = _build_system_prompt(req.current_step, req.agent_context)
     tools = _build_tools(req.current_step)

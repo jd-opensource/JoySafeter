@@ -11,6 +11,7 @@ from app.joysafeter_domain.models.joysafeter_credential import (
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
 from app.joysafeter_shared.ids import CredentialGroupId
+from app.joysafeter_shared.mcp_url import normalize_mcp_url
 
 
 def credential_group_url_conflict(normalized_url: str) -> ResourceConflictError:
@@ -25,9 +26,7 @@ def credential_group_url_conflict(normalized_url: str) -> ResourceConflictError:
 def is_credential_group_url_integrity_error(exc: IntegrityError) -> bool:
     message = str(getattr(exc, "orig", None) or exc).lower()
     return "uq_credentials_group_url" in message or (
-        "joysafeter_credentials" in message
-        and "normalized_mcp_server_url" in message
-        and "unique" in message
+        "joysafeter_credentials" in message and "normalized_mcp_server_url" in message and "unique" in message
     )
 
 
@@ -38,8 +37,11 @@ async def reject_member_url_conflict_for_bound_sessions(
     normalized_url: str,
     project_id: str,
 ) -> None:
-    active_session_ids = (
-        select(JoySafeterSessionCredentialGroup.session_id)
+    active_sessions = (
+        select(
+            JoySafeterSessionCredentialGroup.session_id,
+            JoySafeterSession.agent_snapshot,
+        )
         .join(
             JoySafeterSession,
             JoySafeterSession.id == JoySafeterSessionCredentialGroup.session_id,
@@ -51,6 +53,19 @@ async def reject_member_url_conflict_for_bound_sessions(
             JoySafeterSession.status != "terminated",
         )
     )
+    active_rows = (await db.execute(active_sessions)).all()
+    for _session_id, snapshot in active_rows:
+        if not isinstance(snapshot, dict):
+            continue
+        for server in snapshot.get("mcp_servers") or []:
+            if (
+                isinstance(server, dict)
+                and isinstance(server.get("url"), str)
+                and normalize_mcp_url(server["url"]) == normalized_url
+            ):
+                raise credential_group_url_conflict(normalized_url)
+
+    active_session_ids = [session_id for session_id, _snapshot in active_rows]
     peer_group_ids = select(JoySafeterSessionCredentialGroup.credential_group_id).where(
         JoySafeterSessionCredentialGroup.session_id.in_(active_session_ids),
         JoySafeterSessionCredentialGroup.credential_group_id != group_id,

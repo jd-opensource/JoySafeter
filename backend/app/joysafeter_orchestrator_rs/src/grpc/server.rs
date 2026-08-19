@@ -1931,13 +1931,47 @@ mod tests {
     async fn create_agent_and_session(pool: &PgPool) -> (AgentId, SessionId) {
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
+        let organization_id = format!("org-grpc-{unique}");
+        let project_id = format!("proj-grpc-{unique}");
         sqlx::query(
             r#"
-            INSERT INTO joysafeter_agents (id, name, engine_kind, permission_mode, version)
-            VALUES ($1, $2, 'claude', 'bypassPermissions', 1)
+            INSERT INTO joysafeter_organizations
+                (id, name, slug, storage_used_bytes, departed_member_usage)
+            VALUES ($1, $2, $3, 0, 0)
+            "#,
+        )
+        .bind(&organization_id)
+        .bind(format!("gRPC Test Org {unique}"))
+        .bind(format!("grpc-test-org-{unique}"))
+        .execute(pool)
+        .await
+        .expect("insert test organization");
+
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_organization_projects
+                (id, org_id, name, slug, is_default)
+            VALUES ($1, $2, $3, $4, false)
+            "#,
+        )
+        .bind(&project_id)
+        .bind(&organization_id)
+        .bind(format!("gRPC Test Project {unique}"))
+        .bind(format!("grpc-test-project-{unique}"))
+        .execute(pool)
+        .await
+        .expect("insert test project");
+
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_agents
+                (id, project_id, name, engine_kind, permission_mode, version)
+            VALUES ($1, $2, $3, 'claude', 'bypassPermissions', 1)
             "#,
         )
         .bind(agent_id)
+        .bind(&project_id)
         .bind(format!("control-replay-agent-{agent_id}"))
         .execute(pool)
         .await
@@ -1945,12 +1979,13 @@ mod tests {
 
         sqlx::query(
             r#"
-            INSERT INTO joysafeter_sessions (id, agent_id, status)
-            VALUES ($1, $2, 'running')
+            INSERT INTO joysafeter_sessions (id, agent_id, project_id, status)
+            VALUES ($1, $2, $3, 'running')
             "#,
         )
         .bind(session_id)
         .bind(agent_id)
+        .bind(&project_id)
         .execute(pool)
         .await
         .expect("insert test session");
@@ -1959,6 +1994,20 @@ mod tests {
     }
 
     async fn cleanup(pool: &PgPool, agent_id: AgentId, session_id: SessionId) {
+        let project = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+            r#"
+            SELECT agents.project_id, projects.org_id
+            FROM joysafeter_agents AS agents
+            LEFT JOIN joysafeter_organization_projects AS projects
+              ON projects.id = agents.project_id
+            WHERE agents.id = $1
+            "#,
+        )
+        .bind(agent_id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
         let _ =
             sqlx::query("DELETE FROM joysafeter_tasks WHERE chat_session_id = $1 OR agent_id = $2")
                 .bind(session_id)
@@ -1977,6 +2026,18 @@ mod tests {
             .bind(agent_id)
             .execute(pool)
             .await;
+        if let Some((Some(project_id), organization_id)) = project {
+            let _ = sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
+                .bind(&project_id)
+                .execute(pool)
+                .await;
+            if let Some(organization_id) = organization_id {
+                let _ = sqlx::query("DELETE FROM joysafeter_organizations WHERE id = $1")
+                    .bind(&organization_id)
+                    .execute(pool)
+                    .await;
+            }
+        }
     }
 
     #[test]

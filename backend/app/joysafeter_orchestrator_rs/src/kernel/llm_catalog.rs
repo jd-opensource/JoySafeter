@@ -95,7 +95,7 @@ pub(crate) struct ProtocolBinding {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuntimeSecretBinding {
+pub struct RuntimeCredentialBinding {
     pub protocol_id: String,
     pub credential_profile_id: String,
     pub default_base_url: Option<String>,
@@ -106,7 +106,7 @@ pub struct RuntimeSecretBinding {
 }
 
 pub fn validate_runtime_secret_material(
-    binding: &RuntimeSecretBinding,
+    binding: &RuntimeCredentialBinding,
     material: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), CredentialRuntimeError> {
     for field in &binding.required_material_fields {
@@ -334,7 +334,7 @@ fn validate_runtime_secret_with_catalog(
     kind: &str,
     provider: Option<&str>,
     protocol: Option<&str>,
-) -> Result<RuntimeSecretBinding, LlmCatalogError> {
+) -> Result<RuntimeCredentialBinding, LlmCatalogError> {
     let engine = catalog
         .engines
         .iter()
@@ -411,7 +411,7 @@ fn validate_runtime_secret_with_catalog(
             profile_id: binding.credential_profile_id.clone(),
         })?;
 
-    Ok(RuntimeSecretBinding {
+    Ok(RuntimeCredentialBinding {
         protocol_id: binding.protocol_id.clone(),
         credential_profile_id: binding.credential_profile_id.clone(),
         default_base_url: binding.default_base_url.clone(),
@@ -435,7 +435,7 @@ pub fn validate_runtime_secret(
     kind: &str,
     provider: Option<&str>,
     protocol: Option<&str>,
-) -> Result<RuntimeSecretBinding, LlmCatalogError> {
+) -> Result<RuntimeCredentialBinding, LlmCatalogError> {
     validate_runtime_secret_with_catalog(catalog()?, engine_kind, kind, provider, protocol)
 }
 

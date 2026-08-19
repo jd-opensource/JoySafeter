@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 
-
 pytestmark = pytest.mark.no_db
 
 _CONTRACTS_DIR = Path(__file__).resolve().parents[1] / "contracts"
@@ -68,6 +67,11 @@ def test_reference_contract_freezes_snapshot_versions_and_key_aliases(reference_
         "service_credential_id",
         "secret_key",
     ]
+    paths = reference_contract["reference_paths"]
+    assert paths
+    assert all(set(entry) == {"schemas", "document", "path", "surface", "scanner_fixture"} for entry in paths)
+    assert len({entry["scanner_fixture"] for entry in paths}) == len(paths)
+    assert all(entry["surface"] in reference_contract["consumer_surfaces"] for entry in paths)
 
 
 def test_reference_contract_includes_consumer_surfaces_and_fail_closed_vector(reference_contract: dict):
@@ -83,9 +87,7 @@ def test_reference_contract_includes_consumer_surfaces_and_fail_closed_vector(re
         "skill_ai_authoring_model_inference",
         "legacy_v0_v1_environment_snapshot",
     ]
-    assert reference_contract["error_categories"] == {
-        "unknown_explicit_schema": "corrupt_record"
-    }
+    assert reference_contract["error_categories"] == {"unknown_explicit_schema": "corrupt_record"}
     assert reference_contract["test_vectors"][-1] == {
         "name": "unknown_explicit_schema_fails_closed",
         "schema": "joysafeter.agent_execution_snapshot.v3",

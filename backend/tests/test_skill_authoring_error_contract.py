@@ -1,7 +1,8 @@
-"""Error-contract tests for the skill AI-authoring chat route after the 9e
-consumer sweep: the request references a model credential by
-``model_credential_id`` (CredentialId) resolved via ``CredentialService`` (was
-the name-based ``secret_ref`` + ``SecretService`` / ``SecretKind``).
+"""Error-contract tests for the Task 7 Skill AI Authoring model consumer.
+
+The request references a model credential by ``model_credential_id`` and the
+endpoint resolves it through canonical ModelInferenceBinding policy/material
+ports rather than the CredentialService compatibility facade.
 
 The full app is un-loadable mid-cutover, so the route functions are called
 directly against conftest's real ``db_session``.
@@ -120,7 +121,7 @@ async def test_authoring_chat_missing_credential_returns_structured_error(db_ses
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "CREDENTIAL_NOT_FOUND",
-        "message": "Credential not found.",
+        "message": "Credential not found",
         "data": {"credential_id": str(missing_id)},
         "source": "api",
         "retryable": False,
@@ -128,14 +129,20 @@ async def test_authoring_chat_missing_credential_returns_structured_error(db_ses
     }
 
 
+@pytest.mark.parametrize("data", [{}, {"UNRELATED_SECRET": "must-not-leak"}])
 @pytest.mark.asyncio
-async def test_authoring_chat_missing_openai_key_returns_structured_error(db_session, project_id):
-    cred_id = await _make_model_credential(db_session, project_id, {"OPENAI_MODEL": "gpt-5.5"})
+async def test_authoring_chat_missing_openai_key_returns_structured_error(
+    db_session,
+    project_id,
+    data,
+):
+    cred_id = await _make_model_credential(db_session, project_id, data)
 
     with pytest.raises(AppError) as exc_info:
         await authoring_chat(_chat_req(cred_id), db_session, _auth_ctx(project_id))
 
-    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+    payload = await handled_app_error_payload(exc_info.value, status_code=400)
+    assert payload == {
         "code": "SKILL_AUTHORING_SECRET_MISSING_KEY",
         "message": "Credential missing OPENAI_API_KEY.",
         "data": {"credential_id": str(cred_id), "required_key": "OPENAI_API_KEY"},
@@ -143,6 +150,7 @@ async def test_authoring_chat_missing_openai_key_returns_structured_error(db_ses
         "retryable": False,
         "user_action": "fix_input",
     }
+    assert "must-not-leak" not in str(payload)
 
 
 @pytest.mark.asyncio
@@ -158,7 +166,7 @@ async def test_authoring_chat_rejects_wrong_protocol_credential(db_session, proj
     with pytest.raises(AppError) as exc_info:
         await authoring_chat(_chat_req(cred_id), db_session, _auth_ctx(project_id))
 
-    assert exc_info.value.code == "SKILL_AUTHORING_SECRET_INCOMPATIBLE"
+    assert exc_info.value.code == "CREDENTIAL_KIND_INVALID"
 
 
 @pytest.mark.asyncio

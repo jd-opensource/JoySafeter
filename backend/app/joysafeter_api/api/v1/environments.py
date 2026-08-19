@@ -5,11 +5,16 @@ from typing import NamedTuple, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_api.api.v1.network_policy_refresh import (
-    refresh_live_limited_sandbox_network_policies,
+from app.joysafeter_application.credentials.composition import compose_credential_application
+from app.joysafeter_domain.credentials.bindings import (
+    EgressInjectKind,
+    EgressInjectPolicy,
+    EnvironmentInjectionBinding,
+    HttpEgressBinding,
 )
+from app.joysafeter_domain.credentials.types import CredentialFieldName, NormalizedEndpoint, ProjectId
+from app.joysafeter_domain.credentials.types import CredentialId as DomainCredentialId
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
-from app.joysafeter_domain.schemas.joysafeter_credential import CredentialKind
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
     EnvironmentConfig,
@@ -17,6 +22,7 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
     UpdateEnvironmentRequest,
     extract_environment_secret_references,
 )
+from app.joysafeter_domain.services.credential_binding_errors import raise_public_credential_error
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
 from app.joysafeter_shared.common.app_errors import (
@@ -193,8 +199,6 @@ async def _validate_secret_refs(
     There is no FK (the refs are buried in JSONB), so this write-time check is the
     integrity guard on create/update. Delete-time dependency scanning is Task 9e.
     """
-    from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
-
     references = extract_environment_secret_references(config)
     if not references:
         return
@@ -212,33 +216,73 @@ async def _validate_secret_refs(
             user_action="fix_input",
         )
 
-    credential_svc = CredentialService(db)
-    await credential_svc.lock_credentials(
-        [reference.credential_id for reference in references],
+    application = compose_credential_application(db, auto_commit=False)
+    await application.uow.credentials.lock_credentials(
+        list(dict.fromkeys(reference.credential_id for reference in references)),
         project_id=project_id,
     )
     for reference in references:
-        cred = await credential_svc.get(reference.credential_id, project_id=project_id)
-        if cred is None or cred.archived_at is not None:
-            raise NotFoundError(
-                code="CREDENTIAL_NOT_FOUND",
-                message="Credential not found",
-                data={
-                    "credential_id": str(reference.credential_id),
-                    "source": reference.source,
-                },
-                user_action="fix_input",
-            )
-        if cred.kind != CredentialKind.SERVICE.value:
-            raise InvalidRequestError(
-                code="CREDENTIAL_KIND_INVALID",
-                message="Environment credentials must reference a service credential",
-                data={
-                    "credential_id": str(reference.credential_id),
-                    "source": reference.source,
-                    "kind": cred.kind,
-                },
-                user_action="fix_input",
+        reference_data = {
+            "source": reference.source,
+            "index": reference.index,
+            "path": reference.path,
+        }
+        if reference.source == "secret_refs":
+            try:
+                binding = EnvironmentInjectionBinding(
+                    ProjectId(project_id),
+                    DomainCredentialId(str(reference.credential_id)),
+                )
+            except (TypeError, ValueError) as exc:
+                raise_public_credential_error(
+                    exc,
+                    credential_id=reference.credential_id,
+                    data=reference_data,
+                )
+        else:
+            service = config.egress_services[reference.index or 0]
+            inject = service.inject
+            if not inject.secret_key:
+                raise InvalidRequestError(
+                    code="CREDENTIAL_FIELD_MISSING",
+                    message="A required credential field is missing",
+                    data={"credential_id": str(reference.credential_id), **reference_data},
+                    user_action="fix_input",
+                )
+            try:
+                credential_field = CredentialFieldName(inject.secret_key)
+            except (TypeError, ValueError) as exc:
+                raise_public_credential_error(
+                    exc,
+                    credential_id=reference.credential_id,
+                    data=reference_data,
+                    constructor_error="field_missing",
+                )
+            try:
+                binding = HttpEgressBinding(
+                    ProjectId(project_id),
+                    DomainCredentialId(str(reference.credential_id)),
+                    NormalizedEndpoint(service.base_url),
+                    EgressInjectPolicy(
+                        EgressInjectKind(inject.type),
+                        credential_field,
+                        header=inject.header,
+                        cookie_name=inject.cookie_name,
+                    ),
+                )
+            except (TypeError, ValueError) as exc:
+                raise_public_credential_error(
+                    exc,
+                    credential_id=reference.credential_id,
+                    data=reference_data,
+                )
+        try:
+            await application.binding_service.validate_reference(binding)
+        except Exception as exc:
+            raise_public_credential_error(
+                exc,
+                credential_id=reference.credential_id,
+                data=reference_data,
             )
 
 
@@ -260,20 +304,34 @@ async def create_environment(
     await StorageMountService(db).validate_mount_resources(req.config.mount_resources, auth_ctx.project_id)
 
     svc = EnvironmentService(db)
-    env = await svc.create_environment(req, project_id=auth_ctx.project_id)
+    env = await svc.create_environment(req, project_id=auth_ctx.project_id, commit=False)
 
     # Validate packages synchronously -- fail the request on build error
     try:
         _apply_image_update(env, await _build_image_update(env))
-        await db.commit()
-        await db.refresh(env)
+        if auth_ctx.project_id is None:
+            await db.commit()
+            await db.refresh(env)
+        else:
+            await svc.commit_update(
+                env,
+                project_id=auth_ctx.project_id,
+                old_config=None,
+                new_config=env.config,
+            )
     except AppError:
         # Builder-unavailable (or any structured error) rolls back the created
         # environment while preserving its distinct error code for the client.
+        await db.rollback()
+        db.add(env)
+        await db.commit()
         await svc.delete_environment(env.id, project_id=auth_ctx.project_id)
         raise
     except Exception as exc:
         # Roll back the created environment on build failure
+        await db.rollback()
+        db.add(env)
+        await db.commit()
         await svc.delete_environment(env.id, project_id=auth_ctx.project_id)
         raise _environment_image_build_error(env.id, operation="create", exc=exc) from exc
 
@@ -320,7 +378,7 @@ async def update_environment(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> EnvironmentResponse:
     svc = EnvironmentService(db)
-    env = await svc.get_environment(env_id, project_id=auth_ctx.project_id)
+    env = await svc.lock_environment(env_id, project_id=auth_ctx.project_id)
     if not env:
         raise _environment_not_found_error(env_id)
 
@@ -336,6 +394,7 @@ async def update_environment(
         await _validate_secret_refs(db, req.config, auth_ctx.project_id)
         await StorageMountService(db).validate_mount_resources(req.config.mount_resources, auth_ctx.project_id)
 
+    old_config = dict(env.config or {})
     try:
         try:
             env = await svc.update_environment(env_id, req, project_id=auth_ctx.project_id, commit=False)
@@ -349,8 +408,12 @@ async def update_environment(
         # environment pointing at the previous image.
         if req.config is not None:
             _apply_image_update(env, await _build_image_update(env))
-        await db.commit()
-        await db.refresh(env)
+        await svc.commit_update(
+            env,
+            project_id=auth_ctx.project_id,
+            old_config=old_config,
+            new_config=env.config,
+        )
     except AppError:
         await db.rollback()
         raise
@@ -359,15 +422,6 @@ async def update_environment(
         if req.config is not None:
             raise _environment_image_build_error(env_id, operation="update", exc=exc) from exc
         raise
-
-    if req.config is not None:
-        await refresh_live_limited_sandbox_network_policies(
-            db,
-            project_id=auth_ctx.project_id,
-            reason="environment.updated",
-            source_type="environment",
-            source_id=str(env_id),
-        )
 
     return _env_to_response(env)
 

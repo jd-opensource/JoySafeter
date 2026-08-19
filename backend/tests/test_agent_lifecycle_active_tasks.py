@@ -1,9 +1,12 @@
+import asyncio
 import json
 import uuid
 
 import pytest
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.joysafeter_api.api.v1.agents import archive_agent, delete_agent, delete_agent_preview
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
@@ -48,6 +51,18 @@ async def _ensure_project(db_session, project_id: str) -> None:
         )
     )
     await db_session.commit()
+
+
+async def _wait_for_backend_lock_wait(db_session: AsyncSession, *, pid: int) -> None:
+    for _ in range(50):
+        result = await db_session.execute(
+            text("SELECT wait_event_type FROM pg_stat_activity WHERE pid = :pid"),
+            {"pid": pid},
+        )
+        if result.scalar_one_or_none() == "Lock":
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"backend {pid} did not wait on a row lock")
 
 
 class _StopFailingSandboxProvider:
@@ -198,6 +213,70 @@ async def test_hard_delete_agent_rejects_cross_project_at_service_boundary(db_se
     db_session.expire_all()
     row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
     assert row.project_id == "project-b"
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_agent_locks_aggregate_before_active_task_scan(
+    db_session,
+    postgres_url,
+    monkeypatch,
+):
+    agent = JoySafeterAgent(name=f"hard-delete-lock-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.commit()
+    agent_id = agent.id
+
+    engine = create_async_engine(postgres_url, poolclass=NullPool)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with factory() as blocker_db, factory() as delete_db:
+            locked_agent = await JoySafeterAgentService(blocker_db).lock_agent(agent_id)
+            assert locked_agent is not None
+
+            delete_service = JoySafeterAgentService(delete_db)
+            scan_started = asyncio.Event()
+            original_count = delete_service._count_active_tasks_for_agent
+
+            async def observed_count(*args, **kwargs):
+                scan_started.set()
+                return await original_count(*args, **kwargs)
+
+            monkeypatch.setattr(delete_service, "_count_active_tasks_for_agent", observed_count)
+            delete_pid = await delete_db.scalar(text("SELECT pg_backend_pid()"))
+            assert delete_pid is not None
+            delete_future = asyncio.create_task(delete_service.hard_delete_agent(agent_id))
+
+            await _wait_for_backend_lock_wait(db_session, pid=delete_pid)
+            scan_started_before_release = scan_started.is_set()
+
+            session = JoySafeterSession(agent_id=agent_id, status="running")
+            blocker_db.add(session)
+            await blocker_db.flush()
+            task = JoySafeterTask(
+                agent_id=agent_id,
+                chat_session_id=session.id,
+                status=JoySafeterTaskStatus.PENDING.value,
+                prompt="appeared while hard delete waited",
+            )
+            blocker_db.add(task)
+            await blocker_db.commit()
+
+            result = (await asyncio.wait_for(asyncio.gather(delete_future, return_exceptions=True), timeout=3))[0]
+
+            assert scan_started_before_release is False
+            assert isinstance(result, ValueError)
+            assert str(result) == "Agent has active tasks. Cancel them before hard delete."
+
+            remaining_agent = await db_session.scalar(
+                select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id).execution_options(populate_existing=True)
+            )
+            remaining_task = await db_session.scalar(
+                select(JoySafeterTask).where(JoySafeterTask.id == task.id).execution_options(populate_existing=True)
+            )
+            assert remaining_agent is not None
+            assert remaining_task is not None
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

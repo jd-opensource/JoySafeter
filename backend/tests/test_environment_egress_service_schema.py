@@ -152,23 +152,25 @@ def test_extract_environment_secret_references_unifies_direct_and_egress_refs():
     )
 
     assert extract_environment_secret_references(config) == [
-        EnvironmentSecretReference(direct_id, "secret_refs"),
-        EnvironmentSecretReference(egress_id, "egress_services"),
+        EnvironmentSecretReference(direct_id, "secret_refs", 0, "secret_refs[0]"),
+        EnvironmentSecretReference(egress_id, "egress_services", 0, "egress_services[0]"),
+        EnvironmentSecretReference(direct_id, "egress_services", 1, "egress_services[1]"),
     ]
 
 
-def test_extract_environment_secret_references_tolerates_legacy_malformed_config():
-    direct_id = CredentialId.new()
-    egress_id = CredentialId.new()
-    assert extract_environment_secret_references(
-        {
-            "secret_refs": ["", None, str(direct_id), "not-an-id"],
-            "egress_services": [None, "invalid", {"service_credential_id": str(egress_id)}, {}],
-        }
-    ) == [
-        EnvironmentSecretReference(direct_id, "secret_refs"),
-        EnvironmentSecretReference(egress_id, "egress_services"),
-    ]
+def test_extract_environment_secret_references_rejects_legacy_malformed_config():
+    with pytest.raises(ValueError, match="corrupt_record"):
+        extract_environment_secret_references(
+            {
+                "secret_refs": ["", None, str(CredentialId.new()), "not-an-id"],
+                "egress_services": [
+                    None,
+                    "invalid",
+                    {"service_credential_id": str(CredentialId.new())},
+                    {},
+                ],
+            }
+        )
 
 
 @pytest.mark.parametrize(

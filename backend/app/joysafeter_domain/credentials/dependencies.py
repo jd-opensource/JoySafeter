@@ -135,3 +135,126 @@ class CredentialImpact:
         if not dispositions or any(not isinstance(item, DependencyDisposition) for item in dispositions):
             raise ValueError("credential impact dispositions must contain supported values")
         object.__setattr__(self, "dispositions", dispositions)
+
+
+_BLOCK_RESOURCE = frozenset(
+    {
+        DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
+        DependencyDisposition.BLOCK_RESOURCE_DELETE,
+    }
+)
+
+
+def _surface(
+    surface_id: str,
+    *,
+    kind: ReferenceSurfaceKind,
+    target: ReferenceTarget,
+    dispositions: frozenset[DependencyDisposition],
+    owner: str,
+    persistent: bool = True,
+) -> ReferenceSurfaceDescriptor:
+    return ReferenceSurfaceDescriptor(
+        surface_id=ReferenceSurfaceId(surface_id),
+        kind=kind,
+        target=target,
+        dispositions=dispositions,
+        scanner_id=ReferenceScannerId(f"{surface_id}_scanner"),
+        owner=owner,
+        persistent=persistent,
+    )
+
+
+CREDENTIAL_REFERENCE_SURFACES = (
+    _surface(
+        "live_agent_model_binding",
+        kind=ReferenceSurfaceKind.LIVE_BINDING,
+        target=ReferenceTarget.RESOURCE,
+        dispositions=_BLOCK_RESOURCE,
+        owner="agents",
+    ),
+    _surface(
+        "agent_version_executable_snapshot",
+        kind=ReferenceSurfaceKind.HISTORICAL_EXECUTABLE,
+        target=ReferenceTarget.RESOURCE,
+        dispositions=frozenset({DependencyDisposition.REVALIDATE_ON_ACTIVATION}),
+        owner="agents",
+    ),
+    _surface(
+        "trigger_webhook_auth_binding",
+        kind=ReferenceSurfaceKind.LIVE_BINDING,
+        target=ReferenceTarget.RESOURCE,
+        dispositions=_BLOCK_RESOURCE,
+        owner="triggers",
+    ),
+    _surface(
+        "live_environment_direct_injection",
+        kind=ReferenceSurfaceKind.LIVE_BINDING,
+        target=ReferenceTarget.RESOURCE,
+        dispositions=_BLOCK_RESOURCE,
+        owner="environments",
+    ),
+    _surface(
+        "live_environment_http_egress_binding",
+        kind=ReferenceSurfaceKind.LIVE_BINDING,
+        target=ReferenceTarget.RESOURCE,
+        dispositions=_BLOCK_RESOURCE,
+        owner="environments",
+    ),
+    _surface(
+        "active_session_model_environment_snapshot",
+        kind=ReferenceSurfaceKind.ACTIVE_SNAPSHOT,
+        target=ReferenceTarget.RESOURCE,
+        dispositions=_BLOCK_RESOURCE,
+        owner="sessions",
+    ),
+    _surface(
+        "session_credential_group_association",
+        kind=ReferenceSurfaceKind.ACTIVE_SNAPSHOT,
+        target=ReferenceTarget.GROUP,
+        dispositions=frozenset(
+            {
+                DependencyDisposition.BLOCK_GROUP_ARCHIVE,
+                DependencyDisposition.BLOCK_GROUP_DELETE,
+                DependencyDisposition.REFRESH_RUNTIME_POLICY,
+            }
+        ),
+        owner="sessions",
+    ),
+    _surface(
+        "quickstart_model_inference",
+        kind=ReferenceSurfaceKind.EPHEMERAL_CONSUMER,
+        target=ReferenceTarget.RESOURCE,
+        dispositions=frozenset({DependencyDisposition.AUDIT_ONLY}),
+        owner="quickstart",
+        persistent=False,
+    ),
+    _surface(
+        "skill_ai_authoring_model_inference",
+        kind=ReferenceSurfaceKind.EPHEMERAL_CONSUMER,
+        target=ReferenceTarget.RESOURCE,
+        dispositions=frozenset({DependencyDisposition.AUDIT_ONLY}),
+        owner="skill_ai_authoring",
+        persistent=False,
+    ),
+    _surface(
+        "credential_group_member_ownership",
+        kind=ReferenceSurfaceKind.AGGREGATE_INTERNAL,
+        target=ReferenceTarget.GROUP,
+        dispositions=frozenset({DependencyDisposition.AUDIT_ONLY}),
+        owner="credentials",
+    ),
+    _surface(
+        "legacy_v0_v1_environment_snapshot",
+        kind=ReferenceSurfaceKind.LEGACY_COMPATIBILITY,
+        target=ReferenceTarget.RESOURCE,
+        dispositions=frozenset(
+            {
+                DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
+                DependencyDisposition.BLOCK_RESOURCE_DELETE,
+                DependencyDisposition.REVALIDATE_ON_ACTIVATION,
+            }
+        ),
+        owner="credential_compatibility",
+    ),
+)

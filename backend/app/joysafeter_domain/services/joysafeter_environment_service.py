@@ -1,10 +1,28 @@
+import logging
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from app.joysafeter_application.credentials.composition import compose_credential_application
+from app.joysafeter_application.credentials.ports import CredentialAuditEntry
+from app.joysafeter_domain.credentials.bindings import (
+    EgressInjectKind,
+    EgressInjectPolicy,
+    EnvironmentInjectionBinding,
+    HttpEgressBinding,
+)
+from app.joysafeter_domain.credentials.dependencies import CredentialImpact, DependencyDisposition
+from app.joysafeter_domain.credentials.references import CredentialReferenceCodec
+from app.joysafeter_domain.credentials.types import (
+    CredentialFieldName,
+    CredentialUsage,
+    NormalizedEndpoint,
+    ProjectId,
+)
+from app.joysafeter_domain.credentials.types import CredentialId as DomainCredentialId
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
@@ -17,6 +35,48 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
 )
 from app.joysafeter_shared.ids import EnvironmentId, TaskId, registered_entity_id_prefix
 from app.joysafeter_shared.utils.datetime import utc_now
+
+logger = logging.getLogger(__name__)
+_IMPACT_SURFACE_PROJECT_ID = ProjectId("environment-impact-surface")
+_REFERENCE_CODEC = CredentialReferenceCodec()
+
+
+def _credential_binding_surfaces(config: dict[str, Any] | None) -> dict[CredentialUsage, frozenset[object]]:
+    decoded = _REFERENCE_CODEC.decode_environment(config or {})
+    direct = frozenset(
+        EnvironmentInjectionBinding(
+            project_id=_IMPACT_SURFACE_PROJECT_ID,
+            credential_id=DomainCredentialId(str(credential_id)),
+        )
+        for credential_id in decoded.direct_credential_ids
+    )
+    egress_bindings = {
+        HttpEgressBinding(
+            project_id=_IMPACT_SURFACE_PROJECT_ID,
+            credential_id=reference.credential_id,
+            endpoint=NormalizedEndpoint(reference.endpoint),
+            inject=EgressInjectPolicy(
+                kind=EgressInjectKind(reference.inject_kind),
+                credential_field=CredentialFieldName(reference.credential_field),
+                header=reference.header,
+                cookie_name=reference.cookie_name,
+            ),
+        )
+        for reference in decoded.http_egress
+    }
+    return {
+        CredentialUsage.ENVIRONMENT_INJECTION: direct,
+        CredentialUsage.HTTP_EGRESS: frozenset(egress_bindings),
+    }
+
+
+def _changed_credential_binding_usages(
+    old_config: dict[str, Any] | None,
+    new_config: dict[str, Any] | None,
+) -> tuple[CredentialUsage, ...]:
+    old_surfaces = _credential_binding_surfaces(old_config)
+    new_surfaces = _credential_binding_surfaces(new_config)
+    return tuple(usage for usage in CredentialUsage if old_surfaces.get(usage) != new_surfaces.get(usage))
 
 
 def _environment_ref_matches(ref: object, env_name: str, env_id: EnvironmentId) -> bool:
@@ -31,7 +91,11 @@ class EnvironmentService:
         self.db = db
 
     async def create_environment(
-        self, req: CreateEnvironmentRequest, project_id: Optional[str] = None
+        self,
+        req: CreateEnvironmentRequest,
+        project_id: Optional[str] = None,
+        *,
+        commit: bool = True,
     ) -> JoySafeterEnvironment:
         purge_conditions: list[ColumnElement[bool]] = [
             JoySafeterEnvironment.name == req.name,
@@ -48,15 +112,59 @@ class EnvironmentService:
             metadata_=req.metadata,
             # ``mode="json"`` serializes typed CredentialId refs (egress
             # service_credential_id / secret_refs) to plain strings for JSONB.
-            config=req.config.model_dump(mode="json"),
+            config=_REFERENCE_CODEC.encode_environment(req.config.model_dump(mode="json"), version="v1"),
         )
         if project_id is not None:
             kwargs["project_id"] = project_id
         env = JoySafeterEnvironment(**kwargs)
         self.db.add(env)
-        await self.db.commit()
-        await self.db.refresh(env)
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(env)
+        else:
+            await self.db.flush()
         return env
+
+    async def commit_update(
+        self,
+        env: JoySafeterEnvironment,
+        *,
+        project_id: str,
+        old_config: dict[str, Any] | None,
+        new_config: dict[str, Any] | None,
+    ) -> None:
+        application = compose_credential_application(self.db, auto_commit=False)
+        changed_usages = _changed_credential_binding_usages(old_config, new_config)
+        if changed_usages:
+            await application.uow.audit.append(
+                CredentialAuditEntry(
+                    action="environment.credentials.updated",
+                    project_id=project_id,
+                    target_type="environment",
+                    target_id=str(env.id),
+                    details={"environment_id": str(env.id)},
+                )
+            )
+        for usage in changed_usages:
+            await application.uow.impacts.mark_pending(
+                CredentialImpact(
+                    usage=usage,
+                    source="environment",
+                    source_id=str(env.id),
+                    reason="environment.updated",
+                    project_id=ProjectId(project_id),
+                    affected_sandbox_ids=frozenset(),
+                    affected_session_ids=frozenset(),
+                    dispositions=frozenset({DependencyDisposition.REFRESH_RUNTIME_POLICY}),
+                )
+            )
+        await application.uow.commit()
+        await self.db.refresh(env)
+        if changed_usages:
+            try:
+                await application.uow.impacts.nudge_after_commit()
+            except Exception:
+                logger.warning("environment credential impact nudge failed after commit", exc_info=True)
 
     async def get_environment(
         self, env_id: EnvironmentId, project_id: Optional[str] = None
@@ -68,6 +176,23 @@ class EnvironmentService:
         if project_id is not None:
             conditions.append(JoySafeterEnvironment.project_id == project_id)
         result = await self.db.execute(select(JoySafeterEnvironment).where(and_(*conditions)))
+        return result.scalar_one_or_none()
+
+    async def lock_environment(
+        self, env_id: EnvironmentId, project_id: Optional[str] = None
+    ) -> Optional[JoySafeterEnvironment]:
+        conditions = [
+            JoySafeterEnvironment.id == env_id,
+            JoySafeterEnvironment.deleted_at.is_(None),
+        ]
+        if project_id is not None:
+            conditions.append(JoySafeterEnvironment.project_id == project_id)
+        result = await self.db.execute(
+            select(JoySafeterEnvironment)
+            .where(and_(*conditions))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
         return result.scalar_one_or_none()
 
     async def get_environment_by_ref(
@@ -128,10 +253,14 @@ class EnvironmentService:
         *,
         commit: bool = True,
     ) -> Optional[JoySafeterEnvironment]:
-        env = await self.get_environment(env_id, project_id=project_id)
+        env = await self.lock_environment(env_id, project_id=project_id)
         if not env:
             return None
-        next_config = req.config.model_dump(mode="json") if req.config is not None else None
+        next_config = (
+            _REFERENCE_CODEC.encode_environment(req.config.model_dump(mode="json"), version="v1")
+            if req.config is not None
+            else None
+        )
         name_changed = req.name is not None and req.name != env.name
         config_changed = next_config is not None and next_config != (env.config or {})
         if name_changed or config_changed:
@@ -169,7 +298,7 @@ class EnvironmentService:
         return env
 
     async def delete_environment(self, env_id: EnvironmentId, project_id: Optional[str] = None) -> bool:
-        env = await self.get_environment(env_id, project_id=project_id)
+        env = await self.lock_environment(env_id, project_id=project_id)
         if not env:
             return False
         active_dependency = await self.active_task_environment_dependency(env.name, env.id, project_id=project_id)
@@ -192,7 +321,7 @@ class EnvironmentService:
         return True
 
     async def archive_environment(self, env_id: EnvironmentId, project_id: Optional[str] = None) -> bool:
-        env = await self.get_environment(env_id, project_id=project_id)
+        env = await self.lock_environment(env_id, project_id=project_id)
         if not env:
             return False
         if env.archived_at:

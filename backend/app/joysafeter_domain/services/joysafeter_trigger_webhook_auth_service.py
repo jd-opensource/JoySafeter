@@ -8,9 +8,12 @@ from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_domain.schemas.joysafeter_credential import CredentialKind
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
-from app.joysafeter_shared.common.app_errors import NotFoundError, RequestValidationAppError
+from app.joysafeter_application.credentials.composition import compose_credential_application
+from app.joysafeter_domain.credentials.bindings import WebhookAuthBinding, WebhookAuthMethod
+from app.joysafeter_domain.credentials.types import CredentialFieldName, ProjectId
+from app.joysafeter_domain.credentials.types import CredentialId as DomainCredentialId
+from app.joysafeter_domain.services.credential_binding_errors import raise_public_credential_error
+from app.joysafeter_shared.common.app_errors import RequestValidationAppError
 from app.joysafeter_shared.ids import CredentialId, TriggerId
 
 _WEBHOOK_AUTH_METHODS = frozenset({"hmac", "bearer", "token"})
@@ -81,35 +84,42 @@ class WebhookAuthService:
         webhook_auth_field: str,
         project_id: Optional[str],
         trigger_id: Optional[TriggerId] = None,
+        auth_methods: object | None = None,
     ) -> str:
-        cred_svc = CredentialService(self.db)
-        credential = await cred_svc.get(webhook_auth_credential_id, project_id=project_id or "")
         context: dict[str, Any] = {"webhook_auth_credential_id": str(webhook_auth_credential_id)}
         if trigger_id is not None:
             context["trigger_id"] = str(trigger_id)
-        if credential is None or credential.archived_at is not None:
-            raise NotFoundError(
-                code="TRIGGER_SECRET_NOT_FOUND",
-                message=f"Credential not found: {webhook_auth_credential_id}",
-                data=context,
-                user_action="fix_input",
+        if project_id is None:
+            raise_public_credential_error(LookupError(), credential_id=webhook_auth_credential_id)
+        application = compose_credential_application(self.db, auto_commit=False)
+        try:
+            methods = ("hmac", "bearer") if auth_methods is None else auth_methods
+            normalized_methods = frozenset(
+                WebhookAuthMethod.BEARER if method in {"bearer", "token"} else WebhookAuthMethod(method)
+                for method in methods
             )
-        if credential.kind != CredentialKind.SERVICE.value:
-            raise RequestValidationAppError(
-                code="TRIGGER_SECRET_KIND_INVALID",
-                message="Webhook triggers require a service Credential",
-                data={**context, "kind": credential.kind},
-                user_action="fix_input",
+        except (TypeError, ValueError) as exc:
+            raise_public_credential_error(exc, credential_id=webhook_auth_credential_id)
+        try:
+            credential_field = CredentialFieldName(webhook_auth_field)
+        except (TypeError, ValueError) as exc:
+            raise_public_credential_error(
+                exc,
+                credential_id=webhook_auth_credential_id,
+                constructor_error="field_missing",
             )
-        credential_data = cred_svc.get_credential_data(credential)
-        if webhook_auth_field not in credential_data:
-            raise RequestValidationAppError(
-                code="TRIGGER_SECRET_KEY_NOT_FOUND",
-                message=f"Credential field not found: {webhook_auth_field}",
-                data={**context, "webhook_auth_field": webhook_auth_field},
-                user_action="fix_input",
+        try:
+            binding = WebhookAuthBinding(
+                project_id=ProjectId(project_id),
+                credential_id=DomainCredentialId(str(webhook_auth_credential_id)),
+                credential_field=credential_field,
+                methods=normalized_methods,
             )
-        secret_value = credential_data[webhook_auth_field]
+            validated = await application.binding_service.validate(binding)
+            material = await application.material_adapter.load(validated)
+            secret_value = material.fields[credential_field]
+        except Exception as exc:
+            raise_public_credential_error(exc, credential_id=webhook_auth_credential_id)
         if not secret_value.strip():
             raise RequestValidationAppError(
                 code="TRIGGER_SECRET_VALUE_BLANK",
@@ -132,6 +142,7 @@ class WebhookAuthService:
             webhook_auth_field=trigger.webhook_auth_field or "WEBHOOK_SECRET",
             project_id=trigger.project_id,
             trigger_id=trigger.id,
+            auth_methods=self.auth_methods(trigger.config),
         )
 
     @classmethod
