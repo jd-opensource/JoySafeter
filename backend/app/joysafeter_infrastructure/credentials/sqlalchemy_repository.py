@@ -17,6 +17,7 @@ catalog registration (Task 11).
 from __future__ import annotations
 
 import builtins
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -954,6 +955,36 @@ class SqlAlchemyCredentialRepository:
         return cred
 
     # --- cross-consumer dependency scan (Task 9) ---------------------------------
+
+    async def names_for(
+        self,
+        resource_type: str,
+        ids: Sequence[str],
+        project_id: str,
+    ) -> dict[str, str | None]:
+        if not ids:
+            return {}
+        from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+        from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
+        from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
+        from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
+
+        table_column = {
+            "agent": (JoySafeterAgent, JoySafeterAgent.name),
+            "trigger": (JoySafeterTrigger, JoySafeterTrigger.name),
+            "environment": (JoySafeterEnvironment, JoySafeterEnvironment.name),
+            "session": (JoySafeterSession, JoySafeterSession.title),
+        }.get(resource_type)
+        if table_column is None:
+            return {}
+        model, name_col = table_column
+        rows = await self.db.execute(
+            select(model.id, name_col).where(
+                model.id.in_(list(ids)),
+                model.project_id == project_id,
+            )
+        )
+        return {str(row_id): value for row_id, value in rows.all()}
 
     async def dependencies(self, cred_id: CredentialId, project_id: str) -> CredentialDependencies:
         """Find the live consumers that reference this credential.

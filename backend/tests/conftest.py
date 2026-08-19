@@ -161,3 +161,35 @@ async def _clean_tables(request: FixtureRequest) -> AsyncIterator[None]:
             await conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
     finally:
         await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def seeded_agent(db_session: AsyncSession):
+    """Insert one agent (name="客服机器人", project_id="project-a") for name-resolution tests.
+
+    ``joysafeter_agents.project_id`` carries a FK to ``joysafeter_organization_projects``,
+    so an owning organization + project (id="project-a") are seeded first.
+    """
+    import uuid
+
+    from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+    from app.joysafeter_domain.models.joysafeter_organization import Organization
+    from app.joysafeter_domain.models.joysafeter_project import Project
+
+    suffix = str(uuid.uuid4())
+    organization = Organization(name=f"seeded-org-{suffix}", slug=f"seeded-org-{suffix}")
+    db_session.add(organization)
+    await db_session.flush()
+    project = Project(
+        id="project-a",
+        org_id=organization.id,
+        name=f"seeded-project-{suffix}",
+        slug=f"seeded-project-{suffix}",
+    )
+    db_session.add(project)
+    await db_session.flush()
+
+    agent = JoySafeterAgent(name="客服机器人", project_id="project-a")
+    db_session.add(agent)
+    await db_session.commit()
+    return agent
