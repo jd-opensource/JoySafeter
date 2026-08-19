@@ -1002,7 +1002,7 @@ describe('credential domain terminology', () => {
       0,
     )
 
-    expect(inventory.counts).toEqual({ direct: 1311, dynamic: 407, total: 1718 })
+    expect(inventory.counts).toEqual({ direct: 1312, dynamic: 407, total: 1719 })
     expect(templateAdditions).toBe(360)
     expect(finiteAdditions).toBe(47)
     expect(inventory.templateDynamicLeaves).toContain(

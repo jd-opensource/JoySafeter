@@ -2061,6 +2061,7 @@ const zh = {
           surfaceActiveSessionSnapshot: '活跃会话',
           sessionFallback: '会话 {{id}}',
           otherCount: '另有 {{count}} 处历史快照引用阻塞',
+          inUseSummary: '仍被 {{count}} 处引用，请先解绑再归档或删除。',
         },
       },
       secrets: {

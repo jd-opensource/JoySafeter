@@ -128,3 +128,30 @@ describe('managed operation errors', () => {
     })
   })
 })
+
+describe('getOperationErrorMessage CREDENTIAL_IN_USE', () => {
+  const tWithOptions = (k: string, o?: Record<string, unknown>) =>
+    o ? `${k}:${JSON.stringify(o)}` : k
+
+  it('summarizes the new references shape', () => {
+    const msg = getOperationErrorMessage(
+      tWithOptions,
+      {
+        code: 'CREDENTIAL_IN_USE',
+        message: 'x',
+        data: { references: [{ resource_type: 'agent', name: 'A' }], other_count: 0 },
+      },
+      'common.operationFailed',
+    )
+    expect(msg).toContain('managed.credentials.references.inUseSummary')
+  })
+
+  it('summarizes the legacy dependency_ids shape', () => {
+    const msg = getOperationErrorMessage(
+      tWithOptions,
+      { code: 'CREDENTIAL_IN_USE', message: 'x', data: { dependency_ids: ['a', 'b'] } },
+      'common.operationFailed',
+    )
+    expect(msg).toContain('managed.credentials.references.inUseSummary')
+  })
+})

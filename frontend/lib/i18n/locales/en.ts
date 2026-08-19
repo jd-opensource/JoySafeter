@@ -2082,6 +2082,8 @@ const en = {
           surfaceActiveSessionSnapshot: 'Active session',
           sessionFallback: 'Session {{id}}',
           otherCount: '{{count}} more legacy snapshot reference(s) blocking',
+          inUseSummary:
+            'Still referenced by {{count}} item(s). Resolve them before archiving or deleting.',
         },
       },
       secrets: {
