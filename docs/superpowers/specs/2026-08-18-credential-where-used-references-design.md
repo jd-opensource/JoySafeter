@@ -3,72 +3,99 @@
 - 日期：2026-08-18
 - 分支：joysafeter-v2-0814
 - 相关：`project_joysafeter_service_credential_creation_ux`（本设计实现其"凭证详情展示 where-used"这条双向可见性轴）
+- 修订：rev2 —— 对齐工作区中正在构建的 scanner-registry / lifecycle-coordinator 架构（原 rev1 是按遗留 `as_data()` 4-list 写的，已作废）
 
-## 1. 问题
+## 1. 问题与现有架构
 
-归档/删除一个仍被引用的凭证时，用户看到一句笼统的英文报错
-`Credential is still referenced and cannot be archived or deleted`。三个诉求全部落空——**谁在用、哪些流程、分层呈现**——根因是同一个：
+归档/删除仍被引用的凭证时，用户看到一句笼统英文
+`Credential is still referenced and cannot be archived or deleted`。三诉求全落空——**谁在用、哪些流程、分层**——根因同一个：引用信息既无名称也无流程分组，且前端把它丢弃。
 
-1. 后端 `CredentialDependencies.as_data()`（`backend/app/joysafeter_infrastructure/credentials/sqlalchemy_repository.py:181`）只产出**扁平的裸 UUID 数组** `{agents:[…], triggers:[…], environments:[…], sessions:[…]}`：无名称、无流程标签。
-2. 前端 `getOperationErrorMessage`（`frontend/lib/managed/errors.ts:59`）**没有 `CREDENTIAL_IN_USE` 分支**，直接落到"显示原始英文 message"，并把 `data` 整个丢弃。
-3. 用户只能在动作**失败后**才看到信息，且无从据此操作。
+**工作区正在构建的架构（未提交，用户在并行推进；落地前须对照当前代码）：**
 
-领域里其实早有一套引用面分类 `CREDENTIAL_REFERENCE_SURFACES`（`backend/app/joysafeter_domain/credentials/dependencies.py:168`，含 `owner` 与 `kind`），但实际扫描从未产出带标签、带名称的结果。
+1. **扫描层** `backend/app/joysafeter_infrastructure/credentials/dependency_scanners.py`：9 个 scanner，每个 `scan_resource(project_id, credential_id)` / `scan_group(project_id, group_id)` 返回领域对象 `CredentialDependency`（`joysafeter_domain/credentials/dependencies.py`），带 `surface_id` + `source_id`（被引用实体 id）+ `dispositions`。`persistent_dependency_scanners(db)` 聚合，经 `composition.py` 暴露为 `scan_resource_dependencies` / `scan_group_dependencies`。
+   - **关键：`CredentialDependency` 只有 `source_id`（id），没有 name——领域层刻意保持纯净。名称/标签解析是上层职责。**
+2. **协调层** `lifecycle_coordinator.py` `_observe_resource` / `_observe_group`：新的阻塞判定路径，受 `settings.credential_dependency_registry_mode` 门控：
+   - `shadow`：只记录新旧扫描差异日志，**不抛**；
+   - `enforce`：用 scanner 的 blockers 抛 `CREDENTIAL_IN_USE`，`data = {credential_id, dependency_ids:[…], dependency_count, dispositions}`（**仍只有 id**）。
+3. **遗留路径** 仓储 `sqlalchemy_repository.py` `_reject_if_in_use`（`:1032`）/ `_reject_group_lifecycle_blockers`（`:1341`）：`CredentialDependencies.as_data()` 的 4-list 裸 UUID。仍在真实调用链中——`CredentialService.archive`（API 入口，`credentials.py:432`）→ 协调器 `archive_resource` → `_observe_resource`（shadow/enforce）→ `_transactions.archive` → 仓储 `archive` → `_reject_if_in_use`。
+   - 因此 **shadow 模式下遗留路径实际拦截（旧 data 形态）；enforce 模式下协调器先抛（新 data 形态）**。
+4. **前端** `getOperationErrorMessage`（`frontend/lib/managed/errors.ts:59`）无 `CREDENTIAL_IN_USE` 分支 → 落到"显示原始英文 message"，`data` 整个丢弃。
 
-## 2. 已确认的产品决策
+领域里 `CREDENTIAL_REFERENCE_SURFACES`（`dependencies.py:168`）已是"哪些流程"的分类真源（`owner` + `kind` + `dispositions`），scanner 已按它打 `surface_id`。缺的只是：**过滤阻塞项 → 映射到可导航类型 → 批量解析名称 → 组装成前端可读结构**，以及前端渲染。
+
+## 2. 已确认的产品/架构决策
 
 | 维度 | 决策 |
 |---|---|
 | 呈现时机 | **提前展示**：凭证/凭证组详情页常驻 + 归档/删除确认弹窗内嵌；动作之前即可见 |
 | 引用项形态 | **名称 + 可点击跳转** 到对应 agent/环境/触发器/会话 |
-| 展示范围 | **只显示阻塞项**（真正阻止归档/删除的引用）；"分层"= 按流程类型分组 |
-| 覆盖对象 | **凭证（模型连接 + 服务凭据）和凭证组 / MCP Vault 都做** |
+| 展示范围 | **只映射 4 个 live surface**（见 §4.1）；"分层"= 按流程分组 |
+| 覆盖对象 | **凭证（模型+服务）和凭证组 / MCP Vault 都做** |
 | 阻塞时按钮 | **按钮可点，确认弹窗内阻止提交** 并展示阻塞列表 |
+| 扫描落点 | **复用 `dependency_scanners.py`**（不用遗留 `as_data()` 4-list） |
+| 数据结构 | **统一 `references` 列表**，非分类数组 |
+| 名称解析 | **新增 application 层 reference-view 组装器**，消费 scanner 输出 + 名称查询端口；scanner 保持 name-free |
+| 门禁诚实性 | `can_archive/can_delete` 按**所有** `.blocks()` 计算；不可映射的阻塞（legacy）以**一条不可点汇总行**兜底，杜绝"无阻塞却 409"的静默失败 |
 
 ## 3. 架构
 
-三个独立单元，各自单一职责，通过明确契约通信：
+三个单一职责单元：
 
-- **引用扫描器（后端 repository）**：给定 credential/group + project，产出结构化引用列表。
-- **引用读接口（后端 API）**：把扫描结果暴露为只读 GET；同一份数据也塞进 409 报错。
-- **引用视图（前端组件）**：把结构化列表分层渲染成可点击的"谁在用"面板；详情页与确认弹窗共用。
+- **扫描器**（`dependency_scanners.py`，已存在）：找出谁引用，产出 name-free 的 `CredentialDependency`。
+- **引用视图组装器**（application 层新增）：过滤阻塞项 → 映射类型 → 批量解析名称 → 组装 `references` + 门禁布尔。被读接口与 409 两处复用（单一真源）。
+- **引用视图组件**（前端）：分层渲染 + 可点击导航；详情页与确认弹窗共用。
 
-数据流：`详情页/弹窗挂载 → GET …/references → 分层渲染`；`归档/删除 409 → data.references → 弹窗内联渲染同一组件`。
+数据流（提前展示）：`详情页/弹窗挂载 → GET …/references → 组装器 → 分层渲染`。
+数据流（并发兜底）：`归档/删除 409 → data.references（enforce）或旧数组（shadow）→ 前端 fallback 兼容两种形态 → 弹窗内联渲染`。
 
 ## 4. 后端
 
-### 4.1 引用项的结构化模型
+### 4.1 引用视图组装器（新增，application 层）
 
-`CredentialDependencies`（`sqlalchemy_repository.py:168`）现有四条查询只 `select(<Model>.id)`。改为每条同时取名称列，并给每条打一个**稳定机器枚举 `surface`**（取值对齐 `CREDENTIAL_REFERENCE_SURFACES.owner`）：
-
-| surface（机器码） | 来源模型 | 名称列 | resource_type | 前端路由 |
-|---|---|---|---|---|
-| `agent_model_binding` | `JoySafeterAgent` | `name`（非空） | `agent` | `/managed/agents/{id}` |
-| `trigger_webhook_auth` | `JoySafeterTrigger` | `name`（非空） | `trigger` | `/managed/triggers/{id}` |
-| `environment_injection` | `JoySafeterEnvironment` | `name`（非空） | `environment` | `/managed/environments/{id}` |
-| `active_session_snapshot` | `JoySafeterSession` | `title`（可空 → 回退） | `session` | `/managed/sessions/{id}` |
-
-> 会话名来自 `JoySafeterSession.title`（`joysafeter_session.py:55`，nullable）；为空时后端返回 `name=null`，由前端回退为「会话 {短 id}」。后端不拼中文，保持 i18n 无关。
-
-新增方法：
+新增 `backend/app/joysafeter_application/credentials/reference_view.py`（或并入协调器邻近模块），暴露：
 
 ```python
-@dataclass
-class CredentialReferenceItem:
-    surface: str          # "agent_model_binding" | ...
+@dataclass(frozen=True)
+class ReferenceItem:
+    surface: str          # 稳定机器码，见下表（只含 4 个 live surface）
     resource_type: str    # "agent" | "trigger" | "environment" | "session"
-    id: str
-    name: str | None
+    id: str               # 可导航实体 id
+    name: str | None      # 展示名；空名为 None（前端回退，如会话无 title）
 
-class CredentialDependencies:
-    ...
-    def as_references(self) -> list[dict]:
-        """扁平列表，每项 {surface, resource_type, id, name}，供 API 与 409 共用。"""
+@dataclass(frozen=True)
+class ReferenceView:
+    references: list[ReferenceItem]  # 仅 4 个 live surface 的具名可导航项
+    other_count: int                 # 不可映射阻塞项（legacy 等）计数，无则 0
+    can_archive: bool
+    can_delete: bool
+
+async def build_resource_reference_view(
+    deps: Sequence[CredentialDependency], *, uow, disposition_archive, disposition_delete
+) -> ReferenceView: ...
+async def build_group_reference_view(...) -> ReferenceView: ...
 ```
 
-`in_use` 语义不变。环境的 name 需在现有 `_config_references_credential` 过滤（`sqlalchemy_repository.py:1009`）时一并 select 出来。
+**4 个 live surface → 类型/路由映射**（其余 surface 不逐项映射）：
 
-### 4.2 只读引用接口（提前展示的关键）
+| `surface_id`（scanner 产出） | 前端 `surface` | `resource_type` | 名称来源 | 路由 |
+|---|---|---|---|---|
+| `live_agent_model_binding` | `agent_model_binding` | `agent` | `JoySafeterAgent.name`（非空） | `/managed/agents/{id}` |
+| `trigger_webhook_auth_binding` | `trigger_webhook_auth` | `trigger` | `JoySafeterTrigger.name`（非空） | `/managed/triggers/{id}` |
+| `live_environment_direct_injection` | `environment_injection` | `environment` | `JoySafeterEnvironment.name`（非空） | `/managed/environments/{id}` |
+| `live_environment_http_egress_binding` | `environment_injection` | `environment` | 同上 | `/managed/environments/{id}` |
+| `active_session_model_environment_snapshot` | `active_session_snapshot` | `session` | `JoySafeterSession.title`（可空→前端回退） | `/managed/sessions/{id}` |
+| 凭证组：`session_credential_group_association` | `active_session_snapshot` | `session` | 同上 | `/managed/sessions/{id}` |
+
+组装逻辑：
+1. 过滤 `dep.blocks(disposition)` 的项（资源用 archive/delete disposition；组用 group disposition）。
+2. 两个环境 surface 合并到 `environment`；`source_id` 去重（同一环境被 direct+egress 双引用只算一项）。
+3. 按 `resource_type` 分组，**每类一次批量查询** `id → name`（4 条查询封顶），沿用 `project_id` 过滤。
+4. **不可映射的阻塞项**（如 `legacy_v0_v1_environment_snapshot`，source 异构）→ 不逐项列出，不进 `references`，仅累加到 `other_count`，供前端渲染"另有 N 处历史快照引用阻塞"一行。
+5. `can_archive` = 无任何 archive-blocking 项（含计入 `other_count` 的项）；`can_delete` 同理。
+
+**名称查询端口**：在 `ports.py` 的 `CredentialUnitOfWork`（或其 credentials 仓储）加只读批量方法，如 `names_for(resource_type, ids) -> dict[id,name]`，仓储实现四张表的 `select(id, name/title).where(id.in_(ids), project_id==…)`。保持 scanner 与领域纯净。
+
+### 4.2 只读引用接口（提前展示的关键，两模式都工作）
 
 - `GET /api/v1/credentials/{credential_id}/references`
 - `GET /api/v1/credential-groups/{group_id}/references`
@@ -77,44 +104,32 @@ class CredentialDependencies:
 
 ```
 CredentialReferencesResponse {
-  references: CredentialReferenceItem[]   # 仅阻塞项，已分组前的扁平列表
+  references: ReferenceItem[]      # 仅阻塞项；含 other 兜底行（若有）
+  other_count: int                 # 不可映射阻塞项数（other 行的计数；无则 0）
   can_archive: bool
   can_delete: bool
 }
-CredentialReferenceItem { surface, resource_type, id, name }
 ```
 
-两个 handler 与 `_reject_if_in_use` / `_reject_group_lifecycle_blockers` **调用同一个扫描 + builder**，保证提前展示与 409 报错零漂移。`can_archive` / `can_delete` 在"只显示阻塞项"决策下等价于 `not references`；保留两个布尔字段以便未来区分（当前实现二者相同）。
-
-凭证组扫描（`_reject_group_lifecycle_blockers`，`sqlalchemy_repository.py:1341`）只产出 `active_session_snapshot` 引用。
+Handler 跑 `scan_resource_dependencies` / `scan_group_dependencies` → 组装器 → DTO。与 409 共用组装器，保证提前展示与报错零漂移。**该接口走 scanner 路径，shadow/enforce 均可用**；shadow 期其 `can_archive` 反映的是 scanner（新）视图，与遗留门禁的完全一致性在 `enforce` 后由 shadow-diff 日志保证收敛（已有机制）。
 
 ### 4.3 409 `CREDENTIAL_IN_USE` 复用同一结构
 
-`_reject_if_in_use`（`:1032`）与组路径（`:1344`）的 `data` 由：
-
-```
-{credential_id, agents:[uuid], triggers:[uuid], environments:[uuid], sessions:[uuid]}
-```
-
-改为：
-
-```
-{credential_id (或 credential_group_id), references:[{surface, resource_type, id, name}]}
-```
-
-`error_catalog.py:52` 的英文 `default_message` **保持不变**（i18n 交前端）。**这会改变 `as_data()` 的现有形态，所有消费该字段的测试一并更新**（系统化，不留旧形态双写）。
+- **协调器 enforce 路径**（`_observe_resource` `:165` / `_observe_group` `:219`）：把 `data` 从 `{dependency_ids, dependency_count, dispositions}` 改为调用组装器产出 `{credential_id(或 credential_group_id), references:[…], other_count}`（保留 `dependency_count` 供既有遥测，可选）。
+- **遗留路径**（shadow 期实际拦截者）：`_reject_if_in_use` / `_reject_group_lifecycle_blockers` 本轮**不改造**（它随迁移退役）。其旧形态 409 在 shadow 期仍可能出现，由**前端 fallback 同时兼容新旧两种 data 形态**兜住（§5.3）。
+- `error_catalog.py:52` 英文 `default_message` 不变（i18n 交前端）。
 
 ### 4.4 后端不需要的东西
 
-- **无 DB 迁移**：只读取既有列（agent/trigger/environment.name、session.title），无 schema 变更 → 不触发 alembic single-head 守卫。
-- **无新错误码**：复用既有 `CREDENTIAL_IN_USE` → 不触发 error-catalog 注册守卫。
+- **无 DB 迁移**：只读既有列（agent/trigger/environment.name、session.title）→ 不触发 alembic single-head 守卫。
+- **无新错误码**：复用 `CREDENTIAL_IN_USE` → 不触发 error-catalog 注册守卫。
 
 ## 5. 前端
 
 ### 5.1 共享组件 + 数据 hook
 
-- `useCredentialReferences(id)` / `useCredentialGroupReferences(id)`：拉 §4.2 的新接口。
-- `<CredentialReferences references={…} />`：按 `surface` **分层分组**，每组一个本地化流程标题 + 计数，每项名称是 `<Link>` 跳到 §4.1 表中的路由。空列表时不渲染。
+- `useCredentialReferences(id)` / `useCredentialGroupReferences(id)`：拉 §4.2 接口。
+- `<CredentialReferences references other_count />`：按 `surface` **分层分组**，每组本地化流程标题 + 计数，每项名称为 `<Link>` 跳 §4.1 路由；`other_count>0` 时渲染一条不可点"另有 N 处历史快照引用阻塞"。空则不渲染。
 
 本地化流程标题（新增 i18n key，中/英）：
 
@@ -124,8 +139,9 @@ CredentialReferenceItem { surface, resource_type, id, name }
 | `trigger_webhook_auth` | Webhook 鉴权 | Webhook auth |
 | `environment_injection` | 环境注入 | Environment injection |
 | `active_session_snapshot` | 活跃会话 | Active session |
+| `other` | 历史快照引用 | Legacy snapshot refs |
 
-外加一条标题文案 key（如"以下位置正在使用，请先解绑："）。
+外加标题文案 key（如"以下位置正在使用，请先解绑："）。
 
 ### 5.2 接入点
 
@@ -133,11 +149,14 @@ CredentialReferenceItem { surface, resource_type, id, name }
 - `frontend/components/managed/credentials/service-credential-detail.tsx`
 - `frontend/components/managed/credentials/mcp-vault-detail.tsx`（凭证组）
 
-三处详情页常驻展示引用面板；**归档/删除确认弹窗内嵌同一组件**——`references.length > 0` 时弹窗内 `disabled` 提交并展示列表（按钮本身仍可点）。
+三处详情页常驻引用面板；**归档/删除确认弹窗内嵌同一组件**——`!can_archive`（或 `!can_delete`）时弹窗内 `disabled` 提交并展示列表（按钮本身仍可点）。
 
-### 5.3 并发 409 兜底
+### 5.3 并发 409 兜底（兼容新旧两种 data 形态）
 
-`getOperationErrorMessage`（`errors.ts:59`）加 `CREDENTIAL_IN_USE` 分支：万一打开弹窗后别人刚绑定导致提交仍 409，弹窗捕获后**内联重渲染** `data.references`，而非弹一句笼统 toast。这正是"按钮可点、弹窗内阻止"的价值。
+`getOperationErrorMessage`（`errors.ts:59`）加 `CREDENTIAL_IN_USE` 分支：
+- 若 `data.references` 存在（enforce/新形态）→ 弹窗内联渲染同一组件；
+- 若只有旧形态（`data.agents/triggers/environments/sessions` 或 `data.dependency_ids`，shadow 期）→ 至少渲染计数/概要，不弹一句笼统 toast。
+这确保 shadow→enforce 过渡期前端都不静默失败。
 
 ### 5.4 前端测试守卫
 
@@ -146,26 +165,31 @@ CredentialReferenceItem { surface, resource_type, id, name }
 
 ## 6. 边界情况
 
+- **shadow 模式一致性**：读接口（scanner 视图）的 `can_archive` 可能与遗留门禁短暂不一致——这是迁移 shadow 期的固有现象，由既有 shadow-diff 日志监控，`enforce` 后收敛。前端 fallback（§5.3）兜住过渡期的形态差异。
 - **并发绑定**（打开时干净、提交时被占）→ 弹窗内联刷新阻塞项。
-- **扫描与渲染间实体被改名/删除** → 名称可能过期；链接失效则目标页优雅 404。可接受。
+- **实体改名/删除于扫描与渲染之间** → 名称可能过期；链接失效则目标页优雅 404。
 - **会话 title 为空** → 前端回退「会话 {短 id}」。
-- **project 隔离**：所有扫描沿用现有 `project_id` 过滤，不跨项目泄漏。
+- **legacy 阻塞不可导航** → 计入 `other_count` + 门禁，渲染为不可点汇总行（不静默）。
+- **project 隔离**：所有扫描/名称查询沿用 `project_id` 过滤。
 
 ## 7. 测试计划
 
 **后端**
-- 扩展依赖扫描测试：断言每项含正确 `surface` + `name`（各来源一例）。
-- 新接口测试：空引用、四类 surface 各一、组会话引用、project 隔离。
-- 409 payload 形态测试：`data.references` 结构正确。
-- 更新所有旧 `as_data()`（agents/triggers/environments/sessions 数组形态）消费方与断言。
+- 组装器单测：4 live surface 各映射正确（surface/type/name/route 字段）；两环境 surface 合并去重；非映射阻塞聚合为 other + 计数；`can_archive/can_delete` 含 other。
+- 名称查询端口：批量解析、project 隔离、缺失 id 优雅缺省。
+- 读接口测试：空、各 surface、组会话、含 other、project 隔离。
+- 协调器 enforce 409：`data.references` + `other_count` 形态正确。
+- 回归：确认遗留 `_reject_if_in_use` 未破坏（本轮不改）。
 
 **前端**
-- `<CredentialReferences>`：分组正确、链接指向正确路由、空列表不渲染、会话空名回退。
-- 确认弹窗：有阻塞项时提交被 `disabled` 且展示列表。
-- 并发 409：捕获后内联渲染 references（不弹笼统 toast）。
+- `<CredentialReferences>`：分组、链接路由、other 行不可点、空不渲染、会话空名回退。
+- 确认弹窗：`!can_archive` 时提交 `disabled` 且展示列表。
+- 并发 409 fallback：新形态内联渲染；旧形态渲染概要（均不弹笼统 toast）。
 
 ## 8. 非目标（YAGNI）
 
-- 不扫描非阻塞/审计类引用面（quickstart / skill 创作 / 历史版本快照 / legacy）——本轮只做阻塞项。
-- 不做"一键解绑"批量操作——只做导向（跳转），解绑仍在各实体页完成。
-- `can_archive`/`can_delete` 本轮不做差异化（二者相同）。
+- 不扫描/展示非阻塞审计类引用（quickstart / skill 创作 / `agent_version` 历史快照的 REVALIDATE 项）——本轮只做阻塞项。
+- 不为 legacy 阻塞项做逐项名称/导航（异构 source，退役在即）——仅 other 汇总兜底。
+- 不做"一键解绑"批量操作——只做导向（跳转）。
+- 不改造遗留 `_reject_if_in_use` 的 data 形态（随迁移退役；前端 fallback 兼容）。
+- `can_archive`/`can_delete` 逻辑本轮等价（都=无阻塞），保留双字段备未来区分。
