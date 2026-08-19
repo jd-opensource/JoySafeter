@@ -64,6 +64,7 @@ const referencesControl: { data: unknown; isLoading: boolean } = {
 }
 vi.mock('@/hooks/managed/use-credential-references', () => ({
   useCredentialReferences: () => ({ data: referencesControl.data, isLoading: referencesControl.isLoading }),
+  useCredentialGroupReferences: () => ({ data: referencesControl.data, isLoading: referencesControl.isLoading }),
 }))
 
 import { managedDelete, managedPost } from '@/lib/api-client'
@@ -193,6 +194,28 @@ describe('credential detail lifecycle', () => {
         expect.anything(),
       ),
     )
+  })
+
+  it('blocks archive of a referenced service credential', async () => {
+    referencesControl.data = {
+      references: [
+        { surface: 'environment_injection', resourceType: 'environment', id: 'e1', name: '生产环境' },
+      ],
+      otherCount: 0,
+      canArchive: false,
+      canDelete: false,
+    }
+    render(
+      <Wrap>
+        <ServiceCredentialDetail credential={credential('service', null)} />
+      </Wrap>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'common.archive' }))
+
+    expect(screen.getAllByText('生产环境').length).toBeGreaterThan(0)
+    const archiveButtons = screen.getAllByRole('button', { name: /archive|归档|common\.archive/i })
+    expect(archiveButtons[archiveButtons.length - 1]).toBeDisabled()
   })
 
   it('archives an active service credential and restores an archived one', async () => {

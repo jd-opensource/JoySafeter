@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import React, { useEffect, useRef, useState } from 'react'
 
 import { CreateCredentialDialog } from '@/app/managed/vaults/components/create-credential-dialog'
+import { CredentialReferences } from '@/components/managed/credentials/credential-references'
 import {
   PageHeader,
   ResourceErrorState,
@@ -17,11 +18,22 @@ import {
   ConfirmDialog,
   FilterBar,
 } from '@/components/managed/shared'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
+import { useCredentialGroupReferences } from '@/hooks/managed/use-credential-references'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
@@ -65,6 +77,7 @@ export function McpVaultDetail({
   const queryClient = useQueryClient()
   const managedScope = useManagedRequestScope()
   const projectReadOnly = useCurrentProjectReadOnly()
+  const groupReferencesQuery = useCredentialGroupReferences(id)
   const operationScope = `${managedScope.key}:${id ?? ''}`
   const actionRunRef = useRef(0)
   const operationScopeInitializedRef = useRef(false)
@@ -74,6 +87,7 @@ export function McpVaultDetail({
   const [createCredOpen, setCreateCredOpen] = useState(autoOpenAddCredential)
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean
+    kind: 'group-archive' | 'group-delete' | 'member' | null
     title: string
     description: string
     confirmLabel: string
@@ -81,6 +95,7 @@ export function McpVaultDetail({
     onConfirm: () => void
   }>({
     open: false,
+    kind: null,
     title: '',
     description: '',
     confirmLabel: '',
@@ -100,6 +115,7 @@ export function McpVaultDetail({
     setCreateCredOpen(false)
     setConfirmDialog({
       open: false,
+      kind: null,
       title: '',
       description: '',
       confirmLabel: '',
@@ -157,6 +173,7 @@ export function McpVaultDetail({
     setCreateCredOpen(false)
     setConfirmDialog({
       open: false,
+      kind: null,
       title: '',
       description: '',
       confirmLabel: '',
@@ -297,6 +314,7 @@ export function McpVaultDetail({
     actionRunRef.current += 1
     setConfirmDialog({
       open: true,
+      kind: 'group-archive',
       title: t('managed.vaults.archiveTitle'),
       description: t('managed.vaults.archiveDescription', { name: vault?.name }),
       confirmLabel: t('common.archive'),
@@ -317,6 +335,7 @@ export function McpVaultDetail({
     actionRunRef.current += 1
     setConfirmDialog({
       open: true,
+      kind: 'group-delete',
       title: t('managed.vaults.deleteTitle'),
       description: t('managed.vaults.deleteDescription', { name: vault?.name }),
       confirmLabel: t('common.delete'),
@@ -337,6 +356,7 @@ export function McpVaultDetail({
     actionRunRef.current += 1
     setConfirmDialog({
       open: true,
+      kind: 'member',
       title: t('managed.vaults.credArchiveTitle'),
       description: t('managed.vaults.credArchiveDescription', { name: cred.name }),
       confirmLabel: t('common.archive'),
@@ -369,6 +389,15 @@ export function McpVaultDetail({
 
   const isArchived = !!vault.archived_at
   const canWriteVault = !projectReadOnly && !isArchived
+
+  const isGroupConfirm =
+    confirmDialog.kind === 'group-archive' || confirmDialog.kind === 'group-delete'
+  const groupBlocked =
+    confirmDialog.kind === 'group-archive'
+      ? groupReferencesQuery.data?.canArchive === false
+      : confirmDialog.kind === 'group-delete'
+        ? groupReferencesQuery.data?.canDelete === false
+        : false
 
   const credColumns: Column<VaultCredential>[] = [
     {
@@ -433,6 +462,12 @@ export function McpVaultDetail({
         <RelativeTime date={vault.created_at} />
       </div>
 
+      {groupReferencesQuery.data && (
+        <div className="mb-6">
+          <CredentialReferences data={groupReferencesQuery.data} variant="informational" />
+        </div>
+      )}
+
       {/* Credentials section */}
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold">{t('managed.vaults.credentials')}</h2>
@@ -487,15 +522,55 @@ export function McpVaultDetail({
         />
       ) : null}
 
-      <ConfirmDialog
-        open={confirmDialog.open}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        confirmLabel={confirmDialog.confirmLabel}
-        destructive={confirmDialog.destructive}
-        onConfirm={confirmDialog.onConfirm}
-        onCancel={closeConfirmDialog}
-      />
+      {isGroupConfirm ? (
+        <AlertDialog
+          open={confirmDialog.open}
+          onOpenChange={(open) => {
+            if (!open) closeConfirmDialog()
+          }}
+        >
+          <AlertDialogContent variant={confirmDialog.destructive ? 'destructive' : 'default'}>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{confirmDialog.title}</AlertDialogTitle>
+              <AlertDialogDescription className="whitespace-pre-line leading-relaxed">
+                {confirmDialog.description}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            {groupReferencesQuery.data && (
+              <CredentialReferences data={groupReferencesQuery.data} variant="blocker" />
+            )}
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={closeConfirmDialog}>
+                {t('common.cancel')}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={groupBlocked}
+                onClick={() => {
+                  if (groupBlocked) return
+                  confirmDialog.onConfirm()
+                }}
+                className={
+                  confirmDialog.destructive
+                    ? 'bg-red-600 text-white hover:bg-red-700'
+                    : 'bg-foreground text-background hover:opacity-90'
+                }
+              >
+                {confirmDialog.confirmLabel}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : (
+        <ConfirmDialog
+          open={confirmDialog.open}
+          title={confirmDialog.title}
+          description={confirmDialog.description}
+          confirmLabel={confirmDialog.confirmLabel}
+          destructive={confirmDialog.destructive}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={closeConfirmDialog}
+        />
+      )}
     </div>
   )
 }
