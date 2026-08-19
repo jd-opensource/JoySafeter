@@ -1,15 +1,28 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 from app.joysafeter_domain.credentials.dependencies import (
     CredentialDependency,
     DependencyDisposition,
 )
 
+# Closed sets shared with the frontend contract (parseReferencesResponse /
+# SURFACE_LABEL_KEY). Keep in lockstep with the TS unions in
+# frontend/hooks/managed/use-credential-references.ts.
+ResourceType = Literal["agent", "trigger", "environment", "session"]
+SurfaceCode = Literal[
+    "agent_model_binding",
+    "trigger_webhook_auth",
+    "environment_injection",
+    "active_session_snapshot",
+]
+
 # surface_id (scanner output) -> (resource_type, frontend surface code)
-SURFACE_TO_TYPE: dict[str, tuple[str, str]] = {
+SURFACE_TO_TYPE: dict[str, tuple[ResourceType, SurfaceCode]] = {
     "live_agent_model_binding": ("agent", "agent_model_binding"),
     "trigger_webhook_auth_binding": ("trigger", "trigger_webhook_auth"),
     "live_environment_direct_injection": ("environment", "environment_injection"),
@@ -21,8 +34,8 @@ SURFACE_TO_TYPE: dict[str, tuple[str, str]] = {
 
 @dataclass(frozen=True, slots=True)
 class ReferenceItem:
-    surface: str
-    resource_type: str
+    surface: SurfaceCode
+    resource_type: ResourceType
     id: str
     name: str | None
 
@@ -117,9 +130,12 @@ async def resolve_reference_view(
     by_type: dict[str, list[str]] = {}
     for resource_type, source_id in targets:
         by_type.setdefault(resource_type, []).append(source_id)
+    resource_types = list(by_type)
+    resolved_per_type = await asyncio.gather(
+        *(name_lookup(resource_type, by_type[resource_type]) for resource_type in resource_types)
+    )
     names: dict[tuple[str, str], str | None] = {}
-    for resource_type, ids in by_type.items():
-        resolved = await name_lookup(resource_type, ids)
-        for source_id in ids:
+    for resource_type, resolved in zip(resource_types, resolved_per_type):
+        for source_id in by_type[resource_type]:
             names[(resource_type, source_id)] = resolved.get(str(source_id))
     return build_reference_view(deps, names, archive_disp=archive_disp, delete_disp=delete_disp)
