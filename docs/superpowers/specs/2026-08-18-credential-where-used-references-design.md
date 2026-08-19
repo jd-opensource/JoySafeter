@@ -2,8 +2,8 @@
 
 - 日期：2026-08-18
 - 分支：joysafeter-v2-0814
-- 相关：`project_joysafeter_service_credential_creation_ux`（本设计实现其"凭证详情展示 where-used"这条双向可见性轴）
-- 修订：rev2 —— 对齐工作区中正在构建的 scanner-registry / lifecycle-coordinator 架构（原 rev1 是按遗留 `as_data()` 4-list 写的，已作废）
+- 相关：`project_joysafeter_service_credential_creation_ux`（服务凭证 create-flow 重设计）——**本 spec 拥有 where-used 共享地基，该 initiative 消费之，不重建**（见 §9）
+- 修订：rev3 —— 确立"共享地基"边界（消费方 = 服务凭证 create-flow）+ 组件双呈现态；rev2 已对齐 scanner/coordinator 架构（原 rev1 按遗留 `as_data()` 4-list，作废）
 
 ## 1. 问题与现有架构
 
@@ -129,7 +129,10 @@ Handler 跑 `scan_resource_dependencies` / `scan_group_dependencies` → 组装�
 ### 5.1 共享组件 + 数据 hook
 
 - `useCredentialReferences(id)` / `useCredentialGroupReferences(id)`：拉 §4.2 接口。
-- `<CredentialReferences references other_count />`：按 `surface` **分层分组**，每组本地化流程标题 + 计数，每项名称为 `<Link>` 跳 §4.1 路由；`other_count>0` 时渲染一条不可点"另有 N 处历史快照引用阻塞"。空则不渲染。
+- `<CredentialReferences references other_count variant />`：按 `surface` **分层分组**，每组本地化流程标题 + 计数，每项名称为 `<Link>` 跳 §4.1 路由；`other_count>0` 时渲染一条不可点"另有 N 处历史快照引用阻塞"。空则不渲染。
+  - **`variant: 'informational' | 'blocker'`** —— 同一组件两种呈现态，供两条 initiative 复用（共享地基，见 §9）：
+    - `informational`：详情页/列表的"被使用于 · N 处"，中性标题"被使用于以下位置："，不出现"请先解绑"，忽略 `can_*`；`other_count` 默认不计入"N 处"（legacy 退役在即、不可导航）。
+    - `blocker`：归档/删除确认弹窗，标题"以下位置正在使用，请先解绑："，`other_count` 计入门禁。
 
 本地化流程标题（新增 i18n key，中/英）：
 
@@ -193,3 +196,17 @@ Handler 跑 `scan_resource_dependencies` / `scan_group_dependencies` → 组装�
 - 不做"一键解绑"批量操作——只做导向（跳转）。
 - 不改造遗留 `_reject_if_in_use` 的 data 形态（随迁移退役；前端 fallback 兼容）。
 - `can_archive`/`can_delete` 逻辑本轮等价（都=无阻塞），保留双字段备未来区分。
+
+## 9. 共享地基边界（与服务凭证 create-flow initiative 的分工）
+
+本 spec **拥有** where-used 共享地基，`project_joysafeter_service_credential_creation_ux` **消费**它，不重建：
+
+| 产物 | 归属 | 消费方如何用 |
+|---|---|---|
+| `GET /credentials/{id}/references` + `useCredentialReferences` | 本 spec | 服务凭证详情页"被使用于 · N 处"直接调用；"N" = `references.length`（不含 `other_count`） |
+| `<CredentialReferences variant>` 组件 | 本 spec | 详情页用 `variant="informational"`；本 spec 的确认弹窗用 `variant="blocker"` |
+| 引用消费面 = agents / triggers / environments / sessions | 本 spec（scanner 已限定） | 消费方**照此 4 类**渲染，**不做 demo 里示意的"skill 消费方"**（skill 非 tracked surface） |
+
+**明确划归对方、本 spec 不做**：服务卡片选择、per-service 字段模板（`GET /credentials/service-templates`）、3 步引导表单、列表行"🔗 N 处使用"徽标（若需列表级计数，由对方在 list 响应加计数字段，本 spec 不为此改 list 接口）、"补齐凭据"反向入口。
+
+**协作纪律**（两条线都改 `service-credential-detail.tsx`）：本 spec 只负责把 `<CredentialReferences>` 挂到详情页与确认弹窗；表单/模板区块归对方。按不同 section 改，避免互相 clobber。
