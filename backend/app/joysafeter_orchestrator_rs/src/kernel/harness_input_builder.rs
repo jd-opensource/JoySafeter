@@ -32,6 +32,24 @@ use crate::kernel::run_spec::{
     agent_for_execution, environment_credential_ids, environment_for_execution, SnapshotEnvironment,
 };
 
+fn apply_runtime_protocol_env(
+    env: &mut HashMap<String, String>,
+    engine_kind: &str,
+    protocol: &str,
+) {
+    match protocol.trim() {
+        "" | "custom" => {}
+        other => {
+            env.insert("JOYSAFETER_MODEL_PROTOCOL".to_string(), other.to_string());
+        }
+    }
+    if engine_kind == "native" && matches!(protocol.trim(), "chat_completions" | "openai_responses")
+    {
+        env.entry("CLAUDE_CODE_USE_OPENAI".to_string())
+            .or_insert_with(|| "1".to_string());
+    }
+}
+
 const CONVERSATION_HISTORY_EVENT_LIMIT: i64 = 100;
 const CONVERSATION_HISTORY_MAX_CHARS: usize = 24_000;
 
@@ -43,6 +61,13 @@ const CONVERSATION_HISTORY_MAX_CHARS: usize = 24_000;
 /// and permission mode all flow through one builder.
 pub struct HarnessInputBuilder {
     pool: PgPool,
+    /// When true, all MCP server URLs are downgraded from https to http before
+    /// being sent to the sandbox. In Envoy-limited networking, the sandbox cannot
+    /// do end-to-end TLS (no trusted CA store); Envoy does TLS origination to the
+    /// upstream instead. Without this, MCP servers without credential bindings
+    /// keep their https:// URL and the sandbox's TLS handshake fails ("Failed to
+    /// connect") because the internal CA cert is untrusted in the container.
+    pub envoy_enabled: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -73,8 +98,8 @@ pub struct HarnessInput {
 }
 
 impl HarnessInputBuilder {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, envoy_enabled: bool) -> Self {
+        Self { pool, envoy_enabled }
     }
 
     pub async fn build(
@@ -132,7 +157,14 @@ impl HarnessInputBuilder {
             self.resolve_environment_env(agent, snapshot_environment.as_ref(), &mut input)
                 .await?;
             match self.resolve_agent_secret(agent, &mut input).await {
-                Ok(binding) => resolve_model_from_binding(&mut input, &binding),
+                Ok(binding) => {
+                    apply_runtime_protocol_env(
+                        &mut input.env,
+                        &input.provider,
+                        &binding.protocol_id,
+                    );
+                    resolve_model_from_binding(&mut input, &binding);
+                }
                 Err(error) if error.downcast_ref() == Some(&CredentialRuntimeError::NotBound) => {}
                 Err(error) => return Err(error),
             }
@@ -182,6 +214,20 @@ impl HarnessInputBuilder {
                 let history = self.build_conversation_history(sid, task.id).await;
                 if !history.is_empty() {
                     input.prompt = format!("{history}\n\n{}", input.prompt);
+                }
+            }
+        }
+
+        // When Envoy-limited networking is active, downgrade ALL MCP server URLs
+        // from https:// to http://. The sandbox has no trusted CA store and cannot
+        // do end-to-end TLS; Envoy does TLS origination to the upstream instead.
+        // The credential-bound path (resolve_vault_credentials) already does this
+        // for servers with credentials; here we catch the rest so uncredentialed
+        // MCP servers (e.g. internal services with no auth) also work.
+        if self.envoy_enabled {
+            for mcp in &mut input.mcp_servers {
+                if mcp.url.starts_with("https://") {
+                    mcp.url = mcp.url.replace("https://", "http://");
                 }
             }
         }
@@ -1266,8 +1312,8 @@ mod tests {
     use sqlx::PgPool;
 
     use super::{
-        ensure_skill_runtime_ready, extract_content_text, parse_semver, resolve_model_from_binding,
-        session_container_work_dir, should_inject_conversation_history,
+        apply_runtime_protocol_env, ensure_skill_runtime_ready, extract_content_text, parse_semver,
+        resolve_model_from_binding, session_container_work_dir, should_inject_conversation_history,
         trim_history_lines_to_budget, HarnessInput, HarnessInputBuilder, SkillForArchive,
     };
     use crate::ids::{
@@ -1324,6 +1370,35 @@ mod tests {
         resolve_model_from_binding(&mut input, &binding);
 
         assert_eq!(input.model.as_deref(), Some("deepseek-reasoner"));
+    }
+
+    #[test]
+    fn native_runtime_protocol_env_enables_openai_provider() {
+        let mut env = HashMap::new();
+
+        apply_runtime_protocol_env(&mut env, "native", "openai_responses");
+
+        assert_eq!(
+            env.get("JOYSAFETER_MODEL_PROTOCOL").map(String::as_str),
+            Some("openai_responses")
+        );
+        assert_eq!(
+            env.get("CLAUDE_CODE_USE_OPENAI").map(String::as_str),
+            Some("1")
+        );
+    }
+
+    #[test]
+    fn non_native_runtime_protocol_env_does_not_enable_claude_openai_provider() {
+        let mut env = HashMap::new();
+
+        apply_runtime_protocol_env(&mut env, "codex", "openai_responses");
+
+        assert_eq!(
+            env.get("JOYSAFETER_MODEL_PROTOCOL").map(String::as_str),
+            Some("openai_responses")
+        );
+        assert_eq!(env.get("CLAUDE_CODE_USE_OPENAI"), None);
     }
 
     async fn cleanup(
@@ -1664,7 +1739,7 @@ mod tests {
                 .await
                 .expect("load task")
                 .expect("task exists");
-            let input = HarnessInputBuilder::new(pool.clone())
+            let input = HarnessInputBuilder::new(pool.clone(), false)
                 .build(&task, "sandbox-ext", SandboxId::from_uuid(Uuid::now_v7()))
                 .await
                 .expect("build harness input");
@@ -1854,7 +1929,7 @@ mod tests {
                 .await
                 .expect("load task")
                 .expect("task exists");
-            let err = HarnessInputBuilder::new(pool.clone())
+            let err = HarnessInputBuilder::new(pool.clone(), false)
                 .build(&task, "sandbox-ext", SandboxId::from_uuid(Uuid::now_v7()))
                 .await
                 .expect_err("missing session file content must fail harness input build");
@@ -2047,7 +2122,7 @@ mod tests {
                 .await
                 .expect("load task")
                 .expect("task exists");
-            let input = HarnessInputBuilder::new(pool.clone())
+            let input = HarnessInputBuilder::new(pool.clone(), false)
                 .build(&task, "sandbox-ext", SandboxId::from_uuid(Uuid::now_v7()))
                 .await
                 .expect("build harness input");
@@ -2251,7 +2326,7 @@ mod tests {
                 .await
                 .expect("load task")
                 .expect("task exists");
-            let err = HarnessInputBuilder::new(pool.clone())
+            let err = HarnessInputBuilder::new(pool.clone(), false)
                 .build(&task, "sandbox-ext", SandboxId::from_uuid(Uuid::now_v7()))
                 .await
                 .expect_err("broken vault credential must fail harness input build");

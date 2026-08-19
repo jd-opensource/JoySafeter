@@ -77,6 +77,61 @@ jobs:
             echo 'CHANGELOG_EOF'
           } >> "$GITHUB_OUTPUT"
 
+  # Cross-compile the Rust binaries once with cargo-zigbuild (host-native, no
+  # QEMU) for both architectures. Runtime images just COPY these in.
+  rust-binaries:
+    name: Cross-compile Rust binaries (zigbuild)
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install protoc + zig + cargo-zigbuild
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler
+          cargo install cargo-zigbuild --locked
+          pip install ziglang
+          rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
+
+      - name: Build runner (amd64 + arm64)
+        working-directory: sandbox-runner
+        run: |
+          set -euo pipefail
+          PROTOC="$(command -v protoc)" cargo zigbuild --release -p joysafeter-runner \
+            --target x86_64-unknown-linux-gnu --target aarch64-unknown-linux-gnu
+
+      - name: Build orchestrator (amd64 + arm64, jd-identity)
+        working-directory: backend/app/joysafeter_orchestrator_rs
+        run: |
+          set -euo pipefail
+          PROTOC="$(command -v protoc)" cargo zigbuild --release -p joysafeter-orchestrator \
+            --features jd-identity \
+            --target x86_64-unknown-linux-gnu --target aarch64-unknown-linux-gnu
+
+      - name: Stage binaries into repo-root target/ tree
+        run: |
+          set -euo pipefail
+          for triple in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            mkdir -p "target/${triple}/release"
+            cp "sandbox-runner/target/${triple}/release/joysafeter-runner" "target/${triple}/release/"
+            cp "backend/app/joysafeter_orchestrator_rs/target/${triple}/release/joysafeter-orchestrator" "target/${triple}/release/"
+          done
+
+      - name: Upload Rust binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-binaries
+          path: |
+            target/x86_64-unknown-linux-gnu/release/joysafeter-runner
+            target/x86_64-unknown-linux-gnu/release/joysafeter-orchestrator
+            target/aarch64-unknown-linux-gnu/release/joysafeter-runner
+            target/aarch64-unknown-linux-gnu/release/joysafeter-orchestrator
+          if-no-files-found: error
+
+  # Non-Rust images: single multi-arch buildx build + push, then sign/attest.
   build-and-push:
     name: Publish ${{ matrix.image.name }}
     needs: prepare-release
@@ -103,31 +158,11 @@ jobs:
             dockerfile: ./deploy/docker/frontend.Dockerfile
             skillspector: false
             build_contexts: ''
-          - name: joysafeter-orchestrator-rs
-            context: .
-            dockerfile: ./deploy/docker/orchestrator-rs.Dockerfile
-            skillspector: false
-            build_contexts: ''
           - name: joysafeter-skillspector
             context: ./backend/joysafeter_skillspector
             dockerfile: ./deploy/docker/skillspector-service.Dockerfile
             skillspector: true
             build_contexts: skillspector=./.deps/SkillSpector
-          - name: joysafeter-claudecode
-            context: .
-            dockerfile: ./deploy/docker/claudecode.Dockerfile
-            skillspector: false
-            build_contexts: ''
-          - name: joysafeter-codex
-            context: .
-            dockerfile: ./deploy/docker/codex.Dockerfile
-            skillspector: false
-            build_contexts: ''
-          - name: joysafeter-pi
-            context: .
-            dockerfile: ./deploy/docker/pi.Dockerfile
-            skillspector: false
-            build_contexts: ''
 
     steps:
       - name: Checkout code
@@ -251,11 +286,210 @@ jobs:
           docker buildx imagetools create "${docker_args[@]}" "${DOCKER_CANDIDATE}@${DIGEST}"
           docker buildx imagetools create "${ghcr_args[@]}" "${GHCR_CANDIDATE}@${DIGEST}"
 
+  # Rust runtime images: build one single-arch image per architecture from the
+  # -<arch> Dockerfile (COPYs the prebuilt zigbuild binary), push by digest,
+  # then merge the per-arch digests into one multi-arch manifest and sign it.
+  build-and-push-rust:
+    name: Publish ${{ matrix.image.name }}
+    needs:
+      - prepare-release
+      - rust-binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: joysafeter-orchestrator-rs
+            file_prefix: orchestrator-rs
+          - name: joysafeter-claudecode
+            file_prefix: claudecode
+          - name: joysafeter-codex
+            file_prefix: codex
+          - name: joysafeter-pi
+            file_prefix: pi
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Download Rust binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-binaries
+          path: target
+
+      - name: Restore binary permissions
+        run: chmod +x target/*/release/joysafeter-* || true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: tags
+        shell: bash
+        run: |
+          version="${{ needs.prepare-release.outputs.version }}"
+          tag="${{ needs.prepare-release.outputs.tag }}"
+          image="${{ matrix.image.name }}"
+          candidate="sha-${GITHUB_SHA}"
+          echo "docker_repository=docker.io/jdopensource/${image}" >> "$GITHUB_OUTPUT"
+          echo "ghcr_repository=ghcr.io/jd-opensource/${image}" >> "$GITHUB_OUTPUT"
+          echo "docker_candidate=docker.io/jdopensource/${image}:${candidate}" >> "$GITHUB_OUTPUT"
+          echo "ghcr_candidate=ghcr.io/jd-opensource/${image}:${candidate}" >> "$GITHUB_OUTPUT"
+          echo "release_tags=${tag} ${version} latest" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push per-arch images by digest
+        id: build
+        shell: bash
+        env:
+          GHCR_REPOSITORY: ${{ steps.tags.outputs.ghcr_repository }}
+          DOCKER_REPOSITORY: ${{ steps.tags.outputs.docker_repository }}
+          FILE_PREFIX: ${{ matrix.image.file_prefix }}
+        run: |
+          set -euo pipefail
+          declare -A DIGESTS
+          for arch in amd64 arm64; do
+            # push-by-digest to BOTH registries; --tag-less so only digests are created.
+            metadata="$(docker buildx build \
+              --file "./deploy/docker/${FILE_PREFIX}-${arch}.Dockerfile" \
+              --platform "linux/${arch}" \
+              --provenance=mode=max --sbom=true \
+              --cache-from type=gha --cache-to type=gha,mode=max \
+              --build-arg "GIT_COMMIT_SHA=${GITHUB_SHA}" \
+              --output "type=image,name=${GHCR_REPOSITORY},push-by-digest=true,name-canonical=true,push=true" \
+              --metadata-file /dev/stdout \
+              . )"
+            digest="$(echo "$metadata" | jq -r '."containerimage.digest"')"
+            [ -n "$digest" ] && [ "$digest" != "null" ] || { echo "no digest for $arch" >&2; exit 1; }
+            DIGESTS[$arch]="$digest"
+            echo "${arch} -> ${digest}"
+          done
+          echo "amd64_digest=${DIGESTS[amd64]}" >> "$GITHUB_OUTPUT"
+          echo "arm64_digest=${DIGESTS[arm64]}" >> "$GITHUB_OUTPUT"
+
+      - name: Merge per-arch digests into candidate manifest
+        id: merge
+        shell: bash
+        env:
+          GHCR_REPOSITORY: ${{ steps.tags.outputs.ghcr_repository }}
+          GHCR_CANDIDATE: ${{ steps.tags.outputs.ghcr_candidate }}
+          AMD64_DIGEST: ${{ steps.build.outputs.amd64_digest }}
+          ARM64_DIGEST: ${{ steps.build.outputs.arm64_digest }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create --tag "${GHCR_CANDIDATE}" \
+            "${GHCR_REPOSITORY}@${AMD64_DIGEST}" \
+            "${GHCR_REPOSITORY}@${ARM64_DIGEST}"
+          merged="$(docker buildx imagetools inspect "${GHCR_CANDIDATE}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          [ -n "$merged" ] || { echo "could not resolve merged digest" >&2; exit 1; }
+          echo "digest=${merged}" >> "$GITHUB_OUTPUT"
+          echo "merged manifest digest: ${merged}"
+
+      - name: Scan candidate image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.tags.outputs.ghcr_candidate }}@${{ steps.merge.outputs.digest }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Mirror candidate to Docker Hub
+        shell: bash
+        env:
+          GHCR_CANDIDATE: ${{ steps.tags.outputs.ghcr_candidate }}
+          DOCKER_CANDIDATE: ${{ steps.tags.outputs.docker_candidate }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create --tag "${DOCKER_CANDIDATE}" "${GHCR_CANDIDATE}"
+
+      - name: Resolve Docker Hub candidate digest
+        id: dockerhub
+        shell: bash
+        env:
+          DOCKER_CANDIDATE: ${{ steps.tags.outputs.docker_candidate }}
+        run: |
+          set -euo pipefail
+          d="$(docker buildx imagetools inspect "${DOCKER_CANDIDATE}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          [ -n "$d" ] || { echo "could not resolve docker hub digest" >&2; exit 1; }
+          echo "digest=${d}" >> "$GITHUB_OUTPUT"
+
+      - name: Attest Docker Hub provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ steps.tags.outputs.docker_repository }}
+          subject-digest: ${{ steps.dockerhub.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest GHCR provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ steps.tags.outputs.ghcr_repository }}
+          subject-digest: ${{ steps.merge.outputs.digest }}
+          push-to-registry: true
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Sign candidate digests
+        shell: bash
+        env:
+          GHCR_DIGEST: ${{ steps.merge.outputs.digest }}
+          DOCKER_DIGEST: ${{ steps.dockerhub.outputs.digest }}
+          DOCKER_REPOSITORY: ${{ steps.tags.outputs.docker_repository }}
+          GHCR_REPOSITORY: ${{ steps.tags.outputs.ghcr_repository }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${DOCKER_REPOSITORY}@${DOCKER_DIGEST}"
+          cosign sign --yes "${GHCR_REPOSITORY}@${GHCR_DIGEST}"
+
+      - name: Promote verified release tags
+        shell: bash
+        env:
+          GHCR_DIGEST: ${{ steps.merge.outputs.digest }}
+          DOCKER_CANDIDATE: ${{ steps.tags.outputs.docker_candidate }}
+          DOCKER_REPOSITORY: ${{ steps.tags.outputs.docker_repository }}
+          GHCR_CANDIDATE: ${{ steps.tags.outputs.ghcr_candidate }}
+          GHCR_REPOSITORY: ${{ steps.tags.outputs.ghcr_repository }}
+          RELEASE_TAGS: ${{ steps.tags.outputs.release_tags }}
+        run: |
+          set -euo pipefail
+          docker_args=()
+          ghcr_args=()
+          for tag in ${RELEASE_TAGS}; do
+            docker_args+=(--tag "${DOCKER_REPOSITORY}:${tag}")
+            ghcr_args+=(--tag "${GHCR_REPOSITORY}:${tag}")
+          done
+          docker buildx imagetools create "${ghcr_args[@]}" "${GHCR_CANDIDATE}"
+          docker buildx imagetools create "${docker_args[@]}" "${DOCKER_CANDIDATE}"
+
   create-release:
     name: Create GitHub Release
     needs:
       - prepare-release
       - build-and-push
+      - build-and-push-rust
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

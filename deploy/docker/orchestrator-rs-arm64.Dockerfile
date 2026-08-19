@@ -1,4 +1,6 @@
-# Rust orchestrator runtime image using a prebuilt Linux binary.
+# Rust orchestrator runtime image (linux/arm64) using a prebuilt binary.
+# The binary is cross-compiled on the host with cargo-zigbuild (see deploy.sh
+# ensure_orchestrator_binary), then COPYed in — no in-image compilation.
 
 ARG RUNTIME_IMAGE=public.ecr.aws/docker/library/debian:bookworm-slim
 
@@ -11,7 +13,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY target/x86_64-unknown-linux-gnu/release/joysafeter-orchestrator /usr/local/bin/joysafeter-orchestrator
+COPY target/aarch64-unknown-linux-gnu/release/joysafeter-orchestrator /usr/local/bin/joysafeter-orchestrator
 
 ENV RUST_LOG=info
 ENV JOYSAFETER_GRPC_HOST=0.0.0.0

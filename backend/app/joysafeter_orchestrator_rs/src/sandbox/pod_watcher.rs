@@ -117,11 +117,7 @@ impl PodWatcher {
     /// `on_node_learned` (if provided) is invoked the first time each sandbox
     /// pod's node assignment becomes known, so node-aware xDS filtering can
     /// deliver the sandbox's egress listener immediately (see [`NodeLearnedHook`]).
-    pub fn new(
-        client: Client,
-        namespace: &str,
-        on_node_learned: Option<NodeLearnedHook>,
-    ) -> Self {
+    pub fn new(client: Client, namespace: &str, on_node_learned: Option<NodeLearnedHook>) -> Self {
         let cache = Arc::new(RwLock::new(HashMap::new()));
         let pods: Api<Pod> = Api::namespaced(client, namespace);
         tokio::spawn(Self::watch_loop(pods, cache.clone(), on_node_learned));
@@ -277,8 +273,7 @@ mod tests {
     fn recording_hook() -> (NodeLearnedHook, Calls) {
         let calls: Calls = Arc::new(Mutex::new(Vec::new()));
         let sink = calls.clone();
-        let hook: NodeLearnedHook =
-            Arc::new(move |id, node| sink.lock().unwrap().push((id, node)));
+        let hook: NodeLearnedHook = Arc::new(move |id, node| sink.lock().unwrap().push((id, node)));
         (hook, calls)
     }
 
@@ -300,7 +295,10 @@ mod tests {
         .expect("valid Pod json")
     }
 
-    fn empty_state() -> (Arc<RwLock<HashMap<String, CachedPod>>>, HashMap<String, CachedPod>) {
+    fn empty_state() -> (
+        Arc<RwLock<HashMap<String, CachedPod>>>,
+        HashMap<String, CachedPod>,
+    ) {
         (Arc::new(RwLock::new(HashMap::new())), HashMap::new())
     }
 
@@ -314,7 +312,11 @@ mod tests {
         PodWatcher::handle_event(
             &cache,
             &mut staging,
-            Event::Apply(sandbox_pod("joysafeter-x", &uuid.to_string(), Some("node-a"))),
+            Event::Apply(sandbox_pod(
+                "joysafeter-x",
+                &uuid.to_string(),
+                Some("node-a"),
+            )),
             Some(&hook),
         )
         .await;
@@ -323,7 +325,11 @@ mod tests {
         PodWatcher::handle_event(
             &cache,
             &mut staging,
-            Event::Apply(sandbox_pod("joysafeter-x", &uuid.to_string(), Some("node-a"))),
+            Event::Apply(sandbox_pod(
+                "joysafeter-x",
+                &uuid.to_string(),
+                Some("node-a"),
+            )),
             Some(&hook),
         )
         .await;
@@ -361,7 +367,11 @@ mod tests {
         PodWatcher::handle_event(
             &cache,
             &mut staging,
-            Event::Apply(sandbox_pod("joysafeter-y", &uuid.to_string(), Some("node-b"))),
+            Event::Apply(sandbox_pod(
+                "joysafeter-y",
+                &uuid.to_string(),
+                Some("node-b"),
+            )),
             Some(&hook),
         )
         .await;
@@ -380,13 +390,21 @@ mod tests {
         PodWatcher::handle_event(
             &cache,
             &mut staging,
-            Event::InitApply(sandbox_pod("joysafeter-z", &uuid.to_string(), Some("node-c"))),
+            Event::InitApply(sandbox_pod(
+                "joysafeter-z",
+                &uuid.to_string(),
+                Some("node-c"),
+            )),
             Some(&hook),
         )
         .await;
 
         let calls = calls.lock().unwrap();
-        assert_eq!(calls.len(), 1, "re-list should re-register a scheduled sandbox");
+        assert_eq!(
+            calls.len(),
+            1,
+            "re-list should re-register a scheduled sandbox"
+        );
         assert_eq!(calls[0].0.as_uuid(), uuid);
         assert_eq!(calls[0].1, "node-c");
     }
@@ -401,7 +419,11 @@ mod tests {
         PodWatcher::handle_event(
             &cache,
             &mut staging,
-            Event::Apply(sandbox_pod("joysafeter-bad", "sbx_not-a-uuid", Some("node-a"))),
+            Event::Apply(sandbox_pod(
+                "joysafeter-bad",
+                "sbx_not-a-uuid",
+                Some("node-a"),
+            )),
             Some(&hook),
         )
         .await;

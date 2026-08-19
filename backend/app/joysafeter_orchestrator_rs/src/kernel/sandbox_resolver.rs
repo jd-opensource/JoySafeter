@@ -65,7 +65,9 @@ const SETUP_NETWORKING_TIMEOUT: std::time::Duration = std::time::Duration::from_
 
 #[cfg(test)]
 mod protocol_env_tests {
-    use super::model_protocol_env_value;
+    use std::collections::HashMap;
+
+    use super::{apply_model_protocol_runtime_env, model_protocol_env_value};
 
     #[test]
     fn maps_known_protocols() {
@@ -89,6 +91,35 @@ mod protocol_env_tests {
         assert_eq!(model_protocol_env_value(""), None);
         assert_eq!(model_protocol_env_value("   "), None);
     }
+
+    #[test]
+    fn native_openai_compatible_protocol_enables_openai_provider() {
+        let mut env = HashMap::new();
+
+        apply_model_protocol_runtime_env(&mut env, Some("native"), "openai_responses");
+
+        assert_eq!(
+            env.get("JOYSAFETER_MODEL_PROTOCOL").map(String::as_str),
+            Some("openai_responses")
+        );
+        assert_eq!(
+            env.get("CLAUDE_CODE_USE_OPENAI").map(String::as_str),
+            Some("1")
+        );
+    }
+
+    #[test]
+    fn non_native_openai_compatible_protocol_does_not_enable_claude_openai_provider() {
+        let mut env = HashMap::new();
+
+        apply_model_protocol_runtime_env(&mut env, Some("codex"), "openai_responses");
+
+        assert_eq!(
+            env.get("JOYSAFETER_MODEL_PROTOCOL").map(String::as_str),
+            Some("openai_responses")
+        );
+        assert_eq!(env.get("CLAUDE_CODE_USE_OPENAI"), None);
+    }
 }
 
 /// Normalizes a stored secret `protocol` into the container-env signal read by
@@ -101,12 +132,35 @@ fn model_protocol_env_value(protocol: &str) -> Option<String> {
     }
 }
 
+fn apply_model_protocol_runtime_env(
+    env: &mut HashMap<String, String>,
+    runtime_engine_kind: Option<&str>,
+    protocol: &str,
+) {
+    if let Some(value) = model_protocol_env_value(protocol) {
+        env.insert("JOYSAFETER_MODEL_PROTOCOL".to_string(), value);
+    }
+    if runtime_engine_kind == Some("native")
+        && matches!(protocol.trim(), "chat_completions" | "openai_responses")
+    {
+        env.entry("CLAUDE_CODE_USE_OPENAI".to_string())
+            .or_insert_with(|| "1".to_string());
+    }
+}
+
 fn apply_sandbox_timezone(env: &mut HashMap<String, String>, platform_timezone: &str) {
     let platform_timezone = platform_timezone.trim();
     if !platform_timezone.is_empty() {
         env.entry("TZ".to_string())
             .or_insert_with(|| platform_timezone.to_string());
     }
+}
+
+fn apply_claude_code_sandbox_privacy(env: &mut HashMap<String, String>) {
+    env.entry("DISABLE_TELEMETRY".to_string())
+        .or_insert_with(|| "1".to_string());
+    env.entry("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_string())
+        .or_insert_with(|| "1".to_string());
 }
 
 /// 3-stage sandbox resolution with full Python parity:
@@ -608,10 +662,7 @@ impl SandboxResolver {
             sandbox_db_id.as_uuid().to_string(),
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
-        // Disable Claude Code telemetry — the sandbox has no route to
-        // api.anthropic.com and telemetry attempts just produce NR 404 noise.
-        env.entry("DISABLE_TELEMETRY".to_string())
-            .or_insert_with(|| "1".to_string());
+        apply_claude_code_sandbox_privacy(&mut env);
         if !self.config.sandbox_timezone.trim().is_empty() {
             env.entry("TZ".to_string())
                 .or_insert_with(|| self.config.sandbox_timezone.clone());
@@ -2324,12 +2375,12 @@ impl SandboxResolver {
 
         // The agent's primary secret (override_existing) defines the model wire
         // protocol for the sandbox. Environment-level secret_refs must not clobber
-        // it. pi-entrypoint.sh maps this to the models.json `api` field.
+        // it. pi-entrypoint.sh maps this to the models.json `api` field, and the
+        // Native Claude Code fork requires an explicit OpenAI provider switch for
+        // OpenAI-compatible protocols.
         if override_existing {
             if let Some(protocol) = secret.protocol.as_deref() {
-                if let Some(value) = model_protocol_env_value(protocol) {
-                    env.insert("JOYSAFETER_MODEL_PROTOCOL".to_string(), value);
-                }
+                apply_model_protocol_runtime_env(env, runtime_engine_kind, protocol);
             }
         }
 
@@ -2551,6 +2602,7 @@ impl SandboxResolver {
             sandbox_db_id.as_uuid().to_string(),
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
+        apply_claude_code_sandbox_privacy(&mut env);
         if !self.config.sandbox_timezone.trim().is_empty() {
             env.insert("TZ".to_string(), self.config.sandbox_timezone.clone());
         }
@@ -3830,6 +3882,41 @@ mod egress_tests {
     }
 
     #[test]
+    fn claude_code_sandbox_privacy_defaults_without_overriding_environment() {
+        let mut default_env = HashMap::new();
+        apply_claude_code_sandbox_privacy(&mut default_env);
+        assert_eq!(
+            default_env.get("DISABLE_TELEMETRY").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            default_env
+                .get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")
+                .map(String::as_str),
+            Some("1")
+        );
+
+        let mut explicit_env = HashMap::from([
+            ("DISABLE_TELEMETRY".to_string(), "0".to_string()),
+            (
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_string(),
+                "0".to_string(),
+            ),
+        ]);
+        apply_claude_code_sandbox_privacy(&mut explicit_env);
+        assert_eq!(
+            explicit_env.get("DISABLE_TELEMETRY").map(String::as_str),
+            Some("0")
+        );
+        assert_eq!(
+            explicit_env
+                .get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")
+                .map(String::as_str),
+            Some("0")
+        );
+    }
+
+    #[test]
     fn runtime_fingerprint_ignores_egress_policy_hash_only() {
         let expected = expected_fingerprint("new-policy");
         let mut stored = expected_fingerprint("old-policy").to_json();
@@ -4542,6 +4629,17 @@ mod egress_tests {
             assert_eq!(
                 created[0].env.get("JOYSAFETER_SANDBOX_ID"),
                 Some(&sandbox_id.as_uuid().to_string())
+            );
+            assert_eq!(
+                created[0].env.get("DISABLE_TELEMETRY").map(String::as_str),
+                Some("1")
+            );
+            assert_eq!(
+                created[0]
+                    .env
+                    .get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")
+                    .map(String::as_str),
+                Some("1")
             );
         }
         .await;

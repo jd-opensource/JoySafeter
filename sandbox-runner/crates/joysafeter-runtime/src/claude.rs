@@ -71,6 +71,12 @@ impl ClaudeAdapter {
         input.model.hash(&mut hasher);
         input.permission_mode.hash(&mut hasher);
         input.system_prompt.hash(&mut hasher);
+        input.system_prompt_mode.hash(&mut hasher);
+        serde_json::to_string(&input.mcp_configs)
+            .expect("MCP configs must serialize for process fingerprint")
+            .hash(&mut hasher);
+        input.allowed_tools.hash(&mut hasher);
+        input.ask_tools.hash(&mut hasher);
         let mut env_keys: Vec<_> = input.env.keys().collect();
         env_keys.sort();
         for k in &env_keys {
@@ -152,6 +158,27 @@ impl ClaudeAdapter {
             args.extend([flag.to_string(), system_prompt.clone()]);
         }
 
+        // Explicitly load the project-scoped MCP config. The runner writes MCP
+        // server definitions to `<cwd>/.mcp.json` (see runner::write_mcp_json)
+        // and sets `enableAllProjectMcpServers: true` in `.claude/settings.json`
+        // to auto-approve them. That approval path is unreliable in headless
+        // `-p` mode: the project servers stay stuck in "pending approval"
+        // (`claude mcp list` shows ⏸), so they expose no tools and the agent
+        // reports "no MCP tools". Servers passed on the command line via
+        // `--mcp-config` are treated as explicitly trusted and skip the project
+        // approval flow, and `--strict-mcp-config` makes the CLI use ONLY this
+        // file (the sole MCP source in a sandbox), eliminating the leftover
+        // pending project entry. Only pass these when the file exists so
+        // MCP-less sandboxes don't fail on a missing config path.
+        let mcp_config_path = cwd.join(".mcp.json");
+        if mcp_config_path.exists() {
+            args.extend([
+                "--mcp-config".to_string(),
+                mcp_config_path.to_string_lossy().into_owned(),
+                "--strict-mcp-config".to_string(),
+            ]);
+        }
+
         let mut cmd = Command::new("claude");
         cmd.args(&args)
             .current_dir(cwd)
@@ -166,6 +193,11 @@ impl ClaudeAdapter {
         for (k, v) in &input.secrets {
             cmd.env(k, v);
         }
+        // JoySafeter controls sandbox egress. Claude Code family runtimes must not
+        // emit Anthropic first-party background HTTPS requests through the
+        // HTTP-only egress bridge before the model request starts.
+        cmd.env("DISABLE_TELEMETRY", "1")
+            .env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
 
         let mut child = cmd
             .spawn()
@@ -1123,6 +1155,37 @@ mod tests {
         };
         let input2 = HarnessInput {
             model: Some("sonnet".into()),
+            ..input1.clone()
+        };
+        assert_ne!(
+            ClaudeAdapter::compute_fingerprint(&input1),
+            ClaudeAdapter::compute_fingerprint(&input2)
+        );
+    }
+
+    #[test]
+    fn compute_fingerprint_differs_on_mcp_and_tool_config_change() {
+        let input1 = HarnessInput {
+            prompt: "hello".into(),
+            system_prompt: None,
+            system_prompt_mode: "append".into(),
+            session_id: None,
+            model: Some("opus".into()),
+            max_turns: None,
+            timeout: Duration::from_secs(60),
+            env: HashMap::new(),
+            secrets: HashMap::new(),
+            mcp_configs: vec![],
+            permission_mode: "bypassPermissions".into(),
+            allowed_tools: vec!["Read".into()],
+            ask_tools: vec![],
+        };
+        let input2 = HarnessInput {
+            mcp_configs: vec![joysafeter_types::agent::McpServerConfig::Url {
+                name: "legal-knowledge".into(),
+                url: "https://ai-legal-test.jd.com/legal-mcp/mcp".into(),
+            }],
+            allowed_tools: vec!["Read".into(), "mcp__legal-knowledge__*".into()],
             ..input1.clone()
         };
         assert_ne!(

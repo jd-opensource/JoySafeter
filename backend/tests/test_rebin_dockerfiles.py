@@ -5,39 +5,35 @@ import pytest
 pytestmark = pytest.mark.no_db
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-REBIN_FILES = (
-    "codex-rebin.Dockerfile",
-    "orchestrator-rs-rebin.Dockerfile",
-    "sandbox-runner-rebin.Dockerfile",
-)
-SOURCE_ORCHESTRATOR_DOCKERFILES = (
-    "orchestrator-rs.Dockerfile",
-    "orchestrator-rs-jd.Dockerfile",
+
+# Prebuilt-binary runtime Dockerfiles: the Rust binary is cross-compiled on the
+# host with cargo-zigbuild (deploy.sh ensure_orchestrator_binary) and COPYed in
+# per-arch — no in-image compilation. One Dockerfile per architecture.
+BINARY_ORCHESTRATOR_DOCKERFILES = (
+    "orchestrator-rs-amd64.Dockerfile",
+    "orchestrator-rs-arm64.Dockerfile",
 )
 
+# Source Dockerfiles that still compile in-image (used by GitHub CI on native
+# runners). Kept for the multi-arch CI build path.
+SOURCE_ORCHESTRATOR_DOCKERFILES = ("orchestrator-rs.Dockerfile",)
 
-@pytest.mark.parametrize("filename", REBIN_FILES)
-def test_rebin_dockerfile_parameterizes_rust_target(filename: str) -> None:
+
+@pytest.mark.parametrize("filename", BINARY_ORCHESTRATOR_DOCKERFILES)
+def test_binary_dockerfile_copies_prebuilt_binary_without_compiling(filename: str) -> None:
     source = (REPO_ROOT / "deploy/docker" / filename).read_text()
 
-    assert "ARG TARGET_TRIPLE=" in source
-    assert "target/${TARGET_TRIPLE}/release/" in source
-    assert "target/x86_64-unknown-linux-gnu/release/" not in source
+    assert "release/joysafeter-orchestrator" in source
+    assert "RUN cargo build" not in source
+    assert "RUN cargo zigbuild" not in source
 
 
-def test_orchestrator_rebin_allows_pinning_the_base_image() -> None:
-    source = (
-        REPO_ROOT / "deploy/docker/orchestrator-rs-rebin.Dockerfile"
-    ).read_text()
+def test_binary_dockerfiles_target_distinct_architectures() -> None:
+    amd64 = (REPO_ROOT / "deploy/docker/orchestrator-rs-amd64.Dockerfile").read_text()
+    arm64 = (REPO_ROOT / "deploy/docker/orchestrator-rs-arm64.Dockerfile").read_text()
 
-    assert "ARG BASE=" in source
-    assert "FROM ${BASE}" in source
-
-
-def test_codex_rebin_restores_codex_entrypoint() -> None:
-    source = (REPO_ROOT / "deploy/docker/codex-rebin.Dockerfile").read_text()
-
-    assert 'ENTRYPOINT ["/usr/local/bin/codex-entrypoint.sh"]' in source
+    assert "target/x86_64-unknown-linux-gnu/release/" in amd64
+    assert "target/aarch64-unknown-linux-gnu/release/" in arm64
 
 
 @pytest.mark.parametrize("filename", SOURCE_ORCHESTRATOR_DOCKERFILES)
@@ -55,7 +51,7 @@ def test_orchestrator_source_dockerfile_copies_compile_time_inputs(filename: str
 
 @pytest.mark.parametrize(
     "filename",
-    (*SOURCE_ORCHESTRATOR_DOCKERFILES, "orchestrator-rs-binary.Dockerfile"),
+    (*SOURCE_ORCHESTRATOR_DOCKERFILES, *BINARY_ORCHESTRATOR_DOCKERFILES),
 )
 def test_orchestrator_dockerfiles_do_not_export_dead_global_enable_switch(filename: str) -> None:
     source = (REPO_ROOT / "deploy/docker" / filename).read_text()
