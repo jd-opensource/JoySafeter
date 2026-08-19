@@ -66,6 +66,7 @@
   - `SURFACE_TO_TYPE: dict[str, tuple[str, str]]` mapping `surface_id -> (resource_type, frontend_surface)`
   - `mappable_targets(deps, *, archive_disp, delete_disp) -> list[tuple[str, str]]` returning unique `(resource_type, source_id)` pairs needing name resolution
   - `build_reference_view(deps, names, *, archive_disp, delete_disp) -> ReferenceView` where `names: dict[tuple[str, str], str | None]` keyed by `(resource_type, source_id)`
+  - `resolve_reference_view(deps, name_lookup, *, archive_disp, delete_disp) -> ReferenceView` — async helper shared by Task 3 (service) and Task 6 (coordinator) so the name-resolution loop is written ONCE. `name_lookup` is an async callable `(resource_type: str, ids: list[str]) -> dict[str, str | None]` (the caller binds `project_id`).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -276,6 +277,51 @@ def build_reference_view(
         can_archive=can_archive,
         can_delete=can_delete,
     )
+
+
+async def resolve_reference_view(
+    deps: Sequence[CredentialDependency],
+    name_lookup,
+    *,
+    archive_disp: DependencyDisposition,
+    delete_disp: DependencyDisposition,
+) -> ReferenceView:
+    """Resolve names for the mappable blocking deps and build the view.
+
+    ``name_lookup`` is an async callable ``(resource_type, ids) -> {id: name}``;
+    the caller binds ``project_id``. Written once here so the service (Task 3)
+    and the coordinator (Task 6) share one name-resolution path.
+    """
+    targets = mappable_targets(deps, archive_disp=archive_disp, delete_disp=delete_disp)
+    by_type: dict[str, list[str]] = {}
+    for resource_type, source_id in targets:
+        by_type.setdefault(resource_type, []).append(source_id)
+    names: dict[tuple[str, str], str | None] = {}
+    for resource_type, ids in by_type.items():
+        resolved = await name_lookup(resource_type, ids)
+        for source_id in ids:
+            names[(resource_type, source_id)] = resolved.get(str(source_id))
+    return build_reference_view(deps, names, archive_disp=archive_disp, delete_disp=delete_disp)
+```
+
+Add an async test for the shared helper to `test_credential_reference_view.py` (uses a fake `name_lookup`, no DB):
+
+```python
+import pytest
+
+from app.joysafeter_application.credentials.reference_view import resolve_reference_view
+
+
+@pytest.mark.asyncio
+async def test_resolve_reference_view_uses_name_lookup():
+    deps = [_dep("live_agent_model_binding", "agent-1")]
+
+    async def fake_lookup(resource_type, ids):
+        assert resource_type == "agent"
+        return {"agent-1": "客服机器人"}
+
+    view = await resolve_reference_view(deps, fake_lookup, archive_disp=ARCHIVE, delete_disp=DELETE)
+    assert view.references == [ReferenceItem("agent_model_binding", "agent", "agent-1", "客服机器人")]
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -456,8 +502,7 @@ Add to `CredentialService` (imports at top of file):
 ```python
 from app.joysafeter_application.credentials.reference_view import (
     ReferenceView,
-    build_reference_view,
-    mappable_targets,
+    resolve_reference_view,
 )
 ```
 
@@ -470,18 +515,13 @@ from app.joysafeter_application.credentials.reference_view import (
         archive_disp: DependencyDisposition,
         delete_disp: DependencyDisposition,
     ) -> ReferenceView:
-        targets = mappable_targets(deps, archive_disp=archive_disp, delete_disp=delete_disp)
-        by_type: dict[str, list[str]] = {}
-        for resource_type, source_id in targets:
-            by_type.setdefault(resource_type, []).append(source_id)
-        names: dict[tuple[str, str], str | None] = {}
         repo = self._application.uow.credentials
-        for resource_type, ids in by_type.items():
-            resolved = await repo.names_for(resource_type, ids, project_id=str(project_id))
-            for source_id in ids:
-                names[(resource_type, source_id)] = resolved.get(str(source_id))
-        return build_reference_view(
-            deps, names, archive_disp=archive_disp, delete_disp=delete_disp
+
+        async def name_lookup(resource_type, ids):
+            return await repo.names_for(resource_type, ids, project_id=str(project_id))
+
+        return await resolve_reference_view(
+            deps, name_lookup, archive_disp=archive_disp, delete_disp=delete_disp
         )
 
     async def resource_reference_view(self, credential_id, project_id: str) -> ReferenceView:
@@ -756,24 +796,15 @@ Add a coordinator method:
         archive_disp: DependencyDisposition,
         delete_disp: DependencyDisposition,
     ) -> dict:
-        from app.joysafeter_application.credentials.reference_view import (
-            build_reference_view,
-            mappable_targets,
-        )
+        from app.joysafeter_application.credentials.reference_view import resolve_reference_view
 
-        targets = mappable_targets(deps, archive_disp=archive_disp, delete_disp=delete_disp)
-        by_type: dict[str, list[str]] = {}
-        for resource_type, source_id in targets:
-            by_type.setdefault(resource_type, []).append(source_id)
-        names: dict[tuple[str, str], str | None] = {}
-        for resource_type, ids in by_type.items():
-            resolved = await self._uow.credentials.names_for(
+        async def name_lookup(resource_type, ids):
+            return await self._uow.credentials.names_for(
                 resource_type, ids, project_id=str(project_id)
             )
-            for source_id in ids:
-                names[(resource_type, source_id)] = resolved.get(str(source_id))
-        view = build_reference_view(
-            deps, names, archive_disp=archive_disp, delete_disp=delete_disp
+
+        view = await resolve_reference_view(
+            deps, name_lookup, archive_disp=archive_disp, delete_disp=delete_disp
         )
         return {
             "references": [
