@@ -4,7 +4,7 @@ import pytest
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select
 
-from app.joysafeter_api.api.v1.agents import create_agent, update_agent
+from app.joysafeter_api.api.v1.agents import _validate_mcp_servers, create_agent, update_agent
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
@@ -205,6 +205,38 @@ async def test_update_agent_rejects_version_conflict_with_structured_error(db_se
     row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
     assert row.name == original_name
     assert row.version == 2
+
+
+@pytest.mark.no_db
+def test_mcp_server_validation_allows_http_urls_by_default(monkeypatch):
+    monkeypatch.delenv("JOYSAFETER_MCP_REQUIRE_HTTPS", raising=False)
+    for url in (
+        "http://10.1.2.3:8080/mcp",
+        "http://mcp-service.default.svc.cluster.local:8080/mcp",
+        "http://pre-cc.jd.com/mcp",
+        "HTTP://example.com/mcp",
+    ):
+        _validate_mcp_servers([{"type": "url", "name": "tools", "url": url}])
+
+
+@pytest.mark.no_db
+@pytest.mark.asyncio
+async def test_mcp_server_validation_can_require_https_for_non_local_http_urls(monkeypatch):
+    monkeypatch.setenv("JOYSAFETER_MCP_REQUIRE_HTTPS", "true")
+    url = "HTTP://example.com/mcp"
+
+    with pytest.raises(AppError) as exc_info:
+        _validate_mcp_servers([{"type": "url", "name": "tools", "url": url}])
+
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "AGENT_MCP_URL_SCHEME_INVALID",
+        "message": f"MCP server URL must use HTTPS: {url}",
+        "data": {"url": url, "host": "example.com"},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+    _validate_mcp_servers([{"type": "url", "name": "tools", "url": "http://localhost:8080/mcp"}])
 
 
 @pytest.mark.asyncio

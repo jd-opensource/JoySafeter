@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from typing import Any, Optional, cast
 
 from fastapi import APIRouter, Depends, Query
@@ -53,6 +54,11 @@ router = APIRouter(tags=["joysafeter-agents"])
 
 
 _LOCAL_MCP_HOSTS = {"localhost", "127.0.0.1", "host.docker.internal", "::1"}
+_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+
+
+def _mcp_requires_https() -> bool:
+    return os.getenv("JOYSAFETER_MCP_REQUIRE_HTTPS", "").strip().lower() in _TRUTHY_ENV_VALUES
 
 
 def _agent_config_error(*, code: str, message: str, data: dict[str, Any]) -> AppError:
@@ -81,9 +87,7 @@ def _validate_mcp_servers(mcp_servers: list[dict] | None) -> None:
         if not isinstance(cfg, dict):
             continue
         url = cfg.get("url", "")
-        if url.startswith("http://"):
-            # Allow http:// for clearly-local development addresses so users can
-            # point MCP at a host-side dev server. Everything else must be HTTPS.
+        if url.lower().startswith("http://") and _mcp_requires_https():
             from urllib.parse import urlparse
 
             host = (urlparse(url).hostname or "").lower()
