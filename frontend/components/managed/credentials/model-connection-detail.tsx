@@ -3,11 +3,11 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Archive, Eye, EyeOff, RotateCcw, Save, Star, Trash2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
-import { CredentialReferences } from '@/components/managed/credentials/credential-references'
 import { LlmCatalogPageState } from '@/components/managed/llm/llm-catalog-page-state'
 import {
+  ConfirmDialog,
   FormFieldLabel,
   MonoId,
   PageHeader,
@@ -16,21 +16,10 @@ import {
 } from '@/components/managed/shared'
 import { CompatibleEngineBadges } from '@/components/managed/shared/compatible-engine-badges'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
-import { useCredentialReferences } from '@/hooks/managed/use-credential-references'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { managedDelete, managedPatch, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
@@ -53,7 +42,6 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
   const router = useRouter()
   const queryClient = useQueryClient()
   const catalogQuery = useLlmCatalog()
-  const referencesQuery = useCredentialReferences(credential.id)
   const catalogVersion = catalogQuery.data?.version ?? ''
   const catalogReady = catalogQuery.isSuccess && Boolean(catalogVersion)
   const sourceDataRef = useRef(credential.data)
@@ -63,7 +51,6 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
   const [saving, setSaving] = useState(false)
   const [confirmAction, setConfirmAction] = useState<'archive' | 'restore' | 'delete' | null>(null)
   const [lifecyclePending, setLifecyclePending] = useState(false)
-  const confirmedRef = useRef(false)
   const {
     readOnly: projectReadOnly,
     beginAction,
@@ -81,16 +68,6 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
   const credentialReadOnly = projectReadOnly || Boolean(credential.archived_at)
   const mutationPending = saving || lifecyclePending
   const formReadOnly = credentialReadOnly || mutationPending
-  const blocked =
-    confirmAction === 'archive'
-      ? referencesQuery.data?.canArchive === false
-      : confirmAction === 'delete'
-        ? referencesQuery.data?.canDelete === false
-        : false
-
-  useEffect(() => {
-    if (confirmAction) confirmedRef.current = false
-  }, [confirmAction])
 
   if (!dirty && sourceDataRef.current !== credential.data) {
     sourceDataRef.current = credential.data
@@ -163,7 +140,6 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
 
   const confirmLifecycle = async () => {
     if (!confirmAction || projectReadOnly || mutationPending) return
-    if (blocked) return
     if (confirmAction === 'archive' && credential.archived_at) return
     if (confirmAction === 'restore' && !credential.archived_at) return
     const action = confirmAction
@@ -361,71 +337,37 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
           </Alert>
         )}
       </section>
-      {referencesQuery.data && (
-        <CredentialReferences data={referencesQuery.data} variant="informational" />
-      )}
-      <AlertDialog
+      <ConfirmDialog
         open={Boolean(confirmAction)}
-        onOpenChange={(open) => {
-          if (open) return
-          if (confirmedRef.current) {
-            confirmedRef.current = false
-            return
-          }
+        title={t(
+          confirmAction === 'delete'
+            ? 'managed.secrets.deleteTitle'
+            : confirmAction === 'restore'
+              ? 'managed.secrets.restoreTitle'
+              : 'managed.secrets.archiveTitle',
+        )}
+        description={t(
+          confirmAction === 'delete'
+            ? 'managed.secrets.deleteDescription'
+            : confirmAction === 'restore'
+              ? 'managed.secrets.restoreDescription'
+              : 'managed.secrets.archiveDescription',
+          { name: credential.name },
+        )}
+        confirmLabel={t(
+          confirmAction === 'delete'
+            ? 'common.delete'
+            : confirmAction === 'restore'
+              ? 'common.restore'
+              : 'common.archive',
+        )}
+        destructive={confirmAction === 'delete'}
+        onConfirm={confirmLifecycle}
+        onCancel={() => {
           bumpRun()
           setConfirmAction(null)
         }}
-      >
-        <AlertDialogContent variant={confirmAction === 'delete' ? 'destructive' : 'default'}>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t(
-                confirmAction === 'delete'
-                  ? 'managed.secrets.deleteTitle'
-                  : confirmAction === 'restore'
-                    ? 'managed.secrets.restoreTitle'
-                    : 'managed.secrets.archiveTitle',
-              )}
-            </AlertDialogTitle>
-            <AlertDialogDescription className="whitespace-pre-line leading-relaxed">
-              {t(
-                confirmAction === 'delete'
-                  ? 'managed.secrets.deleteDescription'
-                  : confirmAction === 'restore'
-                    ? 'managed.secrets.restoreDescription'
-                    : 'managed.secrets.archiveDescription',
-                { name: credential.name },
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {referencesQuery.data && (
-            <CredentialReferences data={referencesQuery.data} variant="blocker" />
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={mutationPending || blocked}
-              onClick={() => {
-                confirmedRef.current = true
-                confirmLifecycle()
-              }}
-              className={
-                confirmAction === 'delete'
-                  ? 'bg-red-600 text-white hover:bg-red-700'
-                  : 'bg-foreground text-background hover:opacity-90'
-              }
-            >
-              {t(
-                confirmAction === 'delete'
-                  ? 'common.delete'
-                  : confirmAction === 'restore'
-                    ? 'common.restore'
-                    : 'common.archive',
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      />
     </div>
   )
 }

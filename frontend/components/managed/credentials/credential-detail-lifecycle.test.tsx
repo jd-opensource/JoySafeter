@@ -58,14 +58,6 @@ vi.mock('@/lib/managed/llm-catalog', () => ({
 vi.mock('@/components/managed/shared/compatible-engine-badges', () => ({
   CompatibleEngineBadges: () => null,
 }))
-const referencesControl: { data: unknown; isLoading: boolean } = {
-  data: undefined,
-  isLoading: false,
-}
-vi.mock('@/hooks/managed/use-credential-references', () => ({
-  useCredentialReferences: () => ({ data: referencesControl.data, isLoading: referencesControl.isLoading }),
-  useCredentialGroupReferences: () => ({ data: referencesControl.data, isLoading: referencesControl.isLoading }),
-}))
 
 import { managedDelete, managedPost } from '@/lib/api-client'
 import type { SecretDetail } from '@/types/managed'
@@ -120,30 +112,6 @@ describe('credential detail lifecycle', () => {
     scopedActionControl.current = true
     managedPostMock.mockResolvedValue({})
     managedDeleteMock.mockResolvedValue(undefined)
-    referencesControl.data = undefined
-    referencesControl.isLoading = false
-  })
-
-  it('blocks archive when the credential is referenced', async () => {
-    referencesControl.data = {
-      references: [
-        { surface: 'agent_model_binding', resourceType: 'agent', id: 'a1', name: '客服机器人' },
-      ],
-      otherCount: 0,
-      canArchive: false,
-      canDelete: false,
-    }
-    render(
-      <Wrap>
-        <ModelConnectionDetail credential={credential('model', null)} />
-      </Wrap>,
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: 'common.archive' }))
-
-    expect(screen.getAllByText('客服机器人').length).toBeGreaterThan(0)
-    const archiveButtons = screen.getAllByRole('button', { name: /archive|归档|common\.archive/i })
-    expect(archiveButtons[archiveButtons.length - 1]).toBeDisabled()
   })
 
   it('archives and sets default from an active model connection detail', async () => {
@@ -194,28 +162,6 @@ describe('credential detail lifecycle', () => {
         expect.anything(),
       ),
     )
-  })
-
-  it('blocks archive of a referenced service credential', async () => {
-    referencesControl.data = {
-      references: [
-        { surface: 'environment_injection', resourceType: 'environment', id: 'e1', name: '生产环境' },
-      ],
-      otherCount: 0,
-      canArchive: false,
-      canDelete: false,
-    }
-    render(
-      <Wrap>
-        <ServiceCredentialDetail credential={credential('service', null)} />
-      </Wrap>,
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: 'common.archive' }))
-
-    expect(screen.getAllByText('生产环境').length).toBeGreaterThan(0)
-    const archiveButtons = screen.getAllByRole('button', { name: /archive|归档|common\.archive/i })
-    expect(archiveButtons[archiveButtons.length - 1]).toBeDisabled()
   })
 
   it('archives an active service credential and restores an archived one', async () => {

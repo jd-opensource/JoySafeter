@@ -2073,18 +2073,6 @@ const en = {
         },
         orphanCredential: 'This credential is not attached to a vault.',
         redirecting: 'Redirecting…',
-        references: {
-          blockerTitle: 'In use at the following — unbind there first:',
-          informationalTitle: 'Used at the following locations:',
-          surfaceAgentModelBinding: 'Model binding',
-          surfaceTriggerWebhookAuth: 'Webhook auth',
-          surfaceEnvironmentInjection: 'Environment injection',
-          surfaceActiveSessionSnapshot: 'Active session',
-          sessionFallback: 'Session {{id}}',
-          otherCount: '{{count}} more legacy snapshot reference(s) blocking',
-          inUseSummary:
-            'Still referenced by {{count}} item(s). Resolve them before archiving or deleting.',
-        },
       },
       secrets: {
         title: 'Credentials',

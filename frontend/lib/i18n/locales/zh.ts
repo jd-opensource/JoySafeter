@@ -2052,17 +2052,6 @@ const zh = {
         },
         orphanCredential: '该凭据未归属任何凭据库。',
         redirecting: '正在跳转…',
-        references: {
-          blockerTitle: '以下位置正在使用，请先解绑：',
-          informationalTitle: '被使用于以下位置：',
-          surfaceAgentModelBinding: '模型绑定',
-          surfaceTriggerWebhookAuth: 'Webhook 鉴权',
-          surfaceEnvironmentInjection: '环境注入',
-          surfaceActiveSessionSnapshot: '活跃会话',
-          sessionFallback: '会话 {{id}}',
-          otherCount: '另有 {{count}} 处历史快照引用阻塞',
-          inUseSummary: '仍被 {{count}} 处引用，请先解绑再归档或删除。',
-        },
       },
       secrets: {
         title: '凭据',

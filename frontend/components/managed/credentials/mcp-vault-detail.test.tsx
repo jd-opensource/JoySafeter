@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
 // Real Next useRouter() returns a STABLE reference; a fresh object per render
 // would re-fire router-dependent effects every render (infinite loop / OOM).
 const routerMock = { push: vi.fn(), replace: vi.fn() }
@@ -60,10 +61,6 @@ vi.mock('@/app/managed/vaults/components/create-credential-dialog', () => ({
   CreateCredentialDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="create-credential-dialog" /> : null,
 }))
-const groupReferencesControl: { data: unknown } = { data: undefined }
-vi.mock('@/hooks/managed/use-credential-references', () => ({
-  useCredentialGroupReferences: () => ({ data: groupReferencesControl.data }),
-}))
 
 import { managedGet } from '@/lib/api-client'
 
@@ -77,10 +74,6 @@ function Wrap({ children }: { children: ReactNode }) {
 }
 
 describe('McpVaultDetail', () => {
-  beforeEach(() => {
-    groupReferencesControl.data = undefined
-  })
-
   it('fetches the group and its members', async () => {
     managedGetMock.mockImplementation(async (url: string) =>
       (url as string).includes('/members')
@@ -164,64 +157,5 @@ describe('McpVaultDetail', () => {
 
     await screen.findByTestId('table-row:cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f041')
     expect(screen.queryByText('managed.vaults.credArchiveTitle')).toBeNull()
-  })
-
-  it('renders the informational where-used panel for a referenced vault', async () => {
-    groupReferencesControl.data = {
-      references: [{ surface: 'agent_mcp_binding', resourceType: 'agent', id: 'a1', name: '销售助手' }],
-      otherCount: 0,
-      canArchive: false,
-      canDelete: false,
-    }
-    managedGetMock.mockImplementation(async (url: string) =>
-      (url as string).includes('/members')
-        ? { data: [], has_more: false }
-        : {
-            id: GROUP,
-            name: 'v',
-            description: null,
-            archived_at: null,
-            created_at: '',
-            updated_at: '',
-          },
-    )
-    render(
-      <Wrap>
-        <McpVaultDetail credentialGroupId={GROUP as never} />
-      </Wrap>,
-    )
-    expect(await screen.findByText('销售助手')).toBeInTheDocument()
-  })
-
-  it('blocks the group archive confirm when the vault is referenced', async () => {
-    groupReferencesControl.data = {
-      references: [{ surface: 'agent_mcp_binding', resourceType: 'agent', id: 'a1', name: '销售助手' }],
-      otherCount: 0,
-      canArchive: false,
-      canDelete: false,
-    }
-    managedGetMock.mockImplementation(async (url: string) =>
-      (url as string).includes('/members')
-        ? { data: [], has_more: false }
-        : {
-            id: GROUP,
-            name: 'v',
-            description: null,
-            archived_at: null,
-            created_at: '',
-            updated_at: '',
-          },
-    )
-    render(
-      <Wrap>
-        <McpVaultDetail credentialGroupId={GROUP as never} />
-      </Wrap>,
-    )
-
-    await screen.findByText('销售助手')
-    fireEvent.click(screen.getByRole('button', { name: 'common.archive' }))
-
-    const archiveButtons = screen.getAllByRole('button', { name: /archive|归档|common\.archive/i })
-    expect(archiveButtons[archiveButtons.length - 1]).toBeDisabled()
   })
 })

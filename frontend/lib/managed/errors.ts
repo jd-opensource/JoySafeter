@@ -110,16 +110,6 @@ export function getOperationErrorMessage(
   if (code === 'NOT_FOUND' || code.endsWith('_NOT_FOUND')) {
     return t('managed.errors.resourceNotFound')
   }
-  if (code === 'CREDENTIAL_IN_USE') {
-    const refs = Array.isArray(data?.references) ? data!.references : null
-    const legacyIds = Array.isArray(data?.dependency_ids) ? data!.dependency_ids : null
-    const legacyLists = ['agents', 'triggers', 'environments', 'sessions']
-      .map((k) => (Array.isArray(data?.[k]) ? (data![k] as unknown[]).length : 0))
-      .reduce((a, b) => a + b, 0)
-    const otherCount = typeof data?.other_count === 'number' ? (data!.other_count as number) : 0
-    const count = refs ? refs.length + otherCount : legacyIds ? legacyIds.length : legacyLists
-    return t('managed.credentials.references.inUseSummary', { count })
-  }
   if (message.trim()) {
     return message
   }
