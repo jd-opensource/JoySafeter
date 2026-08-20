@@ -76,7 +76,6 @@ const en = {
       platformStorageVolumes: 'Storage Volumes',
       networkPolicyDiagnostics: 'Network Policy Diagnostics',
       resourceSkills: 'Skills',
-      secrets: 'Credentials',
       credentials: 'Credentials',
       memory: 'Memory',
       manage: 'Manage',
@@ -2357,10 +2356,7 @@ const en = {
         redirecting: 'Redirecting…',
       },
       secrets: {
-        title: 'Credentials',
-        subtitle: 'Manage model connections and service credentials for this project.',
         new: 'New Connection or Credential',
-        empty: 'No model connections or service credentials yet.',
         name: 'Name',
         namePlaceholder: 'e.g. my-api-secret',
         createDesc: 'Create a new secret with key-value pairs.',
@@ -2403,7 +2399,6 @@ const en = {
           'Archive "{{name}}"? It will become read-only and unavailable for new use until restored.',
         restoreTitle: 'Restore Connection or Credential',
         restoreDescription: 'Restore "{{name}}" and make it available for use again?',
-        backToList: 'Back to Credentials',
       },
       memoryStores: {
         title: 'Memory Stores',

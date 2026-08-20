@@ -81,7 +81,6 @@ const zh = {
       platformStorageVolumes: '存储卷配置',
       networkPolicyDiagnostics: '网络策略诊断',
       resourceSkills: '技能',
-      secrets: '凭据',
       credentials: '凭据',
       memory: '记忆',
       manage: '管理',
@@ -2318,10 +2317,7 @@ const zh = {
         redirecting: '正在跳转…',
       },
       secrets: {
-        title: '凭据',
-        subtitle: '管理当前项目的模型连接与服务凭据。',
         new: '新建连接或凭据',
-        empty: '暂无模型连接或服务凭据。',
         name: '名称',
         namePlaceholder: '例如 my-api-secret',
         createDesc: '创建一个包含键值对的新密钥。',
@@ -2361,7 +2357,6 @@ const zh = {
         archiveDescription: '归档 "{{name}}" 吗？归档后将变为只读，恢复前不能再用于新的调用。',
         restoreTitle: '恢复连接或凭据',
         restoreDescription: '恢复 "{{name}}" 并重新允许使用吗？',
-        backToList: '返回凭据',
       },
       memoryStores: {
         title: '记忆存储',

@@ -17,16 +17,8 @@ type TerminologyExpectation = readonly [
 ]
 
 const terminologyExpectations: readonly TerminologyExpectation[] = [
-  ['navigation', 'nav.secrets', 'Credentials', '凭据'],
   ['navigation', 'nav.vaults', 'MCP Credential Groups', 'MCP 凭据组'],
   ['navigation', 'nav.apiKeys', 'Project Access Tokens', '项目访问令牌'],
-  ['connections and credentials', 'managed.secrets.title', 'Credentials', '凭据'],
-  [
-    'connections and credentials',
-    'managed.secrets.subtitle',
-    'Manage model connections and service credentials for this project.',
-    '管理当前项目的模型连接与服务凭据。',
-  ],
   [
     'connections and credentials',
     'managed.secrets.new',
@@ -34,13 +26,6 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     '新建连接或凭据',
   ],
   ['connections and credentials', 'managed.secrets.dataLabel', 'Credential Fields', '凭据字段'],
-  ['connections and credentials', 'managed.secrets.backToList', 'Back to Credentials', '返回凭据'],
-  [
-    'connections and credentials',
-    'managed.secrets.empty',
-    'No model connections or service credentials yet.',
-    '暂无模型连接或服务凭据。',
-  ],
   [
     'connections and credentials',
     'managed.secrets.deleteTitle',
