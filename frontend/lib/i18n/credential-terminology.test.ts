@@ -18,14 +18,9 @@ type TerminologyExpectation = readonly [
 
 const terminologyExpectations: readonly TerminologyExpectation[] = [
   ['navigation', 'nav.secrets', 'Credentials', '凭据'],
-  ['navigation', 'nav.vaults', 'MCP Credential Vaults', 'MCP 凭据库'],
+  ['navigation', 'nav.vaults', 'MCP Credential Groups', 'MCP 凭据组'],
   ['navigation', 'nav.apiKeys', 'Project Access Tokens', '项目访问令牌'],
-  [
-    'connections and credentials',
-    'managed.secrets.title',
-    'Credentials',
-    '凭据',
-  ],
+  ['connections and credentials', 'managed.secrets.title', 'Credentials', '凭据'],
   [
     'connections and credentials',
     'managed.secrets.subtitle',
@@ -39,12 +34,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     '新建连接或凭据',
   ],
   ['connections and credentials', 'managed.secrets.dataLabel', 'Credential Fields', '凭据字段'],
-  [
-    'connections and credentials',
-    'managed.secrets.backToList',
-    'Back to Credentials',
-    '返回凭据',
-  ],
+  ['connections and credentials', 'managed.secrets.backToList', 'Back to Credentials', '返回凭据'],
   [
     'connections and credentials',
     'managed.secrets.empty',
@@ -147,133 +137,133 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     '不绑定模型连接；系统不会向该智能体注入模型凭据。',
   ],
   [
-    'MCP credential vault errors',
+    'MCP credential group errors',
     'managed.errorStates.vault.forbidden.title',
-    'No access to this MCP credential vault',
-    '无权访问此 MCP 凭据库',
+    'No access to this MCP credential group',
+    '无权访问此 MCP 凭据组',
   ],
   [
-    'MCP credential vault errors',
+    'MCP credential group errors',
     'managed.errorStates.vault.forbidden.description',
-    'MCP credential vault access requires write-level project access. Ask an organization admin or owner to grant access.',
-    '查看 MCP 凭据库需要项目写入权限。请联系组织管理员或所有者为你开通权限。',
+    'MCP credential group access requires write-level project access. Ask an organization admin or owner to grant access.',
+    '查看 MCP 凭据组需要项目写入权限。请联系组织管理员或所有者为你开通权限。',
   ],
   [
-    'MCP credential vault errors',
+    'MCP credential group errors',
     'managed.errorStates.vault.notFound.title',
-    'MCP credential vault not found',
-    'MCP 凭据库未找到',
+    'MCP credential group not found',
+    'MCP 凭据组未找到',
   ],
   [
-    'MCP credential vault errors',
+    'MCP credential group errors',
     'managed.errorStates.vault.notFound.description',
-    'This MCP credential vault may have been deleted, archived, or the link is no longer valid.',
-    '此 MCP 凭据库可能已被删除、归档，或当前链接已失效。',
+    'This MCP credential group may have been deleted, archived, or the link is no longer valid.',
+    '此 MCP 凭据组可能已被删除、归档，或当前链接已失效。',
   ],
   [
-    'MCP credential vault errors',
+    'MCP credential group errors',
     'managed.errorStates.vault.unknown.title',
-    'Could not load MCP credential vault',
-    '无法加载 MCP 凭据库',
+    'Could not load MCP credential group',
+    '无法加载 MCP 凭据组',
   ],
   [
-    'MCP credential vault errors',
+    'MCP credential group errors',
     'managed.errorStates.vault.unknown.description',
-    'We could not load this MCP credential vault right now. Please retry or check your connection.',
-    '暂时无法加载此 MCP 凭据库。请重试，或检查网络连接。',
+    'We could not load this MCP credential group right now. Please retry or check your connection.',
+    '暂时无法加载此 MCP 凭据组。请重试，或检查网络连接。',
   ],
-  ['MCP credential vaults', 'managed.vaults.title', 'MCP Credential Vaults', 'MCP 凭据库'],
-  ['MCP credential vaults', 'managed.vaults.new', 'New MCP Credential Vault', '新建 MCP 凭据库'],
-  ['MCP credential vaults', 'managed.vaults.credentials', 'MCP Credentials', 'MCP 凭据'],
+  ['MCP credential groups', 'managed.vaults.title', 'MCP Credential Groups', 'MCP 凭据组'],
+  ['MCP credential groups', 'managed.vaults.new', 'New MCP Credential Group', '新建 MCP 凭据组'],
+  ['MCP credential groups', 'managed.vaults.credentials', 'MCP Credentials', 'MCP 凭据'],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.vaults.addCredential',
     'Add MCP Bearer Credential',
     '添加 MCP Bearer 凭据',
   ],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.vaults.empty',
-    'No MCP credential vaults yet.',
-    '暂无 MCP 凭据库。',
+    'No MCP credential groups yet.',
+    '暂无 MCP 凭据组。',
   ],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.vaults.archiveVault',
-    'Archive MCP Credential Vault',
-    '归档 MCP 凭据库',
+    'Archive MCP Credential Group',
+    '归档 MCP 凭据组',
   ],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.vaults.archiveTitle',
-    'Archive MCP Credential Vault',
-    '归档 MCP 凭据库',
+    'Archive MCP Credential Group',
+    '归档 MCP 凭据组',
   ],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.vaults.deleteTitle',
-    'Delete MCP Credential Vault',
-    '删除 MCP 凭据库',
+    'Delete MCP Credential Group',
+    '删除 MCP 凭据组',
   ],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.vaults.backToVaults',
-    'Back to MCP Credential Vaults',
-    '返回 MCP 凭据库',
+    'Back to MCP Credential Groups',
+    '返回 MCP 凭据组',
   ],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.vaults.subtitle',
-    'Manage MCP credential vaults that give agents access to MCP servers and other tools.',
-    '管理 MCP 凭据库，为智能体提供访问 MCP 服务器和其他工具的权限。',
+    'Manage MCP credential groups that give agents access to MCP servers and other tools.',
+    '管理 MCP 凭据组，为智能体提供访问 MCP 服务器和其他工具的权限。',
   ],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.vaults.createTitle',
-    'Create MCP Credential Vault',
-    '创建 MCP 凭据库',
+    'Create MCP Credential Group',
+    '创建 MCP 凭据组',
   ],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.vaults.createDescription',
-    'Create a new MCP credential vault.',
-    '创建新的 MCP 凭据库。',
+    'Create a new MCP credential group.',
+    '创建新的 MCP 凭据组。',
   ],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.vaults.sharedWarning',
-    'MCP credential vaults are shared within the current project. Access and management require appropriate project permissions.',
-    'MCP 凭据库在当前项目内共享，访问和管理需要相应的项目权限。',
+    'MCP credential groups are shared within the current project. Access and management require appropriate project permissions.',
+    'MCP 凭据组在当前项目内共享，访问和管理需要相应的项目权限。',
   ],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.vaults.namePlaceholder',
-    'Production MCP Credential Vault',
-    '生产 MCP 凭据库',
+    'Production MCP Credential Group',
+    '生产 MCP 凭据组',
   ],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.vaults.createFailed',
-    'Failed to create MCP credential vault. Please try again.',
-    '创建 MCP 凭据库失败，请重试。',
+    'Failed to create MCP credential group. Please try again.',
+    '创建 MCP 凭据组失败，请重试。',
   ],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.vaults.archiveDescription',
-    'Are you sure you want to archive "{{name}}"? Credentials in this MCP credential vault will no longer be available to agents.',
-    '确定要归档 "{{name}}" 吗？此 MCP 凭据库中的凭据将不再对智能体可用。',
+    'Are you sure you want to archive "{{name}}"? Credentials in this MCP credential group will no longer be available to agents.',
+    '确定要归档 "{{name}}" 吗？此 MCP 凭据组中的凭据将不再对智能体可用。',
   ],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.vaults.noCredentials',
-    'No MCP credentials in this credential vault yet.',
-    '此 MCP 凭据库暂无 MCP 凭据。',
+    'No MCP credentials in this credential group yet.',
+    '此 MCP 凭据组暂无 MCP 凭据。',
   ],
   [
-    'MCP credential vaults',
+    'MCP credential groups',
     'managed.search.vaults',
-    'Search MCP credential vaults by name, ID, or status',
-    '按名称、ID 或状态搜索 MCP 凭据库',
+    'Search MCP credential groups by name, ID, or status',
+    '按名称、ID 或状态搜索 MCP 凭据组',
   ],
   ['project access tokens', 'managed.apiKeys.title', 'Project Access Tokens', '项目访问令牌'],
   [
@@ -465,50 +455,55 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   [
     'sessions',
     'managed.sessions.create.advancedSummary',
-    'Runtime environment, MCP credential vaults, resources, memory, Git',
-    '运行环境、MCP 凭据库、文件资源、Memory、Git',
+    'Runtime environment, MCP credential groups, resources, memory, Git',
+    '运行环境、MCP 凭据组、文件资源、Memory、Git',
   ],
-  ['sessions', 'managed.sessions.create.vaults', 'MCP Credential Vaults', 'MCP 凭据库'],
+  ['sessions', 'managed.sessions.create.vaults', 'MCP Credential Groups', 'MCP 凭据组'],
   [
     'sessions',
     'managed.sessions.create.manageVaults',
-    'Manage MCP Credential Vaults',
-    '管理 MCP 凭据库',
+    'Manage MCP Credential Groups',
+    '管理 MCP 凭据组',
   ],
   [
     'sessions',
     'managed.sessions.create.createVault',
-    'Create MCP credential vault…',
-    '新建 MCP 凭据库…',
+    'Create MCP credential group…',
+    '新建 MCP 凭据组…',
   ],
   [
     'sessions',
     'managed.sessions.create.searchVault',
-    'Search MCP credential vaults by name or ID',
-    '按名称或 ID 搜索 MCP 凭据库',
+    'Search MCP credential groups by name or ID',
+    '按名称或 ID 搜索 MCP 凭据组',
   ],
   [
     'sessions',
     'managed.sessions.create.noVaults',
-    'No MCP credential vaults available',
-    '暂无可用 MCP 凭据库',
+    'No MCP credential groups available',
+    '暂无可用 MCP 凭据组',
   ],
   [
     'sessions',
     'managed.sessions.create.noVaultMatch',
-    'No matching MCP credential vaults',
-    '没有匹配的 MCP 凭据库',
+    'No matching MCP credential groups',
+    '没有匹配的 MCP 凭据组',
   ],
-  ['sessions', 'managed.sessions.goToVault', 'Go to MCP Credential Vault', '前往 MCP 凭据库'],
+  [
+    'sessions',
+    'managed.sessions.goToCredentialGroup',
+    'Go to MCP Credential Group',
+    '前往 MCP 凭据组',
+  ],
   ['quickstart', 'managed.quickstart.resourceKindEnvironment', 'Environment', '环境'],
   [
     'quickstart',
     'managed.quickstart.resourceKindMcpCredentialSet',
-    'MCP Credential Vault',
-    'MCP 凭据库',
+    'MCP Credential Group',
+    'MCP 凭据组',
   ],
   ['quickstart', 'managed.quickstart.resourceKindAgent', 'Agent', '智能体'],
-  ['quickstart', 'managed.quickstart.step.chooseSecret', 'Choose Model Connection', '选择模型连接'],
+  ['quickstart', 'managed.quickstart.step.chooseSecret', 'Secure Model Connection', '安全模型连接'],
   [
     'quickstart',
     'managed.quickstart.noApiKey',
@@ -530,14 +525,14 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   [
     'quickstart',
     'managed.quickstart.secretQuestion',
-    'Step 2: Choose a Model Connection',
-    '第二步：选择模型连接',
+    'Step 2: Secure Model Connection',
+    '第二步：安全模型连接',
   ],
   [
     'quickstart',
     'managed.quickstart.templateAppliedMessage',
-    'Template ready. First, choose a runtime engine below. Then choose a Model Connection before creating the agent.',
-    '模板已准备好。第一步，请在下方选择运行引擎；第二步选择模型连接，然后即可创建智能体。',
+    'Template ready. JoySafeter recommended a runtime and security defaults; confirm the secure Model Connection, then create the agent.',
+    '模板已准备好。JoySafeter 已推荐运行时和安全默认值；确认安全模型连接后即可创建智能体。',
   ],
   [
     'quickstart',
@@ -547,51 +542,228 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   [
     'quickstart',
+    'managed.quickstart.engineRecommendation.title',
+    'Choose a runtime before JoySafeter continues',
+    '继续前请选择运行引擎',
+  ],
+  [
+    'quickstart',
+    'managed.quickstart.engineRecommendation.description',
+    'Based on your description, JoySafeter recommends one runtime. Confirm it or pick another option before we create the Model Connection flow.',
+    'JoySafeter 会根据你的描述给出推荐，但不会替你确认。确认推荐或改选其他引擎后，再进入模型连接流程。',
+  ],
+  [
+    'quickstart',
+    'managed.quickstart.engineRecommendation.useRecommended',
+    'Use {{engine}}',
+    '使用 {{engine}}',
+  ],
+  [
+    'quickstart',
     'managed.quickstart.secretHint',
-    'A Model Connection contains the model and its credentials. Create one here if no compatible Model Connection exists.',
-    '模型连接包含模型和访问凭据。如果还没有兼容模型连接，可以在这里立即创建。',
+    'A Model Connection stores model credentials securely and injects them at runtime by project policy.',
+    '模型连接会安全保存模型凭据，并按项目策略在运行时注入。',
+  ],
+  [
+    'quickstart',
+    'managed.quickstart.useSelectedModelConnection',
+    'Use selected Model Connection',
+    '使用已选模型连接',
+  ],
+  [
+    'quickstart safety',
+    'managed.quickstart.safety.sandbox.title',
+    'Controlled sandbox',
+    '受控沙箱',
+  ],
+  [
+    'quickstart safety',
+    'managed.quickstart.safety.credentials.title',
+    'Credential isolation',
+    '凭据隔离',
+  ],
+  [
+    'quickstart safety',
+    'managed.quickstart.safety.permissions.title',
+    'Least privilege',
+    '最小权限',
+  ],
+  ['quickstart safety', 'managed.quickstart.safety.audit.title', 'Auditable session', '可审计会话'],
+  [
+    'quickstart safety',
+    'managed.quickstart.templateSecurityHint',
+    'Secure defaults: sandbox, credential isolation, least privilege, audit.',
+    '安全默认值：沙箱、凭据隔离、最小权限、审计。',
+  ],
+  [
+    'quickstart recommendation',
+    'managed.quickstart.modelRecommendation.title',
+    'JoySafeter recommends this secure Model Connection',
+    'JoySafeter 推荐这个安全模型连接',
+  ],
+  [
+    'quickstart recommendation',
+    'managed.quickstart.modelRecommendation.reason.preferredProtocolDefault',
+    "It is the protocol default and matches this runtime's preferred protocol.",
+    '它是协议默认连接，并匹配当前运行时的首选协议。',
   ],
   [
     'quickstart',
     'managed.quickstart.step.configureVault',
-    'Configure MCP Credential Vault',
-    '配置 MCP 凭据库',
+    'Authorize External Tools',
+    '授权外部工具',
   ],
-  [
-    'quickstart',
-    'managed.quickstart.createThisVault',
-    'Create this MCP Credential Vault',
-    '创建此 MCP 凭据库',
-  ],
+  ['quickstart', 'managed.quickstart.createThisVault', 'Authorize external tools', '授权外部工具'],
   [
     'quickstart',
     'managed.quickstart.nextConfigureVault',
-    'Next: Configure MCP Credential Vault',
-    '下一步：配置 MCP 凭据库 →',
+    'Next: Authorize External Tools',
+    '下一步：授权外部工具 →',
+  ],
+  [
+    'quickstart',
+    'managed.quickstart.nextConfigureEnv',
+    'Next: Configure Security Environment',
+    '下一步：配置安全环境 →',
+  ],
+  [
+    'quickstart',
+    'managed.quickstart.nextStartSession',
+    'Next: Secure Launch',
+    '下一步：安全启动 →',
+  ],
+  [
+    'quickstart',
+    'managed.quickstart.readyToStart',
+    'Agent ready -- review the JoySafeter safety plan before launch.',
+    '智能体已就绪 — 启动前请确认 JoySafeter 安全计划。',
+  ],
+  [
+    'quickstart',
+    'managed.quickstart.envIntro',
+    'A security environment is the controlled sandbox where JoySafeter runs agent tools. Use it to limit network egress to the services this agent actually needs.',
+    '安全环境是 JoySafeter 运行智能体工具的受控沙箱。你可以用它把网络出口限制在此智能体真正需要访问的服务上。',
+  ],
+  [
+    'quickstart',
+    'managed.quickstart.createEnvironment',
+    'Create Security Environment',
+    '创建安全环境',
+  ],
+  [
+    'quickstart smart defaults',
+    'managed.quickstart.smartDefaults.allowlist.title',
+    'JoySafeter suggested allowlist',
+    'JoySafeter 推荐 allowlist',
+  ],
+  [
+    'quickstart smart defaults',
+    'managed.quickstart.smartDefaults.allowlist.reason.knownServices',
+    'Detected common services from your intent and translated them into narrow host rules.',
+    '已从你的意图中识别常见服务，并转换成更窄的主机规则。',
+  ],
+  [
+    'quickstart smart defaults',
+    'managed.quickstart.smartDefaults.externalTools.title',
+    'JoySafeter external tool recommendation',
+    'JoySafeter 外部工具建议',
+  ],
+  [
+    'quickstart smart defaults',
+    'managed.quickstart.smartDefaults.externalTools.reason.mcpServers',
+    'This Agent configuration includes MCP servers, so authorize only the credential group it needs.',
+    '这个智能体配置包含 MCP Server，因此只应授权它需要的凭据组。',
+  ],
+  [
+    'quickstart safety plan',
+    'managed.quickstart.safetyPlan.title',
+    'JoySafeter Safety Plan',
+    'JoySafeter 安全计划',
+  ],
+  [
+    'quickstart safety plan',
+    'managed.quickstart.safetyPlan.description',
+    'Review and adjust these controls before the first session starts.',
+    '首次会话启动前，请确认并按需调整这些控制项。',
+  ],
+  [
+    'quickstart safety plan',
+    'managed.quickstart.safetyPlan.externalTools',
+    'External tool credentials',
+    '外部工具凭据',
+  ],
+  [
+    'quickstart safety plan',
+    'managed.quickstart.safetyPlan.hint.modelConnection',
+    'Changing the Model Connection rebuilds the Agent with new model credentials.',
+    '更换模型连接会用新的模型凭据重新创建智能体。',
+  ],
+  [
+    'quickstart safety plan',
+    'managed.quickstart.safetyPlan.hint.noExternalTools',
+    'Launch stays isolated from MCP tools until you authorize a credential group.',
+    '未授权凭据组前，会话不会接入 MCP 外部工具。',
+  ],
+  [
+    'quickstart safety plan',
+    'managed.quickstart.safetyPlan.action.changeModelConnection',
+    'Change Model Connection',
+    '更换模型连接',
+  ],
+  [
+    'quickstart safety plan',
+    'managed.quickstart.safetyPlan.action.authorizeTools',
+    'Authorize',
+    '授权',
+  ],
+  [
+    'quickstart safety plan',
+    'managed.quickstart.safetyPlan.summary.hardening',
+    'Hardening recommended',
+    '建议加固',
+  ],
+  [
+    'quickstart safety plan',
+    'managed.quickstart.safetyPlan.summary.hardeningDescription',
+    'Add a controlled security environment to enforce network egress before the first run.',
+    '建议在首次运行前添加受控安全环境，以强制执行网络出口控制。',
+  ],
+  [
+    'quickstart safety plan',
+    'managed.quickstart.safetyPlan.status.recommended',
+    'Recommended',
+    '建议',
+  ],
+  ['quickstart safety plan', 'managed.quickstart.safetyPlan.status.isolated', 'Isolated', '隔离中'],
+  [
+    'quickstart safety plan',
+    'managed.quickstart.safetyPlan.launchHint.hardening',
+    'You can still launch, but JoySafeter recommends adding a security environment for stronger network control.',
+    '仍可继续启动，但 JoySafeter 建议添加安全环境以获得更强的网络控制。',
   ],
   [
     'quickstart',
     'managed.quickstart.vaultIntro',
-    'If this agent uses MCP servers that require credentials, it needs an MCP credential vault to store them. An MCP credential vault is a workspace-level MCP server credential store that sessions reference by ID at creation -- think of it as a secure keychain.',
-    '如果此智能体使用需要凭据的 MCP 服务器，它需要一个 MCP 凭据库来存储这些凭据。MCP 凭据库是工作区级别的 MCP 服务器凭据存储，会话在创建时通过 ID 引用它 —— 可以把它看作一个安全的钥匙链。',
+    'Authorize external tools only when this agent needs MCP servers with credentials. JoySafeter stores those MCP credentials in a credential group and attaches the group by ID at launch.',
+    '仅当这个智能体需要带凭据的 MCP Server 时才授权外部工具。JoySafeter 会把这些 MCP 凭据保存在凭据组中，并在启动时按 ID 附加。',
   ],
   [
     'quickstart',
     'managed.quickstart.vaultReuseOrCreate',
-    'Which MCP credential vault do you want to use to store MCP credentials?',
-    '你想使用哪个 MCP 凭据库来存储 MCP 凭据？',
+    'Which MCP credential group should JoySafeter authorize for this agent?',
+    'JoySafeter 应该为这个智能体授权哪个 MCP 凭据组？',
   ],
   [
     'quickstart',
     'managed.quickstart.vaultCreateNew',
-    'Create New MCP Credential Vault',
-    '创建新 MCP 凭据库',
+    'Authorize New MCP Credential Group',
+    '授权新 MCP 凭据组',
   ],
   [
     'quickstart',
     'managed.quickstart.vaultNameQuestion',
-    'What would you like to name this MCP credential vault?',
-    '你想给这个 MCP 凭据库起什么名字？',
+    'What should we call this external tool authorization group?',
+    '这个外部工具授权组应该叫什么？',
   ],
   [
     'quickstart',
@@ -601,33 +773,46 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   [
     'quickstart',
-    'managed.quickstart.createVault',
-    'Create MCP Credential Vault',
-    '创建 MCP 凭据库',
+    'managed.quickstart.vaultCredentialTitle',
+    'Add the MCP credential now',
+    '现在添加 MCP 凭据',
   ],
   [
     'quickstart',
+    'managed.quickstart.vaultCredentialHint',
+    'Quickstart will create the credential group and add one MCP credential member so the launch can actually use it.',
+    'Quickstart 会创建凭据组，并添加一个 MCP 凭据成员，确保启动后真的可以使用该授权。',
+  ],
+  [
+    'quickstart',
+    'managed.quickstart.vaultMcpServerUrlPlaceholder',
+    'MCP server URL, e.g. https://api.github.com/mcp',
+    'MCP Server URL，例如 https://api.github.com/mcp',
+  ],
+  ['quickstart', 'managed.quickstart.createVault', 'Authorize External Tools', '授权外部工具'],
+  [
+    'quickstart',
     'managed.quickstart.errors.createVaultFailed',
-    'Failed to create MCP credential vault',
-    '创建 MCP 凭据库失败',
+    'Failed to create MCP credential group',
+    '创建 MCP 凭据组失败',
   ],
   [
     'quickstart',
     'managed.quickstart.errors.vaultConfigMissing',
-    'MCP credential vault configuration not found',
-    '未找到 MCP 凭据库配置',
+    'MCP credential group configuration not found',
+    '未找到 MCP 凭据组配置',
   ],
   [
     'quickstart',
     'managed.quickstart.stepComplete.vaultCreated',
-    'MCP Credential Vault Configured',
-    'MCP 凭据库已配置',
+    'MCP Credential Group Configured',
+    'MCP 凭据组已配置',
   ],
   [
     'quickstart',
     'managed.quickstart.stepDesc.mcpCredentialSet',
-    'MCP Credential Vault configured! This project-scoped MCP credential vault securely stores MCP server credentials for sessions in the current project.',
-    'MCP 凭据库已配置！这个项目级 MCP 凭据库为当前项目中的会话安全存储 MCP 服务器凭据。',
+    'MCP Credential Group configured! This project-scoped MCP credential group securely stores MCP server credentials for sessions in the current project.',
+    'MCP 凭据组已配置！这个项目级 MCP 凭据组为当前项目中的会话安全存储 MCP 服务器凭据。',
   ],
   [
     'Vault static Bearer',
@@ -638,8 +823,8 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   [
     'Vault static Bearer',
     'managed.vaults.cred.createDescription',
-    'Store a Bearer token for one MCP server in this credential vault.',
-    '在当前 MCP 凭据库中保存一个 MCP Server 的 Bearer Token。',
+    'Store a Bearer token for one MCP server in this credential group.',
+    '在当前 MCP 凭据组中保存一个 MCP Server 的 Bearer Token。',
   ],
   ['Vault static Bearer', 'managed.vaults.cred.token', 'Bearer Token', 'Bearer Token'],
   [
@@ -728,6 +913,31 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   [
     'model connection states',
+    'managed.llm.compatibilityScope',
+    'Model Connection options',
+    '模型连接选项',
+  ],
+  [
+    'model connection states',
+    'managed.llm.filteredByEngine',
+    'Current runtime engine',
+    '当前运行引擎',
+  ],
+  ['model connection states', 'managed.llm.availableProtocols', 'Available protocols', '可用协议'],
+  [
+    'model connection states',
+    'managed.llm.catalogBackedOnlyHint',
+    'JoySafeter only shows model protocols this runtime can connect to safely. Credentials are injected at the controlled egress boundary, not placed in prompts.',
+    'JoySafeter 只展示当前运行引擎可安全接入的模型协议；凭据会在受控出网边界注入，不写入提示词。',
+  ],
+  [
+    'model connection states',
+    'managed.llm.singleProtocolSelected',
+    'This provider has one matching protocol for the current runtime',
+    '该供应商对当前运行引擎只有一个匹配协议',
+  ],
+  [
+    'model connection states',
     'managed.llm.noCompatibleConfigurationsHint',
     'Create one here using a provider and protocol supported by this engine.',
     '可在此使用该引擎支持的供应商与协议创建模型连接。',
@@ -737,6 +947,12 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'managed.llm.setAsProtocolDefault',
     'Set as default for this protocol',
     '设为该协议的默认模型连接',
+  ],
+  [
+    'model connection states',
+    'managed.llm.protocolDefaultHint',
+    'Protocol default only preselects a compatible Model Connection when creating agents or quickstarts. Running agents use their saved Model Connection.',
+    '协议默认仅用于创建智能体或快速开始时预选兼容的模型连接；运行中的智能体使用自己已保存的模型连接。',
   ],
   ['service credential fields', 'managed.llm.genericKey', 'Credential Field', '凭据字段'],
   [
@@ -858,14 +1074,14 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   [
     'sessions',
     'managed.sessions.mcpCredentialSetCount_one',
-    '{{count}} MCP credential vault',
-    '{{count}} 个 MCP 凭据库',
+    '{{count}} MCP credential group',
+    '{{count}} 个 MCP 凭据组',
   ],
   [
     'sessions',
     'managed.sessions.mcpCredentialSetCount_other',
-    '{{count}} MCP credential vaults',
-    '{{count}} 个 MCP 凭据库',
+    '{{count}} MCP credential groups',
+    '{{count}} 个 MCP 凭据组',
   ],
   [
     'quickstart',
@@ -876,8 +1092,8 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   [
     'quickstart',
     'managed.quickstart.autoIntro.mcpCredentialSetQuestion',
-    'What MCP credential vault does my agent need for MCP server credentials?',
-    '我的智能体需要怎样的 MCP 凭据库来保存 MCP 服务器凭据？',
+    'What MCP credential group does my agent need for MCP server credentials?',
+    '我的智能体需要怎样的 MCP 凭据组来保存 MCP 服务器凭据？',
   ],
 ]
 
@@ -985,7 +1201,7 @@ describe('credential domain terminology', () => {
   it('inventories direct, template, and finite active translation leaves', () => {
     const inventory = getActiveTranslationInventory()
 
-    expect(inventory.sourceFileCount).toBe(255)
+    expect(inventory.sourceFileCount).toBe(266)
     expect(inventory.sourceFiles).toContain('lib/managed/errors.ts')
     expect(inventory.sourceFiles).not.toContain('lib/i18n/locales/en.ts')
     expect(inventory.sourceFiles).not.toContain(
@@ -1002,8 +1218,8 @@ describe('credential domain terminology', () => {
       0,
     )
 
-    expect(inventory.counts).toEqual({ direct: 1309, dynamic: 401, total: 1710 })
-    expect(templateAdditions).toBe(354)
+    expect(inventory.counts).toEqual({ direct: 1376, dynamic: 443, total: 1819 })
+    expect(templateAdditions).toBe(396)
     expect(finiteAdditions).toBe(47)
     expect(inventory.templateDynamicLeaves).toContain(
       'managed.skills.aiAuthor.scan.status.not_scanned',
@@ -1138,7 +1354,7 @@ describe('credential domain terminology', () => {
     },
   )
 
-  it('interpolates singular and plural MCP Credential Vault counts in both locales', async () => {
+  it('interpolates singular and plural MCP Credential Group counts in both locales', async () => {
     const instance = createInstance()
     await instance.init({
       lng: 'en',
@@ -1148,18 +1364,18 @@ describe('credential domain terminology', () => {
     })
 
     expect(instance.t('managed.sessions.mcpCredentialSetCount', { count: 1 })).toBe(
-      '1 MCP credential vault',
+      '1 MCP credential group',
     )
     expect(instance.t('managed.sessions.mcpCredentialSetCount', { count: 2 })).toBe(
-      '2 MCP credential vaults',
+      '2 MCP credential groups',
     )
 
     await instance.changeLanguage('zh')
     expect(instance.t('managed.sessions.mcpCredentialSetCount', { count: 1 })).toBe(
-      '1 个 MCP 凭据库',
+      '1 个 MCP 凭据组',
     )
     expect(instance.t('managed.sessions.mcpCredentialSetCount', { count: 2 })).toBe(
-      '2 个 MCP 凭据库',
+      '2 个 MCP 凭据组',
     )
   })
 
@@ -1183,9 +1399,68 @@ describe('unified credentials surface vocabulary (P1, §3.12)', () => {
     )
     expect(zh.translation.managed.credentials.searchServices).toBe('按名称或 ID 搜索服务凭据')
     expect(en.translation.managed.credentials.filters.label).toBe('Filters')
-    expect(zh.translation.managed.credentials.emptyMcpTitle).toBe('尚未创建 MCP 凭据库')
+    expect(zh.translation.managed.credentials.emptyMcpTitle).toBe('尚未创建 MCP 凭据组')
     expect(en.translation.managed.credentials.chooser.description).toBe('Choose what to create.')
     expect(en.translation.managed.credentials.chooser.model).toBe('Model Connection')
-    expect(en.translation.managed.credentials.chooser.vault).toBe('MCP Credential Vault')
+    expect(en.translation.managed.credentials.chooser.credentialGroup).toBe('MCP Credential Group')
+  })
+})
+
+describe('credential domain closure terminology guards', () => {
+  const frontendRoot = path.resolve(import.meta.dirname, '../..')
+  const read = (relativePath: string) =>
+    readFileSync(path.resolve(frontendRoot, relativePath), 'utf8')
+
+  it('uses Credential Group in active types and parsers', () => {
+    const types = read('types/managed.ts')
+    const groupParser = read('lib/managed/credential-group-response-parsers.ts')
+    const compatibilityParser = read('lib/managed/vault-response-parsers.ts')
+
+    expect(types).toContain('export interface CredentialGroup')
+    expect(types).toContain('export interface CredentialGroupCredential')
+    expect(types).not.toMatch(/export interface Vault\b/)
+    expect(groupParser).not.toContain('Vault')
+    expect(compatibilityParser).toContain('as parseVaultResponse')
+  })
+
+  it('keeps active Environment language canonical', () => {
+    const types = read('types/managed.ts')
+    const editor = read('components/managed/environments-egress-editor.tsx')
+
+    expect(types).toContain('environment_credential_ids?: CredentialId[]')
+    expect(types).toContain('credential_field?: string')
+    expect(types).not.toContain('secret_refs?: CredentialId[]')
+    expect(types).not.toContain('secret_key?: string')
+    expect(editor).not.toContain('.secret_key')
+  })
+
+  it('keeps active Credential Group component identifiers canonical', () => {
+    const activeFiles = [
+      'components/managed/credentials/credential-management-shell.tsx',
+      'components/managed/credentials/mcp-vault-list.tsx',
+      'components/managed/credentials/mcp-vault-detail.tsx',
+      'app/managed/credentials/mcp/[credentialGroupId]/page.tsx',
+      'app/managed/vaults/components/create-vault-dialog.tsx',
+      'app/managed/vaults/components/create-credential-dialog.tsx',
+      'hooks/managed/use-quickstart-chat.ts',
+      'app/managed/sessions/[sessionId]/page.tsx',
+    ]
+
+    for (const relativePath of activeFiles) {
+      expect(read(relativePath)).not.toMatch(
+        /\b(?:McpVault\w*|CreateVaultDialog|VaultDetailActionVariables|VaultActionVariables|VaultDrawer|vaultId|vaultDetail|vaultCredentials|vaultDialogOpen)\b/,
+      )
+    }
+
+    expect(read('components/managed/credentials/credential-kind-chooser.tsx')).toContain(
+      "'credential-group'",
+    )
+    expect(read('lib/managed/credential-redirects.ts')).toContain('create=credential-group')
+    expect(read('lib/i18n/locales/en.ts')).not.toMatch(/(?:newMcpVault|searchMcpVaults|goToVault)/)
+  })
+
+  it('does not expose Vault wording in localized UI copy', () => {
+    expect(read('lib/i18n/locales/en.ts')).not.toMatch(/credential vault/i)
+    expect(read('lib/i18n/locales/zh.ts')).not.toContain('凭据库')
   })
 })

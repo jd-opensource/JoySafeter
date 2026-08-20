@@ -216,7 +216,7 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
                   {!credential.is_default ? (
                     <Button variant="outline" onClick={setDefault} disabled={mutationPending}>
                       <Star className="mr-1 h-4 w-4" />
-                      {t('managed.secrets.setDefault')}
+                      {t('managed.llm.setAsProtocolDefault')}
                     </Button>
                   ) : null}
                   <Button

@@ -3,11 +3,15 @@
 import { useRouter, useSearchParams } from 'next/navigation'
 import React, { useEffect } from 'react'
 
-import { McpVaultDetail } from '@/components/managed/credentials/mcp-vault-detail'
+import { McpCredentialGroupDetail } from '@/components/managed/credentials/mcp-vault-detail'
 import { withEntityRouteGuard } from '@/components/managed/shared'
 import { parseCredentialGroupId } from '@/types/entity-id'
 
-function McpVaultDetailPageInner({ params }: { params: Promise<{ credentialGroupId: string }> }) {
+function McpCredentialGroupDetailPageInner({
+  params,
+}: {
+  params: Promise<{ credentialGroupId: string }>
+}) {
   const { credentialGroupId } = React.use(params)
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -19,10 +23,15 @@ function McpVaultDetailPageInner({ params }: { params: Promise<{ credentialGroup
     const qs = next.toString()
     router.replace(`/managed/credentials/mcp/${credentialGroupId}${qs ? `?${qs}` : ''}`)
   }, [add, credentialGroupId, router, searchParams])
-  return <McpVaultDetail credentialGroupId={parseCredentialGroupId(credentialGroupId)} autoOpenAddCredential={add} />
+  return (
+    <McpCredentialGroupDetail
+      credentialGroupId={parseCredentialGroupId(credentialGroupId)}
+      autoOpenAddCredential={add}
+    />
+  )
 }
 
-export default withEntityRouteGuard(McpVaultDetailPageInner, {
+export default withEntityRouteGuard(McpCredentialGroupDetailPageInner, {
   kind: 'vault',
   idKind: 'credentialGroup',
   paramKey: 'credentialGroupId',

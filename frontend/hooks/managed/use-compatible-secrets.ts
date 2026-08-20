@@ -24,6 +24,10 @@ interface UseCompatibleSecretsOptions {
   enabled?: boolean
 }
 
+interface UseActiveModelConnectionsOptions {
+  enabled?: boolean
+}
+
 interface UseLlmSecretByNameOptions {
   name: string
   enabled?: boolean
@@ -68,6 +72,10 @@ export function compatibleSecretsQueryPrefix(scopeKey: string, engineId: string)
   return ['compatible-secrets', scopeKey, engineId] as const
 }
 
+export function activeModelConnectionsQueryKey(scopeKey: string, catalogVersion = '') {
+  return ['active-model-connections', scopeKey, catalogVersion] as const
+}
+
 export function compatibleSecretsQueryKey(scopeKey: string, engineId: string, catalogVersion = '') {
   return [...compatibleSecretsQueryPrefix(scopeKey, engineId), catalogVersion] as const
 }
@@ -95,6 +103,26 @@ export function useCompatibleSecrets({ engineId, enabled = true }: UseCompatible
     queryKey: compatibleSecretsQueryKey(managedScope.key, engineId, catalogVersion),
     queryFn: () =>
       fetchAllLlmSecrets(managedScope, { compatible_engine: engineId }, 'Compatible Secret'),
+    enabled: queryEnabled,
+    staleTime: 30_000,
+  })
+}
+
+export function useActiveModelConnections({
+  enabled = true,
+}: UseActiveModelConnectionsOptions = {}) {
+  const managedScope = useManagedRequestScope()
+  const catalogQuery = useLlmCatalog()
+  const catalogVersion = catalogQuery.data?.version ?? ''
+  const queryEnabled =
+    enabled &&
+    catalogQuery.isSuccess &&
+    Boolean(catalogVersion) &&
+    hasManagedRequestScope(managedScope)
+
+  return useQuery<Secret[]>({
+    queryKey: activeModelConnectionsQueryKey(managedScope.key, catalogVersion),
+    queryFn: () => fetchAllLlmSecrets(managedScope, {}, 'Active Model Connection'),
     enabled: queryEnabled,
     staleTime: 30_000,
   })

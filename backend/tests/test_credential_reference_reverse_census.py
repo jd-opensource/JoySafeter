@@ -31,10 +31,9 @@ REFERENCE_COLUMN_NAMES = {
     "group_id",
 }
 SENSITIVE_CALL_NAMES = {"decrypt", "reveal", "reveal_values"}
-RAW_KEY_EXCLUDED_FILES = {
-    "backend/app/joysafeter_domain/credentials/references.py",
-}
+RAW_KEY_EXCLUDED_FILES: set[str] = set()
 RAW_KEY_EXCLUDED_SCOPES: set[tuple[str, str]] = set()
+CODEC_INTERNAL_RAW_KEY_PREFIX = "raw_key:backend/app/joysafeter_domain/credentials/references.py:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +58,9 @@ REGISTERED_CLASSIFICATIONS = {
         "session_credential_group_association"
     },
     "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L151C20-L151C56:webhook_auth_credential_id:58260fff0370": {
+        "trigger_webhook_auth_binding"
+    },
+    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L152C23-L152C61:webhook_auth_credential_id:3367698b1fc3": {
         "trigger_webhook_auth_binding"
     },
     "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L165C34-L165C110:webhook_auth_credential_id:62ee839db546": {
@@ -90,7 +92,9 @@ AGGREGATE_INTERNAL_CLASSIFICATIONS = {
 }
 EXPECTED_PRODUCTION_RAW_KEY_SURFACES = {
     "raw_key:backend/app/joysafeter_api/api/v1/credentials.py:<module>.get_credential:L376C1-L376C31:/{credential_id}:cb1cb666ca53",
+    "raw_key:backend/app/joysafeter_domain/services/credential_binding_errors.py:<module>.raise_public_credential_error:L21C8-L21C63:credential_id:9c4f2e9cd651",
     "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L151C20-L151C56:webhook_auth_credential_id:58260fff0370",
+    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L152C23-L152C61:webhook_auth_credential_id:3367698b1fc3",
     "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L165C34-L165C110:webhook_auth_credential_id:62ee839db546",
     "raw_key:backend/app/joysafeter_domain/triggers/providers/webhook.py:<module>.WebhookTriggerProvider.build_config:L16C44-L16C84:webhook_auth_credential_id:9c088451c7c5",
 }
@@ -1220,9 +1224,7 @@ def discover_raw_key_paths(source: str, *, origin: str) -> set[CensusFinding]:
     candidate_keys.update(
         node.value
         for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and _looks_like_reference_key(node.value)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and _looks_like_reference_key(node.value)
     )
     for callsite, key in discover_python_registered_key_reads(source, candidate_keys):
         node = callsite.node
@@ -1240,9 +1242,7 @@ def discover_raw_key_paths(source: str, *, origin: str) -> set[CensusFinding]:
 
 def _lexical_string_bindings(source: str, *, rust: bool) -> dict[str, str]:
     if rust:
-        pattern = re.compile(
-            r'\b(?:const|static|let)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)[^=;]*=\s*"(?P<value>[^"\\]*)"'
-        )
+        pattern = re.compile(r'\b(?:const|static|let)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)[^=;]*=\s*"(?P<value>[^"\\]*)"')
     else:
         pattern = re.compile(
             r"\b(?:const|let|var)\s+(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*['\"](?P<value>[^'\"\\]*)['\"]"
@@ -1340,14 +1340,16 @@ def assert_reverse_census_closed(
     *,
     registered_surface_ids: set[str],
     reviewed_exceptions: dict[str, dict[str, str]],
+    aggregate_internal_surfaces: set[str] | None = None,
 ) -> None:
+    aggregate_internal_surfaces = AGGREGATE_INTERNAL_CLASSIFICATIONS | (aggregate_internal_surfaces or set())
     unclassified = []
     ambiguous = []
     for finding in findings:
         registered = REGISTERED_CLASSIFICATIONS.get(finding.surface)
         classifications = sum(
             (
-                finding.surface in AGGREGATE_INTERNAL_CLASSIFICATIONS,
+                finding.surface in aggregate_internal_surfaces,
                 registered is not None and registered <= registered_surface_ids,
                 finding.surface in reviewed_exceptions,
             )
@@ -1368,16 +1370,7 @@ def _production_findings() -> set[CensusFinding]:
     raw_key_findings = set()
     for path in python_paths:
         origin = _display_path(path)
-        if origin in RAW_KEY_EXCLUDED_FILES:
-            continue
-        raw_key_findings.update(
-            finding
-            for finding in discover_raw_key_paths(path.read_text(), origin=origin)
-            if not any(
-                finding.surface.startswith(f"raw_key:{excluded_origin}:{excluded_scope}:")
-                for excluded_origin, excluded_scope in RAW_KEY_EXCLUDED_SCOPES
-            )
-        )
+        raw_key_findings.update(discover_raw_key_paths(path.read_text(), origin=origin))
     return set().union(
         discover_sqlalchemy_typed_ids(Base.metadata),
         discover_alembic_typed_ids(BACKEND_ROOT / "alembic" / "versions"),
@@ -1402,13 +1395,17 @@ def test_reverse_census_independently_closes_every_production_finding(db_session
         "material_call",
         "raw_key",
     }
-    assert {finding.surface for finding in findings if finding.category == "raw_key"} == (
-        EXPECTED_PRODUCTION_RAW_KEY_SURFACES
-    )
+    raw_key_surfaces = {finding.surface for finding in findings if finding.category == "raw_key"}
+    codec_internal_surfaces = {
+        surface for surface in raw_key_surfaces if surface.startswith(CODEC_INTERNAL_RAW_KEY_PREFIX)
+    }
+    assert codec_internal_surfaces
+    assert raw_key_surfaces - codec_internal_surfaces == EXPECTED_PRODUCTION_RAW_KEY_SURFACES
     assert_reverse_census_closed(
         findings,
         registered_surface_ids=registered_surface_ids,
         reviewed_exceptions=_load_reviewed_exceptions(EXCEPTIONS_PATH),
+        aggregate_internal_surfaces=codec_internal_surfaces,
     )
 
 
@@ -1598,8 +1595,8 @@ def test_rust_registered_key_bypass_forms_are_detected(source: str) -> None:
     "source",
     [
         'const KEY = "credential_ref"; const value = payload[KEY];',
-        'const renamed = payload; const value = renamed.credential_ref;',
-        'const { credential_ref: value } = payload;',
+        "const renamed = payload; const value = renamed.credential_ref;",
+        "const { credential_ref: value } = payload;",
         'if ("credential_ref" in payload) consume(payload);',
     ],
 )
@@ -1612,9 +1609,7 @@ def test_frontend_registered_key_bypass_forms_are_detected(source: str) -> None:
 
 @pytest.mark.no_db
 def test_raw_key_census_has_no_implicit_broad_exclusions() -> None:
-    assert RAW_KEY_EXCLUDED_FILES == {
-        "backend/app/joysafeter_domain/credentials/references.py",
-    }
+    assert RAW_KEY_EXCLUDED_FILES == set()
     assert RAW_KEY_EXCLUDED_SCOPES == set()
 
 

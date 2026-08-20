@@ -20,7 +20,7 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
     EnvironmentConfig,
     EnvironmentResponse,
     UpdateEnvironmentRequest,
-    extract_environment_secret_references,
+    extract_environment_credential_references,
 )
 from app.joysafeter_domain.services.credential_binding_errors import raise_public_credential_error
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
@@ -187,19 +187,19 @@ def _env_to_response(env) -> EnvironmentResponse:
     )
 
 
-async def _validate_secret_refs(
+async def _validate_credential_references(
     db: AsyncSession,
     config: EnvironmentConfig,
     project_id: Optional[str],
 ) -> None:
     """Validate that every referenced credential id (egress service_credential_id
-    and env-var secret_refs) resolves to a live, in-project ``kind='service'``
+    and direct environment injection) resolves to a live, in-project ``kind='service'``
     credential in the unified credential store.
 
     There is no FK (the refs are buried in JSONB), so this write-time check is the
     integrity guard on create/update. Delete-time dependency scanning is Task 9e.
     """
-    references = extract_environment_secret_references(config)
+    references = extract_environment_credential_references(config)
     if not references:
         return
 
@@ -227,7 +227,7 @@ async def _validate_secret_refs(
             "index": reference.index,
             "path": reference.path,
         }
-        if reference.source == "secret_refs":
+        if reference.source == "environment_credential_ids":
             try:
                 binding = EnvironmentInjectionBinding(
                     ProjectId(project_id),
@@ -242,7 +242,7 @@ async def _validate_secret_refs(
         else:
             service = config.egress_services[reference.index or 0]
             inject = service.inject
-            if not inject.secret_key:
+            if not inject.credential_field:
                 raise InvalidRequestError(
                     code="CREDENTIAL_FIELD_MISSING",
                     message="A required credential field is missing",
@@ -250,7 +250,7 @@ async def _validate_secret_refs(
                     user_action="fix_input",
                 )
             try:
-                credential_field = CredentialFieldName(inject.secret_key)
+                credential_field = CredentialFieldName(inject.credential_field)
             except (TypeError, ValueError) as exc:
                 raise_public_credential_error(
                     exc,
@@ -300,7 +300,7 @@ async def create_environment(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> EnvironmentResponse:
-    await _validate_secret_refs(db, req.config, auth_ctx.project_id)
+    await _validate_credential_references(db, req.config, auth_ctx.project_id)
     await StorageMountService(db).validate_mount_resources(req.config.mount_resources, auth_ctx.project_id)
 
     svc = EnvironmentService(db)
@@ -391,7 +391,7 @@ async def update_environment(
         )
 
     if req.config is not None:
-        await _validate_secret_refs(db, req.config, auth_ctx.project_id)
+        await _validate_credential_references(db, req.config, auth_ctx.project_id)
         await StorageMountService(db).validate_mount_resources(req.config.mount_resources, auth_ctx.project_id)
 
     old_config = dict(env.config or {})

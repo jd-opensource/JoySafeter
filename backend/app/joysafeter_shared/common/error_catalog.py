@@ -58,6 +58,12 @@ CATALOG: dict[str, CatalogEntry] = {
         default_message="Credential is archived",
         user_action="refresh",
     ),
+    "CREDENTIAL_AUTH_SCHEME_DISABLED": CatalogEntry(
+        code="CREDENTIAL_AUTH_SCHEME_DISABLED",
+        error_class=InvalidRequestError,
+        default_message="Credential authentication scheme is disabled",
+        user_action="fix_input",
+    ),
     "CREDENTIAL_STATE_INVALID": CatalogEntry(
         code="CREDENTIAL_STATE_INVALID",
         error_class=ResourceConflictError,
@@ -98,6 +104,12 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ResourceConflictError,
         default_message="A credential group with this name already exists in the project",
         user_action="fix_input",
+    ),
+    "CREDENTIAL_GROUP_ARCHIVED": CatalogEntry(
+        code="CREDENTIAL_GROUP_ARCHIVED",
+        error_class=ResourceConflictError,
+        default_message="Credential group is archived",
+        user_action="refresh",
     ),
     "CREDENTIAL_GROUP_URL_CONFLICT": CatalogEntry(
         code="CREDENTIAL_GROUP_URL_CONFLICT",
@@ -140,6 +152,19 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ResourceConflictError,
         default_message="Credential group is archived",
         user_action="refresh",
+    ),
+    "SESSION_SOURCE_CHANGED": CatalogEntry(
+        code="SESSION_SOURCE_CHANGED",
+        error_class=ResourceConflictError,
+        default_message="Session source changed during activation",
+        retryable=True,
+        user_action="retry",
+    ),
+    "LLM_ENGINE_DISABLED": CatalogEntry(
+        code="LLM_ENGINE_DISABLED",
+        error_class=InvalidRequestError,
+        default_message="LLM engine is disabled",
+        user_action="fix_input",
     ),
     "TRIGGER_SECRET_KIND_INVALID": CatalogEntry(
         code="TRIGGER_SECRET_KIND_INVALID",

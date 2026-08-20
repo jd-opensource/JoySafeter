@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -45,6 +46,7 @@ def test_runtime_errors_and_v1_envelope_are_frozen(credential_contract: dict):
 
 
 def test_reference_contract_freezes_snapshot_versions_and_key_aliases(reference_contract: dict):
+    assert reference_contract["contract_version"] == 2
     assert reference_contract["snapshot_schemas"] == {
         "legacy_v0": None,
         "v1": "joysafeter.agent_execution_snapshot.v1",
@@ -59,17 +61,25 @@ def test_reference_contract_freezes_snapshot_versions_and_key_aliases(reference_
     assert reference_contract["legacy_aliases"] == {
         "model_credential_id": ["secret_ref"],
         "environment_credential_ids": ["secret_refs"],
+        "service_credential_id": ["credential_ref"],
         "credential_field": ["secret_key"],
     }
     assert reference_contract["legacy_decoder_keys"] == [
         "secret_ref",
         "secret_refs",
-        "service_credential_id",
+        "credential_ref",
         "secret_key",
     ]
+    assert reference_contract["normalization"] == {"inject_type": "trim_lowercase"}
     paths = reference_contract["reference_paths"]
-    assert paths
-    assert all(set(entry) == {"schemas", "document", "path", "surface", "scanner_fixture"} for entry in paths)
+    assert len(paths) == 27
+    assert all(
+        set(entry) == {"schemas", "document", "path", "value_kind", "surface", "scanner_fixture"} for entry in paths
+    )
+    assert Counter(entry["value_kind"] for entry in paths) == {
+        "credential_id": 21,
+        "credential_field": 6,
+    }
     assert len({entry["scanner_fixture"] for entry in paths}) == len(paths)
     assert all(entry["surface"] in reference_contract["consumer_surfaces"] for entry in paths)
 
@@ -87,9 +97,22 @@ def test_reference_contract_includes_consumer_surfaces_and_fail_closed_vector(re
         "skill_ai_authoring_model_inference",
         "legacy_v0_v1_environment_snapshot",
     ]
-    assert reference_contract["error_categories"] == {"unknown_explicit_schema": "corrupt_record"}
+    assert reference_contract["error_categories"] == {
+        "unknown_explicit_schema": "corrupt_record",
+        "legacy_alias_in_explicit_v2": "corrupt_record",
+    }
     assert reference_contract["test_vectors"][-1] == {
         "name": "unknown_explicit_schema_fails_closed",
         "schema": "joysafeter.agent_execution_snapshot.v3",
+        "result": "corrupt_record",
+    }
+    assert reference_contract["parity_vectors"][-1] == {
+        "name": "explicit_v2_rejects_legacy_alias",
+        "category": "schema_policy",
+        "document": "agent_version_snapshot",
+        "input": {
+            "schema": "joysafeter.agent_execution_snapshot.v2",
+            "secret_refs": ["cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f010"],
+        },
         "result": "corrupt_record",
     }

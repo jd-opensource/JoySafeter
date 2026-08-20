@@ -77,7 +77,7 @@ import { managedPost } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { parseCredentialGroupId, type CredentialGroupId } from '@/types/entity-id'
 
-import { CreateCredentialDialog } from './create-credential-dialog'
+import { CreateCredentialGroupCredentialDialog } from './create-credential-dialog'
 
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 const vaultAId = parseCredentialGroupId('credgrp_00000000-0000-0000-0000-000000000001')
@@ -102,24 +102,24 @@ function deferred<T>() {
 }
 
 function renderDialog(
-  vaultId: CredentialGroupId,
+  credentialGroupId: CredentialGroupId,
   queryClient: QueryClient,
   onOpenChange: (open: boolean) => void = () => {},
 ) {
   return (
     <QueryClientProvider client={queryClient}>
-      <CreateCredentialDialog
-        key={vaultId}
+      <CreateCredentialGroupCredentialDialog
+        key={credentialGroupId}
         open
         onOpenChange={onOpenChange}
-        vaultId={vaultId}
-        queryKey={['vault-credentials', vaultId]}
+        credentialGroupId={credentialGroupId}
+        queryKey={['credential-group-members', credentialGroupId]}
       />
     </QueryClientProvider>
   )
 }
 
-describe('CreateCredentialDialog object lifecycle', () => {
+describe('CreateCredentialGroupCredentialDialog object lifecycle', () => {
   beforeEach(() => {
     managedPostMock.mockReset()
     managedPostMock.mockResolvedValue({
@@ -352,7 +352,7 @@ describe('CreateCredentialDialog object lifecycle', () => {
       data: { token_value: 'bearer-token' },
     })
     expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: ['vault-credentials', vaultAId],
+      queryKey: ['credential-group-members', vaultAId],
     })
   })
 })

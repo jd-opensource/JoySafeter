@@ -132,7 +132,7 @@ describe('credential detail lifecycle', () => {
       ),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'managed.secrets.setDefault' }))
+    fireEvent.click(screen.getByRole('button', { name: 'managed.llm.setAsProtocolDefault' }))
     await waitFor(() =>
       expect(managedPostMock).toHaveBeenCalledWith(
         `/credentials/${MODEL_ID}/default`,
@@ -150,7 +150,7 @@ describe('credential detail lifecycle', () => {
     )
 
     expect(screen.queryByRole('button', { name: 'common.save' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'managed.secrets.setDefault' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'managed.llm.setAsProtocolDefault' })).toBeNull()
     expect(screen.getByDisplayValue('masked')).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: 'common.restore' }))

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 
 import { API_BASE, ApiError, apiStream, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
@@ -13,6 +13,10 @@ import {
   type QuickstartGenerationPhase,
 } from '@/lib/managed/quickstart-generation-progress'
 import { normalizeQuickstartAgentBlueprint } from '@/lib/managed/quickstart-agent-blueprint'
+import {
+  filterQuickstartSkillReferences,
+  type QuickstartAvailableSkill,
+} from '@/lib/managed/quickstart-capabilities'
 import {
   managedRequestOptions,
   managedScopeKey,
@@ -83,6 +87,10 @@ interface CreateCredentialGroupOptions {
   }
 }
 
+interface QuickstartChatOptions {
+  availableSkills?: QuickstartAvailableSkill[]
+}
+
 function getCurrentManagedScope() {
   const { currentOrgId, currentProjectId } = useProjectStore.getState()
   return managedScopeKey(currentOrgId, currentProjectId)
@@ -148,7 +156,10 @@ function toApiStatusError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error))
 }
 
-export function useQuickstartChat(agentSecretRef: string) {
+export function useQuickstartChat(
+  agentSecretRef: string,
+  { availableSkills = [] }: QuickstartChatOptions = {},
+) {
   const { t } = useTranslation()
   const managedScope = useManagedRequestScope()
   const managedScopeKeyValue = managedScope.key
@@ -167,6 +178,7 @@ export function useQuickstartChat(agentSecretRef: string) {
   const [resourceIds, setResourceIds] = useState<Record<number, string>>({})
   const [createdResourceIds, setCreatedResourceIds] = useState<Set<string>>(new Set())
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
+  const [skippedSteps, setSkippedSteps] = useState<Set<number>>(new Set())
   const [pendingConfirmation, setPendingConfirmation] = useState<{
     step: number
     curl: string
@@ -186,6 +198,10 @@ export function useQuickstartChat(agentSecretRef: string) {
     hasPartialConfig: false,
   })
   const [isCreating, setIsCreating] = useState(false)
+  const allowedSkillIds = useMemo(
+    () => new Set(availableSkills.map((skill) => skill.id)),
+    [availableSkills],
+  )
 
   const resourceIdsRef = useRef(resourceIds)
   const managedScopeRef = useRef(managedScopeKeyValue)
@@ -354,6 +370,7 @@ export function useQuickstartChat(agentSecretRef: string) {
             engine_kind: engineKind,
             model_credential_id: requestSecretRef,
             agent_context: step === 4 || step === 5 ? configRef.current.agent : undefined,
+            available_skills: step === 3 ? availableSkills : undefined,
           },
           { ...managedRequestOptions(requestScope), signal: controller.signal },
         )
@@ -398,7 +415,16 @@ export function useQuickstartChat(agentSecretRef: string) {
               case 'config_update':
                 if (event.step && event.config) {
                   setConfig((prev) => {
-                    if (event.step === 2) return { ...prev, agent: event.config }
+                    if (event.step === 2) {
+                      const nextAgent = { ...event.config }
+                      if ('skills' in nextAgent) {
+                        nextAgent.skills = filterQuickstartSkillReferences(
+                          nextAgent.skills,
+                          allowedSkillIds,
+                        )
+                      }
+                      return { ...prev, agent: nextAgent }
+                    }
                     if (event.step === 3) return { ...prev, environment: event.config }
                     if (event.step === 4) return { ...prev, vault: event.config }
                     return prev

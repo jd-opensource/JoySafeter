@@ -1024,16 +1024,6 @@ class SqlAlchemyCredentialRepository:
 
         return deps
 
-    async def _reject_if_in_use(self, cred: JoySafeterCredential, project_id: str, *, verb: str) -> None:
-        deps = await self.dependencies(cred.id, project_id=project_id)
-        if deps.in_use:
-            raise ResourceConflictError(
-                code="CREDENTIAL_IN_USE",
-                message=f"Credential is still referenced and cannot be {verb}",
-                data={"credential_id": str(cred.id), **deps.as_data()},
-                user_action="fix_input",
-            )
-
     # --- lifecycle ---------------------------------------------------------------
     # archive/soft_delete reject when the credential is still referenced by a live
     # consumer (agent / trigger / environment / active session or its snapshot);
@@ -1047,7 +1037,6 @@ class SqlAlchemyCredentialRepository:
         decision = decide_credential_lifecycle(resource, CredentialLifecycleCommand.ARCHIVE)
         if resource.state is decision.state:
             return MutationOutcome(cred, False)
-        await self._reject_if_in_use(cred, project_id, verb="archived")
         cred.archived_at = utc_now()
         if cred.is_default:
             cred.is_default = False
@@ -1111,7 +1100,6 @@ class SqlAlchemyCredentialRepository:
         decision = decide_credential_lifecycle(resource, CredentialLifecycleCommand.DELETE)
         if resource.state is decision.state:
             return MutationOutcome(cred, False)
-        await self._reject_if_in_use(cred, project_id, verb="deleted")
         cred.deleted_at = utc_now()
         if cred.is_default:
             cred.is_default = False
@@ -1182,17 +1170,18 @@ class SqlAlchemyCredentialRepository:
 
     async def lock_credential_scope(
         self,
-        cred_id: CredentialId,
+        cred_id: CredentialId | DomainCredentialId,
         *,
         project_id: str,
     ) -> None:
+        shared_credential_id = _shared_credential_id(cred_id)
         result = await self.db.execute(
             select(
                 JoySafeterCredential.group_id,
                 JoySafeterCredential.kind,
                 JoySafeterCredential.protocol,
             ).where(
-                JoySafeterCredential.id == cred_id,
+                JoySafeterCredential.id == shared_credential_id,
                 JoySafeterCredential.project_id == project_id,
             )
         )
@@ -1203,11 +1192,11 @@ class SqlAlchemyCredentialRepository:
         await self.lock_credential_group(group_id, project_id=project_id)
         if kind == CredentialKind.MODEL.value and protocol:
             await self.lock_default_scope(project_id=project_id, protocol=protocol)
-        await self.lock_credential(cred_id, project_id=project_id)
+        await self.lock_credential(shared_credential_id, project_id=project_id)
 
     async def lock_credential(
         self,
-        cred_id: CredentialId,
+        cred_id: CredentialId | DomainCredentialId,
         *,
         project_id: str | None = None,
     ) -> None:
@@ -1315,7 +1304,7 @@ class SqlAlchemyCredentialRepository:
         await self.db.refresh(group)
         return group
 
-    async def _active_group_session_ids(self, group_id: CredentialGroupId, project_id: str) -> list[Any]:
+    async def active_group_session_ids(self, group_id: CredentialGroupId, project_id: str) -> list[Any]:
         from app.joysafeter_domain.models.joysafeter_credential import (
             JoySafeterSessionCredentialGroup,
         )
@@ -1333,19 +1322,6 @@ class SqlAlchemyCredentialRepository:
         )
         return list(rows.scalars().all())
 
-    async def _reject_group_lifecycle_blockers(self, group_id: CredentialGroupId, project_id: str) -> None:
-        session_ids = await self._active_group_session_ids(group_id, project_id)
-        if session_ids:
-            raise ResourceConflictError(
-                code="CREDENTIAL_IN_USE",
-                message="Credential group is bound to an active session and cannot be archived or deleted",
-                data={
-                    "credential_group_id": str(group_id),
-                    "sessions": [str(session_id) for session_id in session_ids],
-                },
-                user_action="fix_input",
-            )
-
     async def archive_group(
         self, group_id: CredentialGroupId, project_id: str
     ) -> MutationOutcome[JoySafeterCredentialGroup]:
@@ -1354,7 +1330,6 @@ class SqlAlchemyCredentialRepository:
         decision = decide_group_lifecycle(map_credential_group_row(group), CredentialLifecycleCommand.ARCHIVE)
         if map_credential_group_row(group).state is decision.state:
             return MutationOutcome(group, False)
-        await self._reject_group_lifecycle_blockers(group_id, project_id)
         group.archived_at = utc_now()
         group.updated_at = utc_now()
         self._queue_impact(
@@ -1435,7 +1410,6 @@ class SqlAlchemyCredentialRepository:
         decision = decide_group_lifecycle(group_resource, CredentialLifecycleCommand.DELETE)
         if group_resource.state is decision.state:
             return MutationOutcome(group, False)
-        await self._reject_group_lifecycle_blockers(group_id, project_id)
         group.deleted_at = utc_now()
         group.updated_at = utc_now()
         self._queue_impact(

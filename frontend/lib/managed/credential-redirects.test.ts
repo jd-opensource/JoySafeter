@@ -12,6 +12,8 @@ describe('credential redirect helpers', () => {
   })
   it('maps vaults list + create param', () => {
     expect(resolveVaultsRedirect(null)).toBe('/managed/credentials?tab=mcp')
-    expect(resolveVaultsRedirect('1')).toBe('/managed/credentials?tab=mcp&create=vault')
+    expect(resolveVaultsRedirect('1')).toBe(
+      '/managed/credentials?tab=mcp&create=credential-group',
+    )
   })
 })

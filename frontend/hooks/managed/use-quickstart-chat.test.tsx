@@ -220,6 +220,49 @@ describe('useQuickstartChat resource creation', () => {
     expect(body).not.toHaveProperty('provider')
   })
 
+  it('sends only the bounded available Skill catalog to agent generation', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(quickstartAgentConfigResponse(AGENT_ID))
+    globalThis.fetch = fetchMock as typeof fetch
+    const { result } = renderHook(() =>
+      useQuickstartChat('openai-prod', {
+        availableSkills: [
+          {
+            id: 'skill_018f6f42-0a51-7cc4-98c8-4f6f0ca5f111',
+            name: 'secure-review',
+            display_title: 'Secure Review',
+            description: 'Review code safely',
+            latest_version: '1.2.0',
+          },
+        ],
+      }),
+    )
+
+    await act(async () => {
+      await result.current.sendMessage('make an agent', { stepOverride: 3 })
+    })
+
+    const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string)
+    expect(body.available_skills).toEqual([
+      {
+        id: 'skill_018f6f42-0a51-7cc4-98c8-4f6f0ca5f111',
+        name: 'secure-review',
+        display_title: 'Secure Review',
+        description: 'Review code safely',
+        latest_version: '1.2.0',
+      },
+    ])
+  })
+
+  it('records explicit protection skips separately from completed resources', () => {
+    const { result } = renderHook(() => useQuickstartChat('openai-prod'))
+
+    act(() => result.current.skipStep(4))
+
+    expect(result.current.currentStep).toBe(5)
+    expect(result.current.skippedSteps).toEqual(new Set([4]))
+    expect(result.current.completedSteps.has(4)).toBe(false)
+  })
+
   it('uses the translated MCP Credential Vault prompt for the step 5 auto intro', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(quickstartResponseText(''))
     globalThis.fetch = fetchMock as typeof fetch

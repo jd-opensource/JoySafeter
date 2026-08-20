@@ -6,8 +6,10 @@ from pathlib import Path
 import pytest
 
 from app.joysafeter_domain.credentials.references import (
+    CODEC_SUPPORTED_REFERENCE_PATHS,
     CredentialReferenceCodec,
     SnapshotSchema,
+    _validate_reference_path_inventory,
     credential_reference_metric_snapshot,
     reset_credential_reference_metrics,
 )
@@ -19,24 +21,32 @@ CREDENTIAL_A = "cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f010"
 CREDENTIAL_B = "cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f011"
 BARE_UUID = "018f6f42-0a51-7cc4-98c8-4f6f0ca5f010"
 FIXTURE_MATRIX = CONTRACT["fixture_matrix"]
-REFERENCE_CASES = [
-    (entry, schema)
-    for entry in CONTRACT["reference_paths"]
-    for schema in entry["schemas"]
-]
+REFERENCE_CASES = [(entry, schema) for entry in CONTRACT["reference_paths"] for schema in entry["schemas"]]
 
 
 @pytest.mark.no_db
-def test_contract_covers_all_canonical_environment_reference_paths() -> None:
-    registered = {
-        (str(entry["document"]), str(entry["path"]))
-        for entry in CONTRACT["reference_paths"]
-    }
-    assert {
-        ("environment_config", "$.environment_credential_ids[*]"),
-        ("agent_version_snapshot", "$.environment.config.environment_credential_ids[*]"),
-        ("active_session_snapshot", "$.environment.config.environment_credential_ids[*]"),
-    } <= registered
+def test_contract_and_codec_supported_path_inventories_match_bidirectionally() -> None:
+    registered = frozenset((str(entry["document"]), str(entry["path"])) for entry in CONTRACT["reference_paths"])
+
+    assert len(CODEC_SUPPORTED_REFERENCE_PATHS) == 27
+    assert registered == CODEC_SUPPORTED_REFERENCE_PATHS
+
+
+@pytest.mark.no_db
+@pytest.mark.parametrize(
+    "removed_path",
+    sorted(CODEC_SUPPORTED_REFERENCE_PATHS),
+    ids=lambda path: f"{path[0]}:{path[1]}",
+)
+def test_contract_completeness_gate_rejects_removing_any_codec_supported_path(
+    removed_path: tuple[str, str],
+) -> None:
+    mutated_paths = [
+        entry for entry in CONTRACT["reference_paths"] if (str(entry["document"]), str(entry["path"])) != removed_path
+    ]
+
+    with pytest.raises(ValueError, match="missing Codec-supported paths"):
+        _validate_reference_path_inventory(mutated_paths)
 
 
 @pytest.mark.no_db
@@ -58,11 +68,7 @@ def test_contract_declares_shared_fixture_matrix_and_parity_vectors() -> None:
 def test_dependency_scanner_path_allowlists_match_contract() -> None:
     from app.joysafeter_infrastructure.credentials import dependency_scanners
 
-    credential_paths = [
-        entry
-        for entry in CONTRACT["reference_paths"]
-        if entry["value_kind"] == "credential_id"
-    ]
+    credential_paths = [entry for entry in CONTRACT["reference_paths"] if entry["value_kind"] == "credential_id"]
 
     def paths(*, documents: set[str], surfaces: set[str]) -> frozenset[str]:
         return frozenset(

@@ -5,7 +5,7 @@ import { Plus, Archive, Trash2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import React, { useEffect, useRef, useState } from 'react'
 
-import { CreateCredentialDialog } from '@/app/managed/vaults/components/create-credential-dialog'
+import { CreateCredentialGroupCredentialDialog } from '@/app/managed/vaults/components/create-credential-dialog'
 import {
   PageHeader,
   ResourceErrorState,
@@ -25,6 +25,10 @@ import {
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
+import {
+  parseCredentialGroupCredentialListResponse,
+  parseCredentialGroupResponse,
+} from '@/lib/managed/credential-group-response-parsers'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import {
   hasManagedRequestScope,
@@ -33,16 +37,12 @@ import {
   useManagedRequestScope,
   type ManagedRequestScope,
 } from '@/lib/managed/request-scope'
-import {
-  parseVaultCredentialListResponse,
-  parseVaultResponse,
-} from '@/lib/managed/vault-response-parsers'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { CredentialId, CredentialGroupId } from '@/types/entity-id'
-import type { Vault, VaultCredential } from '@/types/managed'
+import type { CredentialGroup, CredentialGroupCredential } from '@/types/managed'
 
-interface VaultDetailActionVariables {
-  vaultId: CredentialGroupId
+interface CredentialGroupDetailActionVariables {
+  credentialGroupId: CredentialGroupId
   id: CredentialGroupId
   credId?: CredentialId
   runId: number
@@ -51,14 +51,13 @@ interface VaultDetailActionVariables {
   requestScope: ManagedRequestScope
 }
 
-export function McpVaultDetail({
+export function McpCredentialGroupDetail({
   credentialGroupId,
   autoOpenAddCredential = false,
 }: {
   credentialGroupId: CredentialGroupId
   autoOpenAddCredential?: boolean
 }) {
-  const vaultId = credentialGroupId
   const id = credentialGroupId
   const { t } = useTranslation()
   const router = useRouter()
@@ -116,17 +115,17 @@ export function McpVaultDetail({
   )
 
   const {
-    data: vault,
+    data: credentialGroup,
     isLoading,
     isError,
     error,
   } = useQuery({
-    queryKey: ['vault', managedScope.key, id],
+    queryKey: ['credential-group', managedScope.key, id],
     queryFn: () =>
       managedGet<unknown>(
-        apiResourcePath('credential-groups', vaultId),
+        apiResourcePath('credential-groups', credentialGroupId),
         managedRequestOptions(managedScope),
-      ).then(parseVaultResponse),
+      ).then(parseCredentialGroupResponse),
     enabled: !!id && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
@@ -136,23 +135,23 @@ export function McpVaultDetail({
     isLoading: credsLoading,
     isFetching: credsFetching,
   } = useQuery({
-    queryKey: ['vault-credentials', managedScope.key, id, showArchivedCredentials],
+    queryKey: ['credential-group-members', managedScope.key, id, showArchivedCredentials],
     queryFn: () =>
       managedGet<{ data: unknown[]; has_more: boolean }>(
-        apiResourceSubpath('credential-groups', vaultId, ['members'], {
+        apiResourceSubpath('credential-groups', credentialGroupId, ['members'], {
           limit: 100,
           include_archived: showArchivedCredentials,
         }),
         managedRequestOptions(managedScope),
       ).then((response) => ({
         ...response,
-        data: parseVaultCredentialListResponse(response.data),
+        data: parseCredentialGroupCredentialListResponse(response.data),
       })),
     enabled: !!id && hasManagedRequestScope(managedScope),
   })
 
   useEffect(() => {
-    if (!projectReadOnly && !vault?.archived_at) return
+    if (!projectReadOnly && !credentialGroup?.archived_at) return
     actionRunRef.current += 1
     setCreateCredOpen(false)
     setConfirmDialog({
@@ -163,7 +162,7 @@ export function McpVaultDetail({
       destructive: false,
       onConfirm: () => {},
     })
-  }, [projectReadOnly, vault?.archived_at])
+  }, [projectReadOnly, credentialGroup?.archived_at])
 
   const credentials = (credsRes?.data || []).filter(
     (c) => showArchivedCredentials || !c.archived_at,
@@ -189,23 +188,28 @@ export function McpVaultDetail({
     setConfirmDialog((prev) => ({ ...prev, open: false }))
   }
 
-  const archiveVaultMutation = useMutation({
-    mutationFn: ({ vaultId, requestScope, runId, scope }: VaultDetailActionVariables) => {
+  const archiveCredentialGroupMutation = useMutation({
+    mutationFn: ({
+      credentialGroupId,
+      requestScope,
+      runId,
+      scope,
+    }: CredentialGroupDetailActionVariables) => {
       if (!isCurrentAction(runId, scope)) {
-        throw new Error('Stale vault detail archive ignored')
+        throw new Error('Stale credential group detail archive ignored')
       }
       if (!currentProjectAllowsWrite()) {
-        throw new Error('Archived project vault detail archive ignored')
+        throw new Error('Archived project credential group detail archive ignored')
       }
       return managedPost(
-        apiResourcePath('credential-groups', vaultId, 'archive'),
+        apiResourcePath('credential-groups', credentialGroupId, 'archive'),
         {},
         managedRequestOptions(requestScope),
       )
     },
     onSuccess: (_data, { id, runId, scope, scopeKey }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['vault', scopeKey, id] })
+      queryClient.invalidateQueries({ queryKey: ['credential-group', scopeKey, id] })
       queryClient.invalidateQueries({ queryKey: ['credential-groups', scopeKey] })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
     },
@@ -215,16 +219,21 @@ export function McpVaultDetail({
     },
   })
 
-  const deleteVaultMutation = useMutation({
-    mutationFn: ({ vaultId, requestScope, runId, scope }: VaultDetailActionVariables) => {
+  const deleteCredentialGroupMutation = useMutation({
+    mutationFn: ({
+      credentialGroupId,
+      requestScope,
+      runId,
+      scope,
+    }: CredentialGroupDetailActionVariables) => {
       if (!isCurrentAction(runId, scope)) {
-        throw new Error('Stale vault detail delete ignored')
+        throw new Error('Stale credential group detail delete ignored')
       }
       if (!currentProjectAllowsWrite()) {
-        throw new Error('Archived project vault detail delete ignored')
+        throw new Error('Archived project credential group detail delete ignored')
       }
       return managedDelete(
-        apiResourcePath('credential-groups', vaultId),
+        apiResourcePath('credential-groups', credentialGroupId),
         managedRequestOptions(requestScope),
       )
     },
@@ -240,22 +249,28 @@ export function McpVaultDetail({
   })
 
   const archiveCredMutation = useMutation({
-    mutationFn: ({ vaultId, credId, requestScope, runId, scope }: VaultDetailActionVariables) => {
+    mutationFn: ({
+      credentialGroupId,
+      credId,
+      requestScope,
+      runId,
+      scope,
+    }: CredentialGroupDetailActionVariables) => {
       if (!isCurrentAction(runId, scope)) {
-        throw new Error('Stale vault credential archive ignored')
+        throw new Error('Stale credential group member archive ignored')
       }
       if (!currentProjectAllowsWrite()) {
-        throw new Error('Archived project vault credential archive ignored')
+        throw new Error('Archived project credential group member archive ignored')
       }
       return managedPost(
-        apiResourcePath('credential-groups', vaultId, 'members', credId!, 'archive'),
+        apiResourcePath('credential-groups', credentialGroupId, 'members', credId!, 'archive'),
         {},
         managedRequestOptions(requestScope),
       )
     },
     onSuccess: (_data, { id, runId, scope, scopeKey }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['vault-credentials', scopeKey, id] })
+      queryClient.invalidateQueries({ queryKey: ['credential-group-members', scopeKey, id] })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
     },
     onError: (error, { runId, scope }) => {
@@ -264,13 +279,13 @@ export function McpVaultDetail({
     },
   })
 
-  const actionVariables = (extra?: Pick<VaultDetailActionVariables, 'credId'>) => {
+  const actionVariables = (extra?: Pick<CredentialGroupDetailActionVariables, 'credId'>) => {
     if (!currentOperationScopeIsActive()) return null
     if (!currentProjectAllowsWrite()) return null
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     return {
-      vaultId,
+      credentialGroupId,
       id,
       runId,
       scope: operationScopeRef.current,
@@ -280,11 +295,19 @@ export function McpVaultDetail({
     }
   }
 
-  const currentVaultIsActive = () => {
+  const currentCredentialGroupIsActive = () => {
     if (!currentProjectAllowsWrite()) return false
     if (!currentOperationScopeIsActive()) return false
-    const currentVault = queryClient.getQueryData<Vault>(['vault', managedScope.key, id])
-    return !!currentVault && currentVault.id === vault?.id && !currentVault.archived_at
+    const currentCredentialGroup = queryClient.getQueryData<CredentialGroup>([
+      'credential-group',
+      managedScope.key,
+      id,
+    ])
+    return (
+      !!currentCredentialGroup &&
+      currentCredentialGroup.id === credentialGroup?.id &&
+      !currentCredentialGroup.archived_at
+    )
   }
 
   const findCurrentCredential = (credId: CredentialId) =>
@@ -292,48 +315,48 @@ export function McpVaultDetail({
     currentProjectAllowsWrite() &&
     credentialsRef.current.some((credential) => credential.id === credId && !credential.archived_at)
 
-  const handleArchiveVault = () => {
-    if (!currentVaultIsActive()) return
+  const handleArchiveCredentialGroup = () => {
+    if (!currentCredentialGroupIsActive()) return
     actionRunRef.current += 1
     setConfirmDialog({
       open: true,
       title: t('managed.vaults.archiveTitle'),
-      description: t('managed.vaults.archiveDescription', { name: vault?.name }),
+      description: t('managed.vaults.archiveDescription', { name: credentialGroup?.name }),
       confirmLabel: t('common.archive'),
       destructive: true,
       onConfirm: () => {
-        if (!currentVaultIsActive()) {
+        if (!currentCredentialGroupIsActive()) {
           setConfirmDialog((prev) => ({ ...prev, open: false }))
           return
         }
         const action = actionVariables()
-        if (action) archiveVaultMutation.mutate(action)
+        if (action) archiveCredentialGroupMutation.mutate(action)
       },
     })
   }
 
-  const handleDeleteVault = () => {
-    if (!currentVaultIsActive()) return
+  const handleDeleteCredentialGroup = () => {
+    if (!currentCredentialGroupIsActive()) return
     actionRunRef.current += 1
     setConfirmDialog({
       open: true,
       title: t('managed.vaults.deleteTitle'),
-      description: t('managed.vaults.deleteDescription', { name: vault?.name }),
+      description: t('managed.vaults.deleteDescription', { name: credentialGroup?.name }),
       confirmLabel: t('common.delete'),
       destructive: true,
       onConfirm: () => {
-        if (!currentVaultIsActive()) {
+        if (!currentCredentialGroupIsActive()) {
           setConfirmDialog((prev) => ({ ...prev, open: false }))
           return
         }
         const action = actionVariables()
-        if (action) deleteVaultMutation.mutate(action)
+        if (action) deleteCredentialGroupMutation.mutate(action)
       },
     })
   }
 
-  const handleArchiveCred = (cred: VaultCredential) => {
-    if (!currentVaultIsActive() || !findCurrentCredential(cred.id)) return
+  const handleArchiveCred = (cred: CredentialGroupCredential) => {
+    if (!currentCredentialGroupIsActive() || !findCurrentCredential(cred.id)) return
     actionRunRef.current += 1
     setConfirmDialog({
       open: true,
@@ -342,7 +365,7 @@ export function McpVaultDetail({
       confirmLabel: t('common.archive'),
       destructive: true,
       onConfirm: () => {
-        if (!currentVaultIsActive() || !findCurrentCredential(cred.id)) {
+        if (!currentCredentialGroupIsActive() || !findCurrentCredential(cred.id)) {
           setConfirmDialog((prev) => ({ ...prev, open: false }))
           return
         }
@@ -363,14 +386,14 @@ export function McpVaultDetail({
     )
   }
 
-  if (isLoading || !vault) {
+  if (isLoading || !credentialGroup) {
     return <div className="text-muted-foreground">{t('common.loading')}</div>
   }
 
-  const isArchived = !!vault.archived_at
-  const canWriteVault = !projectReadOnly && !isArchived
+  const isArchived = !!credentialGroup.archived_at
+  const canWriteCredentialGroup = !projectReadOnly && !isArchived
 
-  const credColumns: Column<VaultCredential>[] = [
+  const credColumns: Column<CredentialGroupCredential>[] = [
     {
       key: 'id',
       header: t('managed.table.id'),
@@ -405,20 +428,20 @@ export function McpVaultDetail({
   return (
     <div>
       <PageHeader
-        title={vault.name}
+        title={credentialGroup.name}
         titleExtra={<StatusBadge status={isArchived ? 'archived' : 'active'} />}
         breadcrumb={[
           { label: t('managed.vaults.title'), to: '/managed/credentials?tab=mcp' },
-          { label: vault.name },
+          { label: credentialGroup.name },
         ]}
         action={
-          canWriteVault ? (
+          canWriteCredentialGroup ? (
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleArchiveVault}>
+              <Button variant="outline" size="sm" onClick={handleArchiveCredentialGroup}>
                 <Archive className="mr-1.5 h-3.5 w-3.5" />
                 {t('common.archive')}
               </Button>
-              <Button variant="outline" size="sm" onClick={handleDeleteVault}>
+              <Button variant="outline" size="sm" onClick={handleDeleteCredentialGroup}>
                 <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                 {t('common.delete')}
               </Button>
@@ -428,15 +451,15 @@ export function McpVaultDetail({
       />
 
       <div className="mb-6 flex items-center gap-1.5 text-sm text-muted-foreground">
-        <MonoId id={vault.id} truncate={false} />
+        <MonoId id={credentialGroup.id} truncate={false} />
         <span>·</span>
-        <RelativeTime date={vault.created_at} />
+        <RelativeTime date={credentialGroup.created_at} />
       </div>
 
       {/* Credentials section */}
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold">{t('managed.vaults.credentials')}</h2>
-        {canWriteVault && (
+        {canWriteCredentialGroup && (
           <Button
             size="sm"
             onClick={() => {
@@ -461,7 +484,7 @@ export function McpVaultDetail({
         loading={credsLoading}
         fetching={credsFetching}
         actionMenu={(c) =>
-          !canWriteVault || c.archived_at
+          !canWriteCredentialGroup || c.archived_at
             ? []
             : [
                 {
@@ -473,17 +496,17 @@ export function McpVaultDetail({
         emptyMessage={t('managed.vaults.noCredentials')}
       />
 
-      {canWriteVault && createCredOpen ? (
-        <CreateCredentialDialog
-          key={`${managedScope.key}:${vaultId}`}
+      {canWriteCredentialGroup && createCredOpen ? (
+        <CreateCredentialGroupCredentialDialog
+          key={`${managedScope.key}:${credentialGroupId}`}
           open
           onOpenChange={(open) => {
             if (open && (!currentOperationScopeIsActive() || !currentProjectAllowsWrite())) return
             setCreateCredOpen(open)
           }}
-          vaultId={vaultId}
-          queryKey={['vault-credentials', managedScope.key, id]}
-          canSubmit={currentVaultIsActive}
+          credentialGroupId={credentialGroupId}
+          queryKey={['credential-group-members', managedScope.key, id]}
+          canSubmit={currentCredentialGroupIsActive}
         />
       ) : null}
 

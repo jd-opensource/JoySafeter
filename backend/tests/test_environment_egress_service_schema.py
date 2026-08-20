@@ -4,9 +4,9 @@ from pydantic import ValidationError
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
     EnvironmentConfig,
-    EnvironmentSecretReference,
+    EnvironmentCredentialReference,
     UpdateEnvironmentRequest,
-    extract_environment_secret_references,
+    extract_environment_credential_references,
 )
 from app.joysafeter_shared.ids import CredentialId
 
@@ -45,7 +45,7 @@ def test_environment_egress_service_accepts_bearer_api_key_and_cookie_shapes():
     )
 
     assert [service.name for service in config.egress_services] == ["crm_prod", "erp", "legacy-cookie"]
-    assert config.egress_services[2].inject.secret_key == "COOKIE_HEADER"
+    assert config.egress_services[2].inject.credential_field == "COOKIE_HEADER"
     assert config.egress_services[0].service_credential_id == _CRM_CRED
 
 
@@ -132,7 +132,7 @@ def test_environment_egress_service_rejects_duplicate_names():
         )
 
 
-def test_extract_environment_secret_references_unifies_direct_and_egress_refs():
+def test_extract_environment_credential_references_unifies_direct_and_egress_refs():
     direct_id = CredentialId.new()
     egress_id = CredentialId.new()
     config = EnvironmentConfig(
@@ -151,16 +151,21 @@ def test_extract_environment_secret_references_unifies_direct_and_egress_refs():
         ],
     )
 
-    assert extract_environment_secret_references(config) == [
-        EnvironmentSecretReference(direct_id, "secret_refs", 0, "secret_refs[0]"),
-        EnvironmentSecretReference(egress_id, "egress_services", 0, "egress_services[0]"),
-        EnvironmentSecretReference(direct_id, "egress_services", 1, "egress_services[1]"),
+    assert extract_environment_credential_references(config) == [
+        EnvironmentCredentialReference(
+            direct_id,
+            "environment_credential_ids",
+            0,
+            "environment_credential_ids[0]",
+        ),
+        EnvironmentCredentialReference(egress_id, "egress_services", 0, "egress_services[0]"),
+        EnvironmentCredentialReference(direct_id, "egress_services", 1, "egress_services[1]"),
     ]
 
 
-def test_extract_environment_secret_references_rejects_legacy_malformed_config():
+def test_extract_environment_credential_references_rejects_legacy_malformed_config():
     with pytest.raises(ValueError, match="corrupt_record"):
-        extract_environment_secret_references(
+        extract_environment_credential_references(
             {
                 "secret_refs": ["", None, str(CredentialId.new()), "not-an-id"],
                 "egress_services": [

@@ -131,7 +131,13 @@ def compose_credential_application(
     dependency_session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> CredentialApplication:
     from app.joysafeter_shared.config.settings import joysafeter_config
-    from app.joysafeter_shared.database import async_session_factory
+
+    observation_session_factory = dependency_session_factory or async_sessionmaker(
+        db.bind,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
 
     snapshot_service = _compose_snapshot_service(db)
     protector = LegacyV1MaterialProtector(joysafeter_config.vault_encryption_key)
@@ -175,7 +181,7 @@ def compose_credential_application(
         snapshot_service=snapshot_service,
         material_adapter=material,
         uow=uow,
-        dependency_session_factory=dependency_session_factory or async_session_factory,
+        dependency_session_factory=observation_session_factory,
         lifecycle=lifecycle,
     )
     application_holder["application"] = application

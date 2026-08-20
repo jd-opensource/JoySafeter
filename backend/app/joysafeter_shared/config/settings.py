@@ -156,7 +156,7 @@ class Settings(BaseSettings):
         description="Application environment (development, staging, production)",
     )
     credential_dependency_registry_mode: Literal["shadow", "enforce"] = Field(
-        default="shadow",
+        default="enforce",
         validation_alias="CREDENTIAL_DEPENDENCY_REGISTRY_MODE",
         description="Credential dependency registry authority mode",
     )

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import re
 from enum import StrEnum
-from typing import NewType
+from typing import NewType, cast
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 CREDENTIAL_FIELD_NAME_MAX_LENGTH = 128
@@ -9,6 +10,8 @@ CREDENTIAL_FIELD_NAME_MAX_LENGTH = 128
 ProjectId = NewType("ProjectId", str)
 CredentialId = NewType("CredentialId", str)
 CredentialGroupId = NewType("CredentialGroupId", str)
+
+_CANONICAL_UUID_PATTERN = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
 class CredentialKind(StrEnum):
@@ -67,6 +70,25 @@ def make_project_id(value: str) -> ProjectId:
     if not normalized:
         raise ValueError("project id must not be blank")
     return ProjectId(normalized)
+
+
+def _make_public_id(value: object, *, prefix: str, label: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a string")
+    if not value.startswith(prefix) or _CANONICAL_UUID_PATTERN.fullmatch(value[len(prefix) :]) is None:
+        raise ValueError(f"{label} is invalid")
+    return value
+
+
+def make_credential_id(value: object) -> CredentialId:
+    return cast(CredentialId, _make_public_id(value, prefix="cred_", label="credential id"))
+
+
+def make_credential_group_id(value: object) -> CredentialGroupId:
+    return cast(
+        CredentialGroupId,
+        _make_public_id(value, prefix="credgrp_", label="credential group id"),
+    )
 
 
 def canonicalize_auth_scheme(value: str | CredentialAuthScheme) -> CredentialAuthScheme:

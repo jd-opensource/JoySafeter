@@ -41,7 +41,7 @@ class CredentialAuditEntry:
 class CredentialRepositoryPort(Protocol):
     async def create(self, request: Any, project_id: str) -> Any: ...
 
-    async def get(self, credential_id: Any, project_id: str) -> Any | None: ...
+    async def get(self, credential_id: CredentialId, project_id: str) -> Any | None: ...
 
     async def get_resource(
         self,
@@ -61,6 +61,13 @@ class CredentialRepositoryPort(Protocol):
         *,
         project_id: str | None = None,
     ) -> Sequence[object]: ...
+
+    async def lock_credential_scope(
+        self,
+        credential_id: CredentialId,
+        *,
+        project_id: str,
+    ) -> None: ...
 
     def take_pending_impacts(self) -> tuple[CredentialImpact, ...]: ...
 
@@ -91,6 +98,12 @@ class CredentialGroupRepositoryPort(Protocol):
         group_ids: Sequence[object],
         *,
         project_id: str | None = None,
+    ) -> Sequence[object]: ...
+
+    async def active_group_session_ids(
+        self,
+        group_id: Any,
+        project_id: str,
     ) -> Sequence[object]: ...
 
 

@@ -1159,19 +1159,19 @@ def test_rust_entity_ids_cannot_implicitly_deref_to_uuid():
 
 def test_rust_environment_and_credential_identity_boundaries_are_typed():
     rust_ids = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/ids.rs").read_text()
-    rust_scheduler = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/scheduler.rs").read_text()
     rust_harness = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/harness_input_builder.rs").read_text()
     rust_resolver = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/sandbox_resolver.rs").read_text()
+    rust_store = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/credentials/store.rs").read_text()
 
     assert 'entity_id!(EnvironmentId, "env_");' in rust_ids
     assert 'entity_id!(CredentialId, "cred_");' in rust_ids
     assert 'entity_id!(CredentialGroupId, "credgrp_");' in rust_ids
-    assert "id: EnvironmentId" in rust_scheduler
-    assert "EnvironmentId::from_public(normalized)" in rust_scheduler
-    assert 'strip_prefix("env_").unwrap_or(normalized)' not in rust_scheduler
-    assert "let group_ids: Vec<CredentialGroupId>" in rust_harness
+    assert "EnvironmentId::from_public(env_ref)" in rust_resolver
+    assert ".bind(env_id)" in rust_resolver
+    assert 'strip_prefix("env_").unwrap_or(env_ref)' not in rust_resolver
     assert "id: CredentialId" in rust_harness
-    assert "let group_ids: Vec<CredentialGroupId>" in rust_resolver
+    assert "association_group_id: Option<CredentialGroupId>" in rust_store
+    assert "credential_id: Option<CredentialId>" in rust_store
 
 
 def test_rust_orchestrator_models_use_core_entity_ids():

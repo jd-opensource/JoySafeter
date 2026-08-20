@@ -627,14 +627,14 @@ async def test_create_session_archived_environment_returns_structured_error_with
     with pytest.raises(AppError) as exc_info:
         await create_session(req, db_session, _auth_ctx())
 
-    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
-        "code": "ENVIRONMENT_ARCHIVED",
-        "message": f"Environment is archived: {environment_id}",
-        "data": {"environment_ref": environment_id, "environment_id": str(env.id)},
-        "source": "api",
-        "retryable": False,
-        "user_action": "refresh",
-    }
+        assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+            "code": "ENVIRONMENT_ARCHIVED",
+            "message": f"Environment is archived: {environment_id}",
+            "data": {"environment_ref": environment_id, "environment_id": environment_id},
+            "source": "api",
+            "retryable": False,
+            "user_action": "refresh",
+        }
     assert await _session_count(db_session) == 0
 
 

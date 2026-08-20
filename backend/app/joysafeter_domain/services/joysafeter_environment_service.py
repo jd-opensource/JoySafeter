@@ -111,7 +111,7 @@ class EnvironmentService:
             description=req.description,
             metadata_=req.metadata,
             # ``mode="json"`` serializes typed CredentialId refs (egress
-            # service_credential_id / secret_refs) to plain strings for JSONB.
+            # service_credential_id / environment_credential_ids) to plain strings for JSONB.
             config=_REFERENCE_CODEC.encode_environment(req.config.model_dump(mode="json"), version="v1"),
         )
         if project_id is not None:

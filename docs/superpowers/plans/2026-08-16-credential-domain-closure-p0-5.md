@@ -1,5 +1,7 @@
 # P0.5 Credential Domain Closure Implementation Plan
 
+> **Superseded execution tail (2026-08-19):** Tasks 13–15 are not active. Their v2 writer/backfill scope is replaced by `docs/superpowers/plans/2026-08-19-credential-domain-closure-v1-freeze.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the Managed Credential domain across Python, Rust, Frontend, persistence references, lifecycle transactions, Snapshot materialization, and runtime resolution without introducing production `enc:v2` behavior.

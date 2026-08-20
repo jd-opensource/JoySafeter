@@ -5,6 +5,8 @@ from collections import Counter
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
+from app.joysafeter_domain.credentials.types import CredentialId
+
 from .ports import CredentialAuditEntry, CredentialUnitOfWork, MutationOutcome
 
 T = TypeVar("T")
@@ -26,6 +28,29 @@ class CredentialResourceService:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._uow.credentials, name)
+
+    def _clear_pending(self) -> None:
+        clear_pending_impacts = getattr(self._uow.credentials, "clear_pending_impacts", None)
+        if clear_pending_impacts is not None:
+            clear_pending_impacts()
+        clear_pending = getattr(self._uow.impacts, "clear_pending", None)
+        if clear_pending is not None:
+            clear_pending()
+
+    async def rollback_pending(self) -> None:
+        self._clear_pending()
+        await self._uow.rollback()
+
+    async def _nudge_after_commit(self) -> None:
+        try:
+            await self._uow.impacts.nudge_after_commit()
+        except Exception:
+            credential_nudge_failures["after_commit"] += 1
+            logger.warning("credential impact nudge failed after commit", exc_info=True)
+
+    async def commit_pending(self) -> None:
+        await self._uow.commit()
+        await self._nudge_after_commit()
 
     async def _mutate(
         self,
@@ -60,12 +85,7 @@ class CredentialResourceService:
             if self._manage_transaction:
                 await self._uow.commit()
         except Exception:
-            clear_pending_impacts = getattr(self._uow.credentials, "clear_pending_impacts", None)
-            if clear_pending_impacts is not None:
-                clear_pending_impacts()
-            clear_pending = getattr(self._uow.impacts, "clear_pending", None)
-            if clear_pending is not None:
-                clear_pending()
+            self._clear_pending()
             rollback_required = self._unconditional_rollback
             if not rollback_required:
                 requires_rollback = getattr(self._uow, "rollback_required", None)
@@ -74,11 +94,7 @@ class CredentialResourceService:
                 await self._uow.rollback()
             raise
         if self._manage_transaction:
-            try:
-                await self._uow.impacts.nudge_after_commit()
-            except Exception:
-                credential_nudge_failures["after_commit"] += 1
-                logger.warning("credential impact nudge failed after commit", exc_info=True)
+            await self._nudge_after_commit()
         return result
 
     async def create(self, request: Any, project_id: str) -> Any:
@@ -88,7 +104,7 @@ class CredentialResourceService:
             project_id=project_id,
         )
 
-    async def update(self, credential_id: Any, request: Any, project_id: str) -> Any:
+    async def update(self, credential_id: CredentialId, request: Any, project_id: str) -> Any:
         return await self._mutate(
             lambda: self._uow.credentials.update(credential_id, request, project_id),
             action="credential.updated",
@@ -96,7 +112,7 @@ class CredentialResourceService:
             target_id=str(credential_id),
         )
 
-    async def set_default(self, credential_id: Any, project_id: str) -> Any:
+    async def set_default(self, credential_id: CredentialId, project_id: str) -> Any:
         return await self._mutate(
             lambda: self._uow.credentials.set_default(credential_id, project_id),
             action="credential.default_set",
@@ -104,7 +120,7 @@ class CredentialResourceService:
             target_id=str(credential_id),
         )
 
-    async def clear_default(self, credential_id: Any, project_id: str) -> Any:
+    async def clear_default(self, credential_id: CredentialId, project_id: str) -> Any:
         return await self._mutate(
             lambda: self._uow.credentials.clear_default(credential_id, project_id),
             action="credential.default_cleared",
@@ -112,7 +128,7 @@ class CredentialResourceService:
             target_id=str(credential_id),
         )
 
-    async def archive(self, credential_id: Any, project_id: str) -> Any:
+    async def archive(self, credential_id: CredentialId, project_id: str) -> Any:
         return await self._mutate(
             lambda: self._uow.credentials.archive(credential_id, project_id),
             action="credential.archived",
@@ -120,7 +136,7 @@ class CredentialResourceService:
             target_id=str(credential_id),
         )
 
-    async def restore(self, credential_id: Any, project_id: str) -> Any:
+    async def restore(self, credential_id: CredentialId, project_id: str) -> Any:
         return await self._mutate(
             lambda: self._uow.credentials.restore(credential_id, project_id),
             action="credential.restored",
@@ -128,7 +144,7 @@ class CredentialResourceService:
             target_id=str(credential_id),
         )
 
-    async def soft_delete(self, credential_id: Any, project_id: str) -> Any:
+    async def soft_delete(self, credential_id: CredentialId, project_id: str) -> Any:
         return await self._mutate(
             lambda: self._uow.credentials.soft_delete(credential_id, project_id),
             action="credential.deleted",
@@ -136,16 +152,16 @@ class CredentialResourceService:
             target_id=str(credential_id),
         )
 
-    async def get(self, credential_id: Any, project_id: str) -> Any | None:
+    async def get(self, credential_id: CredentialId, project_id: str) -> Any | None:
         return await self._uow.credentials.get(credential_id, project_id)
 
-    async def _get_or_raise(self, credential_id: Any, project_id: str) -> Any:
+    async def _get_or_raise(self, credential_id: CredentialId, project_id: str) -> Any:
         return await self._uow.credentials._get_or_raise(credential_id, project_id)
 
     async def list(self, *args: Any, **kwargs: Any) -> Any:
         return await self._uow.credentials.list(*args, **kwargs)
 
-    async def dependencies(self, credential_id: Any, project_id: str) -> Any:
+    async def dependencies(self, credential_id: CredentialId, project_id: str) -> Any:
         return await self._uow.credentials.dependencies(credential_id, project_id)
 
     async def lock_credentials(self, *args: Any, **kwargs: Any) -> Any:

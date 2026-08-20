@@ -6,6 +6,7 @@ from typing import Any
 
 from app.joysafeter_application.credentials.composition import compose_credential_application
 from app.joysafeter_domain.credentials.dependencies import DependencyDisposition
+from app.joysafeter_domain.credentials.types import CredentialId
 
 
 class CredentialGroupService:
@@ -48,14 +49,14 @@ class CredentialGroupService:
             self._service.soft_delete,
         )
 
-    async def archive_credential(self, group_id: Any, credential_id: Any, project_id: str) -> Any:
+    async def archive_credential(self, group_id: Any, credential_id: CredentialId, project_id: str) -> Any:
         return await self._application.lifecycle.archive_resource(
             credential_id,
             project_id,
             requested_group_id=group_id,
         )
 
-    async def remove_credential(self, group_id: Any, credential_id: Any, project_id: str) -> Any:
+    async def remove_credential(self, group_id: Any, credential_id: CredentialId, project_id: str) -> Any:
         return await self._application.lifecycle.delete_resource(
             credential_id,
             project_id,

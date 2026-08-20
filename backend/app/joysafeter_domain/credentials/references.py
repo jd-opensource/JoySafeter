@@ -10,13 +10,12 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
-from app.joysafeter_shared.ids import CredentialId as PublicCredentialId
-
 from .types import (
     CREDENTIAL_FIELD_NAME_MAX_LENGTH,
     CredentialGroupId,
     CredentialId,
     ProjectId,
+    make_credential_id,
     require_identifier,
     require_non_empty_text,
     require_project_id,
@@ -29,7 +28,59 @@ _SNAPSHOT_SCHEMA_VALUES = _REFERENCE_CONTRACT["snapshot_schemas"]
 _CANONICAL_KEYS = frozenset(_REFERENCE_CONTRACT["canonical_reference_keys"])
 _LEGACY_KEYS = frozenset(_REFERENCE_CONTRACT["legacy_decoder_keys"])
 _REGISTERED_KEYS = _CANONICAL_KEYS | _LEGACY_KEYS
+_SNAPSHOT_CODEC_REFERENCE_PATHS = frozenset(
+    {
+        "$.model_credential_id",
+        "$.environment_credential_ids[*]",
+        "$.environment.config.environment_credential_ids[*]",
+        "$.environment.config.secret_refs[*]",
+        "$.environment.config.egress_services[*].service_credential_id",
+        "$.environment.config.egress_services[*].credential_ref",
+        "$.environment.config.egress_services[*].inject.credential_field",
+        "$.environment.config.egress_services[*].inject.secret_key",
+        "$.secret_ref",
+        "$.secret_refs[*]",
+    }
+)
+_ENVIRONMENT_CODEC_REFERENCE_PATHS = frozenset(
+    {
+        "$.environment_credential_ids[*]",
+        "$.secret_refs[*]",
+        "$.egress_services[*].service_credential_id",
+        "$.egress_services[*].credential_ref",
+        "$.egress_services[*].inject.credential_field",
+        "$.egress_services[*].inject.secret_key",
+        "$.service_credential_id",
+    }
+)
+CODEC_SUPPORTED_REFERENCE_PATHS = frozenset(
+    {
+        *(
+            (document, path)
+            for document in ("agent_version_snapshot", "active_session_snapshot")
+            for path in _SNAPSHOT_CODEC_REFERENCE_PATHS
+        ),
+        *(("environment_config", path) for path in _ENVIRONMENT_CODEC_REFERENCE_PATHS),
+    }
+)
+
+
+def _validate_reference_path_inventory(reference_paths: object) -> None:
+    if not isinstance(reference_paths, list | tuple):
+        raise ValueError("credential reference contract paths must be a list or tuple")
+    contract_paths = frozenset(
+        (str(entry["document"]), str(entry["path"])) for entry in reference_paths if isinstance(entry, Mapping)
+    )
+    missing = CODEC_SUPPORTED_REFERENCE_PATHS - contract_paths
+    unexpected = contract_paths - CODEC_SUPPORTED_REFERENCE_PATHS
+    if missing:
+        raise ValueError(f"credential reference contract is missing Codec-supported paths: {sorted(missing)!r}")
+    if unexpected:
+        raise ValueError(f"credential reference contract has unsupported paths: {sorted(unexpected)!r}")
+
+
 _REFERENCE_PATHS = tuple(_REFERENCE_CONTRACT["reference_paths"])
+_validate_reference_path_inventory(_REFERENCE_PATHS)
 _SUPPORTED_INJECT_KINDS = frozenset({"bearer", "api_key", "raw_header", "cookie"})
 _EXPLICIT_V2_FORBIDDEN_PATHS = frozenset(
     str(entry["path"])
@@ -47,9 +98,7 @@ def registered_reference_paths(
     return frozenset(
         str(entry["path"])
         for entry in _REFERENCE_PATHS
-        if entry["document"] in documents
-        and entry["surface"] in surfaces
-        and entry["value_kind"] == value_kind
+        if entry["document"] in documents and entry["surface"] in surfaces and entry["value_kind"] == value_kind
     )
 
 
@@ -216,12 +265,8 @@ def _sorted_ids(values: Any) -> tuple[CredentialId, ...]:
 
 
 def _credential_id(value: object, *, label: str) -> CredentialId:
-    if isinstance(value, PublicCredentialId):
-        value = str(value)
-    if not isinstance(value, str):
-        raise _corrupt(f"{label} must be a string")
     try:
-        return CredentialId(str(PublicCredentialId.from_public(value)))
+        return make_credential_id(value)
     except (TypeError, ValueError) as exc:
         raise _corrupt(f"{label} is invalid") from exc
 

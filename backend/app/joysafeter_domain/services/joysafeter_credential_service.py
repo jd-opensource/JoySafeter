@@ -14,6 +14,7 @@ from app.joysafeter_application.credentials.lifecycle_coordinator import (
     CredentialLifecycleCoordinator,
 )
 from app.joysafeter_domain.credentials.dependencies import DependencyDisposition
+from app.joysafeter_domain.credentials.types import CredentialId
 
 
 class CredentialService:
@@ -51,7 +52,7 @@ class CredentialService:
 
     async def _observe_dependency_registry(
         self,
-        credential_id: Any,
+        credential_id: CredentialId,
         project_id: str,
         disposition: DependencyDisposition,
     ) -> None:
@@ -61,7 +62,7 @@ class CredentialService:
             disposition,
         )
 
-    async def archive(self, credential_id: Any, project_id: str) -> Any:
+    async def archive(self, credential_id: CredentialId, project_id: str) -> Any:
         lifecycle = getattr(self._application, "lifecycle", None)
         if lifecycle is not None:
             return await lifecycle.archive_resource(credential_id, project_id)
@@ -72,7 +73,7 @@ class CredentialService:
         )
         return await self._service.archive(credential_id, project_id)
 
-    async def soft_delete(self, credential_id: Any, project_id: str) -> Any:
+    async def soft_delete(self, credential_id: CredentialId, project_id: str) -> Any:
         lifecycle = getattr(self._application, "lifecycle", None)
         if lifecycle is not None:
             return await lifecycle.delete_resource(credential_id, project_id)

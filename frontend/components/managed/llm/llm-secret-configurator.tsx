@@ -113,6 +113,14 @@ export function LlmSecretConfigurator({
       return true
     })
   }, [options])
+  const protocolSummary = useMemo(() => {
+    const seen = new Set<string>()
+    return options.filter((option) => {
+      if (seen.has(option.protocolId)) return false
+      seen.add(option.protocolId)
+      return true
+    })
+  }, [options])
   const protocolOptions = useMemo(
     () => options.filter((option) => option.providerId === providerId),
     [options, providerId],
@@ -129,6 +137,8 @@ export function LlmSecretConfigurator({
     testedFingerprint !== null && testedFingerprint === currentFingerprint
   const connectionTestIsStale = testedFingerprint !== null && !connectionTestIsFresh
   const isAnthropic = selectedOption?.credentialProfile.id === 'anthropic_standard'
+  const engineDisplayName =
+    catalogQuery.data?.engines.find((engine) => engine.id === engineId)?.display_name ?? engineId
 
   useEffect(() => {
     if (selectedOption) return
@@ -291,6 +301,39 @@ export function LlmSecretConfigurator({
 
   return (
     <div className={cn('space-y-5', className)}>
+      <div className="rounded-xl border bg-muted/20 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium">{t('managed.llm.compatibilityScope')}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {engineId && engineDisplayName
+                ? `${t('managed.llm.filteredByEngine')}: ${engineDisplayName}`
+                : t('managed.llm.allCatalogConnections')}
+            </p>
+          </div>
+          {protocolSummary.length > 0 ? (
+            <div className="space-y-1 text-right">
+              <p className="text-xs font-medium text-muted-foreground">
+                {t('managed.llm.availableProtocols')}
+              </p>
+              <div className="flex max-w-full flex-wrap justify-end gap-1.5">
+                {protocolSummary.map((option) => (
+                  <span
+                    key={option.protocolId}
+                    className="rounded-full border bg-background px-2 py-1 text-xs text-muted-foreground"
+                  >
+                    {option.protocol.display_name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          {t('managed.llm.catalogBackedOnlyHint')}
+        </p>
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <FormFieldLabel htmlFor="llm-provider" required>
@@ -341,6 +384,22 @@ export function LlmSecretConfigurator({
             {selectedOption ? (
               <p className="text-xs text-muted-foreground">{selectedOption.protocol.description}</p>
             ) : null}
+          </div>
+        ) : protocolOptions.length === 1 ? (
+          <div className="space-y-2">
+            <FormFieldLabel htmlFor="llm-protocol" required>
+              {t('managed.llm.protocol')}
+            </FormFieldLabel>
+            <Input
+              id="llm-protocol"
+              aria-label={t('managed.llm.protocol')}
+              value={protocolOptions[0].protocol.display_name}
+              readOnly
+              disabled
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('managed.llm.singleProtocolSelected')}: {protocolOptions[0].protocol.description}
+            </p>
           </div>
         ) : null}
       </div>

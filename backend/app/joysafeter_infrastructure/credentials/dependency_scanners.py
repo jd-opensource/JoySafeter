@@ -18,6 +18,9 @@ from app.joysafeter_domain.credentials.types import (
     CredentialGroupId,
     CredentialId,
     ProjectId,
+    make_credential_group_id,
+    make_credential_id,
+    make_project_id,
 )
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
 from app.joysafeter_domain.models.joysafeter_credential import (
@@ -74,9 +77,9 @@ def _resource_dependency(
 ) -> CredentialDependency:
     return CredentialDependency(
         surface_id=ReferenceSurfaceId(surface_id),
-        project_id=ProjectId(str(project_id)),
+        project_id=make_project_id(str(project_id)),
         source_id=str(source_id),
-        credential_id=CredentialId(str(credential_id)),
+        credential_id=make_credential_id(str(credential_id)),
         group_id=None,
         dispositions=dispositions,
     )
@@ -91,10 +94,10 @@ def _group_dependency(
 ) -> CredentialDependency:
     return CredentialDependency(
         surface_id=ReferenceSurfaceId(surface_id),
-        project_id=ProjectId(str(project_id)),
+        project_id=make_project_id(str(project_id)),
         source_id=str(source_id),
         credential_id=None,
-        group_id=CredentialGroupId(str(group_id)),
+        group_id=make_credential_group_id(str(group_id)),
         dispositions=dispositions,
     )
 
@@ -140,11 +143,7 @@ def _http_egress_reference(config: object, credential_id: CredentialId) -> bool:
 def _snapshot_reference(
     snapshot: object,
     credential_id: CredentialId,
-    *,
-    document_kind: str,
-    surface_id: str,
 ) -> bool:
-    del document_kind, surface_id
     decoded = _REFERENCE_CODEC.decode_snapshot(snapshot)
     if decoded.model is not None and _path_matches(
         credential_id,
@@ -190,10 +189,7 @@ def _legacy_environment_reference(config: object, credential_id: CredentialId) -
 def _legacy_snapshot_reference(
     snapshot: object,
     credential_id: CredentialId,
-    *,
-    document_kind: str,
 ) -> bool:
-    del document_kind
     decoded = _REFERENCE_CODEC.decode_snapshot(snapshot)
     if decoded.model is not None and _path_matches(
         credential_id,
@@ -284,12 +280,7 @@ class AgentVersionExecutableSnapshotScanner(_ResourceScanner):
                 frozenset({DependencyDisposition.REVALIDATE_ON_ACTIVATION}),
             )
             for version_id, snapshot in rows.all()
-            if _snapshot_reference(
-                snapshot,
-                credential_id,
-                document_kind="agent_version_snapshot",
-                surface_id="agent_version_executable_snapshot",
-            )
+            if _snapshot_reference(snapshot, credential_id)
         )
 
 
@@ -396,12 +387,7 @@ class ActiveSessionSnapshotScanner(_ResourceScanner):
                 BLOCK_RESOURCE,
             )
             for session_id, snapshot in rows.all()
-            if _snapshot_reference(
-                snapshot,
-                credential_id,
-                document_kind="active_session_snapshot",
-                surface_id="active_session_model_environment_snapshot",
-            )
+            if _snapshot_reference(snapshot, credential_id)
         )
 
 
@@ -532,11 +518,7 @@ class LegacyCompatibilityDependencyScanner(_ResourceScanner):
                 frozenset({DependencyDisposition.REVALIDATE_ON_ACTIVATION}),
             )
             for version_id, snapshot in version_rows.all()
-            if _legacy_snapshot_reference(
-                snapshot,
-                credential_id,
-                document_kind="agent_version_snapshot",
-            )
+            if _legacy_snapshot_reference(snapshot, credential_id)
         )
 
         session_rows = await self._db.execute(
@@ -556,11 +538,7 @@ class LegacyCompatibilityDependencyScanner(_ResourceScanner):
                 BLOCK_RESOURCE,
             )
             for session_id, snapshot in session_rows.all()
-            if _legacy_snapshot_reference(
-                snapshot,
-                credential_id,
-                document_kind="active_session_snapshot",
-            )
+            if _legacy_snapshot_reference(snapshot, credential_id)
         )
         return tuple(dependencies)
 

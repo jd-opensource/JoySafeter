@@ -16,28 +16,32 @@ import { Input } from '@/components/ui/input'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
+import { parseCredentialGroupResponse } from '@/lib/managed/credential-group-response-parsers'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
-import { parseVaultResponse } from '@/lib/managed/vault-response-parsers'
-import type { Vault } from '@/types/managed'
+import type { CredentialGroup } from '@/types/managed'
 
 const MAX_NAME_LENGTH = 50
 
-interface CreateVaultDialogProps {
+interface CreateCredentialGroupDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreated?: (vault: Vault) => void
+  onCreated?: (credentialGroup: CredentialGroup) => void
 }
 
-interface CreateVaultVariables {
-  vaultName: string
+interface CreateCredentialGroupVariables {
+  credentialGroupName: string
   runId: number
   scope: string
   requestScope: ManagedRequestScope
 }
 
-export function CreateVaultDialog({ open, onOpenChange, onCreated }: CreateVaultDialogProps) {
+export function CreateCredentialGroupDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: CreateCredentialGroupDialogProps) {
   const { t } = useTranslation()
   const [name, setName] = useState('')
   const queryClient = useQueryClient()
@@ -54,13 +58,20 @@ export function CreateVaultDialog({ open, onOpenChange, onCreated }: CreateVault
   })
 
   const mutation = useMutation({
-    mutationFn: ({ vaultName, runId, scope, requestScope }: CreateVaultVariables) => {
-      if (!isCurrentAction(runId, scope)) throw new Error('Stale vault create ignored')
+    mutationFn: ({
+      credentialGroupName,
+      runId,
+      scope,
+      requestScope,
+    }: CreateCredentialGroupVariables) => {
+      if (!isCurrentAction(runId, scope)) {
+        throw new Error('Stale credential group create ignored')
+      }
       return managedPost<unknown>(
         '/credential-groups',
-        { name: vaultName },
+        { name: credentialGroupName },
         managedRequestOptions(requestScope),
-      ).then(parseVaultResponse)
+      ).then(parseCredentialGroupResponse)
     },
     onSuccess: (data, { runId, scope }) => {
       if (!isCurrentAction(runId, scope)) return
@@ -85,7 +96,7 @@ export function CreateVaultDialog({ open, onOpenChange, onCreated }: CreateVault
       onOpenChange(false)
       return
     }
-    mutation.mutate({ vaultName: trimmed, ...action })
+    mutation.mutate({ credentialGroupName: trimmed, ...action })
   }
 
   const handleOpenChange = (next: boolean) => {

@@ -1,5 +1,7 @@
 # P0.5 Credential Domain Closure 与统一语言设计
 
+> **Scope update (2026-08-19):** E2/E3 writer cutover, backfill, and migration evidence are superseded by `docs/superpowers/specs/2026-08-19-credential-domain-closure-v1-freeze-design.md`. Closure permanently writes v1 and completes through domain authority, canonical public language, and runtime material isolation.
+
 - 日期：2026-08-16
 - 状态：重写后待架构复审
 - 基线：`joysafeter-v2-0814` @ `6a58bba205fad83640728906372d5bd7c9154f74`

@@ -387,6 +387,66 @@ fn validate_kind_identity(
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use serde_json::json;
+    use sqlx::postgres::PgPoolOptions;
+    use uuid::Uuid;
+
+    use super::{CredentialRow, CredentialStore};
+    use crate::ids::{CredentialGroupId, CredentialId};
+    use crate::kernel::credentials::error::CredentialRuntimeError;
+    use crate::kernel::credentials::material::ManagedCredentialMaterialAdapter;
+
+    fn store() -> CredentialStore {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/unused")
+            .expect("lazy test pool");
+        CredentialStore::with_material_adapter(
+            pool,
+            ManagedCredentialMaterialAdapter::from_key([7; 32]),
+        )
+    }
+
+    fn archived_row(kind: &str, group_id: Option<CredentialGroupId>) -> CredentialRow {
+        CredentialRow {
+            id: CredentialId::from_uuid(Uuid::now_v7()),
+            project_id: "project-a".to_string(),
+            kind: kind.to_string(),
+            provider: None,
+            protocol: None,
+            data: json!({"token": "not-an-envelope"}),
+            group_id,
+            mcp_server_url: None,
+            normalized_mcp_server_url: None,
+            credential_type: None,
+            archived_at: Some(Utc::now()),
+            deleted_at: None,
+            project_matches: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn archived_direct_credential_fails_before_material_reveal() {
+        let error = store()
+            .validate_credential_row(archived_row("service", None))
+            .expect_err("archived credential must fail closed");
+
+        assert_eq!(error, CredentialRuntimeError::Archived);
+    }
+
+    #[tokio::test]
+    async fn archived_mcp_member_fails_before_material_reveal() {
+        let group_id = CredentialGroupId::from_uuid(Uuid::now_v7());
+        let error = store()
+            .validate_mcp_row(archived_row("mcp", Some(group_id)), group_id)
+            .expect_err("archived MCP member must fail closed");
+
+        assert_eq!(error, CredentialRuntimeError::Archived);
+    }
+}
+
 fn canonical_scheme(raw: Option<&str>) -> Result<String, CredentialRuntimeError> {
     let raw = raw.ok_or(CredentialRuntimeError::FieldMissing)?;
     canonical_auth_scheme(raw).map(str::to_string)

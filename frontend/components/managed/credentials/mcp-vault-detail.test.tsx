@@ -58,13 +58,13 @@ vi.mock('@/components/managed/shared', async () => {
   }
 })
 vi.mock('@/app/managed/vaults/components/create-credential-dialog', () => ({
-  CreateCredentialDialog: ({ open }: { open: boolean }) =>
+  CreateCredentialGroupCredentialDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="create-credential-dialog" /> : null,
 }))
 
 import { managedGet } from '@/lib/api-client'
 
-import { McpVaultDetail } from './mcp-vault-detail'
+import { McpCredentialGroupDetail } from './mcp-vault-detail'
 
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 const GROUP = 'credgrp_018f6f42-0a51-7cc4-98c8-4f6f0ca5f040'
@@ -73,7 +73,7 @@ function Wrap({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
 }
 
-describe('McpVaultDetail', () => {
+describe('McpCredentialGroupDetail', () => {
   it('fetches the group and its members', async () => {
     managedGetMock.mockImplementation(async (url: string) =>
       (url as string).includes('/members')
@@ -89,7 +89,7 @@ describe('McpVaultDetail', () => {
     )
     render(
       <Wrap>
-        <McpVaultDetail credentialGroupId={GROUP as never} />
+        <McpCredentialGroupDetail credentialGroupId={GROUP as never} />
       </Wrap>,
     )
     await waitFor(() => {
@@ -114,7 +114,7 @@ describe('McpVaultDetail', () => {
 
     render(
       <Wrap>
-        <McpVaultDetail credentialGroupId={GROUP as never} autoOpenAddCredential />
+        <McpCredentialGroupDetail credentialGroupId={GROUP as never} autoOpenAddCredential />
       </Wrap>,
     )
 
@@ -151,7 +151,7 @@ describe('McpVaultDetail', () => {
 
     render(
       <Wrap>
-        <McpVaultDetail credentialGroupId={GROUP as never} />
+        <McpCredentialGroupDetail credentialGroupId={GROUP as never} />
       </Wrap>,
     )
 

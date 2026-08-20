@@ -16,23 +16,23 @@ import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath } from '@/lib/managed/api-paths'
+import { parseCredentialGroupCredentialResponse } from '@/lib/managed/credential-group-response-parsers'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
-import { parseVaultCredentialResponse } from '@/lib/managed/vault-response-parsers'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import type { CredentialGroupId } from '@/types/entity-id'
 
-interface CreateCredentialDialogProps {
+interface CreateCredentialGroupCredentialDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  vaultId: CredentialGroupId
+  credentialGroupId: CredentialGroupId
   queryKey: unknown[]
   canSubmit?: () => boolean
 }
 
 interface CreateCredentialVariables {
-  vaultId: CredentialGroupId
+  credentialGroupId: CredentialGroupId
   queryKey: unknown[]
   payload: {
     name: string
@@ -44,13 +44,13 @@ interface CreateCredentialVariables {
   requestScope: ManagedRequestScope
 }
 
-export function CreateCredentialDialog({
+export function CreateCredentialGroupCredentialDialog({
   open,
   onOpenChange,
-  vaultId,
+  credentialGroupId,
   queryKey,
   canSubmit,
-}: CreateCredentialDialogProps) {
+}: CreateCredentialGroupCredentialDialogProps) {
   const { t } = useTranslation()
   const [name, setName] = useState('')
   const [mcpServerUrl, setMcpServerUrl] = useState('')
@@ -70,7 +70,7 @@ export function CreateCredentialDialog({
 
   const mutation = useMutation({
     mutationFn: ({
-      vaultId: actionVaultId,
+      credentialGroupId: actionCredentialGroupId,
       payload,
       runId,
       scope,
@@ -80,10 +80,10 @@ export function CreateCredentialDialog({
         throw new Error('Stale vault credential create ignored')
       }
       return managedPost<unknown>(
-        apiResourcePath('credential-groups', actionVaultId, 'members'),
+        apiResourcePath('credential-groups', actionCredentialGroupId, 'members'),
         payload,
         managedRequestOptions(requestScope),
-      ).then(parseVaultCredentialResponse)
+      ).then(parseCredentialGroupCredentialResponse)
     },
     onSuccess: (_data, { queryKey, runId, scope }) => {
       if (!isCurrentAction(runId, scope)) return
@@ -121,7 +121,7 @@ export function CreateCredentialDialog({
       return
     }
     mutation.mutate({
-      vaultId,
+      credentialGroupId,
       queryKey,
       payload: {
         name: name.trim() || trimmedMcpServerUrl,

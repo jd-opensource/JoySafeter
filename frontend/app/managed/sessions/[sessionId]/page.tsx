@@ -64,9 +64,9 @@ import { useSessionStream } from '@/lib/managed/sse'
 import { parseSessionId, tryParseEnvironmentId, type SessionId } from '@/types/entity-id'
 import { parseEnvironmentResponse } from '@/lib/managed/environment-response-parsers'
 import {
-  parseVaultCredentialListResponse,
-  parseVaultResponse,
-} from '@/lib/managed/vault-response-parsers'
+  parseCredentialGroupCredentialListResponse,
+  parseCredentialGroupResponse,
+} from '@/lib/managed/credential-group-response-parsers'
 import { parseSkillUsageListResponse } from '@/lib/managed/skill-response-parsers'
 import { parseSessionEventListResponse } from '@/lib/managed/event-response-parsers'
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
@@ -86,8 +86,8 @@ import {
 import type {
   Agent,
   Environment,
-  Vault,
-  VaultCredential,
+  CredentialGroup,
+  CredentialGroupCredential,
   Session,
   SessionEvent,
   AgentTool,
@@ -221,7 +221,7 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
   const [searchText, setSearchText] = useState('')
   const [showSearch, setShowSearch] = useState(false)
   const [activeDrawer, setActiveDrawer] = useState<
-    'agent' | 'env' | 'vault' | 'files' | 'repos' | null
+    'agent' | 'env' | 'credential-group' | 'files' | 'repos' | null
   >(null)
   const [msgInput, setMsgInput] = useState('')
   const [isSending, setIsSending] = useState(false)
@@ -289,28 +289,31 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
     enabled: !!envId && hasManagedRequestScope(managedScope),
   })
 
-  const vaultId = session?.credential_group_ids?.[0]
-  const { data: vaultDetail } = useQuery({
-    queryKey: ['vault', sessionScope, vaultId],
+  const credentialGroupId = session?.credential_group_ids?.[0]
+  const { data: credentialGroupDetail } = useQuery({
+    queryKey: ['credential-group', sessionScope, credentialGroupId],
     queryFn: () =>
       managedGet<unknown>(
-        apiResourcePath('credential-groups', vaultId!),
+        apiResourcePath('credential-groups', credentialGroupId!),
         managedRequestOptions(managedScope),
-      ).then(parseVaultResponse),
-    enabled: !!vaultId && hasManagedRequestScope(managedScope),
+      ).then(parseCredentialGroupResponse),
+    enabled: !!credentialGroupId && hasManagedRequestScope(managedScope),
   })
 
-  const { data: vaultCredentials } = useQuery({
-    queryKey: ['vault-credentials', sessionScope, vaultId],
+  const { data: credentialGroupCredentials } = useQuery({
+    queryKey: ['credential-group-members', sessionScope, credentialGroupId],
     queryFn: () =>
       managedGet<{ data: unknown[] }>(
-        apiResourceSubpath('credential-groups', vaultId!, ['members'], { limit: 100 }),
+        apiResourceSubpath('credential-groups', credentialGroupId!, ['members'], { limit: 100 }),
         managedRequestOptions(managedScope),
       ).then((response) => ({
         ...response,
-        data: parseVaultCredentialListResponse(response.data),
+        data: parseCredentialGroupCredentialListResponse(response.data),
       })),
-    enabled: !!vaultId && activeDrawer === 'vault' && hasManagedRequestScope(managedScope),
+    enabled:
+      !!credentialGroupId &&
+      activeDrawer === 'credential-group' &&
+      hasManagedRequestScope(managedScope),
   })
 
   const { data: sessionResources } = useQuery({
@@ -1061,14 +1064,14 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
     metaItems.push({
       icon: <KeyRound className="h-3.5 w-3.5" />,
       label:
-        vaultDetail?.name ||
+        credentialGroupDetail?.name ||
         (session.credential_group_ids.length > 1
           ? t('managed.sessions.mcpCredentialSetCount', {
               count: session.credential_group_ids.length,
             })
           : shortEntityId(session.credential_group_ids[0], 'credentialGroup', 12)),
-      tooltip: vaultDetail?.name || session.credential_group_ids[0],
-      onClick: () => setActiveDrawer('vault'),
+      tooltip: credentialGroupDetail?.name || session.credential_group_ids[0],
+      onClick: () => setActiveDrawer('credential-group'),
     })
   }
   // Duration
@@ -1479,12 +1482,14 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
           onGoToEnv={() => router.push('/managed/environments')}
         />
       )}
-      {activeDrawer === 'vault' && vaultDetail && (
-        <VaultDrawer
-          vault={vaultDetail}
-          credentials={vaultCredentials?.data || []}
+      {activeDrawer === 'credential-group' && credentialGroupDetail && (
+        <CredentialGroupDrawer
+          credentialGroup={credentialGroupDetail}
+          credentials={credentialGroupCredentials?.data || []}
           onClose={() => setActiveDrawer(null)}
-          onGoToVault={() => router.push(`/managed/credentials/mcp/${vaultDetail.id}`)}
+          onGoToCredentialGroup={() =>
+            router.push(`/managed/credentials/mcp/${credentialGroupDetail.id}`)
+          }
         />
       )}
       {activeDrawer === 'files' && (
@@ -2234,19 +2239,19 @@ function EnvDrawer({
   )
 }
 
-function VaultDrawer({
-  vault,
+function CredentialGroupDrawer({
+  credentialGroup,
   credentials,
   onClose,
-  onGoToVault,
+  onGoToCredentialGroup,
 }: {
-  vault: Vault
-  credentials: VaultCredential[]
+  credentialGroup: CredentialGroup
+  credentials: CredentialGroupCredential[]
   onClose: () => void
-  onGoToVault: () => void
+  onGoToCredentialGroup: () => void
 }) {
   const { t } = useTranslation()
-  const isArchived = !!vault.archived_at
+  const isArchived = !!credentialGroup.archived_at
   const activeCreds = credentials.filter((c) => !c.archived_at)
 
   return (
@@ -2256,21 +2261,21 @@ function VaultDrawer({
         <div className="sticky top-0 flex items-center justify-between border-b border-border bg-background px-6 py-4">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold">{vault.name}</h2>
+              <h2 className="text-base font-semibold">{credentialGroup.name}</h2>
               <StatusBadge status={isArchived ? 'archived' : 'active'} />
             </div>
             <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
               <span>
-                {t('managed.sessions.created')} <RelativeTime date={vault.created_at} />
+                {t('managed.sessions.created')} <RelativeTime date={credentialGroup.created_at} />
               </span>
               <span>&middot;</span>
-              <MonoId id={vault.id} />
+              <MonoId id={credentialGroup.id} />
               <span>&middot;</span>
               <button
                 className="inline-flex items-center gap-1 text-primary hover:underline"
-                onClick={onGoToVault}
+                onClick={onGoToCredentialGroup}
               >
-                {t('managed.sessions.goToVault')} <ArrowRight className="h-3 w-3" />
+                {t('managed.sessions.goToCredentialGroup')} <ArrowRight className="h-3 w-3" />
               </button>
             </div>
           </div>
@@ -2947,7 +2952,6 @@ function ReposDrawer({
       token,
       runId,
       scope,
-      draftVersion,
     }: {
       resourceId: string
       sessionId: SessionId

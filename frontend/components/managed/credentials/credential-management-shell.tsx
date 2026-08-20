@@ -5,14 +5,14 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { CreateSecretDialog } from '@/app/managed/secrets/components/create-secret-dialog'
-import { CreateVaultDialog } from '@/app/managed/vaults/components/create-vault-dialog'
+import { CreateCredentialGroupDialog } from '@/app/managed/vaults/components/create-vault-dialog'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { useTranslation } from '@/lib/i18n'
 
 import type { CredentialKindChoice } from './credential-kind-chooser'
-import { McpVaultList, type McpVaultListState } from './mcp-vault-list'
+import { McpCredentialGroupList, type McpCredentialGroupListState } from './mcp-vault-list'
 import { ModelConnectionList, type ModelConnectionListState } from './model-connection-list'
 import { ServiceCredentialList, type ServiceCredentialListState } from './service-credential-list'
 
@@ -21,7 +21,7 @@ const TABS: CredentialTab[] = ['models', 'services', 'mcp']
 const KIND_TO_TAB: Record<CredentialKindChoice, CredentialTab> = {
   model: 'models',
   service: 'services',
-  vault: 'mcp',
+  'credential-group': 'mcp',
 }
 
 function normalizeTab(raw: string | null): CredentialTab {
@@ -29,7 +29,8 @@ function normalizeTab(raw: string | null): CredentialTab {
 }
 
 function parseCreateKind(raw: string | null): CredentialKindChoice | null {
-  if (raw === 'model' || raw === 'service' || raw === 'vault') return raw
+  if (raw === 'model' || raw === 'service' || raw === 'credential-group') return raw
+  if (raw === 'vault') return 'credential-group'
   return null
 }
 
@@ -45,7 +46,7 @@ export function CredentialManagementShell() {
   } = useScopedActions({
     onReset: () => {
       setSecretDialog((state) => ({ ...state, open: false }))
-      setVaultDialogOpen(false)
+      setCredentialGroupDialogOpen(false)
     },
   })
 
@@ -57,7 +58,7 @@ export function CredentialManagementShell() {
     open: false,
     kind: 'llm',
   })
-  const [vaultDialogOpen, setVaultDialogOpen] = useState(false)
+  const [credentialGroupDialogOpen, setCredentialGroupDialogOpen] = useState(false)
   const [modelListState, setModelListState] = useState<ModelConnectionListState>({
     searchQuery: '',
     createdFilter: 'all',
@@ -70,7 +71,7 @@ export function CredentialManagementShell() {
     showArchived: false,
     pageSize: 10,
   })
-  const [mcpListState, setMcpListState] = useState<McpVaultListState>({
+  const [mcpListState, setMcpListState] = useState<McpCredentialGroupListState>({
     searchQuery: '',
     createdFilter: 'all',
     showArchived: false,
@@ -104,9 +105,9 @@ export function CredentialManagementShell() {
       goToTab(KIND_TO_TAB[kind])
       if (kind === 'model') setSecretDialog({ open: true, kind: 'llm' })
       else if (kind === 'service') setSecretDialog({ open: true, kind: 'generic' })
-      else setVaultDialogOpen(true)
+      else setCredentialGroupDialogOpen(true)
     },
-    [goToTab, scopeIsActive, setSecretDialog, setVaultDialogOpen],
+    [goToTab, scopeIsActive, setSecretDialog, setCredentialGroupDialogOpen],
   )
 
   // Consume create=* once: permission-gate, open the flow, normalize tab, strip create.
@@ -127,13 +128,15 @@ export function CredentialManagementShell() {
       next.set('tab', KIND_TO_TAB[kind])
       if (kind === 'model') setSecretDialog({ open: true, kind: 'llm' })
       else if (kind === 'service') setSecretDialog({ open: true, kind: 'generic' })
-      else setVaultDialogOpen(true)
+      else setCredentialGroupDialogOpen(true)
     }
     router.replace(`/managed/credentials?${next.toString()}`)
   }, [searchParams, router, projectReadOnly])
 
   const perTabAdd = useCallback(() => {
-    openForKind(tab === 'models' ? 'model' : tab === 'services' ? 'service' : 'vault')
+    openForKind(
+      tab === 'models' ? 'model' : tab === 'services' ? 'service' : 'credential-group',
+    )
   }, [tab, openForKind])
 
   const onSecretCreated = useCallback(() => {
@@ -172,7 +175,11 @@ export function CredentialManagementShell() {
         />
       ) : null}
       {tab === 'mcp' ? (
-        <McpVaultList onCreate={perTabAdd} state={mcpListState} onStateChange={setMcpListState} />
+        <McpCredentialGroupList
+          onCreate={perTabAdd}
+          state={mcpListState}
+          onStateChange={setMcpListState}
+        />
       ) : null}
 
       <CreateSecretDialog
@@ -186,16 +193,16 @@ export function CredentialManagementShell() {
         onCreated={onSecretCreated}
       />
 
-      <CreateVaultDialog
-        open={vaultDialogOpen}
+      <CreateCredentialGroupDialog
+        open={credentialGroupDialogOpen}
         onOpenChange={(open) => {
           if (open && (!scopeIsActive() || !currentProjectAllowsWrite())) return
-          setVaultDialogOpen(open)
+          setCredentialGroupDialogOpen(open)
         }}
-        onCreated={(vault) => {
+        onCreated={(credentialGroup) => {
           if (!scopeIsActive() || !currentProjectAllowsWrite()) return
-          setVaultDialogOpen(false)
-          router.push(`/managed/credentials/mcp/${vault.id}?add=1`)
+          setCredentialGroupDialogOpen(false)
+          router.push(`/managed/credentials/mcp/${credentialGroup.id}?add=1`)
         }}
       />
     </div>

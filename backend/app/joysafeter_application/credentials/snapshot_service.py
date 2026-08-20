@@ -32,6 +32,8 @@ from app.joysafeter_domain.credentials.types import (
     NormalizedEndpoint,
     NormalizedMcpUrl,
     ProjectId,
+    make_credential_group_id,
+    make_project_id,
 )
 from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_domain.llm.model_inference_policy import build_model_inference_policy
@@ -187,8 +189,8 @@ async def _validate_group_references(
             code="SESSION_CREDENTIAL_GROUP_NOT_FOUND",
             message="Credential group not found",
         )
-    project_id = ProjectId(command.project_id)
-    group_ids = tuple(CredentialGroupId(str(group_id)) for group_id in command.credential_group_ids)
+    project_id = make_project_id(command.project_id)
+    group_ids = tuple(make_credential_group_id(str(group_id)) for group_id in command.credential_group_ids)
     groups = tuple(await uow.groups.get_many(group_ids, project_id=command.project_id))
     members = tuple(await uow.groups.list_members(group_ids, project_id=command.project_id))
     try:
@@ -249,7 +251,7 @@ async def create_session_from_source(
                 await uow.rollback()
                 continue
 
-            group_ids = tuple(CredentialGroupId(str(group_id)) for group_id in command.credential_group_ids)
+            group_ids = tuple(make_credential_group_id(str(group_id)) for group_id in command.credential_group_ids)
             members = tuple(await uow.groups.list_members(group_ids, project_id=command.project_id))
             credential_ids = set(decoded.credential_ids)
             credential_ids.update(member.id for member in members)
@@ -268,7 +270,7 @@ async def create_session_from_source(
                     )
                 await _validate_resource_references(
                     decoded,
-                    project_id=ProjectId(command.project_id),
+                    project_id=make_project_id(command.project_id),
                     binding_service=binding_service,
                 )
             await _validate_group_references(command, locked_source.snapshot, uow)

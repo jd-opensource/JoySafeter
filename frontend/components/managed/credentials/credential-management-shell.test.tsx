@@ -114,7 +114,7 @@ vi.mock('./service-credential-list', () => ({
   ),
 }))
 vi.mock('./mcp-vault-list', () => ({
-  McpVaultList: ({ onCreate }: { onCreate: () => void }) => (
+  McpCredentialGroupList: ({ onCreate }: { onCreate: () => void }) => (
     <button onClick={onCreate}>vault-add</button>
   ),
 }))
@@ -133,7 +133,8 @@ vi.mock('@/app/managed/secrets/components/create-secret-dialog', () => ({
   }) => (open ? <div>{`secret-dialog:${initialKind}:${String(lockKind)}`}</div> : null),
 }))
 vi.mock('@/app/managed/vaults/components/create-vault-dialog', () => ({
-  CreateVaultDialog: ({ open }: { open: boolean }) => (open ? <div>vault-dialog</div> : null),
+  CreateCredentialGroupDialog: ({ open }: { open: boolean }) =>
+    open ? <div>vault-dialog</div> : null,
 }))
 vi.mock('@/components/ui/tabs', () => ({
   Tabs: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -194,7 +195,20 @@ describe('CredentialManagementShell', () => {
     )
   })
 
-  it('consumes create=vault: opens vault dialog, normalizes tab=mcp, strips create', async () => {
+  it('consumes create=credential-group: opens the group dialog and normalizes tab=mcp', async () => {
+    searchParamsValue = new URLSearchParams('tab=models&create=credential-group')
+    const { getByText } = render(
+      <Wrap>
+        <CredentialManagementShell />
+      </Wrap>,
+    )
+    await waitFor(() => expect(getByText('vault-dialog')).toBeTruthy())
+    const url = replaceMock.mock.calls.at(-1)![0] as string
+    expect(url).toContain('tab=mcp')
+    expect(url).not.toContain('create=')
+  })
+
+  it('accepts legacy create=vault only as an input compatibility alias', async () => {
     searchParamsValue = new URLSearchParams('tab=models&create=vault')
     const { getByText } = render(
       <Wrap>

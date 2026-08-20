@@ -4,6 +4,7 @@ from typing import Any
 
 from app.joysafeter_domain.credentials.bindings import McpGroupBinding
 from app.joysafeter_domain.credentials.policies import validate_mcp_group_binding
+from app.joysafeter_domain.credentials.types import CredentialId
 
 from .ports import CredentialUnitOfWork
 from .resource_service import CredentialResourceService
@@ -26,6 +27,27 @@ class CredentialGroupService:
             project_id=project_id,
             target_type="credential_group",
         )
+
+    async def create_with_initial_members(self, request: Any, project_id: str) -> Any:
+        members = tuple(request.initial_members)
+        if not members:
+            return await self.create(request, project_id)
+
+        batch = CredentialResourceService(
+            self._uow,
+            manage_transaction=False,
+            unconditional_rollback=True,
+        )
+        batch_groups = CredentialGroupService(self._uow, batch)
+        try:
+            group = await batch_groups.create(request, project_id)
+            for member in members:
+                await batch_groups.add_credential(group.id, member, project_id)
+            await batch.commit_pending()
+        except Exception:
+            await batch.rollback_pending()
+            raise
+        return group
 
     async def get(self, group_id: Any, project_id: str) -> Any | None:
         return await self._uow.groups.get_group_row(group_id, project_id)
@@ -89,7 +111,7 @@ class CredentialGroupService:
             target_type="credential",
         )
 
-    async def archive_credential(self, group_id: Any, credential_id: Any, project_id: str) -> Any:
+    async def archive_credential(self, group_id: Any, credential_id: CredentialId, project_id: str) -> Any:
         return await self._transactions._mutate(
             lambda: self._uow.groups.archive_group_member(group_id, credential_id, project_id),
             action="credential_group.member_archived",
@@ -97,10 +119,10 @@ class CredentialGroupService:
             target_id=str(credential_id),
         )
 
-    async def validate_member_mutation(self, group_id: Any, credential_id: Any, project_id: str) -> Any:
+    async def validate_member_mutation(self, group_id: Any, credential_id: CredentialId, project_id: str) -> Any:
         return await self._uow.groups.validate_group_member_mutation(group_id, credential_id, project_id)
 
-    async def remove_credential(self, group_id: Any, credential_id: Any, project_id: str) -> Any:
+    async def remove_credential(self, group_id: Any, credential_id: CredentialId, project_id: str) -> Any:
         return await self._transactions._mutate(
             lambda: self._uow.groups.delete_group_member(group_id, credential_id, project_id),
             action="credential_group.member_removed",

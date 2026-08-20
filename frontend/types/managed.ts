@@ -25,7 +25,7 @@ export interface Agent {
   id: AgentId
   name: string
   description?: string | null
-  model: { id: string; speed?: string }
+  model?: AgentModelConfig | null
   tools?: AgentTool[]
   mcp_servers?: McpServer[]
   skills?: AgentSkillRef[]
@@ -35,6 +35,7 @@ export interface Agent {
   env?: Record<string, string>
   environment_ref?: string | null
   model_credential_id?: CredentialId | null
+  model_connection?: ModelConnectionSummary | null
   engine_kind: string
   created_at: string
   updated_at: string
@@ -107,8 +108,25 @@ export interface SessionAgent {
   agent_id?: AgentId
   name: string
   engine_kind?: string | null
-  model?: { id: string } | null
+  model?: AgentModelConfig | null
+  model_credential_id?: CredentialId | null
+  model_connection?: ModelConnectionSummary | null
   version?: number
+}
+
+export interface AgentModelConfig {
+  id: string
+  speed?: string
+}
+
+export interface ModelConnectionSummary {
+  id: CredentialId
+  name: string
+  provider: string | null
+  protocol: string | null
+  model: string | null
+  is_default: boolean
+  archived_at: string | null
 }
 
 export type SessionStatus = 'idle' | 'running' | 'rescheduling' | 'terminated'
@@ -232,7 +250,7 @@ export interface EnvironmentPackages {
 
 export interface EnvironmentEgressServiceInject {
   type?: 'bearer' | 'api_key' | 'raw_header' | 'cookie' | string
-  secret_key?: string
+  credential_field?: string
   header?: string
   cookie_name?: string
   cookies?: Record<string, string>
@@ -246,6 +264,11 @@ export interface EnvironmentEgressService {
   service_credential_id: CredentialId
   inject?: EnvironmentEgressServiceInject
   allowed_paths?: string[]
+}
+
+export interface CanonicalEnvironmentCredentialReferences {
+  direct_credential_ids: CredentialId[]
+  egress_services: EnvironmentEgressService[]
 }
 
 export interface EnvironmentMountResource {
@@ -336,7 +359,7 @@ export interface EnvironmentConfig {
   packages?: EnvironmentPackages
   networking?: EnvironmentNetworking
   env_vars?: Record<string, string>
-  secret_refs?: CredentialId[]
+  environment_credential_ids?: CredentialId[]
   egress_services?: EnvironmentEgressService[]
   storage_volumes?: EnvironmentStorageVolume[]
   mount_resources?: EnvironmentMountResource[]
@@ -353,7 +376,7 @@ export interface Environment {
   archived_at?: string | null
 }
 
-export interface Vault {
+export interface CredentialGroup {
   id: CredentialGroupId
   name: string
   description?: string
@@ -363,7 +386,7 @@ export interface Vault {
   archived_at?: string | null
 }
 
-export interface VaultCredential {
+export interface CredentialGroupCredential {
   id: CredentialId
   group_id: CredentialGroupId
   name: string

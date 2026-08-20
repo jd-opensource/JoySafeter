@@ -262,7 +262,7 @@ export function ModelConnectionList({
                 {s.is_default ? (
                   <Badge variant="secondary" className="gap-1">
                     <Check className="size-3" />
-                    {t('managed.secrets.default')}
+                    {t('managed.llm.defaultForProtocol')}
                   </Badge>
                 ) : null}
                 {s.archived_at ? <StatusBadge status="archived" /> : null}
@@ -279,7 +279,9 @@ export function ModelConnectionList({
       header: t('managed.llm.providerProtocol'),
       render: (s) => (
         <div className="text-xs">
-          <p className="font-medium text-foreground">{providerLabel(catalogQuery.data, s.provider)}</p>
+          <p className="font-medium text-foreground">
+            {providerLabel(catalogQuery.data, s.provider)}
+          </p>
           <p className="text-muted-foreground">{protocolLabel(catalogQuery.data, s.protocol)}</p>
         </div>
       ),
@@ -309,7 +311,7 @@ export function ModelConnectionList({
           ...(s.kind === 'model' && !s.archived_at && !s.is_default
             ? [
                 {
-                  label: t('managed.secrets.setDefault'),
+                  label: t('managed.llm.setAsProtocolDefault'),
                   icon: <Star className="size-4" />,
                   onClick: () => handleSetDefault(s),
                 },
@@ -361,7 +363,8 @@ export function ModelConnectionList({
     )
 
   return (
-    <div>
+    <div className="space-y-3">
+      <p className="px-1 text-sm text-muted-foreground">{t('managed.llm.protocolDefaultHint')}</p>
       <CredentialListPanel
         searchPlaceholder={t('managed.credentials.searchModels')}
         searchValue={searchQuery}
@@ -416,7 +419,7 @@ export function ModelConnectionList({
                 s.is_default || s.archived_at ? (
                   <>
                     {s.is_default ? (
-                      <Badge variant="secondary">{t('managed.secrets.default')}</Badge>
+                      <Badge variant="secondary">{t('managed.llm.defaultForProtocol')}</Badge>
                     ) : null}
                     {s.archived_at ? <StatusBadge status="archived" /> : null}
                   </>
@@ -426,8 +429,12 @@ export function ModelConnectionList({
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div>
                 <div className="text-muted-foreground">{t('managed.llm.providerProtocol')}</div>
-                <div className="mt-1 font-medium text-foreground">{providerLabel(catalogQuery.data, s.provider)}</div>
-                <div className="text-muted-foreground">{protocolLabel(catalogQuery.data, s.protocol)}</div>
+                <div className="mt-1 font-medium text-foreground">
+                  {providerLabel(catalogQuery.data, s.provider)}
+                </div>
+                <div className="text-muted-foreground">
+                  {protocolLabel(catalogQuery.data, s.protocol)}
+                </div>
               </div>
               <div>
                 <div className="text-muted-foreground">{t('managed.table.created')}</div>

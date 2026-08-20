@@ -43,7 +43,7 @@ let searchParamsValue = new URLSearchParams('')
 // Mutable, per-test toggles read by the mocked hooks below.
 let readOnlyValue = false
 // Stable scope object — a fresh object per render would re-fire scope-keyed
-// effects (useScopedActions / McpVaultDetail) every render = infinite loop / OOM.
+// effects (useScopedActions / McpCredentialGroupDetail) every render = infinite loop / OOM.
 const scopeMock = { orgId: 'o', projectId: 'p', key: 'o:p' }
 
 vi.mock('@/lib/i18n', () => ({ useTranslation: () => ({ t: (k: string) => k }) }))
@@ -67,7 +67,7 @@ vi.mock('@/hooks/managed/use-current-project-read-only', () => ({
   useCurrentProjectReadOnly: () => readOnlyValue,
   currentProjectAllowsWrite: () => !readOnlyValue,
 }))
-// useScopedActions is used by McpVaultList. Return a STABLE object so its scope
+// useScopedActions is used by McpCredentialGroupList. Return a STABLE object so its scope
 // key never appears to change between renders (guardrail #1 for effects).
 vi.mock('@/hooks/managed/use-scoped-actions', () => ({
   useScopedActions: () => ({
@@ -286,10 +286,11 @@ vi.mock('@/app/managed/secrets/components/create-secret-dialog', () => ({
   CreateSecretDialog: ({ open }: { open: boolean }) => (open ? <div>secret-dialog</div> : null),
 }))
 vi.mock('@/app/managed/vaults/components/create-vault-dialog', () => ({
-  CreateVaultDialog: ({ open }: { open: boolean }) => (open ? <div>vault-dialog</div> : null),
+  CreateCredentialGroupDialog: ({ open }: { open: boolean }) =>
+    open ? <div>vault-dialog</div> : null,
 }))
 vi.mock('@/app/managed/vaults/components/create-credential-dialog', () => ({
-  CreateCredentialDialog: ({ open }: { open: boolean }) =>
+  CreateCredentialGroupCredentialDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="add-credential-dialog">add-credential</div> : null,
 }))
 // NOTE: model-connection-detail / service-credential-detail are intentionally
@@ -301,8 +302,8 @@ import { managedGet } from '@/lib/api-client'
 
 import { CredentialDetail } from './credential-detail'
 import { CredentialManagementShell } from './credential-management-shell'
-import { McpVaultDetail } from './mcp-vault-detail'
-import { McpVaultList } from './mcp-vault-list'
+import { McpCredentialGroupDetail } from './mcp-vault-detail'
+import { McpCredentialGroupList } from './mcp-vault-list'
 import { ModelConnectionDetail } from './model-connection-detail'
 import { ModelConnectionList } from './model-connection-list'
 import { ServiceCredentialDetail } from './service-credential-detail'
@@ -406,9 +407,9 @@ describe('isolation', () => {
     expect(calledCatalog()).toBe(false)
   })
 
-  it('McpVaultList lists /credential-groups and never the LLM catalog', async () => {
+  it('McpCredentialGroupList lists /credential-groups and never the LLM catalog', async () => {
     managedGetMock.mockResolvedValue({ data: [], has_more: false })
-    await renderList(<McpVaultList onCreate={() => {}} />)
+    await renderList(<McpCredentialGroupList onCreate={() => {}} />)
     await waitFor(() =>
       expect(credUrls().some((u) => u.startsWith('/credential-groups'))).toBe(true),
     )
@@ -445,10 +446,13 @@ describe('reader role', () => {
     expect(getByTestId('row-0').getAttribute('data-action-count')).toBe('0')
   })
 
-  it('McpVaultList: no add button, row yields no actions', async () => {
+  it('McpCredentialGroupList: no add button, row yields no actions', async () => {
     managedGetMock.mockResolvedValue({ data: [vaultBase()], has_more: false })
-    const { queryByText, getByTestId } = await renderList(<McpVaultList onCreate={() => {}} />, 1)
-    expect(queryByText('managed.credentials.newMcpVault')).toBeNull()
+    const { queryByText, getByTestId } = await renderList(
+      <McpCredentialGroupList onCreate={() => {}} />,
+      1,
+    )
+    expect(queryByText('managed.credentials.newMcpCredentialGroup')).toBeNull()
     expect(getByTestId('row-0').getAttribute('data-action-count')).toBe('0')
   })
 
@@ -477,7 +481,7 @@ describe('model capability', () => {
       <ModelConnectionList onCreate={() => {}} />,
       1,
     )
-    expect(getByTestId('action-managed.secrets.setDefault')).toBeTruthy()
+    expect(getByTestId('action-managed.llm.setAsProtocolDefault')).toBeTruthy()
     expect(getByTestId('action-common.archive')).toBeTruthy()
     expect(getByTestId('action-common.delete')).toBeTruthy()
     expect(queryByTestId('action-managed.vaults.archiveVault')).toBeNull()
@@ -498,7 +502,7 @@ describe('model capability', () => {
       <ModelConnectionList onCreate={() => {}} />,
       1,
     )
-    expect(queryByTestId('action-managed.secrets.setDefault')).toBeNull()
+    expect(queryByTestId('action-managed.llm.setAsProtocolDefault')).toBeNull()
     expect(getByTestId('action-common.delete')).toBeTruthy()
   })
 
@@ -515,7 +519,7 @@ describe('model capability', () => {
     await waitFor(() => expect(getByTestId('datatable').getAttribute('data-rows')).toBe('1'))
     expect(getByTestId('action-common.restore')).toBeTruthy()
     expect(getByTestId('action-common.delete')).toBeTruthy()
-    expect(queryByTestId('action-managed.secrets.setDefault')).toBeNull()
+    expect(queryByTestId('action-managed.llm.setAsProtocolDefault')).toBeNull()
     expect(queryByTestId('action-common.archive')).toBeNull()
   })
 })
@@ -532,7 +536,7 @@ describe('service capability', () => {
     )
     expect(getByTestId('action-common.archive')).toBeTruthy()
     expect(getByTestId('action-common.delete')).toBeTruthy()
-    expect(queryByTestId('action-managed.secrets.setDefault')).toBeNull()
+    expect(queryByTestId('action-managed.llm.setAsProtocolDefault')).toBeNull()
     expect(queryByTestId('action-managed.vaults.archiveVault')).toBeNull()
   })
 
@@ -559,7 +563,7 @@ describe('mcp capability', () => {
       data: [vaultBase({ archived_at: null })],
       has_more: false,
     })
-    const { getByTestId } = await renderList(<McpVaultList onCreate={() => {}} />, 1)
+    const { getByTestId } = await renderList(<McpCredentialGroupList onCreate={() => {}} />, 1)
     expect(getByTestId('action-managed.vaults.archiveVault')).toBeTruthy()
     expect(getByTestId('action-common.delete')).toBeTruthy()
   })
@@ -569,7 +573,7 @@ describe('mcp capability', () => {
       data: [vaultBase({ archived_at: null })],
       has_more: false,
     })
-    const { getByTestId } = await renderList(<McpVaultList onCreate={() => {}} />, 1)
+    const { getByTestId } = await renderList(<McpCredentialGroupList onCreate={() => {}} />, 1)
     const cacheSpy = vi.spyOn(QueryClient.prototype, 'getQueriesData').mockReturnValue([])
 
     fireEvent.click(getByTestId('action-managed.vaults.archiveVault'))
@@ -583,12 +587,12 @@ describe('mcp capability', () => {
       data: [vaultBase({ archived_at: '2026-02-01T00:00:00Z' })],
       has_more: false,
     })
-    const { getByTestId } = await renderList(<McpVaultList onCreate={() => {}} />)
+    const { getByTestId } = await renderList(<McpCredentialGroupList onCreate={() => {}} />)
     // Archived vaults are filtered out when show-archived is off, so no rows.
     expect(getByTestId('datatable').getAttribute('data-rows')).toBe('0')
   })
 
-  it('McpVaultDetail (writer, active vault) renders Add-Credential, member archive action, and show-archived toggle', async () => {
+  it('McpCredentialGroupDetail renders member controls for an active writable group', async () => {
     managedGetMock.mockImplementation(async (url: string) =>
       url.includes('/members')
         ? {
@@ -610,7 +614,7 @@ describe('mcp capability', () => {
     )
     const { getByText, getByTestId } = render(
       <Wrap>
-        <McpVaultDetail credentialGroupId={GROUP as never} />
+        <McpCredentialGroupDetail credentialGroupId={GROUP as never} />
       </Wrap>,
     )
     // Add-Credential control (writer, active vault).
@@ -740,13 +744,13 @@ describe('kind-correct back', () => {
     )
   })
 
-  it('McpVaultDetail breadcrumb back target is ?tab=mcp', async () => {
+  it('McpCredentialGroupDetail breadcrumb back target is ?tab=mcp', async () => {
     managedGetMock.mockImplementation(async (url: string) =>
       url.includes('/members') ? { data: [], has_more: false } : vaultBase({ archived_at: null }),
     )
     const { getAllByTestId } = render(
       <Wrap>
-        <McpVaultDetail credentialGroupId={GROUP as never} />
+        <McpCredentialGroupDetail credentialGroupId={GROUP as never} />
       </Wrap>,
     )
     await waitFor(() =>

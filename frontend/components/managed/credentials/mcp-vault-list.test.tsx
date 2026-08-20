@@ -19,7 +19,7 @@ vi.mock('./credential-list-panel', () => ({ CredentialListPanel: () => <div /> }
 
 import { managedGet } from '@/lib/api-client'
 
-import { McpVaultList } from './mcp-vault-list'
+import { McpCredentialGroupList } from './mcp-vault-list'
 
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 function Wrap({ children }: { children: ReactNode }) {
@@ -27,12 +27,12 @@ function Wrap({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
 }
 
-describe('McpVaultList', () => {
+describe('McpCredentialGroupList', () => {
   it('lists credential-groups and never touches the LLM catalog', async () => {
     managedGetMock.mockResolvedValue({ data: [], has_more: false })
     render(
       <Wrap>
-        <McpVaultList onCreate={() => {}} />
+        <McpCredentialGroupList onCreate={() => {}} />
       </Wrap>,
     )
     await waitFor(() =>

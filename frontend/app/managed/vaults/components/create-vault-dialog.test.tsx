@@ -77,7 +77,7 @@ globalThis.localStorage = dom.window.localStorage
 import { managedPost } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
 
-import { CreateVaultDialog } from './create-vault-dialog'
+import { CreateCredentialGroupDialog } from './create-vault-dialog'
 
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 
@@ -99,7 +99,7 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-describe('CreateVaultDialog managed scope lifecycle', () => {
+describe('CreateCredentialGroupDialog managed scope lifecycle', () => {
   beforeEach(() => {
     managedPostMock.mockReset()
     managedPostMock.mockResolvedValue({ id: 'credgrp_018f6f42-0a51-7cc4-98c8-4f6f0ca5f012' })
@@ -144,12 +144,12 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
 
     const view = render(
       <QueryClientProvider client={queryClient}>
-        <CreateVaultDialog open onOpenChange={() => {}} />
+        <CreateCredentialGroupDialog open onOpenChange={() => {}} />
       </QueryClientProvider>,
     )
 
     expect(view.container.textContent).toContain(
-      'MCP credential vaults are shared within the current project. Access and management require appropriate project permissions.',
+      'MCP credential groups are shared within the current project. Access and management require appropriate project permissions.',
     )
   })
 
@@ -172,7 +172,7 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
 
     const { getByPlaceholderText, getByText } = render(
       <QueryClientProvider client={queryClient}>
-        <CreateVaultDialog open onOpenChange={() => {}} onCreated={onCreated} />
+        <CreateCredentialGroupDialog open onOpenChange={() => {}} onCreated={onCreated} />
       </QueryClientProvider>,
     )
 
@@ -203,7 +203,7 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
 
     const { getByPlaceholderText, getByText } = render(
       <QueryClientProvider client={queryClient}>
-        <CreateVaultDialog open onOpenChange={() => {}} />
+        <CreateCredentialGroupDialog open onOpenChange={() => {}} />
       </QueryClientProvider>,
     )
 
@@ -238,7 +238,7 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
 
     const { getByPlaceholderText } = render(
       <QueryClientProvider client={queryClient}>
-        <CreateVaultDialog open onOpenChange={onOpenChange} />
+        <CreateCredentialGroupDialog open onOpenChange={onOpenChange} />
       </QueryClientProvider>,
     )
 
@@ -276,7 +276,7 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
 
     const { getByPlaceholderText, getByText } = render(
       <QueryClientProvider client={queryClient}>
-        <CreateVaultDialog open onOpenChange={onOpenChange} />
+        <CreateCredentialGroupDialog open onOpenChange={onOpenChange} />
       </QueryClientProvider>,
     )
 
@@ -317,7 +317,7 @@ describe('CreateVaultDialog managed scope lifecycle', () => {
 
     const view = render(
       <QueryClientProvider client={queryClient}>
-        <CreateVaultDialog open onOpenChange={onOpenChange} />
+        <CreateCredentialGroupDialog open onOpenChange={onOpenChange} />
       </QueryClientProvider>,
     )
 

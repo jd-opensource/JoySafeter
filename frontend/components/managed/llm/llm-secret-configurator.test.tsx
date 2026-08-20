@@ -201,10 +201,18 @@ describe('LlmSecretConfigurator', () => {
     expect(screen.queryByLabelText('managed.llm.engine')).toBeNull()
   })
 
-  it('auto-selects a unique provider and hides the protocol selector', () => {
+  it('auto-selects a unique provider and shows the single compatible protocol', () => {
     render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
     expect(screen.getByDisplayValue('Anthropic')).toBeTruthy()
-    expect(screen.queryByLabelText('managed.llm.protocol')).toBeNull()
+    expect(screen.getByDisplayValue('Anthropic Messages')).toBeTruthy()
+    expect(screen.getByText(/managed\.llm\.singleProtocolSelected/)).toBeTruthy()
+  })
+
+  it('explains that options are filtered by the selected engine and catalog-backed', () => {
+    render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
+    expect(screen.getByText('managed.llm.compatibilityScope')).toBeTruthy()
+    expect(screen.getByText(/managed\.llm\.filteredByEngine: Claude Code/)).toBeTruthy()
+    expect(screen.getByText('managed.llm.catalogBackedOnlyHint')).toBeTruthy()
   })
 
   it('shows the protocol selector for a provider with multiple protocols', () => {

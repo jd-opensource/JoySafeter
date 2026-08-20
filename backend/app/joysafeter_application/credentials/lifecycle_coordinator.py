@@ -15,6 +15,9 @@ from app.joysafeter_domain.credentials.types import (
     CredentialId,
     CredentialState,
     ProjectId,
+    make_credential_group_id,
+    make_credential_id,
+    make_project_id,
 )
 from app.joysafeter_shared.common.app_errors import NotFoundError, ResourceConflictError
 from app.joysafeter_shared.config.settings import settings
@@ -44,14 +47,14 @@ class CredentialLifecycleCoordinator:
 
     async def _resolve_resource_context(
         self,
-        credential_id: Any,
+        credential_id: CredentialId,
         project_id: str,
         *,
         requested_group_id: Any | None = None,
     ) -> CredentialResource:
         resource = await self._uow.credentials.get_resource(
-            CredentialId(str(credential_id)),
-            ProjectId(str(project_id)),
+            make_credential_id(str(credential_id)),
+            make_project_id(str(project_id)),
         )
         if resource is None:
             raise NotFoundError(
@@ -62,7 +65,7 @@ class CredentialLifecycleCoordinator:
 
         identity = resource.identity
         if requested_group_id is not None:
-            requested = CredentialGroupId(str(requested_group_id))
+            requested = make_credential_group_id(str(requested_group_id))
             if not isinstance(identity, McpCredentialIdentity) or identity.group_id != requested:
                 raise NotFoundError(
                     code="CREDENTIAL_NOT_FOUND",
@@ -94,15 +97,47 @@ class CredentialLifecycleCoordinator:
 
     async def _observe_resource(
         self,
-        credential_id: Any,
+        credential_id: CredentialId,
         project_id: str,
         disposition: DependencyDisposition,
     ) -> None:
+        scan_project_id = make_project_id(str(project_id))
+        scan_credential_id = make_credential_id(str(credential_id))
+        if settings.credential_dependency_registry_mode == "enforce":
+            dependencies = await self._scan_resource_dependencies(
+                scan_project_id,
+                scan_credential_id,
+            )
+            blockers = sorted(
+                {str(dependency.source_id) for dependency in dependencies if dependency.blocks(disposition)}
+            )
+            if blockers:
+                new_dispositions = sorted(
+                    {
+                        candidate.value
+                        for dependency in dependencies
+                        for candidate in dependency.dispositions
+                        if candidate is disposition
+                    }
+                )
+                raise ResourceConflictError(
+                    code="CREDENTIAL_IN_USE",
+                    message="Credential is still referenced and cannot be changed",
+                    data={
+                        "credential_id": str(credential_id),
+                        "dependency_ids": blockers,
+                        "dependency_count": len(blockers),
+                        "dispositions": new_dispositions,
+                    },
+                    user_action="fix_input",
+                )
+            return
+
         old_result, new_result = await asyncio.gather(
             self._uow.credentials.dependencies(credential_id, project_id=project_id),
             self._scan_resource_dependencies(
-                ProjectId(str(project_id)),
-                CredentialId(str(credential_id)),
+                scan_project_id,
+                scan_credential_id,
             ),
             return_exceptions=True,
         )
@@ -112,8 +147,6 @@ class CredentialLifecycleCoordinator:
             raise new_result
         if isinstance(new_result, BaseException):
             if not isinstance(new_result, Exception):
-                raise new_result
-            if settings.credential_dependency_registry_mode == "enforce":
                 raise new_result
             new_dependencies: tuple[CredentialDependency, ...] = ()
         else:
@@ -133,44 +166,38 @@ class CredentialLifecycleCoordinator:
                 if candidate is disposition
             }
         )
-        if settings.credential_dependency_registry_mode == "shadow":
-            if old_ids != blockers or old_dispositions != new_dispositions:
-                logger.info(
-                    "credential_dependency_registry_shadow_diff",
-                    extra={
-                        "credential_dependency_diff": {
-                            "credential_id": str(credential_id),
-                            "project_id": str(project_id),
-                            "old": {
-                                "ids": old_ids,
-                                "count": len(old_ids),
-                                "dispositions": old_dispositions,
-                            },
-                            "new": {
-                                "ids": blockers,
-                                "count": len(blockers),
-                                "dispositions": new_dispositions,
-                            },
-                            "added_ids": sorted(set(blockers) - set(old_ids)),
-                            "removed_ids": sorted(set(old_ids) - set(blockers)),
-                            "disposition_diff": {
-                                "added": sorted(set(new_dispositions) - set(old_dispositions)),
-                                "removed": sorted(set(old_dispositions) - set(new_dispositions)),
-                            },
-                        }
-                    },
-                )
-            return
-        if blockers:
+        if old_ids != blockers or old_dispositions != new_dispositions:
+            logger.info(
+                "credential_dependency_registry_shadow_diff",
+                extra={
+                    "credential_dependency_diff": {
+                        "credential_id": str(credential_id),
+                        "project_id": str(project_id),
+                        "old": {
+                            "ids": old_ids,
+                            "count": len(old_ids),
+                            "dispositions": old_dispositions,
+                        },
+                        "new": {
+                            "ids": blockers,
+                            "count": len(blockers),
+                            "dispositions": new_dispositions,
+                        },
+                        "added_ids": sorted(set(blockers) - set(old_ids)),
+                        "removed_ids": sorted(set(old_ids) - set(blockers)),
+                        "disposition_diff": {
+                            "added": sorted(set(new_dispositions) - set(old_dispositions)),
+                            "removed": sorted(set(old_dispositions) - set(new_dispositions)),
+                        },
+                    }
+                },
+            )
+        if old_ids:
+            verb = "archived" if disposition is DependencyDisposition.BLOCK_RESOURCE_ARCHIVE else "deleted"
             raise ResourceConflictError(
                 code="CREDENTIAL_IN_USE",
-                message="Credential is still referenced and cannot be changed",
-                data={
-                    "credential_id": str(credential_id),
-                    "dependency_ids": blockers,
-                    "dependency_count": len(blockers),
-                    "dispositions": new_dispositions,
-                },
+                message=f"Credential is still referenced and cannot be {verb}",
+                data={"credential_id": str(credential_id), **old_data},
                 user_action="fix_input",
             )
 
@@ -182,8 +209,8 @@ class CredentialLifecycleCoordinator:
     ) -> None:
         try:
             dependencies = await self._scan_group_dependencies(
-                ProjectId(str(project_id)),
-                CredentialGroupId(str(group_id)),
+                make_project_id(str(project_id)),
+                make_credential_group_id(str(group_id)),
             )
         except asyncio.CancelledError:
             raise
@@ -199,8 +226,7 @@ class CredentialLifecycleCoordinator:
         blockers = sorted({str(dependency.source_id) for dependency in dependencies if dependency.blocks(disposition)})
         if settings.credential_dependency_registry_mode == "shadow":
             old = sorted(
-                str(session_id)
-                for session_id in await self._uow.credentials._active_group_session_ids(group_id, project_id)
+                str(session_id) for session_id in await self._uow.groups.active_group_session_ids(group_id, project_id)
             )
             if old != blockers:
                 logger.info(
@@ -214,6 +240,16 @@ class CredentialLifecycleCoordinator:
                             "disposition": disposition.value,
                         }
                     },
+                )
+            if old:
+                raise ResourceConflictError(
+                    code="CREDENTIAL_IN_USE",
+                    message="Credential group is bound to an active session and cannot be archived or deleted",
+                    data={
+                        "credential_group_id": str(group_id),
+                        "sessions": old,
+                    },
+                    user_action="fix_input",
                 )
             return
         if blockers:
@@ -231,11 +267,15 @@ class CredentialLifecycleCoordinator:
 
     async def archive_resource(
         self,
-        credential_id: Any,
+        credential_id: CredentialId,
         project_id: str,
         *,
         requested_group_id: Any | None = None,
     ) -> Any:
+        await self._uow.credentials.lock_credential_scope(
+            make_credential_id(str(credential_id)),
+            project_id=project_id,
+        )
         resource = await self._resolve_resource_context(
             credential_id,
             project_id,
@@ -251,11 +291,15 @@ class CredentialLifecycleCoordinator:
 
     async def delete_resource(
         self,
-        credential_id: Any,
+        credential_id: CredentialId,
         project_id: str,
         *,
         requested_group_id: Any | None = None,
     ) -> Any:
+        await self._uow.credentials.lock_credential_scope(
+            make_credential_id(str(credential_id)),
+            project_id=project_id,
+        )
         resource = await self._resolve_resource_context(
             credential_id,
             project_id,
@@ -270,6 +314,10 @@ class CredentialLifecycleCoordinator:
         return await self._transactions.soft_delete(credential_id, project_id=project_id)
 
     async def archive_group(self, group_id: Any, project_id: str, operation) -> Any:
+        await self._uow.groups.lock_credential_groups(
+            (make_credential_group_id(str(group_id)),),
+            project_id=project_id,
+        )
         resource = await self._uow.groups.get_group(group_id, project_id)
         if resource is None or resource.state is not CredentialState.ARCHIVED:
             await self._observe_group(
@@ -280,6 +328,10 @@ class CredentialLifecycleCoordinator:
         return await operation(group_id, project_id)
 
     async def delete_group(self, group_id: Any, project_id: str, operation) -> Any:
+        await self._uow.groups.lock_credential_groups(
+            (make_credential_group_id(str(group_id)),),
+            project_id=project_id,
+        )
         resource = await self._uow.groups.get_group(group_id, project_id)
         if resource is None or resource.state is not CredentialState.DELETED:
             await self._observe_group(

@@ -17,7 +17,7 @@ from sqlalchemy import event as sqlalchemy_event
 from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.environments import (
-    _validate_secret_refs,
+    _validate_credential_references,
     create_environment,
     update_environment,
 )
@@ -30,9 +30,9 @@ from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredential
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
     EnvironmentConfig,
-    EnvironmentSecretReference,
+    EnvironmentCredentialReference,
     UpdateEnvironmentRequest,
-    extract_environment_secret_references,
+    extract_environment_credential_references,
 )
 from app.joysafeter_domain.services import (
     joysafeter_environment_service as environment_service_module,
@@ -114,7 +114,7 @@ def _egress_config(service_credential_id: CredentialId) -> EnvironmentConfig:
 async def test_create_environment_with_valid_service_credential_persists(db_session, project_id):
     cred_id = await _make_service_credential(db_session, project_id)
     config = _egress_config(cred_id)
-    await _validate_secret_refs(db_session, config, project_id)
+    await _validate_credential_references(db_session, config, project_id)
 
     svc = EnvironmentService(db_session)
     env = await svc.create_environment(
@@ -131,7 +131,7 @@ async def test_create_environment_with_valid_service_credential_persists(db_sess
 async def test_validate_rejects_nonexistent_credential(db_session, project_id):
     config = _egress_config(CredentialId.new())
     with pytest.raises(AppError) as exc:
-        await _validate_secret_refs(db_session, config, project_id)
+        await _validate_credential_references(db_session, config, project_id)
     assert exc.value.code == "CREDENTIAL_NOT_FOUND"
 
 
@@ -140,7 +140,7 @@ async def test_validate_rejects_non_service_credential_kind(db_session, project_
     model_cred_id = await _make_model_credential(db_session, project_id)
     config = _egress_config(model_cred_id)
     with pytest.raises(AppError) as exc:
-        await _validate_secret_refs(db_session, config, project_id)
+        await _validate_credential_references(db_session, config, project_id)
     assert exc.value.code == "CREDENTIAL_KIND_INVALID"
 
 
@@ -150,7 +150,7 @@ async def test_validate_rejects_credential_from_other_project(db_session, projec
     other_cred_id = await _make_service_credential(db_session, other_project)
     config = _egress_config(other_cred_id)
     with pytest.raises(AppError) as exc:
-        await _validate_secret_refs(db_session, config, project_id)
+        await _validate_credential_references(db_session, config, project_id)
     assert exc.value.code == "CREDENTIAL_NOT_FOUND"
 
 
@@ -162,7 +162,7 @@ async def test_validate_rejects_archived_credential_with_state_invalid(db_sessio
     await db_session.commit()
 
     with pytest.raises(AppError) as exc:
-        await _validate_secret_refs(db_session, _egress_config(credential_id), project_id)
+        await _validate_credential_references(db_session, _egress_config(credential_id), project_id)
 
     assert exc.value.code == "CREDENTIAL_STATE_INVALID"
     assert exc.value.data == {
@@ -181,7 +181,7 @@ async def test_validate_rejects_deleted_credential_with_not_found(db_session, pr
     await db_session.commit()
 
     with pytest.raises(AppError) as exc:
-        await _validate_secret_refs(db_session, _egress_config(credential_id), project_id)
+        await _validate_credential_references(db_session, _egress_config(credential_id), project_id)
 
     assert exc.value.code == "CREDENTIAL_NOT_FOUND"
 
@@ -191,7 +191,7 @@ async def test_http_egress_requires_exact_inject_field(db_session, project_id):
     credential_id = await _make_service_credential(db_session, project_id, data={"TOKEN": "t"})
 
     with pytest.raises(AppError) as exc:
-        await _validate_secret_refs(db_session, _egress_config(credential_id), project_id)
+        await _validate_credential_references(db_session, _egress_config(credential_id), project_id)
 
     assert exc.value.code == "CREDENTIAL_FIELD_MISSING"
 
@@ -201,7 +201,7 @@ async def test_environment_injection_requires_posix_material_names(db_session, p
     credential_id = await _make_service_credential(db_session, project_id, data={"NOT-POSIX": "value"})
 
     with pytest.raises(AppError) as exc:
-        await _validate_secret_refs(
+        await _validate_credential_references(
             db_session,
             EnvironmentConfig(secret_refs=[str(credential_id)]),
             project_id,
@@ -211,13 +211,13 @@ async def test_environment_injection_requires_posix_material_names(db_session, p
 
 
 @pytest.mark.asyncio
-async def test_validate_secret_refs_direct_source(db_session, project_id):
+async def test_validate_credential_references_direct_source(db_session, project_id):
     cred_id = await _make_service_credential(db_session, project_id)
     config = EnvironmentConfig(secret_refs=[str(cred_id)])
-    await _validate_secret_refs(db_session, config, project_id)
+    await _validate_credential_references(db_session, config, project_id)
 
 
-def test_extract_environment_secret_references_from_both_sources():
+def test_extract_environment_credential_references_from_both_sources():
     direct_id = CredentialId.new()
     egress_id = CredentialId.new()
     config = EnvironmentConfig(
@@ -231,9 +231,14 @@ def test_extract_environment_secret_references_from_both_sources():
         ],
     )
 
-    assert extract_environment_secret_references(config) == [
-        EnvironmentSecretReference(direct_id, "secret_refs", 0, "secret_refs[0]"),
-        EnvironmentSecretReference(egress_id, "egress_services", 0, "egress_services[0]"),
+    assert extract_environment_credential_references(config) == [
+        EnvironmentCredentialReference(
+            direct_id,
+            "environment_credential_ids",
+            0,
+            "environment_credential_ids[0]",
+        ),
+        EnvironmentCredentialReference(egress_id, "egress_services", 0, "egress_services[0]"),
     ]
 
 
@@ -257,10 +262,15 @@ def test_extract_environment_references_preserves_each_occurrence_and_path():
         ],
     )
 
-    assert extract_environment_secret_references(config) == [
-        EnvironmentSecretReference(credential_id, "secret_refs", 0, "secret_refs[0]"),
-        EnvironmentSecretReference(credential_id, "egress_services", 0, "egress_services[0]"),
-        EnvironmentSecretReference(credential_id, "egress_services", 1, "egress_services[1]"),
+    assert extract_environment_credential_references(config) == [
+        EnvironmentCredentialReference(
+            credential_id,
+            "environment_credential_ids",
+            0,
+            "environment_credential_ids[0]",
+        ),
+        EnvironmentCredentialReference(credential_id, "egress_services", 0, "egress_services[0]"),
+        EnvironmentCredentialReference(credential_id, "egress_services", 1, "egress_services[1]"),
     ]
 
 
@@ -279,7 +289,7 @@ async def test_validate_same_credential_as_direct_and_egress_occurrences(db_sess
         ],
     )
 
-    await _validate_secret_refs(db_session, config, project_id)
+    await _validate_credential_references(db_session, config, project_id)
 
 
 @pytest.mark.asyncio
@@ -303,7 +313,7 @@ async def test_validate_repeated_egress_credential_checks_each_field(db_session,
     )
 
     with pytest.raises(AppError) as exc:
-        await _validate_secret_refs(db_session, config, project_id)
+        await _validate_credential_references(db_session, config, project_id)
 
     assert exc.value.code == "CREDENTIAL_FIELD_MISSING"
     assert exc.value.data == {
@@ -345,6 +355,7 @@ async def test_environment_update_route_rejects_second_invalid_egress_occurrence
         CreateEnvironmentRequest(name=f"env-{uuid.uuid4()}"),
         project_id=project_id,
     )
+    original_config = dict(environment.config)
     config = EnvironmentConfig(
         egress_services=[
             {
@@ -372,7 +383,7 @@ async def test_environment_update_route_rejects_second_invalid_egress_occurrence
 
     assert exc.value.code == "CREDENTIAL_FIELD_MISSING"
     await db_session.refresh(environment)
-    assert environment.config == EnvironmentConfig().model_dump(mode="json")
+    assert environment.config == original_config
 
 
 @pytest.mark.asyncio
@@ -510,6 +521,90 @@ def test_environment_binding_impact_usages_are_semantic_and_surface_specific() -
         CredentialUsage.ENVIRONMENT_INJECTION,
         CredentialUsage.HTTP_EGRESS,
     }
+
+
+def test_environment_config_accepts_typed_credential_ids_at_schema_boundary() -> None:
+    credential_id = CredentialId.new()
+
+    config = EnvironmentConfig(
+        secret_refs=[credential_id],
+        egress_services=[
+            {
+                "name": "crm",
+                "base_url": "https://crm.example.com",
+                "service_credential_id": credential_id,
+            }
+        ],
+    )
+
+    assert config.environment_credential_ids == [credential_id]
+    assert config.egress_services[0].service_credential_id == credential_id
+
+
+def test_environment_config_accepts_legacy_aliases_but_emits_canonical_keys() -> None:
+    credential_id = CredentialId.new()
+    canonical = EnvironmentConfig.model_validate(
+        {
+            "environment_credential_ids": [str(credential_id)],
+            "egress_services": [
+                {
+                    "name": "crm",
+                    "base_url": "https://crm.example.com",
+                    "service_credential_id": str(credential_id),
+                    "inject": {"credential_field": "TOKEN"},
+                }
+            ],
+        }
+    )
+    legacy = EnvironmentConfig.model_validate(
+        {
+            "secret_refs": [str(credential_id)],
+            "egress_services": [
+                {
+                    "name": "crm",
+                    "base_url": "https://crm.example.com",
+                    "credential_ref": str(credential_id),
+                    "inject": {"secret_key": "TOKEN"},
+                }
+            ],
+        }
+    )
+
+    assert canonical == legacy
+    document = canonical.model_dump(mode="json")
+    assert document["environment_credential_ids"] == [str(credential_id)]
+    assert document["egress_services"][0]["inject"]["credential_field"] == "TOKEN"
+    assert "secret_refs" not in document
+    assert "secret_key" not in document["egress_services"][0]["inject"]
+
+
+@pytest.mark.asyncio
+async def test_environment_persistence_remains_v1_while_schema_is_canonical(db_session, project_id) -> None:
+    credential_id = await _make_service_credential(db_session, project_id, data={"TOKEN": "t"})
+    environment = await EnvironmentService(db_session).create_environment(
+        CreateEnvironmentRequest(
+            name=f"env-{uuid.uuid4()}",
+            config=EnvironmentConfig.model_validate(
+                {
+                    "environment_credential_ids": [str(credential_id)],
+                    "egress_services": [
+                        {
+                            "name": "crm",
+                            "base_url": "https://crm.example.com",
+                            "service_credential_id": str(credential_id),
+                            "inject": {"credential_field": "TOKEN"},
+                        }
+                    ],
+                }
+            ),
+        ),
+        project_id=project_id,
+    )
+
+    assert environment.config["secret_refs"] == [str(credential_id)]
+    assert environment.config["egress_services"][0]["inject"]["secret_key"] == "TOKEN"
+    assert "environment_credential_ids" not in environment.config
+    assert "credential_field" not in environment.config["egress_services"][0]["inject"]
 
 
 def test_environment_binding_impact_ignores_display_name_and_equivalent_url_spelling() -> None:

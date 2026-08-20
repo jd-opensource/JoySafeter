@@ -494,6 +494,7 @@ async def test_service_credential_pinned_only_by_frozen_session_environment_reje
                 "egress_services": [
                     {
                         "name": "secocean",
+                        "base_url": "https://secocean.example.com/api",
                         "service_credential_id": str(cred_id),
                     }
                 ]

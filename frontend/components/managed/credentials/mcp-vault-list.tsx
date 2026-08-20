@@ -19,53 +19,53 @@ import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { managedDelete, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath } from '@/lib/managed/api-paths'
+import { parseCredentialGroupResponse } from '@/lib/managed/credential-group-response-parsers'
 import { toastOperationError } from '@/lib/managed/errors'
 import { filterByCreatedTime, createCreatedTimeFilter, matchesSearch } from '@/lib/managed/filters'
 import { managedRequestOptions, type ManagedRequestScope } from '@/lib/managed/request-scope'
-import { parseVaultResponse } from '@/lib/managed/vault-response-parsers'
 import { toastError } from '@/lib/utils/toast'
 import { parseCredentialGroupId } from '@/types/entity-id'
-import type { Vault } from '@/types/managed'
+import type { CredentialGroup } from '@/types/managed'
 
 import { CredentialIdentity } from './credential-identity'
 import { CredentialListPanel } from './credential-list-panel'
 
-interface VaultActionVariables {
-  vault: Vault
+interface CredentialGroupActionVariables {
+  credentialGroup: CredentialGroup
   runId: number
   scope: string
   requestScope: ManagedRequestScope
 }
 
-export interface McpVaultListState {
+export interface McpCredentialGroupListState {
   searchQuery: string
   createdFilter: string
   showArchived: boolean
   pageSize: number
 }
 
-const DEFAULT_MCP_LIST_STATE: McpVaultListState = {
+const DEFAULT_MCP_LIST_STATE: McpCredentialGroupListState = {
   searchQuery: '',
   createdFilter: 'all',
   showArchived: false,
   pageSize: 10,
 }
 
-export function McpVaultList({
+export function McpCredentialGroupList({
   onCreate,
   state,
   onStateChange,
 }: {
   onCreate: () => void
-  state?: McpVaultListState
-  onStateChange?: (state: McpVaultListState) => void
+  state?: McpCredentialGroupListState
+  onStateChange?: (state: McpCredentialGroupListState) => void
 }) {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
   const [localState, setLocalState] = useState(DEFAULT_MCP_LIST_STATE)
   const listState = state ?? localState
-  const updateListState = (patch: Partial<McpVaultListState>) => {
+  const updateListState = (patch: Partial<McpCredentialGroupListState>) => {
     const next = { ...listState, ...patch }
     if (state && onStateChange) onStateChange(next)
     else setLocalState(next)
@@ -74,8 +74,8 @@ export function McpVaultList({
   const setShowArchived = (value: boolean) => updateListState({ showArchived: value })
   const setSearchQuery = (value: string) => updateListState({ searchQuery: value })
   const setCreatedFilter = (value: string) => updateListState({ createdFilter: value })
-  const [archiveTarget, setArchiveTarget] = useState<Vault | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<Vault | null>(null)
+  const [archiveTarget, setArchiveTarget] = useState<CredentialGroup | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<CredentialGroup | null>(null)
   const {
     scopeRef: managedScopeRef,
     scope: managedScope,
@@ -91,28 +91,28 @@ export function McpVaultList({
     },
   })
 
-  const currentVaultIsActive = (_vault: Vault, scope: string) =>
+  const currentCredentialGroupIsActive = (_credentialGroup: CredentialGroup, scope: string) =>
     scopeIsActive(scope) && currentProjectAllowsWrite()
 
-  const openArchiveDialog = (vault: Vault) => {
-    if (!currentVaultIsActive(vault, managedScopeRef.current)) {
+  const openArchiveDialog = (credentialGroup: CredentialGroup) => {
+    if (!currentCredentialGroupIsActive(credentialGroup, managedScopeRef.current)) {
       toastError(t('managed.vaults.actionUnavailable'))
       return
     }
     bumpRun()
-    setArchiveTarget(vault)
+    setArchiveTarget(credentialGroup)
   }
   const closeArchiveDialog = () => {
     bumpRun()
     setArchiveTarget(null)
   }
-  const openDeleteDialog = (vault: Vault) => {
-    if (!currentVaultIsActive(vault, managedScopeRef.current)) {
+  const openDeleteDialog = (credentialGroup: CredentialGroup) => {
+    if (!currentCredentialGroupIsActive(credentialGroup, managedScopeRef.current)) {
       toastError(t('managed.vaults.actionUnavailable'))
       return
     }
     bumpRun()
-    setDeleteTarget(vault)
+    setDeleteTarget(credentialGroup)
   }
   const closeDeleteDialog = () => {
     bumpRun()
@@ -134,22 +134,31 @@ export function McpVaultList({
     goPrev,
     goToPage,
     setPageSize,
-  } = usePaginatedList<Vault>({
+  } = usePaginatedList<CredentialGroup>({
     queryKey: 'credential-groups',
     path: '/credential-groups',
     includeArchived: showArchived,
     pageSize: listState.pageSize,
     onPageSizeChange: (pageSize) => updateListState({ pageSize }),
-    parseItem: parseVaultResponse,
+    parseItem: parseCredentialGroupResponse,
     parseCursor: parseCredentialGroupId,
   })
 
   const archiveMutation = useMutation({
-    mutationFn: ({ vault, runId, scope, requestScope }: VaultActionVariables) => {
-      if (!isCurrentAction(runId, scope)) throw new Error('Stale vault archive ignored')
-      if (!currentProjectAllowsWrite()) throw new Error('Archived project vault archive ignored')
+    mutationFn: ({
+      credentialGroup,
+      runId,
+      scope,
+      requestScope,
+    }: CredentialGroupActionVariables) => {
+      if (!isCurrentAction(runId, scope)) {
+        throw new Error('Stale credential group archive ignored')
+      }
+      if (!currentProjectAllowsWrite()) {
+        throw new Error('Archived project credential group archive ignored')
+      }
       return managedPost(
-        apiResourcePath('credential-groups', vault.id, 'archive'),
+        apiResourcePath('credential-groups', credentialGroup.id, 'archive'),
         {},
         managedRequestOptions(requestScope),
       )
@@ -165,11 +174,20 @@ export function McpVaultList({
     },
   })
   const deleteMutation = useMutation({
-    mutationFn: ({ vault, runId, scope, requestScope }: VaultActionVariables) => {
-      if (!isCurrentAction(runId, scope)) throw new Error('Stale vault delete ignored')
-      if (!currentProjectAllowsWrite()) throw new Error('Archived project vault delete ignored')
+    mutationFn: ({
+      credentialGroup,
+      runId,
+      scope,
+      requestScope,
+    }: CredentialGroupActionVariables) => {
+      if (!isCurrentAction(runId, scope)) {
+        throw new Error('Stale credential group delete ignored')
+      }
+      if (!currentProjectAllowsWrite()) {
+        throw new Error('Archived project credential group delete ignored')
+      }
       return managedDelete(
-        apiResourcePath('credential-groups', vault.id),
+        apiResourcePath('credential-groups', credentialGroup.id),
         managedRequestOptions(requestScope),
       )
     },
@@ -184,7 +202,7 @@ export function McpVaultList({
     },
   })
 
-  const vaults = data.filter(
+  const credentialGroups = data.filter(
     (v) =>
       (showArchived || !v.archived_at) &&
       filterByCreatedTime(v.created_at, createdFilter) &&
@@ -218,7 +236,7 @@ export function McpVaultList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
 
-  const columns: Column<Vault>[] = [
+  const columns: Column<CredentialGroup>[] = [
     {
       key: 'identity',
       header: t('managed.credentials.tabs.mcp'),
@@ -257,7 +275,7 @@ export function McpVaultList({
   return (
     <div>
       <CredentialListPanel
-        searchPlaceholder={t('managed.credentials.searchMcpVaults')}
+        searchPlaceholder={t('managed.credentials.searchMcpCredentialGroups')}
         searchValue={searchQuery}
         onSearchChange={(value) => {
           setSearchQuery(value)
@@ -273,7 +291,7 @@ export function McpVaultList({
           readOnly
             ? undefined
             : {
-                label: t('managed.credentials.newMcpVault'),
+                label: t('managed.credentials.newMcpCredentialGroup'),
                 onClick: () => {
                   if (!currentProjectAllowsWrite() || !scopeIsActive()) return
                   onCreate()
@@ -293,7 +311,7 @@ export function McpVaultList({
           goToPage(1)
         }}
         columns={columns}
-        data={vaults}
+        data={credentialGroups}
         loading={isLoading}
         fetching={isFetching}
         onRowClick={(v) => router.push(`/managed/credentials/mcp/${v.id}`)}
@@ -349,7 +367,7 @@ export function McpVaultList({
             return
           }
           if (archiveTarget) {
-            if (!currentVaultIsActive(archiveTarget, managedScopeRef.current)) {
+            if (!currentCredentialGroupIsActive(archiveTarget, managedScopeRef.current)) {
               closeArchiveDialog()
               return
             }
@@ -359,7 +377,7 @@ export function McpVaultList({
               return
             }
             archiveMutation.mutate({
-              vault: archiveTarget,
+              credentialGroup: archiveTarget,
               runId: action.runId,
               scope: action.scope,
               requestScope: action.requestScope,
@@ -380,7 +398,7 @@ export function McpVaultList({
             return
           }
           if (deleteTarget) {
-            if (!currentVaultIsActive(deleteTarget, managedScopeRef.current)) {
+            if (!currentCredentialGroupIsActive(deleteTarget, managedScopeRef.current)) {
               closeDeleteDialog()
               return
             }
@@ -390,7 +408,7 @@ export function McpVaultList({
               return
             }
             deleteMutation.mutate({
-              vault: deleteTarget,
+              credentialGroup: deleteTarget,
               runId: action.runId,
               scope: action.scope,
               requestScope: action.requestScope,

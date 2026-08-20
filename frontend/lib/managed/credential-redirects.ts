@@ -6,6 +6,6 @@ export function resolveSecretsRedirect(create: string | null): string {
 }
 
 export function resolveVaultsRedirect(create: string | null): string {
-  if (create === '1') return '/managed/credentials?tab=mcp&create=vault'
+  if (create === '1') return '/managed/credentials?tab=mcp&create=credential-group'
   return '/managed/credentials?tab=mcp'
 }

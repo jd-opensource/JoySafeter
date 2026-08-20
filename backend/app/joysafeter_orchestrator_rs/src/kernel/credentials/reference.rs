@@ -147,11 +147,6 @@ pub fn metric_snapshot() -> ReferenceMetricSnapshot {
     METRICS.lock().expect("reference metric lock").clone()
 }
 
-#[cfg(test)]
-pub fn reset_metrics() {
-    *METRICS.lock().expect("reference metric lock") = ReferenceMetricSnapshot::default();
-}
-
 pub fn decode_snapshot(snapshot: &Value) -> Result<DecodedSnapshot, CredentialRuntimeError> {
     let schema_label = safe_snapshot_schema_label(snapshot);
     match decode_snapshot_inner(snapshot) {
@@ -281,7 +276,10 @@ fn decode_snapshot_inner(snapshot: &Value) -> Result<DecodedSnapshot, Credential
         && CredentialReferenceContract::embedded()
             .reference_paths()
             .iter()
-            .filter(|entry| entry.document != "environment_config" && !entry.schemas.iter().any(|item| item == "v2"))
+            .filter(|entry| {
+                entry.document != "environment_config"
+                    && !entry.schemas.iter().any(|item| item == "v2")
+            })
             .any(|entry| registered_path_key_count(snapshot, &entry.path) > 0)
     {
         return Err(CredentialRuntimeError::CorruptRecord);
@@ -778,11 +776,18 @@ fn record_reader(document: &str, schema: &str, result: &str) {
         .or_default() += 1;
 }
 
-fn record_persisted_keys(value: &Value, document: &str, version: &str) {
+fn persisted_key_counts(
+    value: &Value,
+    document: &str,
+    version: &str,
+) -> BTreeMap<(String, String, String, String), u64> {
     let (contract_documents, contract_schema): (&[&str], &str) = match document {
-        "snapshot" => (&["agent_version_snapshot", "active_session_snapshot"], version),
+        "snapshot" => (
+            &["agent_version_snapshot", "active_session_snapshot"],
+            version,
+        ),
         "environment" => (&["environment_config"], "live"),
-        _ => return,
+        _ => return BTreeMap::new(),
     };
     let registered_paths = CredentialReferenceContract::embedded()
         .reference_paths()
@@ -793,7 +798,7 @@ fn record_persisted_keys(value: &Value, document: &str, version: &str) {
         })
         .map(|entry| entry.path.as_str())
         .collect::<BTreeSet<_>>();
-    let mut metrics = METRICS.lock().expect("reference metric lock");
+    let mut counts = BTreeMap::new();
     for path in registered_paths {
         let count = registered_path_key_count(value, path);
         if count == 0 {
@@ -804,15 +809,24 @@ fn record_persisted_keys(value: &Value, document: &str, version: &str) {
             .next()
             .unwrap_or(path)
             .trim_end_matches("[*]");
-        *metrics
-            .persisted_keys
-            .entry((
+        counts.insert(
+            (
                 document.to_string(),
                 version.to_string(),
                 path.to_string(),
                 key.to_string(),
-            ))
-            .or_default() += count;
+            ),
+            count,
+        );
+    }
+    counts
+}
+
+fn record_persisted_keys(value: &Value, document: &str, version: &str) {
+    let counts = persisted_key_counts(value, document, version);
+    let mut metrics = METRICS.lock().expect("reference metric lock");
+    for (key, count) in counts {
+        *metrics.persisted_keys.entry(key).or_default() += count;
     }
 }
 
@@ -822,7 +836,7 @@ mod tests {
 
     use super::{
         decode_environment, decode_snapshot, encode_environment, encode_snapshot, metric_snapshot,
-        reset_metrics, SnapshotSchema,
+        persisted_key_counts, SnapshotSchema,
     };
     use crate::kernel::credentials::contract::{
         CredentialReferenceContract, CredentialReferenceFixtureMatrix, CredentialReferencePath,
@@ -871,11 +885,13 @@ mod tests {
             fixture_value,
         );
         if schema != "live" {
-            if let Some(schema_value) = CredentialReferenceContract::embedded().snapshot_schema_value(schema) {
-                document
-                    .as_object_mut()
-                    .unwrap()
-                    .insert("schema".to_string(), Value::String(schema_value.to_string()));
+            if let Some(schema_value) =
+                CredentialReferenceContract::embedded().snapshot_schema_value(schema)
+            {
+                document.as_object_mut().unwrap().insert(
+                    "schema".to_string(),
+                    Value::String(schema_value.to_string()),
+                );
             }
         }
         let path = &entry.path;
@@ -962,11 +978,9 @@ mod tests {
                     );
                 } else {
                     assert_eq!(
-                        http_egress[0].credential_field,
-                        fixture.credential_field,
+                        http_egress[0].credential_field, fixture.credential_field,
                         "{}[{}]",
-                        entry.path,
-                        schema
+                        entry.path, schema
                     );
                 }
                 executed += 1;
@@ -1009,7 +1023,12 @@ mod tests {
                 }),
             };
             if vector.result == "corrupt_record" {
-                assert_eq!(result, Err(CredentialRuntimeError::CorruptRecord), "{}", vector.name);
+                assert_eq!(
+                    result,
+                    Err(CredentialRuntimeError::CorruptRecord),
+                    "{}",
+                    vector.name
+                );
                 continue;
             }
             let (credential_ids, inject_types) = result.unwrap();
@@ -1160,7 +1179,7 @@ mod tests {
 
     #[test]
     fn v1_encoding_is_default_and_metrics_never_capture_payloads() {
-        reset_metrics();
+        let before = metric_snapshot();
         let snapshot = encode_snapshot(
             &json!({
                 "environment_credential_ids": [CREDENTIAL_A],
@@ -1179,24 +1198,52 @@ mod tests {
         assert_eq!(environment["secret_refs"], json!([CREDENTIAL_A]));
         assert!(environment.get("environment_credential_ids").is_none());
 
+        let snapshot_key = (
+            "snapshot".to_string(),
+            "v1".to_string(),
+            "$.environment.config.secret_refs[*]".to_string(),
+            "secret_refs".to_string(),
+        );
+        let environment_key = (
+            "environment".to_string(),
+            "v1".to_string(),
+            "$.secret_refs[*]".to_string(),
+            "secret_refs".to_string(),
+        );
         let metrics = metric_snapshot();
+        let before_snapshot = before
+            .persisted_keys
+            .get(&snapshot_key)
+            .copied()
+            .unwrap_or_default();
+        let before_environment = before
+            .persisted_keys
+            .get(&environment_key)
+            .copied()
+            .unwrap_or_default();
         assert_eq!(
-            metrics.persisted_keys.get(&(
-                "snapshot".to_string(),
-                "v1".to_string(),
-                "$.environment.config.secret_refs[*]".to_string(),
-                "secret_refs".to_string(),
-            )),
-            Some(&1)
+            persisted_key_counts(&snapshot, "snapshot", "v1").get(&snapshot_key),
+            Some(&1),
         );
         assert_eq!(
-            metrics.persisted_keys.get(&(
-                "environment".to_string(),
-                "v1".to_string(),
-                "$.secret_refs[*]".to_string(),
-                "secret_refs".to_string(),
-            )),
-            Some(&1)
+            persisted_key_counts(&environment, "environment", "v1").get(&environment_key),
+            Some(&1),
+        );
+        assert!(
+            metrics
+                .persisted_keys
+                .get(&snapshot_key)
+                .copied()
+                .unwrap_or_default()
+                >= before_snapshot + 1
+        );
+        assert!(
+            metrics
+                .persisted_keys
+                .get(&environment_key)
+                .copied()
+                .unwrap_or_default()
+                >= before_environment + 1
         );
         let rendered = format!("{metrics:?}");
         assert!(!rendered.contains(CREDENTIAL_A));
@@ -1205,8 +1252,7 @@ mod tests {
 
     #[test]
     fn persisted_key_metrics_ignore_registered_names_outside_contract_paths() {
-        reset_metrics();
-        encode_environment(
+        let environment = encode_environment(
             &json!({
                 "metadata": {
                     "credential_ref": CREDENTIAL_A,
@@ -1217,6 +1263,6 @@ mod tests {
         )
         .unwrap();
 
-        assert!(metric_snapshot().persisted_keys.is_empty());
+        assert!(persisted_key_counts(&environment, "environment", "v1").is_empty());
     }
 }

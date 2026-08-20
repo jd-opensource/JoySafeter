@@ -25,10 +25,9 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
-  DialogDescription,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import {
@@ -40,11 +39,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { getAgentModelSearchTokens } from '@/lib/managed/agent-model-display'
+import { parseAgentListResponse } from '@/lib/managed/agent-response-parsers'
 import { apiResourceId } from '@/lib/managed/api-paths'
+import { parseCredentialGroupListResponse } from '@/lib/managed/credential-group-response-parsers'
+import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
 import { toastOperationError } from '@/lib/managed/errors'
+import { parseFileListResponse } from '@/lib/managed/file-response-parsers'
+import { parseMemoryStoreResponse } from '@/lib/managed/memory-response-parsers'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -52,7 +57,6 @@ import {
   type ManagedRequestScope,
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
-import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
   parseSessionId,
@@ -61,12 +65,13 @@ import {
   type MemoryStoreId,
   type SessionId,
 } from '@/types/entity-id'
-import { parseAgentListResponse } from '@/lib/managed/agent-response-parsers'
-import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
-import { parseVaultListResponse } from '@/lib/managed/vault-response-parsers'
-import { parseMemoryStoreResponse } from '@/lib/managed/memory-response-parsers'
-import { parseFileListResponse } from '@/lib/managed/file-response-parsers'
-import type { Agent, Environment, Vault, FileRecord, PaginatedResponse } from '@/types/managed'
+import type {
+  Agent,
+  CredentialGroup,
+  Environment,
+  FileRecord,
+  PaginatedResponse,
+} from '@/types/managed'
 
 interface SelectedFile {
   file_id: FileId
@@ -161,9 +166,13 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const { data: vaultsRes } = useQuery({
     queryKey: ['credential-groups-for-session', managedScope.key],
     queryFn: () =>
-      managedGet<{ data: unknown[] }>('/credential-groups', managedRequestOptions(managedScope)).then(
-        (response) => ({ ...response, data: parseVaultListResponse(response.data) }),
-      ),
+      managedGet<{ data: unknown[] }>(
+        '/credential-groups',
+        managedRequestOptions(managedScope),
+      ).then((response) => ({
+        ...response,
+        data: parseCredentialGroupListResponse(response.data),
+      })),
     enabled: open && hasManagedRequestScope(managedScope),
   })
   const vaults = useMemo(() => vaultsRes?.data || [], [vaultsRes])
@@ -408,8 +417,10 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     const currentEnvironments =
       queryClient.getQueryData<Environment[]>(['envs-for-session', scope]) ?? environments
     const currentVaults =
-      queryClient.getQueryData<{ data?: Vault[] }>(['credential-groups-for-session', scope])?.data ??
-      vaults
+      queryClient.getQueryData<{ data?: CredentialGroup[] }>([
+        'credential-groups-for-session',
+        scope,
+      ])?.data ?? vaults
     const currentFiles =
       queryClient.getQueryData<{ data?: FileRecord[] }>(['files-for-session', scope])?.data ?? files
     const currentMemoryStores =
@@ -889,7 +900,9 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                     )}
                     <button
                       type="button"
-                      onClick={() => router.push('/managed/credentials?tab=mcp&create=vault')}
+                      onClick={() =>
+                        router.push('/managed/credentials?tab=mcp&create=credential-group')
+                      }
                       className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-sm text-primary hover:bg-muted/50"
                     >
                       <Plus className="h-3.5 w-3.5" />

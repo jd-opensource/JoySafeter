@@ -17,6 +17,9 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.joysafeter_api.api.v1.agents import _agent_to_response
+from app.joysafeter_api.api.v1.model_connection_summary import load_model_connection_summaries
+from app.joysafeter_application.credentials.composition import CredentialApplication
 from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
@@ -27,9 +30,6 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
 from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
 from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
-from app.joysafeter_api.api.v1.agents import _agent_to_response
-from app.joysafeter_api.api.v1.model_connection_summary import load_model_connection_summaries
-from app.joysafeter_infrastructure.credentials.sqlalchemy_repository import SqlAlchemyCredentialRepository
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.ids import CredentialId
 
@@ -174,9 +174,7 @@ async def test_create_agent_with_archived_credential_raises_state_invalid(db_ses
     await db_session.commit()
 
     with pytest.raises(AppError) as exc:
-        await JoySafeterAgentService(db_session).create_agent(
-            _create_req(credential_id), project_id=project_id
-        )
+        await JoySafeterAgentService(db_session).create_agent(_create_req(credential_id), project_id=project_id)
 
     assert exc.value.code == "CREDENTIAL_STATE_INVALID"
     assert exc.value.data == {"credential_id": str(credential_id)}
@@ -190,9 +188,7 @@ async def test_create_agent_with_deleted_credential_raises_not_found(db_session,
     await db_session.commit()
 
     with pytest.raises(AppError) as exc:
-        await JoySafeterAgentService(db_session).create_agent(
-            _create_req(credential_id), project_id=project_id
-        )
+        await JoySafeterAgentService(db_session).create_agent(_create_req(credential_id), project_id=project_id)
 
     assert exc.value.code == "CREDENTIAL_NOT_FOUND"
     assert exc.value.data == {"credential_id": str(credential_id)}
@@ -208,9 +204,7 @@ async def test_create_agent_rejects_model_protocol_incompatible_with_engine(db_s
     )
 
     with pytest.raises(AppError) as exc:
-        await JoySafeterAgentService(db_session).create_agent(
-            _create_req(credential_id), project_id=project_id
-        )
+        await JoySafeterAgentService(db_session).create_agent(_create_req(credential_id), project_id=project_id)
 
     assert exc.value.code == "CREDENTIAL_KIND_INVALID"
 
@@ -253,16 +247,19 @@ async def test_archive_serializes_against_concurrent_agent_binding(
     try:
         async with session_factory() as archive_db, session_factory() as binding_db:
             credential_service = CredentialService(archive_db)
-            original_reject = SqlAlchemyCredentialRepository._reject_if_in_use
+            archive_application = credential_service._application
+            original_scan = CredentialApplication.scan_resource_dependencies
 
-            async def pause_after_dependency_scan(repository, credential, scoped_project_id, *, verb):
-                await original_reject(repository, credential, scoped_project_id, verb=verb)
-                archive_scanned.set()
-                await release_archive.wait()
+            async def pause_after_dependency_scan(application, scoped_project_id, scoped_credential_id):
+                dependencies = await original_scan(application, scoped_project_id, scoped_credential_id)
+                if application is archive_application:
+                    archive_scanned.set()
+                    await release_archive.wait()
+                return dependencies
 
             monkeypatch.setattr(
-                SqlAlchemyCredentialRepository,
-                "_reject_if_in_use",
+                CredentialApplication,
+                "scan_resource_dependencies",
                 pause_after_dependency_scan,
             )
 
@@ -275,9 +272,7 @@ async def test_archive_serializes_against_concurrent_agent_binding(
 
             agent_service._validate_model_credential_ref = observe_binding_validation
 
-            archive_task = asyncio.create_task(
-                credential_service.archive(credential_id, project_id=project_id)
-            )
+            archive_task = asyncio.create_task(credential_service.archive(credential_id, project_id=project_id))
             await asyncio.wait_for(archive_scanned.wait(), timeout=2)
             binding_task = asyncio.create_task(
                 agent_service.create_agent(_create_req(credential_id), project_id=project_id)

@@ -262,7 +262,7 @@ describe('ModelConnectionList', () => {
     )
 
     const archivedRow = await screen.findByTestId(ARCHIVED_ID)
-    expect(within(archivedRow).queryByText('managed.secrets.setDefault')).toBeNull()
+    expect(within(archivedRow).queryByText('managed.llm.setAsProtocolDefault')).toBeNull()
   })
 
   it('does not submit an old lifecycle target after the managed scope changes', async () => {

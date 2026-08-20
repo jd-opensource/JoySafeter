@@ -1,10 +1,12 @@
 import { quickstartBlueprintMetadata } from '@/lib/managed/quickstart-agent-blueprint'
+import { filterQuickstartSkillReferences } from '@/lib/managed/quickstart-capabilities'
 import { objectValue } from '@/lib/managed/quickstart-value-coercion'
 
 type AgentCreateOptions = {
   engineKind: string
   secretRef: string
   suffix: string
+  allowedSkillIds?: ReadonlySet<string>
 }
 
 function nonEmptyString(value: unknown): string | undefined {
@@ -83,7 +85,9 @@ export function buildQuickstartAgentCreateBody(
   const mcpServers = arrayValue(agentConfig.mcp_servers)
   if (mcpServers) body.mcp_servers = mcpServers
 
-  const skills = arrayValue(agentConfig.skills)
+  const skills = options.allowedSkillIds
+    ? filterQuickstartSkillReferences(agentConfig.skills, options.allowedSkillIds)
+    : arrayValue(agentConfig.skills)
   if (skills) body.skills = skills
 
   const env = stringMap(agentConfig.env)

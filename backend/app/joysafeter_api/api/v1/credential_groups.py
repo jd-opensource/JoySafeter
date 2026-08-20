@@ -80,7 +80,7 @@ async def create_credential_group(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialGroupResponse:
     svc = CredentialGroupService(db, compatibility_mode=False)
-    group = await svc.create(req, project_id=auth_ctx.project_id)
+    group = await svc.create_with_initial_members(req, project_id=auth_ctx.project_id)
     return _group_response(group)
 
 

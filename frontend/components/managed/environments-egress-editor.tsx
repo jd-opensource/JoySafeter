@@ -1,12 +1,11 @@
 'use client'
 
-import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { ChevronDown, ChevronRight, Plus, Search, Trash2, X } from 'lucide-react'
+import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 
 import { CopyButton as SharedCopyButton } from '@/components/managed/shared/copy-button'
 import { FieldHelp } from '@/components/managed/shared/field-help'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -15,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { useTranslation } from '@/lib/i18n'
 import { filterSelectableSecretResources } from '@/lib/managed/secret-response-parsers'
 import { parseCredentialId } from '@/types/entity-id'
@@ -103,7 +103,7 @@ export const serviceToForm = (service: EnvironmentEgressService): EgressServiceF
     credentialRef: service.service_credential_id || '',
     authType,
     secretKey:
-      inject.secret_key ||
+      inject.credential_field ||
       (authType === 'cookie'
         ? 'COOKIE_HEADER'
         : authType === 'bearer'
@@ -124,12 +124,12 @@ export const buildEgressServices = (forms: EgressServiceForm[]): EnvironmentEgre
 
       const inject: NonNullable<EnvironmentEgressService['inject']> = { type: service.authType }
       if (service.authType === 'bearer') {
-        inject.secret_key = service.secretKey.trim() || 'ACCESS_TOKEN'
+        inject.credential_field = service.secretKey.trim() || 'ACCESS_TOKEN'
       } else if (service.authType === 'api_key') {
-        inject.secret_key = service.secretKey.trim() || 'API_KEY'
+        inject.credential_field = service.secretKey.trim() || 'API_KEY'
         inject.header = service.header.trim() || 'x-api-key'
       } else {
-        inject.secret_key = service.secretKey.trim() || 'COOKIE_HEADER'
+        inject.credential_field = service.secretKey.trim() || 'COOKIE_HEADER'
       }
 
       const result: EnvironmentEgressService = {
@@ -408,7 +408,9 @@ export function EgressServicesEditor({
                       emptyText={t('managed.environments.egressNoCredentialFound')}
                       createText={t('managed.environments.egressCreateSecretOption')}
                       invalid={Boolean(errors[index]?.credentialRef)}
-                      onCreate={() => window.open('/managed/credentials?tab=services&create=service', '_blank')}
+                      onCreate={() =>
+                        window.open('/managed/credentials?tab=services&create=service', '_blank')
+                      }
                       onChange={(value) => {
                         const secret = customSecrets.find((item) => item.id === value)
                         changeService(

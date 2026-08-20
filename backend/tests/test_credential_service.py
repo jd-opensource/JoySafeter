@@ -11,6 +11,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import select
 
+from app.joysafeter_application.credentials.binding_service import BindingIssuanceAuthority
 from app.joysafeter_domain.models.joysafeter_credential import (
     JoySafeterCredential,
     JoySafeterCredentialGroup,
@@ -22,7 +23,11 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     UpdateCredentialRequest,
 )
 from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
+from app.joysafeter_infrastructure.credentials.material_adapter import ManagedCredentialMaterialAdapter
+from app.joysafeter_infrastructure.credentials.sqlalchemy_repository import SqlAlchemyCredentialRepository
+from app.joysafeter_infrastructure.sensitive_material.legacy_v1 import LegacyV1MaterialProtector
 from app.joysafeter_shared.common.app_errors import AppError
+from app.joysafeter_shared.config.settings import joysafeter_config
 from app.joysafeter_shared.security.credential_cipher import CredentialCiphertextError
 
 
@@ -73,10 +78,15 @@ async def test_create_model_ok(db_session, project_id):
 
 @pytest.mark.no_db
 def test_decrypt_data_rejects_non_string_storage_without_coercion():
-    svc = CredentialService(db=None)  # type: ignore[arg-type]
+    material = ManagedCredentialMaterialAdapter(
+        None,
+        LegacyV1MaterialProtector(joysafeter_config.vault_encryption_key),
+        BindingIssuanceAuthority(),
+    )
+    repository = SqlAlchemyCredentialRepository(None, material=material)  # type: ignore[arg-type]
 
     with pytest.raises(CredentialCiphertextError, match="must be a string"):
-        svc.decrypt_data({"API_KEY": 123})
+        repository.decrypt_data({"API_KEY": 123})
 
 
 @pytest.mark.asyncio

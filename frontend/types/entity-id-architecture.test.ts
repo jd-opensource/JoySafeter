@@ -18,7 +18,7 @@ const REGISTERED_ENTITY_PREFIX_LENGTHS = new Set(
 )
 const DISPLAY_ID_HELPERS = ['entityIdUuid', 'shortEntityId'] as const
 const DISPLAY_ID_HELPER_ALLOWLIST = {
-  'app/managed/quickstart/page.tsx': { 'QuickstartPage::shortEntityId': 4 },
+  'app/managed/quickstart/page.tsx': { 'QuickstartPage::shortEntityId': 6 },
   'app/managed/sessions/[sessionId]/page.tsx': { 'SessionDetailPageInner::shortEntityId': 2 },
   'components/managed/session/event-detail.tsx': {
     'EventDetail::shortEntityId': 1,
@@ -31,6 +31,7 @@ const DISPLAY_ID_HELPER_ALLOWLIST = {
 const PREFIX_REMOVAL_ALLOWLIST = {
   'lib/managed/id.ts': { 'entityIdUuid::prefix_length_slice': 1 },
 } as const
+const NON_ENTITY_CORE_PREFIX_LITERAL_ALLOWLIST = {} as const
 
 const MANUAL_ENTITY_ID_REMOVAL_PATTERNS = [
   new RegExp(`\\.replace\\(\\s*\\/\\^(?:${ENTITY_PREFIX_ALTERNATION})`, 'g'),
@@ -44,6 +45,14 @@ const MANUAL_ENTITY_ID_REMOVAL_PATTERNS = [
   ),
   /\.split\(\s*["']_["']\s*\)\s*\.(?:slice|shift)\b/g,
 ]
+
+function isAllowedNonEntityCorePrefixLiteral(file: string, value: string): boolean {
+  const relativeFile = path.relative(process.cwd(), file)
+  const allowedValues = NON_ENTITY_CORE_PREFIX_LITERAL_ALLOWLIST[
+    relativeFile as keyof typeof NON_ENTITY_CORE_PREFIX_LITERAL_ALLOWLIST
+  ] as readonly string[] | undefined
+  return allowedValues?.includes(value) ?? false
+}
 
 function collectTestFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -596,7 +605,9 @@ function numeric(sessionId) {
         if (
           match[1].includes('${') ||
           match[1].startsWith('agent_toolset_') ||
-          ['secret_ref', 'secret_key', 'secret_data'].includes(match[1])
+          ['secret_ref', 'secret_key', 'secret_data'].includes(match[1]) ||
+          (match[1] === 'secret_refs' && file.endsWith('environment-response-parsers.test.ts')) ||
+          isAllowedNonEntityCorePrefixLiteral(file, match[1])
         )
           continue
         if (!CANONICAL_CORE_ID_PATTERN.test(match[1])) {
@@ -750,7 +761,10 @@ function numeric(sessionId) {
       ['app/managed/environments/page.tsx', 'parseCursor: parseEnvironmentId'],
       ['app/managed/environments/page.tsx', 'parseCursor: parseCredentialId'],
       ['app/managed/environments/[envId]/page.tsx', 'parseCursor: parseCredentialId'],
-      ['components/managed/credentials/model-connection-list.tsx', 'parseCursor: parseCredentialId'],
+      [
+        'components/managed/credentials/model-connection-list.tsx',
+        'parseCursor: parseCredentialId',
+      ],
       ['app/managed/memory-stores/page.tsx', 'parseCursor: parseMemoryStoreId'],
       ['app/managed/skills/page.tsx', 'parseCursor: parseSkillId'],
       ['app/managed/files/page.tsx', 'parseCursor: parseFileId'],
@@ -795,18 +809,41 @@ function numeric(sessionId) {
     expect(readProjectFile('lib/managed/api-paths.ts')).toContain('parseAnyEntityId')
   })
 
-  it('keeps vault and credential routes typed end-to-end', () => {
+  it('keeps credential-group and credential routes typed end-to-end', () => {
     const listPage = readProjectFile('components/managed/credentials/mcp-vault-list.tsx')
     const detailPage = readProjectFile('app/managed/credentials/mcp/[credentialGroupId]/page.tsx')
     const detailComponent = readProjectFile('components/managed/credentials/mcp-vault-detail.tsx')
-    const parsers = readProjectFile('lib/managed/vault-response-parsers.ts')
+    const parsers = readProjectFile('lib/managed/credential-group-response-parsers.ts')
+    const compatibilityParsers = readProjectFile('lib/managed/vault-response-parsers.ts')
+    const managedTypes = readProjectFile('types/managed.ts')
 
-    expect(listPage).toContain('parseItem: parseVaultResponse')
+    expect(listPage).toContain('parseItem: parseCredentialGroupResponse')
     expect(detailPage).toContain('parseCredentialGroupId(credentialGroupId)')
-    expect(detailComponent).toContain('parseVaultCredentialListResponse(response.data)')
+    expect(detailComponent).toContain('parseCredentialGroupCredentialListResponse(response.data)')
     expect(parsers).toContain('id: parseCredentialId(raw.id)')
     expect(parsers).toContain('group_id: parseCredentialGroupId(raw.group_id)')
+    expect(managedTypes).toContain('export interface CredentialGroup')
+    expect(managedTypes).toContain('export interface CredentialGroupCredential')
+    expect(managedTypes).not.toContain('export interface Vault')
+    expect(listPage).not.toContain('vault-response-parsers')
+    expect(detailComponent).not.toContain('vault-response-parsers')
+    expect(compatibilityParsers).toContain('as parseVaultResponse')
     expect(readProjectFile('lib/managed/api-paths.ts')).toContain('parseAnyEntityId')
+  })
+
+  it('keeps active environment types canonical while legacy keys stay decoder-only', () => {
+    const managedTypes = readProjectFile('types/managed.ts')
+    const editor = readProjectFile('components/managed/environments-egress-editor.tsx')
+    const parser = readProjectFile('lib/managed/environment-response-parsers.ts')
+    const parserTest = readProjectFile('lib/managed/environment-response-parsers.test.ts')
+
+    expect(managedTypes).toContain('environment_credential_ids?: CredentialId[]')
+    expect(managedTypes).toContain('credential_field?: string')
+    expect(managedTypes).not.toContain('secret_refs?: CredentialId[]')
+    expect(managedTypes).not.toContain('secret_key?: string')
+    expect(editor).not.toContain('.secret_key')
+    expect(parser).not.toContain('backend/contracts/credential_reference_contract.json')
+    expect(parserTest).toContain('backend/contracts/credential_reference_contract.json')
   })
 
   it('keeps sandbox diagnostics typed at the API boundary', () => {

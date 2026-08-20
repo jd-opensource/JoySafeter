@@ -44,6 +44,30 @@ describe('buildQuickstartAgentCreateBody', () => {
     })
   })
 
+  it('filters generated Skill references against the real available catalog', () => {
+    const body = buildQuickstartAgentCreateBody(
+      {
+        name: 'Research Agent',
+        skills: [
+          { type: 'custom', skill_id: SKILL_ID, version: 'latest' },
+          {
+            type: 'custom',
+            skill_id: 'skill_018f6f42-0a51-7cc4-98c8-4f6f0ca5f999',
+            version: 'latest',
+          },
+        ],
+      },
+      {
+        engineKind: 'claude',
+        secretRef: CRED_ID,
+        suffix: '',
+        allowedSkillIds: new Set([SKILL_ID]),
+      },
+    )
+
+    expect(body.skills).toEqual([{ type: 'custom', skill_id: SKILL_ID, version: 'latest' }])
+  })
+
   it('keeps previous defaults for minimal generated configs', () => {
     expect(
       buildQuickstartAgentCreateBody(

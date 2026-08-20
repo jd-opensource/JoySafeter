@@ -13,6 +13,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.joysafeter_application.credentials.composition import compose_credential_application
+from app.joysafeter_application.credentials.lifecycle_coordinator import CredentialLifecycleCoordinator
 from app.joysafeter_application.credentials.snapshot_service import (
     CredentialSnapshotService,
     NoPersistentDependencyScanner,
@@ -30,16 +31,23 @@ from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnviro
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
-from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
+from app.joysafeter_domain.schemas.joysafeter_credential import (
+    CreateCredentialGroupRequest,
+    CreateCredentialRequest,
+)
+from app.joysafeter_domain.services.joysafeter_credential_group_service import CredentialGroupService
 from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_infrastructure.credentials.dependency_scanners import (
     ActiveSessionSnapshotScanner,
     AgentVersionExecutableSnapshotScanner,
     _snapshot_reference,
 )
-from app.joysafeter_infrastructure.credentials.sqlalchemy_repository import CredentialDependencies
+from app.joysafeter_infrastructure.credentials.sqlalchemy_repository import (
+    CredentialDependencies,
+    SqlAlchemyCredentialRepository,
+)
 from app.joysafeter_shared.common.app_errors import AppError
-from app.joysafeter_shared.config.settings import Settings
+from app.joysafeter_shared.config.settings import Settings, settings
 
 BLOCK_RESOURCE = frozenset(
     {
@@ -47,6 +55,7 @@ BLOCK_RESOURCE = frozenset(
         DependencyDisposition.BLOCK_RESOURCE_DELETE,
     }
 )
+SHADOW_CREDENTIAL_ID = "cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f010"
 EXPECTED_DESCRIPTOR_MATRIX = {
     "live_agent_model_binding": (
         ReferenceSurfaceKind.LIVE_BINDING,
@@ -127,11 +136,24 @@ EXPECTED_DESCRIPTOR_MATRIX = {
         True,
     ),
 }
+
+
+@pytest.mark.no_db
+def test_default_observation_session_uses_current_uow_bind() -> None:
+    current_bind = object()
+    application = compose_credential_application(SimpleNamespace(bind=current_bind))
+
+    assert application.dependency_session_factory.kw["bind"] is current_bind
+
+
 REFERENCE_CONTRACT = json.loads(
     (Path(__file__).resolve().parents[1] / "contracts" / "credential_reference_contract.json").read_text()
 )
-REFERENCE_PATH_CASES = tuple(
-    (entry, schema) for entry in REFERENCE_CONTRACT["reference_paths"] for schema in entry["schemas"]
+DEPENDENCY_REFERENCE_PATH_CASES = tuple(
+    (entry, schema)
+    for entry in REFERENCE_CONTRACT["reference_paths"]
+    if entry["value_kind"] == "credential_id"
+    for schema in entry["schemas"]
 )
 
 
@@ -167,15 +189,40 @@ def _descriptor_matrix(application) -> dict[str, tuple[object, ...]]:
     }
 
 
-def _document_for_reference_path(path: str, credential_id: str) -> dict[str, object]:
+def _document_for_reference_path(
+    entry: dict[str, object],
+    schema: str,
+    credential_id: str,
+) -> dict[str, object]:
+    path = str(entry["path"])
+    value = "ACCESS_TOKEN" if entry["value_kind"] == "credential_field" else credential_id
+
     def build(segments: list[str]) -> dict[str, object]:
         segment = segments[0]
         expand = segment.endswith("[*]")
         key = segment[:-3] if expand else segment
-        child: object = credential_id if len(segments) == 1 else build(segments[1:])
+        child: object = value if len(segments) == 1 else build(segments[1:])
         return {key: [child] if expand else child}
 
-    return build(path.removeprefix("$.").split("."))
+    document = build(path.removeprefix("$.").split("."))
+    if schema not in {"live", "legacy_v0"}:
+        document["schema"] = REFERENCE_CONTRACT["snapshot_schemas"][schema]
+    if "model_credential_id" in path or path == "$.secret_ref":
+        document.update({"engine_kind": "claude", "model": {"id": "claude-sonnet"}})
+    if "egress_services" in path:
+        config = document.get("environment", document)
+        if isinstance(config, dict) and "config" in config:
+            config = config["config"]
+        service = config["egress_services"][0]
+        service.update({"name": "crm", "base_url": "https://crm.example.com/api"})
+        if entry["value_kind"] == "credential_field":
+            service["service_credential_id"] = credential_id
+        inject = service.setdefault("inject", {})
+        inject.setdefault("type", "bearer")
+        if entry["value_kind"] == "credential_id":
+            field_key = "credential_field" if schema == "v2" else "secret_key"
+            inject[field_key] = "ACCESS_TOKEN"
+    return document
 
 
 async def _persist_reference_path_fixture(
@@ -186,9 +233,7 @@ async def _persist_reference_path_fixture(
     entry: dict[str, object],
     schema: str,
 ):
-    document = _document_for_reference_path(str(entry["path"]), credential_id)
-    if schema not in {"live", "legacy_v0"}:
-        document["schema"] = REFERENCE_CONTRACT["snapshot_schemas"][schema]
+    document = _document_for_reference_path(entry, schema, credential_id)
     if entry["document"] == "environment_config":
         source = JoySafeterEnvironment(
             project_id=project_id,
@@ -253,20 +298,121 @@ def test_domain_descriptors_are_metadata_only() -> None:
     }
 
 
-def test_registry_mode_defaults_to_shadow_and_rejects_unknown_values() -> None:
-    assert Settings(_env_file=None).credential_dependency_registry_mode == "shadow"
+@pytest.mark.no_db
+def test_registry_mode_defaults_to_enforce_and_accepts_explicit_shadow() -> None:
+    assert Settings(_env_file=None).credential_dependency_registry_mode == "enforce"
     assert (
         Settings(
             _env_file=None,
-            CREDENTIAL_DEPENDENCY_REGISTRY_MODE="enforce",
+            CREDENTIAL_DEPENDENCY_REGISTRY_MODE="shadow",
         ).credential_dependency_registry_mode
-        == "enforce"
+        == "shadow"
     )
     with pytest.raises(ValueError):
         Settings(
             _env_file=None,
             CREDENTIAL_DEPENDENCY_REGISTRY_MODE="disabled",
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_db
+async def test_enforce_resource_observation_never_calls_legacy_scanner(monkeypatch) -> None:
+    legacy_called = False
+
+    async def legacy_dependencies(*args, **kwargs):
+        nonlocal legacy_called
+        legacy_called = True
+        raise AssertionError("legacy scanner must not run in enforce mode")
+
+    async def registry_dependencies(project_id, credential_id):
+        return ()
+
+    coordinator = CredentialLifecycleCoordinator(
+        SimpleNamespace(credentials=SimpleNamespace(dependencies=legacy_dependencies)),
+        SimpleNamespace(),
+        scan_resource_dependencies=registry_dependencies,
+        scan_group_dependencies=lambda project_id, group_id: (),
+    )
+    monkeypatch.setattr(settings, "credential_dependency_registry_mode", "enforce")
+
+    await coordinator._observe_resource(
+        DomainCredentialId("cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f010"),
+        "project-id",
+        DependencyDisposition.BLOCK_RESOURCE_DELETE,
+    )
+
+    assert legacy_called is False
+
+
+@pytest.mark.asyncio
+async def test_enforce_resource_lifecycle_never_calls_legacy_repository_dependencies(
+    db_session,
+    project_id,
+    monkeypatch,
+) -> None:
+    observation_factory = async_sessionmaker(
+        db_session.bind,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+    service = CredentialService(db_session, dependency_session_factory=observation_factory)
+    credential = await service.create(
+        CreateCredentialRequest(
+            kind="service",
+            name=f"registry-enforce-resource-{uuid.uuid4()}",
+            data={"TOKEN": "secret"},
+        ),
+        project_id=project_id,
+    )
+
+    async def forbidden_legacy_dependencies(*args, **kwargs):
+        raise AssertionError("legacy dependency scanner must not run in enforce mode")
+
+    monkeypatch.setattr(settings, "credential_dependency_registry_mode", "enforce")
+    monkeypatch.setattr(
+        SqlAlchemyCredentialRepository,
+        "dependencies",
+        forbidden_legacy_dependencies,
+    )
+
+    archived = await service.archive(credential.id, project_id=project_id)
+
+    assert archived.archived_at is not None
+
+
+@pytest.mark.asyncio
+async def test_enforce_group_lifecycle_never_calls_legacy_session_query(
+    db_session,
+    project_id,
+    monkeypatch,
+) -> None:
+    observation_factory = async_sessionmaker(
+        db_session.bind,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+    service = CredentialGroupService(db_session, dependency_session_factory=observation_factory)
+    group = await service.create(
+        CreateCredentialGroupRequest(name=f"registry-enforce-group-{uuid.uuid4()}"),
+        project_id=project_id,
+    )
+
+    async def forbidden_legacy_sessions(*args, **kwargs):
+        raise AssertionError("legacy group session query must not run in enforce mode")
+
+    monkeypatch.setattr(settings, "credential_dependency_registry_mode", "enforce")
+    monkeypatch.setattr(
+        SqlAlchemyCredentialRepository,
+        "active_group_session_ids",
+        forbidden_legacy_sessions,
+    )
+
+    archived = await service.archive(group.id, project_id=project_id)
+
+    assert archived.archived_at is not None
 
 
 @pytest.mark.parametrize(
@@ -279,13 +425,11 @@ def test_registry_mode_defaults_to_shadow_and_rejects_unknown_values() -> None:
             frozenset({DependencyDisposition.REVALIDATE_ON_ACTIVATION}),
         ),
         (
-            "joysafeter.agent_execution_snapshot.v2",
-            "agent_version",
-            frozenset({DependencyDisposition.REVALIDATE_ON_ACTIVATION}),
+            None,
+            "active_session",
+            BLOCK_RESOURCE,
         ),
-        (None, "active_session", BLOCK_RESOURCE),
         ("joysafeter.agent_execution_snapshot.v1", "active_session", BLOCK_RESOURCE),
-        ("joysafeter.agent_execution_snapshot.v2", "active_session", BLOCK_RESOURCE),
     ],
 )
 @pytest.mark.asyncio
@@ -334,12 +478,59 @@ async def test_real_snapshot_scanner_covers_top_level_legacy_secret_refs_by_sche
 
 
 @pytest.mark.parametrize(
-    ("entry", "schema"),
-    REFERENCE_PATH_CASES,
-    ids=[f"{entry['scanner_fixture']}-{schema}" for entry, schema in REFERENCE_PATH_CASES],
+    ("document", "scanner_type"),
+    [
+        ("agent_version", AgentVersionExecutableSnapshotScanner),
+        ("active_session", ActiveSessionSnapshotScanner),
+    ],
 )
 @pytest.mark.asyncio
-async def test_every_contract_reference_path_has_a_real_scanner_fixture(
+async def test_real_snapshot_scanner_rejects_legacy_alias_in_explicit_v2(
+    db_session,
+    project_id,
+    document,
+    scanner_type,
+) -> None:
+    credential = await CredentialService(db_session).create(
+        CreateCredentialRequest(
+            kind="service",
+            name=f"snapshot-v2-legacy-ref-{uuid.uuid4()}",
+            data={"TOKEN": "secret"},
+        ),
+        project_id=project_id,
+    )
+    agent = JoySafeterAgent(name=f"snapshot-v2-agent-{uuid.uuid4()}", project_id=project_id)
+    db_session.add(agent)
+    await db_session.flush()
+    snapshot = {
+        "schema": "joysafeter.agent_execution_snapshot.v2",
+        "secret_refs": [str(credential.id)],
+    }
+    source = (
+        JoySafeterAgentVersion(agent_id=agent.id, version=1, snapshot=snapshot)
+        if document == "agent_version"
+        else JoySafeterSession(
+            agent_id=agent.id,
+            project_id=project_id,
+            title=f"snapshot-v2-session-{uuid.uuid4()}",
+            agent_snapshot=snapshot,
+        )
+    )
+    db_session.add(source)
+    await db_session.commit()
+
+    scanner = scanner_type(db_session)
+    with pytest.raises(ValueError, match="corrupt_record.*legacy alias"):
+        await scanner.scan_resource(ProjectId(project_id), DomainCredentialId(str(credential.id)))
+
+
+@pytest.mark.parametrize(
+    ("entry", "schema"),
+    DEPENDENCY_REFERENCE_PATH_CASES,
+    ids=[f"{entry['scanner_fixture']}-{schema}" for entry, schema in DEPENDENCY_REFERENCE_PATH_CASES],
+)
+@pytest.mark.asyncio
+async def test_every_credential_identity_path_has_a_real_dependency_scanner_fixture(
     db_session,
     project_id,
     entry,
@@ -381,27 +572,28 @@ async def test_every_contract_reference_path_has_a_real_scanner_fixture(
     assert matching[0].dispositions == expected_dispositions
 
 
-@pytest.mark.parametrize(
-    ("document_kind", "surface_id"),
-    [
-        ("agent_version_snapshot", "agent_version_executable_snapshot"),
-        ("active_session_snapshot", "active_session_model_environment_snapshot"),
-    ],
-)
 @pytest.mark.no_db
-def test_unknown_explicit_snapshot_schema_fails_closed(document_kind, surface_id) -> None:
+def test_credential_field_paths_are_codec_owned_not_dependency_edges() -> None:
+    field_paths = [
+        (entry["document"], entry["path"])
+        for entry in REFERENCE_CONTRACT["reference_paths"]
+        if entry["value_kind"] == "credential_field"
+    ]
+
+    assert field_paths
+    assert all(entry["value_kind"] == "credential_id" for entry, _schema in DEPENDENCY_REFERENCE_PATH_CASES)
+
+
+@pytest.mark.no_db
+def test_unknown_explicit_snapshot_schema_fails_closed() -> None:
     snapshot = {
         "schema": "joysafeter.agent_execution_snapshot.v3",
         "secret_refs": ["credential-public-id"],
     }
 
-    with pytest.raises(ValueError, match="corrupt_record.*joysafeter.agent_execution_snapshot.v3"):
-        _snapshot_reference(
-            snapshot,
-            DomainCredentialId("credential-public-id"),
-            document_kind=document_kind,
-            surface_id=surface_id,
-        )
+    with pytest.raises(ValueError, match="corrupt_record.*unknown explicit Snapshot schema") as exc_info:
+        _snapshot_reference(snapshot, DomainCredentialId("credential-public-id"))
+    assert "joysafeter.agent_execution_snapshot.v3" not in str(exc_info.value)
 
 
 @pytest.mark.parametrize(
@@ -429,11 +621,12 @@ async def test_unknown_explicit_snapshot_schema_fails_closed_in_real_scanners(sc
 
     scanner = scanner_type(FakeSession())
 
-    with pytest.raises(ValueError, match="corrupt_record.*joysafeter.agent_execution_snapshot.v3"):
+    with pytest.raises(ValueError, match="corrupt_record.*unknown explicit Snapshot schema") as exc_info:
         await scanner.scan_resource(
             ProjectId("project-id"),
             DomainCredentialId("credential-public-id"),
         )
+    assert "joysafeter.agent_execution_snapshot.v3" not in str(exc_info.value)
 
 
 def _assert_shadow_payload_is_safe(payload: Mapping[str, object]) -> None:
@@ -464,6 +657,7 @@ async def test_shadow_runs_old_and_new_enforces_old_and_logs_only_safe_diff(
     monkeypatch,
     caplog,
 ) -> None:
+    monkeypatch.setattr(settings, "credential_dependency_registry_mode", "shadow")
     service = CredentialService(db_session)
     credential = await service.create(
         CreateCredentialRequest(
@@ -528,6 +722,7 @@ async def test_shadow_overlap_uses_independent_postgres_sessions(
     project_id,
     monkeypatch,
 ) -> None:
+    monkeypatch.setattr(settings, "credential_dependency_registry_mode", "shadow")
     observation_factory = async_sessionmaker(
         db_session.bind,
         class_=AsyncSession,
@@ -561,7 +756,7 @@ async def test_shadow_overlap_uses_independent_postgres_sessions(
     monkeypatch.setattr(CredentialSnapshotService, "scan_resource", overlapping_new_scan)
 
     await service._observe_dependency_registry(
-        "credential-public-id",
+        SHADOW_CREDENTIAL_ID,
         project_id,
         DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
     )
@@ -572,6 +767,8 @@ async def test_shadow_overlap_uses_independent_postgres_sessions(
 @pytest.mark.asyncio
 @pytest.mark.no_db
 async def test_shadow_observation_session_is_read_only_and_closed(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "credential_dependency_registry_mode", "shadow")
+
     class TransactionContext:
         async def __aenter__(self):
             return None
@@ -618,7 +815,7 @@ async def test_shadow_observation_session_is_read_only_and_closed(monkeypatch) -
     monkeypatch.setattr(CredentialSnapshotService, "scan_resource", new_scan)
 
     await service._observe_dependency_registry(
-        "credential-public-id",
+        SHADOW_CREDENTIAL_ID,
         "project-id",
         DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
     )
@@ -631,7 +828,10 @@ async def test_shadow_observation_session_is_read_only_and_closed(monkeypatch) -
 @pytest.mark.no_db
 async def test_shadow_new_scanner_failure_cannot_change_old_result_or_leak_payload(
     caplog,
+    monkeypatch,
 ) -> None:
+    monkeypatch.setattr(settings, "credential_dependency_registry_mode", "shadow")
+
     class OldDependencies:
         def as_data(self):
             return {"agents": [], "triggers": [], "environments": [], "sessions": []}
@@ -660,7 +860,7 @@ async def test_shadow_new_scanner_failure_cannot_change_old_result_or_leak_paylo
 
     caplog.set_level(logging.INFO)
 
-    archived = await service.archive("credential-public-id", project_id="project-id")
+    archived = await service.archive(SHADOW_CREDENTIAL_ID, project_id="project-id")
 
     assert archived.archived_at is not None
     logs = "\n".join(record.getMessage() for record in caplog.records).lower()
@@ -671,7 +871,8 @@ async def test_shadow_new_scanner_failure_cannot_change_old_result_or_leak_paylo
 
 @pytest.mark.asyncio
 @pytest.mark.no_db
-async def test_shadow_old_scanner_failure_remains_authoritative() -> None:
+async def test_shadow_old_scanner_failure_remains_authoritative(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "credential_dependency_registry_mode", "shadow")
     old_error = RuntimeError("legacy-authoritative-failure")
 
     class LegacyRepository:
@@ -691,7 +892,7 @@ async def test_shadow_old_scanner_failure_remains_authoritative() -> None:
 
     with pytest.raises(RuntimeError) as exc_info:
         await service._observe_dependency_registry(
-            "credential-public-id",
+            SHADOW_CREDENTIAL_ID,
             "project-id",
             DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
         )
@@ -701,7 +902,9 @@ async def test_shadow_old_scanner_failure_remains_authoritative() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.no_db
-async def test_shadow_child_cancelled_error_propagates() -> None:
+async def test_shadow_child_cancelled_error_propagates(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "credential_dependency_registry_mode", "shadow")
+
     class LegacyRepository:
         async def dependencies(self, credential_id, project_id):
             return CredentialDependencies()
@@ -718,7 +921,7 @@ async def test_shadow_child_cancelled_error_propagates() -> None:
 
     with pytest.raises(asyncio.CancelledError):
         await service._observe_dependency_registry(
-            "credential-public-id",
+            SHADOW_CREDENTIAL_ID,
             "project-id",
             DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
         )
@@ -726,7 +929,8 @@ async def test_shadow_child_cancelled_error_propagates() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.no_db
-async def test_shadow_parent_task_cancellation_propagates() -> None:
+async def test_shadow_parent_task_cancellation_propagates(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "credential_dependency_registry_mode", "shadow")
     started = asyncio.Event()
     wait_forever = asyncio.Event()
 
@@ -746,7 +950,7 @@ async def test_shadow_parent_task_cancellation_propagates() -> None:
     )
     observation = asyncio.create_task(
         service._observe_dependency_registry(
-            "credential-public-id",
+            SHADOW_CREDENTIAL_ID,
             "project-id",
             DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
         )

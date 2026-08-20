@@ -93,12 +93,35 @@ class UpdateCredentialRequest(BaseModel):
 # add a member; the group service is the authoritative validator.
 
 
+class CreateCredentialGroupInitialMemberRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    mcp_server_url: str
+    data: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("name")
+    @classmethod
+    def _norm_name(cls, v: str) -> str:
+        return _normalize_name(v)
+
+    @field_validator("mcp_server_url")
+    @classmethod
+    def _validate_mcp_server_url(cls, v: str) -> str:
+        from app.joysafeter_shared.security.ssrf_guard import validate_url_scheme
+
+        validated = validate_url_scheme(v)
+        assert validated is not None
+        return validated
+
+
 class CreateCredentialGroupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
     description: str = ""
     metadata: dict[str, str] = Field(default_factory=dict)
+    initial_members: list[CreateCredentialGroupInitialMemberRequest] = Field(default_factory=list, max_length=5)
 
     @field_validator("name")
     @classmethod

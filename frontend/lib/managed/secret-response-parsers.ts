@@ -1,6 +1,7 @@
-import { parseCredentialGroupId, parseCredentialId } from '@/types/entity-id'
-import type { Secret, SecretDetail } from '@/types/managed'
 import { z } from 'zod'
+
+import { parseCredentialGroupId, parseCredentialId, parseNullableId } from '@/types/entity-id'
+import type { ModelConnectionSummary, Secret, SecretDetail } from '@/types/managed'
 
 const secretBaseSchema = z
   .object({
@@ -29,12 +30,32 @@ const usableSecretDataSchema = z
 
 const secretSchema = secretBaseSchema.extend({ data: usableSecretDataSchema }).strict()
 
+const modelConnectionSummarySchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    provider: z.string().nullable(),
+    protocol: z.string().nullable(),
+    model: z.string().nullable(),
+    is_default: z.boolean(),
+    archived_at: z.string().nullable(),
+  })
+  .strict()
+
+export function parseModelConnectionSummaryResponse(response: unknown): ModelConnectionSummary {
+  const raw = modelConnectionSummarySchema.parse(response)
+  return {
+    ...raw,
+    id: parseCredentialId(raw.id),
+  }
+}
+
 export function parseSecretResponse(response: unknown): Secret {
   const raw = secretSchema.parse(response)
   return {
     ...raw,
     id: parseCredentialId(raw.id),
-    group_id: raw.group_id ? parseCredentialGroupId(raw.group_id) : null,
+    group_id: parseNullableId(raw.group_id ?? null, parseCredentialGroupId),
   }
 }
 
@@ -43,7 +64,7 @@ export function parseSecretDetailResponse(response: unknown): SecretDetail {
   return {
     ...raw,
     id: parseCredentialId(raw.id),
-    group_id: raw.group_id ? parseCredentialGroupId(raw.group_id) : null,
+    group_id: parseNullableId(raw.group_id ?? null, parseCredentialGroupId),
   }
 }
 
@@ -55,8 +76,6 @@ export function isSelectableSecretResourceName(name: string): boolean {
   return name.length > 0 && name === name.trim()
 }
 
-export function filterSelectableSecretResources<T extends Pick<Secret, 'name'>>(
-  secrets: T[],
-): T[] {
+export function filterSelectableSecretResources<T extends Pick<Secret, 'name'>>(secrets: T[]): T[] {
   return secrets.filter((secret) => isSelectableSecretResourceName(secret.name))
 }

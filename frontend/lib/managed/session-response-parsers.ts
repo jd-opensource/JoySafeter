@@ -1,11 +1,21 @@
 import { parseAgentId, parseCredentialGroupId, parseSessionId } from '@/types/entity-id'
-import type { Session, SessionAgent } from '@/types/managed'
+import type { ModelConnectionSummary, Session, SessionAgent } from '@/types/managed'
+
+import { parseAgentModelResponse } from './agent-response-parsers'
+import { parseModelCredentialReference } from './environment-response-parsers'
 import { parseSessionRepoResourceResponse } from './file-response-parsers'
+import { parseModelConnectionSummaryResponse } from './secret-response-parsers'
 import { parseSessionStorageMountResponse } from './storage-mount-response-parsers'
 
-type RawSessionAgent = Omit<SessionAgent, 'id' | 'agent_id'> & {
+type RawSessionAgent = Omit<
+  SessionAgent,
+  'id' | 'agent_id' | 'model' | 'model_credential_id' | 'model_connection'
+> & {
   id: string
   agent_id?: string
+  model?: unknown
+  model_credential_id?: string | null
+  model_connection?: (Omit<ModelConnectionSummary, 'id'> & { id: string }) | null
 }
 
 type RawSession = Omit<
@@ -20,10 +30,16 @@ type RawSession = Omit<
 }
 
 function parseSessionAgent(response: RawSessionAgent): SessionAgent {
+  const modelCredentialId = parseModelCredentialReference(response)
   return {
     ...response,
     id: parseAgentId(response.id),
     agent_id: response.agent_id === undefined ? undefined : parseAgentId(response.agent_id),
+    model: parseAgentModelResponse(response.model),
+    model_credential_id: modelCredentialId,
+    model_connection: response.model_connection
+      ? parseModelConnectionSummaryResponse(response.model_connection)
+      : null,
   }
 }
 

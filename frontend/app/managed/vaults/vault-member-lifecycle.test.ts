@@ -11,10 +11,10 @@ describe('MCP credential member lifecycle', () => {
     )
 
     expect(source).toContain(
-      "apiResourcePath('credential-groups', vaultId, 'members', credId!, 'archive')",
+      "apiResourcePath('credential-groups', credentialGroupId, 'members', credId!, 'archive')",
     )
     expect(source).not.toContain(
-      "managedDelete(\n        apiResourcePath('credential-groups', vaultId, 'members', credId!)",
+      "managedDelete(\n        apiResourcePath('credential-groups', credentialGroupId, 'members', credId!)",
     )
   })
 })
