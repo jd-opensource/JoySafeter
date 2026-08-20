@@ -1,3 +1,6 @@
+import { quickstartBlueprintMetadata } from '@/lib/managed/quickstart-agent-blueprint'
+import { objectValue } from '@/lib/managed/quickstart-value-coercion'
+
 type AgentCreateOptions = {
   engineKind: string
   secretRef: string
@@ -6,11 +9,6 @@ type AgentCreateOptions = {
 
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
-
-function objectValue(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  return value as Record<string, unknown>
 }
 
 function arrayValue(value: unknown): unknown[] | undefined {
@@ -76,8 +74,11 @@ export function buildQuickstartAgentCreateBody(
   const model = modelValue(agentConfig.model)
   if (model) body.model = model
 
-  const metadata = stringMap(agentConfig.metadata)
-  if (metadata) body.metadata = metadata
+  const metadata = {
+    ...(stringMap(agentConfig.metadata) || {}),
+    ...quickstartBlueprintMetadata(agentConfig),
+  }
+  if (Object.keys(metadata).length > 0) body.metadata = metadata
 
   const mcpServers = arrayValue(agentConfig.mcp_servers)
   if (mcpServers) body.mcp_servers = mcpServers

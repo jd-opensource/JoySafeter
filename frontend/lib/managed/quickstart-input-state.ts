@@ -17,13 +17,14 @@ export function quickstartInputPlaceholderKey({
   isStreaming,
   readyKey,
 }: QuickstartInputPlaceholderOptions): string {
-  if (!selectedEngine) return 'managed.quickstart.selectEngineFirst'
+  if (isSessionRunning) return 'managed.quickstart.agentProcessing'
+  if (isStreaming) return 'managed.quickstart.waitingForResponse'
+  if (!selectedEngine && currentStep > 1) return 'managed.quickstart.selectEngineFirst'
+  if (currentStep === 1) return readyKey
   if (currentStep === 2) return 'managed.quickstart.chooseSecret'
   if (!secretRef) return 'managed.quickstart.noApiKey'
   if (currentStep >= 3 && !selectedSecretCompatible) {
     return 'managed.quickstart.noCompatibleSecret'
   }
-  if (isSessionRunning) return 'managed.quickstart.agentProcessing'
-  if (isStreaming) return 'managed.quickstart.waitingForResponse'
   return readyKey
 }

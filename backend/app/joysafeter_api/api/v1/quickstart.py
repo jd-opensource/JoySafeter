@@ -1,13 +1,13 @@
 """Quickstart chat endpoint — streams provider responses via SSE.
 
-Translates user intent into agent/environment/vault configurations using
+Translates user intent into agent/environment/MCP credential group configurations using
 tool calls, streaming text deltas and config updates back to the frontend.
 """
 
 import json
 import logging
 from collections.abc import AsyncIterator, Callable
-from typing import Literal, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 import httpx
 from fastapi import APIRouter, Depends
@@ -30,7 +30,7 @@ from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, require_joysafeter_write
 from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import CredentialId
+from app.joysafeter_shared.ids import CredentialId, SkillId
 from app.joysafeter_shared.llm.base_url import LLMBaseUrlError, validate_llm_base_url
 
 router = APIRouter(tags=["joysafeter-quickstart"])
@@ -53,8 +53,18 @@ class QuickstartAgentContext(BaseModel):
     engine_kind: Optional[str] = Field(default=None, max_length=50)
     system: Optional[str] = Field(default=None, max_length=5000)
     tools: Optional[list] = Field(default=None, max_length=10)
-    mcp_servers: Optional[list] = Field(default=None, max_length=10)
+    mcp_servers: Optional[list[Any] | dict[str, Any]] = Field(default=None, max_length=10)
     skills: Optional[list] = Field(default=None, max_length=20)
+
+
+class QuickstartAvailableSkill(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: SkillId
+    name: str = Field(..., min_length=1, max_length=200)
+    display_title: Optional[str] = Field(default=None, max_length=200)
+    description: str = Field(default="", max_length=1000)
+    latest_version: str = Field(..., min_length=1, max_length=100)
 
 
 class QuickstartChatRequest(BaseModel):
@@ -62,17 +72,22 @@ class QuickstartChatRequest(BaseModel):
 
     messages: list[QuickstartMessage] = Field(..., max_length=50)
     current_step: int = Field(default=1, ge=1, le=5)
-    engine_kind: Literal["claude", "codex", "native", "pi"]
+    engine_kind: Literal["claude", "claude_code", "codex", "native", "pi"]
     model_credential_id: CredentialId
     agent_context: Optional[QuickstartAgentContext] = None
+    available_skills: list[QuickstartAvailableSkill] = Field(default_factory=list, max_length=20)
 
 
-def _build_system_prompt(step: int, agent_context: Optional[QuickstartAgentContext] = None) -> str:
+def _build_system_prompt(
+    step: int,
+    agent_context: Optional[QuickstartAgentContext] = None,
+    available_skills: Optional[list[QuickstartAvailableSkill]] = None,
+) -> str:
     step_descriptions = {
-        1: "Step 1: Choose Engine - The user selects claudecode or codex in the UI.",
+        1: "Step 1: Choose Engine - The user selects a runtime engine in the UI.",
         2: "Step 2: Create Agent - Help the user define their agent's purpose, capabilities, and configuration.",
         3: "Step 3: Configure Environment - Based on the agent, recommend the right networking and resource configuration.",
-        4: "Step 4: Configure Vault - Help the user set up a credential vault for MCP server secrets.",
+        4: "Step 4: Authorize External Tools - Help the user set up an MCP credential group and member only when MCP credentials are needed.",
         5: "Step 5: Start Session - Generate a short test message for the session.",
     }
     step_description = step_descriptions.get(step, step_descriptions[1])
@@ -83,14 +98,24 @@ def _build_system_prompt(step: int, agent_context: Optional[QuickstartAgentConte
         pretty = json.dumps(safe_data, indent=2, ensure_ascii=False)
         agent_section = f"\n\n## Agent configured in Step 2:\n```json\n{pretty}\n```\nUse this context to make informed recommendations for the current step."
 
+    skill_section = ""
+    if step == 2:
+        skill_catalog = [skill.model_dump(mode="json") for skill in available_skills or []]
+        skill_section = (
+            "\n\n## Available Skills\n"
+            "Only attach Skill IDs from this catalog. If no listed Skill is genuinely useful, return an empty skills array. "
+            "Never invent a Skill ID.\n"
+            f"```json\n{json.dumps(skill_catalog, indent=2, ensure_ascii=False)}\n```"
+        )
+
     return f"""You are an elite AI agent architect specializing in crafting high-performance agent configurations for the JoySafeter platform. Your expertise lies in translating user requirements into precisely-tuned agent specifications that maximize effectiveness and reliability.
 
 IMPORTANT: Communicate in the same language as the user. If the user writes in Chinese, respond in Chinese.
 
-Current step: {step_description}{agent_section}
+Current step: {step_description}{agent_section}{skill_section}
 
 ## Step 1: Choose Engine
-The user selects either claudecode or codex in the UI. Do not generate configuration in this step.
+The user selects a runtime engine in the UI. Do not generate configuration in this step.
 
 ## Step 2: Create Agent
 
@@ -102,7 +127,18 @@ When a user describes what they want an agent to do, you will:
 4. **Optimize for Performance**: Include decision-making frameworks, quality control mechanisms, efficient workflow patterns, and escalation strategies.
 5. **Create Name**: Design a concise, descriptive name that clearly indicates the agent's primary function.
 
-If the description is clear and detailed, generate the config immediately using the `generate_agent_config` tool. If unclear, ask ONE focused clarifying question.
+If the description is clear and detailed, generate the config immediately using the `generate_agent_config` tool. If critical information is missing, ask ONE focused clarifying question before generating anything.
+
+Every generated agent must include a professional Agent Blueprint that a user can review before launch. The blueprint must make the agent operationally explicit, not merely restate the system prompt. Include:
+- mission
+- responsibilities
+- workflow
+- boundaries
+- tool and permission plan
+- escalation conditions
+- output contract
+- success criteria
+- an acceptance test with a realistic test message and observable checks
 
 When generating config via `generate_agent_config`, provide:
 - name: concise, descriptive (e.g., "Daily News Reporter", "Code Reviewer")
@@ -110,7 +146,10 @@ When generating config via `generate_agent_config`, provide:
 - system: comprehensive instructions written in second person ("You are...", "You will..."), structured for maximum clarity and effectiveness
 - model: leave the final runtime model to the UI-selected engine; do not force a specific vendor here
 - tools: default [{{"type": "agent_toolset_20260401"}}]
+- skills: attach only useful entries from Available Skills as {{"type": "custom", "skill_id": "...", "version": "latest"}}
+- mcp_servers: include only external MCP services the Agent itself must connect to, using URL entries when known
 - metadata: language, schedule, topic etc.
+- blueprint: the complete professional Agent Blueprint described above
 
 ## Step 3: Configure Environment
 Analyze the agent's purpose, system prompt, and tools to proactively recommend the right environment:
@@ -118,18 +157,18 @@ Analyze the agent's purpose, system prompt, and tools to proactively recommend t
 - If the agent only needs specific APIs/services → recommend "limited" with the specific allowed_hosts
 - Use the `generate_environment_config` tool once you have enough info.
 
-## Step 4: Configure Vault
-A vault stores credentials (API keys, OAuth tokens) that MCP servers need at runtime.
-- If the agent uses MCP tools that need external API keys → recommend creating a vault
-- If the agent only uses built-in tools with no external credentials → suggest skipping this step
-- Use the `generate_vault_config` tool to create a vault with a descriptive name
+## Step 4: Authorize External Tools
+An MCP credential group authorizes exactly the MCP server credentials a session may use.
+- If the agent uses MCP servers that need external API keys → recommend creating an MCP credential group and include a first MCP credential member with mcp_server_url when known
+- If the agent only uses built-in tools with no external credentials → suggest skipping this step and explain that the first launch stays isolated from external tools
+- Use the `generate_mcp_credential_group_config` tool to create an MCP credential group with a descriptive name and optional member metadata
 
 ## Step 5: Start Session
 Generate ONE short test message (1-2 sentences) that a user would send to verify the agent works.
 
 Rules:
 - Be concise. No lengthy explanations.
-- Use tools when you have sufficient information. Prefer making a recommendation immediately over asking questions.
+- Use tools when you have sufficient information. Prefer making a recommendation immediately only when the user's requirements are sufficient; otherwise ask ONE focused clarifying question.
 - After using a tool, briefly explain what was configured."""
 
 
@@ -147,9 +186,84 @@ def _build_tools(step: int) -> list[dict]:
                         "model": {"type": "string"},
                         "system": {"type": "string"},
                         "tools": {"type": "array", "items": {"type": "object"}},
+                        "skills": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "type": {"type": "string", "enum": ["custom"]},
+                                    "skill_id": {"type": "string"},
+                                    "version": {"type": "string"},
+                                },
+                                "required": ["type", "skill_id", "version"],
+                            },
+                        },
+                        "mcp_servers": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "type": {"type": "string", "enum": ["url"]},
+                                    "name": {"type": "string"},
+                                    "url": {"type": "string"},
+                                },
+                                "required": ["type", "name", "url"],
+                            },
+                        },
                         "metadata": {"type": "object"},
+                        "blueprint": {
+                            "type": "object",
+                            "properties": {
+                                "mission": {"type": "string"},
+                                "responsibilities": {"type": "array", "items": {"type": "string"}},
+                                "workflow": {"type": "array", "items": {"type": "string"}},
+                                "boundaries": {"type": "array", "items": {"type": "string"}},
+                                "capability_plan": {
+                                    "type": "object",
+                                    "properties": {
+                                        "skills": {
+                                            "type": "array",
+                                            "items": {"type": "object"},
+                                        },
+                                        "tools": {
+                                            "type": "array",
+                                            "items": {"type": "object"},
+                                        },
+                                        "mcp_servers": {
+                                            "type": "array",
+                                            "items": {"type": "object"},
+                                        },
+                                    },
+                                    "required": ["skills", "tools", "mcp_servers"],
+                                },
+                                "tool_plan": {"type": "array", "items": {"type": "string"}},
+                                "escalation_conditions": {"type": "array", "items": {"type": "string"}},
+                                "output_contract": {"type": "array", "items": {"type": "string"}},
+                                "success_criteria": {"type": "array", "items": {"type": "string"}},
+                                "acceptance_test": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {"type": "string"},
+                                        "checks": {"type": "array", "items": {"type": "string"}},
+                                    },
+                                    "required": ["message", "checks"],
+                                },
+                            },
+                            "required": [
+                                "mission",
+                                "responsibilities",
+                                "workflow",
+                                "boundaries",
+                                "capability_plan",
+                                "tool_plan",
+                                "escalation_conditions",
+                                "output_contract",
+                                "success_criteria",
+                                "acceptance_test",
+                            ],
+                        },
                     },
-                    "required": ["name", "description", "system"],
+                    "required": ["name", "description", "system", "blueprint"],
                 },
             }
         ]
@@ -179,13 +293,15 @@ def _build_tools(step: int) -> list[dict]:
     elif step == 4:
         return [
             {
-                "name": "generate_vault_config",
-                "description": "Generate credential vault configuration for MCP server secrets",
+                "name": "generate_mcp_credential_group_config",
+                "description": "Generate MCP credential group configuration for external tool authorization",
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "name": {"type": "string", "description": "Descriptive name for the vault"},
-                        "description": {"type": "string", "description": "What credentials this vault stores"},
+                        "name": {"type": "string", "description": "Descriptive name for the MCP credential group"},
+                        "description": {"type": "string", "description": "What MCP server credentials this group authorizes"},
+                        "mcp_server_url": {"type": "string", "description": "First MCP server URL to authorize when known"},
+                        "credential_name": {"type": "string", "description": "Optional name for the first MCP credential member"},
                     },
                     "required": ["name"],
                 },
@@ -225,7 +341,7 @@ def _generate_curl(tool_name: str, config: dict) -> str:
     endpoints = {
         "generate_agent_config": "/v1/agents",
         "generate_environment_config": "/v1/environments",
-        "generate_vault_config": "/v1/credential-groups",
+        "generate_mcp_credential_group_config": "/v1/credential-groups",
     }
     endpoint = endpoints.get(tool_name, "/v1/unknown")
     return f"""curl -X POST $BASE_URL{endpoint} \\
@@ -764,7 +880,11 @@ async def quickstart_chat(
         raise _quickstart_base_url_error(exc, provider=provider) from None
     model = data.get(resolution.model_key) if resolution.model_key else None
 
-    system_prompt = _build_system_prompt(req.current_step, req.agent_context)
+    system_prompt = _build_system_prompt(
+        req.current_step,
+        req.agent_context,
+        req.available_skills,
+    )
     tools = _build_tools(req.current_step)
 
     messages = [{"role": m.role, "content": m.content} for m in req.messages]

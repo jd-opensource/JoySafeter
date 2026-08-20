@@ -15,19 +15,31 @@ import httpx
 import pytest
 import pytest_asyncio
 from error_contract_helpers import handled_app_error_payload
+from sqlalchemy import select
 
+from app.joysafeter_api.api.v1.credential_groups import create_credential_group
 from app.joysafeter_api.api.v1.quickstart import (
+    QuickstartAvailableSkill,
+    QuickstartAgentContext,
     QuickstartChatRequest,
     QuickstartMessage,
+    _build_system_prompt,
+    _build_tools,
     _generate_curl,
     _upstream_connection_error_event,
     _upstream_error_event,
     _upstream_stream_error_event,
     quickstart_chat,
 )
+from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredentialGroup
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
-from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
+from app.joysafeter_domain.schemas.joysafeter_credential import (
+    CreateCredentialGroupInitialMemberRequest,
+    CreateCredentialGroupRequest,
+    CreateCredentialRequest,
+)
+from app.joysafeter_domain.services.joysafeter_credential_group_service import CredentialGroupService
 from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
@@ -86,10 +98,181 @@ def test_quickstart_schema_uses_model_credential_id_not_secret_ref():
     assert "secret_ref" not in fields
 
 
-def test_quickstart_vault_curl_uses_credential_group_endpoint():
+def test_quickstart_schema_accepts_claude_code_engine():
+    credential_id = CredentialId(uuid.uuid4())
+    req = QuickstartChatRequest(
+        model_credential_id=credential_id,
+        engine_kind="claude_code",
+        messages=[QuickstartMessage(role="user", content="build a coding agent")],
+    )
+    assert req.engine_kind == "claude_code"
+
+
+def test_quickstart_agent_context_accepts_mcp_server_map():
+    ctx = QuickstartAgentContext(
+        name="MCP Agent",
+        mcp_servers={"github": {"url": "https://api.github.com/mcp"}},
+    )
+    assert ctx.mcp_servers == {"github": {"url": "https://api.github.com/mcp"}}
+
+
+def test_quickstart_request_accepts_bounded_available_skill_catalog():
+    credential_id = CredentialId(uuid.uuid4())
+    req = QuickstartChatRequest(
+        model_credential_id=credential_id,
+        engine_kind="codex",
+        messages=[QuickstartMessage(role="user", content="build a reviewer")],
+        available_skills=[
+            QuickstartAvailableSkill(
+                id="skill_018f6f42-0a51-7cc4-98c8-4f6f0ca5f111",
+                name="secure-review",
+                display_title="Secure Review",
+                description="Review code safely",
+                latest_version="1.2.0",
+            )
+        ],
+    )
+
+    assert req.available_skills[0].name == "secure-review"
+
+
+def test_agent_generation_tool_requires_professional_blueprint_contract():
+    tool = _build_tools(2)[0]
+    schema = tool["input_schema"]
+    blueprint = schema["properties"]["blueprint"]
+
+    assert "blueprint" in schema["required"]
+    assert set(blueprint["required"]) == {
+        "mission",
+        "responsibilities",
+        "workflow",
+        "boundaries",
+        "tool_plan",
+        "escalation_conditions",
+        "output_contract",
+        "success_criteria",
+        "acceptance_test",
+    }
+    assert set(blueprint["properties"]["acceptance_test"]["required"]) == {"message", "checks"}
+    assert "capability_plan" in blueprint["required"]
+    assert "skills" in schema["properties"]
+    assert "mcp_servers" in schema["properties"]
+
+
+def test_agent_generation_prompt_limits_skill_ids_to_available_catalog():
+    prompt = _build_system_prompt(
+        2,
+        available_skills=[
+            QuickstartAvailableSkill(
+                id="skill_018f6f42-0a51-7cc4-98c8-4f6f0ca5f111",
+                name="secure-review",
+                display_title="Secure Review",
+                description="Review code safely",
+                latest_version="1.2.0",
+            )
+        ],
+    )
+
+    assert "skill_018f6f42-0a51-7cc4-98c8-4f6f0ca5f111" in prompt
+    assert "Only attach Skill IDs from this catalog" in prompt
+
+
+def test_agent_generation_prompt_requires_professional_review_and_focused_clarification():
+    prompt = _build_system_prompt(2)
+
+    assert "ask ONE focused clarifying question" in prompt
+    assert "professional Agent Blueprint" in prompt
+    assert "acceptance test" in prompt
+    assert "escalation conditions" in prompt
+
+
+def test_quickstart_old_vault_tool_is_not_a_supported_creation_endpoint():
     curl = _generate_curl("generate_vault_config", {"name": "mcp credentials"})
+    assert "/v1/unknown" in curl
+    assert "/v1/vaults" not in curl
+
+
+def test_quickstart_mcp_credential_group_tool_replaces_vault_language():
+    prompt = _build_system_prompt(4)
+    tools = _build_tools(4)
+    assert "MCP credential group" in prompt
+    assert "generate_mcp_credential_group_config" in prompt
+    assert "A vault stores" not in prompt
+    assert tools[0]["name"] == "generate_mcp_credential_group_config"
+    properties = tools[0]["input_schema"]["properties"]
+    assert "mcp_server_url" in properties
+    assert "credential_name" in properties
+
+
+def test_quickstart_mcp_credential_group_curl_uses_credential_group_endpoint():
+    curl = _generate_curl("generate_mcp_credential_group_config", {"name": "mcp credentials"})
     assert "/v1/credential-groups" in curl
     assert "/v1/vaults" not in curl
+
+
+@pytest.mark.asyncio
+async def test_credential_group_create_accepts_initial_mcp_members(db_session, project_id):
+    response = await create_credential_group(
+        CreateCredentialGroupRequest(
+            name=f"quickstart-tools-{uuid.uuid4()}",
+            initial_members=[
+                CreateCredentialGroupInitialMemberRequest(
+                    name="github-mcp",
+                    mcp_server_url="https://api.github.com/mcp",
+                    data={"token_value": "ghp_secret"},
+                )
+            ],
+        ),
+        db=db_session,
+        auth_ctx=_auth_ctx(project_id),
+    )
+
+    members = await CredentialGroupService(db_session).list_members(
+        response.id,
+        project_id=project_id,
+        include_archived=True,
+    )
+
+    assert response.name.startswith("quickstart-tools-")
+    assert len(members) == 1
+    assert members[0].name == "github-mcp"
+    assert members[0].mcp_server_url == "https://api.github.com/mcp"
+
+
+@pytest.mark.asyncio
+async def test_credential_group_create_initial_member_failure_rolls_back_group(db_session, project_id):
+    group_name = f"quickstart-tools-{uuid.uuid4()}"
+
+    with pytest.raises(AppError) as exc:
+        await create_credential_group(
+            CreateCredentialGroupRequest(
+                name=group_name,
+                initial_members=[
+                    CreateCredentialGroupInitialMemberRequest(
+                        name="github-mcp",
+                        mcp_server_url="https://api.github.com/mcp",
+                        data={"token_value": ""},
+                    )
+                ],
+            ),
+            db=db_session,
+            auth_ctx=_auth_ctx(project_id),
+        )
+
+    rows = (
+        (
+            await db_session.execute(
+                select(JoySafeterCredentialGroup).where(
+                    JoySafeterCredentialGroup.project_id == project_id,
+                    JoySafeterCredentialGroup.name == group_name,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert exc.value.code == "CREDENTIAL_FIELD_MISSING"
+    assert rows == []
 
 
 def test_quickstart_upstream_status_error_event_is_structured():
@@ -131,9 +314,7 @@ async def test_quickstart_chat_missing_credential_returns_structured_error(db_se
     missing_id = CredentialId.new()
 
     with pytest.raises(AppError) as exc_info:
-        await quickstart_chat(
-            _chat_req(model_credential_id=missing_id), db_session, _auth_ctx(project_id)
-        )
+        await quickstart_chat(_chat_req(model_credential_id=missing_id), db_session, _auth_ctx(project_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "CREDENTIAL_NOT_FOUND",
@@ -155,9 +336,7 @@ async def test_quickstart_chat_missing_provider_key_returns_structured_error(
     cred_id = await _make_model_credential(db_session, project_id, data)
 
     with pytest.raises(AppError) as exc_info:
-        await quickstart_chat(
-            _chat_req(model_credential_id=cred_id), db_session, _auth_ctx(project_id)
-        )
+        await quickstart_chat(_chat_req(model_credential_id=cred_id), db_session, _auth_ctx(project_id))
 
     payload = await handled_app_error_payload(exc_info.value, status_code=400)
     assert payload == {
@@ -184,9 +363,7 @@ async def test_quickstart_chat_invalid_base_url_returns_structured_error(db_sess
     )
 
     with pytest.raises(AppError) as exc_info:
-        await quickstart_chat(
-            _chat_req(model_credential_id=cred_id), db_session, _auth_ctx(project_id)
-        )
+        await quickstart_chat(_chat_req(model_credential_id=cred_id), db_session, _auth_ctx(project_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "QUICKSTART_BASE_URL_INVALID",
@@ -212,9 +389,7 @@ async def test_quickstart_chat_rejects_unallowlisted_openai_base_url(db_session,
     )
 
     with pytest.raises(AppError) as exc_info:
-        await quickstart_chat(
-            _chat_req(model_credential_id=cred_id), db_session, _auth_ctx(project_id)
-        )
+        await quickstart_chat(_chat_req(model_credential_id=cred_id), db_session, _auth_ctx(project_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "QUICKSTART_BASE_URL_NOT_ALLOWED",

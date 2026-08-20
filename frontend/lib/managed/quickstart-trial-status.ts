@@ -5,7 +5,8 @@ export const QUICKSTART_RUNTIME_PENDING_TIMEOUT_MS = 30_000
 export type QuickstartTrialStatus =
   | 'idle'
   | 'testing'
-  | 'success'
+  | 'response_received'
+  | 'access_rejected'
   | 'error'
   | 'runtime_unavailable'
 
@@ -16,6 +17,8 @@ type QuickstartTrialTask = Pick<
 
 const TERMINAL_ERROR_TASK_STATUSES = new Set(['failed', 'aborted', 'timeout', 'cancelled'])
 const WAITING_TASK_STATUSES = new Set(['pending', 'scheduling'])
+const ACCESS_REJECTION_PATTERN =
+  /access denied|permission denied|not authorized|unauthorized|forbidden|policy (?:denied|rejected)|credential (?:denied|rejected)/i
 
 export function deriveQuickstartTrialStatus({
   isSessionActive,
@@ -30,11 +33,20 @@ export function deriveQuickstartTrialStatus({
 }): QuickstartTrialStatus {
   if (!isSessionActive || !events.some((event) => event.type === 'user.message')) return 'idle'
 
+  if (
+    task &&
+    TERMINAL_ERROR_TASK_STATUSES.has(task.status) &&
+    task.error &&
+    ACCESS_REJECTION_PATTERN.test(task.error)
+  ) {
+    return 'access_rejected'
+  }
+
   if (events.some((event) => event.type === 'session.status_terminated')) return 'error'
 
   const hasAgentMessage = events.some((event) => event.type === 'agent.message')
   const isIdle = events.some((event) => event.type === 'session.status_idle')
-  if (hasAgentMessage && isIdle) return 'success'
+  if (hasAgentMessage && isIdle) return 'response_received'
 
   if (task && TERMINAL_ERROR_TASK_STATUSES.has(task.status)) return 'error'
 

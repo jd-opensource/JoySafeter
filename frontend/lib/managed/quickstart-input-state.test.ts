@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { quickstartInputPlaceholderKey } from './quickstart-input-state'
 
 describe('quickstart input state', () => {
-  it('guides users through engine selection before model configuration', () => {
+  it('lets users describe the target before engine selection, then guides model configuration', () => {
     expect(
       quickstartInputPlaceholderKey({
         selectedEngine: '',
@@ -14,7 +14,7 @@ describe('quickstart input state', () => {
         isStreaming: false,
         readyKey: 'managed.quickstart.describeAgent',
       }),
-    ).toBe('managed.quickstart.selectEngineFirst')
+    ).toBe('managed.quickstart.describeAgent')
 
     expect(
       quickstartInputPlaceholderKey({

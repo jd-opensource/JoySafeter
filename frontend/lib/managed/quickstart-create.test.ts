@@ -58,6 +58,38 @@ describe('buildQuickstartAgentCreateBody', () => {
       tools: [],
     })
   })
+
+  it('persists professional blueprint review metadata as strings', () => {
+    const body = buildQuickstartAgentCreateBody(
+      {
+        name: 'Security Reviewer',
+        description: 'Audits code',
+        system: 'Review code with evidence.',
+        metadata: { owner: 'security' },
+        blueprint: {
+          mission: 'Audit code with evidence',
+          responsibilities: ['Find vulnerabilities'],
+          acceptance_test: {
+            message: 'Review this authentication diff.',
+            checks: ['Includes severity and evidence'],
+          },
+        },
+      },
+      { engineKind: 'claude_code', secretRef: CRED_ID, suffix: '' },
+    )
+
+    expect(body.metadata).toMatchObject({
+      owner: 'security',
+      quickstart_blueprint_version: '1',
+      quickstart_acceptance_message: 'Review this authentication diff.',
+    })
+    expect(
+      JSON.parse((body.metadata as Record<string, string>).quickstart_blueprint),
+    ).toMatchObject({
+      mission: 'Audit code with evidence',
+      responsibilities: ['Find vulnerabilities'],
+    })
+  })
 })
 
 describe('buildQuickstartAgentCreateBody with malformed generated config', () => {

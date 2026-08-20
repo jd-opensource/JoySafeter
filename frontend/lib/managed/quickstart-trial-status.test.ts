@@ -45,7 +45,7 @@ describe('deriveQuickstartTrialStatus', () => {
     ).toBe('testing')
   })
 
-  it('reports success after an agent reply returns idle', () => {
+  it('reports response receipt rather than claiming acceptance success', () => {
     expect(
       deriveQuickstartTrialStatus({
         isSessionActive: true,
@@ -53,7 +53,7 @@ describe('deriveQuickstartTrialStatus', () => {
         task: task('completed', 5_000),
         nowMs: NOW,
       }),
-    ).toBe('success')
+    ).toBe('response_received')
   })
 
   it('gives explicit session termination precedence', () => {
@@ -81,6 +81,20 @@ describe('deriveQuickstartTrialStatus', () => {
     },
   )
 
+  it('distinguishes policy or permission rejection from a runtime error', () => {
+    expect(
+      deriveQuickstartTrialStatus({
+        isSessionActive: true,
+        events: [event('user.message')],
+        task: {
+          ...task('failed', 5_000),
+          error: 'Access denied by execution policy',
+        },
+        nowMs: NOW,
+      }),
+    ).toBe('access_rejected')
+  })
+
   it('keeps a newly pending task in testing', () => {
     expect(
       deriveQuickstartTrialStatus({
@@ -92,17 +106,14 @@ describe('deriveQuickstartTrialStatus', () => {
     ).toBe('testing')
   })
 
-  it.each(['pending', 'scheduling'])(
-    'reports an old %s task as runtime unavailable',
-    (status) => {
-      expect(
-        deriveQuickstartTrialStatus({
-          isSessionActive: true,
-          events: [event('user.message')],
-          task: task(status, QUICKSTART_RUNTIME_PENDING_TIMEOUT_MS),
-          nowMs: NOW,
-        }),
-      ).toBe('runtime_unavailable')
-    },
-  )
+  it.each(['pending', 'scheduling'])('reports an old %s task as runtime unavailable', (status) => {
+    expect(
+      deriveQuickstartTrialStatus({
+        isSessionActive: true,
+        events: [event('user.message')],
+        task: task(status, QUICKSTART_RUNTIME_PENDING_TIMEOUT_MS),
+        nowMs: NOW,
+      }),
+    ).toBe('runtime_unavailable')
+  })
 })

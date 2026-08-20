@@ -24,13 +24,13 @@ const completionCopy = {
     ],
     [
       5,
-      'MCP Credential Vault Configured',
-      'MCP Credential Vault configured! This project-scoped MCP credential vault securely stores MCP server credentials for sessions in the current project.',
+      'MCP Credential Group Configured',
+      'MCP Credential Group configured! This project-scoped MCP credential group securely stores MCP server credentials for sessions in the current project.',
     ],
     [
       6,
       'Session Started',
-      'Session started and the trial run completed successfully. The Agent ran in its selected Environment, and you can continue sending messages and observing its work in real time.',
+      'Session started and a trial response was received. Review the acceptance checks, Transcript, and Debug evidence before treating the Agent as validated.',
     ],
   ],
   zh: [
@@ -46,13 +46,13 @@ const completionCopy = {
     ],
     [
       5,
-      'MCP 凭据库已配置',
-      'MCP 凭据库已配置！这个项目级 MCP 凭据库为当前项目中的会话安全存储 MCP 服务器凭据。',
+      'MCP 凭据组已配置',
+      'MCP 凭据组已配置！这个项目级 MCP 凭据组为当前项目中的会话安全存储 MCP 服务器凭据。',
     ],
     [
       6,
       '会话已启动',
-      '会话已启动，试运行也已成功完成。Agent 已在所选环境中运行，你可以继续发送消息并实时观察其工作。',
+      '会话已启动并收到试运行回复。请核对验收检查项、Transcript 与 Debug 证据，再判断智能体是否通过验证。',
     ],
   ],
 } as const

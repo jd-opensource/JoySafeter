@@ -251,6 +251,29 @@ describe('useQuickstartChat resource creation', () => {
     expect(result.current.messages).toEqual([])
   })
 
+  it('keeps Step 3 refinement actionable after dismissing create confirmation', async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(quickstartAgentConfigResponse()) as typeof fetch
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    await act(async () => {
+      await result.current.sendMessage('make an agent', { stepOverride: 3 })
+    })
+
+    expect(result.current.pendingConfirmation?.step).toBe(3)
+
+    act(() => {
+      result.current.keepRefining()
+    })
+
+    expect(result.current.pendingConfirmation).toBeNull()
+    expect(result.current.messages.at(-1)).toMatchObject({
+      role: 'assistant',
+      content: 'managed.quickstart.refinePrompt.step3',
+    })
+  })
+
   it('keeps template users on engine selection until prerequisites are complete', () => {
     const { result } = renderTestingHook(() => useQuickstartChat(''))
 
@@ -352,6 +375,116 @@ describe('useQuickstartChat resource creation', () => {
     expect(created).toBe(true)
     expect(result.current.resourceIds[5]).toBe(VAULT_ID)
     expect(result.current.completedSteps.has(5)).toBe(true)
+  })
+
+  it('adds an MCP credential member when creating a Quickstart credential group', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      Response.json({
+        success: true,
+        data: { id: VAULT_ID },
+      }),
+    )
+    globalThis.fetch = fetchMock as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    let created: boolean | undefined
+    await act(async () => {
+      created = await result.current.createVault('github-tools', {
+        credential: {
+          name: 'github-mcp',
+          mcpServerUrl: 'https://api.github.com/mcp',
+          tokenValue: 'ghp_secret',
+        },
+      })
+    })
+
+    expect(created).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/credential-groups')
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      name: 'github-tools',
+      initial_members: [
+        {
+          name: 'github-mcp',
+          mcp_server_url: 'https://api.github.com/mcp',
+          data: { token_value: 'ghp_secret' },
+        },
+      ],
+    })
+    expect(result.current.resourceIds[5]).toBe(VAULT_ID)
+    expect(result.current.curls[5]).toContain('initial_members')
+    expect(result.current.curls[5]).toContain('$MCP_TOKEN')
+    expect(result.current.curls[5]).not.toContain('ghp_secret')
+  })
+
+  it('does not mark external tools authorized when atomic credential group creation fails', async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ detail: { code: 'MCP_STATIC_BEARER_TOKEN_REQUIRED' } }, { status: 400 }),
+      ) as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    let created: boolean | undefined
+    await act(async () => {
+      created = await result.current.createVault('github-tools', {
+        credential: {
+          name: 'github-mcp',
+          mcpServerUrl: 'https://api.github.com/mcp',
+          tokenValue: 'bad',
+        },
+      })
+    })
+
+    expect(created).toBe(false)
+    expect(result.current.resourceIds[5]).toBeUndefined()
+    expect(result.current.completedSteps.has(5)).toBe(false)
+    expect(result.current.curls[5]).toBeUndefined()
+    expect(result.current.messages.at(-1)?.content).toContain('API 400')
+  })
+
+  it('reopens a Quickstart step by clearing downstream safety plan resources', async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          success: true,
+          data: { id: ENVIRONMENT_ID },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          success: true,
+          data: { id: VAULT_ID },
+        }),
+      ) as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    act(() => result.current.selectAgentSecret('anthropic-prod'))
+    await act(async () => {
+      await result.current.createEnvironment('limited', ['api.example.com'])
+    })
+    await act(async () => {
+      await result.current.createVault('prod-secrets')
+    })
+
+    expect(result.current.completedSteps.has(1)).toBe(true)
+    expect(result.current.completedSteps.has(2)).toBe(true)
+    expect(result.current.completedSteps.has(4)).toBe(true)
+    expect(result.current.completedSteps.has(5)).toBe(true)
+
+    act(() => result.current.reopenStep(4))
+
+    expect(result.current.currentStep).toBe(4)
+    expect(result.current.completedSteps.has(1)).toBe(true)
+    expect(result.current.completedSteps.has(2)).toBe(true)
+    expect(result.current.completedSteps.has(4)).toBe(false)
+    expect(result.current.completedSteps.has(5)).toBe(false)
+    expect(result.current.resourceIds[4]).toBeUndefined()
+    expect(result.current.resourceIds[5]).toBeUndefined()
   })
 
   it('does not mark an environment created after the hook unmounts', async () => {
@@ -497,6 +630,7 @@ describe('useQuickstartChat resource creation', () => {
 
     expect(result.current.resourceIds[3]).toBe(CREATED_AGENT_ID)
     expect(result.current.createdResourceIds.has(CREATED_AGENT_ID)).toBe(true)
+    expect(result.current.currentStep).toBe(4)
   })
 
   it('requires a session id before marking session creation complete', async () => {
@@ -572,7 +706,7 @@ describe('useQuickstartChat resource creation', () => {
     })
 
     await act(async () => {
-      await result.current.createSession({ environmentId: null, vaultId: null })
+      await result.current.createSession({ environmentId: null, credentialGroupId: null })
     })
 
     const sessionCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/sessions'))
@@ -818,6 +952,68 @@ describe('useQuickstartChat resource creation', () => {
     })
   })
 
+  it('cancels generation without discarding a partial agent blueprint', async () => {
+    const stream = controllableQuickstartResponse()
+    const fetchMock = vi.fn().mockResolvedValueOnce(stream.response)
+    globalThis.fetch = fetchMock as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    let send!: Promise<void>
+    await act(async () => {
+      send = result.current.sendMessage('make a review agent', { stepOverride: 3 })
+      await wait(10)
+      stream.enqueue({
+        type: 'config_update',
+        step: 2,
+        config: {
+          name: 'Review Agent',
+          blueprint: { mission: 'Review changes safely' },
+        },
+      })
+      await wait(10)
+    })
+
+    expect(result.current.generationState.hasPartialConfig).toBe(true)
+
+    await act(async () => {
+      result.current.cancelGeneration()
+      stream.close()
+      await send
+    })
+
+    const signal = fetchMock.mock.calls[0][1]?.signal as AbortSignal
+    expect(signal.aborted).toBe(true)
+    expect(result.current.generationState.status).toBe('cancelled')
+    expect(result.current.config.agent).toMatchObject({
+      name: 'Review Agent',
+      blueprint: { mission: 'Review changes safely' },
+    })
+  })
+
+  it('retries the last failed generation request', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce(quickstartAgentConfigResponse())
+    globalThis.fetch = fetchMock as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    await act(async () => {
+      await result.current.sendMessage('make a research agent', { stepOverride: 3 })
+    })
+    expect(result.current.generationState.status).toBe('error')
+
+    await act(async () => {
+      await result.current.retryGeneration()
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(result.current.generationState.status).toBe('complete')
+    expect(result.current.config.agent).toMatchObject({ name: 'Research Agent' })
+  })
+
   it('does not apply late stream events from the previous managed project', async () => {
     useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
     const stream = controllableQuickstartResponse()
@@ -1059,5 +1255,34 @@ describe('useQuickstartChat resource creation', () => {
     })
 
     expect(generated).toBe('Ask the research agent to compare two papers.')
+  })
+
+  it('prefills the acceptance message from the professional blueprint without another model call', async () => {
+    const fetchMock = vi.fn()
+    globalThis.fetch = fetchMock as typeof fetch
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    act(() => {
+      result.current.applyTemplate({
+        message: 'Create a reviewer',
+        agent: {
+          name: 'Review Agent',
+          blueprint: {
+            acceptance_test: {
+              message: 'Review this authentication change and rank the findings.',
+              checks: ['Ranks findings by severity'],
+            },
+          },
+        },
+      })
+    })
+
+    let generated = ''
+    await act(async () => {
+      generated = await result.current.generateTestMessage()
+    })
+
+    expect(generated).toBe('Review this authentication change and rank the findings.')
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

@@ -1,9 +1,7 @@
 import { parseTaskId } from '@/types/entity-id'
 import type { PaginatedResponse, QuickstartTaskSummary } from '@/types/managed'
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
+import { isRecord } from '@/lib/managed/quickstart-value-coercion'
 
 function requiredString(value: Record<string, unknown>, field: string): string {
   const fieldValue = value[field]

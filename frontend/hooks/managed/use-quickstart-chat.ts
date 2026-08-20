@@ -5,8 +5,14 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { API_BASE, ApiError, apiStream, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourceId } from '@/lib/managed/api-paths'
+import { normalizeQuickstartAllowedHosts } from '@/lib/managed/quickstart-safety-recommendation'
 import { getOperationErrorMessage } from '@/lib/managed/errors'
 import { buildQuickstartAgentCreateBody } from '@/lib/managed/quickstart-create'
+import {
+  inferQuickstartGenerationPhase,
+  type QuickstartGenerationPhase,
+} from '@/lib/managed/quickstart-generation-progress'
+import { normalizeQuickstartAgentBlueprint } from '@/lib/managed/quickstart-agent-blueprint'
 import {
   managedRequestOptions,
   managedScopeKey,
@@ -47,9 +53,34 @@ export interface QuickstartTemplateConfig {
   agent: Record<string, unknown>
 }
 
+export type QuickstartGenerationStatus = 'idle' | 'generating' | 'complete' | 'cancelled' | 'error'
+
+export interface QuickstartGenerationState {
+  status: QuickstartGenerationStatus
+  phase: QuickstartGenerationPhase
+  elapsedSeconds: number
+  hasPartialConfig: boolean
+  errorMessage?: string
+}
+
+interface SendMessageOptions {
+  stepOverride?: StepId
+  hidden?: boolean
+  engineKindOverride?: QuickstartEngine
+  secretRefOverride?: string
+}
+
 interface CreateSessionOptions {
   environmentId?: EnvironmentId | null
-  vaultId?: CredentialGroupId | null
+  credentialGroupId?: CredentialGroupId | null
+}
+
+interface CreateCredentialGroupOptions {
+  credential?: {
+    name?: string
+    mcpServerUrl: string
+    tokenValue: string
+  }
 }
 
 function getCurrentManagedScope() {
@@ -132,7 +163,7 @@ export function useQuickstartChat(agentSecretRef: string) {
   }, [config])
   const [isStreaming, setIsStreaming] = useState(false)
   const [curls, setCurls] = useState<Record<number, string>>({})
-  // resourceIds: { 3: agentId, 4: envId, 5: vaultId, 6: sessionId }
+  // resourceIds: { 3: agentId, 4: envId, 5: credentialGroupId, 6: sessionId }
   const [resourceIds, setResourceIds] = useState<Record<number, string>>({})
   const [createdResourceIds, setCreatedResourceIds] = useState<Set<string>>(new Set())
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
@@ -142,6 +173,18 @@ export function useQuickstartChat(agentSecretRef: string) {
   } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const streamInFlightRef = useRef(false)
+  const userCancelledRef = useRef(false)
+  const generationStartedAtRef = useRef<number | null>(null)
+  const lastGenerationRequestRef = useRef<{
+    text: string
+    options?: SendMessageOptions
+  } | null>(null)
+  const [generationState, setGenerationState] = useState<QuickstartGenerationState>({
+    status: 'idle',
+    phase: 'understanding',
+    elapsedSeconds: 0,
+    hasPartialConfig: false,
+  })
   const [isCreating, setIsCreating] = useState(false)
 
   const resourceIdsRef = useRef(resourceIds)
@@ -174,6 +217,24 @@ export function useQuickstartChat(agentSecretRef: string) {
     messagesRef.current = messages
   }, [messages])
 
+  useEffect(() => {
+    if (generationState.status !== 'generating') return
+    const timer = window.setInterval(() => {
+      const startedAt = generationStartedAtRef.current
+      if (!startedAt) return
+      const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+      setGenerationState((current) => ({
+        ...current,
+        elapsedSeconds,
+        phase: inferQuickstartGenerationPhase({
+          elapsedSeconds,
+          agentConfig: configRef.current.agent,
+        }),
+      }))
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [generationState.status])
+
   useEffect(
     () => () => {
       lifecycleRunRef.current += 1
@@ -193,7 +254,16 @@ export function useQuickstartChat(agentSecretRef: string) {
     abortRef.current?.abort()
     abortRef.current = null
     streamInFlightRef.current = false
+    userCancelledRef.current = false
+    generationStartedAtRef.current = null
+    lastGenerationRequestRef.current = null
     setIsStreaming(false)
+    setGenerationState({
+      status: 'idle',
+      phase: 'understanding',
+      elapsedSeconds: 0,
+      hasPartialConfig: false,
+    })
     setIsCreating(false)
     setMessages((prev) => {
       const updated = [...prev]
@@ -215,15 +285,7 @@ export function useQuickstartChat(agentSecretRef: string) {
   }, [managedScopeKeyValue])
 
   const sendMessage = useCallback(
-    async (
-      text: string,
-      options?: {
-        stepOverride?: StepId
-        hidden?: boolean
-        engineKindOverride?: QuickstartEngine
-        secretRefOverride?: string
-      },
-    ) => {
+    async (text: string, options?: SendMessageOptions) => {
       const trimmedText = text.trim()
       if (streamInFlightRef.current || !trimmedText) return
       const step = options?.stepOverride ?? currentStep
@@ -255,6 +317,19 @@ export function useQuickstartChat(agentSecretRef: string) {
         return
       }
 
+      const tracksAgentGeneration = step === 3
+      if (tracksAgentGeneration) {
+        lastGenerationRequestRef.current = { text: trimmedText, options }
+        userCancelledRef.current = false
+        generationStartedAtRef.current = Date.now()
+        setGenerationState({
+          status: 'generating',
+          phase: 'understanding',
+          elapsedSeconds: 0,
+          hasPartialConfig: Boolean(configRef.current.agent),
+        })
+      }
+
       setMessages((prev) => (hidden ? [...prev, assistantMsg] : [...prev, userMsg, assistantMsg]))
       messagesRef.current = hidden
         ? [...messagesRef.current, assistantMsg]
@@ -283,6 +358,10 @@ export function useQuickstartChat(agentSecretRef: string) {
           { ...managedRequestOptions(requestScope), signal: controller.signal },
         )
 
+        if (tracksAgentGeneration) {
+          setGenerationState((current) => ({ ...current, phase: 'responsibilities' }))
+        }
+
         const reader = response.body!.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
@@ -299,6 +378,9 @@ export function useQuickstartChat(agentSecretRef: string) {
 
             switch (event.type) {
               case 'text_delta':
+                if (tracksAgentGeneration) {
+                  setGenerationState((current) => ({ ...current, phase: 'responsibilities' }))
+                }
                 accumulatedText += event.text || ''
                 setMessages((prev) => {
                   const updated = [...prev]
@@ -321,6 +403,16 @@ export function useQuickstartChat(agentSecretRef: string) {
                     if (event.step === 4) return { ...prev, vault: event.config }
                     return prev
                   })
+                  if (tracksAgentGeneration && event.step === 2) {
+                    setGenerationState((current) => ({
+                      ...current,
+                      phase: inferQuickstartGenerationPhase({
+                        elapsedSeconds: current.elapsedSeconds,
+                        agentConfig: event.config,
+                      }),
+                      hasPartialConfig: true,
+                    }))
+                  }
                 }
                 break
 
@@ -338,6 +430,9 @@ export function useQuickstartChat(agentSecretRef: string) {
                       resourceIdsRef.current = next
                       return next
                     })
+                  }
+                  if (tracksAgentGeneration && event.step === 2) {
+                    setGenerationState((current) => ({ ...current, phase: 'acceptance' }))
                   }
                 }
                 break
@@ -382,6 +477,17 @@ export function useQuickstartChat(agentSecretRef: string) {
           }
         }
       } catch (e) {
+        if (tracksAgentGeneration) {
+          if ((e as Error).name === 'AbortError' && userCancelledRef.current) {
+            setGenerationState((current) => ({ ...current, status: 'cancelled' }))
+          } else if ((e as Error).name !== 'AbortError') {
+            setGenerationState((current) => ({
+              ...current,
+              status: 'error',
+              errorMessage: getOperationErrorMessage(t, e, 'managed.quickstart.errors.chatFailed'),
+            }))
+          }
+        }
         if ((e as Error).name !== 'AbortError' && abortRef.current === controller) {
           setMessages((prev) => {
             const updated = [...prev]
@@ -403,6 +509,12 @@ export function useQuickstartChat(agentSecretRef: string) {
           streamInFlightRef.current = false
           abortRef.current = null
           setIsStreaming(false)
+          if (tracksAgentGeneration) {
+            generationStartedAtRef.current = null
+            setGenerationState((current) =>
+              current.status === 'generating' ? { ...current, status: 'complete' } : current,
+            )
+          }
           setMessages((prev) => {
             const updated = [...prev]
             const last = updated[updated.length - 1]
@@ -417,13 +529,29 @@ export function useQuickstartChat(agentSecretRef: string) {
     [messages, currentStep, selectedEngine, agentSecretRef, isCurrentWritableManagedScope, t],
   )
 
+  const cancelGeneration = useCallback(() => {
+    if (!abortRef.current || !streamInFlightRef.current) return
+    userCancelledRef.current = true
+    setGenerationState((current) => ({ ...current, status: 'cancelled' }))
+    abortRef.current.abort()
+  }, [])
+
+  const retryGeneration = useCallback(async () => {
+    if (streamInFlightRef.current) return
+    const lastRequest = lastGenerationRequestRef.current
+    if (!lastRequest) return
+    await sendMessage(lastRequest.text, lastRequest.options)
+  }, [sendMessage])
+
   const createSession = useCallback(
     async (options: CreateSessionOptions = {}) => {
       const agentId = resourceIdsRef.current[3]
       const envId =
         'environmentId' in options ? options.environmentId || undefined : resourceIdsRef.current[4]
-      const vaultId =
-        'vaultId' in options ? options.vaultId || undefined : resourceIdsRef.current[5]
+      const credentialGroupId =
+        'credentialGroupId' in options
+          ? options.credentialGroupId || undefined
+          : resourceIdsRef.current[5]
       if (!agentId) {
         setMessages((prev) => [
           ...prev,
@@ -444,7 +572,9 @@ export function useQuickstartChat(agentSecretRef: string) {
       try {
         const body: Record<string, unknown> = { agent: apiResourceId(parseAgentId(agentId)) }
         if (envId) body.environment_id = apiResourceId(parseEnvironmentId(envId))
-        if (vaultId) body.credential_group_ids = [apiResourceId(parseCredentialGroupId(vaultId))]
+        if (credentialGroupId) {
+          body.credential_group_ids = [apiResourceId(parseCredentialGroupId(credentialGroupId))]
+        }
 
         const result = await managedPost(
           'sessions',
@@ -503,6 +633,7 @@ export function useQuickstartChat(agentSecretRef: string) {
       setIsCreating(true)
       try {
         const suffix = `-${Date.now().toString(36).slice(-4)}`
+        const normalizedAllowedHosts = normalizeQuickstartAllowedHosts(allowedHosts)
         const envBody = {
           name: `quickstart-env${suffix}`,
           description: '',
@@ -510,7 +641,7 @@ export function useQuickstartChat(agentSecretRef: string) {
             type: 'cloud',
             networking: {
               type: networkType,
-              allowed_hosts: allowedHosts,
+              allowed_hosts: normalizedAllowedHosts,
             },
           },
         }
@@ -568,14 +699,35 @@ export function useQuickstartChat(agentSecretRef: string) {
   )
 
   const createVault = useCallback(
-    async (name: string) => {
+    async (name: string, options: CreateCredentialGroupOptions = {}) => {
       const requestScope = managedRequestScopeRef.current
       const scopeAtStart = requestScope.key
       if (!isCurrentWritableManagedScope(scopeAtStart)) return false
       const lifecycleRunAtStart = lifecycleRunRef.current
       setIsCreating(true)
       try {
-        const vaultBody = { name }
+        const credential = options.credential
+        const initialMembers = credential
+          ? [
+              {
+                name: credential.name?.trim() || credential.mcpServerUrl.trim(),
+                mcp_server_url: credential.mcpServerUrl.trim(),
+                data: { token_value: credential.tokenValue.trim() },
+              },
+            ]
+          : []
+        const vaultBody =
+          initialMembers.length > 0 ? { name, initial_members: initialMembers } : { name }
+        const maskedVaultBody =
+          initialMembers.length > 0
+            ? {
+                ...vaultBody,
+                initial_members: initialMembers.map((member) => ({
+                  ...member,
+                  data: { token_value: '$MCP_TOKEN' },
+                })),
+              }
+            : vaultBody
         const result = await managedPost(
           'credential-groups',
           vaultBody,
@@ -584,21 +736,23 @@ export function useQuickstartChat(agentSecretRef: string) {
           throw toApiStatusError(error)
         })
         if (!isCurrentWritableLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
-        const rawVaultId = getCreatedResourceId(result)
-        if (!rawVaultId) throw new Error(t('managed.quickstart.errors.createVaultFailed'))
-        const vaultId = parseCredentialGroupId(rawVaultId)
+        const rawCredentialGroupId = getCreatedResourceId(result)
+        if (!rawCredentialGroupId) {
+          throw new Error(t('managed.quickstart.errors.createVaultFailed'))
+        }
+        const credentialGroupId = parseCredentialGroupId(rawCredentialGroupId)
 
         setResourceIds((prev) => {
-          const next = { ...prev, [5]: vaultId }
+          const next = { ...prev, [5]: credentialGroupId }
           resourceIdsRef.current = next
           return next
         })
-        setCreatedResourceIds((prev) => new Set([...prev, vaultId]))
+        setCreatedResourceIds((prev) => new Set([...prev, credentialGroupId]))
 
-        const vaultCurl = `curl -X POST ${API_BASE}/credential-groups \\
-  -H "Content-Type: application/json" \\
-  -H "x-api-key: $API_KEY" \\
-  -d '${JSON.stringify(vaultBody, null, 2)}'`
+        const vaultCurl = `curl -X POST ${API_BASE}/credential-groups \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: $API_KEY" \
+  -d '${JSON.stringify(maskedVaultBody, null, 2)}'`
 
         setCompletedSteps((prev) => new Set([...prev, 5]))
         setCurls((prev) => ({ ...prev, [5]: vaultCurl }))
@@ -633,19 +787,23 @@ export function useQuickstartChat(agentSecretRef: string) {
     setCurrentStep(2)
   }, [])
 
-  const selectAgentSecret = useCallback(() => {
-    setCompletedSteps((prev) => new Set([...prev, 2]))
-    setCurrentStep(3)
-    const lastUserMessage = [...messagesRef.current]
-      .reverse()
-      .find((message) => message.role === 'user')
-    if (lastUserMessage?.content && !configRef.current.agent && !isStreaming) {
-      void sendMessage(lastUserMessage.content, {
-        stepOverride: 3,
-        hidden: true,
-      })
-    }
-  }, [isStreaming, sendMessage])
+  const selectAgentSecret = useCallback(
+    (credentialId?: string) => {
+      setCompletedSteps((prev) => new Set([...prev, 2]))
+      setCurrentStep(3)
+      const lastUserMessage = [...messagesRef.current]
+        .reverse()
+        .find((message) => message.role === 'user')
+      if (lastUserMessage?.content && !configRef.current.agent && !isStreaming) {
+        void sendMessage(lastUserMessage.content, {
+          stepOverride: 3,
+          hidden: true,
+          secretRefOverride: credentialId,
+        })
+      }
+    },
+    [isStreaming, sendMessage],
+  )
 
   const applyTemplate = useCallback(
     (template: QuickstartTemplateConfig) => {
@@ -724,7 +882,9 @@ export function useQuickstartChat(agentSecretRef: string) {
               type: 'cloud',
               networking: {
                 type: networking?.type || 'limited',
-                allowed_hosts: (networking?.allowed_hosts as string[]) || [],
+                allowed_hosts: normalizeQuickstartAllowedHosts(
+                  (networking?.allowed_hosts as string[]) || [],
+                ),
               },
             },
           },
@@ -781,6 +941,10 @@ export function useQuickstartChat(agentSecretRef: string) {
       setCompletedSteps((prev) => new Set([...prev, step]))
       setCurls((prev) => ({ ...prev, [step]: curl }))
       setPendingConfirmation(null)
+      if (step >= 3 && step < 6) {
+        const nextStep = Math.min(step + 1, 6) as StepId
+        setCurrentStep(nextStep)
+      }
     } catch (err) {
       if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
       console.error(t('managed.quickstart.errors.createResourceFailed'), err)
@@ -813,8 +977,20 @@ export function useQuickstartChat(agentSecretRef: string) {
   ])
 
   const keepRefining = useCallback(() => {
+    const step = pendingConfirmation?.step
     setPendingConfirmation(null)
-  }, [])
+    if (!step) return
+    const message: ChatMessage = {
+      id: generateUUID(),
+      role: 'assistant',
+      content: t(`managed.quickstart.refinePrompt.step${step}`),
+    }
+    setMessages((prev) => {
+      const next = [...prev, message]
+      messagesRef.current = next
+      return next
+    })
+  }, [pendingConfirmation, t])
 
   const selectExistingEnvironment = useCallback((envId: EnvironmentId) => {
     setResourceIds((prev) => {
@@ -825,9 +1001,9 @@ export function useQuickstartChat(agentSecretRef: string) {
     setCompletedSteps((prev) => new Set([...prev, 4]))
   }, [])
 
-  const selectExistingVault = useCallback((vaultId: CredentialGroupId) => {
+  const selectExistingCredentialGroup = useCallback((credentialGroupId: CredentialGroupId) => {
     setResourceIds((prev) => {
-      const next = { ...prev, [5]: vaultId }
+      const next = { ...prev, [5]: credentialGroupId }
       resourceIdsRef.current = next
       return next
     })
@@ -836,6 +1012,39 @@ export function useQuickstartChat(agentSecretRef: string) {
 
   const goToStep = useCallback((step: StepId) => {
     setCurrentStep(step)
+  }, [])
+
+  const reopenStep = useCallback((step: StepId) => {
+    setCurrentStep(step)
+    setPendingConfirmation(null)
+    setCompletedSteps((prev) => {
+      const next = new Set<number>()
+      for (const completedStep of prev) {
+        if (completedStep < step) next.add(completedStep)
+      }
+      return next
+    })
+    setCurls((prev) => {
+      const next = { ...prev }
+      for (const completedStep of Object.keys(next)) {
+        if (Number(completedStep) >= step) delete next[Number(completedStep)]
+      }
+      return next
+    })
+    setResourceIds((prev) => {
+      const next = { ...prev }
+      for (const resourceStep of Object.keys(next)) {
+        if (Number(resourceStep) >= Math.max(step, 3)) delete next[Number(resourceStep)]
+      }
+      resourceIdsRef.current = next
+      return next
+    })
+    setConfig((prev) => ({
+      ...(step > 3 && prev.agent ? { agent: prev.agent } : {}),
+      ...(step > 4 && prev.environment ? { environment: prev.environment } : {}),
+      ...(step > 5 && prev.vault ? { vault: prev.vault } : {}),
+    }))
+    if (step === 1) setSelectedEngine(null)
   }, [])
 
   const sendAutoIntro = useCallback(
@@ -853,10 +1062,10 @@ export function useQuickstartChat(agentSecretRef: string) {
           { stepOverride: 4, hidden: true },
         )
       } else if (step === 5) {
-        await sendMessage(
-          t('managed.quickstart.autoIntro.mcpCredentialSetQuestion'),
-          { stepOverride: 5, hidden: true },
-        )
+        await sendMessage(t('managed.quickstart.autoIntro.mcpCredentialSetQuestion'), {
+          stepOverride: 5,
+          hidden: true,
+        })
       }
     },
     [sendMessage, t],
@@ -865,6 +1074,8 @@ export function useQuickstartChat(agentSecretRef: string) {
   const generateTestMessage = useCallback(async (): Promise<string> => {
     const agent = configRef.current.agent as Record<string, unknown> | undefined
     const agentName = (agent?.name as string) || 'agent'
+    const acceptanceMessage = normalizeQuickstartAgentBlueprint(agent).acceptanceTest.message
+    if (acceptanceMessage) return acceptanceMessage
     const agentDesc = (agent?.system as string) || ''
     const tools = (agent?.tools as unknown[]) || []
 
@@ -941,6 +1152,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
     selectedEngine,
     config,
     isStreaming,
+    generationState,
     curls,
     resourceIds,
     createdResourceIds,
@@ -948,6 +1160,8 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
     pendingConfirmation,
     isCreating,
     sendMessage,
+    cancelGeneration,
+    retryGeneration,
     applyTemplate,
     selectEngine,
     selectAgentSecret,
@@ -958,8 +1172,9 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
     createEnvironment,
     selectExistingEnvironment,
     createVault,
-    selectExistingVault,
+    selectExistingCredentialGroup,
     goToStep,
+    reopenStep,
     sendAutoIntro,
     generateTestMessage,
   }
