@@ -1177,6 +1177,9 @@ build_image() {
     if [ "$service" = "Rust Orchestrator" ]; then
         build_args+=("--build-arg" "RUST_IMAGE=${RUST_IMAGE}")
         build_args+=("--build-arg" "RUNTIME_IMAGE=${RUNTIME_IMAGE}")
+        # 透传目标 target triple，让 orchestrator-rs-binary.Dockerfile COPY 对应
+        # 架构的预编译二进制（而非写死 x86_64）；$PLATFORMS 此处已是单一平台。
+        build_args+=("--build-arg" "TARGET=$(rust_target_for_platform "$PLATFORMS")")
         log_info "Rust builder 镜像: ${RUST_IMAGE}"
         log_info "Rust runtime 镜像: ${RUNTIME_IMAGE}"
     fi
@@ -1371,6 +1374,22 @@ runtime_runner_target_for() {
     rust_target_for_platform "$1"
 }
 
+# 读取 ELF 文件 e_machine 字段（小端偏移 18 的低字节），映射为架构前缀
+# （x86_64 / aarch64），与 rust target triple 的前缀（${target%%-*}）比较。
+# 用于跨架构复用磁盘上的旧编译产物前做架构校验，避免把 amd64 二进制塞进
+# arm64 镜像（反之亦然）导致运行时 rosetta/exec 失败。无法判定时回显 unknown。
+elf_binary_arch() {
+    local file=$1
+    [ -f "$file" ] || { echo "missing"; return; }
+    local byte
+    byte=$(od -An -tx1 -j 18 -N 1 "$file" 2>/dev/null | tr -d '[:space:]')
+    case "$byte" in
+        3e) echo "x86_64" ;;
+        b7) echo "aarch64" ;;
+        *) echo "unknown" ;;
+    esac
+}
+
 ensure_orchestrator_binary() {
     local platform=$1
     local target
@@ -1378,15 +1397,24 @@ ensure_orchestrator_binary() {
     local output="$PROJECT_ROOT/target/$target/release/joysafeter-orchestrator"
 
     if [ -x "$output" ] && [ "${FORCE_ORCHESTRATOR_REBUILD:-0}" != "1" ]; then
-        local newer_src
-        newer_src=$(find "$PROJECT_ROOT/backend/app/joysafeter_orchestrator_rs" "$PROJECT_ROOT/proto" -type f \
-            \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' -o -name '*.proto' \) \
-            -newer "$output" -print -quit 2>/dev/null)
-        if [ -z "$newer_src" ]; then
-            log_success "orchestrator-rs 二进制已是最新: $output"
-            return
+        # 先校验架构：磁盘产物架构必须匹配目标 target，否则强制重编。仅靠
+        # find -newer 时间戳不足以发现“旧产物是别的架构”这种跨架构复用。
+        local disk_arch expected_arch
+        disk_arch=$(elf_binary_arch "$output")
+        expected_arch="${target%%-*}"
+        if [ "$disk_arch" != "$expected_arch" ]; then
+            log_warning "现有 orchestrator-rs 二进制架构为 ${disk_arch}，与目标 ${expected_arch}(${target}) 不符，强制重新编译"
+        else
+            local newer_src
+            newer_src=$(find "$PROJECT_ROOT/backend/app/joysafeter_orchestrator_rs" "$PROJECT_ROOT/proto" -type f \
+                \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' -o -name '*.proto' \) \
+                -newer "$output" -print -quit 2>/dev/null)
+            if [ -z "$newer_src" ]; then
+                log_success "orchestrator-rs 二进制已是最新: $output"
+                return
+            fi
+            log_info "检测到 orchestrator-rs 源码更新，重新编译二进制"
         fi
-        log_info "检测到 orchestrator-rs 源码更新，重新编译二进制"
     fi
 
     log_info "编译 orchestrator-rs 二进制: $target"
