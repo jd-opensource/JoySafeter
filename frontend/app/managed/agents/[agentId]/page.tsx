@@ -628,12 +628,26 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
 
 function AgentConfig({ agent, versions: apiVersions }: { agent: Agent; versions: AgentVersion[] }) {
   const { t } = useTranslation()
+  const managedScope = useManagedRequestScope()
   const currentVersion = agent.version || 1
   const [selectedVersion, setSelectedVersion] = useState<string>(String(currentVersion))
   const [compareMode, setCompareMode] = useState(false)
   const defaultBase = String(Math.max(1, currentVersion - 1))
   const [baseVersion, setBaseVersion] = useState<string>(defaultBase)
   const [targetVersion, setTargetVersion] = useState<string>(String(currentVersion))
+
+  // When agent.model is empty but a model_credential_id is set (e.g. Native
+  // engine), fetch the linked credential to display its model.
+  const modelCredentialId = agent.model_credential_id
+  const { data: modelCredential } = useQuery({
+    queryKey: ['credential-model', managedScope.key, modelCredentialId],
+    queryFn: () =>
+      managedGet<{ model?: string | null }>(
+        apiResourcePath('credentials', modelCredentialId!),
+        managedRequestOptions(managedScope),
+      ),
+    enabled: !!modelCredentialId && !agent.model?.id && hasManagedRequestScope(managedScope),
+  })
 
   const allVersions: AgentVersion[] = (() => {
     const result: AgentVersion[] = []
@@ -746,7 +760,7 @@ function AgentConfig({ agent, versions: apiVersions }: { agent: Agent; versions:
               {t('managed.agents.model')}
             </h3>
             <p className="font-mono text-sm text-muted-foreground">
-              {selectedAgent.model?.id || '-'}
+              {selectedAgent.model?.id || modelCredential?.model || '-'}
             </p>
           </section>
 

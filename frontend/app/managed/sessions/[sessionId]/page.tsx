@@ -1556,6 +1556,19 @@ function AgentDrawer({
     enabled: !!agentId && hasManagedRequestScope(requestScope),
   })
 
+  // When agent.model is empty but a model_credential_id is set (e.g. Native
+  // engine), fetch the linked credential to display its model.
+  const modelCredentialId = agent?.model_credential_id
+  const { data: modelCredential } = useQuery({
+    queryKey: ['credential-model', queryScope, modelCredentialId],
+    queryFn: () =>
+      managedGet<{ model?: string | null }>(
+        apiResourcePath('credentials', modelCredentialId!),
+        managedRequestOptions(requestScope),
+      ),
+    enabled: !!modelCredentialId && !agent?.model?.id && hasManagedRequestScope(requestScope),
+  })
+
   const rawVersions = versionsData?.data || []
   const currentVersion = agent?.version || session.agent?.version
 
@@ -1679,7 +1692,7 @@ function AgentDrawer({
                   {t('managed.sessions.model')}
                 </h3>
                 <p className="font-mono text-sm text-muted-foreground">
-                  {displayAgent.model?.id || '-'}
+                  {displayAgent.model?.id || modelCredential?.model || '-'}
                 </p>
               </section>
 
