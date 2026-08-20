@@ -292,6 +292,7 @@ export function useQuickstartChat(
     resourceIdsRef.current = {}
     setResourceIds({})
     setCreatedResourceIds(new Set())
+    setSkippedSteps(new Set())
     setCurls((prev) =>
       Object.fromEntries(Object.entries(prev).filter(([step]) => Number(step) < 3)),
     )
@@ -552,7 +553,16 @@ export function useQuickstartChat(
         }
       }
     },
-    [messages, currentStep, selectedEngine, agentSecretRef, isCurrentWritableManagedScope, t],
+    [
+      messages,
+      currentStep,
+      selectedEngine,
+      agentSecretRef,
+      availableSkills,
+      allowedSkillIds,
+      isCurrentWritableManagedScope,
+      t,
+    ],
   )
 
   const cancelGeneration = useCallback(() => {
@@ -863,6 +873,36 @@ export function useQuickstartChat(
     setCurrentStep(nextStep)
   }, [currentStep])
 
+  const skipStep = useCallback((step: 4 | 5) => {
+    setSkippedSteps((current) => new Set([...current, step]))
+    setCompletedSteps((current) => {
+      const next = new Set(current)
+      next.delete(step)
+      return next
+    })
+    setResourceIds((current) => {
+      const next = { ...current }
+      delete next[step]
+      resourceIdsRef.current = next
+      return next
+    })
+    setCurrentStep((current) => Math.min(Math.max(current, step) + 1, 6) as StepId)
+  }, [])
+
+  const setAgentSkills = useCallback(
+    (skillIds: string[]) => {
+      const selectedIds = new Set(skillIds)
+      const skills = availableSkills
+        .filter((skill) => selectedIds.has(skill.id))
+        .map((skill) => ({ type: 'custom', skill_id: skill.id, version: 'latest' }))
+      setConfig((current) => ({
+        ...current,
+        agent: current.agent ? { ...current.agent, skills } : current.agent,
+      }))
+    },
+    [availableSkills],
+  )
+
   const confirmStep = useCallback(async () => {
     if (!pendingConfirmation || isCreating) return
     const { step, curl } = pendingConfirmation
@@ -890,6 +930,7 @@ export function useQuickstartChat(
             engineKind: engine,
             secretRef: agentSecretRef,
             suffix,
+            allowedSkillIds,
           }),
           managedRequestOptions(requestScope),
         ).catch((error) => {
@@ -995,6 +1036,7 @@ export function useQuickstartChat(
     pendingConfirmation,
     isCreating,
     agentSecretRef,
+    allowedSkillIds,
     selectedEngine,
     isCurrentLifecycleRun,
     isCurrentWritableLifecycleRun,
@@ -1025,6 +1067,11 @@ export function useQuickstartChat(
       return next
     })
     setCompletedSteps((prev) => new Set([...prev, 4]))
+    setSkippedSteps((prev) => {
+      const next = new Set(prev)
+      next.delete(4)
+      return next
+    })
   }, [])
 
   const selectExistingCredentialGroup = useCallback((credentialGroupId: CredentialGroupId) => {
@@ -1034,6 +1081,11 @@ export function useQuickstartChat(
       return next
     })
     setCompletedSteps((prev) => new Set([...prev, 5]))
+    setSkippedSteps((prev) => {
+      const next = new Set(prev)
+      next.delete(5)
+      return next
+    })
   }, [])
 
   const goToStep = useCallback((step: StepId) => {
@@ -1047,6 +1099,13 @@ export function useQuickstartChat(
       const next = new Set<number>()
       for (const completedStep of prev) {
         if (completedStep < step) next.add(completedStep)
+      }
+      return next
+    })
+    setSkippedSteps((prev) => {
+      const next = new Set<number>()
+      for (const skippedStep of prev) {
+        if (skippedStep < step) next.add(skippedStep)
       }
       return next
     })
@@ -1183,6 +1242,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
     resourceIds,
     createdResourceIds,
     completedSteps,
+    skippedSteps,
     pendingConfirmation,
     isCreating,
     sendMessage,
@@ -1192,6 +1252,8 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
     selectEngine,
     selectAgentSecret,
     advanceStep,
+    skipStep,
+    setAgentSkills,
     confirmStep,
     keepRefining,
     createSession,
