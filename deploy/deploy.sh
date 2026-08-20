@@ -1347,6 +1347,8 @@ runtime_dockerfile_for() {
         codex:linux/arm64) echo "$SCRIPT_DIR/docker/codex-arm64.Dockerfile" ;;
         native:linux/amd64) echo "$SCRIPT_DIR/docker/native-amd64.Dockerfile" ;;
         native:linux/arm64) echo "$SCRIPT_DIR/docker/native-arm64.Dockerfile" ;;
+        orchestrator:linux/amd64) echo "$SCRIPT_DIR/docker/orchestrator-rs-amd64.Dockerfile" ;;
+        orchestrator:linux/arm64) echo "$SCRIPT_DIR/docker/orchestrator-rs-arm64.Dockerfile" ;;
         *)
             log_error "未找到 $engine 在 $platform 的 Dockerfile"
             exit 1
@@ -1390,6 +1392,39 @@ elf_binary_arch() {
     esac
 }
 
+# Cross-compile a Rust binary on the host with cargo-zigbuild.
+#
+# Replaces the previous `docker run --platform <target> rust:1-bookworm cargo
+# build` approach: under QEMU that emulation is 10-50x slower (crypto crates in
+# particular crawl), whereas zig's cross-linker produces the same linux/gnu
+# binary natively on the host in seconds. Requires `zig`, `cargo-zigbuild`, and
+# `protoc` on the host (checked in check_prerequisites).
+#
+# Args: <crate_dir> <rust_target_triple> <cargo_package_name> [cargo_features]
+# Output lands at <crate_dir>/target/<target>/release/<package>.
+zigbuild_rust_binary() {
+    local crate_dir=$1
+    local target=$2
+    local package=$3
+    local features=${4:-}
+
+    for tool in zig cargo-zigbuild protoc; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            log_error "cargo zigbuild 需要 '$tool'，但未找到。请先安装 (brew install zig protobuf && cargo install cargo-zigbuild)"
+            exit 1
+        fi
+    done
+
+    local feature_args=()
+    if [ -n "$features" ]; then
+        feature_args=(--features "$features")
+    fi
+
+    ( cd "$crate_dir" \
+        && rustup target add "$target" >/dev/null 2>&1 || true \
+        && PROTOC="$(command -v protoc)" cargo zigbuild --release --target "$target" -p "$package" "${feature_args[@]}" )
+}
+
 ensure_orchestrator_binary() {
     local platform=$1
     local target
@@ -1417,15 +1452,10 @@ ensure_orchestrator_binary() {
         fi
     fi
 
-    log_info "编译 orchestrator-rs 二进制: $target"
-    docker run --rm \
-        --platform "$platform" \
-        -v "$PROJECT_ROOT:/workspace" \
-        -v joysafeter-cargo-registry:/usr/local/cargo/registry \
-        -v joysafeter-cargo-git:/usr/local/cargo/git \
-        -w /workspace/backend/app/joysafeter_orchestrator_rs \
-        "$RUST_IMAGE" \
-        bash -lc "export PATH=/usr/local/cargo/bin:\$PATH CARGO_HTTP_TIMEOUT=600 CARGO_HTTP_MULTIPLEXING=false CARGO_NET_RETRY=10 CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 && apt-get update && apt-get install -y --no-install-recommends protobuf-compiler pkg-config libssl-dev ca-certificates && if command -v rustup >/dev/null 2>&1; then rustup target add $target; fi && cargo build --release --target $target && mkdir -p /workspace/target/$target/release && cp target/$target/release/joysafeter-orchestrator /workspace/target/$target/release/joysafeter-orchestrator"
+    log_info "编译 orchestrator-rs 二进制: $target (cargo zigbuild, --features jd-identity)"
+    zigbuild_rust_binary "$PROJECT_ROOT/backend/app/joysafeter_orchestrator_rs" "$target" "joysafeter-orchestrator" "jd-identity"
+    mkdir -p "$PROJECT_ROOT/target/$target/release"
+    cp "$PROJECT_ROOT/backend/app/joysafeter_orchestrator_rs/target/$target/release/joysafeter-orchestrator" "$output"
     chmod +x "$output"
     log_success "orchestrator-rs 二进制编译完成: $output"
 }
@@ -1451,13 +1481,10 @@ ensure_runtime_runner_binary() {
         log_info "检测到 sandbox-runner 源码更新，重新编译 runner"
     fi
 
-    log_info "编译 runner 二进制: $target"
-    docker run --rm \
-        --platform "$platform" \
-        -v "$PROJECT_ROOT:/workspace" \
-        -w /workspace/sandbox-runner \
-        "$RUST_IMAGE" \
-        bash -lc "export PATH=/usr/local/cargo/bin:\$PATH && apt-get update && apt-get install -y --no-install-recommends protobuf-compiler pkg-config && if command -v rustup >/dev/null 2>&1; then rustup target add $target; fi && cargo build --release --target $target -p joysafeter-runner && mkdir -p /workspace/target/$target/release && cp target/$target/release/joysafeter-runner /workspace/target/$target/release/joysafeter-runner"
+    log_info "编译 runner 二进制: $target (cargo zigbuild)"
+    zigbuild_rust_binary "$PROJECT_ROOT/sandbox-runner" "$target" "joysafeter-runner"
+    mkdir -p "$PROJECT_ROOT/target/$target/release"
+    cp "$PROJECT_ROOT/sandbox-runner/target/$target/release/joysafeter-runner" "$output"
     chmod +x "$output"
     log_success "runner 二进制编译完成: $output"
 }
@@ -1640,7 +1667,7 @@ build_all_images() {
         fi
         ensure_orchestrator_binary "$PLATFORMS"
         build_image "Rust Orchestrator" \
-            "$SCRIPT_DIR/docker/orchestrator-rs-binary.Dockerfile" \
+            "$(runtime_dockerfile_for orchestrator "$PLATFORMS")" \
             "$PROJECT_ROOT" \
             "$ORCHESTRATOR_RS_FULL_IMAGE"
         echo ""

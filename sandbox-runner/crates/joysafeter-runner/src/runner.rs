@@ -781,13 +781,11 @@ async fn write_settings_json(
     allowed_tools: &[String],
     ask_tools: &[String],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // ``.claude/settings.json`` is consumed only by the Claude Code CLI. Codex
-    // reads ``~/.codex/config.toml`` (merged separately by the codex runtime
-    // adapter) and the native adapter spawns processes directly without any
-    // config file, so writing this file for them just litters the sandbox
-    // workspace with an inert file that misleads operators (e.g. an empty
-    // ``.claude/`` showing up inside a codex sandbox).
-    if !matches!(provider, "claude" | "claude_code") {
+    // `.claude/settings.json` and project-root `.mcp.json` are consumed by
+    // Claude Code compatible CLIs. Native is JoySafeter's Claude Code fork, so
+    // it must receive the same project MCP config as claudecode. Codex reads
+    // `~/.codex/config.toml` through its own runtime adapter.
+    if !matches!(provider, "claude" | "claude_code" | "native") {
         return Ok(());
     }
     if mcp_servers.is_empty()
@@ -1249,67 +1247,70 @@ mod tests {
 
     #[tokio::test]
     async fn write_settings_json_emits_permissions_and_mcp() {
-        let dir = std::env::temp_dir().join(format!("jsf_test_{}", std::process::id()));
-        let _ = tokio::fs::remove_dir_all(&dir).await;
-        tokio::fs::create_dir_all(&dir).await.unwrap();
+        for provider in ["claude", "native"] {
+            let dir =
+                std::env::temp_dir().join(format!("jsf_test_{}_{}", provider, std::process::id()));
+            let _ = tokio::fs::remove_dir_all(&dir).await;
+            tokio::fs::create_dir_all(&dir).await.unwrap();
 
-        let mcp = vec![proto::McpConfig {
-            name: "github".into(),
-            url: "https://mcp.example.com".into(),
-            server_type: "url".into(),
-            ..Default::default()
-        }];
-        let allowed = vec!["Bash".to_string(), "Read".to_string()];
-        let ask = vec!["mcp__github__*".to_string()];
+            let mcp = vec![proto::McpConfig {
+                name: "github".into(),
+                url: "https://mcp.example.com".into(),
+                server_type: "url".into(),
+                ..Default::default()
+            }];
+            let allowed = vec!["Bash".to_string(), "Read".to_string()];
+            let ask = vec!["mcp__github__*".to_string()];
 
-        write_settings_json(&dir, "claude", &mcp, &[], &allowed, &ask)
-            .await
+            write_settings_json(&dir, provider, &mcp, &[], &allowed, &ask)
+                .await
+                .unwrap();
+
+            // settings.json: permissions (allow/ask) + enableAllProjectMcpServers, NO mcpServers
+            let settings: serde_json::Value = serde_json::from_str(
+                &tokio::fs::read_to_string(dir.join(".claude/settings.json"))
+                    .await
+                    .unwrap(),
+            )
             .unwrap();
+            assert_eq!(
+                settings["permissions"]["allow"],
+                serde_json::json!(["Bash", "Read"])
+            );
+            assert_eq!(
+                settings["permissions"]["ask"],
+                serde_json::json!(["mcp__github__*"])
+            );
+            assert_eq!(
+                settings["enableAllProjectMcpServers"],
+                serde_json::json!(true)
+            );
+            assert!(
+                settings.get("mcpServers").is_none(),
+                "MCP defs must NOT be in settings.json"
+            );
+            assert!(
+                settings["permissions"].get("deny").is_none(),
+                "no deny in official model"
+            );
 
-        // settings.json: permissions (allow/ask) + enableAllProjectMcpServers, NO mcpServers
-        let settings: serde_json::Value = serde_json::from_str(
-            &tokio::fs::read_to_string(dir.join(".claude/settings.json"))
-                .await
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            settings["permissions"]["allow"],
-            serde_json::json!(["Bash", "Read"])
-        );
-        assert_eq!(
-            settings["permissions"]["ask"],
-            serde_json::json!(["mcp__github__*"])
-        );
-        assert_eq!(
-            settings["enableAllProjectMcpServers"],
-            serde_json::json!(true)
-        );
-        assert!(
-            settings.get("mcpServers").is_none(),
-            "MCP defs must NOT be in settings.json"
-        );
-        assert!(
-            settings["permissions"].get("deny").is_none(),
-            "no deny in official model"
-        );
+            // .mcp.json: server definition lives here
+            let mcp_json: serde_json::Value = serde_json::from_str(
+                &tokio::fs::read_to_string(dir.join(".mcp.json"))
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                mcp_json["mcpServers"]["github"]["type"],
+                serde_json::json!("http")
+            );
+            assert_eq!(
+                mcp_json["mcpServers"]["github"]["url"],
+                serde_json::json!("https://mcp.example.com")
+            );
 
-        // .mcp.json: server definition lives here
-        let mcp_json: serde_json::Value = serde_json::from_str(
-            &tokio::fs::read_to_string(dir.join(".mcp.json"))
-                .await
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            mcp_json["mcpServers"]["github"]["type"],
-            serde_json::json!("http")
-        );
-        assert_eq!(
-            mcp_json["mcpServers"]["github"]["url"],
-            serde_json::json!("https://mcp.example.com")
-        );
-
-        let _ = tokio::fs::remove_dir_all(&dir).await;
+            let _ = tokio::fs::remove_dir_all(&dir).await;
+        }
     }
 }

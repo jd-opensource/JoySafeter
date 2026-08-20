@@ -1,4 +1,6 @@
-# Rust orchestrator runtime image using a prebuilt Linux binary.
+# Rust orchestrator runtime image (linux/amd64) using a prebuilt binary.
+# The binary is cross-compiled on the host with cargo-zigbuild (see deploy.sh
+# ensure_orchestrator_binary), then COPYed in — no in-image compilation.
 
 # Rust orchestrator runtime image using a prebuilt Linux binary.
 

@@ -629,6 +629,7 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
 
 function AgentConfig({ agent, versions: apiVersions }: { agent: Agent; versions: AgentVersion[] }) {
   const { t } = useTranslation()
+  const managedScope = useManagedRequestScope()
   const currentVersion = agent.version || 1
   const [selectedVersion, setSelectedVersion] = useState<string>(String(currentVersion))
   const [compareMode, setCompareMode] = useState(false)

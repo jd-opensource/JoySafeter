@@ -17,6 +17,23 @@ use tracing::{info, warn};
 type SharedStdin = Arc<Mutex<Option<tokio::process::ChildStdin>>>;
 const LIVE_INPUT_PREFIX: &str = "__joysafeter_input_v1__:";
 
+fn openai_compatible_protocol(protocol: &str) -> bool {
+    matches!(protocol.trim(), "chat_completions" | "openai_responses")
+}
+
+fn native_requires_openai_provider(input: &HarnessInput) -> bool {
+    input
+        .env
+        .get("JOYSAFETER_MODEL_PROTOCOL")
+        .or_else(|| input.secrets.get("JOYSAFETER_MODEL_PROTOCOL"))
+        .map(|protocol| openai_compatible_protocol(protocol))
+        .unwrap_or_else(|| {
+            std::env::var("JOYSAFETER_MODEL_PROTOCOL")
+                .map(|protocol| openai_compatible_protocol(&protocol))
+                .unwrap_or(false)
+        })
+}
+
 // ---------------------------------------------------------------------------
 // Per-turn state (analogous to codex.rs TurnState)
 // ---------------------------------------------------------------------------
@@ -71,6 +88,12 @@ impl NativeAdapter {
         input.model.hash(&mut hasher);
         input.permission_mode.hash(&mut hasher);
         input.system_prompt.hash(&mut hasher);
+        input.system_prompt_mode.hash(&mut hasher);
+        serde_json::to_string(&input.mcp_configs)
+            .expect("MCP configs must serialize for process fingerprint")
+            .hash(&mut hasher);
+        input.allowed_tools.hash(&mut hasher);
+        input.ask_tools.hash(&mut hasher);
         let mut env_keys: Vec<_> = input.env.keys().collect();
         env_keys.sort();
         for k in &env_keys {
@@ -152,6 +175,18 @@ impl NativeAdapter {
             args.extend([flag.to_string(), system_prompt.clone()]);
         }
 
+        // Native runs JoySafeter's Claude Code fork (`ccb`), so it loads MCP
+        // the same way as claudecode: use the project-root file written by the
+        // runner and make it the only MCP source for this sandbox.
+        let mcp_config_path = cwd.join(".mcp.json");
+        if mcp_config_path.exists() {
+            args.extend([
+                "--mcp-config".to_string(),
+                mcp_config_path.to_string_lossy().into_owned(),
+                "--strict-mcp-config".to_string(),
+            ]);
+        }
+
         let mut cmd = Command::new("ccb");
         cmd.args(&args)
             .current_dir(cwd)
@@ -165,6 +200,15 @@ impl NativeAdapter {
         }
         for (k, v) in &input.secrets {
             cmd.env(k, v);
+        }
+        // JoySafeter controls sandbox egress. Claude Code forks can start
+        // Anthropic first-party background HTTPS requests before the model call;
+        // disable all nonessential traffic at process launch so pooled sandbox
+        // container env cannot leak those requests through the HTTP-only bridge.
+        cmd.env("DISABLE_TELEMETRY", "1")
+            .env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
+        if native_requires_openai_provider(input) {
+            cmd.env("CLAUDE_CODE_USE_OPENAI", "1");
         }
 
         let mut child = cmd
@@ -889,6 +933,53 @@ mod tests {
         );
     }
 
+    fn harness_input_with_env(
+        env: HashMap<String, String>,
+        secrets: HashMap<String, String>,
+    ) -> HarnessInput {
+        HarnessInput {
+            prompt: "hello".into(),
+            system_prompt: None,
+            system_prompt_mode: "append".into(),
+            session_id: None,
+            model: Some("opus".into()),
+            max_turns: None,
+            timeout: Duration::from_secs(60),
+            env,
+            secrets,
+            mcp_configs: vec![],
+            permission_mode: "bypassPermissions".into(),
+            allowed_tools: vec![],
+            ask_tools: vec![],
+        }
+    }
+
+    #[test]
+    fn openai_compatible_protocol_requires_openai_provider() {
+        let input = harness_input_with_env(
+            HashMap::from([(
+                "JOYSAFETER_MODEL_PROTOCOL".into(),
+                "openai_responses".into(),
+            )]),
+            HashMap::new(),
+        );
+
+        assert!(native_requires_openai_provider(&input));
+    }
+
+    #[test]
+    fn anthropic_protocol_does_not_require_openai_provider() {
+        let input = harness_input_with_env(
+            HashMap::from([(
+                "JOYSAFETER_MODEL_PROTOCOL".into(),
+                "anthropic_messages".into(),
+            )]),
+            HashMap::new(),
+        );
+
+        assert!(!native_requires_openai_provider(&input));
+    }
+
     #[test]
     fn compute_fingerprint_is_stable() {
         let input = HarnessInput {
@@ -968,6 +1059,37 @@ mod tests {
         };
         let input2 = HarnessInput {
             model: Some("sonnet".into()),
+            ..input1.clone()
+        };
+        assert_ne!(
+            NativeAdapter::compute_fingerprint(&input1),
+            NativeAdapter::compute_fingerprint(&input2)
+        );
+    }
+
+    #[test]
+    fn compute_fingerprint_differs_on_mcp_and_tool_config_change() {
+        let input1 = HarnessInput {
+            prompt: "hello".into(),
+            system_prompt: None,
+            system_prompt_mode: "append".into(),
+            session_id: None,
+            model: Some("opus".into()),
+            max_turns: None,
+            timeout: Duration::from_secs(60),
+            env: HashMap::new(),
+            secrets: HashMap::new(),
+            mcp_configs: vec![],
+            permission_mode: "bypassPermissions".into(),
+            allowed_tools: vec!["Read".into()],
+            ask_tools: vec![],
+        };
+        let input2 = HarnessInput {
+            mcp_configs: vec![joysafeter_types::agent::McpServerConfig::Url {
+                name: "legal-knowledge".into(),
+                url: "https://ai-legal-test.jd.com/legal-mcp/mcp".into(),
+            }],
+            allowed_tools: vec!["Read".into(), "mcp__legal-knowledge__*".into()],
             ..input1.clone()
         };
         assert_ne!(

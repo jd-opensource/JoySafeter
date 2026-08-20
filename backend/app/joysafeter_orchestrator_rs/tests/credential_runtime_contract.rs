@@ -236,7 +236,7 @@ async fn build_harness_error(pool: &PgPool, task_id: TaskId) -> anyhow::Error {
         .await
         .expect("load task fixture")
         .expect("task fixture exists");
-    HarnessInputBuilder::new(pool.clone())
+    HarnessInputBuilder::new(pool.clone(), false)
         .build(
             &task,
             "runtime-contract",

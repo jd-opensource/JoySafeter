@@ -195,6 +195,13 @@ fn apply_sandbox_timezone(env: &mut HashMap<String, String>, platform_timezone: 
     }
 }
 
+fn apply_claude_code_sandbox_privacy(env: &mut HashMap<String, String>) {
+    env.entry("DISABLE_TELEMETRY".to_string())
+        .or_insert_with(|| "1".to_string());
+    env.entry("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_string())
+        .or_insert_with(|| "1".to_string());
+}
+
 /// 3-stage sandbox resolution with full Python parity:
 /// 1. Reuse existing active sandbox for the session (with fingerprint check)
 /// 1b. Restart stopped sandbox for the session
@@ -713,10 +720,7 @@ impl SandboxResolver {
             sandbox_db_id.as_uuid().to_string(),
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
-        // Disable Claude Code telemetry — the sandbox has no route to
-        // api.anthropic.com and telemetry attempts just produce NR 404 noise.
-        env.entry("DISABLE_TELEMETRY".to_string())
-            .or_insert_with(|| "1".to_string());
+        apply_claude_code_sandbox_privacy(&mut env);
         if !self.config.sandbox_timezone.trim().is_empty() {
             env.entry("TZ".to_string())
                 .or_insert_with(|| self.config.sandbox_timezone.clone());
@@ -2262,11 +2266,15 @@ impl SandboxResolver {
             // ccb only routes to a non-Anthropic provider when the matching
             // CLAUDE_CODE_USE_* switch is set; the egress-repointed base URL and
             // placeholder key are otherwise ignored and the native harness falls
-            // back to the Anthropic /login gate ("Not logged in").
-            if let Some(protocol) = record.protocol.as_deref() {
-                if let Some(switch) = model_protocol_provider_switch(protocol) {
-                    if override_existing || !env.contains_key(switch) {
-                        env.insert(switch.to_string(), "1".to_string());
+            // back to the Anthropic /login gate ("Not logged in"). Only the native
+            // ccb harness reads CLAUDE_CODE_USE_*; other engines (codex, pi) handle
+            // OpenAI-compatible providers natively and must not get the switch.
+            if engine_kind == "native" {
+                if let Some(protocol) = record.protocol.as_deref() {
+                    if let Some(switch) = model_protocol_provider_switch(protocol) {
+                        if override_existing || !env.contains_key(switch) {
+                            env.insert(switch.to_string(), "1".to_string());
+                        }
                     }
                 }
             }
@@ -2491,6 +2499,7 @@ impl SandboxResolver {
             sandbox_db_id.as_uuid().to_string(),
         );
         env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
+        apply_claude_code_sandbox_privacy(&mut env);
         if !self.config.sandbox_timezone.trim().is_empty() {
             env.insert("TZ".to_string(), self.config.sandbox_timezone.clone());
         }
@@ -3691,6 +3700,41 @@ mod egress_tests {
     }
 
     #[test]
+    fn claude_code_sandbox_privacy_defaults_without_overriding_environment() {
+        let mut default_env = HashMap::new();
+        apply_claude_code_sandbox_privacy(&mut default_env);
+        assert_eq!(
+            default_env.get("DISABLE_TELEMETRY").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            default_env
+                .get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")
+                .map(String::as_str),
+            Some("1")
+        );
+
+        let mut explicit_env = HashMap::from([
+            ("DISABLE_TELEMETRY".to_string(), "0".to_string()),
+            (
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_string(),
+                "0".to_string(),
+            ),
+        ]);
+        apply_claude_code_sandbox_privacy(&mut explicit_env);
+        assert_eq!(
+            explicit_env.get("DISABLE_TELEMETRY").map(String::as_str),
+            Some("0")
+        );
+        assert_eq!(
+            explicit_env
+                .get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")
+                .map(String::as_str),
+            Some("0")
+        );
+    }
+
+    #[test]
     fn runtime_fingerprint_ignores_egress_policy_hash_only() {
         let expected = expected_fingerprint("new-policy");
         let mut stored = expected_fingerprint("old-policy").to_json();
@@ -4666,6 +4710,17 @@ mod egress_tests {
             assert_eq!(
                 created[0].env.get("JOYSAFETER_SANDBOX_ID"),
                 Some(&sandbox_id.as_uuid().to_string())
+            );
+            assert_eq!(
+                created[0].env.get("DISABLE_TELEMETRY").map(String::as_str),
+                Some("1")
+            );
+            assert_eq!(
+                created[0]
+                    .env
+                    .get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")
+                    .map(String::as_str),
+                Some("1")
             );
         }
         .await;

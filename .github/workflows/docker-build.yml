@@ -19,11 +19,113 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  # Cross-compile the Rust binaries once with cargo-zigbuild (host-native, no
+  # QEMU), for both architectures. Runtime images just COPY these in.
+  rust-binaries:
+    name: Cross-compile Rust binaries (zigbuild)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install protoc + zig + cargo-zigbuild
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler
+          cargo install cargo-zigbuild --locked
+          pip install ziglang
+          rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
+
+      - name: Build runner (amd64 + arm64)
+        working-directory: sandbox-runner
+        run: |
+          set -euo pipefail
+          PROTOC="$(command -v protoc)" cargo zigbuild --release -p joysafeter-runner \
+            --target x86_64-unknown-linux-gnu --target aarch64-unknown-linux-gnu
+
+      - name: Build orchestrator (amd64 + arm64, jd-identity)
+        working-directory: backend/app/joysafeter_orchestrator_rs
+        run: |
+          set -euo pipefail
+          PROTOC="$(command -v protoc)" cargo zigbuild --release -p joysafeter-orchestrator \
+            --features jd-identity \
+            --target x86_64-unknown-linux-gnu --target aarch64-unknown-linux-gnu
+
+      - name: Stage binaries into repo-root target/ tree
+        run: |
+          set -euo pipefail
+          for triple in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            mkdir -p "target/${triple}/release"
+            cp "sandbox-runner/target/${triple}/release/joysafeter-runner" "target/${triple}/release/"
+            cp "backend/app/joysafeter_orchestrator_rs/target/${triple}/release/joysafeter-orchestrator" "target/${triple}/release/"
+          done
+
+      - name: Upload Rust binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-binaries
+          path: |
+            target/x86_64-unknown-linux-gnu/release/joysafeter-runner
+            target/x86_64-unknown-linux-gnu/release/joysafeter-orchestrator
+            target/aarch64-unknown-linux-gnu/release/joysafeter-runner
+            target/aarch64-unknown-linux-gnu/release/joysafeter-orchestrator
+          if-no-files-found: error
+
+  # Images whose only Rust content is a prebuilt binary: build one single-arch
+  # image per architecture from the -<arch> Dockerfile that COPYs the binary.
+  build-rust:
+    name: Build ${{ matrix.image.name }} (${{ matrix.arch }})
+    needs: rust-binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        image:
+          - name: joysafeter-orchestrator-rs
+            file_prefix: orchestrator-rs
+          - name: joysafeter-claudecode
+            file_prefix: claudecode
+          - name: joysafeter-codex
+            file_prefix: codex
+          - name: joysafeter-pi
+            file_prefix: pi
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Download Rust binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-binaries
+          path: target
+
+      - name: Restore binary permissions
+        run: chmod +x target/*/release/joysafeter-* || true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./deploy/docker/${{ matrix.image.file_prefix }}-${{ matrix.arch }}.Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            GIT_COMMIT_SHA=${{ github.sha }}
+
+  # Images built entirely inside Docker (no prebuilt Rust binary): keep the
+  # multi-arch buildx path.
+  build-nonrust:
     name: Build ${{ matrix.image.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
-
     strategy:
       fail-fast: false
       matrix:
@@ -38,32 +140,11 @@ jobs:
             dockerfile: ./deploy/docker/frontend.Dockerfile
             skillspector: false
             build_contexts: ''
-          - name: joysafeter-orchestrator-rs
-            context: .
-            dockerfile: ./deploy/docker/orchestrator-rs.Dockerfile
-            skillspector: false
-            build_contexts: ''
           - name: joysafeter-skillspector
             context: ./backend/joysafeter_skillspector
             dockerfile: ./deploy/docker/skillspector-service.Dockerfile
             skillspector: true
             build_contexts: skillspector=./.deps/SkillSpector
-          - name: joysafeter-claudecode
-            context: .
-            dockerfile: ./deploy/docker/claudecode.Dockerfile
-            skillspector: false
-            build_contexts: ''
-          - name: joysafeter-codex
-            context: .
-            dockerfile: ./deploy/docker/codex.Dockerfile
-            skillspector: false
-            build_contexts: ''
-          - name: joysafeter-pi
-            context: .
-            dockerfile: ./deploy/docker/pi.Dockerfile
-            skillspector: false
-            build_contexts: ''
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
