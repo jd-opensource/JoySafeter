@@ -69,8 +69,8 @@ def recompute_visibility_from_pointers(skill: "JoySafeterSkill") -> str:
     Returns the highest tier still backed by a non-null version pointer:
     ``public`` when ``public_version_id`` is set, else ``organization`` when
     ``org_version_id`` is set, else ``project`` (the floor). Used by the
-    promotion takedown path and the rescan auto-demote so a cleared pointer
-    always drops the exposed visibility rather than leaving it stale.
+    promotion takedown path so a cleared pointer always drops the exposed
+    visibility rather than leaving it stale.
     """
     if getattr(skill, "public_version_id", None) is not None:
         return JoySafeterSkillVisibility.PUBLIC.value
@@ -90,9 +90,8 @@ class JoySafeterSkillLifecycleStatus(str, enum.Enum):
       approved        -> archived
       archived        -> approved        (un-archive)
 
-    Other transitions are rejected with ``InvalidRequestError``. The
-    runtime gate (``skill_runtime_policy.is_skill_usable``) only loads
-    skills in ``approved``.
+    Other transitions are rejected with ``InvalidRequestError``. Publishing
+    requires ``approved``; already-published versions remain independently usable.
     """
 
     DRAFT = "draft"
@@ -105,15 +104,13 @@ class JoySafeterSkillLifecycleStatus(str, enum.Enum):
 class JoySafeterSkillSecurityStatus(str, enum.Enum):
     """Result of the most recent security scan on a skill.
 
-    Single source of the security-status vocabulary (previously scattered as
-    string literals across the scan service, the runtime gate, and the worker).
-    Orthogonal to ``JoySafeterSkillLifecycleStatus`` — a skill can be
-    ``approved`` (lifecycle) yet ``blocked`` (security), or vice versa.
+    Single source of the security-status vocabulary. Orthogonal to
+    ``JoySafeterSkillLifecycleStatus`` — a skill can be ``approved``
+    (lifecycle) yet ``blocked`` (security), or vice versa.
 
       not_scanned -> scanning -> {passed | warning | failed | blocked}
 
-    The runtime gate (``is_skill_usable``) admits only ``passed``/``warning``;
-    ``failed``/``blocked`` auto-demote the skill.
+    Status is informational unless publish-time enforcement is enabled.
     """
 
     NOT_SCANNED = "not_scanned"
@@ -179,9 +176,8 @@ class JoySafeterSkill(BaseModel):
     security_high_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     security_medium_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     security_low_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    # Lifecycle gate, independent of security verdict. The runtime loader
-    # only accepts ``approved``. New skills start in ``draft`` so the owner
-    # has a chance to scan and verify before letting agents pick them up.
+    # Lifecycle gate for publication, independent of security verdict. New
+    # skills start in ``draft`` and must be approved before publishing.
     lifecycle_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=JoySafeterSkillLifecycleStatus.DRAFT.value
     )
@@ -224,7 +220,6 @@ class JoySafeterSkill(BaseModel):
     # off the ORM mapper while making ``getattr(skill, "latest_version")``
     # safe even on rows that were never passed through the attach step.
     latest_version: ClassVar[Optional[str]] = None
-    runtime_eligibility: ClassVar[Optional[dict[str, Any]]] = None
     impact: ClassVar[Optional[dict[str, Any]]] = None
 
     __table_args__ = (
@@ -402,14 +397,11 @@ class JoySafeterSkillVersion(BaseModel):
         nullable=False,
     )
 
-    # P2 — version-level security + lifecycle. ``security_scan_id``
-    # binds the version to the exact scan that signed off on its
-    # content; ``target_hash`` mirrors that scan's hash so the runtime
-    # drift gate can reject a version whose snapshot somehow no longer
-    # matches the recorded scan. ``lifecycle_status`` is independent
-    # of the parent skill's status — a published version stays approved
-    # even after the owner archives the parent skill, until the
-    # version itself is explicitly archived.
+    # Optional publish-scan audit metadata. When enforcement is enabled,
+    # ``security_scan_id`` and ``target_hash`` bind the version to the exact
+    # scan of its immutable snapshot. Runtime does not re-evaluate the parent
+    # Skill's later scan state. ``lifecycle_status`` is independent of the
+    # parent skill's status.
     security_scan_id: Mapped[Optional[SkillSecurityScanId]] = mapped_column(
         EntityIdType(SkillSecurityScanId),
         ForeignKey("joysafeter_skill_security_scans.id", ondelete="SET NULL"),

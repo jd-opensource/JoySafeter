@@ -48,29 +48,11 @@ const declarationFile = /\.d\.[cm]?ts$/
 const sourceFilePattern = /\.[cm]?tsx?$/
 
 const skillEligibilityLeaves = [
-  ...[
-    'skillNotApproved',
-    'securityNotScanned',
-    'securityScanning',
-    'securityFailed',
-    'securityBlocked',
-    'noSecurityScanHash',
-    'contentChangedAfterScan',
-    'noPublishedVersion',
-    'runtimeNotReady',
-    'unknown',
-  ].flatMap((slug) => [
+  ...['noPublishedVersion', 'unknown'].flatMap((slug) => [
     `managed.skills.eligibility.title.${slug}`,
     `managed.skills.eligibility.short.${slug}`,
   ]),
-  ...[
-    'submit_or_approve',
-    'run_security_scan',
-    'fix_and_rescan',
-    'wait_for_scan',
-    'review_skill',
-    'none',
-  ].map((slug) => `managed.skills.eligibility.action.${slug}`),
+  ...['publish_version', 'none'].map((slug) => `managed.skills.eligibility.action.${slug}`),
 ]
 
 const fixedFiniteFamilies = {

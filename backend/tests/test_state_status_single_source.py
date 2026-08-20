@@ -8,9 +8,9 @@ service literals. Nothing but discipline keeps them aligned; these tests turn
 a silent drift into a failing check.
 
 Two families:
-  #1  Skill ``security_status`` is now single-sourced by the
-      ``JoySafeterSkillSecurityStatus`` enum; the runtime/auto-demote policy
-      sets must derive from it.
+  #1  Skill ``security_status`` is single-sourced by the
+      ``JoySafeterSkillSecurityStatus`` enum with no hidden runtime or
+      auto-demotion policy sets.
   #2  The task terminal-status set and its active-task complement are
       re-typed as SQL literals in the Rust orchestrator; they must match the
       Python ``JoySafeterTaskStatus`` enum. The sandbox status vocabulary must
@@ -63,17 +63,9 @@ def test_skill_security_status_enum_is_the_vocabulary():
     }
 
 
-def test_skill_security_policy_sets_derive_from_the_enum():
-    # The runtime-admission and auto-demote policy sets are the drift-dangerous
-    # consumers of the vocabulary; pin them to the enum so a future rename can't
-    # silently desync policy from the status values written to the DB.
-    S = JoySafeterSkillSecurityStatus
-    assert skill_security._RUNTIME_ALLOWED_SECURITY_STATUSES == frozenset({S.PASSED.value, S.WARNING.value})
-    assert skill_security._AUTO_DEMOTE_SCAN_STATUSES == frozenset({S.FAILED.value, S.BLOCKED.value})
-    # The two policy sets must partition into the enum (no stray value).
-    assert (skill_security._RUNTIME_ALLOWED_SECURITY_STATUSES | skill_security._AUTO_DEMOTE_SCAN_STATUSES) <= {
-        s.value for s in S
-    }
+def test_skill_security_status_has_no_runtime_or_auto_demote_policy_sets():
+    assert not hasattr(skill_security, "_RUNTIME_ALLOWED_SECURITY_STATUSES")
+    assert not hasattr(skill_security, "_AUTO_DEMOTE_SCAN_STATUSES")
 
 
 # ── #2  Task status set: Python enum ↔ Rust SQL literals ─────────────────

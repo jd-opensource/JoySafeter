@@ -521,12 +521,6 @@ export type PromotableTier = Exclude<SkillVisibility, 'project'>
 
 export type SkillLifecycleStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'archived'
 
-export interface SkillRuntimeEligibility {
-  usable: boolean
-  reason: string | null
-  next_action: string
-}
-
 export interface SkillImpactSummary {
   counts: {
     agents: number
@@ -567,7 +561,6 @@ export interface SkillRecord {
   created_at: string
   updated_at: string
   security_scan?: SkillSecurityScanSummary
-  runtime_eligibility?: SkillRuntimeEligibility | null
   impact?: SkillImpactSummary | null
 }
 

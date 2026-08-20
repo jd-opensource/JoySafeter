@@ -98,7 +98,7 @@ flowchart TB
 | **PostgreSQL** | `db` | — | 所有状态的权威存储 |
 | **Redis** | `redis`（profile `local-redis`）或外部 | — | 事件 Streams、Pub/Sub 扇出、任务队列、协调 |
 | **Envoy** | `joysafeter-envoy` | — | 代理每个沙箱的 unix socket；强制每沙箱出口白名单 |
-| **skillspector** | `skillspector` | — | 独立的技能安全扫描服务；运行时闸门对不可用扫描状态 fail-closed |
+| **skillspector** | `skillspector` | — | 独立的技能安全扫描服务；默认仅提示风险，可选只在发布版本时强制 |
 | **db-init** | `db-init`（profile `init`） | — | 一次性 Alembic 迁移 |
 
 当前支持的本地栈使用部署脚本：
@@ -115,7 +115,7 @@ flowchart TB
 | Rust orchestrator | 调度、任务租约、沙箱生命周期、runner gRPC、控制命令 ACK、事件发射 | DB pending 任务、Redis 唤醒/命令、runner gRPC 流 | task/sandbox/session 状态、Redis Stream 事件、Redis Pub/Sub 广播 | 承载产品 REST API、拥有浏览器鉴权、作为主路径批量持久化事件日志 |
 | 沙箱 runner | 容器内 harness 执行、工具/MCP 调用、沙箱内 memory/file sync | gRPC `SetupSandbox` / `StartTask`、注入的 env/secrets/files | gRPC runner 事件/结果、memory sync 消息 | 直连宿主网络、修改平台 DB/Redis、绕过 Envoy 出站策略 |
 | Worker | 可靠事件持久化、`seq` 分配、Redis Stream 恢复/重投 | Redis Stream 消费组 | `joysafeter_session_events`、DB 写入后再发布 Pub/Sub | 调度任务、创建沙箱、暴露用户 API |
-| SkillSpector | 静态 Skill 安全扫描服务 | API/domain service 发送的 Skill 内容 | 供 Skill 领域逻辑消费的扫描 verdict | 自行决定运行时打包；运行时闸门仍在 JoySafeter Skill 逻辑中 |
+| SkillSpector | 静态 Skill 安全扫描服务 | API/domain service 发送的 Skill 内容 | 风险提示与可选发布时强制 verdict | 决定运行时打包或使已发布版本失效 |
 | PostgreSQL | 领域状态、task/session/sandbox FSM、事件日志的权威存储 | API/orchestrator/worker/db-init 写入 | 持久化行 | 充当队列或实时扇出总线 |
 | Redis | 唤醒、Streams、Pub/Sub、命令中继、ownership/heartbeat 协调 | API/orchestrator/worker 的 list/stream/pubsub 流量 | 临时消息与可靠 Stream 消息 | 被当作调度权威；pending task 行仍以 Postgres 为准 |
 
@@ -128,7 +128,7 @@ flowchart TB
 | 沙箱一直未 ready | Orchestrator + Docker 宿主机 | Docker socket 挂载、sandbox 镜像、workspace volume、runner `RunnerReady` 超时 |
 | Agent 在跑但浏览器收不到实时事件 | API SSE bridge + Redis Pub/Sub | API `SessionBroadcaster`、Redis Pub/Sub、浏览器 `?after_seq` 回放 |
 | 实时能看到事件但刷新后消失 | Worker | Redis Stream pending、worker 日志、Postgres 插入错误、advisory lock 竞争 |
-| Skill 运行时不可用 | Skill domain + SkillSpector | 扫描状态、审批状态、内容漂移、`SKILL_SECURITY_*` 配置 |
+| Skill 运行时不可用 | Skill domain | 引用版本是否存在、版本文件是否完整 |
 | 沙箱无法访问模型/MCP/目标 | Envoy + orchestrator 沙箱配置 | allowlist、Envoy 配置文件、`JOYSAFETER_GRPC_PUBLIC_URL`、目标 DNS/网络策略 |
 
 ---
@@ -209,7 +209,7 @@ sequenceDiagram
 | 控制/取消中继 | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | 把 cancel/input/shutdown 路由到拥有该沙箱的实例 | `joysafeter_shared/orchestrator_bridge/runtime_commands.py`、`joysafeter_orchestrator_rs/src/kernel/command_listener.rs` |
 | orchestrator ↔ runner | **gRPC** `AgentBridge`（双向流，:9090） | Agent 执行协议 | `proto/joysafeter.proto`、`joysafeter_orchestrator_rs/src/grpc/server.rs` |
 | runner 出口 | Envoy 代理（unix socket） | 每沙箱域名白名单，默认全拒 | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
-| 技能扫描 | HTTP → skillspector `:8010` | 技能写入时安全扫描；运行时拦截 failed/scanning/unscanned/blocked 技能 | `joysafeter_skill_security.py` |
+| 技能扫描 | HTTP → skillspector `:8010` | 写入时信息扫描；可选仅在发布时执行新的 fail-closed 扫描 | `joysafeter_skill_security.py` |
 
 **API ↔ orchestrator 走 Redis，而非直接 gRPC。** Python API/worker 进程不再导入已删除的 Python
 orchestrator 包。它们只通过 `joysafeter_shared.orchestrator_bridge` 使用轻量 API 侧 helper 和测试 seam；
@@ -400,8 +400,8 @@ runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`�
 | **Sandbox** | `JoySafeterSandbox` | `creating → provisioning → pooled → idle ↔ running → stopping → stopped / error → destroyed` | `destroyed` |
 | **技能生命周期** | `JoySafeterSkill` | `draft → pending_review → {approved, rejected}`、`approved → archived`、reopen/unarchive 边 | — |
 
-技能 FSM 之上还有**运行时闸门**：`is_skill_usable()` 仅当技能为 `approved`、其 `security_status` 在白名单、
-**且**内容哈希与上次扫描一致（漂移检测）时才把它纳入会话包。不合规或漂移的技能会被静默丢弃。
+发布版本要求当前 Skill 为 `approved`。版本发布后，Agent 引用、运行时打包和晋级只依赖不可变的已发布
+版本，不再回查父 Skill 后续的生命周期或扫描状态。
 
 ---
 
@@ -488,10 +488,16 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
 2. **权限闸门**（`joysafeter_shared/common/skill_permissions.py`）——四级可见性
    （private/project/organization/public）+ 严格 active-org 隔离。
 3. **安全扫描**（`joysafeter_domain/.../joysafeter_skill_security.py` → **skillspector** 服务）——
-   扫描器失败会记录 failed/scanning 状态，拦截 `DO_NOT_INSTALL` 建议，规范 sha256 用于漂移检测。
-4. **打包与投递**——Rust orchestrator 的 `HarnessInputBuilder` 在任务启动时解析已发布版本，执行
-   `ensure_skill_runtime_ready` 闸门，从版本文件现场生成 `tar.gz` `SkillArchive` 并记录用量；归档随后
-   注入沙箱，由 runner 解包。无可用版本或闸门失败会终止输入构建，不会静默降级。
+   默认记录风险和规范 sha256；当 `SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED=true` 时，仅在发布版本时
+   对同一份快照执行新的 fail-closed 扫描，默认值为 `false`。
+4. **打包与投递**——Rust orchestrator 的 `HarnessInputBuilder` 在任务启动时解析已发布版本，从不可变
+   版本文件现场生成 `tar.gz` `SkillArchive` 并记录用量；归档随后注入沙箱，由 runner 解包。无可用版本
+   会终止输入构建，不会静默降级。
+
+版本暴露在所有边界统一按层级解析：同项目 Agent 可使用任意已发布版本，`latest` 解析为最高 SemVer；
+同组织跨项目只能使用 organization/public 指针对应版本；跨组织只能使用 public 指针对应版本。Skill
+列表/详情/版本 API、Agent 保存校验与 Rust 运行时使用同一规则。跨项目读取展示暴露的不可变版本快照，
+不会返回父 Skill 后续编辑但尚未晋级的草稿内容。
 
 ### 9.3 可观测性——全链路追踪
 
@@ -514,7 +520,7 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
 - **SSRF 守卫：** 拦截云元数据 IP、解析 DNS 以挫败 rebinding；默认允许私有 RFC-1918（内部 LLM/MCP 端点），
   可选加固开关。
 - **沙箱隔离：** 丢弃能力、非 root、no-new-privileges、PID 限制、Envoy 全拒出口。
-- **技能扫描：** 运行时只打包已审批、`security_status` 为 `passed` / `warning` 且内容未漂移的技能。
+- **技能扫描：** 默认只提示风险；可选全局开关仅在发布时强制新扫描，运行时不回查父 Skill 的扫描状态。
 
 ---
 

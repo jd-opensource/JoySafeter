@@ -13,7 +13,7 @@ const SKILL_ID = 'skill_018f6f42-0a51-7cc4-98c8-4f6f0ca5f111'
 const OTHER_SKILL_ID = 'skill_018f6f42-0a51-7cc4-98c8-4f6f0ca5f222'
 
 describe('toQuickstartAvailableSkills', () => {
-  it('only exposes published runtime-eligible skills to generation', () => {
+  it('exposes every published skill regardless of current runtime eligibility', () => {
     expect(
       toQuickstartAvailableSkills([
         {
@@ -22,7 +22,6 @@ describe('toQuickstartAvailableSkills', () => {
           display_title: 'Secure Review',
           description: 'Review code safely',
           latest_version: '1.2.0',
-          runtime_eligibility: { usable: true },
         },
         {
           id: OTHER_SKILL_ID,

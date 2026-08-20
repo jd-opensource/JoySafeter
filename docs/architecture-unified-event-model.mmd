@@ -84,8 +84,8 @@ graph TB
             direction TB
             SKILL_PARSE["解析 & 校验\nSKILL.md + Agent-Skills 规范\n(joysafeter_shared/skill)"]
             SKILL_PERM["权限闸门\n四级可见性 + org 隔离"]
-            SKILL_SCAN["skillspector 安全扫描\n草稿保存 fail-open · 运行时闸门"]
-            SKILL_PACK["Rust HarnessInputBuilder → tar.gz\nruntime-ready 闸门 → 注入沙箱"]
+            SKILL_SCAN["skillspector 安全扫描\n默认提示 · 可选发布强制"]
+            SKILL_PACK["Rust HarnessInputBuilder → tar.gz\n已发布版本 → 注入沙箱"]
             SKILL_PARSE --> SKILL_PERM --> SKILL_SCAN --> SKILL_PACK
         end
     end

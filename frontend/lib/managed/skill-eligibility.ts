@@ -1,5 +1,5 @@
 /**
- * Single source of truth for presenting skill runtime-eligibility to users.
+ * Single source of truth for presenting unpublished-skill availability.
  *
  * The backend contract is intentionally machine-only: ``reason`` (what's
  * wrong) and ``next_action`` (what to do). ALL human-facing, localized copy
@@ -13,18 +13,7 @@
 
 // reason machine code → i18n slug (camelCase leaf under managed.skills.eligibility.*)
 const REASON_SLUG: Record<string, string> = {
-  skill_not_approved: 'skillNotApproved',
-  security_not_scanned: 'securityNotScanned',
-  security_scanning: 'securityScanning',
-  security_failed: 'securityFailed',
-  security_blocked: 'securityBlocked',
-  no_security_scan_hash: 'noSecurityScanHash',
-  content_changed_after_scan: 'contentChangedAfterScan',
-  // Frontend-only codes invented by the agent skill picker (a skill with no
-  // published version, or a generic "not usable" fallback). Folded in here so
-  // the picker maps them through the same table instead of showing raw codes.
   no_published_version: 'noPublishedVersion',
-  runtime_not_ready: 'runtimeNotReady',
 }
 
 export interface EligibilityReasonView {

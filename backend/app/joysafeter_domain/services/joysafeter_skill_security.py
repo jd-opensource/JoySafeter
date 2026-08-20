@@ -1,4 +1,4 @@
-"""Skill scanning, runtime eligibility, and async dispatch."""
+"""Skill scanning, publish enforcement, and async dispatch."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Iterable, Literal, Optional
+from typing import Any, Iterable, Optional
 
 import httpx
 from loguru import logger
@@ -27,13 +27,9 @@ from app.joysafeter_domain.models.joysafeter_skill import (
     JoySafeterSkillSecurityScan,
     JoySafeterSkillSecurityStatus,
 )
-from app.joysafeter_domain.models.joysafeter_skill import (
-    recompute_visibility_from_pointers as _recompute_visibility_from_pointers,
-)
 from app.joysafeter_domain.repositories.joysafeter_skill import SkillRepository, SkillSecurityScanRepository
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
-    InvalidRequestError,
     NotFoundError,
     ResourceConflictError,
 )
@@ -43,7 +39,7 @@ from app.joysafeter_shared.common.joysafeter_auth.context import (
     JoySafeterRole,
     ProjectCapability,
 )
-from app.joysafeter_shared.common.skill_permissions import check_skill_access
+from app.joysafeter_shared.common.skill_permissions import check_skill_access, resolve_skill_org_id
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.ids import SkillId, SkillSecurityScanId
 from app.joysafeter_shared.security.ssrf_guard import validate_url
@@ -69,11 +65,8 @@ class SkillSecurityPolicyDecision:
 
     # ── Module-level pure helpers ────────────────────────────────────────────
     # The hash + scan-files projection used to be private methods on
-    # ``SkillSecurityService``. They are pure (no DB, no settings), and the
-    # runtime gate in ``skill_runtime_policy`` needs the same definitions to
-    # detect drift. Lifting them to the module avoids ``__new__`` tricks at
-    # the call site and keeps the canonical definition in one place — the
-    # service still wraps them so existing call sites stay unchanged.
+    # ``SkillSecurityService``. They are pure (no DB, no settings), and
+    # publish-time enforcement needs the same canonical projection and hash.
 
 
 def _ensure_scan_target_mutable(skill: JoySafeterSkill) -> None:
@@ -181,9 +174,8 @@ def build_scan_files(
 ) -> list[SkillScanFile]:
     """Project skill content into the list ``SkillSpector`` consumes.
 
-    Pure function used by both ``scan_for_write`` and the runtime drift
-    gate (``skill_runtime_policy``) so the two paths agree on which files
-    are part of the canonical scan input.
+    Pure function shared by informational scans and enforced publication so
+    every scan uses the same canonical file projection.
     """
     scan_files: list[SkillScanFile] = []
     for file_data in files or []:
@@ -284,16 +276,8 @@ class SkillSecurityScannerClient:
         raise ValueError("Skill security scanner returned an invalid response")
 
 
-# Scan verdicts that trigger the fail-closed rescan auto-demote: a served
-# org/public version whose fresh verdict lands here is no longer trusted, so
-# ``apply_latest_scan`` clears the tier pointers and lowers visibility.
-_AUTO_DEMOTE_SCAN_STATUSES = frozenset(
-    {JoySafeterSkillSecurityStatus.FAILED.value, JoySafeterSkillSecurityStatus.BLOCKED.value}
-)
-
-
 class SkillSecurityService:
-    """Coordinates SkillSpector scans, persistence, and write policy."""
+    """Coordinates informational SkillSpector scans and persistence."""
 
     _caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER
 
@@ -323,8 +307,6 @@ class SkillSecurityService:
     async def scan_for_write(
         self,
         *,
-        enforce_write_policy: bool = True,
-        failure_mode: Literal["default", "fail_open", "fail_closed"] = "default",
         trigger: str,
         created_by_id: str,
         owner_id: Optional[str],
@@ -337,33 +319,10 @@ class SkillSecurityService:
         license: Optional[str],
         files: Optional[list[dict[str, Any]]],
     ) -> Optional[JoySafeterSkillSecurityScan]:
-        """Scan a candidate skill before it is persisted.
+        """Scan and record a candidate Skill snapshot without enforcing policy.
 
-        :param enforce_write_policy: When ``True``, a ``blocked`` verdict
-            raises ``SKILL_SECURITY_SCAN_REJECTED`` so the caller's write
-            path aborts. ``False`` returns the scan row for inspection
-            instead (used by ``rescan_existing_skill``, which only
-            refreshes the cached verdict).
-        :param failure_mode: Independent control over what happens when
-            SkillSpector itself is unreachable / times out / 5xx's. Three
-            values:
-
-              - ``"default"`` — fall back to ``settings.skill_security_fail_closed``
-                (preserves the pre-P0 behavior; this is the right pick for
-                callers that aren't sure whether their write is a draft
-                save or a runnable artifact).
-              - ``"fail_open"`` — record a ``failed`` scan and return it,
-                never raise. Used by the draft-save trigger paths
-                (``create`` / ``update`` / ``file_*``): a scanner outage
-                shouldn't block the owner from saving in-progress work.
-              - ``"fail_closed"`` — record the ``failed`` scan and raise
-                ``SKILL_SECURITY_SCAN_FAILED``. Used by paths where the
-                scan result is a runtime prerequisite (publish, manual
-                rescan, or future "promote to approved" flows).
-
-            ``enforce_write_policy=False`` always overrides ``failure_mode``
-            for the scanner-failure path: a rescan that just wants the
-            verdict refreshed never raises, regardless of ``failure_mode``.
+        This service is deliberately informational. The publish service is the
+        only place allowed to turn a scan result into a blocking decision.
         """
         if not settings.skill_security_scan_enabled:
             return None
@@ -439,39 +398,10 @@ class SkillSecurityService:
             )
             self.db.add(scan)
             await self.db.flush()
-            # Decide whether a scanner outage should abort the write. The
-            # caller's `failure_mode` wins over the global setting so
-            # draft saves can stay fail-open even when the deployment
-            # default is fail-closed.
-            if failure_mode == "fail_closed":
-                should_fail_closed = True
-            elif failure_mode == "fail_open":
-                should_fail_closed = False
-            else:
-                should_fail_closed = settings.skill_security_fail_closed
-            if enforce_write_policy and should_fail_closed:
-                await self.db.commit()
-                raise InvalidRequestError(
-                    "Skill security scan failed",
-                    code="SKILL_SECURITY_SCAN_FAILED",
-                    data={
-                        "scan_id": str(scan.id),
-                        "status": scan.status,
-                        "error_message": scan.error_message,
-                    },
-                    retryable=True,
-                ) from exc
             return scan
 
         self.db.add(scan)
         await self.db.flush()
-        if enforce_write_policy and self._is_blocked(scan):
-            await self.db.commit()
-            raise InvalidRequestError(
-                "Skill security scan rejected this skill",
-                code="SKILL_SECURITY_SCAN_REJECTED",
-                data=self._error_data(scan),
-            )
         return scan
 
     async def rescan_existing_skill(self, skill_id: SkillId, current_user_id: str) -> JoySafeterSkillSecurityScan:
@@ -490,7 +420,6 @@ class SkillSecurityService:
         _ensure_scan_target_mutable(skill)
 
         scan = await self.scan_for_write(
-            enforce_write_policy=False,
             trigger="manual",
             created_by_id=current_user_id,
             owner_id=skill.owner_id,
@@ -544,6 +473,7 @@ class SkillSecurityService:
         self,
         skill_id: SkillId,
         current_user_id: str,
+        project_id: Optional[str] = None,
         limit: int = 20,
         after_id: Optional[SkillSecurityScanId] = None,
     ) -> tuple[list[JoySafeterSkillSecurityScan], bool]:
@@ -558,9 +488,15 @@ class SkillSecurityService:
             caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
+        await self._ensure_scan_read_scope(skill, project_id)
         return await self.repo.list_by_skill(skill_id, limit=limit, after_id=after_id)
 
-    async def get_latest_scan(self, skill_id: SkillId, current_user_id: str) -> JoySafeterSkillSecurityScan:
+    async def get_latest_scan(
+        self,
+        skill_id: SkillId,
+        current_user_id: str,
+        project_id: Optional[str] = None,
+    ) -> JoySafeterSkillSecurityScan:
         skill = await self.skill_repo.get(skill_id)
         if not skill:
             raise NotFoundError("Skill not found", code="SKILL_NOT_FOUND", data={"skill_id": str(skill_id)})
@@ -572,6 +508,7 @@ class SkillSecurityService:
             caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
+        await self._ensure_scan_read_scope(skill, project_id)
         scan = await self.repo.get_latest_by_skill(skill_id)
         if not scan:
             raise NotFoundError(
@@ -581,7 +518,12 @@ class SkillSecurityService:
             )
         return scan
 
-    async def get_scan(self, scan_id: SkillSecurityScanId, current_user_id: str) -> JoySafeterSkillSecurityScan:
+    async def get_scan(
+        self,
+        scan_id: SkillSecurityScanId,
+        current_user_id: str,
+        project_id: Optional[str] = None,
+    ) -> JoySafeterSkillSecurityScan:
         scan = await self.repo.get(scan_id)
         if not scan:
             raise NotFoundError(
@@ -601,12 +543,25 @@ class SkillSecurityService:
                 caller_org_role=self._caller_org_role,
                 active_org_id=self._active_org_id,
             )
+            await self._ensure_scan_read_scope(skill, project_id)
         elif scan.created_by_id != current_user_id and scan.owner_id != current_user_id:
             raise AccessDeniedError(
                 "You don't have permission to access this scan",
                 code="SKILL_SECURITY_SCAN_ACCESS_DENIED",
             )
         return scan
+
+    async def _ensure_scan_read_scope(self, skill: JoySafeterSkill, project_id: Optional[str]) -> None:
+        if project_id is not None and project_id == skill.project_id:
+            return
+        skill_org_id = await resolve_skill_org_id(self.db, skill)
+        if skill_org_id == self._active_org_id and self._caller_org_role.is_org_superuser():
+            return
+        raise AccessDeniedError(
+            "Security scan reports are only available inside the owning project",
+            code="SKILL_SECURITY_SCAN_ACCESS_DENIED",
+            data={"skill_id": str(skill.id)},
+        )
 
     def apply_latest_scan(self, skill: JoySafeterSkill, scan: JoySafeterSkillSecurityScan) -> None:
         """Copy the latest scan summary onto the skill row for list/detail APIs."""
@@ -628,30 +583,6 @@ class SkillSecurityService:
         skill.security_high_count = scan.high_count
         skill.security_medium_count = scan.medium_count
         skill.security_low_count = scan.low_count
-        # Fail-closed rescan auto-demote. When a fresh verdict lands
-        # failed/blocked on a skill that is currently served at the org / public
-        # tier, the exposed snapshot can no longer be trusted — clear those
-        # pointers and lower the visibility to the highest tier still backed by
-        # a pointer (floor ``project``). This
-        # rides the single verdict-writeback path so every scan completion
-        # (sync ``scan_for_write`` and the async BG task) inherits it.
-        self._auto_demote_if_scan_unsafe(skill, scan)
-
-    def _auto_demote_if_scan_unsafe(self, skill: JoySafeterSkill, scan: JoySafeterSkillSecurityScan) -> None:
-        """Clear tier pointers + lower visibility when ``scan`` is unsafe."""
-        if scan.status not in _AUTO_DEMOTE_SCAN_STATUSES:
-            return
-        changed = False
-        if getattr(skill, "public_version_id", None) is not None:
-            skill.public_version_id = None
-            changed = True
-        if getattr(skill, "org_version_id", None) is not None:
-            skill.org_version_id = None
-            changed = True
-        if changed:
-            skill.visibility = _recompute_visibility_from_pointers(skill)
-        if skill.lifecycle_status == JoySafeterSkillLifecycleStatus.APPROVED.value:
-            skill.lifecycle_status = JoySafeterSkillLifecycleStatus.DRAFT.value
 
     def files_from_skill(self, skill: JoySafeterSkill) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
@@ -794,12 +725,12 @@ class SkillSecurityService:
         scanner_severity: Optional[str],
         scanner_score: Optional[int],
     ) -> SkillSecurityPolicyDecision:
-        """Normalize scanner output into JoySafeter's write-admission policy.
+        """Normalize scanner output into JoySafeter's risk verdict.
 
         SkillSpector's aggregate score intentionally accumulates many LOW findings. For product
-        write policy, a large number of LOW findings should surface as reviewable risk, not as an
-        automatic install block. Blocking is reserved for concrete HIGH/CRITICAL findings or for
-        aggregate-only scanner results where no finding details are available.
+        risk reporting, a large number of LOW findings should surface as reviewable risk, not as an
+        automatic publication block. Blocking is reserved for concrete HIGH/CRITICAL findings or
+        for aggregate-only scanner results where no finding details are available.
         """
         if counts["critical"] > 0:
             score = min(100, 90 + (counts["critical"] - 1) * 5 + counts["high"] * 3 + counts["medium"])
@@ -890,12 +821,7 @@ class SkillSecurityService:
         }
         return enriched
 
-    def _is_blocked(self, scan: JoySafeterSkillSecurityScan) -> bool:
-        return scan.status == JoySafeterSkillSecurityStatus.BLOCKED.value or (
-            scan.status == JoySafeterSkillSecurityStatus.FAILED.value and settings.skill_security_fail_closed
-        )
-
-    def _error_data(self, scan: JoySafeterSkillSecurityScan) -> dict[str, Any]:
+    def error_data(self, scan: JoySafeterSkillSecurityScan) -> dict[str, Any]:
         report = scan.report if isinstance(scan.report, dict) else {}
         return {
             "scan_id": str(scan.id),
@@ -999,8 +925,8 @@ class SkillSecurityService:
         return size >= threshold
 
     async def mark_scanning(self, skill_id: SkillId) -> None:
-        """Flip the skill row to ``security_status='scanning'`` so the
-        runtime gate refuses to load while a BG scan is in flight.
+        """Flip the skill row to ``security_status='scanning'`` so API clients
+        can display that a background scan is in flight.
 
         Used by the API layer in the async-dispatch path:
 
@@ -1019,154 +945,6 @@ class SkillSecurityService:
         if skill.security_status != JoySafeterSkillSecurityStatus.SCANNING.value:
             skill.security_status = JoySafeterSkillSecurityStatus.SCANNING.value
             await self.db.flush()
-
-
-# ============================================================================
-# skill_runtime_policy.py
-# ============================================================================
-
-"""Runtime policy gate for skills.
-
-A single function the runtime calls before loading a skill into a sandbox.
-Centralizes the three checks any loader needs:
-
-  1. ``lifecycle_status == 'approved'`` — owner has not paused or retired
-     the skill (P0 universally returns ``approved``, so this is a no-op
-     until P1 turns on the state machine; the gate is wired now so the
-     loader contract doesn't change again later).
-  2. ``security_status in {'passed', 'warning'}`` — SkillSpector has not
-     blocked the skill outright.
-  3. ``security_scan_hash`` matches a fresh recompute of the skill's
-     current content. This is the **drift gate**: if the owner edited a
-     file or the description after the last scan, the cached verdict no
-     longer reflects what the runtime would actually load. The skill is
-     refused until the owner runs ``POST /skills/{id}/security-scans/rescan``.
-
-The function intentionally does NOT raise. It returns a verdict tuple so
-the caller can choose between skipping an unusable skill at runtime and
-failing an API validation request loudly.
-
-P2 adds a ``scanning`` intermediate state for the async scan flow —
-treated as "no scan completed" until SkillSpector returns.
-"""
-
-
-# Severities that are allowed at runtime. ``passed`` is the normal good
-# verdict; ``warning`` lets a skill with non-critical findings still run
-# (the writer flow already surfaced the warning to the owner). Other
-# states — ``not_scanned``, ``scanning``, ``failed``, ``blocked`` —
-# are runtime-fatal. ``scanning`` is the P2 async-scan intermediate
-# state; runtime treats it the same as ``not_scanned`` so an in-flight
-# rescan never accidentally loads stale content.
-_RUNTIME_ALLOWED_SECURITY_STATUSES = frozenset(
-    {JoySafeterSkillSecurityStatus.PASSED.value, JoySafeterSkillSecurityStatus.WARNING.value}
-)
-
-
-def is_skill_usable(skill: JoySafeterSkill, *, check_drift: bool = True) -> tuple[bool, Optional[str]]:
-    """Return whether a skill row may be packed into a running session.
-
-    :param skill: A ``Skill`` row already loaded with its ``files``
-        relationship (the drift check needs the file contents to recompute
-        ``target_hash``).
-    :param check_drift: When ``False``, skip the content-drift gate. Use
-        this when validating references to frozen published versions whose
-        content cannot drift.
-    :returns: ``(True, None)`` when every gate passes, otherwise
-        ``(False, reason)`` where ``reason`` is a stable machine code the
-        loader can log or surface to the caller. Codes:
-
-        - ``"skill_not_approved"`` — ``lifecycle_status`` not ``approved``
-        - ``"security_<status>"`` — ``security_status`` not in the runtime
-          allowlist (e.g. ``security_blocked``, ``security_failed``,
-          ``security_not_scanned``)
-        - ``"content_changed_after_scan"`` — drift detected; the skill's
-          current content hashes to something other than the last scan's
-          ``target_hash``
-        - ``"no_security_scan_hash"`` — the skill row carries no
-          ``security_scan_hash``; treated as drift because we cannot
-          confirm the current content was ever scanned
-    """
-    if skill.lifecycle_status != "approved":
-        return False, "skill_not_approved"
-
-    return scan_ok(skill, check_drift=check_drift)
-
-
-def scan_ok(skill: JoySafeterSkill, *, check_drift: bool = True) -> tuple[bool, Optional[str]]:
-    """Whether a skill's security verdict is clean and non-drifted.
-
-    This is :func:`is_skill_usable` MINUS its ``lifecycle_status == 'approved'``
-    check — i.e. exactly the "has this content passed a fresh security scan?"
-    predicate. Factored out for the single-axis promotion flow, whose
-    ``submit_promotion`` / ``approve_promotion`` gates require a PASSED scan on
-    the version being promoted but must NOT couple that decision to the skill's
-    lifecycle status (a project-level version can be ``approved`` at the project
-    tier yet still need scan re-verification before being exposed org/public).
-
-    Returns ``(True, None)`` when the scan gate passes, else ``(False, reason)``
-    with the same machine codes ``is_skill_usable`` uses:
-
-      * ``security_<status>`` — verdict not in the runtime allowlist
-      * ``no_security_scan_hash`` — no scan hash recorded (treated as drift)
-      * ``content_changed_after_scan`` — current content hashes differently
-    """
-    if skill.security_status not in _RUNTIME_ALLOWED_SECURITY_STATUSES:
-        return False, f"security_{skill.security_status}"
-
-    if not skill.security_scan_hash:
-        return False, "no_security_scan_hash"
-
-    if not check_drift:
-        return True, None
-
-    # Drift gate: recompute the canonical hash from the skill's current
-    # content and compare to whatever the last scan locked in. ``build_scan_files``
-    # and ``target_hash`` are the canonical implementations used by
-    # ``scan_for_write`` — calling them here keeps the two paths byte-identical.
-    files_payload = _files_payload(skill)
-    scan_files = build_scan_files(
-        name=skill.name,
-        description=skill.description,
-        content=skill.content,
-        tags=list(skill.tags or []),
-        license=skill.license,
-        files=files_payload,
-    )
-    current_hash = target_hash(
-        name=skill.name,
-        description=skill.description,
-        content=skill.content,
-        tags=list(skill.tags or []),
-        license=skill.license,
-        files=scan_files,
-    )
-    if current_hash != skill.security_scan_hash:
-        return False, "content_changed_after_scan"
-
-    return True, None
-
-
-def _files_payload(skill: JoySafeterSkill) -> list[dict]:
-    """Project the loaded ``skill.files`` relationship into the dict shape
-    :func:`build_scan_files` expects. Mirrors
-    ``SkillSecurityService.files_from_skill`` so a skill that was just
-    scanned and a skill being re-hashed at load time get the same input.
-    """
-    result: list[dict] = []
-    for file_obj in skill.files or []:
-        result.append(
-            {
-                "path": file_obj.path,
-                "file_name": file_obj.file_name,
-                "file_type": file_obj.file_type,
-                "content": file_obj.content or "",
-                "storage_type": file_obj.storage_type,
-                "storage_key": file_obj.storage_key,
-                "size": file_obj.size,
-            }
-        )
-    return result
 
 
 # ============================================================================
@@ -1192,9 +970,7 @@ The async path uses a separate ``AsyncSession`` so it doesn't depend on
 the request-scoped DB session that already closed by the time the BG
 task runs.
 
-The runtime gate (``skill_runtime_policy.is_skill_usable``) treats
-``scanning`` like ``not_scanned`` — no agent loads a skill while its
-scan is in flight.
+The ``scanning`` state is informational and never affects published versions.
 """
 
 
@@ -1243,11 +1019,11 @@ async def run_scan_in_background(
     write the verdict back. Designed to be wired into FastAPI's
     ``BackgroundTasks.add_task(...)``.
 
-    Failure handling: scanner failures normally return a ``failed`` scan via
-    ``scan_for_write(..., failure_mode='fail_open')``. If the background task
+    Failure handling: scanner failures return a ``failed`` scan via
+    ``scan_for_write(...)``. If the background task
     itself fails outside that scanner path, record a synthetic ``failed`` scan
     with a structured error payload and apply it to the skill row. This avoids
-    leaving the runtime gate stuck on the transient ``scanning`` state.
+    leaving clients stuck on the transient ``scanning`` state.
 
     The function lives in this module (not inside the service) because
     it needs to open a fresh DB session — the request's session has
@@ -1265,8 +1041,6 @@ async def run_scan_in_background(
         try:
             svc = SkillSecurityService(db)
             scan = await svc.scan_for_write(
-                enforce_write_policy=False,  # async path never aborts a write
-                failure_mode="fail_open",
                 trigger=trigger,
                 created_by_id=created_by_id,
                 owner_id=owner_id,
@@ -1281,8 +1055,7 @@ async def run_scan_in_background(
             )
             if scan is None:
                 # Scanner disabled at the deployment level — clear the
-                # ``scanning`` placeholder so the runtime gate stops
-                # treating the row as in-flight.
+                # ``scanning`` placeholder so clients stop treating the row as in-flight.
                 skill = await db.get(JoySafeterSkill, skill_id)
                 if skill and skill.security_status == JoySafeterSkillSecurityStatus.SCANNING.value:
                     skill.security_status = JoySafeterSkillSecurityStatus.NOT_SCANNED.value

@@ -73,7 +73,7 @@ export function getOperationErrorMessage(
   }
   if (code === 'SKILL_SECURITY_SCAN_FAILED') {
     return t('managed.errors.skillSecurityScanFailed', {
-      error: data?.error_message ?? '',
+      error: data?.error_message ?? data?.reason ?? message,
     })
   }
 

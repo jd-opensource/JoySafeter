@@ -135,8 +135,8 @@ services:
       SKILLSPECTOR_SERVICE_MAX_TOTAL_BYTES: ${SKILLSPECTOR_SERVICE_MAX_TOTAL_BYTES:-5242880}
       # Concurrency: scans are CPU-bound (semgrep), so worker count should
       # track the CPU limit below. limit-concurrency sheds load past a small
-      # queue. Draft-save paths may record failed/scanning and continue, but
-      # runtime packing remains fail-closed for failed/scanning skills.
+      # queue. Draft-save paths may record failed/scanning and continue;
+      # optional enforcement applies only to the publish boundary.
       SKILLSPECTOR_WORKERS: ${SKILLSPECTOR_WORKERS:-2}
       SKILLSPECTOR_LIMIT_CONCURRENCY: ${SKILLSPECTOR_LIMIT_CONCURRENCY:-4}
     expose:

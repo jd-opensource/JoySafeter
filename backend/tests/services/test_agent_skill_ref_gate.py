@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 
@@ -12,7 +11,6 @@ from app.joysafeter_domain.services.joysafeter_agent_service import (
     _merge_agent_assets,
 )
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
-from app.joysafeter_shared.config import settings as app_settings
 from app.joysafeter_shared.ids import SkillId
 
 pytestmark = pytest.mark.no_db
@@ -61,6 +59,9 @@ class _Db:
 def _skill(skill_id: SkillId, *, status="passed", lifecycle="approved"):
     return SimpleNamespace(
         id=skill_id,
+        project_id="project-a",
+        org_version_id=None,
+        public_version_id=None,
         name="safe-skill",
         description="d",
         content="c",
@@ -107,17 +108,13 @@ async def test_agent_skill_ref_gate_rejects_unpublished_skill(monkeypatch):
     with pytest.raises(InvalidRequestError) as exc:
         await svc._validate_skill_refs([{"skill_id": str(skill_id)}], "project-a")
 
-    assert exc.value.code == "AGENT_SKILL_REF_NOT_RUNTIME_READY"
+    assert exc.value.code == "AGENT_SKILL_REF_NOT_PUBLISHED"
     assert exc.value.data["skills"] == [{"skill_id": str(skill_id), "reason": "no_published_version"}]
 
 
-async def test_agent_skill_ref_gate_rejects_runtime_blocked_skill(monkeypatch):
+async def test_agent_skill_ref_gate_accepts_published_skill_regardless_of_current_scan(monkeypatch):
     skill_id = SkillId.new()
-    svc = JoySafeterAgentService(_Db([_skill(skill_id, status="blocked")]))
-
-    # The security-status gate only runs when scanning is enabled; with it
-    # off, only lifecycle_status is checked. Turn it on to reach is_skill_usable.
-    monkeypatch.setattr(app_settings, "skill_security_scan_enabled", True)
+    svc = JoySafeterAgentService(_Db([_skill(skill_id, status="blocked", lifecycle="draft")]))
 
     async def _latest_map(_repo, ids):
         return {ids[0]: "1.0.0"}
@@ -126,15 +123,7 @@ async def test_agent_skill_ref_gate_rejects_runtime_blocked_skill(monkeypatch):
         "app.joysafeter_domain.services.joysafeter_agent_service.SkillVersionRepository.latest_version_map",
         _latest_map,
     )
-    with patch(
-        "app.joysafeter_domain.services.joysafeter_agent_service.is_skill_usable",
-        return_value=(False, "security_blocked"),
-    ):
-        with pytest.raises(InvalidRequestError) as exc:
-            await svc._validate_skill_refs([{"skill_id": str(skill_id)}], "project-a")
-
-    assert exc.value.code == "AGENT_SKILL_REF_NOT_RUNTIME_READY"
-    assert exc.value.data["skills"] == [{"skill_id": str(skill_id), "reason": "security_blocked"}]
+    await svc._validate_skill_refs([{"skill_id": str(skill_id)}], "project-a")
 
 
 async def test_agent_skill_ref_gate_accepts_published_runtime_ready_skill(monkeypatch):
@@ -148,11 +137,7 @@ async def test_agent_skill_ref_gate_accepts_published_runtime_ready_skill(monkey
         "app.joysafeter_domain.services.joysafeter_agent_service.SkillVersionRepository.latest_version_map",
         _latest_map,
     )
-    with patch(
-        "app.joysafeter_domain.services.joysafeter_agent_service.is_skill_usable",
-        return_value=(True, None),
-    ):
-        await svc._validate_skill_refs([{"skill_id": str(skill_id)}], "project-a")
+    await svc._validate_skill_refs([{"skill_id": str(skill_id)}], "project-a")
 
 
 async def test_agent_skill_ref_gate_rejects_draft_version(monkeypatch):
@@ -170,7 +155,7 @@ async def test_agent_skill_ref_gate_rejects_draft_version(monkeypatch):
     with pytest.raises(InvalidRequestError) as exc:
         await svc._validate_skill_refs([{"skill_id": str(skill_id), "version": "draft"}], "project-a")
 
-    assert exc.value.code == "AGENT_SKILL_REF_NOT_RUNTIME_READY"
+    assert exc.value.code == "AGENT_SKILL_REF_NOT_PUBLISHED"
     assert exc.value.data["skills"] == [{"skill_id": str(skill_id), "version": "draft", "reason": "draft_not_allowed"}]
 
 
@@ -188,14 +173,10 @@ async def test_agent_skill_ref_gate_rejects_missing_pinned_version(monkeypatch):
         _get_by_version,
     )
 
-    with patch(
-        "app.joysafeter_domain.services.joysafeter_agent_service.is_skill_usable",
-        return_value=(True, None),
-    ):
-        with pytest.raises(InvalidRequestError) as exc:
-            await svc._validate_skill_refs([{"skill_id": str(skill_id), "version": "9.9.9"}], "project-a")
+    with pytest.raises(InvalidRequestError) as exc:
+        await svc._validate_skill_refs([{"skill_id": str(skill_id), "version": "9.9.9"}], "project-a")
 
-    assert exc.value.code == "AGENT_SKILL_REF_NOT_RUNTIME_READY"
+    assert exc.value.code == "AGENT_SKILL_REF_NOT_PUBLISHED"
     assert exc.value.data["skills"] == [{"skill_id": str(skill_id), "version": "9.9.9", "reason": "version_not_found"}]
 
 
@@ -213,8 +194,4 @@ async def test_agent_skill_ref_gate_accepts_existing_pinned_version(monkeypatch)
         _get_by_version,
     )
 
-    with patch(
-        "app.joysafeter_domain.services.joysafeter_agent_service.is_skill_usable",
-        return_value=(True, None),
-    ):
-        await svc._validate_skill_refs([{"skill_id": str(skill_id), "version": "1.2.3"}], "project-a")
+    await svc._validate_skill_refs([{"skill_id": str(skill_id), "version": "1.2.3"}], "project-a")

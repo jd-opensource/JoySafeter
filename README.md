@@ -34,9 +34,9 @@ agent runs is the whole decision. JoySafeter gives you that model **on your own 
 - **Network-contained execution.** Every session runs in a `NetworkMode=none` sandbox behind an
   Envoy proxy with a **deny-all-by-default egress allowlist** — offensive tools can't phone home or
   pivot into your network unless you explicitly permit it.
-- **Runtime-closed skill supply-chain control.** Skills are code that runs in your environment;
-  skills are scanned by skillspector, and runtime packing blocks anything not approved, not
-  successfully scanned, blocked, failed, still scanning, or drifted from its last scan.
+- **Publish-boundary skill supply-chain control.** Skills are code that runs in your environment;
+  skillspector reports risks by default, and an optional global switch requires a fresh successful
+  scan of the exact immutable snapshot before publication.
 - **Engine-agnostic.** Claude Code, Codex, or the self-developed `ccb` engine behind one gRPC
   contract — not locked to a single vendor or model.
 
@@ -45,7 +45,7 @@ agent runs is the whole decision. JoySafeter gives you that model **on your own 
 | Data / target residency | Vendor cloud | Yours | **Yours — fully self-hosted** |
 | Engine / model | Single vendor | Whatever you wire | **Claude Code / Codex / native, per agent** |
 | Network isolation | Vendor-managed | You build it | **Per-sandbox Envoy deny-all egress** |
-| Skill & tool safety | Vendor-managed | You build it | **SkillSpector scan + runtime-closed gate** |
+| Skill & tool safety | Vendor-managed | You build it | **SkillSpector scan + optional publish gate** |
 | Time to production | Days | Months | **Days, on your own hardware** |
 
 > JoySafeter frames this as **AI-driven Security Operations (AISecOps)**: the managed-agent model
@@ -146,7 +146,7 @@ Claude Managed Agents, only **self-hosted and security-specialized**:
 ### 📚 Skills
 
 - **30 versioned capability packs** — penetration testing, document analysis, planning/meta
-- **SkillSpector security scanning** + a runtime `is_skill_usable` gate (approved + `passed` / `warning` scan + no content drift)
+- **SkillSpector security scanning** with advisory-by-default results and optional fail-closed enforcement only when publishing
 - **AI skill authoring** — draft, edit, version, and diff skills with an LLM-assisted editor
 
 </td>
@@ -262,7 +262,7 @@ flowchart LR
 - **Normalized error system** — `AppError` produces a canonical `ErrorDescriptor` (`{code, message, data, source, retryable, user_action}`) consumed identically across HTTP and streaming paths
 - **OTel-backed observation** — full-chain `trace_id` propagation with spans persisted to the database
 - **Encrypted credentials** — provider API keys live in Secrets and MCP credentials in Vaults, both AES-256-GCM encrypted and injected into the sandbox at run time
-- **Layered skill system** — skills are versioned capability packs; runtime only packs approved skills with an allowed scan verdict and no content drift
+- **Layered skill system** — publication requires approval; agents and runtime consume immutable published versions without rechecking mutable parent scan state
 
 ### User Journey — Quick Start
 

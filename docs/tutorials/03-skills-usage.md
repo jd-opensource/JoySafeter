@@ -25,22 +25,23 @@
   （压缩包 / 文件数 / 单文件 / 解压总量）。
 - 通过后，技能落库 PostgreSQL（`joysafeter_skills` + `joysafeter_skill_files`），尚未触及任何执行环境。
 
-### 1.2 安全扫描（skillspector + 运行时 fail-closed 闸门）
+### 1.2 安全扫描（skillspector + 可选发布闸门）
 - 写入 / 更新时，`SkillSecurityService` 把技能内容发给独立的 **skillspector** 服务扫描
   （`SKILL_SECURITY_*` 环境变量控制）。
-- 扫描器故障会记录 `failed` / `scanning` 状态；草稿写入路径可继续保存，避免丢失编辑内容。
-- **运行时 fail-closed**：命中 `DO_NOT_INSTALL`、扫描失败、仍在扫描、未扫描、未审批或内容漂移的技能，
-  都不会被打包进会话沙箱。
-- 扫描结果记录 `security_status` + 内容 `sha256`（供后续**漂移检测**）。
+- 扫描器故障会记录 `failed` / `scanning` 状态；草稿写入始终可继续保存。
+- 默认 `SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED=false`，扫描结果只用于风险提示。
+- 切为 `true` 后，发布版本会对实际快照执行一次新的 fail-closed 扫描；扫描失败或阻断则发布失败。
+- 已发布版本不会因后续扫描、草稿修改或父 Skill 状态变化而失效。
 
-### 1.3 生命周期与运行时闸门
+### 1.3 生命周期与已发布版本
 - 技能有生命周期 FSM：`draft → pending_review → {approved, rejected}`，`approved → archived`。
-- API 保存/关联阶段使用 `is_skill_usable()` 校验技能状态；任务启动时 Rust orchestrator 再执行
-  `ensure_skill_runtime_ready`，只接受 `approved` 且安全状态为 `passed` / `warning`、扫描哈希非空的技能。
-  任一检查失败都会拒绝本次输入构建，不会静默换用旧版本。
+- 发布动作要求当前 Skill 已 `approved`。同项目 Agent 可关联任意明确已发布版本，`latest` 指最高 SemVer；
+  同组织跨项目只能关联 organization/public 指针版本，跨组织只能关联 public 指针版本。
+- 任务启动时 Rust orchestrator 只解析并打包已发布版本；父 Skill 后续扫描和生命周期不参与运行判断。
 
 ### 1.4 打包投递（Rust orchestrator → gRPC → 沙箱 runner）
-- 任务启动时，Rust `HarnessInputBuilder` 解析 Agent 引用的明确版本或最高已发布版本，从
+- 任务启动时，Rust `HarnessInputBuilder` 按项目/组织层级解析 Agent 引用；跨项目不会越过已批准的
+  organization/public 版本指针。解析完成后从
   `joysafeter_skill_version_files` 读取文件并现场打包为 `tar.gz`（proto `SkillArchive`），同时记录用量日志。
 - orchestrator 经 gRPC `SetupSandbox` / `StartTask` 把 `SkillArchive` 下发给沙箱内的 Rust runner。
 - runner 的 `unpack_skills` 把每个归档解压到沙箱工作目录下的技能目录（按引擎/`target` 决定具体子路径）。
@@ -119,8 +120,8 @@ def write_test_log():
 ## 4. 高级排障
 
 - **导入报 Invalid File Type**：压缩包含 `.DS_Store` / 二进制文件。校验只放行纯文本（`.py/.md/.json/.yaml` 等）。
-- **技能没被 Agent 使用**：多半是没通过运行时闸门——确认技能是 `approved`、`security_status` 合规、
-  且内容未在扫描后被改动（哈希漂移会被丢弃）；或旧 Session 仍用启动时的快照，重开 Session。
+- **技能没被 Agent 使用**：确认已发布至少一个版本，Agent 引用的明确版本仍存在；旧 Session 仍使用
+  启动时快照时，需要重开 Session 才会采用新的版本引用。
 - **改了 `SKILL.md` 名称 / 描述没更新**：YAML frontmatter 是权威源，改元数据要改 `SKILL.md` 顶部 YAML。
 
 ---

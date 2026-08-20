@@ -86,15 +86,6 @@ class SkillSecurityScanSummary(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-class SkillRuntimeEligibility(BaseModel):
-    # ``reason`` + ``next_action`` are the stable machine contract. Human-facing
-    # text is NOT carried here — presentation (localized copy) lives entirely in
-    # the frontend i18n layer keyed on ``reason`` / ``next_action`` codes.
-    usable: bool = False
-    reason: Optional[str] = None
-    next_action: str = "review_skill"
-
-
 class SkillReferenceSummary(BaseModel):
     agents: int = 0
     agent_versions: int = 0
@@ -186,7 +177,6 @@ class SkillResponse(BaseModel):
     metadata: dict = Field(default_factory=dict, alias="meta_data")
     allowed_tools: list = Field(default_factory=list)
     security_scan: SkillSecurityScanSummary = Field(default_factory=SkillSecurityScanSummary)
-    runtime_eligibility: Optional[SkillRuntimeEligibility] = None
     impact: Optional[SkillImpactSummary] = None
     created_at: datetime
     updated_at: datetime

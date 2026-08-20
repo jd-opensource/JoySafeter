@@ -1,15 +1,8 @@
-"""Unit tests for the security gate in ``SkillVersionService.publish_version``.
+"""Publish-boundary tests for Skill security enforcement.
 
-A skill that is not runtime-ready must not be publishable — otherwise we create
-a published snapshot that the agent picker can select but the orchestrator will
-refuse to load. ``blocked`` keeps its historical high-risk error code;
-``passed``/``warning`` publish normally, while un-scanned / in-flight / drifted
-states fail with a runtime-readiness reason.
-
-Strategy: the gate fires immediately after the permission check and before any
-semver / DB work, so we stub ``_get_skill_with_files_or_404`` to return a
-seeded skill and bypass ``check_skill_access``. That keeps the test in-process
-and focused on the gate alone.
+Security scans are informational by default.  When the global enforcement
+switch is enabled, publishing performs a fresh fail-closed scan; no other
+workflow is allowed to treat the mutable Skill row's scan status as a gate.
 """
 
 from __future__ import annotations
@@ -19,18 +12,23 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.joysafeter_domain.services.joysafeter_skill_service import (
-    SkillVersionService,
-)
+from app.joysafeter_domain.services.joysafeter_skill_service import SkillVersionService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
 from app.joysafeter_shared.config import settings as app_settings
 
 pytestmark = pytest.mark.no_db
 
 
+class _ReachedVersionValidation(Exception):
+    pass
+
+
 class _FakeDB:
+    def __init__(self):
+        self.commit_count = 0
+
     async def commit(self):
-        pass
+        self.commit_count += 1
 
     async def refresh(self, _):
         pass
@@ -42,14 +40,27 @@ class _FakeDB:
         pass
 
 
-def _make_service(skill, *, monkeypatch):
+class _StopAfterPublishGateRepo:
+    async def get_highest_version_str(self, _skill_id):
+        raise _ReachedVersionValidation
+
+
+class _EmptyVersionRepo:
+    async def get_highest_version_str(self, _skill_id):
+        return None
+
+
+class _EmptySkillFileRepo:
+    async def list_by_skill(self, _skill_id):
+        return []
+
+
+def _make_service(skill, *, monkeypatch, stop_after_gate=True):
     svc = SkillVersionService.__new__(SkillVersionService)
     svc.db = _FakeDB()
+    svc.repo = _StopAfterPublishGateRepo() if stop_after_gate else _EmptyVersionRepo()
+    svc.skill_file_repo = _EmptySkillFileRepo()
     svc._active_org_id = "org-test"
-
-    # The publish security gate only runs when scanning is enabled; the
-    # global default is off, so turn it on to exercise the gate itself.
-    monkeypatch.setattr(app_settings, "skill_security_scan_enabled", True)
 
     async def _get_skill(_skill_id):
         return skill
@@ -65,70 +76,140 @@ def _make_service(skill, *, monkeypatch):
     return svc
 
 
-def _skill(security_status):
+def _skill(*, lifecycle_status="approved", security_status="blocked"):
     return SimpleNamespace(
         id=uuid.uuid4(),
         owner_id="user-1",
+        project_id="project-1",
+        lifecycle_status=lifecycle_status,
+        name="skill-a",
+        description="description",
+        content="content",
+        tags=[],
+        license=None,
+        compatibility=None,
+        meta_data={},
+        allowed_tools=[],
+        files=[],
         security_status=security_status,
         security_severity="HIGH" if security_status == "blocked" else None,
         security_score=7 if security_status == "blocked" else None,
+        security_scan_id=None,
+        security_scan_hash=None,
+        security_scanned_at=None,
+        security_recommendation=None,
+        security_issues_count=0,
+        security_critical_count=0,
+        security_high_count=0,
+        security_medium_count=0,
+        security_low_count=0,
     )
 
 
-async def test_blocked_skill_cannot_publish(monkeypatch):
-    skill = _skill("blocked")
+def _scan(status: str, *, error_message: str | None = None):
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        created_at=None,
+        status=status,
+        score=9 if status == "blocked" else None,
+        severity="CRITICAL" if status == "blocked" else None,
+        recommendation="DO_NOT_INSTALL" if status == "blocked" else None,
+        target_hash="a" * 64,
+        issues_count=1 if status == "blocked" else 0,
+        critical_count=1 if status == "blocked" else 0,
+        high_count=0,
+        medium_count=0,
+        low_count=0,
+        report={},
+        error_message=error_message,
+    )
+
+
+async def test_enforcement_defaults_to_disabled():
+    assert app_settings.skill_security_scan_enforcement_enabled is False
+
+
+async def test_blocked_scan_does_not_gate_publish_when_enforcement_disabled(monkeypatch):
+    monkeypatch.setattr(app_settings, "skill_security_scan_enabled", True)
+    monkeypatch.setattr(app_settings, "skill_security_scan_enforcement_enabled", False)
+    skill = _skill(security_status="blocked")
     svc = _make_service(skill, monkeypatch=monkeypatch)
+
+    with pytest.raises(_ReachedVersionValidation):
+        await svc.publish_version(skill.id, "user-1", "1.0.0")
+
+
+async def test_publish_requires_approved_skill_even_without_scan_enforcement(monkeypatch):
+    monkeypatch.setattr(app_settings, "skill_security_scan_enabled", False)
+    monkeypatch.setattr(app_settings, "skill_security_scan_enforcement_enabled", False)
+    skill = _skill(lifecycle_status="draft", security_status="not_scanned")
+    svc = _make_service(skill, monkeypatch=monkeypatch, stop_after_gate=False)
+
     with pytest.raises(InvalidRequestError) as exc:
-        await svc.publish_version(
-            skill_id=skill.id,
-            current_user_id="user-1",
-            version_str="1.0.0",
-        )
-    assert exc.value.code == "SKILL_SECURITY_BLOCKED"
+        await svc.publish_version(skill.id, "user-1", "1.0.0")
+
+    assert exc.value.code == "SKILL_VERSION_NOT_APPROVED"
+    assert exc.value.data["reason"] == "skill_not_approved"
 
 
-@pytest.mark.parametrize("status", ["passed", "warning"])
-async def test_runtime_ready_skill_passes_publish_gate(status, monkeypatch):
-    """Runtime-ready statuses must clear the publish gate. The bare service may
-    still fail later on semver / DB work; that is outside this gate."""
-    skill = _skill(status)
-    svc = _make_service(skill, monkeypatch=monkeypatch)
+async def test_enforced_publish_runs_fresh_fail_closed_scan(monkeypatch):
+    monkeypatch.setattr(app_settings, "skill_security_scan_enabled", True)
+    monkeypatch.setattr(app_settings, "skill_security_scan_enforcement_enabled", True)
+    skill = _skill(security_status="passed")
+    svc = _make_service(skill, monkeypatch=monkeypatch, stop_after_gate=False)
+    calls = []
+
+    async def _blocked(_self, **kwargs):
+        calls.append(kwargs)
+        return _scan("blocked")
+
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_skill_security.is_skill_usable",
-        lambda _skill: (True, None),
-    )
-    try:
-        await svc.publish_version(
-            skill_id=skill.id,
-            current_user_id="user-1",
-            version_str="1.0.0",
-        )
-    except InvalidRequestError as e:
-        assert e.code not in {"SKILL_SECURITY_BLOCKED", "SKILL_VERSION_NOT_RUNTIME_READY"}
-    except Exception:
-        # Any non-InvalidRequestError (e.g. missing repo on the bare service)
-        # means we got PAST the publish gate, which is what we're asserting.
-        pass
-
-
-@pytest.mark.parametrize(
-    ("status", "reason"),
-    [("not_scanned", "security_not_scanned"), ("scanning", "security_scanning")],
-)
-async def test_runtime_not_ready_skill_cannot_publish(status, reason, monkeypatch):
-    skill = _skill(status)
-    svc = _make_service(skill, monkeypatch=monkeypatch)
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_skill_security.is_skill_usable",
-        lambda _skill: (False, reason),
+        "app.joysafeter_domain.services.joysafeter_skill_security.SkillSecurityService.scan_for_write",
+        _blocked,
     )
 
     with pytest.raises(InvalidRequestError) as exc:
-        await svc.publish_version(
-            skill_id=skill.id,
-            current_user_id="user-1",
-            version_str="1.0.0",
-        )
+        await svc.publish_version(skill.id, "user-1", "1.0.0")
 
-    assert exc.value.code == "SKILL_VERSION_NOT_RUNTIME_READY"
-    assert exc.value.data == {"skill_id": str(skill.id), "reason": reason}
+    assert exc.value.code == "SKILL_SECURITY_SCAN_REJECTED"
+    assert calls[0]["trigger"] == "publish"
+    assert "enforce_write_policy" not in calls[0]
+    assert "failure_mode" not in calls[0]
+    assert skill.security_status == "blocked"
+    assert svc.db.commit_count == 1
+
+
+async def test_enforced_publish_records_scanner_failure_before_rejecting(monkeypatch):
+    monkeypatch.setattr(app_settings, "skill_security_scan_enabled", True)
+    monkeypatch.setattr(app_settings, "skill_security_scan_enforcement_enabled", True)
+    skill = _skill(security_status="passed")
+    svc = _make_service(skill, monkeypatch=monkeypatch, stop_after_gate=False)
+
+    async def _failed(_self, **_kwargs):
+        return _scan("failed", error_message="scanner unreachable")
+
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_skill_security.SkillSecurityService.scan_for_write",
+        _failed,
+    )
+
+    with pytest.raises(InvalidRequestError) as exc:
+        await svc.publish_version(skill.id, "user-1", "1.0.0")
+
+    assert exc.value.code == "SKILL_SECURITY_SCAN_FAILED"
+    assert exc.value.data["error_message"] == "scanner unreachable"
+    assert skill.security_status == "failed"
+    assert svc.db.commit_count == 1
+
+
+async def test_enforced_publish_fails_when_scanner_is_disabled(monkeypatch):
+    monkeypatch.setattr(app_settings, "skill_security_scan_enabled", False)
+    monkeypatch.setattr(app_settings, "skill_security_scan_enforcement_enabled", True)
+    skill = _skill(security_status="passed")
+    svc = _make_service(skill, monkeypatch=monkeypatch, stop_after_gate=False)
+
+    with pytest.raises(InvalidRequestError) as exc:
+        await svc.publish_version(skill.id, "user-1", "1.0.0")
+
+    assert exc.value.code == "SKILL_SECURITY_SCAN_FAILED"
+    assert exc.value.data["reason"] == "scanner_disabled"

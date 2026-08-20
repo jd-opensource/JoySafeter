@@ -78,8 +78,7 @@ export function getManagedSkillImportErrorMessage(
   t: (key: string, options?: Record<string, unknown>) => string,
 ): string {
   return t(
-    MANAGED_SKILL_IMPORT_ERROR_KEY_BY_CODE[errorCode] ||
-      'managed.skills.importValidationFailed',
+    MANAGED_SKILL_IMPORT_ERROR_KEY_BY_CODE[errorCode] || 'managed.skills.importValidationFailed',
   )
 }
 
@@ -249,21 +248,6 @@ export function getManagedSkillImportApiErrorMessage(
   const data = apiError?.data || apiError?.payload?.data || null
   const validationError =
     apiError?.data?.validation_error || apiError?.payload?.data?.validation_error || ''
-
-  if (code === 'SKILL_SECURITY_SCAN_REJECTED') {
-    return t('managed.errors.skillSecurityRejected', {
-      score: data?.score ?? '-',
-      severity: data?.severity ?? '-',
-      recommendation: data?.recommendation ?? '-',
-      issues: data?.issues_count ?? 0,
-    })
-  }
-
-  if (code === 'SKILL_SECURITY_SCAN_FAILED') {
-    return t('managed.errors.skillSecurityScanFailed', {
-      error: data?.error_message || '',
-    })
-  }
 
   if (code === 'SKILL_IMPORT_ZIP_EMPTY' && data) {
     const samples = Array.isArray(data.sample_members)

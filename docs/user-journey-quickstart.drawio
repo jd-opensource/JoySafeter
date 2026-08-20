@@ -53,7 +53,7 @@
 <mxCell id="s4h" value="&lt;b&gt;STEP 4&lt;/b&gt;  Skill 管理  /managed/skills" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ad1457;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
   <mxGeometry x="900" y="85" width="250" height="30" as="geometry"/>
 </mxCell>
-<mxCell id="s4c" value="&lt;b&gt;资源 → 技能&lt;/b&gt;&lt;br/&gt;导入 ZIP 或 AI 辅助创建&lt;br/&gt;&lt;br/&gt;&lt;b&gt;编辑 Skill 内容&lt;/b&gt;&lt;br/&gt;文件树 + Markdown/资源文件&lt;br/&gt;配置名称、描述、标签&lt;br/&gt;&lt;br/&gt;&lt;b&gt;安全扫描&lt;/b&gt;&lt;br/&gt;SkillSpector 写入扫描&lt;br/&gt;审核通过后才进入运行时闸门&lt;br/&gt;&lt;br/&gt;&lt;b&gt;版本管理&lt;/b&gt;&lt;br/&gt;发布不可变版本并可恢复&lt;br/&gt;&lt;br/&gt;&lt;b&gt;→ Skill 就绪&lt;/b&gt;&lt;br/&gt;运行时仅打包已批准版本" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
+<mxCell id="s4c" value="&lt;b&gt;资源 → 技能&lt;/b&gt;&lt;br/&gt;导入 ZIP 或 AI 辅助创建&lt;br/&gt;&lt;br/&gt;&lt;b&gt;编辑 Skill 内容&lt;/b&gt;&lt;br/&gt;文件树 + Markdown/资源文件&lt;br/&gt;配置名称、描述、标签&lt;br/&gt;&lt;br/&gt;&lt;b&gt;安全扫描&lt;/b&gt;&lt;br/&gt;SkillSpector 默认提示风险&lt;br/&gt;可选仅在发布版本时强制&lt;br/&gt;&lt;br/&gt;&lt;b&gt;版本管理&lt;/b&gt;&lt;br/&gt;发布不可变版本并可恢复&lt;br/&gt;&lt;br/&gt;&lt;b&gt;→ Skill 就绪&lt;/b&gt;&lt;br/&gt;运行时只打包已发布版本" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
   <mxGeometry x="900" y="123" width="250" height="312" as="geometry"/>
 </mxCell>
 

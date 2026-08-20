@@ -91,6 +91,9 @@ def _skill(lifecycle):
         id=uuid.uuid4(),
         owner_id="user-1",
         lifecycle_status=lifecycle,
+        security_status="blocked",
+        security_scan_hash=None,
+        files=[],
     )
 
 
@@ -111,14 +114,6 @@ def _skill(lifecycle):
 async def test_allowed_transitions(from_status, to_status, method_name, monkeypatch):
     skill = _skill(from_status)
     svc = _make_service(skill, monkeypatch=monkeypatch)
-    if to_status == "approved":
-        # The approve/unarchive edges run the runtime-readiness scan gate,
-        # which is only active when security scanning is enabled.
-        monkeypatch.setattr(app_settings, "skill_security_scan_enabled", True)
-        monkeypatch.setattr(
-            "app.joysafeter_domain.services.joysafeter_skill_security.scan_ok",
-            lambda _skill: (True, None),
-        )
     transition = await getattr(svc, method_name)(skill.id, current_user_id="user-1")
     assert isinstance(transition, LifecycleTransition)
     assert transition.from_status == from_status
@@ -173,21 +168,15 @@ async def test_missing_skill_raises_not_found(monkeypatch):
 
 
 @pytest.mark.parametrize("from_status,method_name", [("pending_review", "approve"), ("archived", "unarchive")])
-async def test_approved_state_requires_scan_ready(from_status, method_name, monkeypatch):
+async def test_approved_state_does_not_depend_on_scan_status(from_status, method_name, monkeypatch):
     skill = _skill(from_status)
     svc = _make_service(skill, monkeypatch=monkeypatch)
     monkeypatch.setattr(app_settings, "skill_security_scan_enabled", True)
-    monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_skill_security.scan_ok",
-        lambda _skill: (False, "security_not_scanned"),
-    )
 
-    with pytest.raises(InvalidRequestError) as ei:
-        await getattr(svc, method_name)(skill.id, current_user_id="user-1")
+    transition = await getattr(svc, method_name)(skill.id, current_user_id="user-1")
 
-    assert ei.value.code == "SKILL_LIFECYCLE_NOT_RUNTIME_READY"
-    assert ei.value.data["reason"] == "security_not_scanned"
-    assert skill.lifecycle_status == from_status
+    assert transition.to_status == "approved"
+    assert skill.lifecycle_status == "approved"
 
 
 # ── transition table invariants ────────────────────────────────

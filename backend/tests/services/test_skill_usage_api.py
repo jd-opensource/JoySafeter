@@ -90,9 +90,10 @@ async def test_skill_usage_api_filters_security_response_surface(monkeypatch):
         def __init__(self, db, active_org_id, caller_org_role=None):
             self.db = db
 
-        async def get_skill(self, requested_skill_id, current_user_id=None):
+        async def get_skill(self, requested_skill_id, current_user_id=None, project_id=None):
             assert requested_skill_id == skill_id
             assert current_user_id == "user-a"
+            assert project_id == "proj-a"
             return _Skill()
 
     monkeypatch.setattr(skills_api, "SkillService", _Svc)

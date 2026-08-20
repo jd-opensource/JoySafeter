@@ -13,6 +13,15 @@ pytestmark = pytest.mark.no_db
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_skill_security_publish_enforcement_defaults_off_and_accepts_env(monkeypatch) -> None:
+    monkeypatch.setenv("SECRET_KEY", "test-secret")
+    monkeypatch.delenv("SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED", raising=False)
+    assert Settings(_env_file=None).skill_security_scan_enforcement_enabled is False
+
+    monkeypatch.setenv("SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED", "true")
+    assert Settings(_env_file=None).skill_security_scan_enforcement_enabled is True
+
+
 def test_settings_accept_only_canonical_environment_names(monkeypatch) -> None:
     monkeypatch.setenv("SECRET_KEY", "test-secret")
     monkeypatch.delenv("DEBUG", raising=False)

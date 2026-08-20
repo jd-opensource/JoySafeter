@@ -652,7 +652,12 @@ class Settings(BaseSettings):
     skill_security_scan_enabled: bool = Field(
         default=False,
         validation_alias="SKILL_SECURITY_SCAN_ENABLED",
-        description="Enable Skill security scanning before skill writes.",
+        description="Enable informational Skill security scanning.",
+    )
+    skill_security_scan_enforcement_enabled: bool = Field(
+        default=False,
+        validation_alias="SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED",
+        description="Require a fresh successful security scan when publishing a Skill version.",
     )
     skill_security_scanner_url: str = Field(
         default="http://skillspector:8010",
@@ -663,11 +668,6 @@ class Settings(BaseSettings):
         default=30.0,
         validation_alias="SKILL_SECURITY_TIMEOUT_SECONDS",
         description="Skill security scanner request timeout.",
-    )
-    skill_security_fail_closed: bool = Field(
-        default=True,
-        validation_alias="SKILL_SECURITY_FAIL_CLOSED",
-        description="Reject skill writes when the scanner fails.",
     )
     skill_security_no_llm: bool = Field(
         default=True,

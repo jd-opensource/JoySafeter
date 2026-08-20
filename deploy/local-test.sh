@@ -51,11 +51,13 @@ report_dev_toggles() {
   # 的静默困惑，并在扫描被打开但 scanner URL 指向宿主机连不到的容器 DNS 时明确告警。
   local scan envoy scanner
   scan="$(read_env SKILL_SECURITY_SCAN_ENABLED)"; scan="${scan:-false}"
+  enforcement="$(read_env SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED)"; enforcement="${enforcement:-false}"
   envoy="$(read_env JOYSAFETER_ENVOY_ENABLED)"; envoy="${envoy:-false}"
   scanner="$(read_env SKILL_SECURITY_SCANNER_URL)"
 
   log "宿主机开发模式安全开关（来自 backend/.env）"
   echo "  SKILL_SECURITY_SCAN_ENABLED = $scan"
+  echo "  SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED = $enforcement"
   echo "  JOYSAFETER_ENVOY_ENABLED    = $envoy"
 
   case "$scan" in
@@ -66,7 +68,7 @@ report_dev_toggles() {
           echo "  本脚本不启动 skillspector（compose 里它只 expose 8010、未发布到宿主机）。要在宿主机路径跑扫描，二选一："
           echo "    - 用完整栈：cd deploy && ./deploy.sh local（skillspector 在 compose 网络内可达）"
           echo "    - 或把 backend/.env 的 SKILL_SECURITY_SCANNER_URL 改成宿主机可达的扫描器地址"
-          echo "  否则 SKILL_SECURITY_FAIL_CLOSED=true 时，skill 写入/导入会因扫描器不可达而被拒绝。"
+          echo "  扫描结果会记录为 failed；若 SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED=true，发布版本会被拒绝。"
           ;;
         *)
           echo "  扫描已开启，scanner URL=${scanner:-未设置}"

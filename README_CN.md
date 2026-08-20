@@ -33,8 +33,8 @@ JoySafeter 把这套模型交到你**自己的基础设施**上：
   网络内。任何第三方都不会看到本次工作。
 - **网络受限执行。** 每个会话跑在 `NetworkMode=none` 沙箱里，前置一个 Envoy 代理，
   **默认全拒的出口白名单** —— 攻击性工具无法回连外部或横向进入你的网络，除非你显式放行。
-- **运行时 fail-closed 的技能供应链管控。** 技能是会在你环境里执行的代码；skillspector 负责扫描，
-  运行时打包会拦截未审批、未成功扫描、blocked、failed、scanning 或与上次扫描发生漂移的技能。
+- **发布边界的技能供应链管控。** 技能是会在你环境里执行的代码；skillspector 默认提示风险，
+  可通过全局开关要求发布前对同一份不可变快照执行新的成功扫描。
 - **引擎无关。** Claude Code、Codex、或自研 `ccb` 引擎，统一在一个 gRPC 契约之后 —— 不锁定单一
   厂商或模型。
 
@@ -43,7 +43,7 @@ JoySafeter 把这套模型交到你**自己的基础设施**上：
 | 数据 / 目标驻留 | 厂商云 | 你的 | **你的 —— 完全自托管** |
 | 引擎 / 模型 | 单一厂商 | 自行拼装 | **Claude Code / Codex / native，按 Agent 选** |
 | 网络隔离 | 厂商托管 | 自行搭建 | **每沙箱 Envoy 全拒出口** |
-| 技能与工具安全 | 厂商托管 | 自行搭建 | **SkillSpector 扫描 + 运行时 fail-closed 闸门** |
+| 技能与工具安全 | 厂商托管 | 自行搭建 | **SkillSpector 扫描 + 可选发布闸门** |
 | 上生产时间 | 数天 | 数月 | **数天，在你自己的硬件上** |
 
 > JoySafeter 将其定义为 **AI 驱动安全运营（AISecOps）**：把托管智能体模型 —— 多步自主、
@@ -143,7 +143,7 @@ JoySafeter 把这套模型交到你**自己的基础设施**上：
 ### 📚 Skills
 
 - **30 个版本化能力包** —— 渗透测试、文档分析、规划/元技能
-- **SkillSpector 安全扫描** + 运行时 `is_skill_usable` 闸门（approved + `passed` / `warning` 扫描 + 内容未漂移）
+- **SkillSpector 安全扫描**默认只提示风险，可选仅在发布时执行 fail-closed 强制扫描
 - **AI Skill 创作** —— LLM 辅助的起草、编辑、版本化与 diff
 
 </td>
@@ -260,7 +260,7 @@ flowchart LR
 - **规范化错误系统** —— `AppError` 输出规范的 `ErrorDescriptor`（`{code, message, data, source, retryable, user_action}`），HTTP 与流式路径一致消费
 - **OTel 观测追踪** —— 全链路 `trace_id` 传播，span 落库
 - **凭据加密** —— Provider API Key 存于 Secrets、MCP 凭据存于 Vaults，均 AES-256-GCM 加密，运行时注入沙箱
-- **分层技能体系** —— Skills 是版本化能力包；运行时只打包已审批、扫描状态允许且内容未漂移的技能
+- **分层技能体系** —— 发布要求 Skill 已审批；Agent 与运行时只消费不可变的已发布版本，不回查父 Skill 的后续扫描状态
 
 ### 用户操作路径 —— 快速入门
 

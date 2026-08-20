@@ -36,14 +36,11 @@ Every transition is gated by the caller's project capability on the skill
 (via ``check_skill_access``): there is no owner special-case and no per-skill
 collaborator role — write/admin comes solely from the project role.
 
-Runtime gate interaction
-------------------------
+Security scan interaction
+-------------------------
 
-Transitions write only to ``lifecycle_status``; they don't trigger a
-re-scan. The drift gate in
-``skill_runtime_policy.is_skill_usable`` separately compares the current
-content hash to the last scan's ``target_hash``, so a skill that drifts
-between approve and load is still caught.
+Transitions write only to ``lifecycle_status``. Security scan results are
+informational except at the publish boundary when global enforcement is enabled.
 """
 
 
@@ -206,19 +203,6 @@ class SkillLifecycleService:
                 },
             )
 
-        if to_status == JoySafeterSkillLifecycleStatus.APPROVED.value:
-            from app.joysafeter_domain.services.joysafeter_skill_security import scan_ok
-            from app.joysafeter_shared.config import settings
-
-            if settings.skill_security_scan_enabled:
-                scan_ready, reason = scan_ok(skill)
-                if not scan_ready:
-                    raise InvalidRequestError(
-                        "Skill must pass security scan before entering approved state.",
-                        code="SKILL_LIFECYCLE_NOT_RUNTIME_READY",
-                        data={"skill_id": str(skill_id), "from_status": from_status, "reason": reason},
-                    )
-
         skill.lifecycle_status = to_status
         await self.db.commit()
         await self.db.refresh(skill)
@@ -244,6 +228,7 @@ import semver
 from app.joysafeter_domain.models.joysafeter_skill import (
     JoySafeterSkill,
     JoySafeterSkillFile,
+    JoySafeterSkillSecurityStatus,
     JoySafeterSkillVersion,
     JoySafeterSkillVersionFile,
 )
@@ -296,35 +281,14 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         )
         _ensure_skill_mutable(skill)
 
-        # Runtime-readiness gate — publishing a snapshot that no agent can
-        # load creates a dead version and breaks the product contract between
-        # Skills, Agent picker, and orchestrator. Use the specific
-        # ``SKILL_SECURITY_BLOCKED`` code for the high-risk verdict, but fail
-        # every other runtime-ineligible state with a precise reason.
-        # When security scanning is disabled globally, skip all scan gates.
-        from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillSecurityStatus
         from app.joysafeter_shared.config import settings as app_settings
 
-        if app_settings.skill_security_scan_enabled:
-            if skill.security_status == JoySafeterSkillSecurityStatus.BLOCKED.value:
-                raise InvalidRequestError(
-                    "技能存在高安全风险，已被安全扫描拦截，无法发布版本。请修复后重新扫描。",
-                    code="SKILL_SECURITY_BLOCKED",
-                    data={
-                        "security_status": skill.security_status,
-                        "security_severity": skill.security_severity,
-                        "security_score": skill.security_score,
-                    },
-                )
-            from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
-
-            usable, reason = is_skill_usable(skill)
-            if not usable:
-                raise InvalidRequestError(
-                    "Skill is not runtime-ready and cannot be published.",
-                    code="SKILL_VERSION_NOT_RUNTIME_READY",
-                    data={"skill_id": str(skill_id), "reason": reason},
-                )
+        if skill.lifecycle_status != JoySafeterSkillLifecycleStatus.APPROVED.value:
+            raise InvalidRequestError(
+                "Skill must be approved before publishing a version.",
+                code="SKILL_VERSION_NOT_APPROVED",
+                data={"skill_id": str(skill_id), "reason": "skill_not_approved"},
+            )
 
         # Validate semver format
         try:
@@ -359,7 +323,80 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
                     data={"version": version_str, "latest_version": highest_str},
                 )
 
-                # Snapshot
+        # Freeze the exact file set before scanning so the scan input and the
+        # immutable version snapshot are byte-for-byte identical.
+        skill_files = await self.skill_file_repo.list_by_skill(skill_id)
+        publish_scan = None
+        if app_settings.skill_security_scan_enforcement_enabled:
+            if not app_settings.skill_security_scan_enabled:
+                raise InvalidRequestError(
+                    "Skill security enforcement is enabled but the scanner is disabled.",
+                    code="SKILL_SECURITY_SCAN_FAILED",
+                    data={"skill_id": str(skill_id), "reason": "scanner_disabled"},
+                    retryable=False,
+                )
+            from app.joysafeter_domain.services.joysafeter_skill_security import SkillSecurityService
+
+            security_service = SkillSecurityService(
+                self.db,
+                active_org_id=self._active_org_id,
+                caller_org_role=self._caller_org_role,
+            )
+            publish_scan = await security_service.scan_for_write(
+                trigger="publish",
+                created_by_id=current_user_id,
+                owner_id=skill.owner_id,
+                project_id=skill.project_id,
+                skill_id=skill.id,
+                name=skill.name,
+                description=skill.description,
+                content=skill.content,
+                tags=list(skill.tags or []),
+                license=skill.license,
+                files=[
+                    {
+                        "path": skill_file.path,
+                        "file_name": skill_file.file_name,
+                        "file_type": skill_file.file_type,
+                        "content": skill_file.content,
+                        "storage_type": skill_file.storage_type,
+                        "storage_key": skill_file.storage_key,
+                        "size": skill_file.size,
+                    }
+                    for skill_file in skill_files
+                ],
+            )
+            if publish_scan is None:
+                raise InvalidRequestError(
+                    "Skill security scan did not return a verdict.",
+                    code="SKILL_SECURITY_SCAN_FAILED",
+                    data={"skill_id": str(skill_id), "reason": "missing_verdict"},
+                    retryable=True,
+                )
+            security_service.apply_latest_scan(skill, publish_scan)
+            if publish_scan.status == JoySafeterSkillSecurityStatus.FAILED.value:
+                await self.db.commit()
+                raise InvalidRequestError(
+                    "Skill security scan failed",
+                    code="SKILL_SECURITY_SCAN_FAILED",
+                    data={
+                        "scan_id": str(publish_scan.id),
+                        "status": publish_scan.status,
+                        "error_message": publish_scan.error_message,
+                    },
+                    retryable=True,
+                )
+            if publish_scan.status not in {
+                JoySafeterSkillSecurityStatus.PASSED.value,
+                JoySafeterSkillSecurityStatus.WARNING.value,
+            }:
+                await self.db.commit()
+                raise InvalidRequestError(
+                    "Skill security scan rejected publication",
+                    code="SKILL_SECURITY_SCAN_REJECTED",
+                    data=security_service.error_data(publish_scan),
+                )
+
         sv = JoySafeterSkillVersion(
             skill_id=skill_id,
             version=version_str,
@@ -372,6 +409,8 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             allowed_tools=list(skill.allowed_tools) if skill.allowed_tools else [],
             compatibility=skill.compatibility,
             license=skill.license,
+            security_scan_id=publish_scan.id if publish_scan is not None else None,
+            target_hash=publish_scan.target_hash if publish_scan is not None else None,
             published_by_id=current_user_id,
             published_at=datetime.now(timezone.utc),
         )
@@ -379,8 +418,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         await self.db.flush()
         await self.db.refresh(sv)
 
-        # Copy files
-        skill_files = await self.skill_file_repo.list_by_skill(skill_id)
+        # Copy the same frozen file set that was scanned above.
         for sf in skill_files:
             vf = JoySafeterSkillVersionFile(
                 version_id=sv.id,
@@ -404,6 +442,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         current_user_id: str,
         is_superuser: bool = False,
         *,
+        project_id: Optional[str] = None,
         limit: Optional[int] = None,
         after_id: Optional[SkillVersionId] = None,
     ) -> tuple[List[JoySafeterSkillVersion], bool]:
@@ -423,7 +462,13 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
-        rows = await self.repo.list_by_skill(skill_id, limit=limit, after_id=after_id)
+        allowed_version_ids = await self._allowed_version_ids(skill, project_id)
+        rows = await self.repo.list_by_skill(
+            skill_id,
+            allowed_version_ids=allowed_version_ids,
+            limit=limit,
+            after_id=after_id,
+        )
         if limit is not None and len(rows) > limit:
             return rows[:limit], True
         return rows, False
@@ -434,6 +479,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         version_str: str,
         current_user_id: str,
         is_superuser: bool = False,
+        project_id: Optional[str] = None,
     ) -> JoySafeterSkillVersion:
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
@@ -445,13 +491,53 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             active_org_id=self._active_org_id,
         )
         sv = await self.repo.get_by_version(skill_id, version_str)
-        if not sv:
+        allowed_version_ids = await self._allowed_version_ids(skill, project_id)
+        if not sv or (allowed_version_ids is not None and sv.id not in allowed_version_ids):
             raise NotFoundError(
                 "Skill version not found",
                 code="SKILL_VERSION_NOT_FOUND",
                 data={"skill_id": str(skill_id), "version": version_str},
             )
         return sv  # type: ignore[return-value,no-any-return]
+
+    async def get_version_for_management(
+        self,
+        skill_id: SkillId,
+        version_str: str,
+        current_user_id: str,
+    ) -> JoySafeterSkillVersion:
+        skill = await self._get_skill_or_404(skill_id)
+        await check_skill_access(
+            self.db,
+            skill,
+            current_user_id,
+            ProjectCapability.ADMIN,
+            caller_org_role=self._caller_org_role,
+            active_org_id=self._active_org_id,
+        )
+        version = await self.repo.get_by_version(skill_id, version_str)
+        if not version:
+            raise NotFoundError(
+                "Skill version not found",
+                code="SKILL_VERSION_NOT_FOUND",
+                data={"skill_id": str(skill_id), "version": version_str},
+            )
+        return version
+
+    async def _allowed_version_ids(
+        self,
+        skill: JoySafeterSkill,
+        project_id: Optional[str],
+    ) -> Optional[List[SkillVersionId]]:
+        if project_id is not None and project_id == skill.project_id:
+            return None
+        skill_org_id = await resolve_skill_org_id(self.db, skill)
+        version_ids = []
+        if skill.public_version_id is not None:
+            version_ids.append(skill.public_version_id)
+        if skill_org_id == self._active_org_id and skill.org_version_id is not None:
+            version_ids.append(skill.org_version_id)
+        return list(dict.fromkeys(version_ids))
 
     async def delete_version(
         self,
@@ -483,6 +569,20 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
             # snapshot.skills entry that points at this specific version.
         if not force:
             referrers = await self._find_version_referrers(skill_id, version_str)
+            promoted_tiers = []
+            if skill.org_version_id == sv.id:
+                promoted_tiers.append("organization")
+            if skill.public_version_id == sv.id:
+                promoted_tiers.append("public")
+            if promoted_tiers:
+                referrers.insert(
+                    0,
+                    {
+                        "kind": "promotion",
+                        "version_id": str(sv.id),
+                        "tiers": promoted_tiers,
+                    },
+                )
             if referrers:
                 raise ResourceConflictError(
                     "Skill version is in use",
@@ -491,7 +591,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
                         "skill_id": str(skill_id),
                         "version": version_str,
                         "referrers": referrers,
-                        "hint": "Pass force=true to delete anyway. Agents pointing at this version will fall back according to their current 'version' field.",
+                        "hint": "Update or remove these references first. Pass force=true only if pinned agents and active snapshots may fail to load and promoted access may be withdrawn.",
                     },
                 )
 
@@ -517,6 +617,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         of compact descriptors usable in the error payload."""
         import json
 
+        from sqlalchemy import func, select
         from sqlalchemy import text as sa_text
 
         # JSONB array containment: skills @> [{"skill_id": "...", "version": "..."}].
@@ -524,38 +625,67 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         # ``_merge_agent_assets`` via ``model_dump(mode="json")``, which serializes
         # SkillId to the canonical prefixed ``skill_<uuid>`` — so one canonical
         # needle suffices (no historical bare-uuid rows exist).
-        needle = json.dumps([{"skill_id": str(skill_id), "version": version_str}])
+        needles = [(version_str, json.dumps([{"skill_id": str(skill_id), "version": version_str}]))]
+        remaining_result = await self.db.execute(
+            select(func.count(JoySafeterSkillVersion.id)).where(
+                JoySafeterSkillVersion.skill_id == skill_id,
+                JoySafeterSkillVersion.version != version_str,
+            )
+        )
+        if int(remaining_result.scalar_one()) == 0:
+            needles.append(("latest", json.dumps([{"skill_id": str(skill_id), "version": "latest"}])))
 
         referrers: list[dict] = []
+        for requested_version, needle in needles:
+            stmt = sa_text(
+                "SELECT id, name FROM joysafeter_agents "
+                "WHERE deleted_at IS NULL AND skills @> CAST(:needle AS jsonb)"
+            ).bindparams(needle=needle)
+            result = await self.db.execute(stmt)
+            for row in result.mappings():
+                referrers.append(
+                    {
+                        "kind": "agent",
+                        "agent_id": str(row["id"]),
+                        "name": row["name"],
+                        "requested_version": requested_version,
+                    }
+                )
 
-        # 1) Live agent.skills
-        stmt = sa_text("SELECT id, name FROM joysafeter_agents WHERE skills @> CAST(:needle AS jsonb)").bindparams(
-            needle=needle
-        )
-        result = await self.db.execute(stmt)
-        for row in result.mappings():
-            referrers.append(
-                {
-                    "kind": "agent",
-                    "agent_id": str(row["id"]),
-                    "name": row["name"],
-                }
-            )
+            stmt = sa_text(
+                "SELECT av.agent_id, av.version FROM joysafeter_agent_versions av "
+                "JOIN joysafeter_agents a ON a.id = av.agent_id "
+                "WHERE a.deleted_at IS NULL AND (av.snapshot->'skills') @> CAST(:needle AS jsonb)"
+            ).bindparams(needle=needle)
+            result = await self.db.execute(stmt)
+            for row in result.mappings():
+                referrers.append(
+                    {
+                        "kind": "agent_version",
+                        "agent_id": str(row["agent_id"]),
+                        "agent_version": row["version"],
+                        "requested_version": requested_version,
+                    }
+                )
 
-        # 2) Frozen agent_version snapshots
-        stmt = sa_text(
-            "SELECT agent_id, version FROM joysafeter_agent_versions "
-            "WHERE (snapshot->'skills') @> CAST(:needle AS jsonb)"
-        ).bindparams(needle=needle)
-        result = await self.db.execute(stmt)
-        for row in result.mappings():
-            referrers.append(
-                {
-                    "kind": "agent_version",
-                    "agent_id": str(row["agent_id"]),
-                    "agent_version": row["version"],
-                }
-            )
+            stmt = sa_text(
+                "SELECT task.id, task.status FROM joysafeter_tasks task "
+                "JOIN joysafeter_agents a ON a.id = task.agent_id "
+                "LEFT JOIN joysafeter_sessions s ON s.id = task.chat_session_id "
+                "WHERE task.status NOT IN ('completed', 'failed', 'aborted', 'timeout', 'cancelled') "
+                "AND (CASE WHEN s.agent_snapshot IS NOT NULL AND s.agent_snapshot ? 'skills' "
+                "THEN s.agent_snapshot->'skills' ELSE a.skills END) @> CAST(:needle AS jsonb)"
+            ).bindparams(needle=needle)
+            result = await self.db.execute(stmt)
+            for row in result.mappings():
+                referrers.append(
+                    {
+                        "kind": "active_task",
+                        "task_id": str(row["id"]),
+                        "status": row["status"],
+                        "requested_version": requested_version,
+                    }
+                )
 
         return referrers
 
@@ -643,7 +773,7 @@ Skill Service: Permission Check + CRUD
 """
 
 
-from typing import Any, Dict, Literal
+from typing import Any, Dict
 
 from loguru import logger
 
@@ -680,18 +810,6 @@ def _skill_archived_error(skill) -> ResourceConflictError:
 def _ensure_skill_mutable(skill) -> None:
     if getattr(skill, "lifecycle_status", None) == JoySafeterSkillLifecycleStatus.ARCHIVED.value:
         raise _skill_archived_error(skill)
-
-
-_ELIGIBILITY_NEXT_ACTIONS: dict[str | None, str] = {
-    None: "none",
-    "skill_not_approved": "submit_or_approve",
-    "security_not_scanned": "run_security_scan",
-    "security_scanning": "wait_for_scan",
-    "security_failed": "fix_and_rescan",
-    "security_blocked": "fix_and_rescan",
-    "no_security_scan_hash": "run_security_scan",
-    "content_changed_after_scan": "run_security_scan",
-}
 
 
 class SkillService(BaseService[JoySafeterSkill]):
@@ -750,8 +868,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         tags: Optional[List[str]],
         license: Optional[str],
         files: Optional[List[Dict[str, Any]]],
-        failure_mode: Literal["default", "fail_open", "fail_closed"] = "fail_open",
-        enforce_write_policy: bool = True,
     ):
         """Run a scan either inline or as a background dispatch.
 
@@ -760,8 +876,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         downstream don't need to change. The async path:
 
           - Returns ``None`` immediately.
-          - Marks the skill row ``security_status='scanning'`` so the
-            runtime gate blocks loads until the BG verdict lands.
+          - Marks the skill row ``security_status='scanning'`` for UI polling.
           - Queues a descriptor on ``_pending_async_scans`` that the
             API layer drains and hands to FastAPI's BackgroundTasks.
 
@@ -821,8 +936,6 @@ class SkillService(BaseService[JoySafeterSkill]):
 
             # Sync path — pre-P2.7 behavior.
         return await self.security_service.scan_for_write(
-            enforce_write_policy=enforce_write_policy,
-            failure_mode=failure_mode,
             trigger=trigger,
             created_by_id=created_by_id,
             owner_id=owner_id,
@@ -889,33 +1002,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         skill.tags = fields["tags"]
         skill.license = fields["license"]
 
-    def _runtime_eligibility_next_action(self, reason: Optional[str]) -> str:
-        return _ELIGIBILITY_NEXT_ACTIONS.get(reason, "review_skill")
-
-    def _annotate_runtime_eligibility(self, skill: JoySafeterSkill) -> None:
-        from app.joysafeter_shared.config import settings as app_settings
-
-        if not app_settings.skill_security_scan_enabled:
-            # When scanning is globally disabled, skip security gates for
-            # runtime eligibility — only lifecycle_status matters.
-            usable = skill.lifecycle_status == "approved"
-            reason = None if usable else "skill_not_approved"
-        else:
-            from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
-
-            usable, reason = is_skill_usable(skill)
-
-        next_action = self._runtime_eligibility_next_action(reason)
-        setattr(
-            skill,
-            "runtime_eligibility",
-            {
-                "usable": usable,
-                "reason": reason,
-                "next_action": next_action,
-            },
-        )
-
     def _agent_skill_item_refs(self, item: Any, skill_id: SkillId) -> bool:
         if not isinstance(item, dict):
             return False
@@ -931,116 +1017,94 @@ class SkillService(BaseService[JoySafeterSkill]):
         return isinstance(skills, list) and any(self._agent_skill_item_refs(item, skill_id) for item in skills)
 
     async def _has_skill_references(self, skill: JoySafeterSkill) -> bool:
-        from sqlalchemy import select
-
-        from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
-        from app.joysafeter_domain.models.joysafeter_project import Project
-
-        project_filter: Any
-        if self._active_org_id:
-            project_filter = JoySafeterAgent.project_id.in_(
-                select(Project.id).where(Project.org_id == self._active_org_id)
-            )
-        else:
-            project_filter = JoySafeterAgent.project_id == skill.project_id
-
-        result = await self.db.execute(
-            select(JoySafeterAgent.id, JoySafeterAgent.skills).where(
-                project_filter, JoySafeterAgent.deleted_at.is_(None)
-            )
-        )
-        for row in result.all():
-            if self._agent_refs_skill(row.skills, skill.id):
-                return True
-        return False
+        impact = await self._collect_skill_reference_impact(skill.id, sample_limit=0)
+        setattr(skill, "_reference_impact_cache", impact)
+        return impact["counts"]["total"] > 0
 
     async def _annotate_skill_impact(self, skill: JoySafeterSkill, *, sample_limit: int = 8) -> None:
-        from sqlalchemy import select
+        impact = getattr(skill, "_reference_impact_cache", None)
+        if impact is None or (sample_limit > 0 and not impact.get("references")):
+            impact = await self._collect_skill_reference_impact(skill.id, sample_limit=sample_limit)
+        if hasattr(skill, "_reference_impact_cache"):
+            delattr(skill, "_reference_impact_cache")
+        setattr(skill, "impact", impact)
 
-        from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
-        from app.joysafeter_domain.models.joysafeter_project import Project
-        from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
-        from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
+    async def _collect_skill_reference_impact(self, skill_id: SkillId, *, sample_limit: int) -> dict[str, Any]:
+        import json
 
-        project_filter: Any
-        if self._active_org_id:
-            project_filter = JoySafeterAgent.project_id.in_(
-                select(Project.id).where(Project.org_id == self._active_org_id)
-            )
-        else:
-            project_filter = JoySafeterAgent.project_id == skill.project_id
+        from sqlalchemy import text as sa_text
 
-        agents_result = await self.db.execute(
-            select(JoySafeterAgent.id, JoySafeterAgent.name, JoySafeterAgent.version, JoySafeterAgent.skills)
-            .where(project_filter, JoySafeterAgent.deleted_at.is_(None))
-            .limit(1000)
+        needle = json.dumps([{"skill_id": str(skill_id)}])
+        terminal_statuses = "'completed', 'failed', 'aborted', 'timeout', 'cancelled'"
+        task_skills = (
+            "CASE WHEN s.agent_snapshot IS NOT NULL AND s.agent_snapshot ? 'skills' "
+            "THEN s.agent_snapshot->'skills' ELSE a.skills END"
         )
-        current_agents = [row for row in agents_result.all() if self._agent_refs_skill(row.skills, skill.id)]
-        current_agent_ids = [row.id for row in current_agents]
+        queries = {
+            "agents": (
+                "SELECT a.id, a.name, a.version::text AS version, NULL::text AS status "
+                "FROM joysafeter_agents a "
+                "WHERE a.deleted_at IS NULL AND a.skills @> CAST(:needle AS jsonb)"
+            ),
+            "agent_versions": (
+                "SELECT av.id, a.name, av.version::text AS version, NULL::text AS status "
+                "FROM joysafeter_agent_versions av "
+                "JOIN joysafeter_agents a ON a.id = av.agent_id "
+                "WHERE a.deleted_at IS NULL AND (av.snapshot->'skills') @> CAST(:needle AS jsonb)"
+            ),
+            "triggers": (
+                "SELECT t.id, t.name, NULL::text AS version, "
+                "CASE WHEN t.enabled THEN 'enabled' ELSE 'disabled' END AS status "
+                "FROM joysafeter_triggers t "
+                "JOIN joysafeter_agents a ON a.id = t.agent_id "
+                "WHERE t.deleted_at IS NULL AND t.type = 'cron' AND a.deleted_at IS NULL "
+                "AND a.skills @> CAST(:needle AS jsonb)"
+            ),
+            "active_tasks": (
+                "SELECT task.id, COALESCE(a.name, 'Agent task') AS name, NULL::text AS version, "
+                "task.status AS status FROM joysafeter_tasks task "
+                "JOIN joysafeter_agents a ON a.id = task.agent_id "
+                "LEFT JOIN joysafeter_sessions s ON s.id = task.chat_session_id "
+                f"WHERE task.status NOT IN ({terminal_statuses}) "
+                f"AND ({task_skills}) @> CAST(:needle AS jsonb)"
+            ),
+        }
 
-        version_result = await self.db.execute(
-            select(JoySafeterAgentVersion.id, JoySafeterAgentVersion.version, JoySafeterAgentVersion.snapshot)
-            .join(JoySafeterAgent, JoySafeterAgentVersion.agent_id == JoySafeterAgent.id)
-            .where(project_filter, JoySafeterAgent.deleted_at.is_(None))
-            .limit(1000)
-        )
-        version_rows = [
-            row for row in version_result.all() if self._agent_refs_skill(row.snapshot.get("skills"), skill.id)
-        ]
-
-        cron_trigger_rows = []
-        task_rows = []
-        if current_agent_ids:
-            cron_trigger_result = await self.db.execute(
-                select(JoySafeterTrigger.id, JoySafeterTrigger.name, JoySafeterTrigger.enabled)
-                .where(
-                    JoySafeterTrigger.agent_id.in_(current_agent_ids),
-                    JoySafeterTrigger.type == "cron",
-                    JoySafeterTrigger.deleted_at.is_(None),
-                )
-                .limit(1000)
+        counts: dict[str, int] = {}
+        references: list[dict[str, str]] = []
+        type_names = {
+            "agents": "agent",
+            "agent_versions": "agent_version",
+            "triggers": "trigger",
+            "active_tasks": "active_task",
+        }
+        for key, query in queries.items():
+            count_result = await self.db.execute(
+                sa_text(f"SELECT COUNT(*) FROM ({query}) skill_refs").bindparams(needle=needle)
             )
-            cron_trigger_rows = list(cron_trigger_result.all())
-
-            task_result = await self.db.execute(
-                select(JoySafeterTask.id, JoySafeterTask.status)
-                .where(
-                    JoySafeterTask.agent_id.in_(current_agent_ids),
-                    JoySafeterTask.status.notin_([status.value for status in JOYSAFETER_TERMINAL_STATUSES]),
+            counts[key] = int(count_result.scalar_one())
+            remaining = sample_limit - len(references)
+            if remaining <= 0:
+                continue
+            sample_result = await self.db.execute(
+                sa_text(f"{query} ORDER BY id LIMIT :sample_limit").bindparams(
+                    needle=needle,
+                    sample_limit=remaining,
                 )
-                .limit(1000)
             )
-            task_rows = list(task_result.all())
-
-        references = []
-        for row in current_agents[:sample_limit]:
-            references.append({"type": "agent", "id": str(row.id), "name": row.name, "version": str(row.version)})
-        remaining = max(0, sample_limit - len(references))
-        for row in cron_trigger_rows[:remaining]:
-            references.append(
-                {
-                    "type": "trigger",
-                    "id": str(row.id),
-                    "name": row.name,
-                    "status": "enabled" if row.enabled else "disabled",
+            for row in sample_result.mappings():
+                reference = {
+                    "type": type_names[key],
+                    "id": str(row["id"]),
+                    "name": row["name"],
                 }
-            )
-
-        total = len(current_agents) + len(version_rows) + len(cron_trigger_rows) + len(task_rows)
-        setattr(
-            skill,
-            "impact",
-            {
-                "counts": {
-                    "agents": len(current_agents),
-                    "agent_versions": len(version_rows),
-                    "triggers": len(cron_trigger_rows),
-                    "active_tasks": len(task_rows),
-                    "total": total,
-                },
-                "references": references,
-            },
-        )
+                if row["version"] is not None:
+                    reference["version"] = row["version"]
+                if row["status"] is not None:
+                    reference["status"] = row["status"]
+                references.append(reference)
+        counts["total"] = sum(counts.values())
+        return {"counts": counts, "references": references}
 
     async def list_skills(
         self,
@@ -1053,10 +1117,10 @@ class SkillService(BaseService[JoySafeterSkill]):
     ) -> tuple[List[JoySafeterSkill], bool]:
         """Get Skills list with cursor pagination.
 
-        Each returned skill is annotated with ``latest_version`` — the most
-        recently published version string, or ``None`` when the skill has
-        never been published. Callers (e.g. the agent-builder skill picker)
-        use this to hide draft-only skills that can't yet be referenced.
+        Each returned skill is annotated with the newest version the caller's
+        active project may actually execute. Same-project callers see the
+        latest published version; cross-project callers only see the approved
+        organization/public tier pointers available to their project.
         """
         skills, has_more = await self.repo.list_by_user(
             user_id=current_user_id,
@@ -1068,21 +1132,80 @@ class SkillService(BaseService[JoySafeterSkill]):
             limit=limit,
             after_id=after_id,
         )
-        # Batch-annotate latest published version (single query, no N+1).
+        from sqlalchemy import select
+
+        from app.joysafeter_domain.models.joysafeter_project import Project
+        from app.joysafeter_domain.services.joysafeter_skill_version_access import SkillVersionExposure
+
         ver_repo = SkillVersionRepository(self.db)
-        latest_map = await ver_repo.latest_version_map([s.id for s in skills])
+        same_project_ids = [skill.id for skill in skills if project_id is not None and skill.project_id == project_id]
+        latest_map = await ver_repo.latest_version_map(same_project_ids)
+        cross_project_skills = [
+            skill for skill in skills if project_id is None or skill.project_id != project_id
+        ]
+        project_org_map: dict[str, str] = {}
+        pointer_version_map = {}
+        projection_id_by_skill_id: dict[SkillId, SkillVersionId] = {}
+        if cross_project_skills:
+            project_result = await self.db.execute(
+                select(Project.id, Project.org_id).where(
+                    Project.id.in_([skill.project_id for skill in cross_project_skills])
+                )
+            )
+            project_org_map = {row.id: row.org_id for row in project_result.all()}
+            pointer_ids = list(
+                dict.fromkeys(
+                    pointer_id
+                    for skill in cross_project_skills
+                    for pointer_id in (skill.org_version_id, skill.public_version_id)
+                    if pointer_id is not None
+                )
+            )
+            pointer_version_map = await ver_repo.version_strings_by_ids(pointer_ids)
         for skill in skills:
-            # ``latest_version`` is a request-scoped annotation declared as a
-            # ClassVar on the model; set it per-instance via setattr so mypy
-            # doesn't reject assigning to a class variable through an instance.
-            setattr(skill, "latest_version", latest_map.get(skill.id))
-            self._annotate_runtime_eligibility(skill)
+            if project_id is not None and skill.project_id == project_id:
+                latest_version = latest_map.get(skill.id)
+            else:
+                same_org = project_org_map.get(skill.project_id) == self._active_org_id
+                exposure = SkillVersionExposure(
+                    skill_project_id=skill.project_id,
+                    skill_org_id=project_org_map.get(skill.project_id),
+                    consumer_project_id=project_id,
+                    consumer_org_id=self._active_org_id,
+                    org_version=pointer_version_map.get(skill.org_version_id),
+                    public_version=pointer_version_map.get(skill.public_version_id),
+                )
+                latest_version = exposure.resolve_latest()
+                for pointer_id in (
+                    skill.org_version_id if same_org else None,
+                    skill.public_version_id,
+                ):
+                    if pointer_id is not None and pointer_version_map.get(pointer_id) == latest_version:
+                        projection_id_by_skill_id[skill.id] = pointer_id
+                        break
+            setattr(skill, "latest_version", latest_version)
+
+        projection_ids = list(projection_id_by_skill_id.values())
+        projection_rows = await ver_repo.get_by_ids(projection_ids) if projection_ids else []
+        projection_by_id = {version.id: version for version in projection_rows}
+        scan_ids = [version.security_scan_id for version in projection_rows if version.security_scan_id is not None]
+        scans_by_id = await self._security_scans_by_ids(scan_ids)
+        for skill in cross_project_skills:
+            projection_id = projection_id_by_skill_id.get(skill.id)
+            version = projection_by_id.get(projection_id)
+            if version is not None:
+                self._apply_exposed_version_projection(
+                    skill,
+                    version,
+                    scans_by_id.get(version.security_scan_id),
+                )
         return skills, has_more
 
     async def get_skill(
         self,
         skill_id: SkillId,
         current_user_id: str,
+        project_id: Optional[str] = None,
     ) -> JoySafeterSkill:
         """Get Skill details"""
         skill = await self.repo.get_with_files(skill_id)
@@ -1100,11 +1223,112 @@ class SkillService(BaseService[JoySafeterSkill]):
         )
 
         # Type assertion: get_with_files returns Optional[Skill], we've already checked it's not None
-        skill = await self._attach_latest_version(skill)
-        self._annotate_runtime_eligibility(skill)
-        await self._annotate_skill_impact(skill)
+        if project_id is not None and skill.project_id == project_id:
+            skill = await self._attach_latest_version(skill)
+            await self._annotate_skill_impact(skill)
+        else:
+            from sqlalchemy import select
+
+            from app.joysafeter_domain.models.joysafeter_project import Project
+            from app.joysafeter_domain.services.joysafeter_skill_version_access import SkillVersionExposure
+
+            org_result = await self.db.execute(select(Project.org_id).where(Project.id == skill.project_id))
+            skill_org_id = org_result.scalar_one_or_none()
+            pointer_ids = [
+                pointer_id
+                for pointer_id in (skill.org_version_id, skill.public_version_id)
+                if pointer_id is not None
+            ]
+            pointer_versions = await SkillVersionRepository(self.db).version_strings_by_ids(pointer_ids)
+            exposure = SkillVersionExposure(
+                skill_project_id=skill.project_id,
+                skill_org_id=skill_org_id,
+                consumer_project_id=project_id,
+                consumer_org_id=self._active_org_id,
+                org_version=pointer_versions.get(skill.org_version_id),
+                public_version=pointer_versions.get(skill.public_version_id),
+            )
+            latest_version = exposure.resolve_latest()
+            setattr(skill, "latest_version", latest_version)
+            allowed_pointer_ids = [skill.public_version_id]
+            if skill_org_id == self._active_org_id:
+                allowed_pointer_ids.insert(0, skill.org_version_id)
+            projection_id = next(
+                (
+                    pointer_id
+                    for pointer_id in allowed_pointer_ids
+                    if pointer_id is not None and pointer_versions.get(pointer_id) == latest_version
+                ),
+                None,
+            )
+            projection_rows = await SkillVersionRepository(self.db).get_by_ids(
+                [projection_id] if projection_id is not None else []
+            )
+            if projection_rows:
+                version = projection_rows[0]
+                scans_by_id = await self._security_scans_by_ids(
+                    [version.security_scan_id] if version.security_scan_id is not None else []
+                )
+                self._apply_exposed_version_projection(
+                    skill,
+                    version,
+                    scans_by_id.get(version.security_scan_id),
+                )
         result = skill
         return result  # type: ignore
+
+    async def _security_scans_by_ids(self, scan_ids: list[SkillSecurityScanId]) -> dict[SkillSecurityScanId, Any]:
+        if not scan_ids:
+            return {}
+        from sqlalchemy import select
+
+        from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillSecurityScan
+
+        result = await self.db.execute(
+            select(JoySafeterSkillSecurityScan).where(JoySafeterSkillSecurityScan.id.in_(scan_ids))
+        )
+        return {scan.id: scan for scan in result.scalars().all()}
+
+    def _apply_exposed_version_projection(
+        self,
+        skill: JoySafeterSkill,
+        version: JoySafeterSkillVersion,
+        scan: Any,
+    ) -> None:
+        from sqlalchemy.orm.attributes import set_committed_value
+
+        projected_values = {
+            "name": version.skill_name,
+            "description": version.skill_description,
+            "content": version.content,
+            "tags": list(version.tags or []),
+            "meta_data": dict(version.meta_data or {}),
+            "allowed_tools": list(version.allowed_tools or []),
+            "compatibility": version.compatibility,
+            "license": version.license,
+            "lifecycle_status": JoySafeterSkillLifecycleStatus.APPROVED.value,
+            "files": [],
+        }
+        for field, value in projected_values.items():
+            set_committed_value(skill, field, value)
+
+        security_values = {
+            "security_status": getattr(scan, "status", JoySafeterSkillSecurityStatus.NOT_SCANNED.value),
+            "security_score": getattr(scan, "score", None),
+            "security_severity": getattr(scan, "severity", None),
+            "security_recommendation": getattr(scan, "recommendation", None),
+            "security_scanned_at": getattr(scan, "created_at", None),
+            "security_scan_id": version.security_scan_id,
+            "security_scan_hash": version.target_hash,
+            "security_issues_count": getattr(scan, "issues_count", 0),
+            "security_critical_count": getattr(scan, "critical_count", 0),
+            "security_high_count": getattr(scan, "high_count", 0),
+            "security_medium_count": getattr(scan, "medium_count", 0),
+            "security_low_count": getattr(scan, "low_count", 0),
+        }
+        for field, value in security_values.items():
+            set_committed_value(skill, field, value)
+        setattr(skill, "impact", None)
 
     async def create_skill(
         self,
@@ -1233,7 +1457,6 @@ class SkillService(BaseService[JoySafeterSkill]):
                 raise self._invalid_import_files_error(invalid_files)
 
         security_scan = await self.security_service.scan_for_write(
-            failure_mode="fail_open",
             trigger="create",
             created_by_id=created_by_id,
             owner_id=owner_id,
@@ -1817,7 +2040,6 @@ class SkillService(BaseService[JoySafeterSkill]):
                 if existing_file.id != file_obj.id
             ]
             security_scan = await self._dispatch_security_scan(
-                enforce_write_policy=False,
                 trigger="file_delete",
                 created_by_id=current_user_id,
                 owner_id=skill.owner_id,
@@ -1980,19 +2202,36 @@ class SkillService(BaseService[JoySafeterSkill]):
         self,
         skill_id: SkillId,
         current_user_id: str,
+        project_id: Optional[str] = None,
         limit: int = 20,
         after_id: Optional[SkillSecurityScanId] = None,
     ):
         """List security scan history for a skill."""
-        return await self.security_service.list_scans(skill_id, current_user_id, limit=limit, after_id=after_id)
+        return await self.security_service.list_scans(
+            skill_id,
+            current_user_id,
+            project_id=project_id,
+            limit=limit,
+            after_id=after_id,
+        )
 
-    async def get_latest_security_scan(self, skill_id: SkillId, current_user_id: str):
+    async def get_latest_security_scan(
+        self,
+        skill_id: SkillId,
+        current_user_id: str,
+        project_id: Optional[str] = None,
+    ):
         """Get latest security scan for a skill."""
-        return await self.security_service.get_latest_scan(skill_id, current_user_id)
+        return await self.security_service.get_latest_scan(skill_id, current_user_id, project_id=project_id)
 
-    async def get_security_scan(self, scan_id: SkillSecurityScanId, current_user_id: str):
+    async def get_security_scan(
+        self,
+        scan_id: SkillSecurityScanId,
+        current_user_id: str,
+        project_id: Optional[str] = None,
+    ):
         """Get a security scan by id."""
-        return await self.security_service.get_scan(scan_id, current_user_id)
+        return await self.security_service.get_scan(scan_id, current_user_id, project_id=project_id)
 
     async def rescan_skill_async(self, skill_id: SkillId, current_user_id: str):
         """Dispatch a manual rescan as a background task and return immediately.
@@ -2097,30 +2336,22 @@ A skill is a project resource. Editors publish project-tier versions freely;
 exposing a version to the ``organization`` or ``public`` tier goes through a
 tiered, four-eyes approval:
 
-  submit_promotion  — caller has ADMIN capability on the skill AND the target
-                      version's security scan PASSED. Marks the version
+  submit_promotion  — caller has ADMIN capability on the skill. Marks the version
                       ``pending_review`` + records ``review_target_visibility``.
   approve_promotion — caller is the org OWNER (for both org and public tiers),
-                      approver != the version's submitter (four-eyes), scan
-                      still passed. Sets the skill's tier pointer, raises
+                      approver != the version's publisher (four-eyes). Sets the
+                      skill's tier pointer, raises
                       visibility, stamps the version ``approved``.
   reject_promotion  — org OWNER; version -> ``rejected``, pointer untouched.
   takedown          — org OWNER; clears a tier pointer + recomputes visibility.
 
-The rescan auto-demote (a served version whose fresh verdict flips to
-failed/blocked) lives in ``SkillSecurityService.apply_latest_scan`` so it rides
-every scan-completion path.
+Security scans never alter already-published version exposure.
 """
 
 
 from app.joysafeter_domain.models.joysafeter_skill import (
     VISIBILITY_RANK,
     recompute_visibility_from_pointers,
-)
-from app.joysafeter_domain.services.joysafeter_skill_security import (
-    build_scan_files,
-    scan_ok,
-    target_hash,
 )
 
 # Tiers a version may be promoted to. ``project`` is the no-review default
@@ -2150,7 +2381,6 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
         super().__init__(db)
         self.skill_repo = SkillRepository(db)
         self.version_repo = SkillVersionRepository(db)
-        self.version_file_repo = SkillVersionFileRepository(db)
         self._active_org_id = active_org_id
         self._caller_org_role = caller_org_role
 
@@ -2174,7 +2404,7 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
 
     def _require_org_approver(self) -> None:
         # Promotion approval / takedown is an org-superuser act (OWNER or ADMIN).
-        # It was OWNER-only, but combined with four-eyes (approver != submitter)
+        # It was OWNER-only, but combined with four-eyes (approver != publisher)
         # that deadlocked any org whose sole owner also authored the version.
         # Widening to superuser keeps four-eyes meaningful (still needs a second
         # distinct principal) while unblocking normal 2+-admin orgs. A genuine
@@ -2204,64 +2434,6 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
                 data={"skill_id": str(skill.id), "active_org_id": self._active_org_id},
             )
 
-    async def _require_promoted_content_scanned(self, skill: JoySafeterSkill, version: JoySafeterSkillVersion) -> None:
-        """Bind the scan verdict to the exact bytes being promoted.
-
-        ``scan_ok(skill)`` only proves the skill's CURRENT head content passed a
-        clean, non-drifted scan. But a promotion exposes the frozen VERSION
-        snapshot, whose content can diverge from the head (a stale version, or
-        content that was published — publish only blocks HIGH/CRITICAL — but was
-        never itself scanned clean). Approving/submitting such a version would
-        raise the skill's cross-tier visibility (and, once the packer consumes
-        the tier pointer, serve those bytes) under a scan verdict for a DIFFERENT
-        payload. Require the promoted version's canonical hash to equal the hash
-        the latest passed scan locked in — i.e. the exposed bytes are exactly the
-        scanned bytes. Recomputed through the same ``build_scan_files`` /
-        ``target_hash`` the scanner and drift gate use, over the version's frozen
-        fields + its file snapshot.
-        """
-        version_files = await self.version_file_repo.list_by_version(version.id)
-        files_payload = [
-            {
-                "path": vf.path,
-                "file_name": vf.file_name,
-                "file_type": vf.file_type,
-                "content": vf.content or "",
-                "storage_type": vf.storage_type,
-                "storage_key": vf.storage_key,
-                "size": vf.size,
-            }
-            for vf in version_files
-        ]
-        scan_files = build_scan_files(
-            name=version.skill_name,
-            description=version.skill_description,
-            content=version.content,
-            tags=list(version.tags or []),
-            license=version.license,
-            files=files_payload,
-        )
-        version_hash = target_hash(
-            name=version.skill_name,
-            description=version.skill_description,
-            content=version.content,
-            tags=list(version.tags or []),
-            license=version.license,
-            files=scan_files,
-        )
-        if version_hash != skill.security_scan_hash:
-            raise ResourceConflictError(
-                "This version's content does not match the skill's latest passed "
-                "security scan; rescan the current content and publish it as the "
-                "version you promote.",
-                code="SKILL_PROMOTION_SCAN_NOT_PASSED",
-                data={
-                    "skill_id": str(skill.id),
-                    "version_id": str(version.id),
-                    "reason": "version_content_not_scanned",
-                },
-            )
-
     # ── submit ──────────────────────────────────────────────────
 
     async def submit_promotion(
@@ -2275,7 +2447,6 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
         """Submit a version for promotion to ``organization`` or ``public``.
 
         GUARD: caller holds ADMIN capability on the skill.
-        PRECONDITION: the target version's security scan PASSED (``scan_ok``).
         Effect: version -> ``pending_review`` + ``review_target_visibility``.
         """
         if target_tier not in _PROMOTABLE_TIERS:
@@ -2296,16 +2467,6 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
             caller_org_role=self._caller_org_role,
             active_org_id=self._active_org_id,
         )
-
-        ok, reason = scan_ok(skill)
-        if not ok:
-            raise ResourceConflictError(
-                "The skill's security scan has not passed; cannot submit for promotion.",
-                code="SKILL_PROMOTION_SCAN_NOT_PASSED",
-                data={"skill_id": str(skill.id), "version_id": str(version.id), "reason": reason},
-            )
-        # Bind the passed scan to the exact bytes being promoted (this version).
-        await self._require_promoted_content_scanned(skill, version)
 
         # Idempotent when already pending for the SAME tier; conflict when
         # pending for a different tier (the caller must resolve the existing
@@ -2377,24 +2538,13 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
                 data={"version_id": str(version.id), "lifecycle_status": version.lifecycle_status},
             )
 
-        # Four-eyes: the approver must differ from the version's submitter.
+        # Four-eyes: the approver must differ from the version's publisher.
         if current_user_id == version.published_by_id:
             raise AccessDeniedError(
-                "The submitter cannot approve their own promotion (four-eyes).",
+                "The publisher cannot approve their own promotion (four-eyes).",
                 code="SKILL_PROMOTION_FOUR_EYES",
                 data={"version_id": str(version.id)},
             )
-
-        # Re-check the scan still passes before exposing the content.
-        ok, reason = scan_ok(skill)
-        if not ok:
-            raise ResourceConflictError(
-                "The skill's security scan no longer passes; cannot approve promotion.",
-                code="SKILL_PROMOTION_SCAN_NOT_PASSED",
-                data={"skill_id": str(skill.id), "version_id": str(version.id), "reason": reason},
-            )
-        # Bind the passed scan to the exact bytes being exposed (this version).
-        await self._require_promoted_content_scanned(skill, version)
 
         target_tier = version.review_target_visibility
         if target_tier == JoySafeterSkillVisibility.PUBLIC.value:

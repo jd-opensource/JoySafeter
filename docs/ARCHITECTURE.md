@@ -102,7 +102,7 @@ flowchart TB
 | **PostgreSQL** | `db` | — | System of record for all state |
 | **Redis** | `redis` (profile `local-redis`) or external | — | Event Streams, Pub/Sub fan-out, task queue, coordination |
 | **Envoy** | `joysafeter-envoy` | — | Fronts each sandbox's unix socket; enforces per-sandbox egress allowlist |
-| **skillspector** | `skillspector` | — | Standalone skill security-scanning service; runtime gate is fail-closed for unusable scan states |
+| **skillspector** | `skillspector` | — | Standalone skill security-scanning service; advisory by default, optionally enforced only when publishing a version |
 | **db-init** | `db-init` (profile `init`) | — | One-shot Alembic migrations |
 
 Use the deployment helper for the supported local stack:
@@ -120,7 +120,7 @@ contracts instead of recreating older in-process shortcuts.
 | Rust orchestrator | Scheduling, task leases, sandbox lifecycle, runner gRPC, control ACKs, event emission | Pending DB tasks, Redis wakeups/commands, runner gRPC streams | Task/sandbox/session state, Redis Stream events, Redis Pub/Sub broadcasts | Serve product REST APIs, own browser auth, batch-persist event logs as the primary path |
 | Sandbox runner | In-container harness execution, tool/MCP invocation, memory/file sync from inside the sandbox | `SetupSandbox` and `StartTask` over gRPC, injected env/secrets/files | Runner events/results over gRPC, memory sync messages | Reach the host network directly, mutate platform DB/Redis, bypass Envoy egress policy |
 | Worker | Durable event persistence, `seq` assignment, Redis Stream recovery/redelivery | Redis Stream consumer group | `joysafeter_session_events`, replay Pub/Sub after DB write | Schedule tasks, create sandboxes, expose user-facing APIs |
-| SkillSpector | Static skill security scanning service | Skill content sent by API/domain service | Scan verdicts consumed by skill domain logic | Decide runtime packaging by itself; runtime gating remains in JoySafeter skill logic |
+| SkillSpector | Static skill security scanning service | Skill content sent by API/domain service | Advisory verdicts and optional publish-time enforcement | Decide runtime packaging or invalidate already-published versions |
 | PostgreSQL | Source of truth for domain state, task/session/sandbox FSMs, event log | Writes from API/orchestrator/worker/db-init | Durable rows | Act as a queue or live fan-out bus |
 | Redis | Wakeups, Streams, Pub/Sub, command relay, ownership/heartbeat coordination | API/orchestrator/worker pub/sub/list/stream traffic | Ephemeral and durable-stream messages | Be treated as scheduling truth; pending task rows in Postgres are authoritative |
 
@@ -133,7 +133,7 @@ contracts instead of recreating older in-process shortcuts.
 | Sandbox never becomes ready | Orchestrator + Docker host | Docker socket mount, sandbox image, workspace volume, runner `RunnerReady` timeout |
 | Agent runs but browser misses live events | API SSE bridge + Redis Pub/Sub | API `SessionBroadcaster`, Redis Pub/Sub, browser `?after_seq` replay |
 | Events appear live but disappear after refresh | Orchestrator event persister + Worker fallback | Orchestrator DB persist logs, Redis Stream pending entries, worker logs, Postgres insert errors, advisory-lock contention |
-| Skill cannot be used at runtime | Skill domain + SkillSpector | scan status, approval state, content drift, `SKILL_SECURITY_*` config |
+| Skill cannot be used at runtime | Skill domain | referenced version exists and has immutable version files |
 | Sandbox cannot reach model/MCP/target | Envoy + orchestrator sandbox config | allowlist, Envoy config files, `JOYSAFETER_GRPC_PUBLIC_URL`, target DNS/network policy |
 
 ---
@@ -254,7 +254,7 @@ Runtime communication uses several purpose-built channels. This table is the def
 | Control/cancel relay | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | Route cancel/input/shutdown to the instance owning the sandbox | `joysafeter_shared/orchestrator_bridge/runtime_commands.py`, `joysafeter_orchestrator_rs/src/kernel/command_listener.rs` |
 | Orchestrator ↔ runner | **gRPC** `AgentBridge` (bidi stream, :9090) | The agent execution protocol | `proto/joysafeter.proto`, `joysafeter_orchestrator_rs/src/grpc/server.rs` |
 | Runner egress | Envoy proxy (unix socket) | Per-sandbox domain allowlist, deny-all default | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
-| Skill scan | HTTP → skillspector `:8010` | Security scan on skill writes; runtime blocks failed/scanning/unscanned/blocked skills | `joysafeter_skill_security.py` |
+| Skill scan | HTTP → skillspector `:8010` | Informational scans on writes; optional fresh fail-closed scan only when publishing | `joysafeter_skill_security.py` |
 
 **API ↔ orchestrator is Redis, not direct gRPC.** Python API/worker processes use
 `joysafeter_shared.orchestrator_bridge` only for lightweight API-side helpers and optional test seams; runtime control flows through
@@ -459,9 +459,9 @@ status = ...` or advisory-locked) so concurrent writers can't corrupt state.
 | **Sandbox** | `JoySafeterSandbox` | `creating → provisioning → pooled → idle ↔ running → stopping → stopped / error → destroyed` | `destroyed` |
 | **Skill lifecycle** | `JoySafeterSkill` | `draft → pending_review → {approved, rejected}`, `approved → archived`, reopen/unarchive edges | — |
 
-The skill FSM has a **runtime gate** on top: `is_skill_usable()` only admits a skill into a
-session bundle if it is `approved`, its `security_status` is allow-listed, **and** its content
-hash matches the last scan (drift detection). A disapproved or drifted skill is silently dropped.
+Publishing requires the mutable Skill to be `approved`. After a version is published, Agent
+references, runtime packing, and promotion depend on that immutable published version rather
+than the parent Skill's later lifecycle or scan state.
 
 ---
 
@@ -570,12 +570,20 @@ a `SKILL.md`-fronted directory. The pipeline spans three layers:
 2. **Permission gate** (`joysafeter_shared/common/skill_permissions.py`) — 4-tier visibility
    (private/project/organization/public) with strict active-org isolation.
 3. **Security scan** (`joysafeter_domain/.../joysafeter_skill_security.py` → **skillspector**
-   service) — records failed/scanning states on scanner failure, blocks `DO_NOT_INSTALL`
-   recommendations, and computes canonical sha256 for drift detection.
+   service) — records advisory verdicts and canonical hashes. When
+   `SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED=true`, publishing runs a fresh fail-closed scan
+   over the exact snapshot; the default is `false`.
 4. **Pack & deliver** — the Rust orchestrator's `HarnessInputBuilder` resolves a published version
-   when the task starts, applies `ensure_skill_runtime_ready`, builds the `tar.gz` `SkillArchive`
-   from version files, and records usage. The runner unpacks the injected archive in the sandbox;
-   missing versions or failed gates stop input construction instead of silently degrading.
+   when the task starts, builds the `tar.gz` `SkillArchive` from immutable version files, and
+   records usage. The runner unpacks the injected archive in the sandbox; missing versions stop
+   input construction instead of silently degrading.
+
+Version exposure is tier-aware at every boundary. Same-project Agents may use any published
+version and resolve `latest` to the highest SemVer. Cross-project callers in the same organization
+may use only the versions referenced by the organization/public pointers; cross-organization
+callers may use only the public pointer. Skill list/detail/version APIs, Agent save validation, and
+the Rust runtime apply the same rule. Cross-project reads are projected from the exposed immutable
+version rather than the mutable parent Skill draft.
 
 ### 9.3 Observability — full-chain tracing
 
@@ -600,8 +608,8 @@ a `SKILL.md`-fronted directory. The pipeline spans three layers:
   allowed by default (internal LLM/MCP endpoints), opt-in hardening flags.
 - **Sandbox isolation:** dropped capabilities, non-root, no-new-privileges, PID limits, and
   Envoy deny-all egress.
-- **Skill scanning:** runtime only packs skills that are approved, have `passed` / `warning`
-  security status, and have not drifted from the last scan.
+- **Skill scanning:** advisory by default. Optional enforcement runs only at version publication;
+  later scans never invalidate or demote an already-published version.
 
 ---
 

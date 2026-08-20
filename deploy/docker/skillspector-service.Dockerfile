@@ -31,8 +31,8 @@ EXPOSE 8010
 #                                    returns 503. Keep it a touch above
 #                                    workers so a small queue is allowed but
 #                                    overload sheds fast. Draft-save paths may
-#                                    record failed/scanning and continue, but
-#                                    runtime packing remains fail-closed.
+#                                    record failed/scanning and continue; optional
+#                                    enforcement applies only when publishing.
 #                                    Default 4.
 ENV SKILLSPECTOR_WORKERS=2 \
     SKILLSPECTOR_LIMIT_CONCURRENCY=4

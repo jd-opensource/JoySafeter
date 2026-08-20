@@ -40,6 +40,21 @@ describe('managed operation errors', () => {
     )
   })
 
+  it('surfaces publish scan failure reasons when no scanner error message exists', () => {
+    const error = new ApiError(400, 'Bad Request', {
+      code: 'SKILL_SECURITY_SCAN_FAILED',
+      message: 'Skill security enforcement is enabled but the scanner is disabled.',
+      data: { reason: 'scanner_disabled' },
+      source: 'api',
+    })
+    const translator = (key: string, options?: Record<string, unknown>) =>
+      `${key}:${String(options?.error ?? '')}`
+
+    expect(getOperationErrorMessage(translator, error, 'common.operationFailed')).toBe(
+      'managed.errors.skillSecurityScanFailed:scanner_disabled',
+    )
+  })
+
   it('uses codes instead of message substrings for archived resources', () => {
     const archivedByMessageOnly = new ApiError(409, 'Conflict', {
       code: 'CONFLICT',

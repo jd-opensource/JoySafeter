@@ -55,7 +55,7 @@ import {
   type EnvironmentId,
   type SkillId,
 } from '@/types/entity-id'
-import type { Secret, SecretDetail, SkillRuntimeEligibility } from '@/types/managed'
+import type { Secret, SecretDetail } from '@/types/managed'
 import { eligibilityReasonView, eligibilityActionView } from '@/lib/managed/skill-eligibility'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { validateUniqueMcpServerName } from '@/lib/utils/mcp-validation'
@@ -93,14 +93,10 @@ interface SkillListItem {
   // Agents can only reference published skills, so the picker hides rows
   // without a published version.
   latest_version?: string | null
-  runtime_eligibility?: SkillRuntimeEligibility | null
 }
 
 function skillUnavailableReason(skill: SkillListItem): string | null {
   if (!skill.latest_version) return 'no_published_version'
-  if (skill.runtime_eligibility && !skill.runtime_eligibility.usable) {
-    return skill.runtime_eligibility.reason || 'runtime_not_ready'
-  }
   return null
 }
 
@@ -402,9 +398,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           engine_kind: engineKind,
           system: systemPrompt || null,
           metadata: { system_prompt_mode: systemPromptMode },
-          ...(currentSecretRef
-            ? { model_credential_id: parseCredentialId(currentSecretRef) }
-            : {}),
+          ...(currentSecretRef ? { model_credential_id: parseCredentialId(currentSecretRef) } : {}),
           ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
           tools,
           mcp_servers: mcpServers.map((m) => ({ type: 'url', name: m.name, url: m.url })),
@@ -914,9 +908,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                           <a
                             href={`/managed/skills/${skill.id}`}
                             className="shrink-0 whitespace-nowrap text-xs text-amber-700 underline underline-offset-2 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
-                            title={t(
-                              eligibilityActionView(skill.runtime_eligibility?.next_action).hintKey,
-                            )}
+                            title={t(eligibilityActionView('publish_version').hintKey)}
                           >
                             {t('managed.agents.create.openSkill', { defaultValue: 'Open skill' })}
                           </a>

@@ -381,7 +381,7 @@ async def create_skill(
         files=files_data,
         project_id=auth_ctx.project_id,
     )
-    skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id)
+    skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id, project_id=auth_ctx.project_id)
     # P2.16: flush any async scan descriptors the service queued. Without
     # this, a skill whose total payload exceeds ``skill_security_async_threshold_bytes``
     # would land with ``security_status='scanning'`` and stay stuck forever.
@@ -418,7 +418,7 @@ async def import_skill_zip(
         files=files_data,
         project_id=auth_ctx.project_id,
     )
-    skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id)
+    skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id, project_id=auth_ctx.project_id)
     # P2.16: see ``create_skill``; ZIP imports go through the same service path.
     _flush_async_scans(svc, background_tasks)
     return SkillResponse.model_validate(skill)
@@ -454,7 +454,11 @@ async def get_skill_security_scan(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillSecurityScanResponse:
     svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    scan = await svc.get_security_scan(scan_id, current_user_id=auth_ctx.user_id)
+    scan = await svc.get_security_scan(
+        scan_id,
+        current_user_id=auth_ctx.user_id,
+        project_id=auth_ctx.project_id,
+    )
     return SkillSecurityScanResponse.model_validate(scan)
 
 
@@ -465,7 +469,7 @@ async def get_skill(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillResponse:
     svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
+    skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id, project_id=auth_ctx.project_id)
     resp = SkillResponse.model_validate(skill)
     return resp
 
@@ -477,7 +481,11 @@ async def get_latest_skill_security_scan(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillSecurityScanResponse:
     svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    scan = await svc.get_latest_security_scan(skill_id, current_user_id=auth_ctx.user_id)
+    scan = await svc.get_latest_security_scan(
+        skill_id,
+        current_user_id=auth_ctx.user_id,
+        project_id=auth_ctx.project_id,
+    )
     return SkillSecurityScanResponse.model_validate(scan)
 
 
@@ -493,6 +501,7 @@ async def list_skill_security_scans(
     scans, has_more = await svc.list_security_scans(
         skill_id,
         current_user_id=auth_ctx.user_id,
+        project_id=auth_ctx.project_id,
         limit=limit,
         after_id=after_id,
     )
@@ -562,7 +571,7 @@ async def list_skill_usage(
     target_hash = _validate_sha256_hex(target_hash, "target_hash")
 
     svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
+    await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id, project_id=auth_ctx.project_id)
 
     stmt = select(JoySafeterSkillUsageLog).where(JoySafeterSkillUsageLog.skill_id == skill_id)
     if auth_ctx.project_id is not None:
@@ -623,7 +632,7 @@ async def update_skill(
         source_url=req.source_url,
         license=req.license,
     )
-    skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id)
+    skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id, project_id=auth_ctx.project_id)
     _flush_async_scans(svc, background_tasks)
     return SkillResponse.model_validate(skill)
 
@@ -894,7 +903,7 @@ async def list_skill_files(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
     svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
+    skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id, project_id=auth_ctx.project_id)
     files = skill.files or []
     data = [SkillFileResponse.model_validate(f) for f in files]
     return {"data": data}
@@ -908,7 +917,7 @@ async def get_skill_file(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillFileResponse:
     svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
+    skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id, project_id=auth_ctx.project_id)
     f = next((f for f in (skill.files or []) if f.id == file_id), None)
     if not f:
         raise NotFoundError(
@@ -1002,7 +1011,11 @@ async def list_skill_versions(
 ):
     svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     versions, has_more = await svc.list_versions(
-        skill_id, current_user_id=auth_ctx.user_id, limit=limit, after_id=after_id
+        skill_id,
+        current_user_id=auth_ctx.user_id,
+        project_id=auth_ctx.project_id,
+        limit=limit,
+        after_id=after_id,
     )
     data = [SkillVersionResponse.model_validate(v) for v in versions]
     return {"data": data, "has_more": has_more}
@@ -1016,7 +1029,12 @@ async def get_skill_version(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> SkillVersionResponse:
     svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    sv = await svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
+    sv = await svc.get_version(
+        skill_id,
+        version,
+        current_user_id=auth_ctx.user_id,
+        project_id=auth_ctx.project_id,
+    )
     return SkillVersionResponse.model_validate(sv)
 
 
@@ -1046,7 +1064,12 @@ async def list_skill_version_files(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
     svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    sv = await svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
+    sv = await svc.get_version(
+        skill_id,
+        version,
+        current_user_id=auth_ctx.user_id,
+        project_id=auth_ctx.project_id,
+    )
     files = sv.files or []
     data = [SkillVersionFileResponse.model_validate(f) for f in files]
     return {"data": data}
@@ -1070,8 +1093,9 @@ async def restore_skill_from_version(
 # A skill is a project resource; project editors publish project-tier versions
 # freely. Exposing a version to the ``organization`` or ``public`` tier goes
 # through a version-level, four-eyes approval: a skill ADMIN submits, the org
-# OWNER approves (approver != submitter) after the version's security scan is
-# re-checked. The service (``SkillPromotionService``) owns every gate; the
+# OWNER/admin approves (approver != publisher). Security findings remain
+# informational here; optional enforcement happens only when publishing the
+# immutable version. The service (``SkillPromotionService``) owns every gate; the
 # routes are thin HTTP shells.
 # ---------------------------------------------------------------------------
 
@@ -1101,7 +1125,11 @@ async def submit_skill_promotion(
 ) -> SkillVersionResponse:
     """Submit a version for promotion to organization/public (requires skill ADMIN)."""
     version_svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    target = await version_svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
+    target = await version_svc.get_version_for_management(
+        skill_id,
+        version,
+        current_user_id=auth_ctx.user_id,
+    )
     svc = SkillPromotionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     promoted = await svc.submit_promotion(
         target_tier=req.target_tier,
@@ -1120,7 +1148,11 @@ async def approve_skill_promotion(
 ) -> SkillVersionResponse:
     """Approve a pending promotion (org OWNER only, four-eyes enforced in the service)."""
     version_svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    target = await version_svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
+    target = await version_svc.get_version_for_management(
+        skill_id,
+        version,
+        current_user_id=auth_ctx.user_id,
+    )
     svc = SkillPromotionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     approved = await svc.approve_promotion(version_id=target.id, current_user_id=auth_ctx.user_id)
     return SkillVersionResponse.model_validate(approved)
@@ -1136,7 +1168,11 @@ async def reject_skill_promotion(
 ) -> SkillVersionResponse:
     """Reject a pending promotion (org OWNER only)."""
     version_svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    target = await version_svc.get_version(skill_id, version, current_user_id=auth_ctx.user_id)
+    target = await version_svc.get_version_for_management(
+        skill_id,
+        version,
+        current_user_id=auth_ctx.user_id,
+    )
     svc = SkillPromotionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     rejected = await svc.reject_promotion(version_id=target.id, current_user_id=auth_ctx.user_id, reason=req.reason)
     return SkillVersionResponse.model_validate(rejected)
@@ -1154,5 +1190,9 @@ async def takedown_skill(
     svc = SkillPromotionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     await svc.takedown(skill_id=skill_id, tier=req.tier, current_user_id=auth_ctx.user_id)
     read_svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    skill = await read_svc.get_skill(skill_id, current_user_id=auth_ctx.user_id)
+    skill = await read_svc.get_skill(
+        skill_id,
+        current_user_id=auth_ctx.user_id,
+        project_id=auth_ctx.project_id,
+    )
     return SkillResponse.model_validate(skill)

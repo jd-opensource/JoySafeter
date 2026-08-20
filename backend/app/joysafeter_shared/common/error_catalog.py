@@ -233,10 +233,10 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InvalidRequestError,
         default_message="Agent references skills that do not exist in this project",
     ),
-    "AGENT_SKILL_REF_NOT_RUNTIME_READY": CatalogEntry(
-        code="AGENT_SKILL_REF_NOT_RUNTIME_READY",
+    "AGENT_SKILL_REF_NOT_PUBLISHED": CatalogEntry(
+        code="AGENT_SKILL_REF_NOT_PUBLISHED",
         error_class=InvalidRequestError,
-        default_message="Agent can only reference published, runtime-ready skills",
+        default_message="Agent can only reference published skill versions",
     ),
     "API_KEY_NOT_FOUND": CatalogEntry(
         code="API_KEY_NOT_FOUND", error_class=NotFoundError, default_message="API key not found"
@@ -1076,7 +1076,7 @@ CATALOG: dict[str, CatalogEntry] = {
     "SKILL_PROMOTION_FOUR_EYES": CatalogEntry(
         code="SKILL_PROMOTION_FOUR_EYES",
         error_class=AccessDeniedError,
-        default_message="The submitter cannot approve their own promotion.",
+        default_message="The publisher cannot approve their own promotion.",
     ),
     "SKILL_PROMOTION_NOT_PENDING": CatalogEntry(
         code="SKILL_PROMOTION_NOT_PENDING",
@@ -1087,11 +1087,6 @@ CATALOG: dict[str, CatalogEntry] = {
         code="SKILL_PROMOTION_OWNER_ONLY",
         error_class=AccessDeniedError,
         default_message="Only the organization owner can review skill promotions.",
-    ),
-    "SKILL_PROMOTION_SCAN_NOT_PASSED": CatalogEntry(
-        code="SKILL_PROMOTION_SCAN_NOT_PASSED",
-        error_class=ResourceConflictError,
-        default_message="The skill's security scan has not passed; cannot promote.",
     ),
     "SKILL_PROMOTION_TARGET_MISSING": CatalogEntry(
         code="SKILL_PROMOTION_TARGET_MISSING",
@@ -1114,7 +1109,9 @@ CATALOG: dict[str, CatalogEntry] = {
         default_message="You don't have permission to access this scan",
     ),
     "SKILL_SECURITY_SCAN_FAILED": CatalogEntry(
-        code="SKILL_SECURITY_SCAN_FAILED", error_class=InvalidRequestError, default_message="Skill security scan failed"
+        code="SKILL_SECURITY_SCAN_FAILED",
+        error_class=InvalidRequestError,
+        default_message="Skill publication security scan failed",
     ),
     "SKILL_SECURITY_SCAN_NOT_FOUND": CatalogEntry(
         code="SKILL_SECURITY_SCAN_NOT_FOUND", error_class=NotFoundError, default_message="Skill security scan not found"
@@ -1122,7 +1119,7 @@ CATALOG: dict[str, CatalogEntry] = {
     "SKILL_SECURITY_SCAN_REJECTED": CatalogEntry(
         code="SKILL_SECURITY_SCAN_REJECTED",
         error_class=InvalidRequestError,
-        default_message="Skill security scan rejected this skill",
+        default_message="Skill security scan rejected publication",
     ),
     "SKILL_SYSTEM_FILE_IMPORT_FORBIDDEN": CatalogEntry(
         code="SKILL_SYSTEM_FILE_IMPORT_FORBIDDEN",
@@ -1160,11 +1157,6 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ResourceConflictError,
         default_message="Skill is still referenced by agents, cron triggers, or active tasks. Remove references before deleting.",
     ),
-    "SKILL_LIFECYCLE_NOT_RUNTIME_READY": CatalogEntry(
-        code="SKILL_LIFECYCLE_NOT_RUNTIME_READY",
-        error_class=InvalidRequestError,
-        default_message="Skill must pass security scan before entering approved state.",
-    ),
     "SKILL_USAGE_FILTER_REQUIRED": CatalogEntry(
         code="SKILL_USAGE_FILTER_REQUIRED",
         error_class=InvalidRequestError,
@@ -1175,10 +1167,10 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=InvalidRequestError,
         default_message="Skill usage hash invalid",
     ),
-    "SKILL_VERSION_NOT_RUNTIME_READY": CatalogEntry(
-        code="SKILL_VERSION_NOT_RUNTIME_READY",
+    "SKILL_VERSION_NOT_APPROVED": CatalogEntry(
+        code="SKILL_VERSION_NOT_APPROVED",
         error_class=InvalidRequestError,
-        default_message="Skill is not runtime-ready and cannot be published.",
+        default_message="Skill must be approved before publishing a version.",
     ),
     "TASK_AGENT_NOT_FOUND": CatalogEntry(
         code="TASK_AGENT_NOT_FOUND", error_class=NotFoundError, default_message="Agent not found"

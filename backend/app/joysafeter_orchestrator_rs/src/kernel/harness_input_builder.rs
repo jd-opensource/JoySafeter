@@ -129,7 +129,10 @@ impl fmt::Debug for HarnessInput {
 
 impl HarnessInputBuilder {
     pub fn new(pool: PgPool, envoy_enabled: bool) -> Self {
-        Self { pool, envoy_enabled }
+        Self {
+            pool,
+            envoy_enabled,
+        }
     }
 
     pub async fn build(
@@ -568,44 +571,39 @@ impl HarnessInputBuilder {
         task: &crate::db::models::JoySafeterTask,
     ) -> anyhow::Result<proto::SkillArchive> {
         let skill = self
-            .load_skill_for_archive(skill_id)
+            .load_skill_for_archive(skill_id, agent.project_id.as_deref())
             .await?
             .ok_or_else(|| anyhow::anyhow!("skill not found: {skill_id}"))?;
-        ensure_skill_runtime_ready(&skill)?;
-        let (resolved_version, version_meta, files) = if version == "latest" {
-            let resolved = self
-                .highest_published_version(skill_id)
-                .await
-                .ok_or_else(|| anyhow::anyhow!("skill {skill_id} has no published version"))?;
-            let meta = self
-                .load_skill_version_meta(skill_id, &resolved)
-                .await?
-                .ok_or_else(|| {
-                    anyhow::anyhow!("skill version not found: skill={skill_id} version={resolved}")
-                })?;
-            let files = self.load_skill_version_files(skill_id, &resolved).await?;
-            (resolved, Some(meta), files)
+        let project_latest = if version == "latest" && skill.same_project() {
+            self.highest_published_version(skill_id).await
         } else {
-            let meta = self
-                .load_skill_version_meta(skill_id, version)
-                .await?
-                .ok_or_else(|| {
-                    anyhow::anyhow!("skill version not found: skill={skill_id} version={version}")
-                })?;
-            let files = self.load_skill_version_files(skill_id, version).await?;
-            (version.to_string(), Some(meta), files)
+            None
         };
+        let resolved_version =
+            resolve_skill_version_request(&skill, version, project_latest.as_deref())?;
+        let version_meta = self
+            .load_skill_version_meta(skill_id, &resolved_version)
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "skill version not found: skill={skill_id} version={resolved_version}"
+                )
+            })?;
+        let files = self
+            .load_skill_version_files(skill_id, &resolved_version)
+            .await?;
 
         if files.is_empty() {
             anyhow::bail!("skill {skill_id} version {resolved_version} has no files");
         }
 
-        let data = create_targz(&skill.name, &files)?;
+        let skill_name = version_meta.skill_name.clone();
+        let data = create_targz(&skill_name, &files)?;
         let artifact_hash = hex::encode(Sha256::digest(&data));
         self.record_skill_usage(
             skill_id,
             &resolved_version,
-            version_meta.as_ref(),
+            &version_meta,
             &skill,
             &artifact_hash,
             target,
@@ -615,7 +613,7 @@ impl HarnessInputBuilder {
         .await;
 
         Ok(proto::SkillArchive {
-            name: skill.name,
+            name: skill_name,
             tar_gz: data,
             target: target.to_string(),
         })
@@ -624,15 +622,31 @@ impl HarnessInputBuilder {
     async fn load_skill_for_archive(
         &self,
         skill_id: SkillId,
+        consumer_project_id: Option<&str>,
     ) -> anyhow::Result<Option<SkillForArchive>> {
         sqlx::query_as::<_, SkillForArchive>(
             r#"
-            SELECT name, source_type, lifecycle_status, security_status, security_scan_hash, security_scan_id
-            FROM joysafeter_skills
-            WHERE id = $1
+            SELECT s.source_type,
+                   s.project_id,
+                   skill_project.org_id AS skill_org_id,
+                   $2::text AS consumer_project_id,
+                   consumer_project.org_id AS consumer_org_id,
+                   org_version.version AS org_version,
+                   public_version.version AS public_version
+            FROM joysafeter_skills s
+            JOIN joysafeter_organization_projects skill_project
+              ON skill_project.id = s.project_id
+            LEFT JOIN joysafeter_organization_projects consumer_project
+              ON consumer_project.id = $2
+            LEFT JOIN joysafeter_skill_versions org_version
+              ON org_version.id = s.org_version_id
+            LEFT JOIN joysafeter_skill_versions public_version
+              ON public_version.id = s.public_version_id
+            WHERE s.id = $1
             "#,
         )
         .bind(skill_id)
+        .bind(consumer_project_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(Into::into)
@@ -645,7 +659,7 @@ impl HarnessInputBuilder {
     ) -> anyhow::Result<Option<SkillVersionForArchive>> {
         sqlx::query_as::<_, SkillVersionForArchive>(
             r#"
-            SELECT id, security_scan_id, target_hash
+            SELECT id, skill_name, security_scan_id, target_hash
             FROM joysafeter_skill_versions
             WHERE skill_id = $1 AND version = $2
             "#,
@@ -661,27 +675,15 @@ impl HarnessInputBuilder {
         &self,
         skill_id: SkillId,
         skill_version: &str,
-        version_meta: Option<&SkillVersionForArchive>,
+        version_meta: &SkillVersionForArchive,
         skill: &SkillForArchive,
         artifact_hash: &str,
         target: &str,
         agent: &crate::db::models::JoySafeterAgent,
         task: &crate::db::models::JoySafeterTask,
     ) {
-        let (skill_version_id, security_scan_id, target_hash) = match version_meta {
-            Some(meta) => (
-                Some(meta.id),
-                meta.security_scan_id.or(skill.security_scan_id),
-                meta.target_hash
-                    .as_deref()
-                    .or(skill.security_scan_hash.as_deref()),
-            ),
-            None => (
-                None,
-                skill.security_scan_id,
-                skill.security_scan_hash.as_deref(),
-            ),
-        };
+        let skill_version_id = Some(version_meta.id);
+        let (security_scan_id, target_hash) = published_version_scan_audit(version_meta);
         if let Err(e) = sqlx::query(
             r#"
             INSERT INTO joysafeter_skill_usage_log
@@ -697,7 +699,7 @@ impl HarnessInputBuilder {
         )
         .bind(SkillUsageId::from_uuid(Uuid::now_v7()))
         .bind(skill_id)
-        .bind(&skill.name)
+        .bind(&version_meta.skill_name)
         .bind(skill.source_type.as_deref())
         .bind(skill_version)
         .bind(skill_version_id)
@@ -1168,13 +1170,15 @@ mod tests {
     use sqlx::PgPool;
 
     use super::{
-        apply_runtime_protocol_env, ensure_skill_runtime_ready, extract_content_text, parse_semver,
-        resolve_model_from_binding, session_container_work_dir, should_inject_conversation_history,
+        apply_runtime_protocol_env, extract_content_text, parse_semver,
+        published_version_scan_audit, resolve_model_from_binding, resolve_skill_version_request,
+        session_container_work_dir, should_inject_conversation_history,
         trim_history_lines_to_budget, HarnessInput, HarnessInputBuilder, SkillForArchive,
+        SkillVersionForArchive,
     };
     use crate::ids::{
         AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId,
-        SessionResourceId, SkillSecurityScanId, TaskId,
+        SessionResourceId, SkillVersionId, TaskId,
     };
     use crate::kernel::credentials::error::CredentialRuntimeError;
     use crate::kernel::llm_catalog::validate_runtime_secret;
@@ -1308,6 +1312,67 @@ mod tests {
         assert!(parse_semver("1.2.0") > parse_semver("1.1.9"));
     }
 
+    fn exposed_skill(
+        consumer_project_id: Option<&str>,
+        consumer_org_id: Option<&str>,
+    ) -> SkillForArchive {
+        SkillForArchive {
+            source_type: Some("local".to_string()),
+            project_id: "project-source".to_string(),
+            skill_org_id: "org-source".to_string(),
+            consumer_project_id: consumer_project_id.map(str::to_string),
+            consumer_org_id: consumer_org_id.map(str::to_string),
+            org_version: Some("1.0.0".to_string()),
+            public_version: Some("0.9.0".to_string()),
+        }
+    }
+
+    #[test]
+    fn same_org_latest_uses_promoted_versions_only() {
+        let skill = exposed_skill(Some("project-consumer"), Some("org-source"));
+        assert_eq!(
+            resolve_skill_version_request(&skill, "latest", Some("2.0.0")).unwrap(),
+            "1.0.0"
+        );
+    }
+
+    #[test]
+    fn cross_org_latest_uses_public_pointer_only() {
+        let skill = exposed_skill(Some("project-consumer"), Some("org-consumer"));
+        assert_eq!(
+            resolve_skill_version_request(&skill, "latest", Some("2.0.0")).unwrap(),
+            "0.9.0"
+        );
+    }
+
+    #[test]
+    fn cross_project_explicit_private_version_is_rejected() {
+        let skill = exposed_skill(Some("project-consumer"), Some("org-source"));
+        let error = resolve_skill_version_request(&skill, "2.0.0", Some("2.0.0")).unwrap_err();
+        assert!(error.to_string().contains("not exposed"));
+    }
+
+    #[test]
+    fn same_project_latest_uses_project_latest() {
+        let skill = exposed_skill(Some("project-source"), Some("org-source"));
+        assert_eq!(
+            resolve_skill_version_request(&skill, "latest", Some("2.0.0")).unwrap(),
+            "2.0.0"
+        );
+    }
+
+    #[test]
+    fn usage_audit_does_not_inherit_parent_skill_scan_metadata() {
+        let version = SkillVersionForArchive {
+            id: SkillVersionId::from_uuid(Uuid::now_v7()),
+            skill_name: "published-snapshot".to_string(),
+            security_scan_id: None,
+            target_hash: None,
+        };
+
+        assert_eq!(published_version_scan_audit(&version), (None, None));
+    }
+
     #[test]
     fn injects_history_for_cli_providers() {
         assert!(should_inject_conversation_history("claude", false));
@@ -1364,37 +1429,6 @@ mod tests {
             session_container_work_dir(None),
             Some("/workspace".to_string())
         );
-    }
-
-    fn ready_skill() -> SkillForArchive {
-        SkillForArchive {
-            name: "skill-a".to_string(),
-            source_type: Some("manual".to_string()),
-            lifecycle_status: "approved".to_string(),
-            security_status: "passed".to_string(),
-            security_scan_hash: Some("a".repeat(64)),
-            security_scan_id: Some(SkillSecurityScanId::from_uuid(Uuid::nil())),
-        }
-    }
-
-    #[test]
-    fn skill_runtime_ready_accepts_approved_scanned_skill() {
-        assert!(ensure_skill_runtime_ready(&ready_skill()).is_ok());
-    }
-
-    #[test]
-    fn skill_runtime_ready_rejects_unapproved_or_unscanned_skill() {
-        let mut skill = ready_skill();
-        skill.lifecycle_status = "draft".to_string();
-        assert!(ensure_skill_runtime_ready(&skill).is_err());
-
-        let mut skill = ready_skill();
-        skill.security_status = "blocked".to_string();
-        assert!(ensure_skill_runtime_ready(&skill).is_err());
-
-        let mut skill = ready_skill();
-        skill.security_scan_hash = None;
-        assert!(ensure_skill_runtime_ready(&skill).is_err());
     }
 
     #[tokio::test]
@@ -2547,40 +2581,6 @@ fn combine_system_prompt(base: Option<String>, memory: Option<String>) -> Option
     }
 }
 
-fn ensure_skill_runtime_ready(skill: &SkillForArchive) -> anyhow::Result<()> {
-    if skill.lifecycle_status != "approved" {
-        anyhow::bail!(
-            "skill {} is not approved: {}",
-            skill.name,
-            skill.lifecycle_status
-        );
-    }
-    // When security scanning is disabled, skip scan-related checks.
-    // Mirrors the Python `settings.skill_security_scan_enabled` gate.
-    let scan_enabled = std::env::var("SKILL_SECURITY_SCAN_ENABLED")
-        .map(|v| !matches!(v.to_lowercase().as_str(), "false" | "0" | "no"))
-        .unwrap_or(true);
-    if !scan_enabled {
-        return Ok(());
-    }
-    if !matches!(skill.security_status.as_str(), "passed" | "warning") {
-        anyhow::bail!(
-            "skill {} security status is not runtime-ready: {}",
-            skill.name,
-            skill.security_status
-        );
-    }
-    if skill
-        .security_scan_hash
-        .as_deref()
-        .unwrap_or_default()
-        .is_empty()
-    {
-        anyhow::bail!("skill {} has no security scan hash", skill.name);
-    }
-    Ok(())
-}
-
 fn create_targz(root_dir: &str, files: &[SkillFileForArchive]) -> anyhow::Result<Vec<u8>> {
     let safe_root = safe_archive_component(root_dir).unwrap_or_else(|| "unknown".to_string());
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -2657,19 +2657,87 @@ async fn load_session_file_resource(row: &SessionFileRow) -> anyhow::Result<Vec<
 
 #[derive(Debug, FromRow)]
 struct SkillForArchive {
-    name: String,
     source_type: Option<String>,
-    lifecycle_status: String,
-    security_status: String,
-    security_scan_hash: Option<String>,
-    security_scan_id: Option<SkillSecurityScanId>,
+    project_id: String,
+    skill_org_id: String,
+    consumer_project_id: Option<String>,
+    consumer_org_id: Option<String>,
+    org_version: Option<String>,
+    public_version: Option<String>,
+}
+
+impl SkillForArchive {
+    fn same_project(&self) -> bool {
+        self.consumer_project_id.as_deref() == Some(self.project_id.as_str())
+    }
+
+    fn same_org(&self) -> bool {
+        self.consumer_org_id.as_deref() == Some(self.skill_org_id.as_str())
+    }
+
+    fn exposed_versions(&self) -> Vec<&str> {
+        if self.same_project() {
+            return Vec::new();
+        }
+        let mut versions = Vec::new();
+        if let Some(version) = self.public_version.as_deref() {
+            versions.push(version);
+        }
+        if self.same_org() {
+            if let Some(version) = self.org_version.as_deref() {
+                if !versions.contains(&version) {
+                    versions.push(version);
+                }
+            }
+        }
+        versions
+    }
+}
+
+fn resolve_skill_version_request(
+    skill: &SkillForArchive,
+    requested: &str,
+    project_latest: Option<&str>,
+) -> anyhow::Result<String> {
+    if skill.same_project() {
+        if requested == "latest" {
+            return project_latest
+                .map(str::to_string)
+                .ok_or_else(|| anyhow::anyhow!("skill has no published version"));
+        }
+        return Ok(requested.to_string());
+    }
+
+    let exposed = skill.exposed_versions();
+    if requested == "latest" {
+        return exposed
+            .into_iter()
+            .filter_map(|version| parse_semver(version).map(|key| (key, version)))
+            .max_by(|left, right| left.0.cmp(&right.0))
+            .map(|(_, version)| version.to_string())
+            .ok_or_else(|| anyhow::anyhow!("skill has no version exposed to this project"));
+    }
+    if exposed.contains(&requested) {
+        return Ok(requested.to_string());
+    }
+    anyhow::bail!("skill version {requested} is not exposed to this project")
 }
 
 #[derive(Debug, FromRow)]
 struct SkillVersionForArchive {
     id: SkillVersionId,
+    skill_name: String,
     security_scan_id: Option<SkillSecurityScanId>,
     target_hash: Option<String>,
+}
+
+fn published_version_scan_audit(
+    version_meta: &SkillVersionForArchive,
+) -> (Option<SkillSecurityScanId>, Option<&str>) {
+    (
+        version_meta.security_scan_id,
+        version_meta.target_hash.as_deref(),
+    )
 }
 
 #[derive(Debug, FromRow)]

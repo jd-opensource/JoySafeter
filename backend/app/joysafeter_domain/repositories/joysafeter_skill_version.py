@@ -23,6 +23,7 @@ class SkillVersionRepository(BaseRepository[JoySafeterSkillVersion]):
         self,
         skill_id: SkillId,
         *,
+        allowed_version_ids: Optional[List[SkillVersionId]] = None,
         limit: Optional[int] = None,
         after_id: Optional[SkillVersionId] = None,
     ) -> List[JoySafeterSkillVersion]:
@@ -38,11 +39,15 @@ class SkillVersionRepository(BaseRepository[JoySafeterSkillVersion]):
         tell the service whether more remain (the service trims + reports
         has_more).
         """
+        if allowed_version_ids == []:
+            return []
         stmt = (
             select(JoySafeterSkillVersion)
             .where(JoySafeterSkillVersion.skill_id == skill_id)
             .options(selectinload(JoySafeterSkillVersion.files))
         )
+        if allowed_version_ids is not None:
+            stmt = stmt.where(JoySafeterSkillVersion.id.in_(allowed_version_ids))
         stmt = apply_ordered_cursor(
             stmt,
             JoySafeterSkillVersion,
@@ -90,6 +95,26 @@ class SkillVersionRepository(BaseRepository[JoySafeterSkillVersion]):
             if current is None or published_at > current[0]:
                 latest[skill_id] = (published_at, version)
         return {skill_id: version for skill_id, (_, version) in latest.items()}
+
+    async def version_strings_by_ids(self, version_ids: List[SkillVersionId]) -> dict[SkillVersionId, str]:
+        if not version_ids:
+            return {}
+        result = await self.db.execute(
+            select(JoySafeterSkillVersion.id, JoySafeterSkillVersion.version).where(
+                JoySafeterSkillVersion.id.in_(version_ids)
+            )
+        )
+        return {version_id: version for version_id, version in result.all()}
+
+    async def get_by_ids(self, version_ids: List[SkillVersionId]) -> List[JoySafeterSkillVersion]:
+        if not version_ids:
+            return []
+        result = await self.db.execute(
+            select(JoySafeterSkillVersion)
+            .where(JoySafeterSkillVersion.id.in_(version_ids))
+            .options(selectinload(JoySafeterSkillVersion.files))
+        )
+        return list(result.scalars().all())
 
     async def get_by_version(self, skill_id: SkillId, version: str) -> Optional[JoySafeterSkillVersion]:
         result = await self.db.execute(

@@ -4,15 +4,13 @@ Single-axis skill redesign, Phase 3. Skill = project resource. Promotion to
 the ``organization`` / ``public`` visibility tiers is version-level and goes
 through a four-eyes approval by the org OWNER:
 
-  submit_promotion  — ADMIN capability on the skill + target version scan
-                      PASSED; flips the version to ``pending_review`` and
+  submit_promotion  — ADMIN capability on the skill; flips the version to ``pending_review`` and
                       records ``review_target_visibility``.
-  approve_promotion — org OWNER, approver != submitter, scan still passed;
+  approve_promotion — org OWNER/admin, approver != publisher;
                       sets skill.{org,public}_version_id + raises visibility.
   reject_promotion  — org OWNER; version -> ``rejected``, pointer untouched.
   takedown          — org OWNER; clears a tier pointer + recomputes visibility.
-  rescan auto-demote — a served version whose rescan verdict flips to
-                      failed/blocked clears the pointer + lowers visibility.
+  rescans           — informational; never pull down a published version.
 
 These run against the real ephemeral Postgres (see conftest) because the flow
 spans the skill row, a version row, the tier pointers (nullable FKs) and the
@@ -38,7 +36,7 @@ from app.joysafeter_domain.services.joysafeter_skill_service import (
     SkillPromotionService,
     SkillVersionService,
 )
-from app.joysafeter_shared.common.app_errors import AccessDeniedError, ResourceConflictError
+from app.joysafeter_shared.common.app_errors import AccessDeniedError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
 
 pytestmark = pytest.mark.asyncio
@@ -91,9 +89,7 @@ async def _skill(
     name = f"skill-{uuid.uuid4()}"
     description = "test skill"
     content = "# Skill\nbody"
-    # Compute the canonical scan hash the drift gate expects so ``scan_ok``
-    # sees a non-drifted, passed scan. ``build_scan_files`` / ``target_hash``
-    # are the same functions the runtime + writer paths use.
+    # Seed realistic scan metadata for promotion audit fixtures.
     scan_files = build_scan_files(name=name, description=description, content=content, tags=[], license=None, files=[])
     scan_hash = target_hash(
         name=name, description=description, content=content, tags=[], license=None, files=scan_files
@@ -165,7 +161,7 @@ async def test_submit_promotion_requires_admin(db_session, project_role):
         await svc.submit_promotion(version_id=sv.id, target_tier="organization", current_user_id=author.id)
 
 
-async def test_submit_promotion_scan_not_passed_conflicts(db_session):
+async def test_submit_promotion_ignores_current_skill_scan_status(db_session):
     org = await _org(db_session)
     proj = await _project(db_session, org_id=org.id)
     admin = await _user(db_session, name="Admin")
@@ -176,9 +172,11 @@ async def test_submit_promotion_scan_not_passed_conflicts(db_session):
     await db_session.commit()
 
     svc = _svc(db_session, org_id=org.id, caller_org_role=JoySafeterRole.MEMBER)
-    with pytest.raises(ResourceConflictError) as ei:
-        await svc.submit_promotion(version_id=sv.id, target_tier="organization", current_user_id=admin.id)
-    assert ei.value.code == "SKILL_PROMOTION_SCAN_NOT_PASSED"
+    await svc.submit_promotion(version_id=sv.id, target_tier="organization", current_user_id=admin.id)
+
+    await db_session.refresh(sv)
+    assert sv.lifecycle_status == "pending_review"
+    assert sv.review_target_visibility == "organization"
 
 
 async def test_submit_promotion_happy_marks_pending(db_session):
@@ -229,7 +227,7 @@ async def test_approve_promotion_non_superuser_denied(db_session):
 
 
 async def test_approve_promotion_admin_allowed(db_session):
-    # An org ADMIN who is NOT the submitter can approve (four-eyes satisfied) —
+    # An org ADMIN who is NOT the publisher can approve (four-eyes satisfied) —
     # this is what unblocks orgs whose owner authored the version.
     org = await _org(db_session)
     proj = await _project(db_session, org_id=org.id)
@@ -261,7 +259,7 @@ async def test_approve_promotion_four_eyes_denied(db_session):
     proj = await _project(db_session, org_id=org.id)
     owner = await _user(db_session, name="Owner")
     skill = await _skill(db_session, owner_id=owner.id, project_id=proj.id)
-    # submitter == approver (owner published the version)
+    # publisher == approver
     sv = await _version(
         db_session,
         skill=skill,
@@ -423,13 +421,10 @@ async def test_takedown_org_only_floors_to_project(db_session):
     assert reloaded.visibility == "project"
 
 
-# ── rescan auto-demote (fail-closed) ────────────────────────────
+# ── rescans are informational after publication ────────────────
 
 
-async def test_rescan_failed_verdict_auto_demotes(db_session):
-    """A served org version whose rescan verdict flips to ``failed`` gets its
-    pointer cleared + visibility lowered when the verdict lands via
-    ``apply_latest_scan``."""
+async def test_rescan_failed_verdict_does_not_demote_published_version(db_session):
     from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillSecurityScan
     from app.joysafeter_domain.services.joysafeter_skill_security import SkillSecurityService
 
@@ -439,6 +434,7 @@ async def test_rescan_failed_verdict_auto_demotes(db_session):
     skill = await _skill(db_session, owner_id=author.id, project_id=proj.id, visibility="organization")
     org_ver = await _version(db_session, skill=skill, version="1.0.0", published_by_id=author.id)
     skill.org_version_id = org_ver.id
+    org_version_id = org_ver.id
     await db_session.commit()
 
     failed_scan = JoySafeterSkillSecurityScan(
@@ -458,8 +454,8 @@ async def test_rescan_failed_verdict_auto_demotes(db_session):
     skill_id = skill.id
     db_session.expire_all()
     reloaded = (await db_session.execute(select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id))).scalar_one()
-    assert reloaded.org_version_id is None
-    assert reloaded.visibility == "project"
+    assert reloaded.org_version_id == org_version_id
+    assert reloaded.visibility == "organization"
 
 
 # ── adversarial: prove the P7a fixes are REAL, not just "looks fixed" ──
@@ -615,20 +611,10 @@ async def test_four_eyes_still_blocks_admin_who_published(db_session):
     assert ei.value.code == "SKILL_PROMOTION_FOUR_EYES"
 
 
-# ── scan gate must bind to the PROMOTED VERSION's content, not the skill head ──
+# ── promotion depends on the published version, not later scan state ──
 
 
-async def test_approve_promotion_version_content_not_scanned_denied(db_session):
-    """The scan precondition must bind to the exact bytes being exposed — the
-    frozen VERSION content — not the skill's mutable current head.
-
-    Exploit: publish a version whose content X was never scanned clean (publish
-    only blocks HIGH/CRITICAL). Then edit the skill to clean content Y and let a
-    scan pass on Y (skill.security_scan_hash = hash(Y), status=passed). Approving
-    the version gates on ``scan_ok(skill)`` — which validates Y — while it sets
-    the tier pointer + raises visibility for the version holding X. That exposes
-    un-scanned bytes org/public under a scan verdict for a different payload.
-    ``approve`` must refuse when the version content diverges from what passed."""
+async def test_approve_promotion_ignores_later_skill_scan_drift(db_session):
     org = await _org(db_session)
     proj = await _project(db_session, org_id=org.id)
     author = await _user(db_session, name="Author")
@@ -649,21 +635,16 @@ async def test_approve_promotion_version_content_not_scanned_denied(db_session):
     await db_session.commit()
 
     svc = _svc(db_session, org_id=org.id, caller_org_role=JoySafeterRole.OWNER)
-    with pytest.raises(ResourceConflictError) as ei:
-        await svc.approve_promotion(version_id=sv_id, current_user_id=approver.id)
-    assert ei.value.code == "SKILL_PROMOTION_SCAN_NOT_PASSED"
+    await svc.approve_promotion(version_id=sv_id, current_user_id=approver.id)
 
-    # And the exposure must NOT have happened: pointer unset, visibility unraised.
     skill_id = skill.id
     db_session.expire_all()
     reloaded = (await db_session.execute(select(JoySafeterSkill).where(JoySafeterSkill.id == skill_id))).scalar_one()
-    assert reloaded.org_version_id is None
-    assert reloaded.visibility == "project"
+    assert reloaded.org_version_id == sv_id
+    assert reloaded.visibility == "organization"
 
 
-async def test_submit_promotion_version_content_not_scanned_denied(db_session):
-    """Same binding on the submit side: an admin cannot submit for promotion a
-    version whose frozen content differs from the skill's latest passed scan."""
+async def test_submit_promotion_ignores_later_skill_scan_drift(db_session):
     org = await _org(db_session)
     proj = await _project(db_session, org_id=org.id)
     admin = await _user(db_session, name="Admin")
@@ -676,6 +657,8 @@ async def test_submit_promotion_version_content_not_scanned_denied(db_session):
     await db_session.commit()
 
     svc = _svc(db_session, org_id=org.id, caller_org_role=JoySafeterRole.MEMBER)
-    with pytest.raises(ResourceConflictError) as ei:
-        await svc.submit_promotion(version_id=sv_id, target_tier="organization", current_user_id=admin.id)
-    assert ei.value.code == "SKILL_PROMOTION_SCAN_NOT_PASSED"
+    await svc.submit_promotion(version_id=sv_id, target_tier="organization", current_user_id=admin.id)
+
+    await db_session.refresh(sv)
+    assert sv.lifecycle_status == "pending_review"
+    assert sv.review_target_visibility == "organization"

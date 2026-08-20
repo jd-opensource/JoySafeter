@@ -6,7 +6,6 @@ export interface QuickstartSkillCatalogItem {
   display_title?: string
   description?: string
   latest_version?: string | null
-  runtime_eligibility?: { usable?: boolean; reason?: string | null } | null
 }
 
 export interface QuickstartAvailableSkill {
@@ -55,10 +54,7 @@ export function quickstartAuthorizedMcpServerUrls(
   return urls
 }
 
-export function isMcpServerAuthorized(
-  url: unknown,
-  authorizedUrls: ReadonlySet<string>,
-): boolean {
+export function isMcpServerAuthorized(url: unknown, authorizedUrls: ReadonlySet<string>): boolean {
   const normalized = normalizeMcpServerUrl(url)
   if (!normalized) return false
   return authorizedUrls.has(normalized)
@@ -68,7 +64,7 @@ export function toQuickstartAvailableSkills(
   skills: QuickstartSkillCatalogItem[],
 ): QuickstartAvailableSkill[] {
   return skills
-    .filter((skill) => Boolean(skill.latest_version) && skill.runtime_eligibility?.usable !== false)
+    .filter((skill) => Boolean(skill.latest_version))
     .slice(0, 20)
     .map((skill) => ({
       id: skill.id,

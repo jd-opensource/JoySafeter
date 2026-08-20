@@ -49,7 +49,7 @@ Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并�
 | 调度面 | `orchestrator-rs` | DB 权威调度、任务租约、sandbox 生命周期、runner gRPC、事件发射 | 可多实例，但每个实例必须有唯一 `JOYSAFETER_INSTANCE_ID` |
 | 执行面 | sandbox container + `sandbox-runner` | 在隔离容器内运行 Claude/Codex/native harness，所有出站经 Envoy | 按 session/task 动态创建；镜像由 agent runtime 镜像变量控制 |
 | 持久化面 | `worker` | 消费 Redis Stream，批量写入 `joysafeter_session_events`，写后再发布实时事件 | 可横向扩容；依赖 Redis consumer group 和 Postgres advisory lock 去重 |
-| 安全面 | `skillspector` | Skill 内容静态扫描；运行时闸门仍由 JoySafeter Skill 逻辑执行 | CPU 密集，可用 `SKILLSPECTOR_WORKERS` / `SKILLSPECTOR_CPUS` 调整 |
+| 安全面 | `skillspector` | Skill 内容静态扫描；默认提示风险，可选仅在发布版本时强制 | CPU 密集，可用 `SKILLSPECTOR_WORKERS` / `SKILLSPECTOR_CPUS` 调整 |
 | 状态层 | PostgreSQL | task/session/sandbox/skill/auth/event log 权威状态 | 本地用 `db`；生产建议云 PostgreSQL / 托管 PostgreSQL |
 | 协调层 | Redis | task wakeup list、event Stream、Pub/Sub、命令 relay、ownership heartbeat | 本地用 `local-redis`；生产建议云 Redis / 托管 Redis |
 | 网络隔离 | Envoy | 每沙箱出站白名单和 gRPC 回连通道 | 生产要把 Docker socket 和 Envoy 配置放在可信宿主机 |
@@ -60,7 +60,7 @@ Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并�
 - Orchestrator 从 PostgreSQL 认领 pending task；Redis list 只是唤醒信号，不是调度权威。
 - Runner 只在 sandbox 内执行，并通过 gRPC `AgentBridge` 回连 orchestrator。
 - Worker 是事件可靠落库主路径；浏览器实时流可先收到 Pub/Sub，刷新后以 Postgres 事件日志回放为准。
-- SkillSpector 给出扫描 verdict；Skill 是否能被打包运行由 JoySafeter 的审批、扫描状态和内容漂移检查共同决定。
+- SkillSpector 默认只提供风险 verdict；可选全局开关仅在发布时强制扫描，运行时只解析已发布版本。
 
 ## 核心数据流
 
@@ -167,7 +167,7 @@ docker compose --profile rust-orchestrator up -d --no-build
 
 `doctor` 会先写入 `DOCKER_DEFAULT_PLATFORM` 和多架构镜像默认值；随后手工运行 compose 时会复用 `deploy/.env`。
 
-Skill 安全扫描默认开启。`deploy/.env` 里的 `SKILLSPECTOR_SOURCE_PATH` 默认指向 `.deps/SkillSpector`，`deploy.sh local` 会在缺失时自动从 NVIDIA 仓库克隆；生产构建时要确保该源码目录存在，或预先构建并推送 `SKILLSPECTOR_FULL_IMAGE`。草稿写入路径在扫描器故障时会记录 `failed`/`scanning` 状态并允许保存；运行时只会打包 `approved` 且扫描状态为 `passed`/`warning`、内容未漂移的技能。
+Skill 安全扫描默认开启。`deploy/.env` 里的 `SKILLSPECTOR_SOURCE_PATH` 默认指向 `.deps/SkillSpector`，`deploy.sh local` 会在缺失时自动从 NVIDIA 仓库克隆；生产构建时要确保该源码目录存在，或预先构建并推送 `SKILLSPECTOR_FULL_IMAGE`。草稿写入路径在扫描器故障时会记录 `failed`/`scanning` 状态并允许保存；`SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED=false` 时扫描不设卡点，切为 `true` 后仅发布动作要求对实际版本快照执行新的 fail-closed 扫描。Agent 与运行时只消费已发布版本。
 
 单独构建 Rust orchestrator 镜像：
 

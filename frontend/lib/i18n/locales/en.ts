@@ -2179,41 +2179,19 @@ const en = {
         diffViewSplit: 'Split',
         unpublishedChanges:
           'Current content differs from the latest published version — you have unpublished changes.',
-        publishBlockedBySecurity:
-          'This skill is blocked by a high security risk and cannot be published. Fix the issues and re-scan.',
-        runtimeNotReady: 'Runtime not ready',
+        securityRiskWarning:
+          'The security scan found a high risk. This is advisory unless the global publish-enforcement switch is enabled.',
         eligibility: {
           title: {
-            skillNotApproved: 'Not approved',
-            securityNotScanned: 'Not security-scanned',
-            securityScanning: 'Security scan in progress',
-            securityFailed: 'Security scan failed',
-            securityBlocked: 'Blocked by security',
-            noSecurityScanHash: 'Rescan required',
-            contentChangedAfterScan: 'Content changed since last scan',
             noPublishedVersion: 'No published version',
-            runtimeNotReady: 'Runtime not ready',
-            unknown: 'Runtime not ready',
+            unknown: 'Unknown status',
           },
           short: {
-            skillNotApproved: 'Not approved',
-            securityNotScanned: 'Not scanned',
-            securityScanning: 'Scanning',
-            securityFailed: 'Scan failed',
-            securityBlocked: 'Blocked',
-            noSecurityScanHash: 'Rescan required',
-            contentChangedAfterScan: 'Content changed',
             noPublishedVersion: 'Not published',
-            runtimeNotReady: 'Not ready',
-            unknown: 'Not ready',
+            unknown: 'Unknown',
           },
           action: {
-            submit_or_approve:
-              'A project admin needs to submit this skill for review and approve it.',
-            run_security_scan: 'A security scan must be completed first.',
-            fix_and_rescan: 'Fix the security findings, then run a new security scan.',
-            wait_for_scan: 'A security scan is in progress — please wait.',
-            review_skill: 'Review and resolve this skill’s readiness issue.',
+            publish_version: 'Publish a version first.',
             none: '',
           },
         },
@@ -2448,9 +2426,9 @@ const en = {
           'The resource does not exist or has been deleted. Please refresh and try again.',
         membershipExpired: 'Organization membership expired, please re-login',
         skillSecurityRejected:
-          'Skill security scan blocked this change. Score: {{score}}, severity: {{severity}}, recommendation: {{recommendation}}, issues: {{issues}}.',
+          'Skill security scan blocked publication. Score: {{score}}, severity: {{severity}}, recommendation: {{recommendation}}, issues: {{issues}}.',
         skillSecurityScanFailed:
-          'Skill security scan failed and this deployment is configured to fail closed. {{error}}',
+          'Skill publication requires a successful security scan, but the scan failed. {{error}}',
       },
     },
     manage: {

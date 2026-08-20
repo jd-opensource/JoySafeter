@@ -2154,9 +2154,7 @@ export function SkillManagerPageContent({
     return false
   }, [latestVersion, form.content, latestVersionFiles, skillFiles])
 
-  // High-risk gate — a skill blocked by the security scan cannot be published
-  // (the backend rejects it too; this disables the entry points client-side).
-  const securityBlocked = selectedSkill?.security_scan?.status === 'blocked'
+  const securityRiskDetected = selectedSkill?.security_scan?.status === 'blocked'
 
   // -- Saved flash helper --
 
@@ -2591,15 +2589,13 @@ export function SkillManagerPageContent({
 
   // Exposing a version to the organization / public tiers goes through this
   // approval flow. The routes/service enforce the ADMIN (submit) and org-OWNER
-  // + four-eyes + scan (approve) gates.
+  // + four-eyes (approve) gates.
   // Promotion changes the skill's visibility/tier pointers (list + detail) and
-  // the version's lifecycle_status, and can surface a fresh scan verdict — but
-  // never the file tree, so it deliberately does NOT invalidate skill-files.
+  // the version's lifecycle_status, but never the scan state or file tree.
   const invalidatePromotion = useCallback(
     (skillId: SkillId, scope: ManagedRequestScope) => {
       queryClient.invalidateQueries({ queryKey: ['skills', scope.key] })
       queryClient.invalidateQueries({ queryKey: ['skill', scope.key, skillId] })
-      queryClient.invalidateQueries({ queryKey: ['skill-security-scans', scope.key, skillId] })
       queryClient.invalidateQueries({ queryKey: ['skill-versions', scope.key, skillId] })
     },
     [queryClient],
@@ -3286,9 +3282,7 @@ export function SkillManagerPageContent({
     editorTab === 'editor' && selectedFileId !== null && selectedFile !== undefined
   const canSave = canEditSelectedSkill && (isEditingFile ? isFileDirty : isDirty)
   const selectedSecurityScore = skillSecurityScore(selectedSkill)
-  const runtimeEligibility = selectedSkill.runtime_eligibility
   const impactCounts = selectedSkill.impact?.counts
-  const publishRuntimeBlocked = !!runtimeEligibility && !runtimeEligibility.usable
   const securityTriggerLabels: Record<string, string> = {
     create: t('managed.skills.securityTriggers.create'),
     update: t('managed.skills.securityTriggers.update'),
@@ -3346,9 +3340,6 @@ export function SkillManagerPageContent({
                     const current = currentSkillInList(selectedSkill.id)
                     if (!current || current.lifecycle_status !== selectedSkill.lifecycle_status)
                       return false
-                    if (endpoint === 'unarchive' && publishRuntimeBlocked) {
-                      return false
-                    }
                     return true
                   }}
                   invalidateKeys={[
@@ -3396,20 +3387,12 @@ export function SkillManagerPageContent({
                     if (!canEditSelectedSkill || !isProjectSkillAdmin) return
                     setShowVersionForm(true)
                   }}
-                  disabled={!canEditSelectedSkill || !isProjectSkillAdmin || publishRuntimeBlocked}
-                  title={
-                    securityBlocked
-                      ? t('managed.skills.publishBlockedBySecurity')
-                      : publishRuntimeBlocked
-                        ? t(eligibilityActionView(runtimeEligibility?.next_action).hintKey)
-                        : hasUnpublishedChanges
-                          ? t('managed.skills.unpublishedChanges')
-                          : undefined
-                  }
+                  disabled={!canEditSelectedSkill || !isProjectSkillAdmin}
+                  title={hasUnpublishedChanges ? t('managed.skills.unpublishedChanges') : undefined}
                 >
                   <Plus className="h-4 w-4" />
                   {t('managed.skills.createVersionBtn')}
-                  {hasUnpublishedChanges && !publishRuntimeBlocked && (
+                  {hasUnpublishedChanges && (
                     <span className="absolute -right-1 -top-1 flex h-2.5 w-2.5">
                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
                       <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
@@ -3453,12 +3436,10 @@ export function SkillManagerPageContent({
         />
       )}
 
-      {securityBlocked ? (
+      {securityRiskDetected ? (
         <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
           <span className="flex h-2 w-2 shrink-0 rounded-full bg-destructive" />
-          <span className="flex-1 text-destructive">
-            {t('managed.skills.publishBlockedBySecurity')}
-          </span>
+          <span className="flex-1 text-destructive">{t('managed.skills.securityRiskWarning')}</span>
         </div>
       ) : hasUnpublishedChanges ? (
         <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm dark:border-amber-800/50 dark:bg-amber-950/30">
@@ -3469,21 +3450,16 @@ export function SkillManagerPageContent({
         </div>
       ) : null}
 
-      {runtimeEligibility && !runtimeEligibility.usable && (
+      {!selectedSkill.latest_version && (
         <div className="mb-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm dark:border-amber-800/50 dark:bg-amber-950/30">
           <div className="flex items-center gap-2.5">
             <span className="flex h-2 w-2 shrink-0 rounded-full bg-amber-500" />
-            <span
-              className="font-medium text-amber-900 dark:text-amber-100"
-              // Raw reason code kept as a hover affordance for operators/support,
-              // not shown as primary UI. Localized copy carries the meaning.
-              title={runtimeEligibility.reason || undefined}
-            >
-              {t(eligibilityReasonView(runtimeEligibility.reason).titleKey)}
+            <span className="font-medium text-amber-900 dark:text-amber-100">
+              {t(eligibilityReasonView('no_published_version').titleKey)}
             </span>
           </div>
           <div className="mt-1 pl-4 text-xs text-amber-800 dark:text-amber-200">
-            {t(eligibilityActionView(runtimeEligibility.next_action).hintKey)}
+            {t(eligibilityActionView('publish_version').hintKey)}
           </div>
         </div>
       )}

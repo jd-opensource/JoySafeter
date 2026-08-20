@@ -21,6 +21,7 @@ from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_domain.llm.model_inference_policy import build_model_inference_policy
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
 from app.joysafeter_domain.models.joysafeter_memory import JoySafeterSessionMemoryStore
+from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STATUSES, JoySafeterTask
@@ -32,7 +33,7 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterUpdateAgentRequest,
 )
 from app.joysafeter_domain.services.credential_binding_errors import raise_public_credential_error
-from app.joysafeter_domain.services.joysafeter_skill_security import is_skill_usable
+from app.joysafeter_domain.services.joysafeter_skill_version_access import SkillVersionExposure
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
 from app.joysafeter_shared.ids import AgentId, CredentialId, SessionId, SkillId
 from app.joysafeter_shared.utils.datetime import utc_now  # noqa: E402
@@ -127,20 +128,18 @@ class JoySafeterAgentService:
         normalized = str(value or "latest").strip()
         return normalized or "latest"
 
-    async def _validate_skill_refs(self, skills: list[Any], project_id: Optional[str]) -> None:
+    async def _validate_skill_refs(self, skills: list[Any], project_id: Optional[str]) -> list[dict[str, Any]]:
         ref_items = [
-            (skill_id, self._skill_ref_version(item))
+            (item, skill_id, self._skill_ref_version(item))
             for item in skills
             for skill_id in [self._skill_ref_id(item)]
             if skill_id is not None
         ]
-        refs = [skill_id for skill_id, _version in ref_items]
+        refs = [skill_id for _item, skill_id, _version in ref_items]
         if not refs:
-            return
+            return []
         unique_refs = list(dict.fromkeys(refs))
         query = select(JoySafeterSkill).where(JoySafeterSkill.id.in_(unique_refs))
-        if project_id is not None:
-            query = query.where(JoySafeterSkill.project_id == project_id)
         result = await self.db.execute(query)
         skills_by_id = {skill.id: skill for skill in result.scalars().all()}
         missing = [str(skill_id) for skill_id in unique_refs if skill_id not in skills_by_id]
@@ -152,38 +151,92 @@ class JoySafeterAgentService:
             )
 
         version_repo = SkillVersionRepository(self.db)
-        latest_ref_ids = list(dict.fromkeys(skill_id for skill_id, version in ref_items if version == "latest"))
+        cross_project_skills = [
+            skill for skill in skills_by_id.values() if project_id is None or skill.project_id != project_id
+        ]
+        project_org_map: dict[str, str] = {}
+        pointer_version_map = {}
+        if cross_project_skills:
+            project_ids = list(
+                dict.fromkeys(
+                    [skill.project_id for skill in cross_project_skills]
+                    + ([project_id] if project_id is not None else [])
+                )
+            )
+            project_result = await self.db.execute(
+                select(Project.id, Project.org_id).where(Project.id.in_(project_ids))
+            )
+            project_org_map = {row.id: row.org_id for row in project_result.all()}
+            pointer_ids = list(
+                dict.fromkeys(
+                    pointer_id
+                    for skill in cross_project_skills
+                    for pointer_id in (skill.org_version_id, skill.public_version_id)
+                    if pointer_id is not None
+                )
+            )
+            pointer_version_map = await version_repo.version_strings_by_ids(pointer_ids)
+
+        consumer_org_id = project_org_map.get(project_id) if project_id is not None else None
+        exposure_by_skill_id: dict[SkillId, SkillVersionExposure] = {}
+        inaccessible = []
+        for skill in cross_project_skills:
+            exposure = SkillVersionExposure(
+                skill_project_id=skill.project_id,
+                skill_org_id=project_org_map.get(skill.project_id),
+                consumer_project_id=project_id,
+                consumer_org_id=consumer_org_id,
+                org_version=pointer_version_map.get(skill.org_version_id),
+                public_version=pointer_version_map.get(skill.public_version_id),
+            )
+            exposure_by_skill_id[skill.id] = exposure
+            if not exposure.exposed_versions():
+                inaccessible.append(str(skill.id))
+        if inaccessible:
+            raise InvalidRequestError(
+                "Agent references skills that are not exposed to this project",
+                code="AGENT_SKILL_REF_NOT_FOUND",
+                data={"skill_ids": inaccessible},
+            )
+
+        latest_ref_ids = list(
+            dict.fromkeys(
+                skill_id
+                for _item, skill_id, version in ref_items
+                if version == "latest" and skills_by_id[skill_id].project_id == project_id
+            )
+        )
         latest_map = await version_repo.latest_version_map(latest_ref_ids)
         invalid = []
-        for skill_id, version in ref_items:
+        normalized: list[dict[str, Any]] = []
+        for item, skill_id, version in ref_items:
             skill = skills_by_id[skill_id]
+            exposure = exposure_by_skill_id.get(skill_id)
+            resolved_version = version
             if version == "draft":
                 invalid.append({"skill_id": str(skill_id), "version": version, "reason": "draft_not_allowed"})
-            elif version == "latest" and not latest_map.get(skill_id):
-                invalid.append({"skill_id": str(skill_id), "reason": "no_published_version"})
-            elif version != "latest" and not await version_repo.get_by_version(skill_id, version):
+            elif version == "latest":
+                resolved_version = (
+                    exposure.resolve_latest() if exposure is not None else latest_map.get(skill_id)
+                ) or ""
+                if not resolved_version:
+                    invalid.append({"skill_id": str(skill_id), "reason": "no_published_version"})
+            elif exposure is not None and not exposure.allows(version):
+                invalid.append({"skill_id": str(skill_id), "version": version, "reason": "version_not_exposed"})
+            elif exposure is None and not await version_repo.get_by_version(skill_id, version):
                 invalid.append({"skill_id": str(skill_id), "version": version, "reason": "version_not_found"})
-            else:
-                # Agents reference published (frozen) versions, so skip the
-                # draft-content drift check that is_skill_usable performs —
-                # only verify lifecycle + security status + scan-hash presence.
-                # When scanning is globally disabled, skip the security gates
-                # entirely — only lifecycle_status matters.
-                from app.joysafeter_shared.config import settings as app_settings
 
-                if app_settings.skill_security_scan_enabled:
-                    usable, reason = is_skill_usable(skill, check_drift=False)
-                    if not usable:
-                        invalid.append({"skill_id": str(skill_id), "reason": reason or "skill_unusable"})
-                else:
-                    if skill.lifecycle_status != "approved":
-                        invalid.append({"skill_id": str(skill_id), "reason": "skill_not_approved"})
+            normalized_item = item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
+            normalized_item["skill_id"] = str(skill_id)
+            normalized_item["version"] = resolved_version or version
+            normalized.append(normalized_item)
         if invalid:
             raise InvalidRequestError(
-                "Agent can only reference published, runtime-ready skills",
-                code="AGENT_SKILL_REF_NOT_RUNTIME_READY",
+                "Agent can only reference published skill versions",
+                code="AGENT_SKILL_REF_NOT_PUBLISHED",
                 data={"skills": invalid},
             )
+        return normalized
 
     async def _validate_model_credential_ref(
         self,
@@ -271,7 +324,7 @@ class JoySafeterAgentService:
     async def create_agent(
         self, req: JoySafeterCreateAgentRequest, project_id: Optional[str] = None
     ) -> JoySafeterAgent:
-        await self._validate_skill_refs(list(req.skills or []), project_id)
+        normalized_skills = await self._validate_skill_refs(list(req.skills or []), project_id)
         self._binding_engine_kind = req.engine_kind.value
         self._binding_model_id = req.model.id if hasattr(req.model, "id") else req.model
         await self._validate_model_credential_ref(req.model_credential_id, project_id)
@@ -288,7 +341,7 @@ class JoySafeterAgentService:
             metadata_=req.metadata,
             env=req.env,
             mcp_servers=[s.model_dump() for s in req.mcp_servers],
-            skills=_merge_agent_assets(req.skills, req.agents, req.commands),
+            skills=_merge_agent_assets(normalized_skills, req.agents, req.commands),
             tools=[t.model_dump() for t in req.tools],
             multiagent=req.multiagent,
             version=1,
@@ -435,8 +488,8 @@ class JoySafeterAgentService:
             new_skills = req.skills if req.skills is not None else cur_skills
             new_agents = req.agents if req.agents is not None else cur_agents
             new_commands = req.commands if req.commands is not None else cur_commands
-            await self._validate_skill_refs(list(new_skills or []), project_id)
-            merged = _merge_agent_assets(new_skills, new_agents, new_commands)
+            normalized_skills = await self._validate_skill_refs(list(new_skills or []), project_id)
+            merged = _merge_agent_assets(normalized_skills, new_agents, new_commands)
             if merged != (agent.skills or []):
                 agent.skills = merged
                 changed = True
