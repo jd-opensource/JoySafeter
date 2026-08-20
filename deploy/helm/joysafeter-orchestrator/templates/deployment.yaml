@@ -1,3 +1,5 @@
+{{- $storage := .Values.orchestrator.storage | default dict -}}
+{{- $storageBackend := default "local" $storage.backend | lower -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -40,6 +42,12 @@ spec:
                 matchLabels:
                   app: joysafeter-orchestrator
               topologyKey: kubernetes.io/hostname
+      {{- if and (eq $storageBackend "local") $storage.local.persistence.enabled }}
+      volumes:
+      - name: joysafeter-files
+        persistentVolumeClaim:
+          claimName: {{ $storage.local.persistence.existingClaim | default "joysafeter-files" | quote }}
+      {{- end }}
 
       containers:
       - name: orchestrator
@@ -70,6 +78,12 @@ spec:
             name: joysafeter-orchestrator-config
         - secretRef:
             name: {{ .Values.externalSecret }}
+
+        {{- if and (eq $storageBackend "local") $storage.local.persistence.enabled }}
+        volumeMounts:
+        - name: joysafeter-files
+          mountPath: {{ $storage.local.path | default "/data/files" | quote }}
+        {{- end }}
 
         readinessProbe:
           httpGet:

@@ -69,6 +69,37 @@ haMode: multi   # standalone / leader / multi
 orchestrator:
   replicas: 3
 
+  # ── 文件存储 ──
+  # API 写文件，orchestrator-rs 读 session 文件；两边必须使用同一套配置。
+  # 支持: local / s3 / oss。线上多 Pod 推荐 oss/s3，避免 pod 本地盘不一致。
+  storage:
+    backend: local
+
+    local:
+      path: /data/files
+      persistence:
+        enabled: false
+        existingClaim: ""
+        storageClassName: ""
+        accessModes:
+          - ReadWriteMany
+        size: 100Gi
+
+    s3:
+      bucket: ""
+      endpoint: ""
+      region: ""
+      accessKey: ""
+      secretKey: ""
+
+    oss:
+      bucket: ""
+      endpoint: ""
+      region: ""
+      accessKey: ""
+      secretKey: ""
+
+
   resources:
     requests:
       cpu: "500m"

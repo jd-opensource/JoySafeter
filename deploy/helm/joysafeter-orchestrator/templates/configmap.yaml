@@ -1,4 +1,9 @@
 {{- $agentIdentityProvider := default "none" .Values.agentIdentity.provider -}}
+{{- $storage := .Values.orchestrator.storage | default dict -}}
+{{- $storageBackend := default "local" $storage.backend | lower -}}
+{{- if not (has $storageBackend (list "local" "s3" "oss")) -}}
+{{- fail "orchestrator.storage.backend must be one of: local, s3, oss" -}}
+{{- end -}}
 {{- if not (has $agentIdentityProvider (list "none" "jd")) -}}
 {{- fail "agentIdentity.provider must be one of: none, jd" -}}
 {{- end }}
@@ -10,6 +15,32 @@ metadata:
 data:
   # ── 基础 ──
   RUST_LOG: {{ .Values.orchestrator.logLevel | quote }}
+
+  # ── 文件存储 ──
+  STORAGE_BACKEND: {{ $storageBackend | quote }}
+  {{- if eq $storageBackend "local" }}
+  STORAGE_LOCAL_PATH: {{ $storage.local.path | default "/data/files" | quote }}
+  {{- end }}
+  {{- if eq $storageBackend "s3" }}
+  {{- if $storage.s3.bucket }}
+  STORAGE_S3_BUCKET: {{ $storage.s3.bucket | quote }}
+  {{- end }}
+  {{- if $storage.s3.endpoint }}
+  STORAGE_S3_ENDPOINT: {{ $storage.s3.endpoint | quote }}
+  {{- end }}
+  STORAGE_S3_REGION: {{ $storage.s3.region | default "" | quote }}
+  {{- end }}
+  {{- if eq $storageBackend "oss" }}
+  {{- if $storage.oss.bucket }}
+  STORAGE_OSS_BUCKET: {{ $storage.oss.bucket | quote }}
+  {{- end }}
+  {{- if $storage.oss.endpoint }}
+  STORAGE_OSS_ENDPOINT: {{ $storage.oss.endpoint | quote }}
+  {{- end }}
+  {{- if $storage.oss.region }}
+  STORAGE_OSS_REGION: {{ $storage.oss.region | quote }}
+  {{- end }}
+  {{- end }}
 
   # ── 数据库连接池 ──
   DATABASE_POOL_SIZE: {{ .Values.orchestrator.database.poolSize | quote }}

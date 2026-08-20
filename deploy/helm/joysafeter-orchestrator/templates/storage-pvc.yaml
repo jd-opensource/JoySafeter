@@ -1,0 +1,18 @@
+{{- $storage := .Values.orchestrator.storage | default dict -}}
+{{- $storageBackend := default "local" $storage.backend | lower -}}
+{{- if and (eq $storageBackend "local") $storage.local.persistence.enabled (not $storage.local.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: joysafeter-files
+  namespace: {{ .Values.namespace }}
+spec:
+  accessModes:
+    {{- toYaml $storage.local.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ $storage.local.persistence.size | quote }}
+  {{- if $storage.local.persistence.storageClassName }}
+  storageClassName: {{ $storage.local.persistence.storageClassName | quote }}
+  {{- end }}
+{{- end }}

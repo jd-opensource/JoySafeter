@@ -570,6 +570,17 @@ impl SandboxResolver {
                                 }
                                 return Err(err);
                             }
+                            if let Err(err) = self
+                                .patch_claimed_pool_labels(ext_id, session_id, &context)
+                                .await
+                            {
+                                warn!(
+                                    sandbox_id = %sandbox.id,
+                                    external_id = %ext_id,
+                                    error = %err,
+                                    "Failed to patch labels for claimed pooled sandbox"
+                                );
+                            }
                             info!(
                                 sandbox_id = %sandbox.id,
                                 task_id = %task_id,
@@ -665,6 +676,17 @@ impl SandboxResolver {
                                     }
                                     return Err(err);
                                 }
+                                if let Err(err) = self
+                                    .patch_claimed_pool_labels(ext_id, session_id, &context)
+                                    .await
+                                {
+                                    warn!(
+                                        sandbox_id = %sandbox.id,
+                                        external_id = %ext_id,
+                                        error = %err,
+                                        "Failed to patch labels for restarted pooled sandbox"
+                                    );
+                                }
                                 info!(sandbox_id = %sandbox.id, "Started pooled sandbox");
                                 self.signal_pool_claimed();
                                 return Ok((sandbox.id, ext_id.clone()));
@@ -744,6 +766,13 @@ impl SandboxResolver {
             "joysafeter.created_at_unix".to_string(),
             chrono::Utc::now().timestamp().to_string(),
         );
+        labels.insert(
+            "joysafeter.engine_kind".to_string(),
+            expected.engine_kind.clone(),
+        );
+        labels.insert("joysafeter.pool".to_string(), "false".to_string());
+        labels.insert("joysafeter.claimed".to_string(), "true".to_string());
+        labels.insert("joysafeter.allocation".to_string(), "session".to_string());
         if let Some(ref sid) = context.session_id {
             labels.insert("joysafeter.session_id".to_string(), sid.to_string());
         }
@@ -2454,6 +2483,58 @@ impl SandboxResolver {
         Ok(None)
     }
 
+    fn engine_kind_for_image(&self, image: &str) -> String {
+        if !self.config.image_codex.is_empty() && image == self.config.image_codex {
+            return "codex".to_string();
+        }
+        if !self.config.image_native.is_empty() && image == self.config.image_native {
+            return "native".to_string();
+        }
+        if !self.config.image_pi.is_empty() && image == self.config.image_pi {
+            return "pi".to_string();
+        }
+        if !self.config.image_claude.is_empty() && image == self.config.image_claude {
+            return "claude".to_string();
+        }
+        if image == self.config.sandbox_image {
+            return "claude".to_string();
+        }
+
+        let lower = image.to_ascii_lowercase();
+        if lower.contains("codex") {
+            "codex".to_string()
+        } else if lower.contains("native") {
+            "native".to_string()
+        } else if lower.contains("pi") {
+            "pi".to_string()
+        } else {
+            "claude".to_string()
+        }
+    }
+
+    async fn patch_claimed_pool_labels(
+        &self,
+        external_id: &str,
+        session_id: Option<SessionId>,
+        context: &ResolveContext,
+    ) -> anyhow::Result<()> {
+        let mut labels = HashMap::new();
+        labels.insert(
+            "joysafeter.engine_kind".to_string(),
+            context.expected.engine_kind.clone(),
+        );
+        labels.insert("joysafeter.pool".to_string(), "false".to_string());
+        labels.insert("joysafeter.claimed".to_string(), "true".to_string());
+        labels.insert("joysafeter.allocation".to_string(), "session".to_string());
+        if let Some(sid) = session_id {
+            labels.insert("joysafeter.session_id".to_string(), sid.to_string());
+        }
+        if let Some(project_id) = context.project_id.as_ref() {
+            labels.insert("joysafeter.project_id".to_string(), project_id.clone());
+        }
+        self.provider.patch_labels(external_id, &labels).await
+    }
+
     async fn mark_pool_claimed(
         &self,
         sandbox_id: SandboxId,
@@ -2507,6 +2588,8 @@ impl SandboxResolver {
         let grpc_url = self.provider.orchestrator_url(self.config.grpc_port);
         env.insert("JOYSAFETER_ORCHESTRATOR_URL".to_string(), grpc_url.clone());
 
+        let engine_kind = self.engine_kind_for_image(image);
+
         let create_config = SandboxCreateConfig {
             sandbox_id: sandbox_db_id,
             image: image.to_string(),
@@ -2526,6 +2609,10 @@ impl SandboxResolver {
                     "joysafeter.created_at_unix".to_string(),
                     chrono::Utc::now().timestamp().to_string(),
                 ),
+                ("joysafeter.engine_kind".to_string(), engine_kind.clone()),
+                ("joysafeter.pool".to_string(), "true".to_string()),
+                ("joysafeter.claimed".to_string(), "false".to_string()),
+                ("joysafeter.allocation".to_string(), "pool".to_string()),
             ]
             .into(),
             cpu_limit: self.config.sandbox_cpu,
@@ -2544,7 +2631,7 @@ impl SandboxResolver {
 
         let expected = ExpectedFingerprint {
             image: image.to_string(),
-            engine_kind: String::new(),
+            engine_kind: engine_kind.clone(),
             networking: None,
             env: create_config.env.clone(),
             mounts: vec![],

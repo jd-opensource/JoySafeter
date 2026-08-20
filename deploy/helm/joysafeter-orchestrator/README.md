@@ -304,6 +304,10 @@ kubectl scale deployment joysafeter-orchestrator -n joysafeter-prod --replicas=5
 | `joysafeter-secrets-{env}` | `REDIS_SCHEME` | 可选, TLS 时 `rediss` |
 | `joysafeter-secrets-{env}` | `POSTGRES_SSLMODE` | 可选, 强制 SSL 时 `require` |
 | `joysafeter-secrets-{env}` | `JOYSAFETER_VAULT_ENCRYPTION_KEY` | Vault 加密密钥 |
+| `joysafeter-secrets-{env}` | `STORAGE_OSS_BUCKET/STORAGE_OSS_ENDPOINT/STORAGE_OSS_REGION` | OSS 连接参数；也可放 `orchestrator.storage.oss` |
+| `joysafeter-secrets-{env}` | `STORAGE_OSS_ACCESS_KEY/STORAGE_OSS_SECRET_KEY` | OSS 凭证；线上推荐放 Secret |
+| `joysafeter-secrets-{env}` | `STORAGE_S3_BUCKET/STORAGE_S3_ENDPOINT/STORAGE_S3_REGION` | S3 连接参数；也可放 `orchestrator.storage.s3` |
+| `joysafeter-secrets-{env}` | `STORAGE_S3_ACCESS_KEY/STORAGE_S3_SECRET_KEY` | S3 凭证；使用 S3 时配置 |
 | `aisec-repo-cred` | `.dockerconfigjson` | 私有仓库拉取凭证 |
 
 > Deployment 通过 `envFrom.secretRef` 注入 `joysafeter-secrets-{env}` 的全部 key，
@@ -320,6 +324,10 @@ kubectl scale deployment joysafeter-orchestrator -n joysafeter-prod --replicas=5
 | `orchestrator.replicas` | 3 | Orchestrator 副本数 |
 | `orchestrator.pool.minSize` | 5 | 预热池最小沙箱数 |
 | `orchestrator.sandbox.idleTimeout` | 300 | 沙箱空闲超时(秒) |
+| `orchestrator.storage.backend` | `local` | 文件存储后端: local/s3/oss；线上推荐 oss/s3 |
+| `orchestrator.storage.local.path` | `/data/files` | local 后端路径；启用 persistence 时挂 PVC |
+| `orchestrator.storage.oss.bucket/endpoint/region` | 空/空/空 | OSS 非敏感参数；region 为空时不注入环境变量 |
+| `orchestrator.storage.s3.bucket/endpoint/region` | 空/空/空 | S3 非敏感参数；region 允许为空字符串 |
 | `envoy.socketHostDir` | `/data/joysafeter/envoy-sockets` | Envoy UDS hostPath |
 | `egress.allowedHosts` | [见 values.yaml] | Envoy 出站白名单 |
 
@@ -333,6 +341,7 @@ kubectl scale deployment joysafeter-orchestrator -n joysafeter-prod --replicas=5
 | sandbox.idleTimeout | 120s | 300s |
 | sandbox.hardTimeout | 1h | 6h |
 | logLevel | debug | info |
+| orchestrator.storage.backend | s3 | s3 |
 | envoy.socketHostDir | `/data/joysafeter-pre/...` | `/data/joysafeter-prod/...` |
 | DB/Redis | pre 云实例 | prod 云实例 |
 

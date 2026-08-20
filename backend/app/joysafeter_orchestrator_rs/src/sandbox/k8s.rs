@@ -1,12 +1,11 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
 use crate::ids::SandboxId;
 use async_trait::async_trait;
-use base64::Engine as _;
 use k8s_openapi::api::core::v1::Pod;
-use kube::api::{Api, AttachParams, DeleteParams, PostParams};
+use kube::api::{Api, AttachParams, DeleteParams, Patch, PatchParams, PostParams};
 use kube::Client;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -168,15 +167,23 @@ impl K8sProvider {
             .and_then(|p| p.to_str())
             .unwrap_or("/workspace");
 
-        // Build a tar archive in memory (same pattern as Docker provider).
+        let relative_path = normalized
+            .strip_prefix('/')
+            .ok_or_else(|| anyhow::anyhow!("invalid normalized mount path: {normalized}"))?;
+        if relative_path.is_empty() {
+            anyhow::bail!("invalid normalized mount path: {normalized}");
+        }
+        self.exec(external_id, &["mkdir", "-p", parent]).await?;
+
+        // Build a tar archive in memory (same pattern as Docker provider). Tar
+        // entry names must be relative; extracting with `-C /` writes the file to
+        // the requested absolute workspace path.
         let tar_buf = {
             let mut buf = Vec::new();
             {
                 let mut ar = tar::Builder::new(&mut buf);
                 let mut header = tar::Header::new_gnu();
-                // Use the full normalized path (e.g. /workspace/foo.py) so tar
-                // extracts to the correct absolute location.
-                header.set_path(normalized)?;
+                header.set_path(relative_path)?;
                 header.set_size(content.len() as u64);
                 header.set_mode(0o644);
                 header.set_cksum();
@@ -243,10 +250,6 @@ impl K8sProvider {
                 }
             }
         }
-
-        // mkdir is handled by tar (absolute path), but ensure parent exists for
-        // edge cases where the tar path is relative or something strips the leading /.
-        let _ = self.exec(external_id, &["mkdir", "-p", parent]).await;
 
         Ok(())
     }
@@ -691,6 +694,22 @@ impl SandboxProvider for K8sProvider {
     async fn exec(&self, external_id: &str, cmd: &[&str]) -> anyhow::Result<String> {
         let cmd_owned: Vec<String> = cmd.iter().map(|s| s.to_string()).collect();
         self.exec_owned(external_id, &cmd_owned).await
+    }
+
+    async fn patch_labels(
+        &self,
+        external_id: &str,
+        labels: &HashMap<String, String>,
+    ) -> anyhow::Result<()> {
+        let patch = json!({
+            "metadata": {
+                "labels": labels,
+            }
+        });
+        self.pods()
+            .patch(external_id, &PatchParams::default(), &Patch::Merge(&patch))
+            .await?;
+        Ok(())
     }
 
     async fn inject_files(&self, external_id: &str, files: &[FileToInject]) -> anyhow::Result<()> {

@@ -110,6 +110,15 @@ pub trait SandboxProvider: Send + Sync + 'static {
         Ok(vec![])
     }
 
+    /// Update sandbox metadata labels when a provider supports live metadata patches.
+    async fn patch_labels(
+        &self,
+        _external_id: &str,
+        _labels: &HashMap<String, String>,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     /// Return provider-specific provisioning progress when supported.
     async fn provisioning_status(
         &self,
