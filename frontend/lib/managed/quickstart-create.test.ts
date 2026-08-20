@@ -104,7 +104,7 @@ describe('buildQuickstartAgentCreateBody', () => {
 
     expect(body.metadata).toMatchObject({
       owner: 'security',
-      quickstart_blueprint_version: '1',
+      quickstart_blueprint_version: '2',
       quickstart_acceptance_message: 'Review this authentication diff.',
     })
     expect(

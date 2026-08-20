@@ -56,6 +56,39 @@ describe('deriveQuickstartTrialStatus', () => {
     ).toBe('response_received')
   })
 
+  it('reports response receipt when the task completes even without a session idle event', () => {
+    expect(
+      deriveQuickstartTrialStatus({
+        isSessionActive: true,
+        events: [event('user.message'), event('agent.message')],
+        task: task('completed', 5_000),
+        nowMs: NOW,
+      }),
+    ).toBe('response_received')
+  })
+
+  it('reports response receipt on a task.complete event without a session idle event', () => {
+    expect(
+      deriveQuickstartTrialStatus({
+        isSessionActive: true,
+        events: [event('user.message'), event('agent.message'), event('task.complete')],
+        task: task('running', 5_000),
+        nowMs: NOW,
+      }),
+    ).toBe('response_received')
+  })
+
+  it('stays testing when the agent is still replying and the turn has not settled', () => {
+    expect(
+      deriveQuickstartTrialStatus({
+        isSessionActive: true,
+        events: [event('user.message'), event('agent.message'), event('session.status_running')],
+        task: task('running', 5_000),
+        nowMs: NOW,
+      }),
+    ).toBe('testing')
+  })
+
   it('gives explicit session termination precedence', () => {
     expect(
       deriveQuickstartTrialStatus({

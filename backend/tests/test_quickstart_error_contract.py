@@ -19,8 +19,8 @@ from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.credential_groups import create_credential_group
 from app.joysafeter_api.api.v1.quickstart import (
-    QuickstartAvailableSkill,
     QuickstartAgentContext,
+    QuickstartAvailableSkill,
     QuickstartChatRequest,
     QuickstartMessage,
     _build_system_prompt,
@@ -147,6 +147,7 @@ def test_agent_generation_tool_requires_professional_blueprint_contract():
         "responsibilities",
         "workflow",
         "boundaries",
+        "capability_plan",
         "tool_plan",
         "escalation_conditions",
         "output_contract",
@@ -399,6 +400,37 @@ async def test_quickstart_chat_rejects_unallowlisted_openai_base_url(db_session,
             "key": "OPENAI_BASE_URL",
             "base_url": "https://evil.example.com/v1",
             "host": "evil.example.com",
+        },
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+
+
+@pytest.mark.asyncio
+async def test_quickstart_chat_requires_model_when_credential_has_none(
+    db_session, project_id, monkeypatch
+):
+    monkeypatch.setenv("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS", "api.openai.com")
+    # Valid credential (API key + allowlisted base URL) but NO OPENAI_MODEL — the
+    # catalog marks the model field optional, so this used to silently fall back to
+    # a hardcoded stale model. It must now fail explicitly instead.
+    cred_id = await _make_model_credential(
+        db_session,
+        project_id,
+        {"OPENAI_API_KEY": "value", "OPENAI_BASE_URL": "https://api.openai.com/v1"},
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await quickstart_chat(_chat_req(model_credential_id=cred_id), db_session, _auth_ctx(project_id))
+
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "QUICKSTART_MODEL_REQUIRED",
+        "message": "OPENAI_MODEL is required for this provider",
+        "data": {
+            "provider": "openai",
+            "protocol": "openai_responses",
+            "key": "OPENAI_MODEL",
         },
         "source": "api",
         "retryable": False,

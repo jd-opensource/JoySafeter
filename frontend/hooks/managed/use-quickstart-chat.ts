@@ -708,6 +708,11 @@ export function useQuickstartChat(
   -d '${JSON.stringify(envBody, null, 2)}'`
 
         setCompletedSteps((prev) => new Set([...prev, 4]))
+        setSkippedSteps((prev) => {
+          const next = new Set(prev)
+          next.delete(4)
+          return next
+        })
         setCurls((prev) => ({ ...prev, [4]: envCurl }))
         return true
       } catch (err) {
@@ -791,6 +796,11 @@ export function useQuickstartChat(
   -d '${JSON.stringify(maskedVaultBody, null, 2)}'`
 
         setCompletedSteps((prev) => new Set([...prev, 5]))
+        setSkippedSteps((prev) => {
+          const next = new Set(prev)
+          next.delete(5)
+          return next
+        })
         setCurls((prev) => ({ ...prev, [5]: vaultCurl }))
         return true
       } catch (err) {
@@ -1006,6 +1016,13 @@ export function useQuickstartChat(
       }
 
       setCompletedSteps((prev) => new Set([...prev, step]))
+      if (step === 4 || step === 5) {
+        setSkippedSteps((prev) => {
+          const next = new Set(prev)
+          next.delete(step)
+          return next
+        })
+      }
       setCurls((prev) => ({ ...prev, [step]: curl }))
       setPendingConfirmation(null)
       if (step >= 3 && step < 6) {

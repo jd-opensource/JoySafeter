@@ -129,7 +129,7 @@ export function quickstartBlueprintMetadata(
   if (!hasBlueprintContent(blueprint)) return {}
 
   return {
-    quickstart_blueprint_version: '1',
+    quickstart_blueprint_version: '2',
     quickstart_blueprint: JSON.stringify(blueprint),
     ...(blueprint.acceptanceTest.message
       ? { quickstart_acceptance_message: blueprint.acceptanceTest.message }

@@ -31,6 +31,7 @@ import {
   type QuickstartCompletionStep,
 } from './components/quickstart-completion-copy'
 import { QuickstartAgentBlueprintReview } from './components/quickstart-agent-blueprint'
+import { QuickstartCapabilityEvidence } from './components/quickstart-capability-evidence'
 import { QuickstartGenerationStatus } from './components/quickstart-generation-status'
 import { QuickstartLlmStep } from './components/quickstart-llm-step'
 import {
@@ -47,7 +48,7 @@ import {
   type StepId,
 } from '@/hooks/managed/use-quickstart-chat'
 import { ApiError, managedGet, managedPost } from '@/lib/api-client'
-import { apiResourceId, apiResourcePath } from '@/lib/managed/api-paths'
+import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import {
   hasManagedRequestScope,
@@ -81,6 +82,7 @@ import type {
   Session,
   SessionEvent,
   CredentialGroup,
+  SkillRecord,
 } from '@/types/managed'
 import { EventList, EventDetail, EventFilter } from '@/components/managed/session'
 import yaml from 'js-yaml'
@@ -96,7 +98,10 @@ import {
   type CredentialGroupId,
 } from '@/types/entity-id'
 import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
-import { parseCredentialGroupListResponse } from '@/lib/managed/credential-group-response-parsers'
+import {
+  parseCredentialGroupCredentialListResponse,
+  parseCredentialGroupListResponse,
+} from '@/lib/managed/credential-group-response-parsers'
 import { quickstartQueryOptions } from '@/lib/managed/quickstart-query-options'
 import { quickstartInputPlaceholderKey } from '@/lib/managed/quickstart-input-state'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
@@ -119,6 +124,16 @@ import { buildQuickstartEngineOptions } from '@/lib/managed/quickstart-engine-re
 import { deriveQuickstartLaunchAssurance } from '@/lib/managed/quickstart-launch-assurance'
 import { normalizeQuickstartAgentBlueprint } from '@/lib/managed/quickstart-agent-blueprint'
 import { deriveQuickstartOutcomes } from '@/lib/managed/quickstart-outcomes'
+import {
+  deriveQuickstartCapabilityEvidence,
+  isMcpServerAuthorized,
+  quickstartAuthorizedMcpServerUrls,
+  quickstartConfiguredSkillNames,
+  toQuickstartAvailableSkills,
+} from '@/lib/managed/quickstart-capabilities'
+import { quickstartVaultRecommendation } from '@/lib/managed/quickstart-vault-recommendation'
+import { deriveQuickstartObservableChecks } from '@/lib/managed/quickstart-acceptance-checks'
+import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
 
 const TEMPLATE_ICONS: Record<string, typeof FileText> = {
   blank: FileText,
@@ -371,8 +386,11 @@ const TEMPLATE_PROFILES: Record<
 const TEMPLATE_CONFIGS: Record<string, Record<string, unknown>> = Object.fromEntries(
   Object.entries(TEMPLATE_BASE_CONFIGS).map(([templateId, config]) => {
     const description = typeof config.description === 'string' ? config.description : ''
-    const usesTools = Array.isArray(config.tools) && config.tools.length > 0
     const profile = TEMPLATE_PROFILES[templateId] || TEMPLATE_PROFILES.blank
+    // Templates are generic starters, NOT tailored professional blueprints: only
+    // ship the fields that are genuinely template-specific (mission + a realistic
+    // acceptance test). The rest of the blueprint is left for the user to refine in
+    // chat rather than fabricating identical filler for every template.
     return [
       templateId,
       {
@@ -387,35 +405,6 @@ const TEMPLATE_CONFIGS: Record<string, Record<string, unknown>> = Object.fromEnt
         },
         blueprint: {
           mission: description,
-          responsibilities: [
-            'Clarify the requested outcome and relevant constraints.',
-            'Complete the task using a repeatable, evidence-aware method.',
-            'Return an actionable result that matches the requested format.',
-          ],
-          workflow: [
-            'Confirm the goal and identify missing critical information.',
-            'Plan the work and gather only the evidence required.',
-            'Produce the result, verify it against the request, and surface uncertainty.',
-          ],
-          boundaries: [
-            'Do not invent facts, evidence, access, or completed actions.',
-            'Ask or escalate when required information, permission, or confidence is missing.',
-          ],
-          tool_plan: [
-            usesTools
-              ? 'Use the JoySafeter agent toolset only when the task requires it and respect session permissions.'
-              : 'No external tools are enabled by default; request authorization before relying on them.',
-          ],
-          escalation_conditions: [
-            'Escalate destructive, high-impact, credential-sensitive, or materially ambiguous actions.',
-          ],
-          output_contract: [
-            'Lead with the result, then provide evidence, assumptions, and next actions as needed.',
-          ],
-          success_criteria: [
-            'The response directly addresses the goal and makes uncertainty explicit.',
-            'The output is actionable and can be checked against the supplied evidence.',
-          ],
           acceptance_test: {
             message: TEMPLATE_ACCEPTANCE_MESSAGES[templateId] || 'Complete a representative task.',
             checks: [
@@ -477,14 +466,21 @@ function getCurrentManagedScope() {
 function Stepper({
   currentStep,
   completedSteps,
+  skippedSteps,
   trialStatus,
 }: {
   currentStep: StepId
   completedSteps: Set<number>
+  skippedSteps: Set<number>
   trialStatus: QuickstartTrialStatus
 }) {
   const { t } = useTranslation()
-  const outcomes = deriveQuickstartOutcomes({ currentStep, completedSteps, trialStatus })
+  const outcomes = deriveQuickstartOutcomes({
+    currentStep,
+    completedSteps,
+    skippedSteps,
+    trialStatus,
+  })
 
   return (
     <nav
@@ -493,6 +489,7 @@ function Stepper({
     >
       {outcomes.map((outcome, index) => {
         const isDone = outcome.status === 'complete'
+        const hasGaps = outcome.status === 'complete_with_gaps'
         const isActive = outcome.status === 'active'
 
         return (
@@ -503,24 +500,36 @@ function Stepper({
                 className={cn(
                   'flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold',
                   isDone && 'border-green-500 bg-green-500 text-white',
-                  isActive && !isDone && 'border-primary bg-primary/10 text-primary',
-                  !isDone && !isActive && 'border-border text-muted-foreground',
+                  hasGaps && 'border-amber-500 bg-amber-500/10 text-amber-700',
+                  isActive && !isDone && !hasGaps && 'border-primary bg-primary/10 text-primary',
+                  !isDone && !hasGaps && !isActive && 'border-border text-muted-foreground',
                 )}
               >
-                {isDone ? <Check className="h-3 w-3" /> : outcome.ordinal}
+                {isDone ? (
+                  <Check className="h-3 w-3" />
+                ) : hasGaps ? (
+                  <AlertTriangle className="h-3 w-3" />
+                ) : (
+                  outcome.ordinal
+                )}
               </span>
               <span
                 className={cn(
                   'text-sm font-medium',
                   isActive
                     ? 'text-foreground'
-                    : isDone
+                    : isDone || hasGaps
                       ? 'text-foreground'
                       : 'text-muted-foreground',
                 )}
               >
                 {t(`managed.quickstart.outcome.${outcome.id}.title`)}
               </span>
+              {hasGaps ? (
+                <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                  {t('managed.quickstart.outcome.reviewedWithGaps')}
+                </span>
+              ) : null}
             </div>
           </div>
         )
@@ -564,7 +573,7 @@ function ApiCard({ endpoint, curl }: { endpoint: string; curl: string }) {
     <div className="rounded-xl border border-border bg-background">
       <div className="flex items-center justify-between border-b border-border px-3 py-2 text-xs">
         <div className="flex items-center gap-2">
-          <span className="rounded bg-muted px-1.5 py-0.5 font-semibold text-[#4f8cc9]">POST</span>
+          <span className="rounded bg-muted px-1.5 py-0.5 font-semibold text-blue-600 dark:text-blue-400">POST</span>
           <span className="font-mono text-[12px] text-foreground">{endpoint}</span>
         </div>
         <div className="flex items-center gap-2 text-muted-foreground">
@@ -1071,6 +1080,24 @@ export default function QuickstartPage() {
   )
   const vaults = vaultsRes?.data
 
+  const { data: skillRecords } = useQuery(
+    quickstartQueryOptions({
+      queryKey: ['skills', managedScope.key],
+      queryFn: async () => {
+        const response = await managedGet<{ data: unknown[] }>(
+          '/skills',
+          managedRequestOptions(managedScope),
+        )
+        return (response.data || []).map(parseSkillResponse) as SkillRecord[]
+      },
+      enabled: hasManagedRequestScope(managedScope),
+    }),
+  )
+  const availableSkills = useMemo(
+    () => toQuickstartAvailableSkills(skillRecords || []),
+    [skillRecords],
+  )
+
   const {
     messages,
     currentStep,
@@ -1082,6 +1109,7 @@ export default function QuickstartPage() {
     resourceIds,
     createdResourceIds = new Set<string>(),
     completedSteps,
+    skippedSteps,
     pendingConfirmation,
     isCreating,
     sendMessage,
@@ -1091,6 +1119,8 @@ export default function QuickstartPage() {
     selectEngine,
     selectAgentSecret,
     advanceStep,
+    skipStep,
+    setAgentSkills,
     confirmStep,
     keepRefining,
     createSession,
@@ -1102,7 +1132,7 @@ export default function QuickstartPage() {
     reopenStep,
     sendAutoIntro,
     generateTestMessage,
-  } = useQuickstartChat(secretRef)
+  } = useQuickstartChat(secretRef, { availableSkills })
 
   const compatibleSecretsQuery = useCompatibleSecrets({
     engineId: selectedEngine ?? '',
@@ -1179,11 +1209,47 @@ export default function QuickstartPage() {
   const rawSessionId = resourceIds[6] || localSessionId
   const sessionId = rawSessionId ? parseSessionId(rawSessionId) : null
   const isSessionActive = !!sessionId
+
+  // Real MCP authorization: a credential group only authorizes an agent's MCP
+  // server when it actually holds a member credential for that server URL.
+  const { data: quickstartVaultMembers } = useQuery({
+    queryKey: ['credential-group-members', managedScope.key, quickstartVaultId],
+    queryFn: () =>
+      managedGet<{ data: unknown[] }>(
+        apiResourceSubpath('credential-groups', quickstartVaultId!, ['members'], { limit: 100 }),
+        managedRequestOptions(managedScope),
+      ).then((response) => parseCredentialGroupCredentialListResponse(response.data || [])),
+    enabled: Boolean(quickstartVaultId) && hasManagedRequestScope(managedScope),
+  })
+  const authorizedMcpServerUrls = useMemo(
+    () => quickstartAuthorizedMcpServerUrls(quickstartVaultMembers ?? []),
+    [quickstartVaultMembers],
+  )
+  const agentMcpServerUrls = useMemo(() => {
+    const servers = (config.agent as Record<string, unknown> | undefined)?.mcp_servers
+    if (!Array.isArray(servers)) return [] as string[]
+    return servers
+      .map((server) =>
+        server && typeof server === 'object' && !Array.isArray(server)
+          ? String((server as Record<string, unknown>).url || '')
+          : '',
+      )
+      .filter(Boolean)
+  }, [config.agent])
+  const externalToolsAuthorized = useMemo(
+    () => agentMcpServerUrls.some((url) => isMcpServerAuthorized(url, authorizedMcpServerUrls)),
+    [agentMcpServerUrls, authorizedMcpServerUrls],
+  )
+  const vaultRecommendation = useMemo(
+    () => quickstartVaultRecommendation(config.vault as Record<string, unknown> | undefined),
+    [config.vault],
+  )
+
   const launchAssurance = deriveQuickstartLaunchAssurance({
     hasRuntime: Boolean(selectedEngine),
     hasModelConnection: Boolean(selectedSecret),
     hasEnvironment: Boolean(quickstartEnvironmentId),
-    hasExternalToolAuthorization: Boolean(quickstartVaultId),
+    hasExternalToolAuthorization: externalToolsAuthorized,
   })
   const safetyPlanNeedsHardening = launchAssurance.needsHardening
   const safetyPlanSummaryKey = safetyPlanNeedsHardening ? 'hardening' : 'ready'
@@ -1644,11 +1710,11 @@ export default function QuickstartPage() {
   }, [resourceIds[4], createdResourceIds])
 
   const handleEnvSkip = () => {
-    advanceStep()
+    skipStep(4)
   }
 
   const handleVaultSkip = () => {
-    advanceStep()
+    skipStep(5)
   }
 
   const handleSafetyPlanEdit = (step: StepId) => {
@@ -1690,6 +1756,36 @@ export default function QuickstartPage() {
       nowMs: trialStatusNowMs,
     })
   }, [isSessionActive, sessionEvents, trialStatusNowMs, trialTask])
+  const capabilityEvidence = useMemo(
+    () =>
+      deriveQuickstartCapabilityEvidence({
+        responseReceived: trialRunStatus === 'response_received',
+        environmentId: quickstartEnvironmentId,
+        externalToolsAuthorized,
+        configuredSkills: quickstartConfiguredSkillNames(config.agent, availableSkills),
+        events: sessionEvents,
+      }),
+    [
+      availableSkills,
+      config.agent,
+      quickstartEnvironmentId,
+      externalToolsAuthorized,
+      sessionEvents,
+      trialRunStatus,
+    ],
+  )
+  const observableChecks = useMemo(() => {
+    const agent = config.agent as Record<string, unknown> | undefined
+    const declaredArray = (key: string) =>
+      Array.isArray(agent?.[key]) && (agent![key] as unknown[]).length > 0
+    const hasDeclaredCapabilities =
+      agentMcpServerUrls.length > 0 || declaredArray('skills') || declaredArray('tools')
+    return deriveQuickstartObservableChecks({
+      trialStatus: trialRunStatus,
+      evidence: capabilityEvidence,
+      hasDeclaredCapabilities,
+    })
+  }, [config.agent, agentMcpServerUrls, trialRunStatus, capabilityEvidence])
 
   const handleTestRun = async () => {
     const agentId = resourceIds[3]
@@ -1928,6 +2024,7 @@ export default function QuickstartPage() {
       <Stepper
         currentStep={currentStep}
         completedSteps={completedSteps}
+        skippedSteps={skippedSteps}
         trialStatus={trialRunStatus}
       />
 
@@ -2139,7 +2236,7 @@ export default function QuickstartPage() {
           </section>
         </div>
       ) : (
-        <div className="rounded-2xl border border-border bg-card p-2 shadow-[0_6px_18px_rgba(15,23,42,0.05)]">
+        <div className="rounded-2xl border border-border bg-card p-2 shadow-sm">
           <div className="grid min-h-[calc(100vh-168px)] gap-0 lg:grid-cols-[420px_minmax(0,1fr)]">
             {/* Left panel: chat */}
             <section className="relative border-r border-border bg-background px-5 pb-16 pt-5">
@@ -2237,38 +2334,122 @@ export default function QuickstartPage() {
                   />
                 )}
 
-                {pendingConfirmation && pendingConfirmation.step === currentStep && (
-                  <div className="flex items-center gap-3 pt-1">
-                    <Button
-                      className="h-10 rounded-xl px-5 text-sm font-semibold"
-                      onClick={confirmStep}
-                      disabled={isCreating || currentProjectReadOnly}
-                    >
-                      {isCreating ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          {t('managed.quickstart.creating')}
-                        </>
-                      ) : currentStep === 3 ? (
-                        t('managed.quickstart.createThisAgent')
-                      ) : currentStep === 4 ? (
-                        t('managed.quickstart.createThisEnvironment')
-                      ) : currentStep === 5 ? (
-                        t('managed.quickstart.createThisVault')
-                      ) : (
-                        t('common.create')
-                      )}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="h-10 rounded-xl px-4 text-sm font-semibold"
-                      onClick={keepRefining}
-                      disabled={isCreating}
-                    >
-                      {t('managed.quickstart.keepRefining')}
-                    </Button>
-                  </div>
-                )}
+                {pendingConfirmation &&
+                  pendingConfirmation.step === currentStep &&
+                  (currentStep === 5 && vaultRecommendation.requiresCredential ? (
+                    <div className="space-y-3 rounded-xl border border-border bg-background p-4">
+                      <div className="flex items-start gap-2">
+                        <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-foreground">
+                            {t('managed.quickstart.vaultCredentialTitle')}
+                          </p>
+                          <p className="text-xs leading-5 text-muted-foreground">
+                            {t('managed.quickstart.vaultCredentialHint')}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
+                        <p className="font-medium text-foreground">
+                          {vaultRecommendation.name ||
+                            t('managed.quickstart.resourceKindMcpCredentialSet')}
+                        </p>
+                        <p className="mt-0.5 break-all text-muted-foreground">
+                          {vaultRecommendation.mcpServerUrl}
+                        </p>
+                      </div>
+                      <input
+                        type="password"
+                        value={vaultTokenValue}
+                        onChange={(e) => setVaultTokenValue(e.target.value)}
+                        placeholder={t('managed.quickstart.vaultTokenPlaceholder')}
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                      />
+                      <div className="flex items-center gap-3">
+                        <Button
+                          className="h-10 rounded-xl px-5 text-sm font-semibold"
+                          disabled={
+                            isCreating || currentProjectReadOnly || !vaultTokenValue.trim()
+                          }
+                          onClick={async () => {
+                            const urlError = validateUrlScheme(vaultRecommendation.mcpServerUrl)
+                            if (urlError) {
+                              alert(urlError)
+                              return
+                            }
+                            const created = await createVault(
+                              vaultRecommendation.name || 'quickstart-vault',
+                              {
+                                credential: {
+                                  name: vaultRecommendation.credentialName,
+                                  mcpServerUrl: vaultRecommendation.mcpServerUrl,
+                                  tokenValue: vaultTokenValue.trim(),
+                                },
+                              },
+                            )
+                            if (!created) return
+                            setVaultAnswers((prev) => ({
+                              ...prev,
+                              choiceLabel: vaultRecommendation.name,
+                            }))
+                            setVaultTokenValue('')
+                            advanceStep()
+                          }}
+                        >
+                          {isCreating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          {t('managed.quickstart.createThisVault')}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="h-10 rounded-xl px-4 text-sm font-semibold"
+                          onClick={keepRefining}
+                          disabled={isCreating}
+                        >
+                          {t('managed.quickstart.keepRefining')}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs text-muted-foreground"
+                          onClick={handleVaultSkip}
+                          disabled={isCreating}
+                        >
+                          {t('common.skip')}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 pt-1">
+                      <Button
+                        className="h-10 rounded-xl px-5 text-sm font-semibold"
+                        onClick={confirmStep}
+                        disabled={isCreating || currentProjectReadOnly}
+                      >
+                        {isCreating ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            {t('managed.quickstart.creating')}
+                          </>
+                        ) : currentStep === 3 ? (
+                          t('managed.quickstart.createThisAgent')
+                        ) : currentStep === 4 ? (
+                          t('managed.quickstart.createThisEnvironment')
+                        ) : currentStep === 5 ? (
+                          t('managed.quickstart.createThisVault')
+                        ) : (
+                          t('common.create')
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="h-10 rounded-xl px-4 text-sm font-semibold"
+                        onClick={keepRefining}
+                        disabled={isCreating}
+                      >
+                        {t('managed.quickstart.keepRefining')}
+                      </Button>
+                    </div>
+                  ))}
 
                 {/* Step 3 agent: show completed badge when past step 3 */}
                 {currentStep > 3 && completedSteps.has(3) && (
@@ -3017,7 +3198,7 @@ export default function QuickstartPage() {
               {currentStep === 6 && !completedSteps.has(6) ? (
                 <div
                   data-quickstart-launch-footer
-                  className="absolute bottom-4 left-5 right-5 rounded-[14px] border border-border bg-background/95 p-3 shadow-[0_8px_18px_rgba(15,23,42,0.08)] backdrop-blur"
+                  className="absolute bottom-4 left-5 right-5 rounded-[14px] border border-border bg-background/95 p-3 shadow-md backdrop-blur"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
@@ -3036,7 +3217,7 @@ export default function QuickstartPage() {
                   </div>
                 </div>
               ) : (
-                <div className="absolute bottom-4 left-5 right-5 rounded-[14px] border border-border bg-background px-3 py-2.5 shadow-[0_8px_18px_rgba(15,23,42,0.06)]">
+                <div className="absolute bottom-4 left-5 right-5 rounded-[14px] border border-border bg-background px-3 py-2.5 shadow-md">
                   <div className="flex items-center gap-2">
                     <input
                       ref={inputRef}
@@ -3180,6 +3361,14 @@ export default function QuickstartPage() {
                       agentConfig={config.agent}
                       generationStatus={generationState.status}
                       onShowAdvanced={() => setRightTab('advanced')}
+                      availableSkills={availableSkills}
+                      disabled={currentProjectReadOnly || Boolean(resourceIds[3]) || isCreating}
+                      authorizedMcpServerUrls={authorizedMcpServerUrls}
+                      isGenericStarter={Boolean(
+                        (config.agent?.metadata as Record<string, unknown> | undefined)
+                          ?.quickstart_template,
+                      )}
+                      onSkillsChange={setAgentSkills}
                     />
                   </div>
                 </div>
@@ -3212,12 +3401,6 @@ export default function QuickstartPage() {
                         JSON
                       </button>
                     </div>
-                    <button
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                      aria-label={t('managed.quickstart.searchInConfig')}
-                    >
-                      <Search className="h-4 w-4" />
-                    </button>
                   </div>
                   <div
                     ref={configScrollRef}
@@ -3291,6 +3474,7 @@ export default function QuickstartPage() {
                         onRetry={() => void refetchTrialTasks()}
                         onViewSession={() => router.push(`/managed/sessions/${sessionId}`)}
                       />
+                      <QuickstartCapabilityEvidence evidence={capabilityEvidence} />
                       {(agentBlueprint.acceptanceTest.message ||
                         agentBlueprint.acceptanceTest.checks.length > 0) && (
                         <div className="border-b border-border bg-muted/20 px-4 py-3">
@@ -3315,17 +3499,80 @@ export default function QuickstartPage() {
                                   </p>
                                 </div>
                               ) : null}
-                              {agentBlueprint.acceptanceTest.checks.length > 0 ? (
+                              <div className="mt-3 rounded-lg border border-border bg-background px-3 py-2">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                  {t(
+                                    'managed.quickstart.trialRun.acceptanceEvidence.observableTitle',
+                                  )}
+                                </p>
+                                <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                                  {t(
+                                    'managed.quickstart.trialRun.acceptanceEvidence.observableDescription',
+                                  )}
+                                </p>
                                 <div className="mt-2 space-y-1.5">
-                                  {agentBlueprint.acceptanceTest.checks.map((check) => (
+                                  {observableChecks.map((check) => (
                                     <div
-                                      key={check}
-                                      className="flex items-start gap-2 text-xs text-foreground/90"
+                                      key={check.id}
+                                      className="flex items-center justify-between gap-2 text-xs"
                                     >
-                                      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full border border-primary/60" />
-                                      <span>{check}</span>
+                                      <div className="flex items-center gap-2">
+                                        {check.status === 'passed' ? (
+                                          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                                        ) : check.status === 'failed' ? (
+                                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                                        ) : (
+                                          <span className="h-2 w-2 shrink-0 rounded-full border border-muted-foreground/50" />
+                                        )}
+                                        <span className="text-foreground/90">
+                                          {t(
+                                            `managed.quickstart.trialRun.acceptanceEvidence.check.${check.id}`,
+                                          )}
+                                        </span>
+                                      </div>
+                                      <span
+                                        className={cn(
+                                          'text-[11px] font-medium',
+                                          check.status === 'passed' && 'text-emerald-600',
+                                          check.status === 'failed' && 'text-amber-600',
+                                          check.status === 'not_observed' && 'text-muted-foreground',
+                                        )}
+                                      >
+                                        {t(
+                                          check.status === 'passed'
+                                            ? 'managed.quickstart.trialRun.acceptanceEvidence.checkStatus.passed'
+                                            : check.status === 'failed'
+                                              ? 'managed.quickstart.trialRun.acceptanceEvidence.checkStatus.failed'
+                                              : 'managed.quickstart.trialRun.acceptanceEvidence.checkStatus.notObserved',
+                                        )}
+                                      </span>
                                     </div>
                                   ))}
+                                </div>
+                              </div>
+                              {agentBlueprint.acceptanceTest.checks.length > 0 ? (
+                                <div className="mt-3">
+                                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    {t(
+                                      'managed.quickstart.trialRun.acceptanceEvidence.manualTitle',
+                                    )}
+                                  </p>
+                                  <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                                    {t(
+                                      'managed.quickstart.trialRun.acceptanceEvidence.manualDescription',
+                                    )}
+                                  </p>
+                                  <div className="mt-2 space-y-1.5">
+                                    {agentBlueprint.acceptanceTest.checks.map((check) => (
+                                      <div
+                                        key={check}
+                                        className="flex items-start gap-2 text-xs text-foreground/90"
+                                      >
+                                        <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full border border-primary/60" />
+                                        <span>{check}</span>
+                                      </div>
+                                    ))}
+                                  </div>
                                 </div>
                               ) : null}
                               <div className="mt-3 flex flex-wrap gap-2">

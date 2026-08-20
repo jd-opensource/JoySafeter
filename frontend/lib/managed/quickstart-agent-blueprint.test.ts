@@ -144,7 +144,7 @@ describe('quickstartBlueprintMetadata', () => {
       },
     })
 
-    expect(metadata.quickstart_blueprint_version).toBe('1')
+    expect(metadata.quickstart_blueprint_version).toBe('2')
     expect(metadata.quickstart_acceptance_message).toBe('Review this diff.')
     expect(JSON.parse(metadata.quickstart_blueprint)).toMatchObject({
       mission: 'Audit code',

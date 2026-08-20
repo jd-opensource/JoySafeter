@@ -1449,6 +1449,7 @@ const en = {
           design: { title: 'Design' },
           protect: { title: 'Protect' },
           prove: { title: 'Prove' },
+          reviewedWithGaps: 'Gaps',
         },
         whatToBuild: 'What do you want\nto safely build?',
         subtitle:
@@ -1488,11 +1489,10 @@ const en = {
         noTemplatesMatch: 'No matching templates',
         clearTemplateSearch: 'Clear search',
         useTemplate: 'Use template →',
-        templateSecurityHint:
-          'Blueprint and launch recommendations included; controls are confirmed before creation.',
+        templateSecurityHint: 'Secure defaults: sandbox, credential isolation, least privilege, audit.',
         templateApplyMessage: 'Create an agent from the "{{name}}" template',
         templateAppliedMessage:
-          'Professional blueprint ready. JoySafeter recommended a usable runtime and launch safeguards; confirm the Model Connection and review controls before creation.',
+          'Template ready. JoySafeter recommended a runtime and security defaults; confirm the secure Model Connection, then create the agent.',
         templateCategory: {
           basic: 'Basic setup',
           research: 'Research & analysis',
@@ -1589,6 +1589,9 @@ const en = {
           acceptanceTest: 'Acceptance test',
           pending: 'Still being defined',
           buildingRemaining: 'Building the remaining blueprint sections...',
+          genericStarterTitle: 'Generic starter template',
+          genericStarterDescription:
+            'This is a generic starting point, not a tailored blueprint. Describe your use case in chat to fill in responsibilities, workflow, boundaries, and capabilities.',
           emptyTitle: 'No professional blueprint yet',
           emptyDescription:
             'Generate or refine this Agent to produce a reviewable mission, workflow, boundaries, and acceptance test.',
@@ -1597,6 +1600,50 @@ const en = {
             'Mission, workflow, boundaries, permissions, and acceptance checks will appear here as they are produced.',
           viewAdvanced: 'View advanced configuration',
           advanced: 'Advanced',
+        },
+        capabilities: {
+          title: 'Capability plan',
+          description:
+            'Review what the Agent will know, what it can execute, and which external systems still require authorization.',
+          skills: 'Skills',
+          tools: 'Built-in tools',
+          mcp: 'MCP connections',
+          builtInToolset: 'JoySafeter toolset',
+          noSkills: 'No specialized Skill is required for this draft.',
+          noTools: 'No built-in tools are planned.',
+          noMcp: 'No external MCP connection is planned.',
+          unavailableHint:
+            'This Skill is not available in this project and will not be attached. Publish it or choose another Skill.',
+          add: 'Add',
+          remove: 'Remove',
+          addSkill: 'Add {{name}}',
+          removeSkill: 'Remove {{name}}',
+          status: {
+            ready: 'Ready',
+            needsSelection: 'Needs selection',
+            needsAuthorization: 'Needs authorization',
+            unavailable: 'Unavailable',
+            notEnabled: 'Not enabled',
+          },
+        },
+        capabilityEvidence: {
+          title: 'Capability evidence',
+          description:
+            'Observed configuration and runtime events only. Recommendations are not reported as enforced controls.',
+          responseObserved: 'Response observed',
+          responsePending: 'Response not observed yet',
+          environmentAttached: 'Controlled environment attached',
+          noEnvironment: 'No custom environment attached',
+          externalToolsAuthorized: 'External tools authorized',
+          externalToolsNotAuthorized: 'External tools not authorized',
+          skillsConfigured: 'Skills attached',
+          noSkillsConfigured: 'No specialized Skills attached',
+          toolsObserved: 'Tool calls observed',
+          noToolCalls: 'No built-in tool calls observed',
+          mcpObserved: 'MCP calls observed',
+          noMcpCalls: 'No MCP calls observed',
+          auditAvailable: 'Transcript and debug events available',
+          auditPending: 'No runtime audit events yet',
         },
         generation: {
           phase: {
@@ -1676,7 +1723,7 @@ const en = {
               'Required controls are in place. Optional controls can still be changed before launch.',
             hardening: 'Hardening recommended',
             hardeningDescription:
-              'No custom environment is attached. The session can launch, but it will run without custom egress controls.',
+              'Add a controlled security environment to enforce network egress before the first run.',
           },
           status: {
             ready: 'Ready',
@@ -1714,7 +1761,7 @@ const en = {
           launchHint: {
             ready: 'Secure launch will attach the reviewed controls above to the first session.',
             hardening:
-              'Launch is allowed without a custom environment, but this session will run without custom egress controls. Add one to enforce a narrow allowlist.',
+              'You can still launch, but JoySafeter recommends adding a security environment for stronger network control.',
           },
         },
         vaultIntro:
@@ -1744,6 +1791,21 @@ const en = {
             testMessage: 'Test message',
             reviewTranscript: 'Review transcript',
             reviewDebug: 'Review debug evidence',
+            observableTitle: 'Automatically verified',
+            observableDescription: 'Checks derived from observed runtime signals.',
+            manualTitle: 'Manual review checklist',
+            manualDescription: 'Confirm these yourself in the Transcript.',
+            checkStatus: {
+              passed: 'Observed',
+              failed: 'Failed',
+              notObserved: 'Not observed',
+            },
+            check: {
+              response: 'Agent produced a response',
+              access: 'No access was rejected',
+              tools: 'Declared tools were exercised',
+              audit: 'Audit events were recorded',
+            },
           },
           error: 'Issues detected -- agent may need adjustments',
           runtimeUnavailable:

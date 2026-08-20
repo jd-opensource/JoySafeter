@@ -27,6 +27,7 @@ export interface QuickstartCapabilityEvidence {
   responseReceived: boolean
   environmentAttached: boolean
   externalToolsAuthorized: boolean
+  configuredSkills: string[]
   observedTools: string[]
   observedMcpTools: string[]
   auditEventsAvailable: boolean
@@ -36,14 +37,38 @@ function nonEmptyString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+export function normalizeMcpServerUrl(value: unknown): string {
+  const trimmed = nonEmptyString(value)
+  if (!trimmed) return ''
+  return trimmed.replace(/\/+$/, '')
+}
+
+export function quickstartAuthorizedMcpServerUrls(
+  members: { mcp_server_url?: string | null; archived_at?: string | null }[],
+): Set<string> {
+  const urls = new Set<string>()
+  for (const member of members) {
+    if (member.archived_at) continue
+    const normalized = normalizeMcpServerUrl(member.mcp_server_url)
+    if (normalized) urls.add(normalized)
+  }
+  return urls
+}
+
+export function isMcpServerAuthorized(
+  url: unknown,
+  authorizedUrls: ReadonlySet<string>,
+): boolean {
+  const normalized = normalizeMcpServerUrl(url)
+  if (!normalized) return false
+  return authorizedUrls.has(normalized)
+}
+
 export function toQuickstartAvailableSkills(
   skills: QuickstartSkillCatalogItem[],
 ): QuickstartAvailableSkill[] {
   return skills
-    .filter(
-      (skill) =>
-        Boolean(skill.latest_version) && skill.runtime_eligibility?.usable !== false,
-    )
+    .filter((skill) => Boolean(skill.latest_version) && skill.runtime_eligibility?.usable !== false)
     .slice(0, 20)
     .map((skill) => ({
       id: skill.id,
@@ -77,6 +102,18 @@ export function filterQuickstartSkillReferences(
   return references
 }
 
+export function quickstartConfiguredSkillNames(
+  agentConfig: Record<string, unknown> | undefined,
+  availableSkills: QuickstartAvailableSkill[],
+): string[] {
+  const allowedIds = new Set(availableSkills.map((skill) => skill.id))
+  const references = filterQuickstartSkillReferences(agentConfig?.skills, allowedIds)
+  const namesById = new Map(
+    availableSkills.map((skill) => [skill.id, skill.display_title || skill.name]),
+  )
+  return references.map((reference) => namesById.get(reference.skill_id) || reference.skill_id)
+}
+
 function observedName(event: SessionEvent): string {
   return nonEmptyString(event.tool_name) || nonEmptyString(event.tool) || nonEmptyString(event.name)
 }
@@ -84,12 +121,14 @@ function observedName(event: SessionEvent): string {
 export function deriveQuickstartCapabilityEvidence({
   responseReceived,
   environmentId,
-  credentialGroupId,
+  externalToolsAuthorized = false,
+  configuredSkills = [],
   events,
 }: {
   responseReceived: boolean
   environmentId?: string | null
-  credentialGroupId?: string | null
+  externalToolsAuthorized?: boolean
+  configuredSkills?: string[]
   events: SessionEvent[]
 }): QuickstartCapabilityEvidence {
   const observedTools = new Set<string>()
@@ -114,7 +153,8 @@ export function deriveQuickstartCapabilityEvidence({
   return {
     responseReceived,
     environmentAttached: Boolean(environmentId),
-    externalToolsAuthorized: Boolean(credentialGroupId),
+    externalToolsAuthorized,
+    configuredSkills: Array.from(new Set(configuredSkills.filter(Boolean))),
     observedTools: Array.from(observedTools),
     observedMcpTools: Array.from(observedMcpTools),
     auditEventsAvailable: events.length > 0,

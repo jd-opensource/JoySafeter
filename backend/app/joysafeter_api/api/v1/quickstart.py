@@ -55,6 +55,8 @@ class QuickstartAgentContext(BaseModel):
     tools: Optional[list] = Field(default=None, max_length=10)
     mcp_servers: Optional[list[Any] | dict[str, Any]] = Field(default=None, max_length=10)
     skills: Optional[list] = Field(default=None, max_length=20)
+    metadata: Optional[dict[str, Any]] = None
+    blueprint: Optional[dict[str, Any]] = None
 
 
 class QuickstartAvailableSkill(BaseModel):
@@ -134,6 +136,7 @@ Every generated agent must include a professional Agent Blueprint that a user ca
 - responsibilities
 - workflow
 - boundaries
+- a structured capability plan separating Skills, built-in tools, and MCP servers, including why and when each capability is used
 - tool and permission plan
 - escalation conditions
 - output contract
@@ -223,15 +226,41 @@ def _build_tools(step: int) -> list[dict]:
                                     "properties": {
                                         "skills": {
                                             "type": "array",
-                                            "items": {"type": "object"},
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "name": {"type": "string"},
+                                                    "purpose": {"type": "string"},
+                                                    "when_used": {"type": "string"},
+                                                    "skill_id": {"type": "string"},
+                                                },
+                                                "required": ["name", "purpose", "when_used"],
+                                            },
                                         },
                                         "tools": {
                                             "type": "array",
-                                            "items": {"type": "object"},
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "name": {"type": "string"},
+                                                    "purpose": {"type": "string"},
+                                                    "when_used": {"type": "string"},
+                                                },
+                                                "required": ["name", "purpose", "when_used"],
+                                            },
                                         },
                                         "mcp_servers": {
                                             "type": "array",
-                                            "items": {"type": "object"},
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "name": {"type": "string"},
+                                                    "purpose": {"type": "string"},
+                                                    "when_used": {"type": "string"},
+                                                    "server_url": {"type": "string"},
+                                                },
+                                                "required": ["name", "purpose", "when_used"],
+                                            },
                                         },
                                     },
                                     "required": ["skills", "tools", "mcp_servers"],
@@ -299,9 +328,18 @@ def _build_tools(step: int) -> list[dict]:
                     "type": "object",
                     "properties": {
                         "name": {"type": "string", "description": "Descriptive name for the MCP credential group"},
-                        "description": {"type": "string", "description": "What MCP server credentials this group authorizes"},
-                        "mcp_server_url": {"type": "string", "description": "First MCP server URL to authorize when known"},
-                        "credential_name": {"type": "string", "description": "Optional name for the first MCP credential member"},
+                        "description": {
+                            "type": "string",
+                            "description": "What MCP server credentials this group authorizes",
+                        },
+                        "mcp_server_url": {
+                            "type": "string",
+                            "description": "First MCP server URL to authorize when known",
+                        },
+                        "credential_name": {
+                            "type": "string",
+                            "description": "Optional name for the first MCP credential member",
+                        },
                     },
                     "required": ["name"],
                 },
@@ -879,6 +917,13 @@ async def quickstart_chat(
     except LLMBaseUrlError as exc:
         raise _quickstart_base_url_error(exc, provider=provider) from None
     model = data.get(resolution.model_key) if resolution.model_key else None
+    if not model:
+        raise InvalidRequestError(
+            code="QUICKSTART_MODEL_REQUIRED",
+            message=f"{resolution.model_key or 'model'} is required for this provider",
+            data={"provider": provider, "protocol": protocol, "key": resolution.model_key},
+            user_action="fix_input",
+        )
 
     system_prompt = _build_system_prompt(
         req.current_step,
@@ -896,7 +941,7 @@ async def quickstart_chat(
         auth_token = data.get("ANTHROPIC_AUTH_TOKEN") or ""
         api_key = auth_token or data.get("ANTHROPIC_API_KEY") or ""
         claude_body = {
-            "model": model or "claude-sonnet-4-20250514",
+            "model": model,
             "max_tokens": 4096,
             "system": system_prompt,
             "messages": messages,
@@ -919,7 +964,7 @@ async def quickstart_chat(
         if protocol == "chat_completions":
             openai_tools = _build_openai_chat_tools(tools)
             chat_body = {
-                "model": model or "gpt-4.1-mini",
+                "model": model,
                 "messages": [{"role": "system", "content": system_prompt}, *messages],
                 "stream": True,
                 "max_tokens": 4096,
@@ -936,7 +981,7 @@ async def quickstart_chat(
         else:
             responses_tools = _build_openai_responses_tools(tools)
             responses_body = {
-                "model": model or "gpt-5.3-codex",
+                "model": model,
                 "instructions": system_prompt,
                 "input": _messages_to_transcript(messages),
                 "stream": True,

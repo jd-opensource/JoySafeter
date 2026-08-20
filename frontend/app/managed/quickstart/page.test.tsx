@@ -19,6 +19,7 @@ const quickstartState = vi.hoisted(() => ({
     hasPartialConfig: false,
   },
   completedSteps: new Set([1, 2]),
+  skippedSteps: new Set<number>(),
   resourceIds: {} as Record<number, string>,
   sendMessage: vi.fn(),
   applyTemplate: vi.fn(),
@@ -51,6 +52,8 @@ const quickstartState = vi.hoisted(() => ({
   activeModelConnections: [] as Array<Record<string, unknown>>,
   sessionEvents: [] as Array<{ id: string; type: string; data?: Record<string, unknown> }>,
   trialTasks: [] as Array<Record<string, unknown>>,
+  pendingConfirmation: null as { step: number; curl: string } | null,
+  createVault: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
@@ -93,7 +96,8 @@ vi.mock('@/hooks/managed/use-quickstart-chat', () => ({
     resourceIds: quickstartState.resourceIds,
     createdResourceIds: new Set<string>(),
     completedSteps: quickstartState.completedSteps,
-    pendingConfirmation: null,
+    skippedSteps: quickstartState.skippedSteps,
+    pendingConfirmation: quickstartState.pendingConfirmation,
     isCreating: false,
     sendMessage: quickstartState.sendMessage,
     cancelGeneration: vi.fn(),
@@ -102,12 +106,14 @@ vi.mock('@/hooks/managed/use-quickstart-chat', () => ({
     selectEngine: quickstartState.selectEngine,
     selectAgentSecret: quickstartState.selectAgentSecret,
     advanceStep: vi.fn(),
+    skipStep: vi.fn(),
+    setAgentSkills: vi.fn(),
     confirmStep: vi.fn(),
     keepRefining: vi.fn(),
     createSession: vi.fn(),
     createEnvironment: vi.fn(),
     selectExistingEnvironment: vi.fn(),
-    createVault: vi.fn(),
+    createVault: quickstartState.createVault,
     selectExistingCredentialGroup: vi.fn(),
     goToStep: vi.fn(),
     reopenStep: quickstartState.reopenStep,
@@ -147,9 +153,12 @@ describe('Quickstart page Model Connection completion', () => {
     quickstartState.selectedEngine = 'codex'
     quickstartState.config = { agent: { name: 'Research Agent' } }
     quickstartState.completedSteps = new Set([1, 2])
+    quickstartState.skippedSteps = new Set()
     quickstartState.resourceIds = {}
     quickstartState.sessionEvents = []
     quickstartState.trialTasks = []
+    quickstartState.pendingConfirmation = null
+    quickstartState.createVault.mockReset()
     quickstartState.reopenStep.mockReset()
     quickstartState.enabledEngines = []
     quickstartState.compatibleSecrets = [
@@ -310,7 +319,21 @@ describe('Quickstart page Model Connection completion', () => {
     expect(within(progress).queryByText('Authorize External Tools')).not.toBeInTheDocument()
   })
 
-  it('applies a template with a professional blueprint and declared launch recommendations', () => {
+  it('shows an explicit Protect gap after environment and MCP authorization are skipped', () => {
+    quickstartState.currentStep = 6
+    quickstartState.completedSteps = new Set([1, 2, 3])
+    quickstartState.skippedSteps = new Set([4, 5])
+    quickstartState.resourceIds = {
+      3: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f030',
+    }
+
+    render(<QuickstartPage />, { wrapper })
+
+    const progress = screen.getByRole('navigation', { name: 'Quickstart workflow' })
+    expect(within(progress).getByText('Gaps')).toBeInTheDocument()
+  })
+
+  it('applies a template as a generic starter without fabricating a tailored blueprint', () => {
     quickstartState.messages = []
     quickstartState.currentStep = 1
     quickstartState.selectedEngine = null
@@ -345,8 +368,16 @@ describe('Quickstart page Model Connection completion', () => {
         }),
       }),
     )
+    // Honest downgrade: templates must NOT ship fabricated uniform blueprint filler.
+    const appliedArg = quickstartState.applyTemplate.mock.calls[0][0] as {
+      agent: { blueprint: Record<string, unknown> }
+    }
+    expect(appliedArg.agent.blueprint.responsibilities).toBeUndefined()
+    expect(appliedArg.agent.blueprint.workflow).toBeUndefined()
+    expect(appliedArg.agent.blueprint.capability_plan).toBeUndefined()
     expect(
-      screen.getAllByText(/Blueprint and launch recommendations included/).length,
+      screen.getAllByText(/Secure defaults: sandbox, credential isolation, least privilege, audit\./)
+        .length,
     ).toBeGreaterThan(0)
   })
 
@@ -524,7 +555,7 @@ describe('Quickstart page Model Connection completion', () => {
     expect(screen.getByText('No external tools authorized')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Launch is allowed without a custom environment, but this session will run without custom egress controls. Add one to enforce a narrow allowlist.',
+        'You can still launch, but JoySafeter recommends adding a security environment for stronger network control.',
       ),
     ).toBeInTheDocument()
 
@@ -581,6 +612,46 @@ describe('Quickstart page Model Connection completion', () => {
     expect(screen.getByRole('button', { name: 'Authorize External Tools' })).toBeDisabled()
   })
 
+  it('collects the MCP token before creating an AI-recommended credential group instead of an empty one', () => {
+    quickstartState.currentStep = 5
+    quickstartState.selectedEngine = 'codex'
+    quickstartState.completedSteps = new Set([1, 2, 3, 4])
+    quickstartState.pendingConfirmation = { step: 5, curl: '' }
+    quickstartState.config = {
+      agent: {
+        name: 'MCP Agent',
+        mcp_servers: [{ type: 'url', name: 'GitHub', url: 'https://api.github.com/mcp' }],
+      },
+      vault: {
+        name: 'GitHub tools',
+        description: 'Authorize GitHub MCP',
+        mcp_server_url: 'https://api.github.com/mcp',
+        credential_name: 'GitHub token',
+      },
+    }
+    quickstartState.createVault.mockResolvedValue(true)
+
+    render(<QuickstartPage />, { wrapper })
+
+    // The AI recommendation is shown, but creation is gated on a real token.
+    const tokenInput = screen.getByPlaceholderText('MCP bearer token')
+    expect(screen.getAllByText('https://api.github.com/mcp').length).toBeGreaterThan(0)
+    const createButton = screen.getByRole('button', { name: 'Authorize external tools' })
+    expect(createButton).toBeDisabled()
+    expect(quickstartState.createVault).not.toHaveBeenCalled()
+
+    fireEvent.change(tokenInput, { target: { value: 'ghp_secret_token' } })
+    fireEvent.click(createButton)
+
+    expect(quickstartState.createVault).toHaveBeenCalledWith('GitHub tools', {
+      credential: {
+        name: 'GitHub token',
+        mcpServerUrl: 'https://api.github.com/mcp',
+        tokenValue: 'ghp_secret_token',
+      },
+    })
+  })
+
   it('shows response evidence without claiming the acceptance test passed', async () => {
     quickstartState.currentStep = 6
     quickstartState.completedSteps = new Set([1, 2, 3, 4, 5, 6])
@@ -611,6 +682,11 @@ describe('Quickstart page Model Connection completion', () => {
     expect(await screen.findByText('Response received — review the acceptance checks')).toBeTruthy()
     expect(screen.queryByText('Agent is working correctly!')).not.toBeInTheDocument()
     expect(screen.getByText('Acceptance evidence')).toBeInTheDocument()
+    // P1-b: auto-verified observable checks alongside the manual checklist
+    expect(screen.getByText('Automatically verified')).toBeInTheDocument()
+    expect(screen.getByText('Agent produced a response')).toBeInTheDocument()
+    expect(screen.getAllByText('Observed').length).toBeGreaterThan(0)
+    expect(screen.getByText('Manual review checklist')).toBeInTheDocument()
     expect(screen.getByText('Review this authentication change.')).toBeInTheDocument()
     expect(screen.getByText('Ranks findings by severity')).toBeInTheDocument()
     expect(screen.getByText('Includes evidence')).toBeInTheDocument()

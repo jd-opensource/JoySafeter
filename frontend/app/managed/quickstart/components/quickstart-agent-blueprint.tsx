@@ -9,7 +9,6 @@ import {
   ListChecks,
   Route,
   ShieldCheck,
-  Wrench,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -19,11 +18,19 @@ import {
   normalizeQuickstartAgentBlueprint,
   type QuickstartAgentBlueprint,
 } from '@/lib/managed/quickstart-agent-blueprint'
+import type { QuickstartAvailableSkill } from '@/lib/managed/quickstart-capabilities'
+
+import { QuickstartCapabilityPlan } from './quickstart-capability-plan'
 
 interface QuickstartAgentBlueprintReviewProps {
   agentConfig?: Record<string, unknown>
   generationStatus: QuickstartGenerationStatus
   onShowAdvanced: () => void
+  availableSkills?: QuickstartAvailableSkill[]
+  disabled?: boolean
+  authorizedMcpServerUrls?: ReadonlySet<string>
+  isGenericStarter?: boolean
+  onSkillsChange?: (skillIds: string[]) => void
 }
 
 function hasObjectBlueprint(agentConfig?: Record<string, unknown>): boolean {
@@ -53,7 +60,6 @@ const sections: Array<{
     | 'responsibilities'
     | 'workflow'
     | 'boundaries'
-    | 'toolPlan'
     | 'escalationConditions'
     | 'outputContract'
     | 'successCriteria'
@@ -68,7 +74,6 @@ const sections: Array<{
   },
   { key: 'workflow', titleKey: 'managed.quickstart.blueprint.workflow', icon: Route },
   { key: 'boundaries', titleKey: 'managed.quickstart.blueprint.boundaries', icon: ShieldCheck },
-  { key: 'toolPlan', titleKey: 'managed.quickstart.blueprint.toolPlan', icon: Wrench },
   {
     key: 'escalationConditions',
     titleKey: 'managed.quickstart.blueprint.escalationConditions',
@@ -90,6 +95,11 @@ export function QuickstartAgentBlueprintReview({
   agentConfig,
   generationStatus,
   onShowAdvanced,
+  availableSkills = [],
+  disabled = false,
+  authorizedMcpServerUrls,
+  isGenericStarter = false,
+  onSkillsChange = () => undefined,
 }: QuickstartAgentBlueprintReviewProps) {
   const { t } = useTranslation()
   const blueprint = normalizeQuickstartAgentBlueprint(agentConfig)
@@ -126,6 +136,14 @@ export function QuickstartAgentBlueprintReview({
   return (
     <div className="h-full overflow-auto px-4 py-4">
       <div className="mx-auto max-w-3xl space-y-4 pb-8">
+        {isGenericStarter ? (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.07] p-3 text-xs leading-5 text-amber-800">
+            <p className="font-semibold">{t('managed.quickstart.blueprint.genericStarterTitle')}</p>
+            <p className="mt-0.5 text-amber-800/90">
+              {t('managed.quickstart.blueprint.genericStarterDescription')}
+            </p>
+          </div>
+        ) : null}
         <section className="rounded-2xl border border-primary/20 bg-primary/[0.04] p-4">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-primary">
             <Flag className="h-3.5 w-3.5" />
@@ -135,6 +153,14 @@ export function QuickstartAgentBlueprintReview({
             {blueprint.mission || t('managed.quickstart.blueprint.pending')}
           </p>
         </section>
+
+        <QuickstartCapabilityPlan
+          agentConfig={agentConfig}
+          availableSkills={availableSkills}
+          disabled={disabled}
+          authorizedMcpServerUrls={authorizedMcpServerUrls}
+          onSkillsChange={onSkillsChange}
+        />
 
         <div className="grid gap-3 xl:grid-cols-2">
           {sections.map(({ key, titleKey, icon: Icon }) => (

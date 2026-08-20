@@ -37,7 +37,8 @@ describe('QuickstartAgentBlueprintReview', () => {
     expect(screen.getByText('Responsibilities')).toBeInTheDocument()
     expect(screen.getByText('Workflow')).toBeInTheDocument()
     expect(screen.getByText('Boundaries')).toBeInTheDocument()
-    expect(screen.getByText('Tools & permissions')).toBeInTheDocument()
+    expect(screen.getByText('Capability plan')).toBeInTheDocument()
+    expect(screen.getByText('Built-in tools')).toBeInTheDocument()
     expect(screen.getByText('Escalation conditions')).toBeInTheDocument()
     expect(screen.getByText('Output contract')).toBeInTheDocument()
     expect(screen.getByText('Success criteria')).toBeInTheDocument()
@@ -76,5 +77,29 @@ describe('QuickstartAgentBlueprintReview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'View advanced configuration' }))
     expect(onShowAdvanced).toHaveBeenCalledTimes(1)
+  })
+
+  it('labels a template-derived config as a generic starter, not a tailored blueprint', async () => {
+    await i18n.changeLanguage('en')
+    render(
+      <QuickstartAgentBlueprintReview
+        agentConfig={{
+          blueprint: {
+            mission: 'Research the tradeoffs of a decision.',
+            acceptance_test: { message: 'Research passkeys.', checks: [] },
+          },
+        }}
+        generationStatus="complete"
+        isGenericStarter
+        onShowAdvanced={() => undefined}
+      />,
+    )
+
+    expect(screen.getByText('Generic starter template')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'This is a generic starting point, not a tailored blueprint. Describe your use case in chat to fill in responsibilities, workflow, boundaries, and capabilities.',
+      ),
+    ).toBeInTheDocument()
   })
 })

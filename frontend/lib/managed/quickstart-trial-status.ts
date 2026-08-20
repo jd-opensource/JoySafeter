@@ -45,8 +45,15 @@ export function deriveQuickstartTrialStatus({
   if (events.some((event) => event.type === 'session.status_terminated')) return 'error'
 
   const hasAgentMessage = events.some((event) => event.type === 'agent.message')
-  const isIdle = events.some((event) => event.type === 'session.status_idle')
-  if (hasAgentMessage && isIdle) return 'response_received'
+  // The turn is "settled" once the runtime signals completion. Engines are not
+  // consistent about emitting session.status_idle, so also accept a task.complete
+  // event or a completed task status — otherwise a finished trial can hang on
+  // "testing" forever even though the agent already replied.
+  const turnSettled =
+    events.some(
+      (event) => event.type === 'session.status_idle' || event.type === 'task.complete',
+    ) || task?.status === 'completed'
+  if (hasAgentMessage && turnSettled) return 'response_received'
 
   if (task && TERMINAL_ERROR_TASK_STATUSES.has(task.status)) return 'error'
 

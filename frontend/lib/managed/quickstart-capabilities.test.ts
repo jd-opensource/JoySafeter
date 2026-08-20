@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest'
 import {
   deriveQuickstartCapabilityEvidence,
   filterQuickstartSkillReferences,
+  isMcpServerAuthorized,
+  normalizeMcpServerUrl,
+  quickstartAuthorizedMcpServerUrls,
   toQuickstartAvailableSkills,
 } from './quickstart-capabilities'
 
@@ -54,13 +57,52 @@ describe('filterQuickstartSkillReferences', () => {
   })
 })
 
+describe('normalizeMcpServerUrl', () => {
+  it('trims whitespace and a single trailing slash so equivalent URLs match', () => {
+    expect(normalizeMcpServerUrl('  https://mcp.example.com/  ')).toBe('https://mcp.example.com')
+    expect(normalizeMcpServerUrl('https://mcp.example.com')).toBe('https://mcp.example.com')
+  })
+
+  it('returns empty string for missing or non-string values', () => {
+    expect(normalizeMcpServerUrl(undefined)).toBe('')
+    expect(normalizeMcpServerUrl(null)).toBe('')
+    expect(normalizeMcpServerUrl('   ')).toBe('')
+  })
+})
+
+describe('quickstartAuthorizedMcpServerUrls', () => {
+  it('collects normalized URLs from active members only', () => {
+    const set = quickstartAuthorizedMcpServerUrls([
+      { mcp_server_url: 'https://mcp.example.com/' },
+      { mcp_server_url: 'https://archived.example.com', archived_at: '2026-08-01T00:00:00Z' },
+      { mcp_server_url: '' },
+      { mcp_server_url: '  https://second.example.com  ' },
+    ])
+    expect(set).toEqual(new Set(['https://mcp.example.com', 'https://second.example.com']))
+  })
+})
+
+describe('isMcpServerAuthorized', () => {
+  const authorized = new Set(['https://mcp.example.com'])
+
+  it('matches an agent MCP server URL against the authorized set after normalization', () => {
+    expect(isMcpServerAuthorized('https://mcp.example.com/', authorized)).toBe(true)
+  })
+
+  it('does not authorize an unmatched or empty URL', () => {
+    expect(isMcpServerAuthorized('https://other.example.com', authorized)).toBe(false)
+    expect(isMcpServerAuthorized('', authorized)).toBe(false)
+  })
+})
+
 describe('deriveQuickstartCapabilityEvidence', () => {
   it('summarizes only observable environment, authorization, tool, and MCP evidence', () => {
     expect(
       deriveQuickstartCapabilityEvidence({
         responseReceived: true,
-        environmentId: 'env_1',
-        credentialGroupId: 'credgrp_1',
+        environmentId: 'env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f031',
+        externalToolsAuthorized: true,
+        configuredSkills: ['Secure Review'],
         events: [
           { type: 'agent.tool_use', tool_name: 'Read' },
           { type: 'agent.mcp_tool_use', tool_name: 'github.search' },
@@ -71,6 +113,7 @@ describe('deriveQuickstartCapabilityEvidence', () => {
       responseReceived: true,
       environmentAttached: true,
       externalToolsAuthorized: true,
+      configuredSkills: ['Secure Review'],
       observedTools: ['Read'],
       observedMcpTools: ['github.search'],
       auditEventsAvailable: true,
@@ -82,13 +125,14 @@ describe('deriveQuickstartCapabilityEvidence', () => {
       deriveQuickstartCapabilityEvidence({
         responseReceived: false,
         environmentId: null,
-        credentialGroupId: null,
+        externalToolsAuthorized: false,
         events: [],
       }),
     ).toEqual({
       responseReceived: false,
       environmentAttached: false,
       externalToolsAuthorized: false,
+      configuredSkills: [],
       observedTools: [],
       observedMcpTools: [],
       auditEventsAvailable: false,
