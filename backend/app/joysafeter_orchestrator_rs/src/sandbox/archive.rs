@@ -15,8 +15,11 @@ pub fn archive_extract_dir(path: &Path) -> Option<PathBuf> {
     let lower = filename.to_ascii_lowercase();
     for suffix in SUPPORTED_ARCHIVE_SUFFIXES {
         if lower.ends_with(suffix) {
-            let stem = &filename[..filename.len() - suffix.len()];
-            return Some(path.parent().unwrap_or_else(|| Path::new("")).join(stem));
+            // Extract into the archive's PARENT directory (not a same-named
+            // subdir), so the archive's own internal structure decides the layout.
+            // This matches the runner's extraction logic and avoids double nesting
+            // like foo/foo/... when the zip already contains a top-level foo/.
+            return Some(path.parent().unwrap_or_else(|| Path::new("")).to_path_buf());
         }
     }
     None
