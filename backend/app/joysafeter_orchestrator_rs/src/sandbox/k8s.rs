@@ -1,17 +1,20 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::ids::SandboxId;
 use async_trait::async_trait;
+use base64::Engine as _;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, AttachParams, DeleteParams, PostParams};
 use kube::Client;
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{info, warn};
 
 use super::envoy::{EnvoyConfig, EnvoyManager};
+use super::file_injection::FileToInject;
 use super::lds_backend::{DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend, SandboxCredentials};
 use super::mounts::SandboxMount;
 use super::pod_watcher::{NodeLearnedHook, PodWatcher};
@@ -148,6 +151,200 @@ impl K8sProvider {
         })
     }
 
+    /// Write a file into a K8s pod using a tar archive piped via exec stdin.
+    ///
+    /// This mirrors Docker's `upload_to_container` reliability: the tar format
+    /// carries an explicit byte-length header, so `tar xf -` on the receiving end
+    /// either writes the complete file or errors out — no silent 0-byte writes
+    /// from stdin timing races that plagued the previous `base64 | cat >>` approach.
+    async fn write_file_to_pod(
+        &self,
+        external_id: &str,
+        normalized: &str,
+        content: &[u8],
+    ) -> anyhow::Result<()> {
+        let parent = Path::new(normalized)
+            .parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or("/workspace");
+
+        // Build a tar archive in memory (same pattern as Docker provider).
+        let tar_buf = {
+            let mut buf = Vec::new();
+            {
+                let mut ar = tar::Builder::new(&mut buf);
+                let mut header = tar::Header::new_gnu();
+                // Use the full normalized path (e.g. /workspace/foo.py) so tar
+                // extracts to the correct absolute location.
+                header.set_path(normalized)?;
+                header.set_size(content.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                ar.append(&header, content)?;
+                ar.finish()?;
+            }
+            buf
+        };
+
+        // Pipe the tar into `tar xf -` via K8s exec stdin.
+        let cmd: Vec<String> = ["tar", "xf", "-", "-C", "/"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let mut attached = self
+            .pods()
+            .exec(
+                external_id,
+                &cmd,
+                &AttachParams::default()
+                    .stdin(true)
+                    .stdout(true)
+                    .stderr(true)
+                    .max_stdin_buf_size(tar_buf.len() + 1024),
+            )
+            .await?;
+
+        let status_fut = attached.take_status();
+
+        // Write the tar to stdin, then close it so tar sees EOF.
+        let mut stdin = attached
+            .stdin()
+            .ok_or_else(|| anyhow::anyhow!("failed to open stdin for K8s exec tar"))?;
+        stdin.write_all(&tar_buf).await?;
+        drop(stdin);
+
+        // Drain stdout/stderr (tar shouldn't produce output on success, but we
+        // must consume them to avoid deadlock before join).
+        let stdout_reader = attached.stdout();
+        let stderr_reader = attached.stderr();
+        let mut stderr = String::new();
+        let drain = async {
+            if let Some(mut r) = stdout_reader {
+                let _ = tokio::io::copy(&mut r, &mut tokio::io::sink()).await;
+            }
+        };
+        let drain_err = async {
+            if let Some(mut r) = stderr_reader {
+                r.read_to_string(&mut stderr).await.ok();
+            }
+        };
+        tokio::join!(drain, drain_err);
+        attached.join().await?;
+
+        // Check exit status.
+        if let Some(status_fut) = status_fut {
+            if let Some(status) = status_fut.await {
+                if status.status.as_deref() == Some("Failure") || status.code.unwrap_or(0) != 0 {
+                    anyhow::bail!(
+                        "K8s exec tar xf failed for {normalized}: code={:?} stderr={}",
+                        status.code,
+                        stderr.trim()
+                    );
+                }
+            }
+        }
+
+        // mkdir is handled by tar (absolute path), but ensure parent exists for
+        // edge cases where the tar path is relative or something strips the leading /.
+        let _ = self.exec(external_id, &["mkdir", "-p", parent]).await;
+
+        Ok(())
+    }
+
+    async fn upload_file_to_pod(
+        &self,
+        external_id: &str,
+        path: &str,
+        content: &[u8],
+    ) -> anyhow::Result<()> {
+        let normalized = normalize_workspace_mount_path(path)?;
+        self.write_file_to_pod(external_id, &normalized, content)
+            .await?;
+
+        // Verify file size. With tar injection this should always match (tar
+        // carries an explicit length header), but keep the check as a safety net.
+        let size_output = self.exec(external_id, &["wc", "-c", &normalized]).await?;
+        let actual_size = size_output
+            .split_whitespace()
+            .next()
+            .and_then(|value| value.parse::<usize>().ok())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "failed to verify injected file size for {normalized}: wc output={size_output:?}"
+                )
+            })?;
+        if actual_size != content.len() {
+            anyhow::bail!(
+                "injected file size mismatch for {normalized}: expected {}, got {actual_size}",
+                content.len()
+            );
+        }
+
+        match self
+            .auto_extract_archive_to_pod(external_id, &normalized, content)
+            .await
+        {
+            Ok(true) => info!(
+                external_id,
+                path = %normalized,
+                "Auto-extracted archive into K8s sandbox"
+            ),
+            Ok(false) => {}
+            Err(e) => warn!(
+                external_id,
+                path = %normalized,
+                "Failed to auto-extract archive into K8s sandbox: {e}"
+            ),
+        }
+
+        Ok(())
+    }
+
+    async fn auto_extract_archive_to_pod(
+        &self,
+        external_id: &str,
+        normalized_path: &str,
+        content: &[u8],
+    ) -> anyhow::Result<bool> {
+        let Some(target_dir) =
+            crate::sandbox::archive::archive_extract_dir(Path::new(normalized_path))
+        else {
+            return Ok(false);
+        };
+
+        let tmp_dir = tempfile::tempdir()?;
+        let archive_name = Path::new(normalized_path)
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("invalid archive path: {normalized_path}"))?;
+        let archive_path = tmp_dir.path().join(archive_name);
+        let extracted_path = tmp_dir.path().join("extracted");
+        tokio::fs::write(&archive_path, content).await?;
+        crate::sandbox::archive::extract_archive_to_dir(archive_path, extracted_path.clone())
+            .await?;
+
+        let target_dir = target_dir
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("invalid archive target path"))?
+            .to_string();
+        self.exec(external_id, &["mkdir", "-p", &target_dir])
+            .await?;
+
+        let tar_buf = crate::sandbox::archive::build_tar_from_dir(&extracted_path)?;
+        let temp_tar = format!(
+            "/workspace/.joysafeter_extract_{}.tar",
+            uuid::Uuid::now_v7().simple()
+        );
+        self.write_file_to_pod(external_id, &temp_tar, &tar_buf)
+            .await?;
+        let extract_result = self
+            .exec(external_id, &["tar", "-xf", &temp_tar, "-C", &target_dir])
+            .await;
+        let _ = self.exec(external_id, &["rm", "-f", &temp_tar]).await;
+        extract_result?;
+
+        Ok(true)
+    }
+
     /// Get the xDS service (if gRPC xDS mode). Used to register ADS on gRPC server.
     pub fn xds_service(&self) -> Option<Arc<DeltaXdsServer>> {
         self.xds_service.clone()
@@ -155,6 +352,61 @@ impl K8sProvider {
 
     fn pods(&self) -> Api<Pod> {
         Api::namespaced(self.client.clone(), &self.namespace)
+    }
+
+    async fn exec_owned(&self, external_id: &str, cmd: &[String]) -> anyhow::Result<String> {
+        let mut attached = self
+            .pods()
+            .exec(
+                external_id,
+                cmd,
+                &AttachParams::default()
+                    .stdout(true)
+                    .stderr(true)
+                    .max_stdout_buf_size(64 * 1024)
+                    .max_stderr_buf_size(64 * 1024),
+            )
+            .await?;
+        let status_fut = attached.take_status();
+        let stdout_reader = attached.stdout();
+        let stderr_reader = attached.stderr();
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+        let stdout_fut = async {
+            if let Some(mut reader) = stdout_reader {
+                reader.read_to_string(&mut stdout).await?;
+            }
+            Ok::<(), std::io::Error>(())
+        };
+        let stderr_fut = async {
+            if let Some(mut reader) = stderr_reader {
+                reader.read_to_string(&mut stderr).await?;
+            }
+            Ok::<(), std::io::Error>(())
+        };
+        let (stdout_result, stderr_result) = tokio::join!(stdout_fut, stderr_fut);
+        stdout_result?;
+        stderr_result?;
+        attached.join().await?;
+        if let Some(status_fut) = status_fut {
+            if let Some(status) = status_fut.await {
+                if status.status.as_deref() == Some("Failure") || status.code.unwrap_or(0) != 0 {
+                    anyhow::bail!(
+                        "K8s exec failed for {:?}: status={:?} code={:?} reason={:?} message={:?} stderr={}",
+                        cmd,
+                        status.status,
+                        status.code,
+                        status.reason,
+                        status.message,
+                        stderr.trim()
+                    );
+                }
+            }
+        }
+        if !stderr.trim().is_empty() {
+            warn!(external_id, command = ?cmd, stderr = %stderr.trim(), "K8s exec wrote stderr");
+        }
+        Ok(stdout)
     }
 
     fn pod_name(sandbox_id: SandboxId) -> String {
@@ -438,19 +690,36 @@ impl SandboxProvider for K8sProvider {
 
     async fn exec(&self, external_id: &str, cmd: &[&str]) -> anyhow::Result<String> {
         let cmd_owned: Vec<String> = cmd.iter().map(|s| s.to_string()).collect();
-        let mut attached = self
-            .pods()
-            .exec(
-                external_id,
-                &cmd_owned,
-                &AttachParams::default().stdout(true).stderr(true),
-            )
-            .await?;
-        let mut stdout = String::new();
-        if let Some(mut reader) = attached.stdout() {
-            reader.read_to_string(&mut stdout).await?;
+        self.exec_owned(external_id, &cmd_owned).await
+    }
+
+    async fn inject_files(&self, external_id: &str, files: &[FileToInject]) -> anyhow::Result<()> {
+        let mut injected = 0usize;
+        let mut failures = Vec::new();
+        for file in files {
+            let Some(content) = file.content.as_ref() else {
+                failures.push(format!("{}: missing loaded content", file.mount_path));
+                continue;
+            };
+            if let Err(e) = self
+                .upload_file_to_pod(external_id, &file.mount_path, content)
+                .await
+            {
+                failures.push(format!("{}: {e}", file.mount_path));
+                continue;
+            }
+            injected += 1;
         }
-        Ok(stdout)
+        if !failures.is_empty() {
+            anyhow::bail!(
+                "failed to inject {} of {} files into K8s sandbox: {}",
+                failures.len(),
+                files.len(),
+                failures.join("; ")
+            );
+        }
+        info!(external_id, injected, "Injected files into K8s sandbox");
+        Ok(())
     }
 
     async fn list_active(&self) -> anyhow::Result<Vec<ProviderSandboxInfo>> {
@@ -598,4 +867,23 @@ impl SandboxProvider for K8sProvider {
         }
         Ok(())
     }
+}
+
+fn normalize_workspace_mount_path(path: &str) -> anyhow::Result<String> {
+    if path.contains('\0') {
+        anyhow::bail!("invalid NUL byte in mount path");
+    }
+    let normalized = path.replace('\\', "/");
+    if !normalized.starts_with("/workspace/") {
+        anyhow::bail!("mount path must be under /workspace: {path}");
+    }
+    let mut parts = Vec::new();
+    for part in normalized.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => anyhow::bail!("path traversal blocked: {path}"),
+            value => parts.push(value),
+        }
+    }
+    Ok(format!("/{}", parts.join("/")))
 }
