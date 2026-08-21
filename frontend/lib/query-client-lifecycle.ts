@@ -8,11 +8,15 @@ function isSessionQuery(query: Query): boolean {
   return query.queryKey.length === 1 && query.queryKey[0] === 'session'
 }
 
-export function clearNonSessionQueryData(
+function isAuthMeQuery(query: Query): boolean {
+  return query.queryKey[0] === 'auth-me'
+}
+
+function clearQueryData(
   queryClient: QueryClient,
-  { refetchActive = false }: ClearNonSessionQueryDataOptions = {},
+  predicate: (query: Query) => boolean,
+  refetchActive: boolean,
 ): void {
-  const predicate = (query: Query) => !isSessionQuery(query)
   const queries = queryClient.getQueryCache().findAll({ predicate })
 
   for (const query of queries) {
@@ -25,4 +29,18 @@ export function clearNonSessionQueryData(
   if (refetchActive) {
     void queryClient.refetchQueries({ predicate, type: 'active' })
   }
+}
+
+export function clearNonSessionQueryData(
+  queryClient: QueryClient,
+  { refetchActive = false }: ClearNonSessionQueryDataOptions = {},
+): void {
+  const predicate = (query: Query) => !isSessionQuery(query)
+  clearQueryData(queryClient, predicate, refetchActive)
+}
+
+export function resetManagedScopeQueries(queryClient: QueryClient): void {
+  const predicate = (query: Query) => !isSessionQuery(query) && !isAuthMeQuery(query)
+  clearQueryData(queryClient, predicate, true)
+  void queryClient.invalidateQueries({ predicate: isAuthMeQuery, refetchType: 'active' })
 }

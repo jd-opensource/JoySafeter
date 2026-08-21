@@ -1,7 +1,7 @@
 'use client'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, PauseCircle, PlayCircle, RotateCcw, Star } from 'lucide-react'
+import { Archive, Info, PauseCircle, PlayCircle, RotateCcw, Star } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
@@ -93,6 +93,7 @@ export function ProjectLifecyclePage({ projectId }: { projectId: string }) {
     return <p className="text-sm text-muted-foreground">{t('common.noData')}</p>
 
   const project = projectQuery.data
+  const canManageTriggers = project.capability === 'admin'
   const mutationPending =
     setDefault.isPending ||
     setTriggersPaused.isPending ||
@@ -102,6 +103,12 @@ export function ProjectLifecyclePage({ projectId }: { projectId: string }) {
   return (
     <div className="flex flex-col gap-6">
       <span className="sr-only">{project.name}</span>
+      <Alert>
+        <Info />
+        <AlertDescription>
+          {t('managed.projectSettings.lifecycle.permissionBoundary')}
+        </AlertDescription>
+      </Alert>
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">
@@ -148,7 +155,7 @@ export function ProjectLifecyclePage({ projectId }: { projectId: string }) {
             <Button
               variant="outline"
               onClick={() => setTriggersPaused.mutate(!project.triggers_paused)}
-              disabled={!canAdmin || Boolean(project.archived_at) || mutationPending}
+              disabled={!canManageTriggers || Boolean(project.archived_at) || mutationPending}
             >
               {project.triggers_paused ? (
                 <PlayCircle data-icon="inline-start" />

@@ -7,6 +7,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { managedGet, managedPost } from '@/lib/api-client'
 
+let organizationMembers = [
+  {
+    id: 'member-1',
+    user_id: 'user-1',
+    email: 'member@example.com',
+    display_name: 'Member',
+    org_role: 'member',
+    access: 'default',
+    project_role: null,
+  },
+]
+
 vi.mock('@/lib/api-client', () => ({
   managedDelete: vi.fn(),
   managedGet: vi.fn(),
@@ -15,17 +27,7 @@ vi.mock('@/lib/api-client', () => ({
 
 vi.mock('@/hooks/managed/use-paginated-list', () => ({
   usePaginatedList: () => ({
-    data: [
-      {
-        id: 'member-1',
-        user_id: 'user-1',
-        email: 'member@example.com',
-        display_name: 'Member',
-        org_role: 'member',
-        access: 'none',
-        project_role: null,
-      },
-    ],
+    data: organizationMembers,
     isLoading: false,
     isFetching: false,
     isError: false,
@@ -59,9 +61,11 @@ vi.mock('@/components/managed/shared', () => ({
     data: unknown[]
   }) => (
     <div>
-      {columns.map((column, index) => (
-        <div key={index}>{column.render(data[0])}</div>
-      ))}
+      {data.map((row, rowIndex) =>
+        columns.map((column, columnIndex) => (
+          <div key={`${rowIndex}-${columnIndex}`}>{column.render(row)}</div>
+        )),
+      )}
     </div>
   ),
   FilterBar: () => null,
@@ -140,6 +144,17 @@ function deferred<T>() {
 describe('ProjectAccessPage', () => {
   afterEach(() => {
     cleanup()
+    organizationMembers = [
+      {
+        id: 'member-1',
+        user_id: 'user-1',
+        email: 'member@example.com',
+        display_name: 'Member',
+        org_role: 'member',
+        access: 'default',
+        project_role: null,
+      },
+    ]
     vi.clearAllMocks()
   })
 
@@ -147,6 +162,7 @@ describe('ProjectAccessPage', () => {
     const grant = deferred<unknown>()
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: 'project-a',
+      org_id: 'org-b',
       name: 'Project A',
       slug: 'project-a',
       is_default: true,
@@ -165,11 +181,36 @@ describe('ProjectAccessPage', () => {
         view.getAllByText('manage.projectMembers.defaultProjectRestriction').length,
       ).toBeGreaterThan(0),
     )
+    expect(view.getByText('manage.projectMembers.accessDefault')).toBeTruthy()
 
-    fireEvent.change(view.getByLabelText('project-permission'), { target: { value: 'viewer' } })
+    fireEvent.change(view.getByLabelText('project-permission'), { target: { value: 'editor' } })
     await waitFor(() => expect(view.getByText('manage.projectMembers.saving')).toBeTruthy())
 
     grant.resolve({})
     await waitFor(() => expect(view.getByText('manage.projectMembers.saved')).toBeTruthy())
+  })
+
+  it('links empty project access to the owning organization member page', async () => {
+    organizationMembers = []
+    ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'project-a',
+      org_id: 'org-b',
+      name: 'Project A',
+      slug: 'project-a',
+      is_default: false,
+    })
+    const { ProjectAccessPage } = await import('./project-access-page')
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectAccessPage projectId="project-a" />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() =>
+      expect(
+        view.getByText('manage.projectMembers.manageMembers').closest('a')?.getAttribute('href'),
+      ).toBe('/managed/settings/organizations/org-b/members'),
+    )
   })
 })

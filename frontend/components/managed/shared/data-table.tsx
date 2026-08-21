@@ -35,6 +35,7 @@ interface DataTableProps<T> {
   fetching?: boolean
   onRowClick?: (row: T) => void
   actionMenu?: (row: T) => MenuItem[]
+  mobileCard?: (row: T) => ReactNode
   selectable?: boolean
   pagination?: {
     hasNext: boolean
@@ -96,6 +97,7 @@ export function DataTable<T>({
   fetching,
   onRowClick,
   actionMenu,
+  mobileCard,
   selectable,
   pagination,
   emptyMessage,
@@ -180,7 +182,7 @@ export function DataTable<T>({
     }
 
     // Optional action menu column
-    if (actionMenu) {
+    if (actionMenu && data.some((row) => actionMenu(row).length > 0)) {
       cols.push({
         id: '__action__',
         size: 60,
@@ -191,7 +193,7 @@ export function DataTable<T>({
         meta: { align: 'center', truncate: false },
         cell: ({ row }) => (
           <div onClick={(e) => e.stopPropagation()}>
-            <ActionMenu items={actionMenu(row.original)} />
+            <ActionMenu items={actionMenu(row.original)} ariaLabel={t('managed.table.actions')} />
           </div>
         ),
       })
@@ -199,7 +201,7 @@ export function DataTable<T>({
 
     return cols
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [columns, selectable, actionMenu, allSelected, selected])
+  }, [columns, data, selectable, actionMenu, allSelected, selected, t])
 
   const table = useReactTable({
     data,
@@ -240,7 +242,10 @@ export function DataTable<T>({
           </div>
         )}
 
-        <div className="overflow-x-auto">
+        <div
+          data-testid={mobileCard ? 'data-table-desktop' : undefined}
+          className={mobileCard ? 'hidden overflow-x-auto md:block' : 'overflow-x-auto'}
+        >
           <table className="w-full table-fixed">
             <thead>
               {table.getHeaderGroups().map((headerGroup) => (
@@ -347,6 +352,22 @@ export function DataTable<T>({
             </tbody>
           </table>
         </div>
+
+        {mobileCard ? (
+          <div data-testid="data-table-mobile" className="divide-y divide-border md:hidden">
+            {data.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                {emptyMessage || t('common.noData')}
+              </div>
+            ) : (
+              data.map((row, index) => (
+                <div key={dataTableSelectionKey(row, index)} className="p-4">
+                  {mobileCard(row)}
+                </div>
+              ))
+            )}
+          </div>
+        ) : null}
       </div>
 
       {pagination && (

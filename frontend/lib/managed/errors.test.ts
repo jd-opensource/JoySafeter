@@ -89,6 +89,24 @@ describe('managed operation errors', () => {
     )
   })
 
+  it.each([
+    ['AUTH_USER_NOT_FOUND', 'managed.errors.memberUserNotFound'],
+    ['ORGANIZATION_MEMBER_ALREADY_EXISTS', 'managed.errors.memberAlreadyExists'],
+    ['AUTH_MEMBER_SELF_MANAGEMENT_FORBIDDEN', 'managed.errors.memberSelfManagementForbidden'],
+    ['AUTH_OWNER_ROLE_CHANGE_FORBIDDEN', 'managed.errors.ownerRoleProtected'],
+    ['ORGANIZATION_OWNER_ROLE_ASSIGN_FORBIDDEN', 'managed.errors.ownerTransferRequired'],
+  ])('localizes organization member errors by code: %s', (code, translationKey) => {
+    const error = new ApiError(403, 'Backend English message', {
+      code,
+      message: 'Backend English message',
+      source: 'auth',
+    })
+
+    expect(getOperationErrorMessage(t, error, 'common.operationFailed')).toBe(
+      `translated:${translationKey}`,
+    )
+  })
+
   it('uses codes instead of status for retry classification', () => {
     expect(
       shouldRetryManagedResourceError(

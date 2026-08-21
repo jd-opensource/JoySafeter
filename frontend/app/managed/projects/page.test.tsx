@@ -1,9 +1,15 @@
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { JSDOM } from 'jsdom'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const routerPush = vi.fn()
+const switchProject = vi.fn(async () => undefined)
+const mutate = vi.fn()
+const managedPost = vi.fn()
+const mutationOptions: Array<{
+  mutationFn?: (variables: { name: string; runId: number; scope: string }) => Promise<unknown>
+}> = []
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: routerPush }),
@@ -15,8 +21,15 @@ vi.mock('@tanstack/react-query', () => ({
     getQueryData: () => [],
     invalidateQueries: vi.fn(),
   }),
-  useMutation: () => ({ mutate: vi.fn(), isPending: false }),
+  useMutation: (options: {
+    mutationFn?: (variables: { name: string; runId: number; scope: string }) => Promise<unknown>
+  }) => {
+    mutationOptions.push(options)
+    return { mutate, isPending: false }
+  },
 }))
+
+vi.mock('@/lib/api-client', () => ({ managedPost }))
 
 vi.mock('@/hooks/managed/use-paginated-list', () => ({
   usePaginatedList: () => ({
@@ -51,8 +64,23 @@ vi.mock('@/providers/permissions-provider', () => ({
   useUserPermissionsContext: () => ({ canAdmin: true }),
 }))
 
+vi.mock('@/hooks/managed/use-project-context', () => ({
+  useProjectContext: () => ({ switchProject }),
+}))
+
 const projectStore = Object.assign(
-  (selector: (state: { currentOrgId: string }) => unknown) => selector({ currentOrgId: 'org-a' }),
+  (
+    selector: (state: {
+      currentOrgId: string
+      currentProjectId: string
+      organizations: Array<{ id: string; project_creation_policy: 'admins_only' | 'all_members' }>
+    }) => unknown,
+  ) =>
+    selector({
+      currentOrgId: 'org-a',
+      currentProjectId: 'project-current',
+      organizations: [{ id: 'org-a', project_creation_policy: 'admins_only' }],
+    }),
   { getState: () => ({ currentOrgId: 'org-a' }) },
 )
 
@@ -66,21 +94,26 @@ vi.mock('@/lib/i18n', () => ({
 
 vi.mock('@/components/managed/shared', () => ({
   DataTable: ({
+    columns,
     data,
-    onRowClick,
     actionMenu,
+    mobileCard,
   }: {
+    columns: Array<{ key: string; render: (row: { id: string }) => ReactNode }>
     data: Array<{ id: string }>
-    onRowClick?: (row: { id: string }) => void
     actionMenu?: (row: { id: string }) => Array<{ label: string }>
+    mobileCard?: (row: { id: string }) => ReactNode
   }) => (
     <div>
-      <button type="button" onClick={() => onRowClick?.(data[0])}>
-        project-row
-      </button>
-      {(actionMenu?.(data[0]) ?? []).map((item) => (
-        <span key={item.label}>{item.label}</span>
-      ))}
+      <div data-testid="desktop-list">
+        {columns.map((column) => (
+          <div key={column.key}>{column.render(data[0])}</div>
+        ))}
+        {(actionMenu?.(data[0]) ?? []).map((item) => (
+          <span key={item.label}>{item.label}</span>
+        ))}
+      </div>
+      <div data-testid="mobile-list">{mobileCard?.(data[0])}</div>
     </div>
   ),
   FilterBar: () => null,
@@ -110,20 +143,30 @@ globalThis.HTMLElement = dom.window.HTMLElement
 describe('ProjectsPage', () => {
   afterEach(() => {
     cleanup()
+    vi.restoreAllMocks()
     routerPush.mockClear()
+    switchProject.mockClear()
+    mutate.mockClear()
+    managedPost.mockReset()
+    mutationOptions.length = 0
   })
 
-  it('opens project settings from the row and keeps only lifecycle shortcuts', async () => {
+  it('shows an explicit project management action instead of hidden row navigation', async () => {
     const { default: ProjectsPage } = await import('./page')
     const view = render(<ProjectsPage />)
 
-    fireEvent.click(view.getByText('project-row'))
+    fireEvent.click(within(view.getByTestId('desktop-list')).getByText('manage.projects.manage'))
     expect(routerPush).toHaveBeenCalledWith('/managed/projects/project-a')
-    expect(view.getByText('common.archive')).toBeTruthy()
-    expect(view.queryByText('common.edit')).toBeNull()
-    expect(view.queryByText('manage.projects.members')).toBeNull()
-    expect(view.queryByText('manage.projects.pauseTriggers')).toBeNull()
-    expect(view.queryByText('manage.projects.setDefault')).toBeNull()
+    expect(view.queryByText('common.archive')).toBeNull()
+  })
+
+  it('switches work context only from the explicit use action', async () => {
+    const { default: ProjectsPage } = await import('./page')
+    const view = render(<ProjectsPage />)
+
+    expect(switchProject).not.toHaveBeenCalled()
+    fireEvent.click(within(view.getByTestId('desktop-list')).getByText('manage.projects.use'))
+    await waitFor(() => expect(switchProject).toHaveBeenCalledWith('project-a', 'org-a'))
   })
 
   it('asks only for a project name during creation', async () => {
@@ -135,5 +178,40 @@ describe('ProjectsPage', () => {
     expect(view.getByPlaceholderText('manage.projects.namePlaceholder')).toBeTruthy()
     expect(view.queryByPlaceholderText('manage.projects.slugPlaceholder')).toBeNull()
     expect(view.getByText('manage.projects.slugGeneratedHint')).toBeTruthy()
+  })
+
+  it('generates an ASCII URL-safe slug for a non-Latin project name', async () => {
+    managedPost.mockResolvedValue({})
+    vi.spyOn(Date, 'now').mockReturnValue(1_789_000_000_000)
+    const { default: ProjectsPage } = await import('./page')
+    const view = render(<ProjectsPage />)
+
+    fireEvent.click(view.getByText('manage.projects.create'))
+    fireEvent.change(view.getByPlaceholderText('manage.projects.namePlaceholder'), {
+      target: { value: '中文项目' },
+    })
+    fireEvent.click(view.getAllByText('manage.projects.create').at(-1)!)
+
+    const variables = mutate.mock.calls.at(-1)?.[0] as {
+      name: string
+      runId: number
+      scope: string
+    }
+    await mutationOptions[0]?.mutationFn?.(variables)
+
+    expect(managedPost).toHaveBeenCalledWith('/auth/projects', {
+      name: '中文项目',
+      slug: expect.stringMatching(/^project-[a-z0-9]+$/),
+    })
+  })
+
+  it('keeps project identity and explicit actions visible in the mobile layout', async () => {
+    const { default: ProjectsPage } = await import('./page')
+    const view = render(<ProjectsPage />)
+    const mobile = within(view.getByTestId('mobile-list'))
+
+    expect(mobile.getByText('Project A')).toBeTruthy()
+    expect(mobile.getByText('manage.projects.use')).toBeTruthy()
+    expect(mobile.getByText('manage.projects.manage')).toBeTruthy()
   })
 })

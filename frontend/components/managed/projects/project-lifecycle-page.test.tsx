@@ -19,8 +19,10 @@ vi.mock('@/lib/i18n', () => ({
 
 vi.mock('@/lib/managed/errors', () => ({ toastOperationError: vi.fn() }))
 
+let organizationCanAdmin = true
+
 vi.mock('@/providers/permissions-provider', () => ({
-  useUserPermissionsContext: () => ({ canAdmin: true }),
+  useUserPermissionsContext: () => ({ canAdmin: organizationCanAdmin }),
 }))
 
 vi.mock('next/navigation', () => ({
@@ -47,6 +49,7 @@ describe('ProjectLifecyclePage', () => {
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
+    organizationCanAdmin = true
   })
 
   it('requires the exact project name before archive confirmation', async () => {
@@ -83,5 +86,45 @@ describe('ProjectLifecyclePage', () => {
 
     fireEvent.change(confirmation, { target: { value: 'Critical Project' } })
     expect(confirmButton.disabled).toBe(false)
+  })
+
+  it('lets a project admin control triggers without exposing organization lifecycle actions', async () => {
+    organizationCanAdmin = false
+    ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'project-a',
+      name: 'Member Project',
+      slug: 'member-project',
+      is_default: false,
+      triggers_paused: false,
+      archived_at: null,
+      capability: 'admin',
+    })
+    const { ProjectLifecyclePage } = await import('./project-lifecycle-page')
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectLifecyclePage projectId="project-a" />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => expect(view.getByText('Member Project')).toBeTruthy())
+
+    expect(view.getByText('managed.projectSettings.lifecycle.permissionBoundary')).toBeTruthy()
+
+    expect(
+      (view.getByText('manage.projects.pauseTriggers').closest('button') as HTMLButtonElement)
+        .disabled,
+    ).toBe(false)
+    expect(
+      (view.getByText('manage.projects.setDefault').closest('button') as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    expect(
+      (
+        view
+          .getByText('managed.projectSettings.lifecycle.archiveAction')
+          .closest('button') as HTMLButtonElement
+      ).disabled,
+    ).toBe(true)
   })
 })

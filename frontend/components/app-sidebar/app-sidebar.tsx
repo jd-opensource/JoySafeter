@@ -31,6 +31,8 @@ import {
   History,
   CalendarClock,
   Webhook,
+  ArrowRight,
+  Loader2,
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -48,14 +50,16 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu'
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
+import { toast } from '@/hooks/use-toast'
 import { useProjectContext } from '@/hooks/managed/use-project-context'
 import { managedGet } from '@/lib/api-client'
 import { useSession, client } from '@/lib/auth/auth-client'
 import { useTranslation } from '@/lib/i18n'
+import { toastOperationError } from '@/lib/managed/errors'
+import { roleLabel } from '@/lib/managed/roles'
 import { cn } from '@/lib/utils'
 import { useProjectStore } from '@/stores/managed/project-store'
-import type { ProjectInfo } from '@/stores/managed/project-store'
+import type { OrgInfo, ProjectInfo } from '@/stores/managed/project-store'
 import { useSidebarStore } from '@/stores/sidebar/store'
 
 interface NavItem {
@@ -122,6 +126,23 @@ const manageItems: NavItem[] = [
   { to: '/managed/projects', labelKey: 'nav.projects', icon: FolderCode },
 ]
 
+const ORGANIZATION_COLORS = [
+  'bg-purple-500',
+  'bg-blue-500',
+  'bg-green-500',
+  'bg-orange-500',
+  'bg-pink-500',
+]
+
+function organizationColor(organizationId?: string) {
+  if (!organizationId) return 'bg-primary'
+  const hash = Array.from(organizationId).reduce(
+    (value, character) => (value * 31 + character.charCodeAt(0)) >>> 0,
+    0,
+  )
+  return ORGANIZATION_COLORS[hash % ORGANIZATION_COLORS.length]
+}
+
 function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
   const { t } = useTranslation()
   const { projects, organizations, switchProject, orgId } = useProjectContext()
@@ -129,15 +150,22 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [allOrgProjects, setAllOrgProjects] = useState<Record<string, ProjectInfo[]>>({})
+  const [pendingSwitch, setPendingSwitch] = useState<{
+    organizationId: string
+    projectId: string
+  } | null>(null)
+  const pendingSwitchRef = useRef<{
+    organizationId: string
+    projectId: string
+  } | null>(null)
   const loadSeqRef = useRef(0)
   const switchSeqRef = useRef(0)
+  const openSeqRef = useRef(0)
   const currentProject =
     projects.find((p) => p.id === currentProjectId) ||
     (storedCurrentProject?.id === currentProjectId ? storedCurrentProject : null)
   const currentOrg = organizations.find((o) => o.id === (currentOrgId || orgId))
   const activeOrgId = currentOrgId || orgId
-
-  const orgColors = ['bg-purple-500', 'bg-blue-500', 'bg-green-500', 'bg-orange-500', 'bg-pink-500']
 
   const getProjectsForOrg = (targetOrgId: string) => {
     const source =
@@ -149,16 +177,47 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
     return source.filter((project) => !project.org_id || project.org_id === targetOrgId)
   }
 
-  const handleSwitchToProject = async (targetOrgId: string, targetProjectId: string) => {
+  const handleSwitchToProject = async (
+    targetOrgId: string,
+    targetProjectId: string,
+    organizationName: string,
+    projectName: string,
+  ) => {
+    if (
+      pendingSwitchRef.current ||
+      (targetOrgId === activeOrgId && targetProjectId === currentProjectId)
+    ) {
+      return
+    }
+
     const switchSeq = ++switchSeqRef.current
+    const openSeq = openSeqRef.current
+    const nextPendingSwitch = { organizationId: targetOrgId, projectId: targetProjectId }
+    pendingSwitchRef.current = nextPendingSwitch
+    setPendingSwitch(nextPendingSwitch)
     try {
       await switchProject(targetProjectId, targetOrgId)
       if (switchSeq !== switchSeqRef.current) return
-      setOpen(false)
-      setSearch('')
-    } catch (e) {
+      toast({
+        variant: 'success',
+        title: t('sidebar.switchSuccess', {
+          organization: organizationName,
+          project: projectName,
+        }),
+      })
+      if (openSeq === openSeqRef.current) {
+        openSeqRef.current += 1
+        setOpen(false)
+        setSearch('')
+      }
+    } catch (error) {
       if (switchSeq !== switchSeqRef.current) return
-      console.error('Failed to switch:', e)
+      toastOperationError(t, error, 'sidebar.switchFailed')
+    } finally {
+      if (switchSeq === switchSeqRef.current) {
+        pendingSwitchRef.current = null
+        setPendingSwitch(null)
+      }
     }
   }
 
@@ -167,38 +226,46 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
     const loadSeq = ++loadSeqRef.current
     const requestedActiveOrgId = activeOrgId
     const requestedProjectId = currentProjectId
-    const result: Record<string, ProjectInfo[]> = {}
-    for (const org of organizations) {
-      if (org.id === activeOrgId) {
-        result[org.id] = [
-          ...projects,
-          ...(currentProject &&
-          currentProject.archived_at &&
-          !projects.some((project) => project.id === currentProject.id)
-            ? [currentProject]
-            : []),
-        ].map((project) => ({
-          ...project,
-          org_id: project.org_id || org.id,
-        }))
-      } else {
+    const entries = await Promise.all(
+      organizations.map(async (organization) => {
+        if (organization.id === activeOrgId) {
+          return [
+            organization.id,
+            [
+              ...projects,
+              ...(currentProject &&
+              currentProject.archived_at &&
+              !projects.some((project) => project.id === currentProject.id)
+                ? [currentProject]
+                : []),
+            ].map((project) => ({
+              ...project,
+              org_id: project.org_id || organization.id,
+            })),
+          ] as const
+        }
+
         try {
           const data = await managedGet<ProjectInfo[] | { data: ProjectInfo[] }>(
             '/auth/projects?include_archived=false&limit=200',
             {
               skipManagedContext: true,
-              headers: { 'X-Org-Id': org.id },
+              headers: { 'X-Org-Id': organization.id },
             },
           )
           const rows = Array.isArray(data) ? data : data?.data || []
-          result[org.id] = rows
-            .filter((project) => !project.org_id || project.org_id === org.id)
-            .map((project) => ({ ...project, org_id: project.org_id || org.id }))
+          return [
+            organization.id,
+            rows
+              .filter((project) => !project.org_id || project.org_id === organization.id)
+              .map((project) => ({ ...project, org_id: project.org_id || organization.id })),
+          ] as const
         } catch {
-          result[org.id] = []
+          return [organization.id, []] as const
         }
-      }
-    }
+      }),
+    )
+    const result = Object.fromEntries(entries)
     const { currentOrgId: latestOrgId, currentProjectId: latestProjectId } =
       useProjectStore.getState()
     if (
@@ -212,15 +279,199 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
   }
 
   const handleOpen = (v: boolean) => {
+    if (v !== open) openSeqRef.current += 1
     setOpen(v)
     if (v) loadAllProjects()
     if (!v) setSearch('')
   }
 
-  const filterMatch = (name: string) => {
+  const filterMatch = (...values: Array<string | null | undefined>) => {
     if (!search) return true
-    return name.toLowerCase().includes(search.toLowerCase())
+    const normalizedSearch = search.trim().toLowerCase()
+    return values.some((value) => value?.toLowerCase().includes(normalizedSearch))
   }
+
+  const visibleOrganizations = organizations
+    .map((organization) => {
+      const organizationMatches = filterMatch(
+        organization.name,
+        organization.slug,
+        organization.owner_name,
+        organization.owner_email,
+      )
+      const matchingProjects = getProjectsForOrg(organization.id).filter(
+        (project) => organizationMatches || filterMatch(project.name, project.slug),
+      )
+      return {
+        organization,
+        projects: matchingProjects,
+        matches: organizationMatches || matchingProjects.length > 0,
+      }
+    })
+    .filter((entry) => entry.matches)
+
+  const organizationGroups = [
+    {
+      key: 'owned',
+      label: t('sidebar.ownedOrganizations'),
+      entries: visibleOrganizations.filter((entry) => entry.organization.role === 'owner'),
+    },
+    {
+      key: 'shared',
+      label: t('sidebar.sharedOrganizations'),
+      entries: visibleOrganizations.filter((entry) => entry.organization.role !== 'owner'),
+    },
+  ].filter((group) => group.entries.length > 0)
+
+  const organizationContext = (organization: OrgInfo) => {
+    if (organization.role === 'owner') return t('sidebar.ownedByYou')
+    const ownerIdentity = organization.owner_name || organization.owner_email
+    return ownerIdentity
+      ? `${roleLabel(t, organization.role)} · ${ownerIdentity}`
+      : roleLabel(t, organization.role)
+  }
+
+  const currentContextDetail = [
+    currentProject?.name || t('sidebar.noProject'),
+    currentOrg ? organizationContext(currentOrg) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  const switcherContent = (
+    <>
+      <div className="border-b border-border p-2.5">
+        <p className="mb-2 text-[11px] font-medium text-muted-foreground">
+          {t('sidebar.switchHint')}
+        </p>
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t('sidebar.searchOrgProject')}
+            className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+            autoFocus
+          />
+        </div>
+      </div>
+      <div className="max-h-[420px] overflow-y-auto py-1">
+        {organizationGroups.map((group) => (
+          <div key={group.key} className="py-1">
+            <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              {group.label}
+            </div>
+            {group.entries.map(({ organization, projects: organizationProjects }) => (
+              <div key={organization.id} className="border-border/50 mx-1 mb-1 rounded-md border">
+                <div className="flex items-center gap-2 px-2 py-2">
+                  <div
+                    className={cn(
+                      'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white',
+                      organizationColor(organization.id),
+                    )}
+                  >
+                    {organization.name.charAt(0).toUpperCase() || 'O'}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate text-xs font-semibold text-foreground">
+                        {organization.name}
+                      </span>
+                      {organization.id === activeOrgId ? (
+                        <span className="shrink-0 text-[10px] font-medium text-primary">
+                          {t('sidebar.currentOrganization')}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="truncate text-[10px] text-muted-foreground">
+                      {organizationContext(organization)}
+                    </div>
+                  </div>
+                </div>
+                <div className="pb-1">
+                  {organizationProjects.map((project) => {
+                    const isSelected =
+                      project.id === currentProjectId && organization.id === activeOrgId
+                    const isPending =
+                      pendingSwitch?.organizationId === organization.id &&
+                      pendingSwitch.projectId === project.id
+                    return (
+                      <button
+                        key={project.id}
+                        type="button"
+                        disabled={isSelected || Boolean(pendingSwitch)}
+                        aria-current={isSelected ? 'true' : undefined}
+                        aria-busy={isPending || undefined}
+                        className={cn(
+                          'mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-sm py-2 pl-8 pr-2 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                          isSelected && 'cursor-default bg-accent font-medium',
+                          !isSelected && !pendingSwitch && 'cursor-pointer hover:bg-accent/50',
+                          pendingSwitch &&
+                            !isPending &&
+                            !isSelected &&
+                            'cursor-not-allowed opacity-55',
+                          isPending && 'cursor-wait bg-accent/70',
+                        )}
+                        onClick={() =>
+                          project.id &&
+                          handleSwitchToProject(
+                            project.org_id || organization.id,
+                            project.id,
+                            organization.name,
+                            project.name,
+                          )
+                        }
+                      >
+                        <FolderCode className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                        {project.is_default ? (
+                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+                            {t('sidebar.defaultProject')}
+                          </span>
+                        ) : null}
+                        {isPending ? (
+                          <span className="flex shrink-0 items-center gap-1 font-medium text-primary">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            {t('sidebar.switching')}
+                          </span>
+                        ) : isSelected ? (
+                          <span className="flex shrink-0 items-center gap-1 font-medium text-primary">
+                            {t('sidebar.currentProject')}
+                            <Check className="h-3.5 w-3.5" />
+                          </span>
+                        ) : (
+                          <span className="flex shrink-0 items-center gap-1 font-medium text-primary">
+                            {t('sidebar.switchAction')}
+                            <ArrowRight className="h-3.5 w-3.5" />
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+        {organizationGroups.length === 0 ? (
+          <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+            {t('common.noResults')}
+          </div>
+        ) : null}
+      </div>
+      <div className="border-t border-border p-1">
+        <Link
+          href="/managed/settings"
+          className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          onClick={() => setOpen(false)}
+        >
+          <Building2 className="h-3.5 w-3.5" />
+          {t('sidebar.manageOrganizations')}
+        </Link>
+      </div>
+    </>
+  )
 
   if (collapsed) {
     return (
@@ -228,94 +479,22 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
         <DropdownMenu open={open} onOpenChange={handleOpen}>
           <DropdownMenuTrigger asChild>
             <button
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-border text-xs font-bold transition-colors hover:bg-accent/50"
-              title={`${currentOrg?.name || ''} / ${currentProject?.name || ''}`}
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-border text-xs font-bold transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              title={`${t('sidebar.switchContextTooltip')}: ${currentOrg?.name || ''} / ${currentContextDetail}`}
+              aria-label={`${t('sidebar.switchContextTooltip')}: ${currentOrg?.name || ''} / ${currentContextDetail}`}
             >
               <div
-                className={`h-6 w-6 rounded-md ${orgColors[organizations.indexOf(currentOrg!) % orgColors.length] || 'bg-primary'} flex items-center justify-center text-[10px] font-bold text-white`}
+                className={cn(
+                  'flex h-6 w-6 items-center justify-center rounded-md text-[10px] font-bold text-white',
+                  organizationColor(currentOrg?.id),
+                )}
               >
                 {currentOrg?.name?.charAt(0)?.toUpperCase() || 'O'}
               </div>
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent side="right" align="start" className="w-[240px] p-0">
-            <div className="border-b border-border p-2">
-              <div className="relative">
-                <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder={t('sidebar.searchOrgProject')}
-                  className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                  autoFocus
-                />
-              </div>
-            </div>
-            <div className="max-h-[360px] overflow-y-auto py-1">
-              {organizations
-                .filter(
-                  (o) =>
-                    filterMatch(o.name) || getProjectsForOrg(o.id).some((p) => filterMatch(p.name)),
-                )
-                .map((org, idx) => {
-                  const orgPrjs = getProjectsForOrg(org.id).filter(
-                    (p) => filterMatch(p.name) || filterMatch(org.name),
-                  )
-                  return (
-                    <div
-                      key={org.id}
-                      className={idx > 0 ? 'border-border/50 mt-1 border-t pt-1' : ''}
-                    >
-                      <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
-                        <div
-                          className={`h-4 w-4 rounded ${orgColors[idx % orgColors.length]} flex shrink-0 items-center justify-center text-[8px] font-bold text-white`}
-                        >
-                          {org.name.charAt(0).toUpperCase()}
-                        </div>
-                        {org.name}
-                        <span className="text-[10px] font-normal text-muted-foreground/60">
-                          {t('sidebar.organizationBadge')}
-                        </span>
-                      </div>
-                      {orgPrjs.map((project, pIdx) => {
-                        const isSelected =
-                          project.id === currentProjectId && org.id === (currentOrgId || orgId)
-                        const isLast = pIdx === orgPrjs.length - 1
-                        return (
-                          <div
-                            key={project.id || pIdx}
-                            className={cn(
-                              'mx-1 flex cursor-pointer items-center gap-1.5 rounded-sm py-1 pl-6 pr-3 text-xs transition-colors hover:bg-accent/50',
-                              isSelected && 'bg-accent font-medium',
-                            )}
-                            onClick={() =>
-                              project.id &&
-                              handleSwitchToProject(project.org_id || org.id, project.id)
-                            }
-                          >
-                            <span className="w-3 shrink-0 text-[11px] text-muted-foreground/40">
-                              {isLast ? '└' : '├'}
-                            </span>
-                            <span className="flex-1 truncate">{project.name}</span>
-                            {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )
-                })}
-            </div>
-            <div className="border-t border-border p-1">
-              <Link
-                href="/managed/settings"
-                className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                onClick={() => setOpen(false)}
-              >
-                <Building2 className="h-3.5 w-3.5" />
-                {t('sidebar.manageOrganizations')}
-              </Link>
-            </div>
+          <DropdownMenuContent side="right" align="start" className="w-[320px] p-0">
+            {switcherContent}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -325,114 +504,43 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
   return (
     <div className="px-3 py-2">
       <DropdownMenu open={open} onOpenChange={handleOpen}>
-        <TooltipProvider delayDuration={0}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <button className="flex w-full items-center gap-2 rounded-md border border-border px-2.5 py-2 text-sm transition-colors hover:bg-accent/50">
-                  <div
-                    className={`h-7 w-7 rounded-md ${orgColors[organizations.indexOf(currentOrg!) % orgColors.length] || 'bg-primary'} flex shrink-0 items-center justify-center text-[10px] font-bold text-white`}
-                  >
-                    {currentOrg?.name?.charAt(0)?.toUpperCase() || 'O'}
-                  </div>
-                  <span className="min-w-0 flex-1 truncate text-left text-[13px] font-medium text-foreground">
-                    <span className="text-muted-foreground">
-                      {(currentOrg?.name || '').length > 4
-                        ? (currentOrg?.name || '').slice(0, 4) + '…'
-                        : currentOrg?.name || ''}
-                    </span>
-                    <span className="mx-0.5 text-muted-foreground/50">/</span>
-                    {currentProject?.name || 'Project'}
-                  </span>
-                  <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                </button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            {!open && (
-              <TooltipContent side="bottom" className="text-xs">
-                {currentOrg?.name} / {currentProject?.name}
-              </TooltipContent>
-            )}
-          </Tooltip>
-        </TooltipProvider>
-        <DropdownMenuContent align="start" className="w-[240px] p-0">
-          <div className="border-b border-border p-2">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={t('sidebar.searchOrgProject')}
-                className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                autoFocus
-              />
-            </div>
-          </div>
-          <div className="max-h-[360px] overflow-y-auto py-1">
-            {organizations
-              .filter(
-                (o) =>
-                  filterMatch(o.name) || getProjectsForOrg(o.id).some((p) => filterMatch(p.name)),
-              )
-              .map((org, idx) => {
-                const orgPrjs = getProjectsForOrg(org.id).filter(
-                  (p) => filterMatch(p.name) || filterMatch(org.name),
-                )
-                return (
-                  <div
-                    key={org.id}
-                    className={idx > 0 ? 'border-border/50 mt-1 border-t pt-1' : ''}
-                  >
-                    <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
-                      <div
-                        className={`h-4 w-4 rounded ${orgColors[idx % orgColors.length]} flex shrink-0 items-center justify-center text-[8px] font-bold text-white`}
-                      >
-                        {org.name.charAt(0).toUpperCase()}
-                      </div>
-                      {org.name}
-                      <span className="text-[10px] font-normal text-muted-foreground/60">
-                        {t('sidebar.organizationBadge')}
-                      </span>
-                    </div>
-                    {orgPrjs.map((project, pIdx) => {
-                      const isSelected =
-                        project.id === currentProjectId && org.id === (currentOrgId || orgId)
-                      const isLast = pIdx === orgPrjs.length - 1
-                      return (
-                        <div
-                          key={project.id || pIdx}
-                          className={cn(
-                            'mx-1 flex cursor-pointer items-center gap-1.5 rounded-sm py-1.5 pl-6 pr-3 text-xs transition-colors hover:bg-accent/50',
-                            isSelected && 'bg-accent font-medium',
-                          )}
-                          onClick={() =>
-                            project.id &&
-                            handleSwitchToProject(project.org_id || org.id, project.id)
-                          }
-                        >
-                          <span className="w-3 shrink-0 text-[11px] text-muted-foreground/40">
-                            {isLast ? '└' : '├'}
-                          </span>
-                          <span className="flex-1 truncate">{project.name}</span>
-                          {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })}
-          </div>
-          <div className="border-t border-border p-1">
-            <Link
-              href="/managed/settings"
-              className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-              onClick={() => setOpen(false)}
+        <DropdownMenuTrigger asChild>
+          <button className="flex w-full items-start gap-2 rounded-md border border-border px-2.5 py-2 text-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+            <div
+              className={cn(
+                'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white',
+                organizationColor(currentOrg?.id),
+              )}
             >
-              <Building2 className="h-3.5 w-3.5" />
-              {t('sidebar.manageOrganizations')}
-            </Link>
-          </div>
+              {currentOrg?.name?.charAt(0)?.toUpperCase() || 'O'}
+            </div>
+            <span className="min-w-0 flex-1 text-left">
+              <span className="mb-0.5 flex items-center justify-between gap-2">
+                <span className="truncate text-[10px] font-medium text-muted-foreground">
+                  {t('sidebar.currentContext')}
+                </span>
+                <span className="flex shrink-0 items-center gap-0.5 text-[10px] font-semibold text-primary">
+                  {t('sidebar.switchContext')}
+                  <ChevronsUpDown className="h-3 w-3" />
+                </span>
+              </span>
+              <span className="block truncate text-xs font-medium text-foreground">
+                {currentOrg?.name || t('sidebar.noOrganization')}
+              </span>
+              <span className="block truncate text-[11px] text-muted-foreground">
+                <span>{currentProject?.name || t('sidebar.noProject')}</span>
+                {currentOrg ? (
+                  <>
+                    <span aria-hidden="true"> · </span>
+                    <span>{organizationContext(currentOrg)}</span>
+                  </>
+                ) : null}
+              </span>
+            </span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-[320px] p-0">
+          {switcherContent}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

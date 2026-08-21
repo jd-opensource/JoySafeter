@@ -56,7 +56,22 @@ const en = {
     sidebar: {
       appTitle: 'JoySafeter',
       searchOrgProject: 'Search organizations or projects...',
-      organizationBadge: '(Organization)',
+      ownedOrganizations: 'Owned by you',
+      sharedOrganizations: 'Shared with you',
+      ownedByYou: 'You are the owner',
+      currentOrganization: 'Current',
+      currentContext: 'Current work location',
+      switchContext: 'Switch',
+      switchHint: 'Select a project to switch your work location',
+      currentProject: 'Current',
+      switchAction: 'Switch',
+      switching: 'Switching...',
+      switchSuccess: 'Switched to {{organization}} / {{project}}',
+      switchFailed: 'Failed to switch work location',
+      switchContextTooltip: 'Switch organization and project',
+      defaultProject: 'Default',
+      noOrganization: 'No organization',
+      noProject: 'No project',
       manageOrganizations: 'Manage Organizations',
     },
     nav: {
@@ -80,10 +95,9 @@ const en = {
       credentials: 'Credentials',
       memory: 'Memory',
       manage: 'Manage',
-      members: 'Organization Members',
       apiKeys: 'Project Access Tokens',
       projects: 'Projects',
-      organization: 'Organization',
+      organization: 'Organizations',
       language: 'Language',
       darkMode: 'Dark Mode',
       lightMode: 'Light Mode',
@@ -342,6 +356,8 @@ const en = {
       projectSettings: {
         backToProjects: 'Back to Projects',
         loading: 'Loading project settings',
+        notFoundTitle: 'Project unavailable',
+        notFoundDescription: 'This project was not found or you no longer have access to it.',
         switchFailedTitle: 'Could not open this project',
         switchFailedDescription:
           'The project context could not be activated. Retry or return to Projects.',
@@ -362,6 +378,12 @@ const en = {
           tokens: 'Access Tokens',
           lifecycle: 'Lifecycle',
         },
+        restricted: {
+          title: 'Project management access required',
+          description:
+            'You can view this project, but Project Admin permission is required for access rules, tokens, and lifecycle settings.',
+          backToOverview: 'Back to project overview',
+        },
         overview: {
           title: 'Project Identity',
           description: 'Edit the project name and URL slug. Changes apply only after you save.',
@@ -370,12 +392,16 @@ const en = {
           permission: 'Your project permission',
           projectId: 'Project ID',
           readOnly: 'Organization Admin permission is required to edit project identity.',
+          nameOnlyHint:
+            'Project Admins can rename this project. Slug changes require Organization Admin permission.',
           saveHint: 'Unsaved changes stay in this form if saving fails.',
         },
         lifecycle: {
           operationsTitle: 'Project Operations',
           operationsDescription:
             'Control default routing and whether project triggers may start new runs.',
+          permissionBoundary:
+            'Project Admins can control trigger runs. Organization owners and admins control the default project, archiving, and restoration.',
           defaultTitle: 'Default project',
           defaultCurrent: 'This is the organization’s default project.',
           defaultDescription:
@@ -2486,6 +2512,13 @@ const en = {
         resourceNotFound:
           'The resource does not exist or has been deleted. Please refresh and try again.',
         membershipExpired: 'Organization membership expired, please re-login',
+        memberUserNotFound: 'No registered account was found for that email.',
+        memberAlreadyExists: 'That user is already a member of the current organization.',
+        memberSelfManagementForbidden:
+          'You cannot change or remove the current account from member management.',
+        ownerRoleProtected:
+          'The organization owner cannot be changed or removed here. Transfer ownership first.',
+        ownerTransferRequired: 'The owner role can only be changed through Transfer Ownership.',
         skillSecurityRejected:
           'Skill security scan blocked publication. Score: {{score}}, severity: {{severity}}, recommendation: {{recommendation}}, issues: {{issues}}.',
         skillSecurityScanFailed:
@@ -2494,10 +2527,12 @@ const en = {
     },
     manage: {
       members: {
-        title: 'Organization Members',
+        title: 'Members & Roles',
         subtitle:
-          'Manage who belongs to this organization and their organization roles. Configure project access within each project.',
-        invite: 'Invite Organization Member',
+          'Manage members of “{{organization}}” and their organization roles. Configure project access within each project.',
+        add: 'Add Existing User',
+        addDescription:
+          'Add a registered account to “{{organization}}” and assign its organization role.',
         name: 'Name',
         email: 'Email',
         role: 'Organization Role',
@@ -2506,15 +2541,33 @@ const en = {
         roleAdmin: 'Organization Admin',
         roleMember: 'Organization Member',
         alreadyMember: 'Already an organization member',
+        registeredUserHint:
+          'Only registered accounts can be added. Search by name or email to confirm the user.',
         you: 'you',
         empty: 'No organization members yet.',
+        manage: 'Manage Member',
+        ownerProtected: 'Change through Transfer Ownership',
+        currentAccountProtected: 'Current account cannot be changed here',
+        manageDescription: 'Change the organization role for {{member}} or remove them.',
         remove: 'Remove from Organization',
         changeRole: 'Change Organization Role',
-        removeConfirm: 'Are you sure you want to remove this member from the organization?',
-        inviteFailed: 'Failed to invite organization member',
+        promoteAdminImpact:
+          'After promotion, this member becomes Project Admin for every project in the organization. Existing direct project grants are cleared.',
+        demoteMemberImpact:
+          'After demotion, existing direct project grants are cleared. The member keeps Viewer access to the Default project only; other projects require new grants.',
+        removeAccessImpact:
+          'Removing this member revokes both organization access and access to every project.',
+        removeConfirm: 'Remove {{member}} from this organization?',
+        addFailed: 'Failed to add organization member',
         searchPlaceholder: 'Search organization members by name, email, or user ID',
         accessExplanation:
-          'Organization owners and admins automatically administer every project. Ordinary organization members need project access. Invited ordinary members receive Viewer access to the default project.',
+          'Organization owners and admins automatically administer every project. Ordinary organization members need project access. Newly added ordinary members receive Viewer access to the default project.',
+        readOnlyExplanation:
+          'You are an ordinary organization member. You can view this list but cannot add, change, or remove members.',
+        roleAdminImpact:
+          'Organization admins automatically become Project Admins for every project.',
+        roleMemberImpact:
+          'Ordinary members can view the default project and need separate access for other projects.',
       },
       projectMembers: {
         title: 'Project Access',
@@ -2523,6 +2576,8 @@ const en = {
         orgRole: 'Organization Role',
         access: 'Project Permission',
         accessOrgWide: 'Inherited from Organization · Project Admin',
+        accessDefault: 'Inherited from the Default project · Viewer',
+        accessExplicit: 'Granted directly on this project',
         accessNone: 'Not Granted',
         roleAdmin: 'Project Admin',
         roleEditor: 'Editor',
@@ -2566,6 +2621,11 @@ const en = {
         revoke: 'Revoke Token',
       },
       projects: {
+        manage: 'Manage',
+        view: 'View',
+        use: 'Use project',
+        current: 'In use',
+        permission: 'Your access',
         members: 'Project Access',
         title: 'Projects',
         subtitle: 'Manage projects in this organization.',
@@ -2590,20 +2650,58 @@ const en = {
         editDesc: 'Update the project name.',
       },
       organization: {
-        title: 'Organization',
+        manage: 'Manage',
+        view: 'View',
+        searchPlaceholder: 'Search by organization, owner, slug, or ID',
+        projectCreationPolicy: 'Who can create projects',
+        projectCreationAdminsOnly: 'Organization owners and admins only',
+        projectCreationAllMembers: 'All organization members',
+        projectCreationPolicyHint:
+          'Members who create a project become Project Admins for that project.',
+        advanced: 'Advanced administration',
+        advancedDesc:
+          'Ownership transfer and deletion are kept here to avoid accidental list actions.',
+        title: 'Organizations',
         subtitle: 'Manage your organizations, create new ones or switch.',
-        tabs: {
-          label: 'Organization settings',
-          organizations: 'Organizations',
-          membersRoles: 'Members & Roles',
+        detail: {
+          loading: 'Loading organization',
+          notFoundTitle: 'Organization not found',
+          notFoundDescription: 'This organization is unavailable or you no longer have access.',
+          backToOrganizations: 'Back to organizations',
+          readOnly:
+            'You can view this organization and its members, but only organization owners and admins can make changes.',
+          readOnlySettings:
+            'Your organization role allows viewing these settings, but not changing them.',
+          settingsTitle: 'Organization settings',
+          settingsDescription:
+            'Update this organization without changing your active work context.',
+          identityTitle: 'Organization identity',
+          identityDescription: 'Use these values to confirm which organization you are managing.',
+          deleteCurrentFirst:
+            'Switch to another organization before deleting the current organization.',
+          deleteWarning:
+            'Deleting an organization permanently removes its projects and membership data.',
+          tabs: {
+            label: 'Organization details',
+            overview: 'Overview & Settings',
+            members: 'Members & Roles',
+          },
+          role: {
+            owner: 'Organization Owner',
+            admin: 'Organization Admin',
+            member: 'Organization Member',
+          },
         },
         create: 'Create Organization',
         createDesc: 'Create a new organization to manage teams and projects.',
         name: 'Organization Name',
         namePlaceholder: 'e.g. My Team',
+        ownedBy: 'Owned by',
+        ownerUnknown: 'Owner unavailable',
         empty: 'No organizations.',
         current: 'Current',
         switch: 'Switch',
+        switching: 'Switching...',
         createFailed: 'Failed to create. Please try again.',
         delete: 'Delete Organization',
         deleteConfirm:

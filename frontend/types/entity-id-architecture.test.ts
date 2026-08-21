@@ -782,7 +782,7 @@ function numeric(sessionId) {
 
     const nonEntityLists = [
       'app/managed/api-keys/page.tsx',
-      'app/managed/members/page.tsx',
+      'app/managed/settings/organizations/[organizationId]/members/page.tsx',
       'app/managed/platform/users/page.tsx',
       'app/managed/projects/page.tsx',
       'app/managed/projects/[projectId]/members/page.tsx',

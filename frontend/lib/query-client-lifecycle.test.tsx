@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { authApi } from './auth/api-client'
 import { startSilentSessionRefresh } from './auth/session-refresh'
-import { clearNonSessionQueryData } from './query-client-lifecycle'
+import { clearNonSessionQueryData, resetManagedScopeQueries } from './query-client-lifecycle'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' })
 globalThis.window = dom.window as unknown as Window & typeof globalThis
@@ -36,6 +36,20 @@ function createQueryClient() {
       },
     },
   })
+}
+
+function ActiveAuthMeQuery({
+  queryFn = () => new Promise<{ orgId: string }>(() => {}),
+}: {
+  queryFn?: () => Promise<{ orgId: string }>
+}) {
+  const { data } = useQuery({
+    queryKey: ['auth-me', 'user-1'],
+    queryFn,
+    staleTime: Infinity,
+    retry: false,
+  })
+  return <div data-testid="auth-me">{data?.orgId ?? ''}</div>
 }
 
 describe('query client lifecycle', () => {
@@ -112,6 +126,49 @@ describe('query client lifecycle', () => {
       expect(getByTestId('agents').textContent).toBe('')
     })
     expect(fetchCount).toBe(0)
+  })
+
+  it('preserves an active auth-me query when resetting managed scope after an org switch', async () => {
+    const queryClient = createQueryClient()
+    queryClient.setQueryData(['session'], { user: { id: 'user-1' } })
+    queryClient.setQueryData(['auth-me', 'user-1'], { orgId: 'org-a' })
+    queryClient.setQueryData(['agents'], [{ id: 'agent-from-project-a' }])
+    let authMeFetchCount = 0
+    const authMeQueryFn = () => {
+      authMeFetchCount += 1
+      return new Promise<{ orgId: string }>(() => {})
+    }
+    let managedFetchCount = 0
+    const managedQueryFn = () => {
+      managedFetchCount += 1
+      return new Promise<Array<{ id: string }>>(() => {})
+    }
+
+    const { getByTestId } = render(
+      <QueryClientProvider client={queryClient}>
+        <ActiveAuthMeQuery queryFn={authMeQueryFn} />
+        <ActiveManagedQuery queryFn={managedQueryFn} />
+      </QueryClientProvider>,
+    )
+
+    expect(getByTestId('auth-me').textContent).toBe('org-a')
+    expect(getByTestId('agents').textContent).toBe('agent-from-project-a')
+
+    await act(async () => {
+      resetManagedScopeQueries(queryClient)
+    })
+
+    // Scoped data is cleared and refetched under the new context...
+    await waitFor(() => {
+      expect(getByTestId('agents').textContent).toBe('')
+    })
+    expect(managedFetchCount).toBe(1)
+    expect(authMeFetchCount).toBe(1)
+    // ...but the auth-me query that ProjectProvider gates rendering on must survive,
+    // otherwise the whole app hangs on the loading spinner (blank page) until refresh.
+    expect(getByTestId('auth-me').textContent).toBe('org-a')
+    expect(queryClient.getQueryData(['auth-me', 'user-1'])).toEqual({ orgId: 'org-a' })
+    expect(queryClient.getQueryData(['session'])).toEqual({ user: { id: 'user-1' } })
   })
 
   it('refreshes the remaining active query client after the latest session subscriber unmounts', async () => {

@@ -77,6 +77,17 @@ export function getOperationErrorMessage(
     })
   }
 
+  const organizationMemberErrorKeys: Record<string, string> = {
+    AUTH_USER_NOT_FOUND: 'managed.errors.memberUserNotFound',
+    ORGANIZATION_MEMBER_ALREADY_EXISTS: 'managed.errors.memberAlreadyExists',
+    AUTH_MEMBER_SELF_MANAGEMENT_FORBIDDEN: 'managed.errors.memberSelfManagementForbidden',
+    AUTH_OWNER_ROLE_CHANGE_FORBIDDEN: 'managed.errors.ownerRoleProtected',
+    ORGANIZATION_OWNER_ROLE_ASSIGN_FORBIDDEN: 'managed.errors.ownerTransferRequired',
+  }
+  if (organizationMemberErrorKeys[code]) {
+    return t(organizationMemberErrorKeys[code])
+  }
+
   if (code === 'JOYSAFETER_WRITE_REQUIRED') {
     return t('managed.errors.writeRequired')
   }

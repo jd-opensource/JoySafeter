@@ -62,13 +62,21 @@ function ProjectOverviewForm({ project }: { project: ProjectDetails }) {
   const { canAdmin } = useUserPermissionsContext()
   const [name, setName] = useState(project.name)
   const [slug, setSlug] = useState(project.slug)
+  const archived = Boolean(project.archived_at)
+  const canEditName = project.capability === 'admin' && !archived
+  const canEditSlug = canAdmin && !archived
+  const nameChanged = canEditName && name.trim() !== project.name
+  const slugChanged = canEditSlug && slug.trim() !== project.slug
+  const dirty = nameChanged || slugChanged
+  const readOnly = !canEditName && !canEditSlug
 
   const saveProject = useMutation({
-    mutationFn: () =>
-      managedPatch<ProjectDetails>(`/auth/projects/${project.id}`, {
-        name: name.trim(),
-        slug: slug.trim(),
-      }),
+    mutationFn: () => {
+      const payload: { name?: string; slug?: string } = {}
+      if (nameChanged) payload.name = name.trim()
+      if (slugChanged) payload.slug = slug.trim()
+      return managedPatch<ProjectDetails>(`/auth/projects/${project.id}`, payload)
+    },
     onSuccess: (updatedProject) => {
       queryClient.setQueryData(['project', project.id], updatedProject)
       queryClient.invalidateQueries({ queryKey: ['projects-list'] })
@@ -84,9 +92,6 @@ function ProjectOverviewForm({ project }: { project: ProjectDetails }) {
     onError: (error) => toastOperationError(t, error, 'common.operationFailed'),
   })
 
-  const readOnly = !canAdmin || Boolean(project.archived_at)
-  const dirty = name !== project.name || slug !== project.slug
-
   return (
     <Card>
       <CardHeader>
@@ -99,7 +104,7 @@ function ProjectOverviewForm({ project }: { project: ProjectDetails }) {
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            disabled={readOnly}
+            disabled={!canEditName}
           />
         </label>
         <label className="flex flex-col gap-2 text-sm font-medium text-foreground">
@@ -107,7 +112,7 @@ function ProjectOverviewForm({ project }: { project: ProjectDetails }) {
           <Input
             value={slug}
             onChange={(event) => setSlug(event.target.value)}
-            disabled={readOnly}
+            disabled={!canEditSlug}
             className="font-mono"
           />
           <span className="text-xs font-normal text-muted-foreground">
@@ -135,11 +140,18 @@ function ProjectOverviewForm({ project }: { project: ProjectDetails }) {
         <p className="text-xs text-muted-foreground">
           {readOnly
             ? t('managed.projectSettings.overview.readOnly')
-            : t('managed.projectSettings.overview.saveHint')}
+            : canEditSlug
+              ? t('managed.projectSettings.overview.saveHint')
+              : t('managed.projectSettings.overview.nameOnlyHint')}
         </p>
         <Button
           onClick={() => saveProject.mutate()}
-          disabled={readOnly || !dirty || !name.trim() || !slug.trim() || saveProject.isPending}
+          disabled={
+            !dirty ||
+            (nameChanged && !name.trim()) ||
+            (slugChanged && !slug.trim()) ||
+            saveProject.isPending
+          }
         >
           {saveProject.isPending ? t('common.saving') : t('common.save')}
         </Button>

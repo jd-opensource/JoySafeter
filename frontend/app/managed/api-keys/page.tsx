@@ -1,6 +1,6 @@
 'use client'
 
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
@@ -32,12 +32,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  currentProjectAllowsWrite,
-  useCurrentProjectReadOnly,
-} from '@/hooks/managed/use-current-project-read-only'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
-import { managedDelete, managedPost } from '@/lib/api-client'
+import { managedDelete, managedGet, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
@@ -54,6 +50,13 @@ interface ApiKey {
   last_used_at?: string
 }
 
+interface ProjectSummary {
+  id: string
+  org_id: string
+  capability?: string
+  archived_at?: string | null
+}
+
 interface RevokeKeyVariables {
   id: string
   scope: string
@@ -67,13 +70,23 @@ interface CreateKeyVariables {
   runId: number
 }
 
-export default function ApiKeysPage() {
+export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
-  const projectReadOnly = useCurrentProjectReadOnly()
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const currentProject = useProjectStore((state) => state.currentProject)
+  const targetProjectId = projectId || currentProjectId || ''
+  const targetProjectQuery = useQuery({
+    queryKey: ['project', targetProjectId],
+    queryFn: () => managedGet<ProjectSummary>(`auth/projects/${targetProjectId}`),
+    enabled: Boolean(projectId && targetProjectId),
+  })
+  const targetProject = projectId ? targetProjectQuery.data : currentProject
+  const projectReadOnly =
+    !targetProject || Boolean(targetProject.archived_at) || targetProject.capability !== 'admin'
+  const apiKeysPath = projectId ? `/auth/projects/${targetProjectId}/api-keys` : '/auth/api-keys'
+  const managedScope = `${currentOrgId ?? ''}:${targetProjectId}`
   const managedScopeRef = useRef(managedScope)
   const createKeyRunRef = useRef(0)
   const revokeKeyRunRef = useRef(0)
@@ -105,7 +118,8 @@ export default function ApiKeysPage() {
     reset: resetApiKeyPagination,
   } = usePaginatedList<ApiKey>({
     queryKey: 'api-keys',
-    path: '/auth/api-keys',
+    path: apiKeysPath,
+    enabled: Boolean(targetProjectId),
   })
 
   useEffect(
@@ -213,21 +227,21 @@ export default function ApiKeysPage() {
 
   const getCurrentManagedScope = () => {
     const { currentOrgId, currentProjectId } = useProjectStore.getState()
-    return `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+    return `${currentOrgId ?? ''}:${projectId || currentProjectId || ''}`
   }
 
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>
     managedScopeRef.current === scope && getCurrentManagedScope() === scope
 
   const currentManagedScopeAllowsWrite = (scope = managedScopeRef.current) =>
-    currentManagedScopeIsActive(scope) && currentProjectAllowsWrite()
+    currentManagedScopeIsActive(scope) && !projectReadOnly
 
   const createKey = useMutation({
     mutationFn: (data: CreateKeyVariables) => {
       if (!currentManagedScopeAllowsWrite(data.scope) || data.runId !== createKeyRunRef.current) {
         throw new Error('Stale api key create ignored')
       }
-      return managedPost<{ raw_key: string }>('/auth/api-keys', {
+      return managedPost<{ raw_key: string }>(apiKeysPath, {
         name: data.name,
         role: data.role,
       }).then((res) => ({ res, runId: data.runId, scope: data.scope, name: data.name }))
@@ -254,13 +268,13 @@ export default function ApiKeysPage() {
   })
 
   const openCreateDialog = () => {
-    if (!currentProjectAllowsWrite()) return
+    if (projectReadOnly) return
     createKeyRunRef.current += 1
     setShowCreate(true)
   }
 
   const handleCreateOpenChange = (open: boolean) => {
-    if (open && !currentProjectAllowsWrite()) return
+    if (open && projectReadOnly) return
     if (!open) {
       createKeyRunRef.current += 1
     }
@@ -284,7 +298,9 @@ export default function ApiKeysPage() {
       if (!currentManagedScopeAllowsWrite(scope) || runId !== revokeKeyRunRef.current) {
         throw new Error('Stale api key revoke ignored')
       }
-      return managedDelete(`/auth/api-keys/${id}`)
+      return managedDelete(
+        projectId ? `/auth/projects/${targetProjectId}/api-keys/${id}` : `/auth/api-keys/${id}`,
+      )
     },
     onSuccess: (_data, { runId, scope }) => {
       if (!currentManagedScopeAllowsWrite(scope) || runId !== revokeKeyRunRef.current) return

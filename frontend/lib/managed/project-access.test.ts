@@ -15,6 +15,10 @@ describe('project access presentation', () => {
     expect(effectiveProjectAccessValue('org_wide', null)).toBe('org_wide')
   })
 
+  it('presents implicit Default-project access as viewer access', () => {
+    expect(effectiveProjectAccessValue('default', null)).toBe('viewer')
+  })
+
   it('allows project access management only with effective project admin capability', () => {
     expect(canManageProjectAccess('admin')).toBe(true)
     expect(canManageProjectAccess('write')).toBe(false)

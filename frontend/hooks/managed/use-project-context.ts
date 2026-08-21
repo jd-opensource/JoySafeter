@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 
 import { managedGet, managedPost } from '@/lib/api-client'
 import { parseApiError } from '@/lib/managed/errors'
+import { resetManagedScopeQueries } from '@/lib/query-client-lifecycle'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { OrgInfo, ProjectInfo } from '@/stores/managed/project-store'
 
@@ -132,16 +133,7 @@ export function useProjectContext() {
           data.project || null,
         )
         setIsLoading(false)
-        // Remove all non-session query cache and refetch active queries.
-        // After setContext(), components re-render with the new scope key.
-        // Queries whose key includes the scope will have a new key (auto-fetch).
-        // Queries without scope in the key (e.g. analytics) need explicit invalidation.
-        queryClient.removeQueries({
-          predicate: (query) => query.queryKey[0] !== 'session' && query.queryKey[0] !== 'auth-me',
-        })
-        void queryClient.invalidateQueries({
-          predicate: (query) => query.queryKey[0] !== 'session' && query.queryKey[0] !== 'auth-me',
-        })
+        resetManagedScopeQueries(queryClient)
       } catch (err) {
         console.error('Failed to switch project:', err)
         throw err

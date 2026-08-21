@@ -6,26 +6,13 @@ import { useEffect } from 'react'
 import { ApiError, managedGet } from '@/lib/api-client'
 import { useSession } from '@/lib/auth/auth-client'
 import { useProjectStore } from '@/stores/managed/project-store'
+import type { OrgInfo, ProjectInfo } from '@/stores/managed/project-store'
 
 interface AuthMeResponse {
-  organization: { id: string; name: string; slug: string; role: string }
-  project: {
-    id: string
-    name: string
-    slug: string
-    is_default: boolean
-    archived_at?: string | null
-    capability: string
-    project_role?: string | null
-  }
-  organizations: Array<{ id: string; name: string; slug: string; role: string }>
-  projects: Array<{
-    id: string
-    name: string
-    slug: string
-    is_default: boolean
-    archived_at?: string | null
-  }>
+  organization: OrgInfo
+  project: ProjectInfo
+  organizations: OrgInfo[]
+  projects: ProjectInfo[]
 }
 
 interface AuthMeQueryResult {

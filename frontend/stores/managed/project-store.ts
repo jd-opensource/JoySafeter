@@ -6,6 +6,9 @@ export interface OrgInfo {
   name: string
   slug: string
   role: string
+  owner_name?: string | null
+  owner_email?: string | null
+  project_creation_policy?: 'admins_only' | 'all_members'
 }
 
 export interface ProjectInfo {

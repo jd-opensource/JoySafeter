@@ -1186,7 +1186,7 @@ describe('credential domain terminology', () => {
   it('inventories direct, template, and finite active translation leaves', () => {
     const inventory = getActiveTranslationInventory()
 
-    expect(inventory.sourceFileCount).toBe(285)
+    expect(inventory.sourceFileCount).toBe(286)
     expect(inventory.sourceFiles).toContain('lib/managed/errors.ts')
     expect(inventory.sourceFiles).not.toContain('lib/i18n/locales/en.ts')
     expect(inventory.sourceFiles).not.toContain(
@@ -1203,8 +1203,8 @@ describe('credential domain terminology', () => {
       0,
     )
 
-    expect(inventory.counts).toEqual({ direct: 1441, dynamic: 460, total: 1901 })
-    expect(templateAdditions).toBe(433)
+    expect(inventory.counts).toEqual({ direct: 1496, dynamic: 471, total: 1967 })
+    expect(templateAdditions).toBe(444)
     expect(finiteAdditions).toBe(27)
     expect(inventory.templateDynamicLeaves).toContain(
       'managed.skills.aiAuthor.scan.status.not_scanned',

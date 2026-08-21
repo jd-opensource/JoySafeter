@@ -1,7 +1,7 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Archive, RotateCcw } from 'lucide-react'
+import { ArrowRight, Check, Play, Plus } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 
@@ -13,7 +13,6 @@ import {
   StatusBadge,
   type Column,
   type FilterDef,
-  type MenuItem,
   PageHeader,
   ResourceErrorState,
 } from '@/components/managed/shared'
@@ -29,7 +28,8 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
-import { managedPost, managedDelete } from '@/lib/api-client'
+import { useProjectContext } from '@/hooks/managed/use-project-context'
+import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
@@ -57,9 +57,10 @@ interface ProjectScopedAction {
 function projectSlugFromName(name: string) {
   return name
     .trim()
-    .normalize('NFKC')
+    .normalize('NFKD')
     .toLocaleLowerCase()
-    .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 64)
 }
@@ -68,8 +69,15 @@ export default function ProjectsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const router = useRouter()
+  const { switchProject } = useProjectContext()
   const { canAdmin } = useUserPermissionsContext()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
+  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const currentOrganization = useProjectStore((state) =>
+    state.organizations.find((organization) => organization.id === state.currentOrgId),
+  )
+  const canCreateProject =
+    canAdmin || currentOrganization?.project_creation_policy === 'all_members'
   const orgScope = currentOrgId ?? ''
   const orgScopeRef = useRef(orgScope)
   const actionRunRef = useRef(0)
@@ -78,7 +86,7 @@ export default function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
   const [newName, setNewName] = useState('')
-  const [archiveTarget, setArchiveTarget] = useState<Project | null>(null)
+  const [switchingProjectId, setSwitchingProjectId] = useState<string | null>(null)
 
   const {
     data: projects,
@@ -124,7 +132,6 @@ export default function ProjectsPage() {
     orgScopeRef.current = orgScope
     actionRunRef.current += 1
     resetCreateDraft()
-    setArchiveTarget(null)
     resetProjectsPagination()
   }, [orgScope, resetProjectsPagination])
 
@@ -153,26 +160,6 @@ export default function ProjectsPage() {
     }
   }
 
-  const currentMutableActiveProject = (project: Project | null) => {
-    if (!project) return null
-    if (!currentOrgScopeIsActive()) return null
-    const current = queryClient
-      .getQueriesData<{ data: Project[] }>({ queryKey: ['projects-list'] })
-      .flatMap(([, page]) => page?.data ?? [])
-      ?.find((candidate) => candidate.id === project.id)
-    return current && !current.archived_at && !current.is_default ? current : null
-  }
-
-  const currentRestorableArchivedProject = (project: Project | null) => {
-    if (!project) return null
-    if (!currentOrgScopeIsActive()) return null
-    const current = queryClient
-      .getQueriesData<{ data: Project[] }>({ queryKey: ['projects-list'] })
-      .flatMap(([, page]) => page?.data ?? [])
-      ?.find((candidate) => candidate.id === project.id)
-    return current?.archived_at ? current : null
-  }
-
   const createProject = useMutation({
     mutationFn: (data: { name: string } & ProjectScopedAction) => {
       if (!isCurrentAction(data.runId, data.scope)) {
@@ -192,67 +179,6 @@ export default function ProjectsPage() {
       toastOperationError(t, error, 'common.operationFailed')
     },
   })
-
-  const archiveProject = useMutation({
-    mutationFn: ({ projectId, runId, scope }: { projectId: string } & ProjectScopedAction) => {
-      if (!isCurrentAction(runId, scope)) {
-        throw new Error('Stale project archive ignored')
-      }
-      return managedDelete(`/auth/projects/${projectId}`)
-    },
-    onSuccess: (_data, variables) => {
-      if (!isCurrentAction(variables.runId, variables.scope)) return
-      resetProjectsPagination()
-      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
-    },
-    onError: (error, variables) => {
-      if (!isCurrentAction(variables.runId, variables.scope)) return
-      toastOperationError(t, error, 'common.operationFailed')
-    },
-  })
-
-  const openArchiveDialog = (project: Project) => {
-    const current = currentMutableActiveProject(project)
-    if (!current) return
-
-    actionRunRef.current += 1
-    setArchiveTarget(current)
-  }
-
-  const closeArchiveDialog = () => {
-    actionRunRef.current += 1
-    setArchiveTarget(null)
-  }
-
-  const restoreProject = useMutation({
-    mutationFn: ({ projectId, runId, scope }: { projectId: string } & ProjectScopedAction) => {
-      if (!isCurrentAction(runId, scope)) {
-        throw new Error('Stale project restore ignored')
-      }
-      return managedPost(`/auth/projects/${projectId}/restore`, {})
-    },
-    onSuccess: (_data, variables) => {
-      if (!isCurrentAction(variables.runId, variables.scope)) return
-      resetProjectsPagination()
-      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
-      queryClient.invalidateQueries({ queryKey: ['auth-me'] })
-    },
-    onError: (error, variables) => {
-      if (!isCurrentAction(variables.runId, variables.scope)) return
-      toastOperationError(t, error, 'common.operationFailed')
-    },
-  })
-
-  useEffect(() => {
-    const currentById = new Map(projects.map((project) => [project.id, project]))
-    const isMutableActiveProject = (project: Project | undefined) =>
-      !!project && !project.archived_at && !project.is_default
-
-    setArchiveTarget((target) => {
-      if (!target) return null
-      return isMutableActiveProject(currentById.get(target.id)) ? target : null
-    })
-  }, [projects])
 
   const filteredProjects = projects.filter(
     (p) =>
@@ -274,19 +200,75 @@ export default function ProjectsPage() {
       onChange: setCreatedFilter,
     },
   ]
+
+  const renderProjectActions = (project: Project, fullWidth = false) => (
+    <div className={fullWidth ? 'grid gap-2 sm:grid-cols-2' : 'flex justify-end gap-2'}>
+      {project.id !== currentProjectId && !project.archived_at ? (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className={fullWidth ? 'w-full' : undefined}
+          disabled={switchingProjectId !== null}
+          onClick={() => {
+            setSwitchingProjectId(project.id)
+            void switchProject(project.id, project.org_id)
+              .catch((error) => toastOperationError(t, error, 'common.operationFailed'))
+              .finally(() => setSwitchingProjectId(null))
+          }}
+        >
+          <Play className="h-3.5 w-3.5" />
+          {t('manage.projects.use')}
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className={fullWidth ? 'w-full' : undefined}
+        onClick={() => router.push(`/managed/projects/${project.id}`)}
+      >
+        {t(project.capability === 'admin' ? 'manage.projects.manage' : 'manage.projects.view')}
+        <ArrowRight className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  )
+
   const columns: Column<Project>[] = [
     {
       key: 'name',
       header: t('manage.projects.projectName'),
       render: (project) => (
         <div className="flex items-center gap-2">
-          <span className="font-medium text-foreground">{project.name}</span>
+          <Button
+            type="button"
+            variant="link"
+            className="h-auto justify-start p-0 font-medium"
+            onClick={() => router.push(`/managed/projects/${project.id}`)}
+          >
+            {project.name}
+          </Button>
           {project.is_default && (
             <Badge variant="outline" className="text-[10px]">
               {t('manage.projects.default')}
             </Badge>
           )}
+          {project.id === currentProjectId && (
+            <Badge variant="secondary" className="gap-1 text-[10px]">
+              <Check className="h-3 w-3" />
+              {t('manage.projects.current')}
+            </Badge>
+          )}
         </div>
+      ),
+    },
+    {
+      key: 'permission',
+      header: t('manage.projects.permission'),
+      render: (project) => (
+        <Badge variant="secondary">
+          {t(`managed.projectSettings.capability.${project.capability || 'read'}`)}
+        </Badge>
       ),
     },
     {
@@ -313,6 +295,13 @@ export default function ProjectsPage() {
           <span className="text-muted-foreground">-</span>
         ),
     },
+    {
+      key: 'manage',
+      header: t('managed.table.actions'),
+      align: 'right',
+      truncate: false,
+      render: (project) => renderProjectActions(project),
+    },
   ]
 
   if (isError) {
@@ -331,7 +320,7 @@ export default function ProjectsPage() {
         title={t('manage.projects.title')}
         subtitle={t('manage.projects.subtitle')}
         action={
-          canAdmin ? (
+          canCreateProject ? (
             <Button size="sm" onClick={openCreateDialog}>
               <Plus className="mr-1 h-4 w-4" />
               {t('manage.projects.create')}
@@ -387,10 +376,49 @@ export default function ProjectsPage() {
       <DataTable
         columns={columns}
         data={filteredProjects}
-        onRowClick={(project) => router.push(`/managed/projects/${project.id}`)}
         loading={isLoading}
         fetching={isFetching}
         emptyMessage={t('manage.projects.empty')}
+        mobileCard={(project) => (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-foreground">{project.name}</span>
+                {project.is_default ? (
+                  <Badge variant="outline" className="text-[10px]">
+                    {t('manage.projects.default')}
+                  </Badge>
+                ) : null}
+                {project.id === currentProjectId ? (
+                  <Badge variant="secondary" className="gap-1 text-[10px]">
+                    <Check className="h-3 w-3" />
+                    {t('manage.projects.current')}
+                  </Badge>
+                ) : null}
+              </div>
+              <MonoId id={project.slug} truncate={false} />
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">
+                  {t('manage.projects.permission')}
+                </div>
+                <Badge variant="secondary">
+                  {t(`managed.projectSettings.capability.${project.capability || 'read'}`)}
+                </Badge>
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">{t('manage.projects.status')}</div>
+                <StatusBadge
+                  status={
+                    project.archived_at ? 'archived' : project.triggers_paused ? 'paused' : 'active'
+                  }
+                />
+              </div>
+            </div>
+            {renderProjectActions(project, true)}
+          </div>
+        )}
         pagination={{
           hasNext,
           hasPrev,
@@ -402,69 +430,7 @@ export default function ProjectsPage() {
           onPageChange: goToPage,
           onPageSizeChange: setPageSize,
         }}
-        actionMenu={(project) => {
-          if (project.archived_at) {
-            return canAdmin
-              ? [
-                  {
-                    label: t('common.restore'),
-                    icon: <RotateCcw className="h-3.5 w-3.5" />,
-                    onClick: () => {
-                      const current = currentRestorableArchivedProject(project)
-                      if (!current) return
-                      const action = nextScopedAction()
-                      if (action) restoreProject.mutate({ projectId: current.id, ...action })
-                    },
-                  },
-                ]
-              : []
-          }
-
-          const items: MenuItem[] = []
-          if (canAdmin && !project.is_default) {
-            items.push({
-              label: t('common.archive'),
-              icon: <Archive className="h-3.5 w-3.5" />,
-              onClick: () => openArchiveDialog(project),
-            })
-          }
-          return items
-        }}
       />
-
-      <Dialog open={!!archiveTarget} onOpenChange={(open) => !open && closeArchiveDialog()}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('manage.projects.archiveTitle')}</DialogTitle>
-            <DialogDescription>{t('manage.projects.archiveDesc')}</DialogDescription>
-          </DialogHeader>
-          <p className="text-sm font-medium">{archiveTarget?.name}</p>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeArchiveDialog}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                const current = currentMutableActiveProject(archiveTarget)
-                if (!current) {
-                  closeArchiveDialog()
-                  return
-                }
-                const action = nextScopedAction()
-                if (!action) return
-                archiveProject.mutate({
-                  projectId: current.id,
-                  ...action,
-                })
-                setArchiveTarget(null)
-              }}
-            >
-              {t('manage.projects.archive')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

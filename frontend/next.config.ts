@@ -18,6 +18,11 @@ const nextConfig: NextConfig = {
         destination: '/settings',
         permanent: true,
       },
+      {
+        source: '/managed/api-keys',
+        destination: '/managed/projects',
+        permanent: true,
+      },
     ]
   },
   devIndicators: false,

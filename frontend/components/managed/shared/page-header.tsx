@@ -13,8 +13,11 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, titleExtra, subtitle, action, breadcrumb }: PageHeaderProps) {
   return (
-    <div className="mb-6 flex items-start justify-between">
-      <div>
+    <div
+      data-testid="page-header"
+      className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+    >
+      <div className="min-w-0">
         {breadcrumb && (
           <nav className="mb-1 text-sm text-muted-foreground">
             {breadcrumb.map((crumb, i) => (
@@ -45,7 +48,14 @@ export function PageHeader({ title, titleExtra, subtitle, action, breadcrumb }: 
         </div>
         {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
-      {action && <div>{action}</div>}
+      {action && (
+        <div
+          data-testid="page-header-action"
+          className="w-full shrink-0 sm:w-auto [&>*]:w-full sm:[&>*]:w-auto"
+        >
+          {action}
+        </div>
+      )}
     </div>
   )
 }

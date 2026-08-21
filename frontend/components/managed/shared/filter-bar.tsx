@@ -44,9 +44,12 @@ export function FilterBar({
 }: FilterBarProps) {
   const { t } = useTranslation()
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-3">
+    <div
+      data-testid="filter-bar"
+      className="mb-4 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center"
+    >
       {(onSearch || onSearchChange) && (
-        <div className="relative">
+        <div className="relative w-full sm:w-auto">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder={searchPlaceholder}
@@ -55,14 +58,14 @@ export function FilterBar({
             onKeyDown={(e) => {
               if (e.key === 'Enter') onSearch?.(e.currentTarget.value)
             }}
-            className="w-[240px] pl-8"
+            className="w-full pl-8 sm:w-[240px]"
           />
         </div>
       )}
 
       {filters?.map((f) => (
         <Select key={f.key} value={f.value} onValueChange={f.onChange}>
-          <SelectTrigger className="w-auto min-w-[140px]">
+          <SelectTrigger className="w-full min-w-[140px] sm:w-auto">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -76,13 +79,13 @@ export function FilterBar({
       ))}
 
       {onArchivedChange !== undefined && (
-        <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+        <label className="flex w-full cursor-pointer items-center justify-between gap-2 text-sm text-muted-foreground sm:w-auto sm:justify-start">
           {t('managed.filters.showArchived')}
           <Switch checked={showArchived} onCheckedChange={onArchivedChange} />
         </label>
       )}
 
-      {trailing && <div className="ml-auto">{trailing}</div>}
+      {trailing && <div className="w-full sm:ml-auto sm:w-auto">{trailing}</div>}
     </div>
   )
 }

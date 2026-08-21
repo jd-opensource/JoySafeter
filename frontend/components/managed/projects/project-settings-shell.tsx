@@ -1,24 +1,34 @@
 'use client'
 
+import { useQuery } from '@tanstack/react-query'
 import { FolderCode } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useProjectContext } from '@/hooks/managed/use-project-context'
+import { managedGet } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { useProjectStore } from '@/stores/managed/project-store'
 
 const projectTabs = [
-  { segment: '', labelKey: 'managed.projectSettings.tabs.overview' },
-  { segment: 'access', labelKey: 'managed.projectSettings.tabs.access' },
-  { segment: 'tokens', labelKey: 'managed.projectSettings.tabs.tokens' },
-  { segment: 'lifecycle', labelKey: 'managed.projectSettings.tabs.lifecycle' },
+  { segment: '', labelKey: 'managed.projectSettings.tabs.overview', requiresAdmin: false },
+  { segment: 'access', labelKey: 'managed.projectSettings.tabs.access', requiresAdmin: true },
+  { segment: 'tokens', labelKey: 'managed.projectSettings.tabs.tokens', requiresAdmin: true },
+  { segment: 'lifecycle', labelKey: 'managed.projectSettings.tabs.lifecycle', requiresAdmin: true },
 ]
+
+interface ProjectSettingsSummary {
+  id: string
+  org_id: string
+  name: string
+  slug: string
+  is_default: boolean
+  archived_at?: string | null
+  capability?: string
+}
 
 export function ProjectSettingsShell({
   projectId,
@@ -29,64 +39,16 @@ export function ProjectSettingsShell({
 }) {
   const pathname = usePathname()
   const { t } = useTranslation()
-  const {
-    orgId,
-    projectId: activeProjectId,
-    organizations,
-    projects,
-    isLoading,
-    switchProject,
-  } = useProjectContext()
-  const storedCurrentProject = useProjectStore((state) => state.currentProject)
-  const switchingProjectIdRef = useRef<string | null>(null)
-  const [switchError, setSwitchError] = useState<unknown>(null)
-  const targetProject = projects.find((project) => project.id === projectId) ?? null
-  const project =
-    activeProjectId === projectId && storedCurrentProject?.id === projectId
-      ? storedCurrentProject
-      : targetProject
-  const targetOrgId = targetProject?.org_id || orgId || undefined
+  const { orgId, organizations, isLoading: contextLoading } = useProjectContext()
+  const projectQuery = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: () => managedGet<ProjectSettingsSummary>(`auth/projects/${projectId}`),
+    enabled: Boolean(projectId),
+  })
+  const project = projectQuery.data ?? null
   const organization = organizations.find((org) => org.id === (project?.org_id || orgId))
-  const contextReady = activeProjectId === projectId && Boolean(project)
 
-  const requestContextSwitch = useCallback(() => {
-    if (!projectId || switchingProjectIdRef.current === projectId) return
-    switchingProjectIdRef.current = projectId
-    void switchProject(projectId, targetOrgId)
-      .catch((error) => setSwitchError(error))
-      .finally(() => {
-        if (switchingProjectIdRef.current === projectId) switchingProjectIdRef.current = null
-      })
-  }, [projectId, switchProject, targetOrgId])
-
-  useEffect(() => {
-    if (contextReady || isLoading) return
-    requestContextSwitch()
-  }, [contextReady, isLoading, requestContextSwitch])
-
-  if (!contextReady) {
-    if (switchError) {
-      return (
-        <div className="flex min-h-[360px] flex-col items-center justify-center gap-4 text-center">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">
-              {t('managed.projectSettings.switchFailedTitle')}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t('managed.projectSettings.switchFailedDescription')}
-            </p>
-          </div>
-          <Button
-            onClick={() => {
-              setSwitchError(null)
-              requestContextSwitch()
-            }}
-          >
-            {t('common.retry')}
-          </Button>
-        </div>
-      )
-    }
+  if (contextLoading || projectQuery.isLoading) {
     return (
       <div className="flex w-full flex-col gap-5" aria-label={t('managed.projectSettings.loading')}>
         <Skeleton className="h-5 w-48" />
@@ -97,7 +59,31 @@ export function ProjectSettingsShell({
     )
   }
 
+  if (!project) {
+    return (
+      <div className="flex min-h-[240px] flex-col items-center justify-center gap-2 text-center">
+        <h2 className="text-lg font-semibold text-foreground">
+          {t('managed.projectSettings.notFoundTitle')}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {t('managed.projectSettings.notFoundDescription')}
+        </p>
+        <Link href="/managed/projects" className="text-sm text-primary hover:underline">
+          {t('managed.projectSettings.backToProjects')}
+        </Link>
+      </div>
+    )
+  }
+
   const basePath = `/managed/projects/${projectId}`
+  const canManageProject = project.capability === 'admin'
+  const visibleTabs = projectTabs.filter((tab) => canManageProject || !tab.requiresAdmin)
+  const routeSegment = pathname.startsWith(`${basePath}/`)
+    ? pathname.slice(basePath.length + 1).split('/')[0]
+    : ''
+  const restrictedRoute =
+    !canManageProject &&
+    projectTabs.some((tab) => tab.requiresAdmin && tab.segment === routeSegment)
 
   return (
     <div className="flex w-full flex-col gap-6">
@@ -134,7 +120,7 @@ export function ProjectSettingsShell({
 
       <nav aria-label={t('managed.projectSettings.tabs.label')} className="border-b border-border">
         <div className="flex gap-6 overflow-x-auto">
-          {projectTabs.map((tab) => {
+          {visibleTabs.map((tab) => {
             const href = tab.segment ? `${basePath}/${tab.segment}` : basePath
             const active = pathname === href
             return (
@@ -154,7 +140,24 @@ export function ProjectSettingsShell({
         </div>
       </nav>
 
-      {children}
+      {restrictedRoute ? (
+        <div className="rounded-lg border border-border bg-muted/30 p-6">
+          <h2 className="text-lg font-semibold text-foreground">
+            {t('managed.projectSettings.restricted.title')}
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {t('managed.projectSettings.restricted.description')}
+          </p>
+          <Link
+            href={basePath}
+            className="mt-4 inline-flex text-sm font-medium text-primary hover:underline"
+          >
+            {t('managed.projectSettings.restricted.backToOverview')}
+          </Link>
+        </div>
+      ) : (
+        children
+      )}
     </div>
   )
 }

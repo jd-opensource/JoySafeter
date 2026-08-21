@@ -11,6 +11,40 @@ const columns: Column<Row>[] = [
 ]
 
 describe('DataTable row accessibility', () => {
+  it('renders an explicit mobile card layout when provided', () => {
+    const { getByTestId, getByText } = render(
+      <DataTable
+        columns={columns}
+        data={[{ id: 'a', name: 'Row A' }]}
+        mobileCard={(row) => <article>Mobile {row.name}</article>}
+      />,
+    )
+
+    expect(getByTestId('data-table-desktop')).toHaveClass('hidden', 'md:block')
+    expect(getByTestId('data-table-mobile')).toHaveClass('md:hidden')
+    expect(getByText('Mobile Row A')).toBeTruthy()
+  })
+
+  it('omits the action column when every row has no actions', () => {
+    const { queryByText } = render(
+      <DataTable columns={columns} data={[{ id: 'a', name: 'Row A' }]} actionMenu={() => []} />,
+    )
+
+    expect(queryByText('managed.table.actions')).toBeNull()
+  })
+
+  it('labels icon-only action menus', () => {
+    const { getByRole } = render(
+      <DataTable
+        columns={columns}
+        data={[{ id: 'a', name: 'Row A' }]}
+        actionMenu={() => [{ label: 'Edit', onClick: vi.fn() }]}
+      />,
+    )
+
+    expect(getByRole('button', { name: 'managed.table.actions' })).toBeTruthy()
+  })
+
   it('supports an embedded presentation without a nested card border', () => {
     const { getByTestId } = render(
       <DataTable columns={columns} data={[{ id: 'a', name: 'Row A' }]} variant="embedded" />,

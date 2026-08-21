@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 import { JSDOM } from 'jsdom'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -26,6 +26,13 @@ const projects = [
     capability: 'admin',
   },
 ]
+let routeProject = projects[1]
+
+vi.mock('@tanstack/react-query', () => ({
+  useQuery: () => ({ data: routeProject, isLoading: false }),
+}))
+
+vi.mock('@/lib/api-client', () => ({ managedGet: vi.fn() }))
 
 vi.mock('next/navigation', () => ({
   usePathname: () => pathname,
@@ -44,19 +51,9 @@ vi.mock('@/hooks/managed/use-project-context', () => ({
     orgId: 'org-a',
     projectId: activeProjectId,
     organizations: [{ id: 'org-a', name: 'Organization A', slug: 'org-a', role: 'owner' }],
-    projects,
     isLoading: false,
     switchProject,
   }),
-}))
-
-vi.mock('@/stores/managed/project-store', () => ({
-  useProjectStore: (
-    selector: (state: { currentProject: (typeof projects)[number] | null }) => unknown,
-  ) =>
-    selector({
-      currentProject: projects.find((project) => project.id === activeProjectId) ?? null,
-    }),
 }))
 
 vi.mock('@/lib/i18n', () => ({
@@ -75,9 +72,10 @@ describe('ProjectSettingsShell', () => {
     switchProject.mockClear()
     activeProjectId = 'project-a'
     pathname = '/managed/projects/project-b/access'
+    routeProject = projects[1]
   })
 
-  it('withholds children until the route project becomes the active context', async () => {
+  it('renders the route project without switching the active work context', async () => {
     const { ProjectSettingsShell } = await import('./project-settings-shell')
     const view = render(
       <ProjectSettingsShell projectId="project-b">
@@ -85,17 +83,8 @@ describe('ProjectSettingsShell', () => {
       </ProjectSettingsShell>,
     )
 
-    expect(view.queryByText('route-content')).toBeNull()
-    await waitFor(() => expect(switchProject).toHaveBeenCalledWith('project-b', 'org-a'))
-
-    activeProjectId = 'project-b'
-    view.rerender(
-      <ProjectSettingsShell projectId="project-b">
-        <div>route-content</div>
-      </ProjectSettingsShell>,
-    )
-
     expect(view.getByText('route-content')).toBeTruthy()
+    expect(switchProject).not.toHaveBeenCalled()
     expect(view.getByText('Organization A')).toBeTruthy()
     expect(view.getByText('Project B')).toBeTruthy()
     expect(view.getByText('managed.projectSettings.capability.admin')).toBeTruthy()
@@ -105,5 +94,28 @@ describe('ProjectSettingsShell', () => {
     const accessTab = view.getByText('managed.projectSettings.tabs.access').closest('a')
     expect(accessTab?.getAttribute('href')).toBe('/managed/projects/project-b/access')
     expect(accessTab?.getAttribute('aria-current')).toBe('page')
+  })
+
+  it('keeps view-only projects on overview and hides management tabs', async () => {
+    routeProject = projects[0]
+    pathname = '/managed/projects/project-a/tokens'
+    const { ProjectSettingsShell } = await import('./project-settings-shell')
+    const view = render(
+      <ProjectSettingsShell projectId="project-a">
+        <div>restricted-route-content</div>
+      </ProjectSettingsShell>,
+    )
+
+    expect(view.getByText('managed.projectSettings.tabs.overview')).toBeTruthy()
+    expect(view.queryByText('managed.projectSettings.tabs.access')).toBeNull()
+    expect(view.queryByText('managed.projectSettings.tabs.tokens')).toBeNull()
+    expect(view.queryByText('managed.projectSettings.tabs.lifecycle')).toBeNull()
+    expect(view.queryByText('restricted-route-content')).toBeNull()
+    expect(view.getByText('managed.projectSettings.restricted.title')).toBeTruthy()
+
+    const overviewLink = view
+      .getByText('managed.projectSettings.restricted.backToOverview')
+      .closest('a')
+    expect(overviewLink?.getAttribute('href')).toBe('/managed/projects/project-a')
   })
 })

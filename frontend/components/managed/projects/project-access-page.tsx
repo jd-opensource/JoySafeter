@@ -44,13 +44,14 @@ interface ProjectAccessRecord {
   email: string
   display_name: string
   org_role: string
-  access: 'org_wide' | 'explicit' | 'none' | string
+  access: 'org_wide' | 'default' | 'explicit' | 'none' | string
   project_role?: string | null
   joined_at?: string | null
 }
 
 interface ProjectSummary {
   id: string
+  org_id: string
   name: string
   slug: string
   is_default: boolean
@@ -211,6 +212,15 @@ export function ProjectAccessPage({ projectId }: { projectId: string }) {
                 ))}
               </SelectContent>
             </Select>
+            {member.access === 'default' ? (
+              <span className="text-xs text-muted-foreground">
+                {t('manage.projectMembers.accessDefault')}
+              </span>
+            ) : member.access === 'explicit' ? (
+              <span className="text-xs text-muted-foreground">
+                {t('manage.projectMembers.accessExplicit')}
+              </span>
+            ) : null}
             {pending ? (
               <span className="text-xs text-muted-foreground">
                 {t('manage.projectMembers.saving')}
@@ -289,9 +299,11 @@ export function ProjectAccessPage({ projectId }: { projectId: string }) {
         }}
       />
 
-      {!isLoading && organizationMembers.length === 0 ? (
+      {!isLoading && organizationMembers.length === 0 && project?.org_id ? (
         <Button asChild variant="outline" className="mt-4">
-          <Link href="/managed/settings/members">{t('manage.projectMembers.manageMembers')}</Link>
+          <Link href={`/managed/settings/organizations/${project?.org_id}/members`}>
+            {t('manage.projectMembers.manageMembers')}
+          </Link>
         </Button>
       ) : null}
 

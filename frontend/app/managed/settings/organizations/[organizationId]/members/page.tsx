@@ -1,9 +1,11 @@
 'use client'
 
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Info, UserPlus, Trash2, Search } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Info, Search, Settings2, Trash2, UserPlus } from 'lucide-react'
+import { useParams } from 'next/navigation'
 import { useState, useRef, useEffect, type MutableRefObject } from 'react'
 
+import type { OrganizationDetail } from '@/components/managed/settings/organization-detail-shell'
 import {
   DataTable,
   FilterBar,
@@ -42,14 +44,13 @@ import {
   roleLabel,
   roleOptions,
 } from '@/lib/managed/roles'
-import { useUserPermissionsContext } from '@/providers/permissions-provider'
-import { useProjectStore } from '@/stores/managed/project-store'
 
 interface MemberRecord {
-  id?: string
+  id: string
   user_id: string
-  email: string
-  display_name: string
+  organization_id: string
+  user_email: string
+  user_name: string
   role: string
   joined_at?: string
 }
@@ -58,17 +59,26 @@ export default function MembersPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const session = useSession()
-  const { canAdmin } = useUserPermissionsContext()
-  const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const orgScope = currentOrgId ?? ''
+  const params = useParams<{ organizationId: string }>()
+  const organizationId = Array.isArray(params.organizationId)
+    ? params.organizationId[0]
+    : params.organizationId
+  const organizationQuery = useQuery({
+    queryKey: ['organization-detail', organizationId],
+    queryFn: () => managedGet<OrganizationDetail>(`organizations/${organizationId}`),
+    enabled: Boolean(organizationId),
+  })
+  const currentOrganization = organizationQuery.data
+  const canManage = ['owner', 'admin'].includes(normalizeManagedRole(currentOrganization?.role))
+  const orgScope = organizationId ?? ''
   const orgScopeRef = useRef(orgScope)
   const previousOrgScopeRef = useRef<string | null>(null)
-  const inviteRunRef = useRef(0)
+  const addMemberRunRef = useRef(0)
   const roleRunRef = useRef(0)
   const removeRunRef = useRef(0)
 
   // ── State ──
-  const [showInvite, setShowInvite] = useState(false)
+  const [showAddMember, setShowAddMember] = useState(false)
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<string>(DEFAULT_ORGANIZATION_ROLE)
   const [memberSearch, setMemberSearch] = useState('')
@@ -104,19 +114,25 @@ export default function MembersPage() {
     setPageSize,
     reset: resetMembersPagination,
   } = usePaginatedList<MemberRecord>({
-    queryKey: 'org-members',
-    path: `/auth/members${memberSearch.trim() ? `?q=${encodeURIComponent(memberSearch.trim())}` : ''}`,
+    queryKey: 'organization-members',
+    path: `/organizations/${organizationId}/members${memberSearch.trim() ? `?q=${encodeURIComponent(memberSearch.trim())}` : ''}`,
+    enabled: Boolean(organizationId),
   })
   const filteredMembers = members.filter(
     (member) =>
       filterByCreatedTime(member.joined_at || '', createdFilter) &&
-      matchesSearch(memberSearch, [member.user_id, member.display_name, member.email]),
+      matchesSearch(memberSearch, [member.user_id, member.user_name, member.user_email]),
   )
-
-  const getCurrentOrgScope = () => useProjectStore.getState().currentOrgId ?? ''
+  const normalizedMemberEmail = email.trim().toLowerCase()
+  const emailAlreadyMember =
+    !!normalizedMemberEmail &&
+    (members.some((member) => member.user_email.toLowerCase() === normalizedMemberEmail) ||
+      searchResults.some(
+        (user) => user.email.toLowerCase() === normalizedMemberEmail && user.already_member,
+      ))
 
   const currentOrgScopeIsActive = (scope = orgScopeRef.current) =>
-    orgScopeRef.current === scope && getCurrentOrgScope() === scope
+    orgScopeRef.current === scope && organizationId === scope
 
   const isCurrentScopedRun = (runRef: MutableRefObject<number>, runId: number, scope: string) =>
     runRef.current === runId && currentOrgScopeIsActive(scope)
@@ -124,16 +140,13 @@ export default function MembersPage() {
   const currentMutableMember = (member: MemberRecord | null) => {
     if (!member) return null
     if (!currentOrgScopeIsActive()) return null
-    const current = queryClient
-      .getQueriesData<{ data: MemberRecord[] }>({ queryKey: ['org-members'] })
-      .flatMap(([, page]) => page?.data ?? [])
-      ?.find((candidate) => candidate.user_id === member.user_id)
+    const current = members.find((candidate) => candidate.user_id === member.user_id)
     return current && normalizeManagedRole(current.role) !== 'owner' ? current : null
   }
 
   useEffect(() => {
     return () => {
-      inviteRunRef.current += 1
+      addMemberRunRef.current += 1
       roleRunRef.current += 1
       removeRunRef.current += 1
       searchRequestSeqRef.current += 1
@@ -153,7 +166,7 @@ export default function MembersPage() {
     if (previousOrgScopeRef.current === orgScope) return
     previousOrgScopeRef.current = orgScope
     orgScopeRef.current = orgScope
-    inviteRunRef.current += 1
+    addMemberRunRef.current += 1
     roleRunRef.current += 1
     removeRunRef.current += 1
     searchRequestSeqRef.current += 1
@@ -161,7 +174,7 @@ export default function MembersPage() {
       clearTimeout(searchTimeoutRef.current)
       searchTimeoutRef.current = null
     }
-    setShowInvite(false)
+    setShowAddMember(false)
     setEmail('')
     setRole(DEFAULT_ORGANIZATION_ROLE)
     setMemberSearch('')
@@ -198,25 +211,26 @@ export default function MembersPage() {
   }, [members])
 
   // ── Mutations ──
-  const inviteMember = useMutation({
+  const addMemberMutation = useMutation({
     mutationFn: (data: { email: string; role: string; runId: number; scope: string }) => {
-      if (!currentOrgScopeIsActive(data.scope) || data.runId !== inviteRunRef.current) {
-        throw new Error('Stale member invite ignored')
+      if (!currentOrgScopeIsActive(data.scope) || data.runId !== addMemberRunRef.current) {
+        throw new Error('Stale member addition ignored')
       }
-      return managedPost<MemberRecord>('auth/members/invite', {
+      return managedPost<MemberRecord>(`organizations/${data.scope}/members`, {
         email: data.email,
         role: data.role,
       }).then((member) => ({ member, runId: data.runId, scope: data.scope }))
     },
     onSuccess: ({ runId, scope }) => {
-      if (!isCurrentScopedRun(inviteRunRef, runId, scope)) return
+      if (!isCurrentScopedRun(addMemberRunRef, runId, scope)) return
       resetMembersPagination()
-      queryClient.invalidateQueries({ queryKey: ['org-members'] })
-      resetInviteDialog(false)
+      queryClient.invalidateQueries({ queryKey: ['organization-members'] })
+      queryClient.invalidateQueries({ queryKey: ['organization-members', scope] })
+      resetAddMemberDialog(false)
     },
     onError: (err: Error, variables) => {
-      if (!isCurrentScopedRun(inviteRunRef, variables.runId, variables.scope)) return
-      toastOperationError(t, err, 'manage.members.inviteFailed')
+      if (!isCurrentScopedRun(addMemberRunRef, variables.runId, variables.scope)) return
+      toastOperationError(t, err, 'manage.members.addFailed')
     },
   })
 
@@ -225,12 +239,16 @@ export default function MembersPage() {
       if (!currentOrgScopeIsActive(scope) || runId !== removeRunRef.current) {
         throw new Error('Stale member removal ignored')
       }
-      return managedDelete(`auth/members/${userId}`).then(() => ({ runId, scope }))
+      return managedDelete(`organizations/${scope}/members/${userId}`).then(() => ({
+        runId,
+        scope,
+      }))
     },
     onSuccess: ({ runId, scope }) => {
       if (!isCurrentScopedRun(removeRunRef, runId, scope)) return
       resetMembersPagination()
-      queryClient.invalidateQueries({ queryKey: ['org-members'] })
+      queryClient.invalidateQueries({ queryKey: ['organization-members'] })
+      queryClient.invalidateQueries({ queryKey: ['organization-members', scope] })
       setRemoveTarget(null)
     },
     onError: (err: Error, variables) => {
@@ -254,15 +272,18 @@ export default function MembersPage() {
       if (!currentOrgScopeIsActive(scope) || runId !== roleRunRef.current) {
         throw new Error('Stale member role update ignored')
       }
-      return managedPut<MemberRecord>(`auth/members/${userId}`, { role }).then((member) => ({
-        member,
-        runId,
-        scope,
-      }))
+      return managedPut<MemberRecord>(`organizations/${scope}/members/${userId}`, { role }).then(
+        (member) => ({
+          member,
+          runId,
+          scope,
+        }),
+      )
     },
     onSuccess: ({ runId, scope }) => {
       if (!isCurrentScopedRun(roleRunRef, runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['org-members'] })
+      queryClient.invalidateQueries({ queryKey: ['organization-members'] })
+      queryClient.invalidateQueries({ queryKey: ['organization-members', scope] })
       setRoleTarget(null)
     },
     onError: (err: Error, variables) => {
@@ -272,9 +293,9 @@ export default function MembersPage() {
   })
 
   // ── Handlers ──
-  const resetInviteDialog = (open: boolean) => {
-    inviteRunRef.current += 1
-    setShowInvite(open)
+  const resetAddMemberDialog = (open: boolean) => {
+    addMemberRunRef.current += 1
+    setShowAddMember(open)
     if (!open) {
       searchRequestSeqRef.current += 1
       if (searchTimeoutRef.current) {
@@ -305,7 +326,7 @@ export default function MembersPage() {
       try {
         const results = await managedGet<
           { id: string; email: string; name: string; image?: string; already_member: boolean }[]
-        >(`/auth/search-users?q=${encodeURIComponent(value)}&limit=5`)
+        >(`organizations/${requestScope}/member-candidates?q=${encodeURIComponent(value)}&limit=5`)
         if (requestSeq !== searchRequestSeqRef.current || !currentOrgScopeIsActive(requestScope))
           return
         setSearchResults(results)
@@ -329,18 +350,13 @@ export default function MembersPage() {
     setShowDropdown(false)
   }
 
-  const handleInvite = () => {
+  const handleAddMember = () => {
     const trimmedEmail = email.trim()
-    if (!trimmedEmail) return
+    if (!trimmedEmail || emailAlreadyMember) return
     if (!currentOrgScopeIsActive()) return
-    const emailAlreadyMember = queryClient
-      .getQueriesData<{ data: MemberRecord[] }>({ queryKey: ['org-members'] })
-      .flatMap(([, page]) => page?.data ?? [])
-      ?.some((member) => member.email.toLowerCase() === trimmedEmail.toLowerCase())
-    if (emailAlreadyMember) return
-    const runId = inviteRunRef.current + 1
-    inviteRunRef.current = runId
-    inviteMember.mutate({ email: trimmedEmail, role, runId, scope: orgScopeRef.current })
+    const runId = addMemberRunRef.current + 1
+    addMemberRunRef.current = runId
+    addMemberMutation.mutate({ email: trimmedEmail, role, runId, scope: orgScopeRef.current })
   }
 
   const openRoleDialog = (m: MemberRecord) => {
@@ -350,7 +366,7 @@ export default function MembersPage() {
 
     roleRunRef.current += 1
     setRoleTarget(current)
-    setNewRole(current.role)
+    setNewRole(normalizeManagedRole(current.role))
   }
 
   const closeRoleDialog = () => {
@@ -365,6 +381,17 @@ export default function MembersPage() {
 
     removeRunRef.current += 1
     setRemoveTarget(current)
+  }
+
+  const openRemoveFromRoleDialog = () => {
+    const target = currentMutableMember(roleTarget)
+    if (!target) {
+      closeRoleDialog()
+      return
+    }
+    roleRunRef.current += 1
+    setRoleTarget(null)
+    openRemoveDialog(target)
   }
 
   const closeRemoveDialog = () => {
@@ -405,6 +432,34 @@ export default function MembersPage() {
     })
   }
 
+  const renderMemberManageAction = (member: MemberRecord, fullWidth = false) => {
+    if (!canManage) return null
+    if (normalizeManagedRole(member.role) === 'owner') {
+      return (
+        <span className="text-xs text-muted-foreground">{t('manage.members.ownerProtected')}</span>
+      )
+    }
+    if (member.user_id === session?.data?.user?.id) {
+      return (
+        <span className="text-xs text-muted-foreground">
+          {t('manage.members.currentAccountProtected')}
+        </span>
+      )
+    }
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className={fullWidth ? 'w-full' : undefined}
+        onClick={() => openRoleDialog(member)}
+      >
+        <Settings2 className="h-3.5 w-3.5" />
+        {t('manage.members.manage')}
+      </Button>
+    )
+  }
+
   const columns: Column<MemberRecord>[] = [
     {
       key: 'name',
@@ -412,10 +467,10 @@ export default function MembersPage() {
       render: (member) => (
         <div className="flex items-center gap-2">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-            {member.display_name?.charAt(0)?.toUpperCase() || '?'}
+            {member.user_name?.charAt(0)?.toUpperCase() || '?'}
           </div>
           <span className="font-medium text-foreground">
-            {member.display_name || '-'}
+            {member.user_name || '-'}
             {member.user_id === session?.data?.user?.id && (
               <span className="ml-1.5 text-xs text-muted-foreground">
                 ({t('manage.members.you')})
@@ -428,7 +483,7 @@ export default function MembersPage() {
     {
       key: 'email',
       header: t('manage.members.email'),
-      render: (member) => <span className="text-muted-foreground">{member.email}</span>,
+      render: (member) => <span className="text-muted-foreground">{member.user_email}</span>,
     },
     {
       key: 'role',
@@ -449,6 +504,17 @@ export default function MembersPage() {
           <span className="text-muted-foreground">-</span>
         ),
     },
+    ...(canManage
+      ? [
+          {
+            key: 'actions',
+            header: t('managed.table.actions'),
+            align: 'right' as const,
+            truncate: false,
+            render: (member: MemberRecord) => renderMemberManageAction(member),
+          },
+        ]
+      : []),
   ]
   const filters: FilterDef[] = [
     {
@@ -462,12 +528,14 @@ export default function MembersPage() {
     <div className="w-full">
       <PageHeader
         title={t('manage.members.title')}
-        subtitle={t('manage.members.subtitle')}
+        subtitle={t('manage.members.subtitle', {
+          organization: currentOrganization?.name || organizationId || '-',
+        })}
         action={
-          canAdmin ? (
-            <Button size="sm" onClick={() => resetInviteDialog(true)}>
+          canManage ? (
+            <Button size="sm" onClick={() => resetAddMemberDialog(true)}>
               <UserPlus className="mr-1 h-4 w-4" />
-              {t('manage.members.invite')}
+              {t('manage.members.add')}
             </Button>
           ) : null
         }
@@ -475,7 +543,10 @@ export default function MembersPage() {
 
       <Alert className="mb-4">
         <Info />
-        <AlertDescription>{t('manage.members.accessExplanation')}</AlertDescription>
+        <AlertDescription className="space-y-1">
+          <p>{t('manage.members.accessExplanation')}</p>
+          {!canManage ? <p>{t('manage.members.readOnlyExplanation')}</p> : null}
+        </AlertDescription>
       </Alert>
 
       <FilterBar
@@ -494,6 +565,40 @@ export default function MembersPage() {
         loading={isLoading}
         fetching={isFetching}
         emptyMessage={t('manage.members.empty')}
+        mobileCard={(member) => (
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary">
+                  {member.user_name?.charAt(0)?.toUpperCase() || '?'}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate font-medium text-foreground">
+                    {member.user_name || '-'}
+                    {member.user_id === session?.data?.user?.id ? (
+                      <span className="ml-1.5 text-xs text-muted-foreground">
+                        ({t('manage.members.you')})
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="truncate text-sm text-muted-foreground">{member.user_email}</div>
+                </div>
+              </div>
+              <span className="shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium">
+                {roleLabel(t, member.role)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-muted-foreground">{t('manage.members.joined')}</span>
+              {member.joined_at ? (
+                <RelativeTime date={member.joined_at} />
+              ) : (
+                <span className="text-muted-foreground">-</span>
+              )}
+            </div>
+            {renderMemberManageAction(member, true)}
+          </div>
+        )}
         pagination={{
           hasNext,
           hasPrev,
@@ -505,33 +610,23 @@ export default function MembersPage() {
           onPageChange: goToPage,
           onPageSizeChange: setPageSize,
         }}
-        actionMenu={
-          canAdmin
-            ? (member) =>
-                normalizeManagedRole(member.role) === 'owner'
-                  ? []
-                  : [
-                      {
-                        label: t('manage.members.changeRole'),
-                        onClick: () => openRoleDialog(member),
-                      },
-                      {
-                        label: t('manage.members.remove'),
-                        icon: <Trash2 className="h-3.5 w-3.5" />,
-                        destructive: true,
-                        onClick: () => openRemoveDialog(member),
-                      },
-                    ]
-            : undefined
-        }
       />
 
-      {/* Invite Dialog */}
-      <Dialog open={showInvite} onOpenChange={resetInviteDialog}>
+      {/* Add Existing Member Dialog */}
+      <Dialog
+        open={showAddMember}
+        onOpenChange={(open) => {
+          if (!addMemberMutation.isPending) resetAddMemberDialog(open)
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('manage.members.invite')}</DialogTitle>
-            <DialogDescription>{t('manage.members.subtitle')}</DialogDescription>
+            <DialogTitle>{t('manage.members.add')}</DialogTitle>
+            <DialogDescription>
+              {t('manage.members.addDescription', {
+                organization: currentOrganization?.name || organizationId || '-',
+              })}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -543,6 +638,7 @@ export default function MembersPage() {
                   value={searchQuery}
                   onChange={(e) => handleSearchChange(e.target.value)}
                   className="pl-9"
+                  disabled={addMemberMutation.isPending}
                   autoFocus
                 />
                 {showDropdown && searchResults.length > 0 && (
@@ -576,10 +672,73 @@ export default function MembersPage() {
                   </div>
                 )}
               </div>
+              {emailAlreadyMember ? (
+                <p className="text-sm text-destructive">{t('manage.members.alreadyMember')}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {t('manage.members.registeredUserHint')}
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">{t('manage.members.role')}</label>
-              <Select value={role} onValueChange={setRole}>
+              <Select value={role} onValueChange={setRole} disabled={addMemberMutation.isPending}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {roleOptions(t).map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {normalizeManagedRole(role) === 'admin'
+                  ? t('manage.members.roleAdminImpact')
+                  : t('manage.members.roleMemberImpact')}
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => resetAddMemberDialog(false)}
+              disabled={addMemberMutation.isPending}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={handleAddMember}
+              disabled={!email.trim() || emailAlreadyMember || addMemberMutation.isPending}
+            >
+              {addMemberMutation.isPending ? t('common.loading') : t('manage.members.add')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage Member Dialog */}
+      <Dialog
+        open={!!roleTarget}
+        onOpenChange={(v) => {
+          if (!v && !updateRoleMut.isPending) closeRoleDialog()
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('manage.members.manage')}</DialogTitle>
+            <DialogDescription>
+              {t('manage.members.manageDescription', {
+                member: roleTarget?.user_name || roleTarget?.user_email,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t('manage.members.role')}</label>
+              <Select value={newRole} onValueChange={setNewRole} disabled={updateRoleMut.isPending}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -592,50 +751,53 @@ export default function MembersPage() {
                 </SelectContent>
               </Select>
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => resetInviteDialog(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button onClick={handleInvite} disabled={!email.trim() || inviteMember.isPending}>
-              {inviteMember.isPending ? t('common.loading') : t('manage.members.invite')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
-      {/* Change Role Dialog */}
-      <Dialog
-        open={!!roleTarget}
-        onOpenChange={(v) => {
-          if (!v) closeRoleDialog()
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('manage.members.changeRole')}</DialogTitle>
-            <DialogDescription>{roleTarget?.display_name || roleTarget?.email}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Select value={newRole} onValueChange={setNewRole}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {roleOptions(t).map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {normalizeManagedRole(roleTarget?.role) === 'member' &&
+            normalizeManagedRole(newRole) === 'admin' ? (
+              <Alert>
+                <Info />
+                <AlertDescription>{t('manage.members.promoteAdminImpact')}</AlertDescription>
+              </Alert>
+            ) : null}
+
+            {normalizeManagedRole(roleTarget?.role) === 'admin' &&
+            normalizeManagedRole(newRole) === 'member' ? (
+              <Alert>
+                <Info />
+                <AlertDescription>{t('manage.members.demoteMemberImpact')}</AlertDescription>
+              </Alert>
+            ) : null}
+
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+              <div className="font-medium text-foreground">{t('manage.members.remove')}</div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t('manage.members.removeAccessImpact')}
+              </p>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                className="mt-3"
+                onClick={openRemoveFromRoleDialog}
+                disabled={updateRoleMut.isPending}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {t('manage.members.remove')}
+              </Button>
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeRoleDialog}>
+            <Button variant="outline" onClick={closeRoleDialog} disabled={updateRoleMut.isPending}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleChangeRole} disabled={newRole === roleTarget?.role}>
-              {t('common.save')}
+            <Button
+              onClick={handleChangeRole}
+              disabled={
+                updateRoleMut.isPending ||
+                normalizeManagedRole(newRole) === normalizeManagedRole(roleTarget?.role)
+              }
+            >
+              {updateRoleMut.isPending ? t('common.loading') : t('common.save')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -645,20 +807,36 @@ export default function MembersPage() {
       <Dialog
         open={!!removeTarget}
         onOpenChange={(v) => {
-          if (!v) closeRemoveDialog()
+          if (!v && !removeMemberMut.isPending) closeRemoveDialog()
         }}
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('manage.members.remove')}</DialogTitle>
-            <DialogDescription>{t('manage.members.removeConfirm')}</DialogDescription>
+            <DialogDescription>
+              {t('manage.members.removeConfirm', {
+                member: removeTarget?.user_name || removeTarget?.user_email,
+              })}
+            </DialogDescription>
           </DialogHeader>
+          <Alert variant="destructive">
+            <Info />
+            <AlertDescription>{t('manage.members.removeAccessImpact')}</AlertDescription>
+          </Alert>
           <DialogFooter>
-            <Button variant="outline" onClick={closeRemoveDialog}>
+            <Button
+              variant="outline"
+              onClick={closeRemoveDialog}
+              disabled={removeMemberMut.isPending}
+            >
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" onClick={handleRemove}>
-              {t('common.delete')}
+            <Button
+              variant="destructive"
+              onClick={handleRemove}
+              disabled={removeMemberMut.isPending}
+            >
+              {removeMemberMut.isPending ? t('common.loading') : t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>
