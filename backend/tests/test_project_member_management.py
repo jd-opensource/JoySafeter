@@ -26,6 +26,15 @@ def _admin_ctx(org_id: str) -> JoySafeterAuthContext:
     )
 
 
+def _project_admin_ctx(*, user_id: str, org_id: str, project_id: str) -> JoySafeterAuthContext:
+    return JoySafeterAuthContext(
+        user_id=user_id,
+        org_id=org_id,
+        project_id=project_id,
+        role=JoySafeterRole.MEMBER,
+    )
+
+
 async def _org_with_default_project(db_session) -> tuple[Organization, Project]:
     org = Organization(id=f"org-{uuid.uuid4()}", name="Org", slug=f"org-{uuid.uuid4()}")
     default_project = Project(
@@ -150,6 +159,110 @@ async def test_project_member_routes_reject_project_from_other_org(db_session):
             _admin_ctx(org.id),
         )
     assert exc_info.value.code == "PROJECT_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_project_admin_cannot_list_access_for_another_project(db_session):
+    org, _default_project = await _org_with_default_project(db_session)
+    managed_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org.id,
+        name="Managed",
+        slug=f"managed-{uuid.uuid4()}",
+    )
+    other_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org.id,
+        name="Other",
+        slug=f"other-{uuid.uuid4()}",
+    )
+    db_session.add_all([managed_project, other_project])
+    actor = await _add_member(db_session, org_id=org.id, role="member", name="ProjectAdmin")
+    db_session.add(ProjectMember(project_id=managed_project.id, user_id=actor.id, role="admin"))
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await list_project_members(
+            other_project.id,
+            q="",
+            limit=50,
+            after_id=None,
+            db=db_session,
+            auth_ctx=_project_admin_ctx(user_id=actor.id, org_id=org.id, project_id=managed_project.id),
+        )
+
+    assert exc_info.value.code == "JOYSAFETER_PROJECT_ADMIN_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_project_admin_cannot_grant_access_for_another_project(db_session):
+    org, _default_project = await _org_with_default_project(db_session)
+    managed_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org.id,
+        name="Managed",
+        slug=f"managed-{uuid.uuid4()}",
+    )
+    other_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org.id,
+        name="Other",
+        slug=f"other-{uuid.uuid4()}",
+    )
+    db_session.add_all([managed_project, other_project])
+    actor = await _add_member(db_session, org_id=org.id, role="member", name="ProjectAdmin")
+    target = await _add_member(db_session, org_id=org.id, role="member", name="Target")
+    db_session.add(ProjectMember(project_id=managed_project.id, user_id=actor.id, role="admin"))
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await add_project_member(
+            other_project.id,
+            AddProjectMemberRequest(user_id=target.id),
+            None,  # type: ignore[arg-type]
+            db_session,
+            _project_admin_ctx(user_id=actor.id, org_id=org.id, project_id=managed_project.id),
+        )
+
+    assert exc_info.value.code == "JOYSAFETER_PROJECT_ADMIN_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_project_admin_cannot_revoke_access_for_another_project(db_session):
+    org, _default_project = await _org_with_default_project(db_session)
+    managed_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org.id,
+        name="Managed",
+        slug=f"managed-{uuid.uuid4()}",
+    )
+    other_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org.id,
+        name="Other",
+        slug=f"other-{uuid.uuid4()}",
+    )
+    db_session.add_all([managed_project, other_project])
+    actor = await _add_member(db_session, org_id=org.id, role="member", name="ProjectAdmin")
+    target = await _add_member(db_session, org_id=org.id, role="member", name="Target")
+    db_session.add_all(
+        [
+            ProjectMember(project_id=managed_project.id, user_id=actor.id, role="admin"),
+            ProjectMember(project_id=other_project.id, user_id=target.id, role="viewer"),
+        ]
+    )
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await remove_project_member(
+            other_project.id,
+            target.id,
+            None,  # type: ignore[arg-type]
+            db_session,
+            _project_admin_ctx(user_id=actor.id, org_id=org.id, project_id=managed_project.id),
+        )
+
+    assert exc_info.value.code == "JOYSAFETER_PROJECT_ADMIN_REQUIRED"
 
 
 @pytest.mark.asyncio

@@ -581,12 +581,12 @@ CATALOG: dict[str, CatalogEntry] = {
     "PROJECT_MEMBER_NOT_FOUND": CatalogEntry(
         code="PROJECT_MEMBER_NOT_FOUND",
         error_class=NotFoundError,
-        default_message="User has no explicit membership in this project",
+        default_message="User has no explicit access grant for this project",
     ),
     "PROJECT_MEMBER_DEFAULT_REMOVE_FORBIDDEN": CatalogEntry(
         code="PROJECT_MEMBER_DEFAULT_REMOVE_FORBIDDEN",
         error_class=InvalidRequestError,
-        default_message="Cannot remove a member from the default project",
+        default_message="Cannot revoke access to the default project",
     ),
     "PROJECT_SLUG_CONFLICT": CatalogEntry(
         code="PROJECT_SLUG_CONFLICT",

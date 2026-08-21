@@ -1,11 +1,19 @@
 'use client'
 
-import { useState, useRef, useEffect, type MutableRefObject } from 'react'
-import { useTranslation } from '@/lib/i18n'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { managedGet, managedPost, managedPut, managedDelete } from '@/lib/api-client'
+import { Info, UserPlus, Trash2, Search } from 'lucide-react'
+import { useState, useRef, useEffect, type MutableRefObject } from 'react'
+
+import {
+  DataTable,
+  FilterBar,
+  RelativeTime,
+  type Column,
+  type FilterDef,
+  PageHeader,
+} from '@/components/managed/shared'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   Dialog,
   DialogContent,
@@ -14,6 +22,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -21,13 +30,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { UserPlus, Trash2, Search } from 'lucide-react'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
-import { DataTable, FilterBar, RelativeTime, type Column, type FilterDef, PageHeader } from '@/components/managed/shared'
+import { managedGet, managedPost, managedPut, managedDelete } from '@/lib/api-client'
+import { useSession } from '@/lib/auth/auth-client'
+import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
-import { useSession } from '@/lib/auth/auth-client'
-import { normalizeManagedRole, roleLabel, roleOptions } from '@/lib/managed/roles'
+import {
+  DEFAULT_ORGANIZATION_ROLE,
+  normalizeManagedRole,
+  roleLabel,
+  roleOptions,
+} from '@/lib/managed/roles'
 import { useUserPermissionsContext } from '@/providers/permissions-provider'
 import { useProjectStore } from '@/stores/managed/project-store'
 
@@ -56,7 +70,7 @@ export default function MembersPage() {
   // ── State ──
   const [showInvite, setShowInvite] = useState(false)
   const [email, setEmail] = useState('')
-  const [role, setRole] = useState('developer')
+  const [role, setRole] = useState<string>(DEFAULT_ORGANIZATION_ROLE)
   const [memberSearch, setMemberSearch] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -69,7 +83,7 @@ export default function MembersPage() {
 
   // Role change dialog
   const [roleTarget, setRoleTarget] = useState<MemberRecord | null>(null)
-  const [newRole, setNewRole] = useState('developer')
+  const [newRole, setNewRole] = useState<string>(DEFAULT_ORGANIZATION_ROLE)
 
   // Remove confirm
   const [removeTarget, setRemoveTarget] = useState<MemberRecord | null>(null)
@@ -93,9 +107,10 @@ export default function MembersPage() {
     queryKey: 'org-members',
     path: `/auth/members${memberSearch.trim() ? `?q=${encodeURIComponent(memberSearch.trim())}` : ''}`,
   })
-  const filteredMembers = members.filter((member) =>
-    filterByCreatedTime(member.joined_at || '', createdFilter) &&
-    matchesSearch(memberSearch, [member.user_id, member.display_name, member.email]),
+  const filteredMembers = members.filter(
+    (member) =>
+      filterByCreatedTime(member.joined_at || '', createdFilter) &&
+      matchesSearch(memberSearch, [member.user_id, member.display_name, member.email]),
   )
 
   const getCurrentOrgScope = () => useProjectStore.getState().currentOrgId ?? ''
@@ -148,14 +163,14 @@ export default function MembersPage() {
     }
     setShowInvite(false)
     setEmail('')
-    setRole('developer')
+    setRole(DEFAULT_ORGANIZATION_ROLE)
     setMemberSearch('')
     setCreatedFilter('all')
     setSearchQuery('')
     setSearchResults([])
     setShowDropdown(false)
     setRoleTarget(null)
-    setNewRole('developer')
+    setNewRole(DEFAULT_ORGANIZATION_ROLE)
     setRemoveTarget(null)
     resetMembersPagination()
   }, [orgScope, resetMembersPagination])
@@ -267,7 +282,7 @@ export default function MembersPage() {
         searchTimeoutRef.current = null
       }
       setEmail('')
-      setRole('developer')
+      setRole(DEFAULT_ORGANIZATION_ROLE)
       setSearchQuery('')
       setSearchResults([])
       setShowDropdown(false)
@@ -458,8 +473,13 @@ export default function MembersPage() {
         }
       />
 
+      <Alert className="mb-4">
+        <Info />
+        <AlertDescription>{t('manage.members.accessExplanation')}</AlertDescription>
+      </Alert>
+
       <FilterBar
-        searchPlaceholder="按姓名、邮箱或 ID 搜索成员"
+        searchPlaceholder={t('manage.members.searchPlaceholder')}
         searchValue={memberSearch}
         onSearchChange={(value) => {
           resetMembersPagination()

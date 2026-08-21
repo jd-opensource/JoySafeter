@@ -1,10 +1,29 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { useTranslation } from '@/lib/i18n'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { managedPost, managedDelete } from '@/lib/api-client'
+import { Check, Copy, Plus, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+
+import {
+  DataTable,
+  FilterBar,
+  MonoId,
+  PageHeader,
+  RelativeTime,
+  ResourceErrorState,
+  type Column,
+  type FilterDef,
+} from '@/components/managed/shared'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -14,33 +33,16 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog'
-import { Plus, Trash2, Copy, Check } from 'lucide-react'
+  currentProjectAllowsWrite,
+  useCurrentProjectReadOnly,
+} from '@/hooks/managed/use-current-project-read-only'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
-import {
-  DataTable,
-  FilterBar,
-  MonoId,
-  RelativeTime,
-  type Column,
-  type FilterDef,
-  PageHeader,
-  ResourceErrorState,
-} from '@/components/managed/shared'
+import { managedDelete, managedPost } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { projectRoleLabel, projectRoleOptions } from '@/lib/managed/roles'
 import { useProjectStore } from '@/stores/managed/project-store'
-import {
-  currentProjectAllowsWrite,
-  useCurrentProjectReadOnly,
-} from '@/hooks/managed/use-current-project-read-only'
 
 interface ApiKey {
   id: string
@@ -80,6 +82,7 @@ export default function ApiKeysPage() {
   const [keyName, setKeyName] = useState('')
   const [keyRole, setKeyRole] = useState('viewer')
   const [newRawKey, setNewRawKey] = useState<string | null>(null)
+  const [newRawKeyName, setNewRawKeyName] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<ApiKey | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -128,6 +131,7 @@ export default function ApiKeysPage() {
     setKeyName('')
     setKeyRole('viewer')
     setNewRawKey(null)
+    setNewRawKeyName(null)
     setCopied(false)
     setDeleteTarget(null)
     resetApiKeyPagination()
@@ -141,6 +145,7 @@ export default function ApiKeysPage() {
     setKeyName('')
     setKeyRole('viewer')
     setNewRawKey(null)
+    setNewRawKeyName(null)
     setCopied(false)
     setDeleteTarget(null)
   }, [projectReadOnly])
@@ -225,14 +230,15 @@ export default function ApiKeysPage() {
       return managedPost<{ raw_key: string }>('/auth/api-keys', {
         name: data.name,
         role: data.role,
-      }).then((res) => ({ res, runId: data.runId, scope: data.scope }))
+      }).then((res) => ({ res, runId: data.runId, scope: data.scope, name: data.name }))
     },
-    onSuccess: ({ res, runId, scope }) => {
+    onSuccess: ({ res, runId, scope, name }) => {
       if (!currentManagedScopeAllowsWrite(scope)) return
       if (runId !== createKeyRunRef.current) return
       resetApiKeyPagination()
       queryClient.invalidateQueries({ queryKey: ['api-keys'] })
       setNewRawKey(res.raw_key)
+      setNewRawKeyName(name)
       setShowCreate(false)
       setKeyName('')
     },
@@ -373,34 +379,40 @@ export default function ApiKeysPage() {
       />
 
       {newRawKey && (
-        <div className="mb-4 rounded-lg border border-green-500/50 bg-green-50 p-4 dark:bg-green-950/20">
-          <p className="mb-2 text-sm font-medium">{t('manage.apiKeys.newKeyWarning')}</p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 break-all rounded border bg-background px-3 py-2 font-mono text-xs">
-              {newRawKey}
-            </code>
+        <Alert variant="success" className="mb-4">
+          <AlertDescription>
+            <p className="mb-1 text-sm font-medium">
+              {t('manage.apiKeys.createdToken', { name: newRawKeyName || '' })}
+            </p>
+            <p className="mb-2 text-sm">{t('manage.apiKeys.newKeyWarning')}</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 break-all rounded border bg-background px-3 py-2 font-mono text-xs">
+                {newRawKey}
+              </code>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                onClick={() => handleCopy(newRawKey)}
+                aria-label={copied ? t('common.copied') : t('common.copy')}
+                title={copied ? t('common.copied') : t('common.copy')}
+              >
+                {copied ? <Check /> : <Copy />}
+              </Button>
+            </div>
             <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 shrink-0"
-              onClick={() => handleCopy(newRawKey)}
+              variant="ghost"
+              size="sm"
+              className="mt-2 text-xs"
+              onClick={() => {
+                setNewRawKey(null)
+                setNewRawKeyName(null)
+              }}
             >
-              {copied ? (
-                <Check className="h-3.5 w-3.5 text-green-500" />
-              ) : (
-                <Copy className="h-3.5 w-3.5" />
-              )}
+              {t('manage.apiKeys.savedConfirmation')}
             </Button>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-2 text-xs"
-            onClick={() => setNewRawKey(null)}
-          >
-            {t('manage.apiKeys.dismiss')}
-          </Button>
-        </div>
+          </AlertDescription>
+        </Alert>
       )}
 
       <FilterBar
@@ -486,7 +498,9 @@ export default function ApiKeysPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('manage.apiKeys.revokeTitle')}</DialogTitle>
-            <DialogDescription>{t('manage.apiKeys.revokeDesc')}</DialogDescription>
+            <DialogDescription>
+              {t('manage.apiKeys.revokeDescNamed', { name: deleteTarget?.name || '' })}
+            </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             {deleteTarget?.name} ({deleteTarget?.key_prefix}...)

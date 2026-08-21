@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
-from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
 from app.joysafeter_domain.services.joysafeter_api_key_service import ApiKeyService
 from app.joysafeter_domain.services.joysafeter_auth_service import AuthService
 from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
@@ -33,12 +33,12 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
     JoySafeterRole,
     require_joysafeter_platform_admin,
-    require_joysafeter_project_admin,
     require_joysafeter_user_admin,
     require_joysafeter_user_context,
     require_joysafeter_user_write,
 )
 from app.joysafeter_shared.common.joysafeter_auth.context import (
+    ProjectCapability,
     ProjectRole,
     effective_project_capability,
 )
@@ -87,6 +87,8 @@ class ProjectResponse(BaseModel):
     archived_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    project_role: Optional[str] = None
+    capability: str
 
 
 class PaginatedProjectsResponse(BaseModel):
@@ -139,7 +141,12 @@ class CreateApiKeyRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _project_to_response(project: Project) -> ProjectResponse:
+def _project_to_response(
+    project: Project,
+    *,
+    org_role: str | JoySafeterRole,
+    project_role: str | None,
+) -> ProjectResponse:
     return ProjectResponse(
         id=project.id,
         org_id=project.org_id,
@@ -150,7 +157,26 @@ def _project_to_response(project: Project) -> ProjectResponse:
         archived_at=str(project.archived_at) if project.archived_at else None,
         created_at=str(project.created_at) if project.created_at else None,
         updated_at=str(project.updated_at) if project.updated_at else None,
+        project_role=project_role,
+        capability=effective_project_capability(org_role, project_role).name.lower(),
     )
+
+
+async def _project_roles_for_user(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    project_ids: list[str],
+) -> dict[str, str]:
+    if not project_ids:
+        return {}
+    result = await db.execute(
+        select(ProjectMember.project_id, ProjectMember.role).where(
+            ProjectMember.user_id == user_id,
+            ProjectMember.project_id.in_(project_ids),
+        )
+    )
+    return {project_id: role for project_id, role in result.all()}
 
 
 def _project_context_payload(project: Project) -> dict[str, object]:
@@ -1009,7 +1035,19 @@ async def list_projects(
         limit=limit,
         after_id=after_id,
     )
-    data = [_project_to_response(p) for p in projects]
+    project_roles = await _project_roles_for_user(
+        db,
+        user_id=auth_ctx.user_id,
+        project_ids=[project.id for project in projects],
+    )
+    data = [
+        _project_to_response(
+            project,
+            org_role=auth_ctx.role,
+            project_role=project_roles.get(project.id),
+        )
+        for project in projects
+    ]
     return PaginatedProjectsResponse(
         data=data,
         has_more=has_more,
@@ -1032,7 +1070,8 @@ async def create_project(
         slug=req.slug,
         created_by_user_id=auth_ctx.user_id,
     )
-    return _project_to_response(project)
+    project_role = await ProjectService(db).get_project_member_role(project.id, auth_ctx.user_id)
+    return _project_to_response(project, org_role=auth_ctx.role, project_role=project_role)
 
 
 @router.get("/api-keys")
@@ -1138,7 +1177,8 @@ async def get_project(
     )
     if not project:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
-    return _project_to_response(project)
+    project_role = await ProjectService(db).get_project_member_role(project.id, auth_ctx.user_id)
+    return _project_to_response(project, org_role=auth_ctx.role, project_role=project_role)
 
 
 class UpdateProjectRequest(BaseModel):
@@ -1164,7 +1204,8 @@ async def update_project(
         )
     except ValueError:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
-    return _project_to_response(project)
+    project_role = await ProjectService(db).get_project_member_role(project.id, auth_ctx.user_id)
+    return _project_to_response(project, org_role=auth_ctx.role, project_role=project_role)
 
 
 @router.delete("/projects/{project_id}")
@@ -1190,7 +1231,8 @@ async def set_default_project(
         project = await ProjectService(db).set_default_project(project_id, auth_ctx.org_id)
     except ValueError:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
-    return _project_to_response(project)
+    project_role = await ProjectService(db).get_project_member_role(project.id, auth_ctx.user_id)
+    return _project_to_response(project, org_role=auth_ctx.role, project_role=project_role)
 
 
 @router.post("/projects/{project_id}/restore")
@@ -1203,11 +1245,12 @@ async def restore_project(
         project = await ProjectService(db).restore_project(project_id, auth_ctx.org_id)
     except ValueError:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
-    return _project_to_response(project)
+    project_role = await ProjectService(db).get_project_member_role(project.id, auth_ctx.user_id)
+    return _project_to_response(project, org_role=auth_ctx.role, project_role=project_role)
 
 
 # ---------------------------------------------------------------------------
-# Project member management routes
+# Project access management routes
 # ---------------------------------------------------------------------------
 
 
@@ -1254,6 +1297,20 @@ def _project_member_access(org_role: str, *, has_explicit_row: bool) -> ProjectA
     return ProjectAccess.EXPLICIT if has_explicit_row else ProjectAccess.NONE
 
 
+async def _require_target_project_admin(
+    svc: ProjectService,
+    *,
+    project_id: str,
+    auth_ctx: JoySafeterAuthContext,
+) -> None:
+    project_role = await svc.get_project_member_role(project_id, auth_ctx.user_id)
+    if effective_project_capability(auth_ctx.role, project_role) < ProjectCapability.ADMIN:
+        raise AccessDeniedError(
+            "Project admin access required",
+            code="JOYSAFETER_PROJECT_ADMIN_REQUIRED",
+        )
+
+
 @router.get("/projects/{project_id}/members")
 async def list_project_members(
     project_id: str,
@@ -1261,13 +1318,14 @@ async def list_project_members(
     limit: int = Query(50, ge=1, le=200),
     after_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_project_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> PaginatedProjectMembersResponse:
-    """List organization members with their access status for a project (requires admin role)."""
+    """List organization members with their access status for a project (requires Project Admin)."""
     svc = ProjectService(db)
     project = await svc.get_project(project_id, auth_ctx.org_id)
     if project is None:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+    await _require_target_project_admin(svc, project_id=project_id, auth_ctx=auth_ctx)
 
     explicit_role_by_user = {row.user_id: row.role for row in await svc.list_project_members(project_id)}
     members, has_more = await OrganizationMemberService(db).list_members_page(
@@ -1303,13 +1361,14 @@ async def add_project_member(
     req: AddProjectMemberRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_project_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> ProjectMemberResponse:
-    """Grant an organization member access to a project (requires admin role)."""
+    """Grant an organization member access to a project (requires Project Admin)."""
     svc = ProjectService(db)
     project = await svc.get_project(project_id, auth_ctx.org_id)
     if project is None:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+    await _require_target_project_admin(svc, project_id=project_id, auth_ctx=auth_ctx)
 
     member = await OrganizationMemberService(db).get_member_by_user_id(auth_ctx.org_id, req.user_id)
     if member is None:
@@ -1348,17 +1407,18 @@ async def remove_project_member(
     user_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_project_admin),
+    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> None:
-    """Revoke an org member's explicit access to a project (requires project admin)."""
+    """Revoke an organization member's explicit project access (requires Project Admin)."""
     svc = ProjectService(db)
     project = await svc.get_project(project_id, auth_ctx.org_id)
     if project is None:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
+    await _require_target_project_admin(svc, project_id=project_id, auth_ctx=auth_ctx)
     if project.is_default:
         raise InvalidRequestError(
             code="PROJECT_MEMBER_DEFAULT_REMOVE_FORBIDDEN",
-            message="Cannot remove a member from the default project. Remove them from the organization instead.",
+            message="Cannot revoke access to the default project. Remove the member from the organization instead.",
             data={"project_id": project_id, "user_id": user_id},
             user_action="fix_input",
         )
@@ -1367,7 +1427,7 @@ async def remove_project_member(
     if not revoked:
         raise NotFoundError(
             code="PROJECT_MEMBER_NOT_FOUND",
-            message="User has no explicit membership in this project",
+            message="User has no explicit access grant for this project",
             data={"project_id": project_id, "user_id": user_id},
             user_action="refresh",
         )

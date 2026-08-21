@@ -5,6 +5,7 @@ type Translator = (key: string) => string
 // backend `project.capability` string via useCurrentProjectReadOnly.
 
 export type ManagedRole = 'owner' | 'admin' | 'member' | string
+export const DEFAULT_ORGANIZATION_ROLE = 'member' as const
 
 export function normalizeManagedRole(role?: string | null): ManagedRole {
   const normalized = (role || '').toLowerCase()

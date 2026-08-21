@@ -725,6 +725,42 @@ async def test_list_projects_filters_to_accessible_projects_for_non_admin_member
 
     assert [project.id for project in response.data] == [allowed_project.id]
     assert blocked_project.id not in {project.id for project in response.data}
+    assert response.data[0].project_role == "editor"
+    assert response.data[0].capability == "write"
+
+
+@pytest.mark.asyncio
+async def test_list_projects_reports_inherited_admin_capability_for_org_admin(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    user = AuthUser(id=f"admin-{uuid.uuid4()}", name="Org Admin", email=f"admin-{uuid.uuid4()}@example.com")
+    org = Organization(id=org_id, name="Inherited Admin Org", slug=f"inherited-admin-{uuid.uuid4()}")
+    project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Managed Project",
+        slug=f"managed-{uuid.uuid4()}",
+        is_default=True,
+    )
+    db_session.add_all([user, org, project])
+    await db_session.flush()
+    db_session.add(Member(user_id=user.id, organization_id=org_id, role="admin"))
+    await db_session.commit()
+
+    response = await list_projects(
+        include_archived=False,
+        limit=50,
+        after_id=None,
+        db=db_session,
+        auth_ctx=JoySafeterAuthContext(
+            user_id=user.id,
+            org_id=org_id,
+            project_id=project.id,
+            role=JoySafeterRole.ADMIN,
+        ),
+    )
+
+    assert response.data[0].project_role is None
+    assert response.data[0].capability == "admin"
 
 
 @pytest.mark.asyncio

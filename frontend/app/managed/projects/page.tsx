@@ -1,31 +1,10 @@
 'use client'
 
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Plus, Archive, RotateCcw } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
-import { useTranslation } from '@/lib/i18n'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { managedPost, managedPatch, managedDelete } from '@/lib/api-client'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog'
-import {
-  Plus,
-  Star,
-  Pencil,
-  Archive,
-  RotateCcw,
-  Users,
-  PauseCircle,
-  PlayCircle,
-} from 'lucide-react'
+
 import {
   DataTable,
   FilterBar,
@@ -39,6 +18,19 @@ import {
   ResourceErrorState,
 } from '@/components/managed/shared'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { managedPost, managedDelete } from '@/lib/api-client'
+import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { useUserPermissionsContext } from '@/providers/permissions-provider'
@@ -53,11 +45,23 @@ interface Project {
   triggers_paused?: boolean
   archived_at?: string | null
   created_at?: string
+  project_role?: string | null
+  capability?: string
 }
 
 interface ProjectScopedAction {
   runId: number
   scope: string
+}
+
+function projectSlugFromName(name: string) {
+  return name
+    .trim()
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64)
 }
 
 export default function ProjectsPage() {
@@ -74,7 +78,6 @@ export default function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
   const [newName, setNewName] = useState('')
-  const [newSlug, setNewSlug] = useState('')
   const [archiveTarget, setArchiveTarget] = useState<Project | null>(null)
 
   const {
@@ -102,7 +105,6 @@ export default function ProjectsPage() {
   const resetCreateDraft = () => {
     setShowCreate(false)
     setNewName('')
-    setNewSlug('')
   }
 
   const openCreateDialog = () => {
@@ -123,10 +125,8 @@ export default function ProjectsPage() {
     actionRunRef.current += 1
     resetCreateDraft()
     setArchiveTarget(null)
-    setEditTarget(null)
-    setEditName('')
     resetProjectsPagination()
-  }, [orgScope])
+  }, [orgScope, resetProjectsPagination])
 
   useEffect(
     () => () => {
@@ -163,15 +163,6 @@ export default function ProjectsPage() {
     return current && !current.archived_at && !current.is_default ? current : null
   }
 
-  const currentActiveProject = (project: Project | null) => {
-    if (!project) return null
-    if (!currentOrgScopeIsActive()) return null
-    const current = queryClient
-      .getQueryData<Project[]>(['projects-list', orgScopeRef.current, showArchived])
-      ?.find((candidate) => candidate.id === project.id)
-    return current && !current.archived_at ? current : null
-  }
-
   const currentRestorableArchivedProject = (project: Project | null) => {
     if (!project) return null
     if (!currentOrgScopeIsActive()) return null
@@ -183,57 +174,18 @@ export default function ProjectsPage() {
   }
 
   const createProject = useMutation({
-    mutationFn: (data: { name: string; slug: string } & ProjectScopedAction) => {
+    mutationFn: (data: { name: string } & ProjectScopedAction) => {
       if (!isCurrentAction(data.runId, data.scope)) {
         throw new Error('Stale project create ignored')
       }
-      return managedPost('/auth/projects', { name: data.name, slug: data.slug })
+      const slug = projectSlugFromName(data.name) || `project-${Date.now().toString(36)}`
+      return managedPost('/auth/projects', { name: data.name, slug })
     },
     onSuccess: (_data, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
       resetProjectsPagination()
       queryClient.invalidateQueries({ queryKey: ['projects-list'] })
       resetCreateDraft()
-    },
-    onError: (error, variables) => {
-      if (!isCurrentAction(variables.runId, variables.scope)) return
-      toastOperationError(t, error, 'common.operationFailed')
-    },
-  })
-
-  const setDefault = useMutation({
-    mutationFn: ({ projectId, runId, scope }: { projectId: string } & ProjectScopedAction) => {
-      if (!isCurrentAction(runId, scope)) {
-        throw new Error('Stale project set-default ignored')
-      }
-      return managedPost(`/auth/projects/${projectId}/set-default`, {})
-    },
-    onSuccess: (_data, variables) => {
-      if (!isCurrentAction(variables.runId, variables.scope)) return
-      resetProjectsPagination()
-      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
-    },
-    onError: (error, variables) => {
-      if (!isCurrentAction(variables.runId, variables.scope)) return
-      toastOperationError(t, error, 'common.operationFailed')
-    },
-  })
-
-  const setTriggersPaused = useMutation({
-    mutationFn: ({
-      projectId,
-      paused,
-      runId,
-      scope,
-    }: { projectId: string; paused: boolean } & ProjectScopedAction) => {
-      if (!isCurrentAction(runId, scope)) {
-        throw new Error('Stale project trigger-pause ignored')
-      }
-      return managedPatch(`/auth/projects/${projectId}`, { triggers_paused: paused })
-    },
-    onSuccess: (_data, variables) => {
-      if (!isCurrentAction(variables.runId, variables.scope)) return
-      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
     },
     onError: (error, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
@@ -252,47 +204,6 @@ export default function ProjectsPage() {
       if (!isCurrentAction(variables.runId, variables.scope)) return
       resetProjectsPagination()
       queryClient.invalidateQueries({ queryKey: ['projects-list'] })
-    },
-    onError: (error, variables) => {
-      if (!isCurrentAction(variables.runId, variables.scope)) return
-      toastOperationError(t, error, 'common.operationFailed')
-    },
-  })
-
-  const [editTarget, setEditTarget] = useState<Project | null>(null)
-  const [editName, setEditName] = useState('')
-
-  const openEditDialog = (project: Project) => {
-    const current = currentMutableActiveProject(project)
-    if (!current) return
-
-    actionRunRef.current += 1
-    setEditTarget(current)
-    setEditName(current.name)
-  }
-
-  const closeEditDialog = () => {
-    actionRunRef.current += 1
-    setEditTarget(null)
-  }
-
-  const editProject = useMutation({
-    mutationFn: ({
-      id,
-      name,
-      runId,
-      scope,
-    }: { id: string; name: string } & ProjectScopedAction) => {
-      if (!isCurrentAction(runId, scope)) {
-        throw new Error('Stale project edit ignored')
-      }
-      return managedPatch(`/auth/projects/${id}`, { name })
-    },
-    onSuccess: (_data, variables) => {
-      if (!isCurrentAction(variables.runId, variables.scope)) return
-      setEditTarget(null)
-      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
-      queryClient.invalidateQueries({ queryKey: ['auth-me'] })
     },
     onError: (error, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
@@ -337,15 +248,6 @@ export default function ProjectsPage() {
     const isMutableActiveProject = (project: Project | undefined) =>
       !!project && !project.archived_at && !project.is_default
 
-    setEditTarget((target) => {
-      if (!target) return null
-      const current = currentById.get(target.id)
-      if (!current || current.archived_at) {
-        setEditName('')
-        return null
-      }
-      return current
-    })
     setArchiveTarget((target) => {
       if (!target) return null
       return isMutableActiveProject(currentById.get(target.id)) ? target : null
@@ -445,21 +347,15 @@ export default function ProjectsPage() {
               <DialogTitle>{t('manage.projects.create')}</DialogTitle>
               <DialogDescription>{t('manage.projects.subtitle')}</DialogDescription>
             </DialogHeader>
-            <div className="space-y-3 py-2">
+            <div className="flex flex-col gap-2 py-2">
               <Input
                 placeholder={t('manage.projects.namePlaceholder')}
                 value={newName}
-                onChange={(e) => {
-                  setNewName(e.target.value)
-                  setNewSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-'))
-                }}
+                onChange={(e) => setNewName(e.target.value)}
               />
-              <Input
-                placeholder={t('manage.projects.slugPlaceholder')}
-                value={newSlug}
-                onChange={(e) => setNewSlug(e.target.value)}
-                className="font-mono text-xs"
-              />
+              <p className="text-xs text-muted-foreground">
+                {t('manage.projects.slugGeneratedHint')}
+              </p>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => handleCreateOpenChange(false)}>
@@ -468,9 +364,9 @@ export default function ProjectsPage() {
               <Button
                 onClick={() => {
                   const action = nextScopedAction()
-                  if (action) createProject.mutate({ name: newName, slug: newSlug, ...action })
+                  if (action) createProject.mutate({ name: newName.trim(), ...action })
                 }}
-                disabled={!newName.trim() || !newSlug.trim()}
+                disabled={!newName.trim() || createProject.isPending}
               >
                 {t('manage.projects.create')}
               </Button>
@@ -491,6 +387,7 @@ export default function ProjectsPage() {
       <DataTable
         columns={columns}
         data={filteredProjects}
+        onRowClick={(project) => router.push(`/managed/projects/${project.id}`)}
         loading={isLoading}
         fetching={isFetching}
         emptyMessage={t('manage.projects.empty')}
@@ -505,83 +402,34 @@ export default function ProjectsPage() {
           onPageChange: goToPage,
           onPageSizeChange: setPageSize,
         }}
-        actionMenu={
-          canAdmin
-            ? (project) => {
-                if (project.archived_at) {
-                  return [
-                    {
-                      label: t('common.restore'),
-                      icon: <RotateCcw className="h-3.5 w-3.5" />,
-                      onClick: () => {
-                        const current = currentRestorableArchivedProject(project)
-                        if (!current) return
-                        const action = nextScopedAction()
-                        if (action) restoreProject.mutate({ projectId: current.id, ...action })
-                      },
-                    },
-                  ]
-                }
-
-                const items: MenuItem[] = [
+        actionMenu={(project) => {
+          if (project.archived_at) {
+            return canAdmin
+              ? [
                   {
-                    label: t('common.edit'),
-                    icon: <Pencil className="h-3.5 w-3.5" />,
-                    onClick: () => openEditDialog(project),
-                  },
-                  {
-                    label: t('manage.projects.members'),
-                    icon: <Users className="h-3.5 w-3.5" />,
-                    onClick: () => router.push(`/managed/projects/${project.id}/members`),
-                  },
-                  {
-                    label: project.triggers_paused
-                      ? t('manage.projects.resumeTriggers')
-                      : t('manage.projects.pauseTriggers'),
-                    icon: project.triggers_paused ? (
-                      <PlayCircle className="h-3.5 w-3.5" />
-                    ) : (
-                      <PauseCircle className="h-3.5 w-3.5" />
-                    ),
+                    label: t('common.restore'),
+                    icon: <RotateCcw className="h-3.5 w-3.5" />,
                     onClick: () => {
-                      const current = currentActiveProject(project)
+                      const current = currentRestorableArchivedProject(project)
                       if (!current) return
                       const action = nextScopedAction()
-                      if (action) {
-                        setTriggersPaused.mutate({
-                          projectId: current.id,
-                          paused: !current.triggers_paused,
-                          ...action,
-                        })
-                      }
+                      if (action) restoreProject.mutate({ projectId: current.id, ...action })
                     },
                   },
                 ]
+              : []
+          }
 
-                if (!project.is_default) {
-                  items.push(
-                    {
-                      label: t('manage.projects.setDefault'),
-                      icon: <Star className="h-3.5 w-3.5" />,
-                      onClick: () => {
-                        const current = currentMutableActiveProject(project)
-                        if (!current) return
-                        const action = nextScopedAction()
-                        if (action) setDefault.mutate({ projectId: current.id, ...action })
-                      },
-                    },
-                    {
-                      label: t('common.archive'),
-                      icon: <Archive className="h-3.5 w-3.5" />,
-                      onClick: () => openArchiveDialog(project),
-                    },
-                  )
-                }
-
-                return items
-              }
-            : undefined
-        }
+          const items: MenuItem[] = []
+          if (canAdmin && !project.is_default) {
+            items.push({
+              label: t('common.archive'),
+              icon: <Archive className="h-3.5 w-3.5" />,
+              onClick: () => openArchiveDialog(project),
+            })
+          }
+          return items
+        }}
       />
 
       <Dialog open={!!archiveTarget} onOpenChange={(open) => !open && closeArchiveDialog()}>
@@ -613,48 +461,6 @@ export default function ProjectsPage() {
               }}
             >
               {t('manage.projects.archive')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Project Dialog */}
-      <Dialog open={editTarget !== null} onOpenChange={(open) => !open && closeEditDialog()}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('manage.projects.edit')}</DialogTitle>
-            <DialogDescription>{t('manage.projects.editDesc')}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2 py-2">
-            <label className="text-sm font-medium">{t('manage.projects.projectName')}</label>
-            <Input
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              placeholder={t('manage.projects.namePlaceholder')}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeEditDialog}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              onClick={() => {
-                const current = currentMutableActiveProject(editTarget)
-                if (!current) {
-                  closeEditDialog()
-                  return
-                }
-                const action = nextScopedAction()
-                if (!action) return
-                editProject.mutate({
-                  id: current.id,
-                  name: editName.trim(),
-                  ...action,
-                })
-              }}
-              disabled={!editName.trim() || editProject.isPending}
-            >
-              {editProject.isPending ? t('common.loading') : t('common.save')}
             </Button>
           </DialogFooter>
         </DialogContent>

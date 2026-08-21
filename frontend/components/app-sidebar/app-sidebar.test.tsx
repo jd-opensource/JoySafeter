@@ -242,6 +242,26 @@ describe('AppSidebar project switcher lifecycle', () => {
     expect(view.queryByText('sidebar.appTitle')).toBeNull()
   })
 
+  it('keeps management object-oriented and links organization management from the switcher', async () => {
+    const { AppSidebar } = await import('./app-sidebar')
+
+    const view = renderSidebar(AppSidebar)
+
+    expect(view.getByText('nav.organization')).toBeTruthy()
+    expect(view.getByText('nav.projects')).toBeTruthy()
+    expect(view.queryByText('nav.members')).toBeNull()
+    expect(view.queryByText('nav.apiKeys')).toBeNull()
+
+    const trigger = view.getByText('Project A Current').closest('button')
+    expect(trigger).not.toBeNull()
+    await act(async () => {
+      fireEvent.click(trigger!)
+    })
+
+    const manageOrganizations = view.getByText('sidebar.manageOrganizations').closest('a')
+    expect(manageOrganizations?.getAttribute('href')).toBe('/managed/settings')
+  })
+
   it('shows the archived current project even when it is absent from the active project list', async () => {
     const archivedProject: ProjectInfo = {
       id: 'project-archived',

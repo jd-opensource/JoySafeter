@@ -120,8 +120,6 @@ const platformManageItems: NavItem[] = [
 const manageItems: NavItem[] = [
   { to: '/managed/settings', labelKey: 'nav.organization', icon: Building2 },
   { to: '/managed/projects', labelKey: 'nav.projects', icon: FolderCode },
-  { to: '/managed/members', labelKey: 'nav.members', icon: Users },
-  { to: '/managed/api-keys', labelKey: 'nav.apiKeys', icon: KeyRound },
 ]
 
 function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
@@ -308,6 +306,16 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
                   )
                 })}
             </div>
+            <div className="border-t border-border p-1">
+              <Link
+                href="/managed/settings"
+                className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                onClick={() => setOpen(false)}
+              >
+                <Building2 className="h-3.5 w-3.5" />
+                {t('sidebar.manageOrganizations')}
+              </Link>
+            </div>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -414,6 +422,16 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
                   </div>
                 )
               })}
+          </div>
+          <div className="border-t border-border p-1">
+            <Link
+              href="/managed/settings"
+              className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => setOpen(false)}
+            >
+              <Building2 className="h-3.5 w-3.5" />
+              {t('sidebar.manageOrganizations')}
+            </Link>
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
