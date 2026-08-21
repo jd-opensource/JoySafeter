@@ -114,4 +114,3 @@ Organization owner/admin retains inherited Project Admin capability for every pr
 - Project list tests cover row navigation and reduced action menus.
 - Access helper/component tests cover pending/saved/default-project behavior.
 - Frontend type-check, lint, production build, and relevant existing tests pass.
-

@@ -151,4 +151,3 @@
 - [ ] Scan sidebar and active copy for removed standalone entries.
 - [ ] Attempt rendered validation with Browser or Playwright and record limitations.
 - [ ] Review final diff for unrelated changes.
-
