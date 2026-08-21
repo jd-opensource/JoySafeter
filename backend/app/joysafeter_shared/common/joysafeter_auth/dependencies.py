@@ -6,6 +6,7 @@ wrappers require_joysafeter_write / require_joysafeter_admin.
 """
 
 import hashlib
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from fastapi import Depends, Request
@@ -218,6 +219,8 @@ async def _verify_joysafeter_context(
         )
 
     project_role = await project_service.get_project_member_role(project_id, user_id)
+    if project_role is None and project.is_default and not role.is_org_superuser():
+        project_role = "viewer"
     is_super_user = await _is_platform_super_user(db, user_id)
     return JoySafeterAuthContext(
         user_id=user_id,
@@ -474,10 +477,17 @@ async def require_joysafeter_project_admin(
     ship with only a read-level guard.
     """
     ctx = _require_user_principal(ctx)
-    actor_role = await ProjectService(db).get_project_member_role(project_id, ctx.user_id)
+    project_service = ProjectService(db)
+    project = await project_service.get_project(project_id, ctx.org_id)
+    if project is None:
+        raise AccessDeniedError(
+            "Project admin access required",
+            code="JOYSAFETER_PROJECT_ADMIN_REQUIRED",
+        )
+    actor_role = await project_service.get_project_member_role(project_id, ctx.user_id)
     if effective_project_capability(ctx.role, actor_role) < ProjectCapability.ADMIN:
         raise AccessDeniedError(
             "Project admin access required",
             code="JOYSAFETER_PROJECT_ADMIN_REQUIRED",
         )
-    return ctx
+    return replace(ctx, project_id=project_id, project_role=actor_role)

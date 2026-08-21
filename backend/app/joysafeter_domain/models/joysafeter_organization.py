@@ -44,6 +44,12 @@ class Organization(Base, TimestampMixin):
     logo: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     # NOTE: `metadata` is a reserved attribute name in SQLAlchemy Declarative; use metadata_ mapped to the metadata column
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSONB, nullable=True)
+    project_creation_policy: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="admins_only",
+        server_default="admins_only",
+    )
 
     org_usage_limit: Mapped[Optional[float]] = mapped_column(Numeric, nullable=True)
     storage_used_bytes: Mapped[int] = mapped_column(

@@ -16,7 +16,7 @@ from app.joysafeter_api.api.v1.auth import (
 )
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
-from app.joysafeter_domain.models.joysafeter_organization import Organization
+from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
@@ -33,6 +33,15 @@ def _admin_ctx(project_id: str, org_id: str) -> JoySafeterAuthContext:
         org_id=org_id,
         project_id=project_id,
         role=JoySafeterRole.ADMIN,
+    )
+
+
+def _member_ctx(project_id: str, org_id: str, user_id: str) -> JoySafeterAuthContext:
+    return JoySafeterAuthContext(
+        user_id=user_id,
+        org_id=org_id,
+        project_id=project_id,
+        role=JoySafeterRole.MEMBER,
     )
 
 
@@ -430,8 +439,8 @@ async def test_project_create_and_update_normalize_slug_at_service_boundary(db_s
             select(ProjectMember).where(ProjectMember.project_id == created.id, ProjectMember.user_id == user.id)
         )
     ).scalar_one_or_none()
-    assert project_member is not None
-    assert project_member.role == "admin"
+    assert project_member is None
+    assert created.created_by_user_id == user.id
 
     updated = await update_project(
         created.id,
@@ -447,6 +456,99 @@ async def test_project_create_and_update_normalize_slug_at_service_boundary(db_s
     db_session.expire_all()
     project_row = (await db_session.execute(select(Project).where(Project.id == created.id))).scalar_one()
     assert project_row.triggers_paused is True
+
+
+@pytest.mark.asyncio
+async def test_member_cannot_create_project_when_policy_is_admins_only(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    user = AuthUser(name="Member", email=f"member-{uuid.uuid4()}@example.com")
+    org = Organization(
+        id=org_id,
+        name="Restricted Org",
+        slug=f"restricted-{uuid.uuid4()}",
+        project_creation_policy="admins_only",
+    )
+    current_project = Project(
+        id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Default", slug="default", is_default=True
+    )
+    db_session.add_all([user, org, current_project])
+    await db_session.flush()
+    db_session.add(Member(user_id=user.id, organization_id=org_id, role="member"))
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await create_project(
+            CreateProjectRequest(name="Blocked", slug="blocked"),
+            db_session,
+            _member_ctx(current_project.id, org_id, user.id),
+        )
+
+    assert exc_info.value.code == "PROJECT_CREATE_FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_member_creator_becomes_project_admin_when_policy_allows_creation(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    user = AuthUser(name="Member", email=f"member-{uuid.uuid4()}@example.com")
+    org = Organization(
+        id=org_id,
+        name="Open Org",
+        slug=f"open-{uuid.uuid4()}",
+        project_creation_policy="all_members",
+    )
+    current_project = Project(
+        id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Default", slug="default", is_default=True
+    )
+    db_session.add_all([user, org, current_project])
+    await db_session.flush()
+    db_session.add(Member(user_id=user.id, organization_id=org_id, role="member"))
+    await db_session.commit()
+
+    created = await create_project(
+        CreateProjectRequest(name="Member Project", slug="member-project"),
+        db_session,
+        _member_ctx(current_project.id, org_id, user.id),
+    )
+
+    assert created.created_by_user_id == user.id
+    assert created.project_role == "admin"
+    assert created.capability == "admin"
+
+
+@pytest.mark.asyncio
+async def test_project_admin_can_rename_and_pause_but_cannot_change_slug(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    user = AuthUser(name="Project Admin", email=f"project-admin-{uuid.uuid4()}@example.com")
+    org = Organization(id=org_id, name="Org", slug=f"org-{uuid.uuid4()}")
+    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Project", slug="project")
+    db_session.add_all([user, org, project])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            Member(user_id=user.id, organization_id=org_id, role="member"),
+            ProjectMember(project_id=project.id, user_id=user.id, role="admin"),
+        ]
+    )
+    await db_session.commit()
+    ctx = _member_ctx(project.id, org_id, user.id)
+
+    renamed = await update_project(
+        project.id,
+        UpdateProjectRequest(name="Renamed", triggers_paused=True),
+        db_session,
+        ctx,
+    )
+    assert renamed.name == "Renamed"
+    assert renamed.triggers_paused is True
+
+    with pytest.raises(AppError) as exc_info:
+        await update_project(
+            project.id,
+            UpdateProjectRequest(slug="renamed-slug"),
+            db_session,
+            ctx,
+        )
+    assert exc_info.value.code == "JOYSAFETER_ORGANIZATION_ADMIN_REQUIRED"
 
 
 @pytest.mark.asyncio

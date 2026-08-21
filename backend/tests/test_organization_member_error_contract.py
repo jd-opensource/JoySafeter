@@ -8,26 +8,27 @@ from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.auth import (
     CreateOrganizationRequest,
-    InviteMemberRequest,
     SwitchContextRequest,
-    UpdateMemberRoleRequest,
+    SwitchContextResponse,
     archive_project,
     create_organization,
     get_me,
     get_project,
-    invite_member,
     list_projects,
-    remove_member,
     revoke_api_key,
     switch_context,
-    update_member_role,
 )
 from app.joysafeter_api.api.v1.organizations import (
     AddMemberRequest,
     TransferOwnershipRequest,
+    UpdateMemberRoleRequest,
     add_member,
     delete_organization,
+    get_organization,
+    list_organizations,
+    remove_member,
     transfer_ownership,
+    update_member_role,
 )
 from app.joysafeter_api.api.v1.organizations import (
     CreateOrganizationRequest as OrganizationCreateRequest,
@@ -35,10 +36,14 @@ from app.joysafeter_api.api.v1.organizations import (
 from app.joysafeter_api.api.v1.organizations import (
     create_organization as create_scoped_organization,
 )
+from app.joysafeter_api.api.v1.organizations import (
+    list_members as list_organization_members,
+)
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
+from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.utils.datetime import utc_now
@@ -59,6 +64,19 @@ async def _org(db_session) -> Organization:
     await db_session.commit()
     await db_session.refresh(org)
     return org
+
+
+def _request():
+    return SimpleNamespace(client=None, headers={})
+
+
+async def _organization_actor(db_session, organization_id: str, *, role: str = "admin") -> AuthUser:
+    actor = AuthUser(name="Actor User", email=f"actor-{uuid.uuid4()}@example.com")
+    db_session.add(actor)
+    await db_session.flush()
+    db_session.add(Member(user_id=actor.id, organization_id=organization_id, role=role))
+    await db_session.commit()
+    return actor
 
 
 @pytest.mark.asyncio
@@ -87,16 +105,16 @@ async def test_auth_create_organization_uses_domain_creation_contract(db_session
     project_result = await db_session.execute(select(Project).where(Project.id == response.project_id))
     project = project_result.scalar_one()
     assert project.org_id == response.id
-    assert project.name == "Default"
-    assert project.slug == "default"
+    assert project.name == "Main"
+    assert project.slug == "main"
     assert project.is_default is True
 
     project_member_result = await db_session.execute(
         select(ProjectMember).where(ProjectMember.project_id == project.id, ProjectMember.user_id == user.id)
     )
     project_member = project_member_result.scalar_one_or_none()
-    assert project_member is not None
-    assert project_member.role == "admin"
+    assert project_member is None
+    assert project.created_by_user_id == user.id
 
 
 @pytest.mark.asyncio
@@ -126,16 +144,50 @@ async def test_scoped_create_organization_uses_same_slug_and_default_project_con
     project_result = await db_session.execute(select(Project).where(Project.id == response["project_id"]))
     project = project_result.scalar_one()
     assert project.org_id == response["id"]
-    assert project.name == "Default"
-    assert project.slug == "default"
+    assert project.name == "Main"
+    assert project.slug == "main"
     assert project.is_default is True
 
     project_member_result = await db_session.execute(
         select(ProjectMember).where(ProjectMember.project_id == project.id, ProjectMember.user_id == user.id)
     )
     project_member = project_member_result.scalar_one_or_none()
-    assert project_member is not None
-    assert project_member.role == "admin"
+    assert project_member is None
+    assert project.created_by_user_id == user.id
+
+
+@pytest.mark.asyncio
+async def test_list_organizations_exposes_viewer_role_and_current_owner_identity(db_session):
+    viewer = AuthUser(id=f"viewer-{uuid.uuid4()}", name="Viewer", email=f"viewer-{uuid.uuid4()}@example.com")
+    owner = AuthUser(id=f"owner-{uuid.uuid4()}", name="Workspace Owner", email=f"owner-{uuid.uuid4()}@example.com")
+    org = Organization(id=f"org-{uuid.uuid4()}", name="Shared Org", slug=f"shared-{uuid.uuid4()}")
+    db_session.add_all([viewer, owner, org])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            Member(user_id=viewer.id, organization_id=org.id, role="member"),
+            Member(user_id=owner.id, organization_id=org.id, role="owner"),
+        ]
+    )
+    await db_session.commit()
+
+    response = await list_organizations(
+        SimpleNamespace(id=viewer.id),
+        q="",
+        limit=50,
+        after_id=None,
+        db=db_session,
+    )
+
+    assert len(response.data) == 1
+    assert response.data[0].role == "member"
+    assert response.data[0].owner_name == owner.name
+    assert response.data[0].owner_email == owner.email
+
+    detail = await get_organization(org.id, SimpleNamespace(id=viewer.id), db_session)
+    assert detail["role"] == "member"
+    assert detail["owner_name"] == owner.name
+    assert detail["owner_email"] == owner.email
 
 
 @pytest.mark.asyncio
@@ -208,11 +260,17 @@ async def test_add_member_returns_structured_duplicate_member_error(db_session):
     await db_session.commit()
 
     with pytest.raises(AppError) as exc_info:
-        await add_member(org.id, AddMemberRequest(user_id=target.id), SimpleNamespace(id=actor.id), db_session)
+        await add_member(
+            org.id,
+            AddMemberRequest(email=target.email),
+            _request(),  # type: ignore[arg-type]
+            SimpleNamespace(id=actor.id),
+            db_session,
+        )
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "ORGANIZATION_MEMBER_ALREADY_EXISTS",
-        "message": "User is already a member",
+        "message": "User is already a member of this organization",
         "data": {"organization_id": org.id, "user_id": target.id},
         "source": "api",
         "retryable": False,
@@ -221,8 +279,9 @@ async def test_add_member_returns_structured_duplicate_member_error(db_session):
 
 
 @pytest.mark.asyncio
-async def test_invite_member_returns_structured_duplicate_member_error(db_session):
+async def test_add_existing_member_returns_structured_duplicate_member_error(db_session):
     org = await _org(db_session)
+    actor = await _organization_actor(db_session, org.id)
     user = AuthUser(name="Target User", email=f"target-{uuid.uuid4()}@example.com")
     db_session.add(user)
     await db_session.flush()
@@ -231,7 +290,13 @@ async def test_invite_member_returns_structured_duplicate_member_error(db_sessio
     await db_session.refresh(user)
 
     with pytest.raises(AppError) as exc_info:
-        await invite_member(InviteMemberRequest(email=user.email), None, db_session, _auth_ctx(org.id))  # type: ignore[arg-type]
+        await add_member(
+            org.id,
+            AddMemberRequest(email=user.email),
+            _request(),  # type: ignore[arg-type]
+            SimpleNamespace(id=actor.id),
+            db_session,
+        )
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "ORGANIZATION_MEMBER_ALREADY_EXISTS",
@@ -244,12 +309,19 @@ async def test_invite_member_returns_structured_duplicate_member_error(db_sessio
 
 
 @pytest.mark.asyncio
-async def test_invite_member_missing_user_returns_structured_error(db_session):
+async def test_add_existing_member_missing_user_returns_structured_error(db_session):
     org = await _org(db_session)
+    actor = await _organization_actor(db_session, org.id)
     missing_email = f"missing-{uuid.uuid4()}@example.com"
 
     with pytest.raises(AppError) as exc_info:
-        await invite_member(InviteMemberRequest(email=missing_email), None, db_session, _auth_ctx(org.id))  # type: ignore[arg-type]
+        await add_member(
+            org.id,
+            AddMemberRequest(email=missing_email),
+            _request(),  # type: ignore[arg-type]
+            SimpleNamespace(id=actor.id),
+            db_session,
+        )
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "AUTH_USER_NOT_FOUND",
@@ -262,19 +334,65 @@ async def test_invite_member_missing_user_returns_structured_error(db_session):
 
 
 @pytest.mark.asyncio
-async def test_invite_member_grants_default_project_membership(db_session):
+async def test_add_existing_member_matches_registered_email_case_insensitively(db_session):
     org = await _org(db_session)
+    actor = await _organization_actor(db_session, org.id)
+    user = AuthUser(name="Target User", email=f"Target-{uuid.uuid4()}@Example.COM")
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    response = await add_member(
+        org.id,
+        AddMemberRequest(email=user.email.lower(), role="member"),
+        _request(),  # type: ignore[arg-type]
+        SimpleNamespace(id=actor.id),
+        db_session,
+    )
+
+    assert response.user_id == user.id
+    assert response.user_email == user.email
+
+
+@pytest.mark.asyncio
+async def test_organization_member_response_identifies_organization_scope(db_session):
+    org = await _org(db_session)
+    user = AuthUser(id="admin-user", name="Admin User", email=f"admin-{uuid.uuid4()}@example.com")
+    db_session.add(user)
+    await db_session.flush()
+    membership = Member(user_id=user.id, organization_id=org.id, role="admin")
+    db_session.add(membership)
+    await db_session.commit()
+
+    response = await list_organization_members(
+        org.id,
+        SimpleNamespace(id=user.id),
+        q="",
+        limit=50,
+        after_id=None,
+        db=db_session,
+    )
+
+    assert response.data[0].id == membership.id
+    assert response.data[0].organization_id == org.id
+
+
+@pytest.mark.asyncio
+async def test_add_existing_member_uses_implicit_default_project_membership(db_session):
+    org = await _org(db_session)
+    actor = await _organization_actor(db_session, org.id)
     project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="Default", slug="default", is_default=True)
     user = AuthUser(name="Target User", email=f"target-{uuid.uuid4()}@example.com")
     db_session.add_all([project, user])
     await db_session.commit()
     await db_session.refresh(user)
 
-    response = await invite_member(
-        InviteMemberRequest(email=user.email, role="member"),
-        None,  # type: ignore[arg-type]
+    response = await add_member(
+        org.id,
+        AddMemberRequest(email=user.email, role="member"),
+        _request(),  # type: ignore[arg-type]
+        SimpleNamespace(id=actor.id),
         db_session,
-        _auth_ctx(org.id),
     )
 
     assert response.user_id == user.id
@@ -283,15 +401,76 @@ async def test_invite_member_grants_default_project_membership(db_session):
             select(ProjectMember).where(ProjectMember.project_id == project.id, ProjectMember.user_id == user.id)
         )
     ).scalar_one_or_none()
-    assert project_member is not None
-    # Ordinary members seed the default project at viewer (least privilege) under
-    # the 3-tier org model; higher access is granted explicitly.
-    assert project_member.role == "viewer"
+    assert project_member is None
+
+
+@pytest.mark.asyncio
+async def test_promoting_member_clears_redundant_project_grants(db_session):
+    org = await _org(db_session)
+    actor = await _organization_actor(db_session, org.id)
+    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="Project", slug=f"project-{uuid.uuid4()}")
+    target = AuthUser(name="Target User", email=f"target-{uuid.uuid4()}@example.com")
+    db_session.add_all([project, target])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            Member(user_id=target.id, organization_id=org.id, role="member"),
+            ProjectMember(project_id=project.id, user_id=target.id, role="admin"),
+        ]
+    )
+    await db_session.commit()
+
+    await update_member_role(
+        org.id,
+        target.id,
+        UpdateMemberRoleRequest(role="admin"),
+        _request(),  # type: ignore[arg-type]
+        SimpleNamespace(id=actor.id),
+        db_session,
+    )
+
+    remaining = (
+        await db_session.execute(
+            select(ProjectMember).where(ProjectMember.project_id == project.id, ProjectMember.user_id == target.id)
+        )
+    ).scalar_one_or_none()
+    assert remaining is None
+
+
+@pytest.mark.asyncio
+async def test_demoting_admin_does_not_reactivate_hidden_project_grants(db_session):
+    org = await _org(db_session)
+    actor = await _organization_actor(db_session, org.id, role="owner")
+    default_project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="Default", slug="default", is_default=True)
+    other_project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="Other", slug=f"other-{uuid.uuid4()}")
+    target = AuthUser(name="Target User", email=f"target-{uuid.uuid4()}@example.com")
+    db_session.add_all([default_project, other_project, target])
+    await db_session.flush()
+    db_session.add(Member(user_id=target.id, organization_id=org.id, role="admin"))
+    db_session.add(ProjectMember(project_id=other_project.id, user_id=target.id, role="admin"))
+    await db_session.commit()
+
+    await update_member_role(
+        org.id,
+        target.id,
+        UpdateMemberRoleRequest(role="member"),
+        _request(),  # type: ignore[arg-type]
+        SimpleNamespace(id=actor.id),
+        db_session,
+    )
+
+    projects = await ProjectService(db_session).list_accessible_projects(
+        org_id=org.id,
+        user_id=target.id,
+        org_role="member",
+    )
+    assert [project.id for project in projects] == [default_project.id]
 
 
 @pytest.mark.asyncio
 async def test_remove_member_cleans_project_memberships(db_session):
     org = await _org(db_session)
+    actor = await _organization_actor(db_session, org.id)
     target = AuthUser(name="Target User", email=f"target-{uuid.uuid4()}@example.com")
     project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="Default", slug="default", is_default=True)
     db_session.add_all([target, project])
@@ -304,7 +483,13 @@ async def test_remove_member_cleans_project_memberships(db_session):
     )
     await db_session.commit()
 
-    await remove_member(target.id, None, db_session, _auth_ctx(org.id))  # type: ignore[arg-type]
+    await remove_member(
+        org.id,
+        target.id,
+        _request(),  # type: ignore[arg-type]
+        SimpleNamespace(id=actor.id),
+        db_session,
+    )
 
     assert (
         await db_session.execute(
@@ -316,15 +501,17 @@ async def test_remove_member_cleans_project_memberships(db_session):
 @pytest.mark.asyncio
 async def test_update_organization_member_missing_member_returns_structured_error(db_session):
     org = await _org(db_session)
+    actor = await _organization_actor(db_session, org.id)
     missing_user_id = f"user-{uuid.uuid4()}"
 
     with pytest.raises(AppError) as exc_info:
         await update_member_role(
+            org.id,
             missing_user_id,
             UpdateMemberRoleRequest(role="member"),
-            None,  # type: ignore[arg-type]
+            _request(),  # type: ignore[arg-type]
+            SimpleNamespace(id=actor.id),
             db_session,
-            _auth_ctx(org.id),
         )
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
@@ -376,22 +563,24 @@ async def test_revoke_api_key_missing_key_returns_structured_error(db_session):
 @pytest.mark.asyncio
 async def test_add_member_invalid_role_returns_structured_error(db_session):
     org = await _org(db_session)
+    actor = await _organization_actor(db_session, org.id)
 
     with pytest.raises(AppError) as exc_info:
         await add_member(
             org.id,
-            AddMemberRequest(user_id="target-user", role="super-admin"),
-            SimpleNamespace(id="actor-user"),
+            AddMemberRequest(email="target@example.com", role="super-admin"),
+            _request(),  # type: ignore[arg-type]
+            SimpleNamespace(id=actor.id),
             db_session,
         )
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
-        "code": "ORGANIZATION_MEMBER_ROLE_INVALID",
-        "message": "Invalid member role",
-        "data": {"role": "super-admin", "allowed": ["admin", "member", "owner"]},
-        "source": "api",
+        "code": "AUTH_INVALID_ASSIGNABLE_ROLE",
+        "message": "Invalid role. Must be one of: admin, member",
+        "data": {"role": "super-admin", "allowed": ["admin", "member"]},
+        "source": "auth",
         "retryable": False,
-        "user_action": "fix_input",
+        "user_action": "correct_request",
     }
 
 
@@ -425,6 +614,7 @@ async def test_transfer_ownership_to_self_returns_structured_error(db_session):
 @pytest.mark.asyncio
 async def test_remove_owner_returns_structured_error(db_session):
     org = await _org(db_session)
+    actor = await _organization_actor(db_session, org.id)
     owner = AuthUser(name="Owner User", email=f"owner-{uuid.uuid4()}@example.com")
     db_session.add(owner)
     await db_session.flush()
@@ -432,7 +622,13 @@ async def test_remove_owner_returns_structured_error(db_session):
     await db_session.commit()
 
     with pytest.raises(AppError) as exc_info:
-        await remove_member(owner.id, None, db_session, _auth_ctx(org.id))  # type: ignore[arg-type]
+        await remove_member(
+            org.id,
+            owner.id,
+            _request(),  # type: ignore[arg-type]
+            SimpleNamespace(id=actor.id),
+            db_session,
+        )
 
     # The owner is protected on the auth surface via the same gate that blocks
     # any change to an owner's role (removal == demote-to-member internally).
@@ -440,6 +636,63 @@ async def test_remove_owner_returns_structured_error(db_session):
         "code": "AUTH_OWNER_ROLE_CHANGE_FORBIDDEN",
         "message": "Cannot change the owner's role",
         "data": {"actor_role": "admin", "current_role": "owner", "target_role": "member"},
+        "source": "auth",
+        "retryable": False,
+        "user_action": "request_access",
+    }
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_change_own_role_from_member_management(db_session):
+    org = await _org(db_session)
+    actor = AuthUser(id="admin-user", name="Admin User", email=f"admin-{uuid.uuid4()}@example.com")
+    db_session.add(actor)
+    await db_session.flush()
+    db_session.add(Member(user_id=actor.id, organization_id=org.id, role="admin"))
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await update_member_role(
+            org.id,
+            actor.id,
+            UpdateMemberRoleRequest(role="member"),
+            _request(),  # type: ignore[arg-type]
+            SimpleNamespace(id=actor.id),
+            db_session,
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=403) == {
+        "code": "AUTH_MEMBER_SELF_MANAGEMENT_FORBIDDEN",
+        "message": "Cannot change your own organization membership from member management",
+        "data": {"organization_id": org.id, "member_id": actor.id},
+        "source": "auth",
+        "retryable": False,
+        "user_action": "request_access",
+    }
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_remove_self_from_member_management(db_session):
+    org = await _org(db_session)
+    actor = AuthUser(id="admin-user", name="Admin User", email=f"admin-{uuid.uuid4()}@example.com")
+    db_session.add(actor)
+    await db_session.flush()
+    db_session.add(Member(user_id=actor.id, organization_id=org.id, role="admin"))
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await remove_member(
+            org.id,
+            actor.id,
+            _request(),  # type: ignore[arg-type]
+            SimpleNamespace(id=actor.id),
+            db_session,
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=403) == {
+        "code": "AUTH_MEMBER_SELF_MANAGEMENT_FORBIDDEN",
+        "message": "Cannot change your own organization membership from member management",
+        "data": {"organization_id": org.id, "member_id": actor.id},
         "source": "auth",
         "retryable": False,
         "user_action": "request_access",
@@ -494,7 +747,8 @@ async def test_add_member_without_admin_permission_returns_structured_error(db_s
     with pytest.raises(AppError) as exc_info:
         await add_member(
             org.id,
-            AddMemberRequest(user_id="target-user", role="member"),
+            AddMemberRequest(email="target@example.com", role="member"),
+            _request(),  # type: ignore[arg-type]
             SimpleNamespace(id=actor.id),
             db_session,
         )
@@ -510,7 +764,7 @@ async def test_add_member_without_admin_permission_returns_structured_error(db_s
 
 
 @pytest.mark.asyncio
-async def test_admin_cannot_assign_owner_role_returns_structured_error(db_session):
+async def test_admin_must_use_transfer_flow_for_owner_role(db_session):
     org = await _org(db_session)
     actor = AuthUser(name="Actor User", email=f"actor-{uuid.uuid4()}@example.com")
     db_session.add(actor)
@@ -521,18 +775,48 @@ async def test_admin_cannot_assign_owner_role_returns_structured_error(db_sessio
     with pytest.raises(AppError) as exc_info:
         await add_member(
             org.id,
-            AddMemberRequest(user_id="target-user", role="owner"),
+            AddMemberRequest(email="target@example.com", role="owner"),
+            _request(),  # type: ignore[arg-type]
             SimpleNamespace(id=actor.id),
             db_session,
         )
 
-    assert await handled_app_error_payload(exc_info.value, status_code=403) == {
-        "code": "ORGANIZATION_OWNER_ROLE_ASSIGN_FORBIDDEN",
-        "message": "Only organization owners can assign owner role",
-        "data": {"actor_role": "admin", "target_role": "owner"},
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "AUTH_INVALID_ASSIGNABLE_ROLE",
+        "message": "Invalid role. Must be one of: admin, member",
+        "data": {"role": "owner", "allowed": ["admin", "member"]},
         "source": "auth",
         "retryable": False,
-        "user_action": "request_access",
+        "user_action": "correct_request",
+    }
+
+
+@pytest.mark.asyncio
+async def test_owner_must_use_transfer_flow_for_owner_role(db_session):
+    org = await _org(db_session)
+    owner = AuthUser(name="Owner User", email=f"owner-{uuid.uuid4()}@example.com")
+    target = AuthUser(name="Target User", email=f"target-{uuid.uuid4()}@example.com")
+    db_session.add_all([owner, target])
+    await db_session.flush()
+    db_session.add(Member(user_id=owner.id, organization_id=org.id, role="owner"))
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc_info:
+        await add_member(
+            org.id,
+            AddMemberRequest(email=target.email, role="owner"),
+            _request(),  # type: ignore[arg-type]
+            SimpleNamespace(id=owner.id),
+            db_session,
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "AUTH_INVALID_ASSIGNABLE_ROLE",
+        "message": "Invalid role. Must be one of: admin, member",
+        "data": {"role": "owner", "allowed": ["admin", "member"]},
+        "source": "auth",
+        "retryable": False,
+        "user_action": "correct_request",
     }
 
 
@@ -592,6 +876,32 @@ async def test_switch_context_uses_active_project_when_default_is_archived(db_se
             "archived_at": None,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_switch_context_reports_implicit_default_project_viewer_capability(db_session):
+    org_id = f"org-{uuid.uuid4()}"
+    user = AuthUser(id="admin-user", name="Member User", email=f"member-{uuid.uuid4()}@example.com")
+    org = Organization(id=org_id, name="Member Org", slug=f"member-org-{uuid.uuid4()}")
+    default_project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="Default",
+        slug=f"default-{uuid.uuid4()}",
+        is_default=True,
+    )
+    db_session.add_all([user, org, default_project])
+    await db_session.flush()
+    db_session.add(Member(user_id=user.id, organization_id=org_id, role="member"))
+    await db_session.commit()
+
+    response = await switch_context(SwitchContextRequest(org_id=org_id), db_session, _auth_ctx("current-org"))
+    validated = SwitchContextResponse.model_validate(response)
+
+    assert response["project_id"] == default_project.id
+    assert response["project"]["project_role"] is None
+    assert response["project"]["capability"] == "read"
+    assert validated.project.capability == "read"
 
 
 @pytest.mark.asyncio

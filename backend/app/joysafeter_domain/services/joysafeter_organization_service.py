@@ -23,7 +23,6 @@ from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
-from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
 
 PROJECT_RESOURCE_BLOCKERS = (
@@ -44,10 +43,14 @@ PROJECT_RESOURCE_BLOCKERS = (
 @dataclass(frozen=True)
 class CreatedOrganization:
     organization: Organization
+    owner_membership: Member
     default_project: Project
 
 
 class OrganizationService:
+    DEFAULT_PROJECT_NAME = "Main"
+    DEFAULT_PROJECT_SLUG = "main"
+
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
@@ -61,7 +64,18 @@ class OrganizationService:
             slug = fallback
         return f"{slug}-{uuid.uuid4().hex[:6]}"
 
-    async def create_with_owner_and_default_project(
+    @staticmethod
+    def bootstrap_organization_name(*, user_name: str | None, user_email: str | None) -> str:
+        normalized_name = " ".join((user_name or "").split())
+        if normalized_name and normalized_name.casefold() != "default":
+            return normalized_name
+
+        email_local_part = (user_email or "").partition("@")[0].strip()
+        if email_local_part and email_local_part.casefold() != "default":
+            return email_local_part
+        return "Personal"
+
+    async def add_with_owner_and_default_project(
         self,
         *,
         name: str,
@@ -94,29 +108,50 @@ class OrganizationService:
         }
         if owner_member_id is not None:
             member_kwargs["id"] = owner_member_id
-        self.db.add(Member(**member_kwargs))
+        owner_membership = Member(**member_kwargs)
+        self.db.add(owner_membership)
 
         project_kwargs = {
             "org_id": org.id,
-            "name": "Default",
-            "slug": "default",
+            "name": self.DEFAULT_PROJECT_NAME,
+            "slug": self.DEFAULT_PROJECT_SLUG,
             "is_default": True,
+            "created_by_user_id": owner_user_id,
         }
         if default_project_id is not None:
             project_kwargs["id"] = default_project_id
         default_project = Project(**project_kwargs)
         self.db.add(default_project)
         await self.db.flush()
-        await ProjectService(self.db).grant_project_membership(
-            project_id=default_project.id,
-            user_id=owner_user_id,
-            role="admin",
+
+        return CreatedOrganization(
+            organization=org,
+            owner_membership=owner_membership,
+            default_project=default_project,
         )
 
+    async def create_with_owner_and_default_project(
+        self,
+        *,
+        name: str,
+        slug: str | None = None,
+        owner_user_id: str,
+        organization_id: str | None = None,
+        owner_member_id: str | None = None,
+        default_project_id: str | None = None,
+    ) -> CreatedOrganization:
+        created = await self.add_with_owner_and_default_project(
+            name=name,
+            slug=slug,
+            owner_user_id=owner_user_id,
+            organization_id=organization_id,
+            owner_member_id=owner_member_id,
+            default_project_id=default_project_id,
+        )
         await self.db.commit()
-        await self.db.refresh(org)
-        await self.db.refresh(default_project)
-        return CreatedOrganization(organization=org, default_project=default_project)
+        await self.db.refresh(created.organization)
+        await self.db.refresh(created.default_project)
+        return created
 
     async def delete_organization(self, *, organization_id: str, actor_user_id: str) -> None:
         await OrganizationMemberService(self.db).require_owner(

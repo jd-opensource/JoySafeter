@@ -190,9 +190,12 @@ def test_env_examples_publish_only_canonical_federation_activation() -> None:
     assert backend_values["IDENTITY_FEDERATION_PROVIDERS"] == ""
     assert backend_values["IDENTITY_FEDERATION_CONFIG_PATH"] == ""
     assert backend_values["IDENTITY_FEDERATION_LOGIN_MODE"] == "chooser"
-    assert deploy_values["IDENTITY_FEDERATION_PROVIDERS"] == "jd"
+    # The deploy example ships JD SSO OFF by default so the stack runs locally
+    # with email/password; operators opt in by setting PROVIDERS=jd,
+    # LOGIN_MODE=redirect (documented inline next to the JD_* block).
+    assert deploy_values["IDENTITY_FEDERATION_PROVIDERS"] == ""
     assert deploy_values["IDENTITY_FEDERATION_CONFIG_PATH"] == ""
-    assert deploy_values["IDENTITY_FEDERATION_LOGIN_MODE"] == "redirect"
+    assert deploy_values["IDENTITY_FEDERATION_LOGIN_MODE"] == "chooser"
 
 
 def test_compose_explicitly_passes_canonical_federation_environment() -> None:

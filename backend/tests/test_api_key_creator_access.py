@@ -19,6 +19,7 @@ async def _key_setup(
     creator_org_role: str | None,
     creator_project_role: str | None,
     key_role: str = "editor",
+    is_default: bool = False,
 ) -> str:
     """Create an org, project, creator user and an API key. Returns the raw key.
 
@@ -28,7 +29,13 @@ async def _key_setup(
     org_id = f"org-{uuid.uuid4()}"
     creator = AuthUser(id=f"user-{uuid.uuid4()}", name="Creator", email=f"{uuid.uuid4()}@example.com")
     org = Organization(id=org_id, name="Org", slug=f"org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="P", slug="default", is_default=True)
+    project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org_id,
+        name="P",
+        slug="default" if is_default else f"project-{uuid.uuid4()}",
+        is_default=is_default,
+    )
     db_session.add_all([creator, org, project])
     await db_session.flush()
     if creator_org_role is not None:
@@ -63,12 +70,29 @@ async def test_key_rejected_when_creator_removed_from_org(db_session):
 
 @pytest.mark.asyncio
 async def test_key_rejected_when_creator_lost_project_access(db_session):
-    # Creator is still an org member (developer) but has no ProjectMember row on
+    # Creator is still an org member but has no ProjectMember row on
     # the key's project (grant revoked) → non-super-user has no access → rejected.
     raw_key = await _key_setup(db_session, creator_org_role="member", creator_project_role=None)
     with pytest.raises(AccessDeniedError) as exc_info:
         await _auth_via_api_key(raw_key, db_session)
     assert exc_info.value.code == "AUTH_API_KEY_ACCESS_REVOKED"
+
+
+@pytest.mark.asyncio
+async def test_key_valid_when_creator_has_implicit_default_project_access(db_session):
+    raw_key = await _key_setup(
+        db_session,
+        creator_org_role="member",
+        creator_project_role=None,
+        key_role="viewer",
+        is_default=True,
+    )
+
+    ctx = await _auth_via_api_key(raw_key, db_session)
+
+    assert ctx is not None
+    assert ctx.principal_type == "api_key"
+    assert ctx.project_role == "viewer"
 
 
 @pytest.mark.asyncio

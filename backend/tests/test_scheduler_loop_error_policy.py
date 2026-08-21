@@ -35,6 +35,24 @@ def _fake_session_factory():
     return _FakeSession()
 
 
+def _patch_claim(monkeypatch, trigger):
+    """Stub the in-fire re-lock so no_db tests reach the classification logic.
+
+    ``_fire`` re-acquires the claimed trigger under a row lock in its own
+    session (``get_claimed_for_fire``) before doing any work. That method does
+    DB I/O, so these no_db tests must stub it just like the other service
+    methods; it returns the already-claimed trigger the loop passed in.
+    """
+
+    async def get_claimed_for_fire(self, trigger_id, *, expected_locked_by):
+        return trigger
+
+    monkeypatch.setattr(
+        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.get_claimed_for_fire",
+        get_claimed_for_fire,
+    )
+
+
 class _FakeSubmission:
     def __init__(self, db):
         self.tasks = SimpleNamespace(get_by_idempotency_key=self.get_by_idempotency_key)
@@ -193,6 +211,7 @@ async def test_idempotent_slot_precheck_skips_auto_session_creation(monkeypatch)
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.JoySafeterAgentService", _FakeAgentService)
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.EnvironmentService", _FakeEnvironmentService)
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.SessionService", _ExplodingSessionService)
+    _patch_claim(monkeypatch, trigger)
 
     async def trigger_runtime_block_reason(self, trigger_arg):
         return None
@@ -247,6 +266,7 @@ async def test_idempotent_slot_replay_precedes_concurrency_policy(monkeypatch, p
         "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.get_active_tasks",
         get_active_tasks,
     )
+    _patch_claim(monkeypatch, trigger)
 
     outcome = await SchedulerLoop()._fire(trigger, datetime.now(timezone.utc))
 
@@ -282,6 +302,7 @@ async def test_idempotent_slot_replay_precedes_admission_quota(monkeypatch):
 
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.TaskSubmissionService", _QuotaFullSubmission)
+    _patch_claim(monkeypatch, trigger)
     monkeypatch.setattr(
         "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.trigger_runtime_block_reason",
         trigger_runtime_block_reason,
@@ -322,6 +343,7 @@ async def test_fire_rechecks_project_pause_after_claim_before_admission(monkeypa
 
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.TaskSubmissionService", _ExplodingSubmission)
+    _patch_claim(monkeypatch, trigger)
     monkeypatch.setattr(
         "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.trigger_runtime_block_reason",
         trigger_runtime_block_reason,

@@ -182,6 +182,23 @@ async def test_ensure_default_project_promotes_existing_active_project_when_arch
 
 
 @pytest.mark.asyncio
+async def test_ensure_default_project_creates_main_identity_when_organization_has_no_projects(db_session):
+    org = Organization(
+        id=f"org-{uuid.uuid4()}",
+        name="Empty Organization",
+        slug=f"empty-org-{uuid.uuid4()}",
+    )
+    db_session.add(org)
+    await db_session.commit()
+
+    created = await ProjectService(db_session).ensure_default_project(org.id)
+
+    assert created.name == "Main"
+    assert created.slug == "main"
+    assert created.is_default is True
+
+
+@pytest.mark.asyncio
 async def test_restore_project_unarchives_without_changing_active_default(db_session):
     org = Organization(
         id=f"org-{uuid.uuid4()}",

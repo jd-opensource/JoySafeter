@@ -3,7 +3,7 @@ import re
 import uuid
 from typing import Any, List, Optional, cast
 
-from sqlalchemy import CursorResult, and_, delete, select, update
+from sqlalchemy import CursorResult, and_, delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +19,6 @@ from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.joysafeter_auth.context import (
     JoySafeterRole,
     ProjectRole,
-    default_project_role_for_org_role,
 )
 from app.joysafeter_shared.ids import SessionId
 from app.joysafeter_shared.orchestrator_bridge.runtime_commands import relay_sandbox_destroy_via_redis
@@ -170,27 +169,6 @@ class ProjectService:
         await self.db.refresh(membership)
         return membership
 
-    async def grant_default_project_membership(
-        self,
-        *,
-        org_id: str,
-        user_id: str,
-        role: str = "viewer",
-    ) -> ProjectMember | None:
-        project = await self.get_default_project(org_id)
-        if project is None:
-            result = await self.db.execute(
-                select(Project)
-                .where(Project.org_id == org_id, Project.archived_at.is_(None))
-                .order_by(Project.created_at)
-                .limit(1)
-            )
-            project = result.scalar_one_or_none()
-        if project is None:
-            return None
-        project_role = default_project_role_for_org_role(role).value
-        return await self.grant_project_membership(project_id=project.id, user_id=user_id, role=project_role)
-
     async def revoke_org_project_memberships(self, *, org_id: str, user_id: str) -> None:
         project_ids = select(Project.id).where(Project.org_id == org_id)
         await self.db.execute(
@@ -251,16 +229,11 @@ class ProjectService:
         user_id: str,
         org_role: str | JoySafeterRole,
     ) -> bool:
-        if self.role_has_org_wide_project_access(org_role):
-            return True
-        result = await self.db.execute(
-            select(ProjectMember.id)
-            .where(
-                ProjectMember.project_id == project_id,
-                ProjectMember.user_id == user_id,
-            )
-            .limit(1)
-        )
+        conditions = [Project.id == project_id]
+        if not self.role_has_org_wide_project_access(org_role):
+            member_project_ids = select(ProjectMember.project_id).where(ProjectMember.user_id == user_id)
+            conditions.append(or_(Project.is_default.is_(True), Project.id.in_(member_project_ids)))
+        result = await self.db.execute(select(Project.id).where(and_(*conditions)).limit(1))
         return result.scalar_one_or_none() is not None
 
     async def list_accessible_projects(
@@ -276,7 +249,7 @@ class ProjectService:
             conditions.append(Project.archived_at.is_(None))
         if not self.role_has_org_wide_project_access(org_role):
             member_project_ids = select(ProjectMember.project_id).where(ProjectMember.user_id == user_id)
-            conditions.append(Project.id.in_(member_project_ids))
+            conditions.append(or_(Project.is_default.is_(True), Project.id.in_(member_project_ids)))
         result = await self.db.execute(select(Project).where(and_(*conditions)).order_by(Project.created_at))
         return list(result.scalars().all())
 
@@ -295,7 +268,7 @@ class ProjectService:
             conditions.append(Project.archived_at.is_(None))
         if not self.role_has_org_wide_project_access(org_role):
             member_project_ids = select(ProjectMember.project_id).where(ProjectMember.user_id == user_id)
-            conditions.append(Project.id.in_(member_project_ids))
+            conditions.append(or_(Project.is_default.is_(True), Project.id.in_(member_project_ids)))
         query = select(Project).where(and_(*conditions))
         query = apply_created_at_desc_cursor(query, Project, after_id).limit(limit + 1)
         result = await self.db.execute(query)
@@ -316,7 +289,7 @@ class ProjectService:
             conditions.append(Project.archived_at.is_(None))
         if not self.role_has_org_wide_project_access(org_role):
             member_project_ids = select(ProjectMember.project_id).where(ProjectMember.user_id == user_id)
-            conditions.append(Project.id.in_(member_project_ids))
+            conditions.append(or_(Project.is_default.is_(True), Project.id.in_(member_project_ids)))
         result = await self.db.execute(select(Project).where(and_(*conditions)).limit(1))
         return result.scalar_one_or_none()
 
@@ -327,6 +300,7 @@ class ProjectService:
         slug: str,
         is_default: bool = False,
         created_by_user_id: str | None = None,
+        creator_org_role: str | JoySafeterRole | None = None,
     ) -> Project:
         project_name = self._validate_name(name)
         project_slug = self._validate_slug(slug)
@@ -339,9 +313,12 @@ class ProjectService:
             name=project_name,
             slug=project_slug,
             is_default=is_default,
+            created_by_user_id=created_by_user_id,
         )
         self.db.add(project)
-        if created_by_user_id is not None:
+        if created_by_user_id is not None and not self.role_has_org_wide_project_access(
+            creator_org_role or JoySafeterRole.MEMBER
+        ):
             await self.grant_project_membership(project_id=project.id, user_id=created_by_user_id, role="admin")
         try:
             await self.db.commit()
@@ -624,6 +601,7 @@ class ProjectService:
         )
         for project in result.scalars().all():
             project.is_default = False
+        await self.db.flush()
 
         target.is_default = True
         await self.db.commit()
@@ -660,7 +638,7 @@ class ProjectService:
         await self.db.refresh(target)
         return target
 
-    async def ensure_default_project(self, org_id: str, org_name: str = "Default") -> Project:
+    async def ensure_default_project(self, org_id: str) -> Project:
         existing = await self.get_default_project(org_id)
         if existing:
             return existing
@@ -675,10 +653,10 @@ class ProjectService:
         if active_project:
             return await self.set_default_project(active_project.id, org_id)
 
-        slug = "default"
+        slug = "main"
         slug_result = await self.db.execute(
             select(Project.id).where(and_(Project.org_id == org_id, Project.slug == slug))
         )
         if slug_result.scalar_one_or_none() is not None:
-            slug = f"default-{uuid.uuid4().hex[:8]}"
-        return await self.create_project(org_id, "Default", slug, is_default=True)
+            slug = f"main-{uuid.uuid4().hex[:8]}"
+        return await self.create_project(org_id, "Main", slug, is_default=True)

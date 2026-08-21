@@ -264,6 +264,11 @@ CATALOG: dict[str, CatalogEntry] = {
     "AUTH_REQUIRED": CatalogEntry(
         code="AUTH_REQUIRED", error_class=AuthenticationError, default_message="Authentication required"
     ),
+    "AUTH_MEMBER_SELF_MANAGEMENT_FORBIDDEN": CatalogEntry(
+        code="AUTH_MEMBER_SELF_MANAGEMENT_FORBIDDEN",
+        error_class=AccessDeniedError,
+        default_message="Cannot change your own organization membership from member management",
+    ),
     "AUTH_USER_NOT_FOUND": CatalogEntry(
         code="AUTH_USER_NOT_FOUND", error_class=NotFoundError, default_message="User not found with the given email"
     ),
@@ -376,6 +381,11 @@ CATALOG: dict[str, CatalogEntry] = {
     ),
     "JOYSAFETER_ADMIN_REQUIRED": CatalogEntry(
         code="JOYSAFETER_ADMIN_REQUIRED", error_class=AccessDeniedError, default_message="Admin access required"
+    ),
+    "JOYSAFETER_ORGANIZATION_ADMIN_REQUIRED": CatalogEntry(
+        code="JOYSAFETER_ORGANIZATION_ADMIN_REQUIRED",
+        error_class=AccessDeniedError,
+        default_message="Organization admin access required",
     ),
     "JOYSAFETER_PROJECT_ADMIN_REQUIRED": CatalogEntry(
         code="JOYSAFETER_PROJECT_ADMIN_REQUIRED",
@@ -562,6 +572,12 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ResourceConflictError,
         default_message="项目已归档，仅支持只读操作 / Project is archived and read-only",
     ),
+    "PROJECT_CREATE_FORBIDDEN": CatalogEntry(
+        code="PROJECT_CREATE_FORBIDDEN",
+        error_class=AccessDeniedError,
+        default_message="Organization policy does not allow members to create projects",
+        user_action="request_access",
+    ),
     "PROJECT_DEFAULT_ARCHIVE_FORBIDDEN": CatalogEntry(
         code="PROJECT_DEFAULT_ARCHIVE_FORBIDDEN",
         error_class=InvalidRequestError,
@@ -642,6 +658,12 @@ CATALOG: dict[str, CatalogEntry] = {
         code="QUICKSTART_BASE_URL_REQUIRED",
         error_class=InvalidRequestError,
         default_message="Base URL is required for this provider",
+        user_action="fix_input",
+    ),
+    "QUICKSTART_MODEL_REQUIRED": CatalogEntry(
+        code="QUICKSTART_MODEL_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="Model is required for this provider",
         user_action="fix_input",
     ),
     "QUICKSTART_PROTOCOL_UNSUPPORTED": CatalogEntry(

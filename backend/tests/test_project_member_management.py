@@ -119,6 +119,71 @@ async def test_list_project_members_annotates_access_status(db_session):
 
 
 @pytest.mark.asyncio
+async def test_default_project_is_implicitly_accessible_to_ordinary_org_member(db_session):
+    org, default_project = await _org_with_default_project(db_session)
+    member = await _add_member(db_session, org_id=org.id, role="member", name="Default Viewer")
+    await db_session.commit()
+
+    projects = await ProjectService(db_session).list_accessible_projects(
+        org_id=org.id,
+        user_id=member.id,
+        org_role="member",
+    )
+
+    assert [project.id for project in projects] == [default_project.id]
+    assert await ProjectService(db_session).get_project_member_role(default_project.id, member.id) is None
+    assert (
+        await ProjectService(db_session).user_has_project_access(
+            project_id=default_project.id,
+            user_id=member.id,
+            org_role="member",
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_switching_default_moves_implicit_member_access_without_membership_rows(db_session):
+    org, old_default = await _org_with_default_project(db_session)
+    new_default = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org.id,
+        name="New Default",
+        slug=f"new-default-{uuid.uuid4()}",
+    )
+    db_session.add(new_default)
+    member = await _add_member(db_session, org_id=org.id, role="member", name="Default Viewer")
+    await db_session.commit()
+
+    await ProjectService(db_session).set_default_project(new_default.id, org.id)
+    projects = await ProjectService(db_session).list_accessible_projects(
+        org_id=org.id,
+        user_id=member.id,
+        org_role="member",
+    )
+
+    assert [project.id for project in projects] == [new_default.id]
+    assert await ProjectService(db_session).get_project_member_role(old_default.id, member.id) is None
+    assert await ProjectService(db_session).get_project_member_role(new_default.id, member.id) is None
+    assert (
+        await ProjectService(db_session).user_has_project_access(
+            project_id=old_default.id,
+            user_id=member.id,
+            org_role="member",
+        )
+        is False
+    )
+    assert (
+        await ProjectService(db_session).user_has_project_access(
+            project_id=new_default.id,
+            user_id=member.id,
+            org_role="member",
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
 async def test_add_project_member_rejects_non_org_member(db_session):
     org, default_project = await _org_with_default_project(db_session)
     outsider = AuthUser(id=f"user-{uuid.uuid4()}", name="Outsider", email=f"{uuid.uuid4()}@example.com")
@@ -299,21 +364,27 @@ async def test_remove_project_member_revokes_explicit_access(db_session):
 
 
 @pytest.mark.asyncio
-async def test_remove_project_member_forbidden_on_default_project(db_session):
+async def test_remove_explicit_default_project_role_falls_back_to_implicit_viewer(db_session):
     org, default_project = await _org_with_default_project(db_session)
     dev = await _add_member(db_session, org_id=org.id, role="member", name="Dev")
     db_session.add(ProjectMember(project_id=default_project.id, user_id=dev.id, role="editor"))
     await db_session.commit()
 
-    with pytest.raises(AppError) as exc_info:
-        await remove_project_member(
-            default_project.id,
-            dev.id,
-            None,  # type: ignore[arg-type]
-            db_session,
-            _admin_ctx(org.id),
-        )
-    assert exc_info.value.code == "PROJECT_MEMBER_DEFAULT_REMOVE_FORBIDDEN"
+    await remove_project_member(
+        default_project.id,
+        dev.id,
+        None,  # type: ignore[arg-type]
+        db_session,
+        _admin_ctx(org.id),
+    )
+
+    assert await ProjectService(db_session).get_project_member_role(default_project.id, dev.id) is None
+    projects = await ProjectService(db_session).list_accessible_projects(
+        org_id=org.id,
+        user_id=dev.id,
+        org_role="member",
+    )
+    assert [project.id for project in projects] == [default_project.id]
 
 
 @pytest.mark.asyncio

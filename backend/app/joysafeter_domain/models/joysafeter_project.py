@@ -43,6 +43,11 @@ class Project(Base, TimestampMixin):
         ForeignKey("joysafeter_organizations.id", ondelete="CASCADE"),
         nullable=False,
     )
+    created_by_user_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        ForeignKey("joysafeter_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(255), nullable=False)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -64,6 +69,7 @@ class Project(Base, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("org_id", "slug", name="uq_joysafeter_organization_projects_org_slug"),
         Index("ix_joysafeter_organization_projects_org_id", "org_id"),
+        Index("ix_joysafeter_organization_projects_created_by_user_id", "created_by_user_id"),
         Index(
             "uq_joysafeter_organization_projects_active_default",
             "org_id",

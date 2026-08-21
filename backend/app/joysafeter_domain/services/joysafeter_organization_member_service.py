@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -107,10 +107,15 @@ def _actor_outranks(actor: "str | JoySafeterRole", target: "str | JoySafeterRole
 
 
 def ensure_can_assign_role(actor_role: str, target_role: str) -> None:
-    if target_role == JoySafeterRole.OWNER.value and actor_role != JoySafeterRole.OWNER.value:
+    if target_role == JoySafeterRole.OWNER.value:
+        message = (
+            "Only organization owners can assign owner role"
+            if actor_role != JoySafeterRole.OWNER.value
+            else "Owner role can only be assigned through ownership transfer"
+        )
         raise _permission_error(
             code="ORGANIZATION_OWNER_ROLE_ASSIGN_FORBIDDEN",
-            message="Only organization owners can assign owner role",
+            message=message,
             actor_role=actor_role,
             target_role=target_role,
         )
@@ -140,6 +145,16 @@ def ensure_can_modify_auth_member(actor_role: JoySafeterRole, current_role: str,
             actor_role=actor_role.value,
             current_role=current.value,
             target_role=new_role.value,
+        )
+
+
+def ensure_not_self_management(*, organization_id: str, actor_user_id: str, target_user_id: str) -> None:
+    if actor_user_id == target_user_id:
+        raise _permission_error(
+            code="AUTH_MEMBER_SELF_MANAGEMENT_FORBIDDEN",
+            message="Cannot change your own organization membership from member management",
+            organization_id=organization_id,
+            member_id=target_user_id,
         )
 
 
@@ -262,13 +277,6 @@ class OrganizationMemberService:
         )
         self.db.add(member)
         try:
-            # grant_default_project_membership flushes, so the unique-constraint
-            # violation can surface here or at commit — guard both.
-            await ProjectService(self.db).grant_default_project_membership(
-                org_id=organization_id,
-                user_id=user_id,
-                role=normalized_role,
-            )
             await self.db.commit()
         except IntegrityError:
             # Lost a race with a concurrent add for the same (org, user): the
@@ -284,7 +292,7 @@ class OrganizationMemberService:
         await self.db.refresh(member)
         return member
 
-    async def invite_member_by_email(
+    async def add_existing_member_by_email(
         self,
         *,
         organization_id: str,
@@ -301,7 +309,10 @@ class OrganizationMemberService:
                 target_role=normalized_role.value,
             )
 
-        user_result = await self.db.execute(select(AuthUser).where(AuthUser.email == email.strip()).limit(1))
+        normalized_email = email.strip().lower()
+        user_result = await self.db.execute(
+            select(AuthUser).where(func.lower(func.btrim(AuthUser.email)) == normalized_email).limit(1)
+        )
         user = user_result.scalar_one_or_none()
         if not user:
             raise NotFoundError(
@@ -323,11 +334,6 @@ class OrganizationMemberService:
         member = Member(user_id=user.id, organization_id=organization_id, role=normalized_role.value)
         self.db.add(member)
         try:
-            await ProjectService(self.db).grant_default_project_membership(
-                org_id=organization_id,
-                user_id=user.id,
-                role=normalized_role.value,
-            )
             await self.db.commit()
         except IntegrityError:
             await self.db.rollback()
@@ -340,23 +346,16 @@ class OrganizationMemberService:
         await self.db.refresh(member)
         return member, user
 
-    async def _ensure_project_access_after_role_change(
+    async def _normalize_project_access_after_role_change(
         self,
         *,
         organization_id: str,
         user_id: str,
         new_role: str,
     ) -> None:
-        # owner/admin reach every project without a ProjectMember row. An ordinary
-        # member needs an explicit row, so when demoting from owner/admin — who may
-        # have no rows at all — backfill the default project to avoid locking them
-        # out. Existing explicit grants on other projects are preserved.
-        if ProjectService.role_has_org_wide_project_access(new_role):
-            return
-        await ProjectService(self.db).grant_default_project_membership(
+        await ProjectService(self.db).revoke_org_project_memberships(
             org_id=organization_id,
             user_id=user_id,
-            role=new_role,
         )
 
     async def update_member_role_by_user_id(
@@ -364,6 +363,7 @@ class OrganizationMemberService:
         *,
         organization_id: str,
         user_id: str,
+        actor_user_id: str,
         actor_role: JoySafeterRole,
         role: str,
     ) -> Member:
@@ -378,13 +378,20 @@ class OrganizationMemberService:
 
         new_role = validate_auth_assignable_role(role)
         ensure_can_modify_auth_member(actor_role, member.role, new_role)
-
-        member.role = new_role.value
-        await self._ensure_project_access_after_role_change(
+        ensure_not_self_management(
             organization_id=organization_id,
-            user_id=member.user_id,
-            new_role=new_role.value,
+            actor_user_id=actor_user_id,
+            target_user_id=member.user_id,
         )
+
+        current_role = JoySafeterRole.normalize(member.role)
+        if current_role != new_role:
+            await self._normalize_project_access_after_role_change(
+                organization_id=organization_id,
+                user_id=member.user_id,
+                new_role=new_role.value,
+            )
+        member.role = new_role.value
         await self.db.commit()
         await self.db.refresh(member)
         return member
@@ -394,6 +401,7 @@ class OrganizationMemberService:
         *,
         organization_id: str,
         user_id: str,
+        actor_user_id: str,
         actor_role: JoySafeterRole,
     ) -> Member:
         member = await self.get_member_by_user_id(organization_id, user_id)
@@ -406,6 +414,11 @@ class OrganizationMemberService:
             )
 
         ensure_can_modify_auth_member(actor_role, member.role, JoySafeterRole.MEMBER)
+        ensure_not_self_management(
+            organization_id=organization_id,
+            actor_user_id=actor_user_id,
+            target_user_id=member.user_id,
+        )
         await ProjectService(self.db).revoke_org_project_memberships(
             org_id=organization_id,
             user_id=member.user_id,
@@ -445,6 +458,15 @@ class OrganizationMemberService:
 
         current_owner.role = JoySafeterRole.ADMIN.value
         new_owner.role = JoySafeterRole.OWNER.value
+        project_service = ProjectService(self.db)
+        await project_service.revoke_org_project_memberships(
+            org_id=organization_id,
+            user_id=current_owner.user_id,
+        )
+        await project_service.revoke_org_project_memberships(
+            org_id=organization_id,
+            user_id=new_owner.user_id,
+        )
         await self.db.commit()
         await self.db.refresh(current_owner)
         await self.db.refresh(new_owner)

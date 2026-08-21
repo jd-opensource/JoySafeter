@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_auth import AuthSession, AuthUser
@@ -22,6 +22,18 @@ from app.joysafeter_domain.repositories.joysafeter_auth_session import AuthSessi
 from app.joysafeter_domain.repositories.joysafeter_auth_user import AuthUserRepository
 from app.joysafeter_domain.services.base import BaseService
 from app.joysafeter_shared.utils.datetime import utc_now
+
+
+def _membership_order():
+    return (
+        case(
+            (Member.role == "owner", 0),
+            (Member.role == "admin", 1),
+            else_=2,
+        ),
+        Member.created_at.asc(),
+        Member.id.asc(),
+    )
 
 
 class AuthSessionService(BaseService):
@@ -188,8 +200,13 @@ class AuthSessionService(BaseService):
         return session
 
     async def _resolve_active_org(self, user_id: str) -> Optional[str]:
-        """Get the first organization the user belongs to."""
-        result = await self.db.execute(select(Member.organization_id).where(Member.user_id == user_id).limit(1))
+        """Choose a deterministic initial organization, preferring ownership."""
+        result = await self.db.execute(
+            select(Member.organization_id)
+            .where(Member.user_id == user_id)
+            .order_by(*_membership_order())
+            .limit(1)
+        )
         return result.scalar_one_or_none()
 
 
@@ -209,6 +226,7 @@ from app.joysafeter_domain.models.enums import SecurityAuditEventType
 from app.joysafeter_domain.models.joysafeter_auth import AuthSession, AuthUser
 from app.joysafeter_domain.services.base import BaseService
 from app.joysafeter_domain.services.joysafeter_email_service import email_service
+from app.joysafeter_domain.services.joysafeter_organization_service import OrganizationService
 from app.joysafeter_domain.services.joysafeter_security_audit_service import SecurityAuditService
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
@@ -285,46 +303,34 @@ class AuthService(BaseService):
         try:
             import uuid as _uuid
 
-            from sqlalchemy import select
-
-            from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
+            from app.joysafeter_domain.models.joysafeter_organization import Member
             from app.joysafeter_domain.models.joysafeter_project import Project
-            from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
-
-            result = await self.db.execute(select(Member).where(Member.user_id == user_id).limit(1))
+            result = await self.db.execute(
+                select(Member).where(Member.user_id == user_id).order_by(*_membership_order()).limit(1)
+            )
             membership = result.scalar_one_or_none()
 
             # Auto-create org + project for users who don't have one yet
             if not membership:
-                new_org_id = str(_uuid.uuid4())
-                org = Organization(id=new_org_id, name="Default", slug="default")
-                self.db.add(org)
-                membership = Member(
-                    id=str(_uuid.uuid4()),
-                    user_id=user_id,
-                    organization_id=new_org_id,
-                    role="owner",
+                user = await self.user_repo.get_by(id=user_id)  # type: ignore[arg-type]
+                if user is None:
+                    raise InternalServiceError(
+                        "Authentication user not found",
+                        code="AUTH_USER_NOT_FOUND",
+                        data={"user_id": user_id},
+                    )
+                organization_service = OrganizationService(self.db)
+                created = await organization_service.add_with_owner_and_default_project(
+                    name=organization_service.bootstrap_organization_name(
+                        user_name=user.name,
+                        user_email=user.email,
+                    ),
+                    owner_user_id=user_id,
+                    organization_id=str(_uuid.uuid4()),
+                    owner_member_id=str(_uuid.uuid4()),
+                    default_project_id=str(_uuid.uuid4()),
                 )
-                self.db.add(membership)
-                default_project = Project(
-                    id=str(_uuid.uuid4()),
-                    org_id=new_org_id,
-                    name="Default",
-                    slug="default",
-                    is_default=True,
-                )
-                self.db.add(default_project)
-                await self.db.flush()
-                # Grant the owner an explicit ProjectMember row on their default
-                # project via the shared helper, matching every other bootstrap
-                # path. Owners are org-wide so this isn't required for access
-                # today, but keeping the grant consistent avoids a lockout if the
-                # role is ever narrowed below admin.
-                await ProjectService(self.db).grant_project_membership(
-                    project_id=default_project.id,
-                    user_id=user_id,
-                    role="admin",
-                )
+                membership = created.owner_membership
 
             org_id = membership.organization_id
             role = membership.role

@@ -8,9 +8,15 @@ from app.joysafeter_domain.models.joysafeter_organization import Member, Organiz
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
 
 
-async def _org_project(db_session) -> tuple[Organization, Project]:
+async def _org_project(db_session, *, is_default: bool = False) -> tuple[Organization, Project]:
     org = Organization(id=f"org-{uuid.uuid4()}", name="Org", slug=f"org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="P", slug="default", is_default=True)
+    project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org.id,
+        name="P",
+        slug="default" if is_default else f"project-{uuid.uuid4()}",
+        is_default=is_default,
+    )
     db_session.add_all([org, project])
     await db_session.flush()
     return org, project
@@ -35,6 +41,17 @@ async def test_org_member_without_project_row_is_denied(db_session):
 
     rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=project.id)
     assert rejection == (4003, "TASK_STREAM_PROJECT_ACCESS_DENIED")
+
+
+@pytest.mark.asyncio
+async def test_org_member_without_project_row_can_stream_default_project(db_session):
+    org, project = await _org_project(db_session, is_default=True)
+    user = await _user(db_session)
+    db_session.add(Member(user_id=user.id, organization_id=org.id, role="member"))
+    await db_session.commit()
+
+    rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=project.id)
+    assert rejection is None
 
 
 @pytest.mark.asyncio

@@ -34,10 +34,8 @@ async def _member(db_session, *, org_id: str, role: str) -> AuthUser:
 
 
 @pytest.mark.asyncio
-async def test_demoting_admin_to_member_grants_default_project_access(db_session):
+async def test_demoting_admin_to_member_uses_implicit_default_project_access(db_session):
     org, default_project = await _org_with_default_project(db_session)
-    # Admin org-wide members have no ProjectMember row; after demotion they would
-    # otherwise be locked out of every project including the default one.
     target = await _member(db_session, org_id=org.id, role="admin")
     await db_session.commit()
 
@@ -45,6 +43,7 @@ async def test_demoting_admin_to_member_grants_default_project_access(db_session
     await svc.update_member_role_by_user_id(
         organization_id=org.id,
         user_id=target.id,
+        actor_user_id="owner-user",
         actor_role=JoySafeterRole.OWNER,
         role="member",
     )
@@ -57,7 +56,7 @@ async def test_demoting_admin_to_member_grants_default_project_access(db_session
             )
         )
     ).scalar_one_or_none()
-    assert row is not None
+    assert row is None
 
     accessible = await ProjectService(db_session).get_accessible_project(
         project_id=default_project.id,
@@ -69,7 +68,7 @@ async def test_demoting_admin_to_member_grants_default_project_access(db_session
 
 
 @pytest.mark.asyncio
-async def test_demotion_preserves_existing_non_default_project_grants(db_session):
+async def test_demotion_clears_existing_non_default_project_grants(db_session):
     org, default_project = await _org_with_default_project(db_session)
     non_default = Project(
         id=f"proj-{uuid.uuid4()}",
@@ -79,13 +78,14 @@ async def test_demotion_preserves_existing_non_default_project_grants(db_session
     )
     db_session.add(non_default)
     target = await _member(db_session, org_id=org.id, role="admin")
-    # An explicit grant on a non-default project that must survive the demotion.
+    # Direct grants are cleared so a later demotion cannot reactivate hidden access.
     db_session.add(ProjectMember(project_id=non_default.id, user_id=target.id, role="editor"))
     await db_session.commit()
 
     await OrganizationMemberService(db_session).update_member_role_by_user_id(
         organization_id=org.id,
         user_id=target.id,
+        actor_user_id="owner-user",
         actor_role=JoySafeterRole.OWNER,
         role="member",
     )
@@ -98,7 +98,15 @@ async def test_demotion_preserves_existing_non_default_project_grants(db_session
             )
         )
     ).scalar_one_or_none()
-    assert surviving is not None
+    assert surviving is None
+
+    accessible = await ProjectService(db_session).get_accessible_project(
+        project_id=non_default.id,
+        org_id=org.id,
+        user_id=target.id,
+        org_role=JoySafeterRole.MEMBER,
+    )
+    assert accessible is None
 
 
 @pytest.mark.asyncio
@@ -117,6 +125,7 @@ async def test_promotion_to_admin_grants_org_wide_access_without_row(db_session)
     await OrganizationMemberService(db_session).update_member_role_by_user_id(
         organization_id=org.id,
         user_id=target.id,
+        actor_user_id="owner-user",
         actor_role=JoySafeterRole.OWNER,
         role="admin",
     )
@@ -129,3 +138,74 @@ async def test_promotion_to_admin_grants_org_wide_access_without_row(db_session)
         org_role=JoySafeterRole.ADMIN,
     )
     assert accessible is not None
+
+
+@pytest.mark.asyncio
+async def test_reapplying_member_role_preserves_explicit_project_grants(db_session):
+    org, _default_project = await _org_with_default_project(db_session)
+    project = Project(
+        id=f"proj-{uuid.uuid4()}",
+        org_id=org.id,
+        name="Assigned",
+        slug=f"assigned-{uuid.uuid4()}",
+    )
+    db_session.add(project)
+    target = await _member(db_session, org_id=org.id, role="developer")
+    db_session.add(ProjectMember(project_id=project.id, user_id=target.id, role="editor"))
+    await db_session.commit()
+
+    await OrganizationMemberService(db_session).update_member_role_by_user_id(
+        organization_id=org.id,
+        user_id=target.id,
+        actor_user_id="owner-user",
+        actor_role=JoySafeterRole.OWNER,
+        role="member",
+    )
+
+    membership = await OrganizationMemberService(db_session).get_member_by_user_id(org.id, target.id)
+    surviving = (
+        await db_session.execute(
+            select(ProjectMember).where(
+                ProjectMember.project_id == project.id,
+                ProjectMember.user_id == target.id,
+            )
+        )
+    ).scalar_one_or_none()
+    assert membership is not None
+    assert membership.role == "member"
+    assert surviving is not None
+    assert surviving.role == "editor"
+
+
+@pytest.mark.asyncio
+async def test_transfer_ownership_clears_hidden_project_grants(db_session):
+    org, default_project = await _org_with_default_project(db_session)
+    owner = await _member(db_session, org_id=org.id, role="owner")
+    successor = await _member(db_session, org_id=org.id, role="member")
+    db_session.add_all(
+        [
+            ProjectMember(project_id=default_project.id, user_id=owner.id, role="viewer"),
+            ProjectMember(project_id=default_project.id, user_id=successor.id, role="editor"),
+        ]
+    )
+    await db_session.commit()
+
+    await OrganizationMemberService(db_session).transfer_ownership(
+        organization_id=org.id,
+        current_owner_user_id=owner.id,
+        new_owner_user_id=successor.id,
+    )
+
+    remaining = (
+        (
+            await db_session.execute(
+                select(ProjectMember).where(
+                    ProjectMember.project_id == default_project.id,
+                    ProjectMember.user_id.in_([owner.id, successor.id]),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert remaining == []

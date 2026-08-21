@@ -11,6 +11,7 @@ from app.joysafeter_api.api.v1 import (
     environments,
     files,
     memory_stores,
+    organizations,
     quickstart,
     sandboxes,
     sessions,
@@ -141,22 +142,36 @@ def test_auth_management_route_dependency_contract():
     assert _dependency_for(auth.get_project) is require_joysafeter_user_context
     assert _dependency_for(auth.list_api_keys) is require_joysafeter_user_context
     assert _dependency_for(auth.create_organization) is require_joysafeter_user_context
-    assert _dependency_for(auth.list_members) is require_joysafeter_user_context
 
     assert _dependency_for(auth.create_api_key) is require_joysafeter_user_write
     assert _dependency_for(auth.revoke_api_key) is require_joysafeter_user_write
 
-    assert _dependency_for(auth.create_project) is require_joysafeter_user_admin
-    assert _dependency_for(auth.update_project) is require_joysafeter_user_admin
+    assert _dependency_for(auth.create_project) is require_joysafeter_user_context
+    assert _dependency_for(auth.update_project) is require_joysafeter_user_context
     assert _dependency_for(auth.archive_project) is require_joysafeter_user_admin
     assert _dependency_for(auth.set_default_project) is require_joysafeter_user_admin
     assert _dependency_for(auth.restore_project) is require_joysafeter_user_admin
-    assert _dependency_for(auth.search_users) is require_joysafeter_user_admin
 
     # Project-member management is gated by the path-scoped project-admin dependency.
     assert _dependency_for(auth.list_project_members) is require_joysafeter_project_admin
     assert _dependency_for(auth.add_project_member) is require_joysafeter_project_admin
     assert _dependency_for(auth.remove_project_member) is require_joysafeter_project_admin
-    assert _dependency_for(auth.invite_member) is require_joysafeter_user_admin
-    assert _dependency_for(auth.remove_member) is require_joysafeter_user_admin
-    assert _dependency_for(auth.update_member_role) is require_joysafeter_user_admin
+    assert _dependency_for(auth.list_project_api_keys) is require_joysafeter_project_admin
+    assert _dependency_for(auth.create_project_api_key) is require_joysafeter_project_admin
+    assert _dependency_for(auth.revoke_project_api_key) is require_joysafeter_project_admin
+
+
+def test_organization_member_routes_are_explicitly_scoped():
+    auth_paths = {route.path for route in auth.router.routes}
+    assert "/members" not in auth_paths
+    assert "/members/{user_id}" not in auth_paths
+    assert "/search-users" not in auth_paths
+
+    organization_routes = {
+        (route.path, method) for route in organizations.router.routes for method in (route.methods or set())
+    }
+    assert ("/{organization_id}/members", "GET") in organization_routes
+    assert ("/{organization_id}/members", "POST") in organization_routes
+    assert ("/{organization_id}/members/{user_id}", "PUT") in organization_routes
+    assert ("/{organization_id}/members/{user_id}", "DELETE") in organization_routes
+    assert ("/{organization_id}/member-candidates", "GET") in organization_routes

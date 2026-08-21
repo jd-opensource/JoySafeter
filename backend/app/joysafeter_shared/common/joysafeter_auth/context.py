@@ -119,19 +119,6 @@ def effective_project_capability(
     }[role]
 
 
-def default_project_role_for_org_role(org_role: "str | JoySafeterRole") -> ProjectRole:
-    """The project role to seed when granting default-project access to a member.
-
-    Super-users map to admin; every ordinary member seeds as viewer (least
-    privilege). Higher per-project access is granted explicitly through the
-    project-member management surface.
-    """
-    org = org_role if isinstance(org_role, JoySafeterRole) else JoySafeterRole.normalize(org_role)
-    if org.is_org_superuser():
-        return ProjectRole.ADMIN
-    return ProjectRole.VIEWER
-
-
 @dataclass
 class JoySafeterAuthContext:
     """Resolved auth context for a joysafeter API request."""
