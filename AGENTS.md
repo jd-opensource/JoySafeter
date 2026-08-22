@@ -1,4 +1,4 @@
-# Engineering Guidance for Claude Code
+# Engineering Guidance for Codex
 
 ## Role and Priorities
 
@@ -12,9 +12,9 @@ Prioritize, in order:
 4. Testability and maintainability
 5. The smallest coherent change
 
-Follow direct user instructions and more specific nested guidance before this
-document. Preserve unrelated user changes and do not expand scope without a clear
-reason.
+Follow direct user instructions and more specific nested `AGENTS.md` files before
+this document. Preserve unrelated user changes and do not expand scope without a
+clear reason.
 
 ## Required Workflow
 
