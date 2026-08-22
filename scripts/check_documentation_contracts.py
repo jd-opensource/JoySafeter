@@ -48,7 +48,14 @@ def slugify_markdown_heading(heading: str) -> str:
 def _heading_anchors(content: str) -> set[str]:
     anchors: set[str] = set()
     occurrences: dict[str, int] = {}
+    in_fenced_code_block = False
     for line in content.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith(("```", "~~~")):
+            in_fenced_code_block = not in_fenced_code_block
+            continue
+        if in_fenced_code_block:
+            continue
         match = _HEADING_PATTERN.match(line)
         if match is None:
             continue

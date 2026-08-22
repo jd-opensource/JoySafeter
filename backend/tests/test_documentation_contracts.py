@@ -65,6 +65,21 @@ def test_accepts_unicode_heading_anchor(tmp_path: Path) -> None:
     assert violations == []
 
 
+def test_reports_anchor_defined_only_inside_fenced_code_block(tmp_path: Path) -> None:
+    write(tmp_path / "README.md", "[pseudo](target.md#pseudo-heading)\n")
+    write(tmp_path / "target.md", "```python\n# Pseudo Heading\n```\n")
+
+    violations = checker.check_relative_markdown_links(
+        tmp_path,
+        [Path("README.md")],
+    )
+
+    assert [(item.code, item.path.as_posix()) for item in violations] == [
+        ("DOC-LINK", "README.md"),
+    ]
+    assert "#pseudo-heading" in violations[0].message
+
+
 def test_run_checks_aggregates_selected_checks_in_stable_order(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         checker,
