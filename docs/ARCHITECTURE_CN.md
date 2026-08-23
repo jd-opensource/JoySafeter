@@ -379,8 +379,8 @@ runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`�
 | `JoySafeterSessionEvent` | `joysafeter_session_events` | **追加式事件日志**，`unique(session_id, seq)`。即持久化的事件流 |
 | `JoySafeterTask` | `joysafeter_tasks` | 运行/执行单元。经 `chat_session_id` 关联会话 |
 | `JoySafeterSandbox` | `joysafeter_sandboxes` | 沙箱生命周期记录；每会话 ≤1 个活跃沙箱 |
-| `JoySafeterSecret` | `joysafeter_secrets` | provider API key，值 **AES-256-GCM 加密**。运行时作为 env 注入 |
-| `JoySafeterVault` / `VaultCredential` | `joysafeter_vaults` / `_vault_credentials` | MCP 服务器凭据（加密 token、OAuth 自动刷新） |
+| `JoySafeterCredential` | `joysafeter_credentials` | 统一的模型、服务和 MCP 凭据；值使用 **AES-256-GCM 加密**，仅在授权运行时按字段解密 |
+| `JoySafeterCredentialGroup` | `joysafeter_credential_groups` | 项目级 MCP 凭据分组；会话绑定位于 `joysafeter_session_credential_groups` |
 | `JoySafeterSkill`（+ 版本、文件、扫描、协作者、用量） | `joysafeter_skills*` | 完整技能子系统：四级可见性、生命周期 FSM、安全扫描、版本快照 |
 | `JoySafeterMemoryStore` / `Memory` / `MemoryVersion` | `joysafeter_memory*` | Agent 可写 KV 存储，带追加式版本历史 |
 | `JoySafeterFile` / `SessionFile` / `SessionRepo` | `joysafeter_files*` | 挂入会话的上传文件与 git repo |
@@ -409,12 +409,12 @@ runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`�
 
 所有路径在 `/api/v1` 下。路由在 `joysafeter_api/api/v1/router.py` 装配。**没有**独立的
 `models` / `mcp` / `tools` / `copilot` / `graphs` 路由——这些概念存于 Agent（JSONB 字段）或
-`secrets` / `vaults`。
+统一 Credential / Credential Group。
 
 ### 8.1 类型化实体 ID
 
 公共 API 与日志统一使用 canonical 前缀 ID（`agent_<uuid>`、`sess_<uuid>`、`task_<uuid>`、
-`trig_<uuid>`、`env_<uuid>`、`secret_<uuid>`、`vault_<uuid>`、`cred_<uuid>`、`sbx_<uuid>`、
+`trig_<uuid>`、`env_<uuid>`、`cred_<uuid>`、`credgrp_<uuid>`、`sbx_<uuid>`、
 `memstore_<uuid>`、`mem_<uuid>`、`memver_<uuid>`、`skill_<uuid>`、`sklfile_<uuid>`、
 `sklscan_<uuid>`、`sklver_<uuid>`、`sklvfile_<uuid>`、`skluse_<uuid>`、`file_<uuid>`、
 `sesrsc_<uuid>`、`evt_<uuid>`）。前缀是语义判别器：让跨实体误传在 UUID 进入领域逻辑前即可被
@@ -439,11 +439,9 @@ SQL UUID 列和 Redis Stream 字段携带裸 Event UUID，并在重新进入类�
 Skill CRUD、生命周期、安全扫描、版本、版本文件快照、使用日志、路由与前端状态统一保留六类
 canonical Skill ID；仅 SQL join、Rust bundle 与存储适配器在物理边界显式解包为裸 UUID。AI
 authoring 的草稿文件在持久化前没有实体身份，禁止用空字符串或伪造的 `SkillFileId` 占位。
-Agent/Environment 中的 `secret_ref` 仍是按名称解析的配置引用，不是 Secret ID；Secret CRUD 路径、
-游标、响应、日志和 ORM 身份统一使用 canonical `SecretId`。
-Session 的 `vault_ids` 是持久化 JSONB 引用文档，刻意保存 canonical `vault_<uuid>` 字符串。Python
-以 `list[VaultId]` 校验；Rust harness 只在 SQL 查询适配器处解包成裸 UUID。历史裸 UUID 数据仅在该
-适配器保留读取兼容。
+当前契约使用 `model_credential_id`、`environment_credential_ids`、`service_credential_id` 和
+`credential_group_ids`。旧 JSON 键 `secret_ref` / `secret_refs` 仅作为已持久化 v1 快照的读取别名，
+其值仍必须是 canonical `CredentialId`。`vault_ids`、`SecretId` 与 `VaultId` 已不是现役运行时契约。
 
 | 分组 | 前缀 | 要点 |
 |---|---|---|
@@ -453,8 +451,8 @@ Session 的 `vault_ids` 是持久化 JSONB 引用文档，刻意保存 canonical
 | **Tasks** | `/tasks` | 创建+入队、列表、获取、取消、**WS** `/tasks/{id}/stream` |
 | **Sessions** | `/sessions` | CRUD、archive、stop、`POST /events`（发送）、`GET /events`（历史）、**SSE** `/events/stream`、resources（文件/repo） |
 | **Environments** | `/environments` | 沙箱镜像/配置 CRUD |
-| **Secrets** | `/secrets` | provider 凭据（模型 API key）+ 默认选择 |
-| **Vaults** | `/vaults` | MCP 凭据 + OAuth 配置 |
+| **Credentials** | `/credentials` | 模型连接、服务凭据、MCP 成员、生命周期、连通性测试、引用与默认选择 |
+| **Credential groups** | `/credential-groups` | MCP 凭据分组、生命周期、成员关系与引用 |
 | **Skills** | `/skills` | CRUD、`import-zip`、files、versions、security-scans、生命周期转移、admin 重扫 |
 | **Skills AI 创作** | `/skills/ai-authoring` | **SSE** `/chat`（LLM 创作回合）、`/save-draft` |
 | **Sandboxes** | `/sandboxes` | 列表、获取、停止 |
@@ -476,7 +474,7 @@ Session 的 `vault_ids` 是持久化 JSONB 引用文档，刻意保存 canonical
 Qwen 等——都通过把 `base_url` 指向其 OpenAI 兼容网关来泛化触达。该辅助只支撑第一方功能（技能创作、
 quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI harness**（Claude Code / Codex / `ccb`），
 因此真实的模型路由、重试与回退位于 runner 和 CLI 中，而非 Python。模型配置与凭据是 DB 驱动的
-（`joysafeter_secrets`，加密），经 Secrets UI 管理。
+（`joysafeter_credentials`，加密），经统一 Credentials UI 管理。
 
 ### 9.2 技能——能力层
 
@@ -514,9 +512,17 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
 
 - **鉴权：** JWT（HS256）带 org/project/role 声明 + 实时 DB 复核；HttpOnly Cookie；变更请求带 CSRF token；
   密码在客户端先做 SHA-256 预哈希。
-- **凭据加密：** provider secret、仓库 token 与 vault/OAuth 凭据统一使用 AES-256-GCM
-  （`JOYSAFETER_VAULT_ENCRYPTION_KEY`）。密钥缺失或无效时服务拒绝启动；数据库中的凭据必须使用 `enc:`
-  封装，明文或损坏记录会明确失败，不再静默透传；密文格式与 Rust `agentd` 兼容。
+- **凭据加密：** provider secret、Task Identity、仓库 token 与 OAuth 凭据统一使用 AES-256-GCM。
+  历史 `enc:`/`enc:v1:` 由 `JOYSAFETER_VAULT_ENCRYPTION_KEY` 读取；启用
+  `JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING` 与 `JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID` 后，
+  新写入使用 `enc:v2:<key_id>:`，并把该完整前缀作为 AES-GCM 关联数据，防止 key ID 被替换。
+  canary 初始化采用仅缺失时插入：并发时首个提交者胜出，其他调用者不覆盖并校验已落库结果，失败时通过
+  savepoint 回滚本次部分写入。服务启动会校验密钥语法、数据库 canary、JSON 对象形状，以及所有持久化
+  信封是否仍有可用读 key；worker 有界重包裹旧密文并拒绝静默接纳明文或异常存储形状。在重包裹完成及
+  回滚窗口关闭前不得移除旧读 key。启动检查不会全量解密业务密文；认证标签损坏会在材料实际使用或进入
+  重包裹批次时失败。独立离线命令 `credential_encryption_rotation.py --verify-integrity` 会在 PostgreSQL
+  `REPEATABLE READ, READ ONLY` 事务内按主键游标分页，对四类存储中的全部非空当前/历史密文逐条解密
+  校验，并且只输出记录坐标与稳定错误类别。
 - **SSRF 守卫：** 拦截云元数据 IP、解析 DNS 以挫败 rebinding；默认允许私有 RFC-1918（内部 LLM/MCP 端点），
   可选加固开关。
 - **沙箱隔离：** 丢弃能力、非 root、no-new-privileges、PID 限制、Envoy 全拒出口。
@@ -529,7 +535,7 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
 ```
 backend/app/
 ├── joysafeter_api/            # API 服务：REST 路由、SSE、WS 通知、鉴权依赖
-│   ├── api/v1/                #   路由（auth、agents、sessions、tasks、skills、secrets、vaults...）
+│   ├── api/v1/                #   路由（auth、agents、sessions、tasks、skills、credentials、credential groups...）
 │   ├── websocket/             #   通知管理器 + WS 鉴权
 │   ├── app.py / main.py       #   应用装配 + 入口
 │   └── startup.py             #   装配 SessionBroadcaster
@@ -543,11 +549,20 @@ backend/app/
 │   └── Cargo.toml             #   Rust crate manifest
 ├── joysafeter_worker/         # Worker 服务
 │   └── events/                #   EventStreamWorker（Redis Stream 消费者）+ EventBatchSender
+├── joysafeter_application/    # 用例编排；拥有事务边界与应用端口
+│   ├── api_keys/              #   项目 API key 生命周期编排
+│   ├── credentials/           #   凭据/分组生命周期、绑定、快照与资源解析
+│   ├── sensitive_material_cleanup/ # 敏感材料擦除、重包裹与离线完整性巡检
+│   └── sessions/              #   凭据感知的会话创建、资源与仓库 token 保护
 ├── joysafeter_domain/         # 数据模型 + 业务逻辑
 │   ├── models/                #   SQLAlchemy 表
 │   ├── repositories/          #   薄 base repo（auth/skills）
 │   ├── schemas/               #   Pydantic DTO
-│   └── services/              #   agent/task/session/skill/secret/vault/memory... 服务 + FSM
+│   └── services/              #   agent/task/session/skill/memory... 领域服务、策略与 FSM
+├── joysafeter_infrastructure/ # 应用端口的基础设施适配器
+│   ├── credentials/           #   SQLAlchemy、材料、审计、依赖与网络策略适配器
+│   ├── repository_access/     #   仓库凭据材料适配器
+│   └── runtime_configuration/ #   运行时配置状态适配器
 └── joysafeter_shared/         # 跨服务基座
     ├── llm/                   #   OpenAI 兼容 SSE 辅助
     ├── skill/                 #   SKILL.md 解析 + 校验

@@ -436,8 +436,8 @@ conversation unit is `JoySafeterSession` with an append-only event log.
 | `JoySafeterSessionEvent` | `joysafeter_session_events` | **Append-only event log**, `unique(session_id, seq)`. The persisted event stream |
 | `JoySafeterTask` | `joysafeter_tasks` | The run/execution unit. Links to a session via `chat_session_id` |
 | `JoySafeterSandbox` | `joysafeter_sandboxes` | Sandbox lifecycle record; ≤1 active sandbox per session |
-| `JoySafeterSecret` | `joysafeter_secrets` | Provider API keys, values **AES-256-GCM encrypted**. Injected as env at run time |
-| `JoySafeterVault` / `VaultCredential` | `joysafeter_vaults` / `_vault_credentials` | MCP-server credentials (encrypted tokens, OAuth auto-refresh) |
+| `JoySafeterCredential` | `joysafeter_credentials` | Unified model, service, and MCP credential records; values are **AES-256-GCM encrypted** and resolved for authorized runtime use |
+| `JoySafeterCredentialGroup` | `joysafeter_credential_groups` | Project-scoped groups for organizing MCP credentials; session bindings live in `joysafeter_session_credential_groups` |
 | `JoySafeterSkill` (+ versions, files, scans, collaborators, usage) | `joysafeter_skills*` | Full skill subsystem: 4-tier visibility, lifecycle FSM, security scans, versioned snapshots |
 | `JoySafeterMemoryStore` / `Memory` / `MemoryVersion` | `joysafeter_memory*` | Agent-writable KV stores with append-only version history |
 | `JoySafeterFile` / `SessionFile` / `SessionRepo` | `joysafeter_files*` | Uploaded files & git repos mounted into sessions |
@@ -469,7 +469,7 @@ than the parent Skill's later lifecycle or scan state.
 
 All paths are under `/api/v1`. Routers are wired in `joysafeter_api/api/v1/router.py`. There
 are **no** standalone `models` / `mcp` / `tools` / `copilot` / `graphs` routers — those
-concepts live inside the agent (JSONB fields) or in `secrets` / `vaults`.
+concepts live inside the agent (JSONB fields) or in unified credentials and credential groups.
 
 ### 8.1 Typed entity identifiers
 
@@ -484,16 +484,16 @@ This is the authoritative UUID-backed entity inventory:
 |---|---|---|---|
 | `AgentId` | `agent_` | `SessionId` | `sess_` |
 | `TaskId` | `task_` | `TriggerId` | `trig_` |
-| `EnvironmentId` | `env_` | `SecretId` | `secret_` |
-| `VaultId` | `vault_` | `CredentialId` | `cred_` |
-| `SandboxId` | `sbx_` | `MemoryStoreId` | `memstore_` |
-| `MemoryId` | `mem_` | `MemoryVersionId` | `memver_` |
-| `SkillId` | `skill_` | `SkillFileId` | `sklfile_` |
-| `SkillSecurityScanId` | `sklscan_` | `SkillVersionId` | `sklver_` |
-| `SkillVersionFileId` | `sklvfile_` | `SkillUsageId` | `skluse_` |
+| `EnvironmentId` | `env_` | `CredentialId` | `cred_` |
+| `CredentialGroupId` | `credgrp_` | `SandboxId` | `sbx_` |
+| `MemoryStoreId` | `memstore_` | `MemoryId` | `mem_` |
+| `MemoryVersionId` | `memver_` | `SkillId` | `skill_` |
+| `SkillFileId` | `sklfile_` | `SkillSecurityScanId` | `sklscan_` |
+| `SkillVersionId` | `sklver_` | `SkillVersionFileId` | `sklvfile_` |
+| `SkillUsageId` | `skluse_` | `EventId` | `evt_` |
 | `FileId` | `file_` | `SessionResourceId` | `sesrsc_` |
-| `EventId` | `evt_` | `StorageVolumeId` | `vol_` |
-| `StorageGrantId` | `stgrant_` | `StorageMountAuditId` | `staudit_` |
+| `StorageVolumeId` | `vol_` | `StorageGrantId` | `stgrant_` |
+| `StorageMountAuditId` | `staudit_` |  |  |
 
 Bare UUIDs are retained only at these reviewed physical boundaries:
 
@@ -516,9 +516,10 @@ stable file/function or file/count keys and any new occurrence fails architectur
 
 Rust ID newtypes do not implement `Deref<Uuid>`; a physical adapter must call `.as_uuid()` explicitly.
 `environment_ref` is an intentional polymorphic public boundary: it accepts an environment name or a
-canonical `env_<uuid>`, never a bare Environment UUID. Agent/Environment `secret_ref` fields remain
-name-based configuration references rather than Secret IDs. Session `vault_ids` is persisted in one
-canonical JSONB format, `vault_<uuid>`; no bare-value compatibility query or read path exists.
+canonical `env_<uuid>`, never a bare Environment UUID. Current contracts use `model_credential_id`,
+`environment_credential_ids`, `service_credential_id`, and `credential_group_ids`. The legacy JSON keys
+`secret_ref` and `secret_refs` remain read aliases only for persisted v1 snapshots, and their values are
+canonical `CredentialId` strings. `vault_ids`, `SecretId`, and `VaultId` are not active runtime contracts.
 
 Memory synchronization, Session events, Skills, Files, Session resources, and storage resources follow
 the same rule: API paths, schemas, JSON, logs, and frontend state retain their canonical prefix, while
@@ -533,8 +534,8 @@ until persisted and must not use empty or fabricated `SkillFileId` values.
 | **Tasks** | `/tasks` | create+enqueue, list, get, cancel, **WS** `/tasks/{id}/stream` |
 | **Sessions** | `/sessions` | CRUD, archive, stop, `POST /events` (send), `GET /events` (history), **SSE** `/events/stream`, resources (files/repos) |
 | **Environments** | `/environments` | Sandbox image/config CRUD |
-| **Secrets** | `/secrets` | Provider credentials (model API keys) + default selection |
-| **Vaults** | `/vaults` | MCP credentials + OAuth config |
+| **Credentials** | `/credentials` | Model connections, service credentials, MCP members, lifecycle, testing, references, and default selection |
+| **Credential groups** | `/credential-groups` | MCP credential grouping, lifecycle, membership, and references |
 | **Skills** | `/skills` | CRUD, `import-zip`, files, versions, security-scans, lifecycle transitions, admin rescan |
 | **Skills AI authoring** | `/skills/ai-authoring` | **SSE** `/chat` (LLM authoring turn), `/save-draft` |
 | **Sandboxes** | `/sandboxes` | list, get, stop |
@@ -558,7 +559,7 @@ at its OpenAI-compatible gateway. This helper backs only first-party features (s
 quickstart). **Agent-workload model traffic is delegated to the CLI harness inside the
 sandbox** (Claude Code / Codex / `ccb`), so real-world model routing, retry, and fallback live
 in the runner and the CLIs, not in Python. Model config and credentials are DB-driven
-(`joysafeter_secrets`, encrypted), managed via the Secrets UI.
+(`joysafeter_credentials`, encrypted), managed through the unified Credentials UI.
 
 ### 9.2 Skills — the capability layer
 
@@ -601,9 +602,26 @@ version rather than the mutable parent Skill draft.
 
 - **Auth:** JWT (HS256) with org/project/role claims + real-time DB re-verification; HttpOnly
   cookies; CSRF token on mutating requests; passwords SHA-256 pre-hashed client-side.
-- **Credential encryption:** AES-256-GCM for provider secrets, repository tokens, and vault/OAuth credentials
-  (`JOYSAFETER_VAULT_ENCRYPTION_KEY`). Startup fails when the key is missing or invalid; stored credential
-  values must use the `enc:` envelope, and plaintext/corrupt records are rejected rather than passed through.
+- **Credential encryption:** AES-256-GCM for unified credential values, task identity material, and repository
+  tokens. Legacy `enc:`/`enc:v1:` ciphertext reads through `JOYSAFETER_VAULT_ENCRYPTION_KEY`; configured
+  keyrings write `enc:v2:<key_id>:` through `JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING` and
+  `JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID`. The exact v2 prefix is authenticated as AES-GCM
+  associated data. Canary creation uses insert-if-absent semantics, never overwrites a concurrent winner,
+  validates the committed winner, and rolls back its own partial batch on failure. Startup validates key
+  syntax, database canaries, JSON object shape, and read-key coverage for every persisted envelope; a
+  bounded worker rewraps old ciphertext before legacy keys are removed and rejects plaintext or malformed
+  storage values. Startup intentionally does not decrypt every business ciphertext; authenticated payload
+  corruption is detected when that material is used or selected for rewrap. The separate offline
+  `credential_encryption_rotation.py --verify-integrity` mode runs in a PostgreSQL repeatable-read, read-only
+  transaction, cursor-pages through every non-empty value on all four storage surfaces, decrypt-verifies current
+  and historical envelopes, and emits only record coordinates plus stable failure categories.
+- **Credential material flow:** API consumers reveal through the Application credential access service;
+  Rust runtime consumers reveal through `CredentialMaterialAccessService`, which validates purpose,
+  decrypts only authorized fields, and writes append-only access audit records. Snapshot and Harness MCP
+  URL resolution are metadata-only. Sandbox creation owns model/environment material injection, while the
+  Harness builder may read only an optional encrypted model-name field when no explicit model is configured.
+  The legacy `SetupSandbox.secrets` and `StartTask.secrets` protobuf fields remain for wire compatibility,
+  but the current orchestrator always sends them empty.
 - **SSRF guard:** blocks cloud-metadata IPs, resolves DNS to defeat rebinding; private RFC-1918
   allowed by default (internal LLM/MCP endpoints), opt-in hardening flags.
 - **Sandbox isolation:** dropped capabilities, non-root, no-new-privileges, PID limits, and
@@ -618,7 +636,7 @@ version rather than the mutable parent Skill draft.
 ```
 backend/app/
 ├── joysafeter_api/            # API service: REST routers, SSE, WS notifications, auth deps
-│   ├── api/v1/                #   routers (auth, agents, sessions, tasks, skills, secrets, vaults, ...)
+│   ├── api/v1/                #   routers (auth, agents, sessions, tasks, skills, credentials, credential groups, ...)
 │   ├── websocket/             #   notification manager + WS auth
 │   ├── app.py / main.py       #   app assembly + entrypoint
 │   └── startup.py             #   wires SessionBroadcaster
@@ -632,11 +650,19 @@ backend/app/
 │   └── Cargo.toml             #   Rust crate manifest
 ├── joysafeter_worker/         # Worker service
 │   └── events/                #   EventStreamWorker (Redis Stream consumer) + EventBatchSender
+├── joysafeter_application/    # Use-case orchestration; owns transaction boundaries and application ports
+│   ├── api_keys/              #   project API-key lifecycle orchestration
+│   ├── credentials/           #   credential/group lifecycle, binding, snapshots, resource resolution
+│   └── sessions/              #   credential-aware session creation, resources, repository-token protection
 ├── joysafeter_domain/         # Data model + business logic
 │   ├── models/                #   SQLAlchemy tables
 │   ├── repositories/          #   thin base repo (auth/skills)
 │   ├── schemas/               #   Pydantic DTOs
-│   └── services/              #   agent/task/session/skill/secret/vault/memory/... services + FSMs
+│   └── services/              #   agent/task/session/skill/memory/... domain services, policies, and FSMs
+├── joysafeter_infrastructure/ # Adapters implementing application ports
+│   ├── credentials/           #   SQLAlchemy, material, audit, dependency, and network-policy adapters
+│   ├── repository_access/     #   repository credential material adapter
+│   └── runtime_configuration/ #   runtime configuration status adapters
 └── joysafeter_shared/         # Cross-service foundation
     ├── llm/                   #   OpenAI-compatible SSE helper
     ├── skill/                 #   SKILL.md parse + validate

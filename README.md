@@ -137,7 +137,7 @@ Claude Managed Agents, only **self-hosted and security-specialized**:
 ### 🔧 Tools, custom tools & MCP
 
 - Attach **builtin tools**, **custom tools** (name + JSON Schema), and **MCP servers** per agent
-- MCP configs + Vault credentials are resolved at run time and delivered to the sandbox over gRPC
+- MCP configs and credential-group members are resolved at run time and delivered to the sandbox over gRPC
 - **Security skill packs** drive tools like **Nmap / Nuclei / Trivy** inside the sandbox image; connect any external tool via the **MCP protocol**
 
 </td>
@@ -166,7 +166,7 @@ Claude Managed Agents, only **self-hosted and security-specialized**:
 ### 🛡️ Scoped permissions & guardrails
 
 - **Per-tool authorization** — `always_ask` / `always_allow`, with human-in-the-loop confirmation for high-risk tools
-- **Encrypted credentials** — provider keys in Secrets, MCP creds in Vaults, AES-256-GCM, injected as sandbox env
+- **Encrypted credentials** — model, service, and MCP credentials use AES-256-GCM and are injected only into authorized runtimes
 - **SSRF guard** — blocks cloud-metadata endpoints; opt-in private-range hardening
 
 </td>
@@ -261,12 +261,12 @@ flowchart LR
 - **Centralized state machines** — guarded FSMs for Task, Session, Sandbox, and Skill lifecycle
 - **Normalized error system** — `AppError` produces a canonical `ErrorDescriptor` (`{code, message, data, source, retryable, user_action}`) consumed identically across HTTP and streaming paths
 - **OTel-backed observation** — full-chain `trace_id` propagation with spans persisted to the database
-- **Encrypted credentials** — provider API keys live in Secrets and MCP credentials in Vaults, both AES-256-GCM encrypted and injected into the sandbox at run time
+- **Encrypted credentials** — model, service, and MCP credentials use unified encrypted storage and are injected into the sandbox at run time
 - **Layered skill system** — publication requires approval; agents and runtime consume immutable published versions without rechecking mutable parent scan state
 
 ### User Journey — Quick Start
 
-> **Login** → **Add provider keys (Secrets)** → **Configure MCP credentials (Vaults)** → **Skill Management** → **Build Agent** → **Open a Session** → **Chat & watch live events** → **Download report**
+> **Login** → **Add a Model Connection** → **Configure Service or MCP Credentials** → **Skill Management** → **Build Agent** → **Open a Session** → **Chat & watch live events** → **Download report**
 
 ---
 

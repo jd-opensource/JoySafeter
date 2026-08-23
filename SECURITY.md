@@ -40,8 +40,9 @@ When deploying JoySafeter, please ensure:
 ### Environment Configuration
 
 - **Never commit secrets**: Use environment variables for all sensitive configuration
-- **Strong secrets**: Generate cryptographically secure keys for `SECRET_KEY` and `JOYSAFETER_VAULT_ENCRYPTION_KEY`
-- **Stable encryption key**: Once `JOYSAFETER_VAULT_ENCRYPTION_KEY` is set, **never change it**, otherwise existing managed-secret ciphertext becomes unreadable.
+- **Strong secrets**: Generate cryptographically secure keys for `SECRET_KEY`, `JOYSAFETER_VAULT_ENCRYPTION_KEY`, and every entry in `JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING`.
+- **Safe key rotation**: Never replace `JOYSAFETER_VAULT_ENCRYPTION_KEY` in place. Add the new key to the keyring, initialize its database canary with `backend/scripts/credential_encryption_rotation.py --initialize-missing-canaries`, switch `JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID`, rewrap all persisted material, and retain old read keys through the rollback window. Canary initialization is concurrency-safe: the first committed row wins, conflicting initializers never overwrite it, and every caller validates the persisted winner inside an atomic savepoint. The v2 envelope authenticates the exact `enc:v2:<key_id>:` prefix as AES-GCM associated data; key-ID relabeling, malformed credential JSON, and plaintext encountered by online rewrap all fail closed. API, worker, and orchestrator startup also reject removal of any key still referenced by persisted material.
+- **Offline ciphertext verification**: Startup inventory intentionally checks envelope shape and read-key coverage without decrypting every business value. Run `backend/.venv/bin/python backend/scripts/credential_encryption_rotation.py --verify-integrity` before retiring read keys and as a periodic control. The verifier uses a repeatable-read, database-enforced read-only transaction; pages through Credential data, OAuth secret fields, Task Identity material, and Repository Tokens; decrypts every non-empty value; exits non-zero on any issue; and reports only surface, record ID, field, and a stable error category.
 - **HTTPS only**: Always use HTTPS in production
 - **Cookie security**: Enable `COOKIE_SECURE=true` in production
 
