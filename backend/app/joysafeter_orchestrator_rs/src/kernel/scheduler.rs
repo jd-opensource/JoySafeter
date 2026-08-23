@@ -15,6 +15,7 @@ use crate::kernel::credentials::snapshot;
 use crate::kernel::credentials::{error::CredentialRuntimeError, CredentialStore, ProjectId};
 use crate::kernel::ha::BridgeStore;
 use crate::kernel::queue::TaskQueue;
+use crate::kernel::runtime_freshness::RuntimeFreshnessError;
 use crate::kernel::sandbox_resolver::SandboxResolver;
 use crate::sandbox::provider::SandboxProvider;
 
@@ -22,6 +23,7 @@ const QUEUE_POP_TIMEOUT: Duration = Duration::from_secs(1);
 const DB_REPAIR_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 const SCHEDULING_RETRY_BASE_BACKOFF: Duration = Duration::from_secs(5);
 const SCHEDULING_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(60);
+const GENERATION_CHANGE_IMMEDIATE_RETRIES: usize = 2;
 
 /// Task scheduler — consumes Redis task candidates, claims them in DB, resolves
 /// sandboxes, and dispatches.
@@ -304,30 +306,83 @@ async fn schedule_single_task(
     let engine_kind = agent.engine_kind.as_deref().unwrap_or("claude");
     let resolved_image = config.image_for_provider(engine_kind)?;
 
-    // --- Resolve sandbox through the full provider-backed resolver ---
-    // The resolver builds the effective Python-compatible context itself:
-    // session/agent environment, model credential, environment image, and networking.
-    let (sandbox_db_id, _external_id) = resolver
-        .resolve(task_id, session_id, Some(agent.id), project_id)
-        .await?;
+    let session_id =
+        session_id.ok_or_else(|| anyhow::anyhow!("resolved task session is missing"))?;
+    let mut generation_retries = 0;
+    let sandbox_db_id = loop {
+        // --- Resolve sandbox through the full provider-backed resolver ---
+        // The resolver builds the effective Python-compatible context itself:
+        // session/agent environment, model credential, environment image, and networking.
+        let resolved_sandbox = match resolver
+            .resolve(task_id, Some(session_id), Some(agent.id), project_id)
+            .await
+        {
+            Ok(resolved) => resolved,
+            Err(error) if should_retry_generation_change(&error, generation_retries) => {
+                generation_retries += 1;
+                warn!(
+                    task_id = %task_id,
+                    retry = generation_retries,
+                    "Runtime generation changed during sandbox resolution; retrying immediately"
+                );
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
 
-    // --- Terminal status re-check ---
-    let current_task = queries::get_task(pool, task_id).await?;
-    if let Some(ref t) = current_task {
-        if let Some(status) = crate::db::models::TaskStatus::from_str(&t.status) {
-            if status.is_terminal() {
-                info!(task_id = %task_id, "Task became terminal before enqueue, skipping");
-                return Ok(());
+        // --- Terminal status re-check ---
+        let current_task = queries::get_task(pool, task_id).await?;
+        if let Some(ref task) = current_task {
+            if let Some(status) = crate::db::models::TaskStatus::from_str(&task.status) {
+                if status.is_terminal() {
+                    info!(task_id = %task_id, "Task became terminal before enqueue, skipping");
+                    return Ok(());
+                }
             }
         }
-    }
 
-    // --- Attach sandbox (CAS: only if still scheduling) ---
-    let attached = queries::attach_sandbox_to_task(pool, task_id, sandbox_db_id).await?;
-    if !attached {
-        info!(task_id = %task_id, "Task left scheduling before sandbox attach, skipping");
-        return Ok(());
-    }
+        // --- Attach sandbox (CAS: only if still scheduling) ---
+        match queries::attach_sandbox_to_task_guarded(
+            pool,
+            task_id,
+            resolved_sandbox.sandbox_id,
+            session_id,
+            project_id,
+            resolved_sandbox.runtime_config_generation,
+        )
+        .await
+        {
+            Ok(()) => break resolved_sandbox.sandbox_id,
+            Err(error) => {
+                let error = anyhow::Error::new(error);
+                if should_retry_generation_change(&error, generation_retries) {
+                    generation_retries += 1;
+                    warn!(
+                        task_id = %task_id,
+                        retry = generation_retries,
+                        "Runtime generation changed before task attachment; retrying immediately"
+                    );
+                    continue;
+                }
+
+                if matches!(
+                    error.downcast_ref::<RuntimeFreshnessError>(),
+                    Some(RuntimeFreshnessError::Conflict(_))
+                ) {
+                    match queries::get_task(pool, task_id).await? {
+                        None => return Ok(()),
+                        Some(task) if task.status != "scheduling" => return Ok(()),
+                        Some(task) if task.sandbox_id == Some(resolved_sandbox.sandbox_id) => {
+                            break resolved_sandbox.sandbox_id;
+                        }
+                        Some(_) => {}
+                    }
+                }
+
+                return Err(error);
+            }
+        }
+    };
 
     // --- Push sandbox wakeup ---
     queue.push(sandbox_db_id, task_id).await?;
@@ -371,8 +426,27 @@ async fn schedule_single_task(
 /// The `.context(...)` wrappers used at the credential error sites preserve the
 /// original type, so `downcast_ref` still recovers the `CredentialRuntimeError`.
 fn permanent_scheduling_failure_code(err: &anyhow::Error) -> Option<&'static str> {
-    err.downcast_ref::<CredentialRuntimeError>()
-        .map(|credential_error| credential_error.contract_code())
+    if let Some(credential_error) = err.downcast_ref::<CredentialRuntimeError>() {
+        return Some(credential_error.contract_code());
+    }
+
+    match err.downcast_ref::<RuntimeFreshnessError>() {
+        Some(RuntimeFreshnessError::RuntimeRestartRequired { .. }) => {
+            Some("runtime_restart_required")
+        }
+        Some(RuntimeFreshnessError::SessionBindingInvalid { .. }) => {
+            Some("session_binding_invalid")
+        }
+        _ => None,
+    }
+}
+
+fn should_retry_generation_change(error: &anyhow::Error, retries_completed: usize) -> bool {
+    retries_completed < GENERATION_CHANGE_IMMEDIATE_RETRIES
+        && matches!(
+            error.downcast_ref::<RuntimeFreshnessError>(),
+            Some(RuntimeFreshnessError::GenerationChanged { .. })
+        )
 }
 
 async fn handle_scheduling_failure(
@@ -811,6 +885,76 @@ mod tests {
         // Transient scheduling failures must NOT be classified permanent.
         let transient = anyhow::anyhow!("sandbox resolution timed out after 120s");
         assert_eq!(permanent_scheduling_failure_code(&transient), None);
+
+        let restart_required = anyhow::Error::new(
+            crate::kernel::runtime_freshness::RuntimeFreshnessError::RuntimeRestartRequired {
+                sandbox_id: SandboxId::from_uuid(Uuid::now_v7()),
+            },
+        );
+        assert_eq!(
+            permanent_scheduling_failure_code(&restart_required),
+            Some("runtime_restart_required")
+        );
+
+        let session_binding_invalid = anyhow::Error::new(
+            crate::kernel::runtime_freshness::RuntimeFreshnessError::SessionBindingInvalid {
+                session_id: SessionId::from_uuid(Uuid::now_v7()),
+                reason: "inactive session",
+            },
+        );
+        assert_eq!(
+            permanent_scheduling_failure_code(&session_binding_invalid),
+            Some("session_binding_invalid")
+        );
+
+        let generation_changed = anyhow::Error::new(
+            crate::kernel::runtime_freshness::RuntimeFreshnessError::GenerationChanged {
+                expected: 1,
+                actual: 2,
+            },
+        );
+        assert_eq!(permanent_scheduling_failure_code(&generation_changed), None);
+
+        let cleanup_failed = anyhow::Error::new(
+            crate::kernel::runtime_freshness::RuntimeFreshnessError::CleanupFailed(
+                "provider cleanup failed".to_string(),
+            ),
+        );
+        assert_eq!(permanent_scheduling_failure_code(&cleanup_failed), None);
+    }
+
+    #[test]
+    fn only_generation_changes_receive_bounded_immediate_retries() {
+        let generation_changed = anyhow::Error::new(
+            crate::kernel::runtime_freshness::RuntimeFreshnessError::GenerationChanged {
+                expected: 1,
+                actual: 2,
+            },
+        );
+        assert!(should_retry_generation_change(&generation_changed, 0));
+        assert!(should_retry_generation_change(&generation_changed, 1));
+        assert!(!should_retry_generation_change(&generation_changed, 2));
+
+        let restart_required = anyhow::Error::new(
+            crate::kernel::runtime_freshness::RuntimeFreshnessError::RuntimeRestartRequired {
+                sandbox_id: SandboxId::from_uuid(Uuid::now_v7()),
+            },
+        );
+        assert!(!should_retry_generation_change(&restart_required, 0));
+
+        let conflict = anyhow::Error::new(
+            crate::kernel::runtime_freshness::RuntimeFreshnessError::Conflict(
+                "ownership changed".to_string(),
+            ),
+        );
+        assert!(!should_retry_generation_change(&conflict, 0));
+
+        let cleanup_failed = anyhow::Error::new(
+            crate::kernel::runtime_freshness::RuntimeFreshnessError::CleanupFailed(
+                "provider cleanup failed".to_string(),
+            ),
+        );
+        assert!(!should_retry_generation_change(&cleanup_failed, 0));
     }
 
     #[tokio::test]
@@ -823,18 +967,47 @@ mod tests {
         let unique = Uuid::now_v7().simple().to_string();
         let agent_id = create_scheduler_agent(&pool, &unique).await;
         let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let organization_id = format!("scheduler-stale-task-org-{unique}");
+        let project_id = format!("scheduler-stale-task-project-{unique}");
+
+        sqlx::query(
+            "INSERT INTO joysafeter_organizations (id, name, slug, storage_used_bytes, departed_member_usage) VALUES ($1, $2, $3, 0, 0)",
+        )
+        .bind(&organization_id)
+        .bind("Scheduler Stale Task Org")
+        .bind(format!("scheduler-stale-task-org-{unique}"))
+        .execute(&pool)
+        .await
+        .expect("insert stale task organization");
+        sqlx::query(
+            "INSERT INTO joysafeter_organization_projects (id, org_id, name, slug, is_default) VALUES ($1, $2, $3, $4, false)",
+        )
+        .bind(&project_id)
+        .bind(&organization_id)
+        .bind("Scheduler Stale Task Project")
+        .bind(format!("scheduler-stale-task-project-{unique}"))
+        .execute(&pool)
+        .await
+        .expect("insert stale task project");
+        sqlx::query("UPDATE joysafeter_agents SET project_id = $2 WHERE id = $1")
+            .bind(agent_id)
+            .bind(&project_id)
+            .execute(&pool)
+            .await
+            .expect("scope stale task agent");
 
         sqlx::query(
             r#"
             INSERT INTO joysafeter_tasks (
-                id, agent_id, chat_session_id, status, prompt, output,
+                id, agent_id, chat_session_id, project_id, status, prompt, output,
                 timeout_sec, retry_count, max_retries
             )
-            VALUES ($1, $2, NULL, 'running', 'stale scheduler prompt', '', 7200, 0, 2)
+            VALUES ($1, $2, NULL, $3, 'running', 'stale scheduler prompt', '', 7200, 0, 2)
             "#,
         )
         .bind(task_id)
         .bind(agent_id)
+        .bind(&project_id)
         .execute(&pool)
         .await
         .expect("insert stale running task without session");
@@ -852,7 +1025,7 @@ mod tests {
                 task_id,
                 Some(agent_id),
                 None,
-                None,
+                Some(&project_id),
             )
             .await
             .expect("stale auto-session scheduling should be skipped");
@@ -883,6 +1056,14 @@ mod tests {
             .await;
         let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
             .bind(agent_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
+            .bind(&project_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organizations WHERE id = $1")
+            .bind(&organization_id)
             .execute(&pool)
             .await;
         result

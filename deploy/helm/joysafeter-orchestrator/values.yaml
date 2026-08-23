@@ -55,9 +55,12 @@ externalSecret: joysafeter-secrets
 #   password: "your-password"
 #   db: 0
 
-# ── Vault 加密密钥 (可选,配了则写入 Secret) ──
-# 生成: openssl rand -base64 32
-# vaultEncryptionKey: "your-base64-key"
+# ── 凭据加密 keyring（新部署使用）──
+# 每把 key 生成方式: openssl rand -base64 32。启用 keyring 时 writeKeyId 必填。
+# credentialEncryptionKeyring: '{"active-2026-08":"...","previous-2026-07":"..."}'
+# credentialEncryptionWriteKeyId: "active-2026-08"
+# 仅迁移仍含 enc:/enc:v1: 数据的旧部署需要暂时保留：
+# vaultEncryptionKey: "legacy-base64-key"
 
 # ── HA 模式 ──
 haMode: multi   # standalone / leader / multi

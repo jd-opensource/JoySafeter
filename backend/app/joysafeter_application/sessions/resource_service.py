@@ -3,6 +3,7 @@ from __future__ import annotations
 import posixpath
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import select
@@ -25,6 +26,7 @@ from app.joysafeter_domain.services.joysafeter_session_service import SessionSer
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
 from app.joysafeter_shared.ids import FileId, SessionId, SessionResourceId
 from app.joysafeter_shared.storage import get_storage
+from app.joysafeter_shared.utils.datetime import utc_now
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 
@@ -43,6 +45,8 @@ class PreparedSessionRepoResource:
     effective_mount_path: str
     mount_name: str
     encrypted_token: str
+    token_expires_at: datetime | None
+    token_rotated_at: datetime | None
 
 
 def _validate_mount_path(path: str) -> str:
@@ -172,7 +176,11 @@ class SessionResourceService:
         self._session_svc = SessionService(db)
         from app.joysafeter_shared.config.settings import joysafeter_config
 
-        self._repository_material = compose_repository_access_material_adapter(joysafeter_config.vault_encryption_key)
+        self._repository_material = compose_repository_access_material_adapter(
+            joysafeter_config.vault_encryption_key,
+            keyring_json=joysafeter_config.credential_encryption_keyring,
+            write_key_id=joysafeter_config.credential_encryption_write_key_id,
+        )
 
     async def get_project_session_or_raise(
         self,
@@ -331,8 +339,10 @@ class SessionResourceService:
                 url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
             )
             encrypted_token = ""
+            token_rotated_at = None
             if resource.authorization_token:
                 encrypted_token = self._repository_material.protect_repository_token(resource.authorization_token)
+                token_rotated_at = utc_now()
             prepared.append(
                 PreparedSessionRepoResource(
                     url=url,
@@ -341,6 +351,8 @@ class SessionResourceService:
                     effective_mount_path=effective_mount_path,
                     mount_name=mount_name,
                     encrypted_token=encrypted_token,
+                    token_expires_at=resource.token_expires_at,
+                    token_rotated_at=token_rotated_at,
                 )
             )
         return prepared
@@ -370,6 +382,8 @@ class SessionResourceService:
                     mount_path=repo.mount_path,
                     mount_name=repo.mount_name,
                     encrypted_token=repo.encrypted_token,
+                    token_expires_at=repo.token_expires_at,
+                    token_rotated_at=repo.token_rotated_at,
                 )
             )
         if files or repos:
@@ -488,6 +502,8 @@ class SessionResourceService:
             mount_path=resource.mount_path,
             mount_name=resource.mount_name,
             encrypted_token=resource.encrypted_token,
+            token_expires_at=resource.token_expires_at,
+            token_rotated_at=resource.token_rotated_at,
         )
         self.db.add(row)
         await self.db.commit()
@@ -520,6 +536,7 @@ class SessionResourceService:
         authorization_token: str,
         *,
         project_id: Optional[str] = None,
+        token_expires_at: datetime | None = None,
     ) -> SessionRepoResourceResponse:
         await self.ensure_visible_parent_mutable(session_id, project_id)
         conditions = [
@@ -538,9 +555,37 @@ class SessionResourceService:
                 data={"session_id": str(session_id), "resource_id": str(resource_id)},
                 user_action="refresh",
             )
-        row.encrypted_token = (
-            self._repository_material.protect_repository_token(authorization_token) if authorization_token else ""
-        )
+        now = utc_now()
+        if token_expires_at is not None and not authorization_token:
+            raise InvalidRequestError(
+                code="SESSION_REPO_TOKEN_EXPIRY_WITHOUT_TOKEN",
+                message="token_expires_at requires authorization_token",
+                data={"session_id": str(session_id), "resource_id": str(resource_id)},
+                user_action="fix_input",
+            )
+        if token_expires_at is not None and token_expires_at.utcoffset() is None:
+            raise InvalidRequestError(
+                code="SESSION_REPO_TOKEN_EXPIRY_TIMEZONE_REQUIRED",
+                message="token_expires_at must include a timezone",
+                data={"session_id": str(session_id), "resource_id": str(resource_id)},
+                user_action="fix_input",
+            )
+        if token_expires_at is not None and token_expires_at <= now:
+            raise InvalidRequestError(
+                code="SESSION_REPO_TOKEN_EXPIRY_INVALID",
+                message="token_expires_at must be in the future",
+                data={"session_id": str(session_id), "resource_id": str(resource_id)},
+                user_action="fix_input",
+            )
+        if authorization_token:
+            row.encrypted_token = self._repository_material.protect_repository_token(authorization_token)
+            row.token_expires_at = token_expires_at
+            row.token_rotated_at = now
+            row.token_erased_at = None
+        else:
+            row.encrypted_token = ""
+            row.token_expires_at = None
+            row.token_erased_at = now
         await self.db.commit()
         await self.db.refresh(row)
         return SessionRepoResourceResponse.model_validate(row)

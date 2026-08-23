@@ -97,6 +97,7 @@ class SqlAlchemyCredentialSnapshotSourceAdapter:
             caller=command.caller,
             for_update=for_update,
         )
+        environment_ref = str(environment.id) if environment is not None else None
         snapshot["environment_ref"] = environment_ref
         environment_snapshot = build_environment_execution_snapshot(
             environment,
@@ -105,7 +106,7 @@ class SqlAlchemyCredentialSnapshotSourceAdapter:
         if environment_snapshot is not None:
             snapshot["environment"] = environment_snapshot
 
-        overlay = dict(command.environment_config_overlay or {})
+        overlay = copy.deepcopy(dict(command.environment_config_overlay or {}))
         mount_resources = tuple(command.environment_mount_resources or ())
         if overlay or mount_resources:
             frozen_environment = dict(snapshot.get("environment") or {})
@@ -113,7 +114,7 @@ class SqlAlchemyCredentialSnapshotSourceAdapter:
             frozen_config.update(overlay)
             if mount_resources:
                 frozen_config["mount_resources"] = list(frozen_config.get("mount_resources") or []) + [
-                    dict(resource) for resource in mount_resources
+                    copy.deepcopy(dict(resource)) for resource in mount_resources
                 ]
             frozen_environment["config"] = frozen_config
             snapshot["environment"] = frozen_environment

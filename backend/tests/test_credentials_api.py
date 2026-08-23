@@ -46,6 +46,7 @@ from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
+from app.joysafeter_domain.models.joysafeter_security_audit_log import SecurityAuditLog
 from app.joysafeter_infrastructure.credentials import network_policy_adapter
 from app.joysafeter_infrastructure.credentials.audit_adapter import SqlAlchemyCredentialAuditAdapter
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
@@ -187,6 +188,109 @@ def test_credential_create_list_get_masked_default_archive_restore(client) -> No
     # gone
     resp = api.get(f"/credentials/{cred_id}")
     assert resp.status_code == 404
+
+
+def test_credential_mutation_audit_records_request_actor(client) -> None:
+    api, project_id, session_factory = client
+    response = api.post(
+        "/credentials",
+        headers={"user-agent": "credential-audit-test/1.0"},
+        json={"kind": "service", "name": "audited-human", "data": {"TOKEN": "secret"}},
+    )
+    assert response.status_code == 201, response.text
+    credential_id = response.json()["id"]
+
+    async def load_audit():
+        async with session_factory() as session:
+            result = await session.execute(
+                select(SecurityAuditLog).where(
+                    SecurityAuditLog.event_type == "credential.created",
+                    SecurityAuditLog.details["project_id"].astext == project_id,
+                    SecurityAuditLog.details["target_id"].astext == credential_id,
+                )
+            )
+            return result.scalar_one()
+
+    audit = asyncio.get_event_loop().run_until_complete(load_audit())
+    assert audit.user_id == "test-user"
+    assert audit.ip_address == "testclient"
+    assert audit.user_agent == "credential-audit-test/1.0"
+    assert audit.details["principal_type"] == "user"
+    assert audit.details["principal_id"] == "test-user"
+
+
+def test_credential_mutation_audit_records_api_key_principal(client) -> None:
+    api, project_id, session_factory = client
+    api_key_id = "00000000-0000-0000-0000-000000000123"
+
+    def _override_api_key_auth() -> JoySafeterAuthContext:
+        return JoySafeterAuthContext(
+            user_id="api-key-owner",
+            org_id="test-org",
+            project_id=project_id,
+            role=JoySafeterRole.MEMBER,
+            principal_type="api_key",
+            principal_id=api_key_id,
+            project_role="editor",
+        )
+
+    previous = api.app.dependency_overrides[require_joysafeter_write]
+    api.app.dependency_overrides[require_joysafeter_write] = _override_api_key_auth
+    try:
+        response = api.post(
+            "/credentials",
+            json={"kind": "service", "name": "audited-api-key", "data": {"TOKEN": "secret"}},
+        )
+    finally:
+        api.app.dependency_overrides[require_joysafeter_write] = previous
+
+    assert response.status_code == 201, response.text
+    credential_id = response.json()["id"]
+
+    async def load_audit():
+        async with session_factory() as session:
+            result = await session.execute(
+                select(SecurityAuditLog).where(
+                    SecurityAuditLog.event_type == "credential.created",
+                    SecurityAuditLog.details["project_id"].astext == project_id,
+                    SecurityAuditLog.details["target_id"].astext == credential_id,
+                )
+            )
+            return result.scalar_one()
+
+    audit = asyncio.get_event_loop().run_until_complete(load_audit())
+    assert audit.user_id == "api-key-owner"
+    assert audit.details["principal_type"] == "api_key"
+    assert audit.details["principal_id"] == api_key_id
+
+
+def test_credential_group_mutation_audit_records_request_actor(client) -> None:
+    api, project_id, session_factory = client
+    response = api.post(
+        "/credential-groups",
+        headers={"user-agent": "credential-group-audit-test/1.0"},
+        json={"name": "audited-group"},
+    )
+    assert response.status_code == 201, response.text
+    group_id = response.json()["id"]
+
+    async def load_audit():
+        async with session_factory() as session:
+            result = await session.execute(
+                select(SecurityAuditLog).where(
+                    SecurityAuditLog.event_type == "credential_group.created",
+                    SecurityAuditLog.details["project_id"].astext == project_id,
+                    SecurityAuditLog.details["target_id"].astext == group_id,
+                )
+            )
+            return result.scalar_one()
+
+    audit = asyncio.get_event_loop().run_until_complete(load_audit())
+    assert audit.user_id == "test-user"
+    assert audit.ip_address == "testclient"
+    assert audit.user_agent == "credential-group-audit-test/1.0"
+    assert audit.details["principal_type"] == "user"
+    assert audit.details["principal_id"] == "test-user"
 
 
 def test_deleted_resource_routes_fail_closed_without_clearing_live_default(client) -> None:

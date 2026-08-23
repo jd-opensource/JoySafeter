@@ -19,6 +19,8 @@
 #   --from-literal=SECRET_KEY="..." \
 #   --from-literal=JWT_SECRET_KEY="..." \
 #   --from-literal=JOYSAFETER_VAULT_ENCRYPTION_KEY="..."
+#   --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING='{"active-2026-08":"..."}' \
+#   --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID="active-2026-08"
 # ─────────────────────────────────────────────────────────────────────────────
 
 # 云 PostgreSQL 连接串 (asyncpg driver)
@@ -35,6 +37,8 @@ JWT_SECRET_KEY=CHANGE_ME
 
 # Vault 加密密钥 (openssl rand -base64 32)
 JOYSAFETER_VAULT_ENCRYPTION_KEY=CHANGE_ME
+JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING=
+JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID=
 
 
 # ─────────────────────────────────────────────────────────────────────────────

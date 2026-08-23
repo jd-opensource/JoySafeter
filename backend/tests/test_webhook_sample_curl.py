@@ -8,12 +8,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
+from app.joysafeter_application.triggers import TriggerApplicationService
 
 pytestmark = pytest.mark.no_db
 
 
-class _StubService(JoySafeterTriggerService):
+class _StubService(TriggerApplicationService):
     def __init__(self, secret: str) -> None:
         self._secret = secret
         self.db = SimpleNamespace()

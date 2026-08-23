@@ -30,7 +30,8 @@ def test_only_reviewed_legacy_auth_alias_exists(credential_contract: dict):
     assert credential_contract["disabled_auth_schemes"] == ["oauth", "mcp_oauth"]
 
 
-def test_runtime_errors_and_v1_envelope_are_frozen(credential_contract: dict):
+def test_runtime_errors_and_versioned_envelopes_are_frozen(credential_contract: dict):
+    assert credential_contract["contract_version"] == 2
     assert credential_contract["runtime_errors"] == [
         "not_bound",
         "not_found",
@@ -42,7 +43,12 @@ def test_runtime_errors_and_v1_envelope_are_frozen(credential_contract: dict):
         "corrupt_record",
         "envelope_invalid",
     ]
-    assert credential_contract["encryption_envelope"] == "enc:v1"
+    assert credential_contract["encryption_envelopes"] == {
+        "legacy_read": ["enc:", "enc:v1:"],
+        "current_write": "enc:v2:<key_id>:",
+        "v2_authenticated_associated_data": "enc:v2:<key_id>:",
+        "startup_requires_all_referenced_read_keys": True,
+    }
 
 
 def test_reference_contract_freezes_snapshot_versions_and_key_aliases(reference_contract: dict):

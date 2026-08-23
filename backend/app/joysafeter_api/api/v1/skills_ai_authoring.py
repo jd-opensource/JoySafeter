@@ -22,13 +22,15 @@ import json
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.api.v1.audit import credential_audit_actor
 from app.joysafeter_application.credentials.composition import compose_credential_application
+from app.joysafeter_application.credentials.ports import CredentialAccessContext
 from app.joysafeter_domain.credentials.bindings import EngineKind
 from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_domain.llm.compatibility import (
@@ -258,6 +260,7 @@ async def _dedupe_skill_name(svc: SkillService, name: str, project_id: str) -> s
 @router.post("/chat")
 async def authoring_chat(
     req: AuthoringChatRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ):
@@ -268,10 +271,11 @@ async def authoring_chat(
     (optional, defaults to api.openai.com), ``OPENAI_MODEL`` (optional,
     defaults to ``gpt-5.5``).
     """
+    actor = credential_audit_actor(request, auth_ctx)
     application = compose_credential_application(
         db,
         auto_commit=False,
-        compatibility_mode=False,
+        audit_actor=actor,
     )
     try:
         binding = build_model_inference_policy(
@@ -281,8 +285,14 @@ async def authoring_chat(
             engine_kind=EngineKind.CODEX,
             model_id=None,
         )
-        validated, resolution = await application.binding_service.validate_model_inference(binding)
-        material = await application.material_adapter.load(validated)
+        material, resolution = await application.material_access_service.resolve_model_inference(
+            binding,
+            context=CredentialAccessContext(
+                consumer_type="skill_ai_authoring",
+                consumer_id="authoring_chat",
+                actor=actor,
+            ),
+        )
     except ModelInferenceMaterialFieldMissingError as exc:
         provider = exc.provider_id
         protocol = exc.protocol_id

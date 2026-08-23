@@ -9,9 +9,13 @@ import uuid
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import select, text
 
+from app.joysafeter_application.credentials.application_service import CredentialService
 from app.joysafeter_application.credentials.binding_service import BindingIssuanceAuthority
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_domain.credentials.types import CredentialId as DomainCredentialId
+from app.joysafeter_domain.credentials.types import ProjectId
 from app.joysafeter_domain.models.joysafeter_credential import (
     JoySafeterCredential,
     JoySafeterCredentialGroup,
@@ -22,10 +26,9 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     CreateCredentialRequest,
     UpdateCredentialRequest,
 )
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_infrastructure.credentials.material_adapter import ManagedCredentialMaterialAdapter
 from app.joysafeter_infrastructure.credentials.sqlalchemy_repository import SqlAlchemyCredentialRepository
-from app.joysafeter_infrastructure.sensitive_material.legacy_v1 import LegacyV1MaterialProtector
+from app.joysafeter_infrastructure.sensitive_material.versioned import VersionedMaterialProtector
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.config.settings import joysafeter_config
 from app.joysafeter_shared.security.credential_cipher import CredentialCiphertextError
@@ -48,7 +51,7 @@ async def project_id(db_session) -> str:
 
 @pytest.mark.asyncio
 async def test_create_model_requires_provider_protocol(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     with pytest.raises(AppError) as exc:
         await svc.create(
             CreateCredentialRequest(kind="model", name="m1", data={"API_KEY": "sk-1"}),
@@ -59,7 +62,7 @@ async def test_create_model_requires_provider_protocol(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_create_model_ok(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     cred = await svc.create(
         CreateCredentialRequest(
             kind="model",
@@ -76,11 +79,48 @@ async def test_create_model_ok(db_session, project_id):
     assert cred.data["API_KEY"].startswith("enc:v1:")
 
 
+@pytest.mark.asyncio
+async def test_repository_read_paths_reject_non_object_persisted_material(db_session, project_id):
+    service = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
+    credential = await service.create(
+        CreateCredentialRequest(kind="service", name="invalid-shape", data={"TOKEN": "secret"}),
+        project_id=project_id,
+    )
+    stored_credential_id = credential.id
+    await db_session.execute(
+        text("UPDATE joysafeter_credentials SET data = '[]'::jsonb WHERE id = :id"),
+        {"id": stored_credential_id.uuid},
+    )
+    await db_session.commit()
+    db_session.expire_all()
+
+    authority = BindingIssuanceAuthority()
+    material = ManagedCredentialMaterialAdapter(
+        None,
+        VersionedMaterialProtector(joysafeter_config.vault_encryption_key),
+        authority,
+    )
+    repository = SqlAlchemyCredentialRepository(db_session, material=material)
+    material.bind_repository(repository)
+    credential_id = DomainCredentialId(str(stored_credential_id))
+    domain_project_id = ProjectId(project_id)
+
+    with pytest.raises(CredentialCiphertextError, match="data must be a JSON object"):
+        await repository.get_resource(credential_id, domain_project_id)
+    with pytest.raises(CredentialCiphertextError, match="data must be a JSON object"):
+        await repository.load_encrypted_material(credential_id, domain_project_id)
+
+    stored = await repository.get(stored_credential_id, project_id)
+    assert stored is not None
+    with pytest.raises(CredentialCiphertextError, match="data must be a JSON object"):
+        repository.get_masked(stored)
+
+
 @pytest.mark.no_db
 def test_decrypt_data_rejects_non_string_storage_without_coercion():
     material = ManagedCredentialMaterialAdapter(
         None,
-        LegacyV1MaterialProtector(joysafeter_config.vault_encryption_key),
+        VersionedMaterialProtector(joysafeter_config.vault_encryption_key),
         BindingIssuanceAuthority(),
     )
     repository = SqlAlchemyCredentialRepository(None, material=material)  # type: ignore[arg-type]
@@ -91,7 +131,7 @@ def test_decrypt_data_rejects_non_string_storage_without_coercion():
 
 @pytest.mark.asyncio
 async def test_name_unique_per_kind(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     await svc.create(
         CreateCredentialRequest(kind="service", name="dup", data={"TOKEN": "a"}),
         project_id=project_id,
@@ -113,7 +153,7 @@ async def test_name_unique_per_kind(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_service_create_rejects_provider(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     with pytest.raises(AppError) as exc:
         await svc.create(
             CreateCredentialRequest(kind="service", name="s1", provider="openai", data={"TOKEN": "a"}),
@@ -124,7 +164,7 @@ async def test_service_create_rejects_provider(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_update_preserves_masked_value(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     cred = await svc.create(
         CreateCredentialRequest(
             kind="model", name="m1", provider="openai", protocol="openai", data={"API_KEY": "sk-supersecret"}
@@ -144,7 +184,7 @@ async def test_update_preserves_masked_value(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_get_masked_masks_sensitive(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     cred = await svc.create(
         CreateCredentialRequest(
             kind="model",
@@ -158,13 +198,42 @@ async def test_get_masked_masks_sensitive(db_session, project_id):
     masked = svc.get_masked(cred)
     assert masked["API_KEY"].startswith("********")
     assert "supersecret" not in masked["API_KEY"]
-    # Whitelisted config key is shown in cleartext.
     assert masked["BASE_URL"] == "https://api.example.com"
+
+
+def test_get_masked_does_not_decrypt_corrupt_ciphertext():
+    repository = __import__(
+        "app.joysafeter_infrastructure.credentials.sqlalchemy_repository",
+        fromlist=["SqlAlchemyCredentialRepository"],
+    ).SqlAlchemyCredentialRepository.__new__(
+        __import__(
+            "app.joysafeter_infrastructure.credentials.sqlalchemy_repository",
+            fromlist=["SqlAlchemyCredentialRepository"],
+        ).SqlAlchemyCredentialRepository
+    )
+    credential = type("Credential", (), {"data": {"TOKEN": "not-valid-ciphertext"}})()
+
+    assert repository.get_masked(credential) == {"TOKEN": "********"}
+
+
+@pytest.mark.asyncio
+async def test_get_masked_sanitizes_display_url_credentials_and_query(db_session, project_id):
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
+    credential = await svc.create(
+        CreateCredentialRequest(
+            kind="service",
+            name="url-display",
+            data={"BASE_URL": "https://user:password@example.com/path?token=secret#fragment"},
+        ),
+        project_id=project_id,
+    )
+
+    assert svc.get_masked(credential)["BASE_URL"] == "https://example.com/path"
 
 
 @pytest.mark.asyncio
 async def test_kind_immutable(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     cred = await svc.create(
         CreateCredentialRequest(kind="service", name="s1", data={"TOKEN": "a"}),
         project_id=project_id,
@@ -180,7 +249,7 @@ async def test_kind_immutable(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_data_contract_rejects_oversize(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     with pytest.raises(AppError) as exc:
         await svc.create(
             CreateCredentialRequest(kind="service", name="s1", data={"TOKEN": "x" * 9000}),
@@ -191,7 +260,7 @@ async def test_data_contract_rejects_oversize(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_data_contract_rejects_too_many_fields(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     big = {f"K{i}": "v" for i in range(60)}
     with pytest.raises(AppError) as exc:
         await svc.create(
@@ -203,7 +272,7 @@ async def test_data_contract_rejects_too_many_fields(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_set_and_clear_default(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     a = await svc.create(
         CreateCredentialRequest(kind="model", name="a", provider="openai", protocol="openai", data={"API_KEY": "1"}),
         project_id=project_id,
@@ -228,7 +297,7 @@ async def test_set_and_clear_default(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_set_default_rejects_archived_credential_without_clearing_active_default(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     active = await svc.create(
         CreateCredentialRequest(
             kind="model",
@@ -249,19 +318,21 @@ async def test_set_default_rejects_archived_credential_without_clearing_active_d
         ),
         project_id=project_id,
     )
-    await svc.set_default(active.id, project_id=project_id)
-    await svc.archive(archived.id, project_id=project_id)
+    active_id = active.id
+    archived_id = archived.id
+    await svc.set_default(active_id, project_id=project_id)
+    await svc.archive(archived_id, project_id=project_id)
 
     with pytest.raises(AppError) as exc:
-        await svc.set_default(archived.id, project_id=project_id)
+        await svc.set_default(archived_id, project_id=project_id)
 
     assert exc.value.code == "CREDENTIAL_ARCHIVED"
-    assert (await svc.get(active.id, project_id=project_id)).is_default is True
+    assert (await svc.get(active_id, project_id=project_id)).is_default is True
 
 
 @pytest.mark.asyncio
 async def test_lifecycle_archive_restore_soft_delete(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     cred = await svc.create(
         CreateCredentialRequest(kind="service", name="s1", data={"TOKEN": "a"}),
         project_id=project_id,
@@ -273,13 +344,22 @@ async def test_lifecycle_archive_restore_soft_delete(db_session, project_id):
     cred = await svc.get(cred.id, project_id=project_id)
     assert cred.archived_at is None
     await svc.soft_delete(cred.id, project_id=project_id)
+    stored = (
+        await db_session.execute(
+            select(JoySafeterCredential.data, JoySafeterCredential.material_erased_at).where(
+                JoySafeterCredential.id == cred.id
+            )
+        )
+    ).one()
+    assert stored.data == {}
+    assert stored.material_erased_at is not None
     # Soft-deleted credentials are not returned by get().
     assert await svc.get(cred.id, project_id=project_id) is None
 
 
 @pytest.mark.asyncio
 async def test_archived_resource_rejects_update_and_default_mutation(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     cred = await svc.create(
         CreateCredentialRequest(
             kind="model",
@@ -290,15 +370,16 @@ async def test_archived_resource_rejects_update_and_default_mutation(db_session,
         ),
         project_id=project_id,
     )
-    await svc.archive(cred.id, project_id=project_id)
+    credential_id = cred.id
+    await svc.archive(credential_id, project_id=project_id)
 
     for operation in (
         lambda: svc.update(
-            cred.id,
+            credential_id,
             UpdateCredentialRequest(name="must-not-change"),
             project_id=project_id,
         ),
-        lambda: svc.clear_default(cred.id, project_id=project_id),
+        lambda: svc.clear_default(credential_id, project_id=project_id),
     ):
         with pytest.raises(AppError) as exc:
             await operation()
@@ -309,7 +390,7 @@ async def test_archived_resource_rejects_update_and_default_mutation(db_session,
 async def test_deleted_resource_rejects_patch_and_default_mutation_without_clearing_live_default(
     db_session, project_id
 ):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     live_default = await svc.create(
         CreateCredentialRequest(
             kind="model",
@@ -321,6 +402,7 @@ async def test_deleted_resource_rejects_patch_and_default_mutation_without_clear
         ),
         project_id=project_id,
     )
+    live_default_id = live_default.id
     deleted = await svc.create(
         CreateCredentialRequest(
             kind="model",
@@ -347,12 +429,12 @@ async def test_deleted_resource_rejects_patch_and_default_mutation_without_clear
         with pytest.raises(AppError) as exc:
             await operation()
         assert exc.value.code == "CREDENTIAL_NOT_FOUND"
-        assert (await svc.get(live_default.id, project_id=project_id)).is_default is True
+        assert (await svc.get(live_default_id, project_id=project_id)).is_default is True
 
 
 @pytest.mark.asyncio
 async def test_resource_lifecycle_commands_are_idempotent_and_clear_default(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     cred = await svc.create(
         CreateCredentialRequest(
             kind="model",
@@ -398,7 +480,7 @@ async def test_legacy_disabled_mcp_oauth_cannot_restore(db_session, project_id):
     db_session.add(credential)
     await db_session.commit()
 
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     await svc.archive(credential.id, project_id=project_id)
     with pytest.raises(AppError) as exc:
         await svc.restore(credential.id, project_id=project_id)
@@ -407,7 +489,7 @@ async def test_legacy_disabled_mcp_oauth_cannot_restore(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_list_filters_archived_before_pagination_and_keeps_default_compatibility(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     active = await svc.create(
         CreateCredentialRequest(kind="service", name="active-list-item", data={"TOKEN": "a"}),
         project_id=project_id,
@@ -445,7 +527,7 @@ async def test_list_filters_archived_before_pagination_and_keeps_default_compati
 
 @pytest.mark.asyncio
 async def test_recreate_soft_deleted_name_preserves_history(db_session, project_id):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     deleted = await svc.create(
         CreateCredentialRequest(kind="service", name="reusable", data={"TOKEN": "old"}),
         project_id=project_id,
@@ -476,7 +558,7 @@ async def test_create_mcp_sets_normalized_url(db_session, project_id):
     await db_session.commit()
     await db_session.refresh(group)
 
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     cred = await svc.create(
         CreateCredentialRequest(
             kind="mcp",
@@ -500,7 +582,7 @@ async def test_update_mcp_rejects_clearing_static_bearer_token(db_session, proje
     await db_session.commit()
     await db_session.refresh(group)
 
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     cred = await svc.create(
         CreateCredentialRequest(
             kind="mcp",

@@ -1,7 +1,7 @@
 use thiserror::Error;
 
-use crate::kernel::sensitive_material::legacy_v1::{
-    LegacyV1MaterialError, LegacyV1MaterialProtector,
+use crate::kernel::sensitive_material::versioned::{
+    VersionedMaterialError, VersionedMaterialProtector,
 };
 
 #[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
@@ -16,13 +16,13 @@ pub enum TaskIdentityMaterialError {
 
 #[derive(Clone)]
 pub struct TaskIdentityMaterialAdapter {
-    protector: LegacyV1MaterialProtector,
+    protector: VersionedMaterialProtector,
 }
 
 impl TaskIdentityMaterialAdapter {
     pub fn from_env() -> Self {
         Self {
-            protector: LegacyV1MaterialProtector::from_env(),
+            protector: VersionedMaterialProtector::from_env(),
         }
     }
 
@@ -31,8 +31,8 @@ impl TaskIdentityMaterialAdapter {
             .protector
             .reveal(encrypted_material)
             .map_err(|error| match error {
-                LegacyV1MaterialError::KeyInvalid => TaskIdentityMaterialError::KeyInvalid,
-                LegacyV1MaterialError::EnvelopeInvalid => {
+                VersionedMaterialError::KeyInvalid => TaskIdentityMaterialError::KeyInvalid,
+                VersionedMaterialError::EnvelopeInvalid => {
                     TaskIdentityMaterialError::EnvelopeInvalid
                 }
             })?;
@@ -45,14 +45,14 @@ impl TaskIdentityMaterialAdapter {
     #[cfg(test)]
     pub fn with_key(key: [u8; 32]) -> Self {
         Self {
-            protector: LegacyV1MaterialProtector::with_key(key),
+            protector: VersionedMaterialProtector::with_key(key),
         }
     }
 
     #[cfg(test)]
     pub fn without_key() -> Self {
         Self {
-            protector: LegacyV1MaterialProtector::without_key(),
+            protector: VersionedMaterialProtector::without_key(),
         }
     }
 }

@@ -6,6 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.joysafeter_application.credentials.ports import (
+    CredentialAuditActor,
     CredentialAuditPort,
     CredentialImpactPort,
     ReferenceScanner,
@@ -14,10 +15,10 @@ from app.joysafeter_domain.credentials.dependencies import (
     CREDENTIAL_REFERENCE_SURFACES,
     ReferenceSurfaceDescriptor,
 )
-from app.joysafeter_infrastructure.credentials.audit_adapter import (
-    NullCredentialAuditAdapter,
-    SqlAlchemyCredentialAuditAdapter,
+from app.joysafeter_infrastructure.credentials.access_audit_adapter import (
+    SqlAlchemyCredentialAccessAuditAdapter,
 )
+from app.joysafeter_infrastructure.credentials.audit_adapter import SqlAlchemyCredentialAuditAdapter
 from app.joysafeter_infrastructure.credentials.dependency_scanners import (
     persistent_dependency_scanners,
 )
@@ -29,12 +30,13 @@ from app.joysafeter_infrastructure.credentials.snapshot_adapter import (
 )
 from app.joysafeter_infrastructure.credentials.sqlalchemy_repository import SqlAlchemyCredentialRepository
 from app.joysafeter_infrastructure.repository_access.material_adapter import RepositoryAccessMaterialAdapter
-from app.joysafeter_infrastructure.sensitive_material.legacy_v1 import LegacyV1MaterialProtector
+from app.joysafeter_infrastructure.sensitive_material.versioned import VersionedMaterialProtector
 from app.joysafeter_infrastructure.task_identity.material_adapter import TaskIdentityMaterialAdapter
 
 from .binding_service import BindingIssuanceAuthority, CredentialBindingService
 from .group_service import CredentialGroupService
 from .lifecycle_coordinator import CredentialLifecycleCoordinator
+from .material_access_service import CredentialMaterialAccessService
 from .resource_service import CredentialResourceService
 from .snapshot_service import CredentialSnapshotService, NoPersistentDependencyScanner
 
@@ -59,10 +61,6 @@ class SqlAlchemyCredentialUnitOfWork:
         if clear_pending is not None:
             clear_pending()
 
-    def rollback_required(self) -> bool:
-        session = self.db.sync_session
-        return not session.is_active or bool(session.new or session.dirty or session.deleted)
-
 
 @dataclass(frozen=True, slots=True)
 class CredentialApplication:
@@ -70,7 +68,7 @@ class CredentialApplication:
     group_service: CredentialGroupService
     binding_service: CredentialBindingService
     snapshot_service: CredentialSnapshotService
-    material_adapter: ManagedCredentialMaterialAdapter
+    material_access_service: CredentialMaterialAccessService
     uow: SqlAlchemyCredentialUnitOfWork
     dependency_session_factory: async_sessionmaker[AsyncSession]
     lifecycle: CredentialLifecycleCoordinator
@@ -126,8 +124,8 @@ def _compose_snapshot_service(db: AsyncSession) -> CredentialSnapshotService:
 def compose_credential_application(
     db: AsyncSession,
     *,
+    audit_actor: CredentialAuditActor,
     auto_commit: bool = True,
-    compatibility_mode: bool = False,
     dependency_session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> CredentialApplication:
     from app.joysafeter_shared.config.settings import joysafeter_config
@@ -140,7 +138,11 @@ def compose_credential_application(
     )
 
     snapshot_service = _compose_snapshot_service(db)
-    protector = LegacyV1MaterialProtector(joysafeter_config.vault_encryption_key)
+    protector = VersionedMaterialProtector(
+        joysafeter_config.vault_encryption_key,
+        keyring_json=joysafeter_config.credential_encryption_keyring,
+        write_key_id=joysafeter_config.credential_encryption_write_key_id,
+    )
     impacts = SqlAlchemyCredentialImpactAdapter(db)
     issuance_authority = BindingIssuanceAuthority()
     material = ManagedCredentialMaterialAdapter(None, protector, issuance_authority)
@@ -150,7 +152,10 @@ def compose_credential_application(
         db=db,
         credentials=repository,
         groups=repository,
-        audit=(NullCredentialAuditAdapter() if compatibility_mode else SqlAlchemyCredentialAuditAdapter(db)),
+        audit=SqlAlchemyCredentialAuditAdapter(
+            db,
+            actor=audit_actor,
+        ),
         impacts=impacts,
         sources=SqlAlchemyCredentialSnapshotSourceAdapter(db),
         sessions=SqlAlchemyCredentialSessionRepository(db),
@@ -158,7 +163,6 @@ def compose_credential_application(
     transactions = CredentialResourceService(
         uow,
         manage_transaction=auto_commit,
-        unconditional_rollback=not compatibility_mode,
     )
     application_holder: dict[str, CredentialApplication] = {}
 
@@ -174,12 +178,17 @@ def compose_credential_application(
         scan_resource_dependencies=scan_resource_dependencies,
         scan_group_dependencies=scan_group_dependencies,
     )
+    binding_service = CredentialBindingService(repository, issuance_authority)
     application = CredentialApplication(
         resource_service=transactions,
         group_service=CredentialGroupService(uow, transactions),
-        binding_service=CredentialBindingService(repository, issuance_authority),
+        binding_service=binding_service,
         snapshot_service=snapshot_service,
-        material_adapter=material,
+        material_access_service=CredentialMaterialAccessService(
+            binding_service,
+            material,
+            SqlAlchemyCredentialAccessAuditAdapter(observation_session_factory),
+        ),
         uow=uow,
         dependency_session_factory=observation_session_factory,
         lifecycle=lifecycle,
@@ -188,9 +197,31 @@ def compose_credential_application(
     return application
 
 
-def compose_task_identity_material_adapter(key: str | None) -> TaskIdentityMaterialAdapter:
-    return TaskIdentityMaterialAdapter(LegacyV1MaterialProtector(key))
+def compose_task_identity_material_adapter(
+    legacy_key: str | None,
+    *,
+    keyring_json: str | None = None,
+    write_key_id: str | None = None,
+) -> TaskIdentityMaterialAdapter:
+    return TaskIdentityMaterialAdapter(
+        VersionedMaterialProtector(
+            legacy_key,
+            keyring_json=keyring_json,
+            write_key_id=write_key_id,
+        )
+    )
 
 
-def compose_repository_access_material_adapter(key: str | None) -> RepositoryAccessMaterialAdapter:
-    return RepositoryAccessMaterialAdapter(LegacyV1MaterialProtector(key))
+def compose_repository_access_material_adapter(
+    legacy_key: str | None,
+    *,
+    keyring_json: str | None = None,
+    write_key_id: str | None = None,
+) -> RepositoryAccessMaterialAdapter:
+    return RepositoryAccessMaterialAdapter(
+        VersionedMaterialProtector(
+            legacy_key,
+            keyring_json=keyring_json,
+            write_key_id=write_key_id,
+        )
+    )

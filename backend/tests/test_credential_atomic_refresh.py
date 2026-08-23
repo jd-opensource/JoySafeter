@@ -14,9 +14,11 @@ fingerprint, so sqlite is not a substitute.
 import asyncio
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import event as sqlalchemy_event
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -25,15 +27,22 @@ from app.joysafeter_api.api.v1.network_policy_refresh import (
     mark_live_sandboxes_pending,
     refresh_live_limited_sandbox_network_policies,
 )
+from app.joysafeter_application.credentials.application_service import CredentialGroupService, CredentialService
 from app.joysafeter_application.credentials.composition import compose_credential_application
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_domain.credentials import CredentialUsage, DependencyDisposition
+from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_credential import (
     JoySafeterCredential,
     JoySafeterCredentialGroup,
+    JoySafeterSessionCredentialGroup,
 )
+from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.models.joysafeter_security_audit_log import SecurityAuditLog
+from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.schemas.joysafeter_credential import (
     AddGroupCredentialRequest,
     CreateCredentialGroupRequest,
@@ -41,10 +50,6 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     UpdateCredentialGroupRequest,
     UpdateCredentialRequest,
 )
-from app.joysafeter_domain.services.joysafeter_credential_group_service import (
-    CredentialGroupService,
-)
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_infrastructure.credentials.sqlalchemy_repository import (
     SqlAlchemyCredentialRepository,
 )
@@ -113,7 +118,7 @@ async def test_update_marks_sandbox_pending_atomically(db_session, postgres_url,
     await db_session.commit()
     sandbox_id = sandbox.id
 
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     cred = await svc.create(
         CreateCredentialRequest(
             kind="model", name="m1", provider="openai", protocol="openai", data={"API_KEY": "sk-old"}
@@ -137,8 +142,15 @@ async def test_update_marks_sandbox_pending_atomically(db_session, postgres_url,
     # committed together — verified through a fresh session/connection.
     async with _fresh_session(postgres_url) as other:
         assert await _sandbox_status(other, sandbox_id) == "pending"
-        reloaded = await CredentialService(other).get(cred.id, project_id=project_id)
-        assert CredentialService(other).get_credential_data(reloaded)["API_KEY"] == "sk-new"
+        reloaded = await CredentialService(other, audit_actor=CredentialAuditActor.system("test")).get(
+            cred.id, project_id=project_id
+        )
+        assert (
+            CredentialService(other, audit_actor=CredentialAuditActor.system("test")).get_credential_data(reloaded)[
+                "API_KEY"
+            ]
+            == "sk-new"
+        )
 
 
 @pytest.mark.asyncio
@@ -147,7 +159,7 @@ async def test_audit_failure_rolls_back_mutation_and_durable_pending(db_session,
     db_session.add(sandbox)
     await db_session.commit()
     sandbox_id = sandbox.id
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     credential = await application.resource_service.create(
         CreateCredentialRequest(kind="service", name="audit-rollback", data={"TOKEN": "old"}),
         project_id=project_id,
@@ -184,12 +196,29 @@ async def test_late_commit_failure_rolls_back_written_mutation_audit_and_pending
     db_session.add(sandbox)
     await db_session.commit()
     sandbox_id = sandbox.id
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     credential = await application.resource_service.create(
         CreateCredentialRequest(kind="service", name="late-failure", data={"TOKEN": "old"}),
         project_id=project_id,
     )
     credential_id = credential.id
+    db_session.add(
+        JoySafeterEnvironment(
+            project_id=project_id,
+            name=f"env-{uuid.uuid4()}",
+            config={
+                "egress_services": [
+                    {
+                        "name": "api",
+                        "base_url": "https://api.example.com",
+                        "service_credential_id": str(credential_id),
+                        "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                    }
+                ]
+            },
+        )
+    )
+    await db_session.commit()
     observed_before_failure: dict[str, object] = {}
 
     async def fail_after_all_sql_writes(_uow):
@@ -251,20 +280,292 @@ async def test_late_commit_failure_rolls_back_written_mutation_audit_and_pending
 
 
 @pytest.mark.asyncio
+async def test_direct_rotation_rolls_back_mutation_audit_and_restart_required_on_commit_failure(
+    db_session,
+    postgres_url,
+    project_id,
+    monkeypatch,
+):
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
+    credential = await application.resource_service.create(
+        CreateCredentialRequest(kind="service", name="direct-rollback", data={"TOKEN": "old"}),
+        project_id=project_id,
+    )
+    environment = JoySafeterEnvironment(
+        project_id=project_id,
+        name=f"env-{uuid.uuid4()}",
+        config={"secret_refs": [str(credential.id)]},
+    )
+    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    db_session.add_all([environment, agent])
+    await db_session.flush()
+    session = JoySafeterSession(
+        project_id=project_id,
+        agent_id=agent.id,
+        status="running",
+        environment_ref=str(environment.id),
+        runtime_config_generation=5,
+        agent_snapshot={
+            "schema": "joysafeter.agent_execution_snapshot.v1",
+            "environment": {"config": {"secret_refs": [str(credential.id)]}},
+        },
+    )
+    db_session.add(session)
+    await db_session.flush()
+    sandbox = JoySafeterSandbox(
+        project_id=project_id,
+        chat_session_id=session.id,
+        image="test-image:latest",
+        status="running",
+        networking_status="ready",
+    )
+    db_session.add(sandbox)
+    await db_session.commit()
+    credential_id = credential.id
+    session_id = session.id
+    sandbox_id = sandbox.id
+    observed_before_failure: dict[str, object] = {}
+
+    async def fail_after_all_sql_writes(_uow):
+        await db_session.flush()
+        persisted = await db_session.scalar(
+            select(JoySafeterCredential).where(JoySafeterCredential.id == credential_id)
+        )
+        audit_count = await db_session.scalar(
+            select(text("count(*)"))
+            .select_from(SecurityAuditLog)
+            .where(
+                SecurityAuditLog.event_type == "credential.updated",
+                SecurityAuditLog.details["target_id"].astext == str(credential_id),
+            )
+        )
+        stale_status = await db_session.scalar(
+            select(JoySafeterSandbox.runtime_config_status).where(JoySafeterSandbox.id == sandbox_id)
+        )
+        runtime_generation = await db_session.scalar(
+            select(JoySafeterSession.runtime_config_generation).where(JoySafeterSession.id == session_id)
+        )
+        runtime_generation_reason = await db_session.scalar(
+            select(JoySafeterSession.runtime_config_generation_reason).where(JoySafeterSession.id == session_id)
+        )
+        runtime_generation_updated_at = await db_session.scalar(
+            select(JoySafeterSession.runtime_config_generation_updated_at).where(JoySafeterSession.id == session_id)
+        )
+        observed_before_failure.update(
+            material=application.resource_service.get_credential_data(persisted)["TOKEN"],
+            audit_count=audit_count,
+            runtime_config_status=stale_status,
+            runtime_config_generation=runtime_generation,
+            runtime_config_generation_reason=runtime_generation_reason,
+            runtime_config_generation_updated_at=runtime_generation_updated_at,
+        )
+        raise RuntimeError("commit failed after direct stale mark")
+
+    monkeypatch.setattr(type(application.uow), "commit", fail_after_all_sql_writes)
+    with pytest.raises(RuntimeError, match="commit failed after direct stale mark"):
+        await application.resource_service.update(
+            credential_id,
+            UpdateCredentialRequest(data={"TOKEN": "new"}),
+            project_id=project_id,
+        )
+
+    assert observed_before_failure == {
+        "material": "new",
+        "audit_count": 1,
+        "runtime_config_status": "restart_required",
+        "runtime_config_generation": 6,
+        "runtime_config_generation_reason": "credential_updated",
+        "runtime_config_generation_updated_at": observed_before_failure["runtime_config_generation_updated_at"],
+    }
+    assert observed_before_failure["runtime_config_generation_updated_at"] is not None
+    async with _fresh_session(postgres_url) as fresh:
+        persisted = await fresh.scalar(select(JoySafeterCredential).where(JoySafeterCredential.id == credential_id))
+        assert (
+            CredentialService(fresh, audit_actor=CredentialAuditActor.system("test")).get_credential_data(persisted)[
+                "TOKEN"
+            ]
+            == "old"
+        )
+        assert (
+            await fresh.scalar(
+                select(JoySafeterSandbox.runtime_config_status).where(JoySafeterSandbox.id == sandbox_id)
+            )
+            == "ready"
+        )
+        assert (
+            await fresh.scalar(
+                select(JoySafeterSession.runtime_config_generation).where(JoySafeterSession.id == session_id)
+            )
+            == 5
+        )
+        assert (
+            await fresh.scalar(
+                select(JoySafeterSession.runtime_config_generation_reason).where(JoySafeterSession.id == session_id)
+            )
+            is None
+        )
+        assert (
+            await fresh.scalar(
+                select(JoySafeterSession.runtime_config_generation_updated_at).where(JoySafeterSession.id == session_id)
+            )
+            is None
+        )
+        assert (
+            await fresh.scalar(
+                select(text("count(*)"))
+                .select_from(SecurityAuditLog)
+                .where(
+                    SecurityAuditLog.event_type == "credential.updated",
+                    SecurityAuditLog.details["target_id"].astext == str(credential_id),
+                )
+            )
+            == 0
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("update_request", "expected_name"),
+    [
+        (UpdateCredentialRequest(), "no-op"),
+        (UpdateCredentialRequest(data={"TOKEN": "old"}), "no-op"),
+        (UpdateCredentialRequest(name="renamed"), "renamed"),
+    ],
+)
+async def test_credential_noop_and_rename_only_emit_no_runtime_impact(
+    db_session,
+    project_id,
+    monkeypatch,
+    update_request,
+    expected_name,
+):
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
+    credential = await application.resource_service.create(
+        CreateCredentialRequest(kind="service", name="no-op", data={"TOKEN": "old"}),
+        project_id=project_id,
+    )
+    impacts = []
+
+    async def capture_impact(impact):
+        impacts.append(impact)
+        return impact
+
+    monkeypatch.setattr(application.uow.impacts, "mark_pending", capture_impact)
+
+    updated = await application.resource_service.update(
+        credential.id,
+        update_request,
+        project_id=project_id,
+    )
+
+    assert updated.name == expected_name
+    assert impacts == []
+    audit_count = await db_session.scalar(
+        select(text("count(*)"))
+        .select_from(SecurityAuditLog)
+        .where(
+            SecurityAuditLog.event_type == "credential.updated",
+            SecurityAuditLog.details["target_id"].astext == str(credential.id),
+        )
+    )
+    assert audit_count == (1 if expected_name == "renamed" else 0)
+
+
+@pytest.mark.asyncio
+async def test_service_credential_restore_recomputes_direct_and_egress_impacts_once(
+    db_session,
+    project_id,
+    monkeypatch,
+):
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
+    credential = await application.resource_service.create(
+        CreateCredentialRequest(kind="service", name="restore-service", data={"TOKEN": "old"}),
+        project_id=project_id,
+    )
+    credential.archived_at = datetime.now(timezone.utc)
+    environment = JoySafeterEnvironment(
+        project_id=project_id,
+        name=f"env-{uuid.uuid4()}",
+        config={
+            "secret_refs": [str(credential.id)],
+            "egress_services": [
+                {
+                    "name": "api",
+                    "base_url": "https://api.example.com",
+                    "service_credential_id": str(credential.id),
+                    "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                }
+            ],
+        },
+    )
+    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    db_session.add_all([environment, agent])
+    await db_session.flush()
+    session = JoySafeterSession(
+        project_id=project_id,
+        agent_id=agent.id,
+        status="running",
+        environment_ref=str(environment.id),
+        runtime_config_generation=3,
+    )
+    db_session.add(session)
+    await db_session.flush()
+    attached = JoySafeterSandbox(
+        project_id=project_id,
+        chat_session_id=session.id,
+        image="test-image:latest",
+        status="running",
+        networking_status="ready",
+        config={"fingerprint": {"networking": {"type": "limited"}}},
+    )
+    unrelated = _limited_sandbox(project_id)
+    db_session.add_all([attached, unrelated])
+    await db_session.commit()
+    impacts = []
+    original_mark = application.uow.impacts.mark_pending
+
+    async def capture_impact(impact):
+        resolved = await original_mark(impact)
+        impacts.append(resolved)
+        return resolved
+
+    monkeypatch.setattr(application.uow.impacts, "mark_pending", capture_impact)
+
+    await application.resource_service.restore(credential.id, project_id=project_id)
+
+    await db_session.refresh(session)
+    await db_session.refresh(attached)
+    await db_session.refresh(unrelated)
+    assert len(impacts) == 1
+    assert impacts[0].usage is CredentialUsage.ENVIRONMENT_INJECTION
+    assert impacts[0].dispositions == frozenset(
+        {
+            DependencyDisposition.REVALIDATE_ON_ACTIVATION,
+            DependencyDisposition.REFRESH_RUNTIME_POLICY,
+        }
+    )
+    assert session.runtime_config_generation == 4
+    assert session.runtime_config_generation_reason == "credential_restored"
+    assert attached.runtime_config_status == "restart_required"
+    assert attached.networking_status == "pending"
+    assert unrelated.networking_status == "pending"
+
+
+@pytest.mark.asyncio
 async def test_group_and_member_auto_commit_false_respect_outer_rollback(db_session, postgres_url, project_id):
     sandbox = _limited_sandbox(project_id)
     db_session.add(sandbox)
     await db_session.commit()
     sandbox_id = sandbox.id
-    group = await CredentialGroupService(db_session).create(
+    group = await CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialGroupRequest(name="outer-transaction-group"),
         project_id=project_id,
     )
     group_id = group.id
     application = compose_credential_application(
         db_session,
+        audit_actor=CredentialAuditActor.system("test"),
         auto_commit=False,
-        compatibility_mode=False,
     )
 
     await application.group_service.update(
@@ -320,7 +621,7 @@ async def test_concurrent_default_changes_serialize_per_project_protocol(
     project_id,
     monkeypatch,
 ):
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     first = await svc.create(
         CreateCredentialRequest(
             kind="model",
@@ -358,7 +659,9 @@ async def test_concurrent_default_changes_serialize_per_project_protocol(
     async def set_default(credential_id):
         async with _fresh_session(postgres_url) as session:
             await asyncio.wait_for(
-                CredentialService(session).set_default(credential_id, project_id=project_id),
+                CredentialService(session, audit_actor=CredentialAuditActor.system("test")).set_default(
+                    credential_id, project_id=project_id
+                ),
                 timeout=5,
             )
 
@@ -389,7 +692,9 @@ async def test_default_scope_lock_does_not_serialize_other_project_or_protocol(
     project_id,
     other_project_id,
 ):
-    same_project_other_protocol = await CredentialService(db_session).create(
+    same_project_other_protocol = await CredentialService(
+        db_session, audit_actor=CredentialAuditActor.system("test")
+    ).create(
         CreateCredentialRequest(
             kind="model",
             name="independent-protocol",
@@ -399,7 +704,9 @@ async def test_default_scope_lock_does_not_serialize_other_project_or_protocol(
         ),
         project_id=project_id,
     )
-    other_project_same_protocol = await CredentialService(db_session).create(
+    other_project_same_protocol = await CredentialService(
+        db_session, audit_actor=CredentialAuditActor.system("test")
+    ).create(
         CreateCredentialRequest(
             kind="model",
             name="independent-project",
@@ -419,7 +726,7 @@ async def test_default_scope_lock_does_not_serialize_other_project_or_protocol(
 
         async def set_default(credential_id, target_project_id):
             async with _fresh_session(postgres_url) as session:
-                await CredentialService(session).set_default(
+                await CredentialService(session, audit_actor=CredentialAuditActor.system("test")).set_default(
                     credential_id,
                     project_id=target_project_id,
                 )
@@ -462,10 +769,10 @@ async def test_generic_mcp_create_marks_sandbox_pending(db_session, project_id):
     await db_session.commit()
     sandbox_id = sandbox.id
 
-    group = await CredentialGroupService(db_session).create(
+    group = await CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialGroupRequest(name="mcp-group"), project_id=project_id
     )
-    await CredentialService(db_session).create(
+    await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="mcp",
             name="mcp-member",
@@ -502,9 +809,21 @@ async def test_mark_live_sandboxes_pending_does_not_commit(db_session, project_i
 
 
 @pytest.mark.asyncio
-async def test_archive_soft_delete_set_default_mark_pending(db_session, project_id):
-    """archive / soft_delete / set_default all mark the live sandbox pending."""
-    svc = CredentialService(db_session)
+async def test_unreferenced_archive_and_delete_emit_no_impact_while_set_default_still_refreshes(
+    db_session,
+    project_id,
+    monkeypatch,
+):
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
+    impacts = []
+    original_mark = svc._application.uow.impacts.mark_pending
+
+    async def capture_impact(impact):
+        resolved = await original_mark(impact)
+        impacts.append(resolved)
+        return resolved
+
+    monkeypatch.setattr(svc._application.uow.impacts, "mark_pending", capture_impact)
 
     for method in ("archive", "soft_delete", "set_default"):
         # Fresh sandbox (ready) + fresh credential per method.
@@ -526,49 +845,400 @@ async def test_archive_soft_delete_set_default_mark_pending(db_session, project_
         assert await _sandbox_status(db_session, sandbox_id) == "ready"
 
         await getattr(svc, method)(cred.id, project_id=project_id)
-        assert await _sandbox_status(db_session, sandbox_id) == "pending", method
+        expected = "pending" if method == "set_default" else "ready"
+        assert await _sandbox_status(db_session, sandbox_id) == expected, method
 
         # Reset the sandbox flag for the next iteration.
         sandbox.networking_status = "ready"
         db_session.add(sandbox)
         await db_session.commit()
 
+    assert [impact.reason for impact in impacts] == ["credential_default_set"]
+
 
 @pytest.mark.asyncio
-async def test_restore_mcp_member_marks_sandbox_pending(db_session, project_id):
-    sandbox = _limited_sandbox(project_id)
-    db_session.add(sandbox)
-    await db_session.commit()
-    sandbox_id = sandbox.id
-
-    group_service = CredentialGroupService(db_session)
-    group = await group_service.create(
-        CreateCredentialGroupRequest(name="mcp-restore-group"),
+async def test_concurrent_direct_rotations_lock_sessions_in_id_order_and_serialize(
+    db_session,
+    postgres_url,
+    project_id,
+    monkeypatch,
+):
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
+    first_credential = await application.resource_service.create(
+        CreateCredentialRequest(kind="service", name="concurrent-one", data={"TOKEN": "old"}),
         project_id=project_id,
     )
-    credential = await group_service.add_credential(
+    second_credential = await application.resource_service.create(
+        CreateCredentialRequest(kind="service", name="concurrent-two", data={"TOKEN": "old"}),
+        project_id=project_id,
+    )
+    environment = JoySafeterEnvironment(
+        project_id=project_id,
+        name=f"env-{uuid.uuid4()}",
+        config={"secret_refs": [str(first_credential.id), str(second_credential.id)]},
+    )
+    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    db_session.add_all([environment, agent])
+    await db_session.flush()
+    sessions = [
+        JoySafeterSession(
+            project_id=project_id,
+            agent_id=agent.id,
+            status="running",
+            environment_ref=str(environment.id),
+            runtime_config_generation=40 + index,
+        )
+        for index in range(2)
+    ]
+    db_session.add_all(sessions)
+    await db_session.commit()
+    session_ids = [session.id for session in sessions]
+
+    original_mark = SqlAlchemyCredentialRepository._mark_sandboxes_pending_for
+    arrival_lock = asyncio.Lock()
+    both_ready = asyncio.Event()
+    arrivals = 0
+
+    async def synchronized_mark(repository, credential, *, reason):
+        nonlocal arrivals
+        async with arrival_lock:
+            arrivals += 1
+            if arrivals == 2:
+                both_ready.set()
+        await asyncio.wait_for(both_ready.wait(), timeout=5)
+        await original_mark(repository, credential, reason=reason)
+
+    monkeypatch.setattr(
+        SqlAlchemyCredentialRepository,
+        "_mark_sandboxes_pending_for",
+        synchronized_mark,
+    )
+    lock_statements: list[str] = []
+
+    async def rotate(credential_id, token):
+        async with _fresh_session(postgres_url) as session:
+            engine = session.bind
+
+            def record_statement(_conn, _cursor, statement, _parameters, _context, _executemany):
+                normalized = " ".join(statement.lower().split())
+                if "joysafeter_sessions" in normalized and "for update" in normalized:
+                    lock_statements.append(normalized)
+
+            sqlalchemy_event.listen(engine.sync_engine, "before_cursor_execute", record_statement)
+            try:
+                await compose_credential_application(
+                    session,
+                    audit_actor=CredentialAuditActor.system("test"),
+                ).resource_service.update(
+                    credential_id,
+                    UpdateCredentialRequest(data={"TOKEN": token}),
+                    project_id=project_id,
+                )
+            finally:
+                sqlalchemy_event.remove(engine.sync_engine, "before_cursor_execute", record_statement)
+
+    await asyncio.wait_for(
+        asyncio.gather(
+            rotate(first_credential.id, "new-one"),
+            rotate(second_credential.id, "new-two"),
+        ),
+        timeout=10,
+    )
+
+    async with _fresh_session(postgres_url) as fresh:
+        generations = list(
+            (
+                await fresh.execute(
+                    select(JoySafeterSession.runtime_config_generation)
+                    .where(JoySafeterSession.id.in_(session_ids))
+                    .order_by(JoySafeterSession.id)
+                )
+            ).scalars()
+        )
+    assert sorted(generations) == [42, 43]
+    assert len(lock_statements) == 2
+    assert all("order by joysafeter_sessions.id" in statement for statement in lock_statements)
+
+
+@pytest.mark.asyncio
+async def test_mcp_member_lifecycle_with_active_group_session_marks_network_pending(
+    db_session,
+    project_id,
+    monkeypatch,
+):
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
+    group = await application.group_service.create(
+        CreateCredentialGroupRequest(name="mcp-active-lifecycle-group"),
+        project_id=project_id,
+    )
+    credential = await application.group_service.add_credential(
         group.id,
         AddGroupCredentialRequest(
-            name="mcp-restore-member",
+            name="mcp-active-lifecycle-member",
             mcp_server_url="https://mcp.example.com/sse",
             data={"token_value": "t"},
         ),
         project_id=project_id,
     )
-    await group_service.archive_credential(
+    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.flush()
+    session = JoySafeterSession(
+        project_id=project_id,
+        agent_id=agent.id,
+        status="running",
+    )
+    db_session.add(session)
+    await db_session.flush()
+    db_session.add(
+        JoySafeterSessionCredentialGroup(
+            session_id=session.id,
+            credential_group_id=group.id,
+        )
+    )
+    sandbox = _limited_sandbox(project_id)
+    db_session.add(sandbox)
+    await db_session.commit()
+    sandbox_id = sandbox.id
+    impacts = []
+    original_mark = application.uow.impacts.mark_pending
+
+    async def capture_impact(impact):
+        resolved = await original_mark(impact)
+        impacts.append(resolved)
+        return resolved
+
+    async def skip_nudge():
+        return None
+
+    monkeypatch.setattr(application.uow.impacts, "mark_pending", capture_impact)
+    monkeypatch.setattr(application.uow.impacts, "nudge_after_commit", skip_nudge)
+
+    await application.group_service.archive_credential(
         group.id,
         credential.id,
         project_id=project_id,
     )
+    assert await _sandbox_status(db_session, sandbox_id) == "pending"
+
     await db_session.execute(
         update(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id).values(networking_status="ready")
     )
     await db_session.commit()
+    await application.resource_service.restore(credential.id, project_id=project_id)
+    assert await _sandbox_status(db_session, sandbox_id) == "pending"
+
+    await db_session.execute(
+        update(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id).values(networking_status="ready")
+    )
+    await db_session.commit()
+    await application.group_service.remove_credential(
+        group.id,
+        credential.id,
+        project_id=project_id,
+    )
+    assert await _sandbox_status(db_session, sandbox_id) == "pending"
+    assert [impact.source for impact in impacts] == ["credential_group"] * 3
+    assert [impact.usage for impact in impacts] == [CredentialUsage.MCP_EGRESS] * 3
+    assert [impact.reason for impact in impacts] == [
+        "credential_archived",
+        "credential_group_member_restored",
+        "credential_deleted",
+    ]
+
+
+@pytest.mark.parametrize("inactive_binding", ["none", "archived", "terminated"])
+@pytest.mark.asyncio
+async def test_mcp_member_lifecycle_without_active_group_session_emits_no_impact(
+    db_session,
+    project_id,
+    monkeypatch,
+    inactive_binding,
+):
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
+    group = await application.group_service.create(
+        CreateCredentialGroupRequest(name="mcp-inactive-lifecycle-group"),
+        project_id=project_id,
+    )
+    credential = await application.group_service.add_credential(
+        group.id,
+        AddGroupCredentialRequest(
+            name="mcp-inactive-lifecycle-member",
+            mcp_server_url="https://inactive-mcp.example.com/sse",
+            data={"token_value": "t"},
+        ),
+        project_id=project_id,
+    )
+    if inactive_binding != "none":
+        agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+        db_session.add(agent)
+        await db_session.flush()
+        session = JoySafeterSession(
+            project_id=project_id,
+            agent_id=agent.id,
+            status="terminated" if inactive_binding == "terminated" else "running",
+            archived_at=datetime.now(timezone.utc) if inactive_binding == "archived" else None,
+        )
+        db_session.add(session)
+        await db_session.flush()
+        db_session.add(
+            JoySafeterSessionCredentialGroup(
+                session_id=session.id,
+                credential_group_id=group.id,
+            )
+        )
+    sandbox = _limited_sandbox(project_id)
+    db_session.add(sandbox)
+    await db_session.commit()
+    sandbox_id = sandbox.id
+    impacts = []
+    original_mark = application.uow.impacts.mark_pending
+
+    async def capture_impact(impact):
+        resolved = await original_mark(impact)
+        impacts.append(resolved)
+        return resolved
+
+    async def skip_nudge():
+        return None
+
+    monkeypatch.setattr(application.uow.impacts, "mark_pending", capture_impact)
+    monkeypatch.setattr(application.uow.impacts, "nudge_after_commit", skip_nudge)
+
+    await application.group_service.archive_credential(
+        group.id,
+        credential.id,
+        project_id=project_id,
+    )
     assert await _sandbox_status(db_session, sandbox_id) == "ready"
 
-    await CredentialService(db_session).restore(credential.id, project_id=project_id)
+    await application.resource_service.restore(credential.id, project_id=project_id)
+    assert await _sandbox_status(db_session, sandbox_id) == "ready"
 
-    assert await _sandbox_status(db_session, sandbox_id) == "pending"
+    await application.group_service.remove_credential(
+        group.id,
+        credential.id,
+        project_id=project_id,
+    )
+    assert await _sandbox_status(db_session, sandbox_id) == "ready"
+    assert impacts == []
+
+
+@pytest.mark.parametrize(
+    ("operation", "event_type"),
+    [
+        ("archive", "credential_group.member_archived"),
+        ("restore", "credential.restored"),
+        ("delete", "credential_group.member_removed"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_mcp_member_lifecycle_rolls_back_state_audit_and_pending_on_commit_failure(
+    db_session,
+    postgres_url,
+    project_id,
+    monkeypatch,
+    operation,
+    event_type,
+):
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
+    group = await application.group_service.create(
+        CreateCredentialGroupRequest(name=f"mcp-{operation}-rollback-group"),
+        project_id=project_id,
+    )
+    credential = await application.group_service.add_credential(
+        group.id,
+        AddGroupCredentialRequest(
+            name=f"mcp-{operation}-rollback-member",
+            mcp_server_url=f"https://{operation}-rollback.example.com/sse",
+            data={"token_value": "t"},
+        ),
+        project_id=project_id,
+    )
+    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    db_session.add(agent)
+    await db_session.flush()
+    session = JoySafeterSession(
+        project_id=project_id,
+        agent_id=agent.id,
+        status="running",
+    )
+    db_session.add(session)
+    await db_session.flush()
+    db_session.add(
+        JoySafeterSessionCredentialGroup(
+            session_id=session.id,
+            credential_group_id=group.id,
+        )
+    )
+    sandbox = _limited_sandbox(project_id)
+    db_session.add(sandbox)
+    if operation == "restore":
+        credential.archived_at = datetime.now(timezone.utc)
+    await db_session.commit()
+    credential_id = credential.id
+    sandbox_id = sandbox.id
+    baseline_archived = operation == "restore"
+    observed_before_failure: dict[str, object] = {}
+
+    async def fail_after_all_sql_writes(_uow):
+        await db_session.flush()
+        persisted = await db_session.scalar(
+            select(JoySafeterCredential).where(JoySafeterCredential.id == credential_id)
+        )
+        audit_count = await db_session.scalar(
+            select(text("count(*)"))
+            .select_from(SecurityAuditLog)
+            .where(
+                SecurityAuditLog.event_type == event_type,
+                SecurityAuditLog.details["target_id"].astext == str(credential_id),
+            )
+        )
+        observed_before_failure.update(
+            archived=persisted.archived_at is not None,
+            deleted=persisted.deleted_at is not None,
+            audit_count=audit_count,
+            sandbox_status=await _sandbox_status(db_session, sandbox_id),
+        )
+        raise RuntimeError(f"{operation} commit failed after flush")
+
+    monkeypatch.setattr(type(application.uow), "commit", fail_after_all_sql_writes)
+    with pytest.raises(RuntimeError, match=rf"{operation} commit failed after flush"):
+        if operation == "archive":
+            await application.group_service.archive_credential(
+                group.id,
+                credential_id,
+                project_id=project_id,
+            )
+        elif operation == "restore":
+            await application.resource_service.restore(credential_id, project_id=project_id)
+        else:
+            await application.group_service.remove_credential(
+                group.id,
+                credential_id,
+                project_id=project_id,
+            )
+
+    assert observed_before_failure == {
+        "archived": operation == "archive",
+        "deleted": operation == "delete",
+        "audit_count": 1,
+        "sandbox_status": "pending",
+    }
+    async with _fresh_session(postgres_url) as fresh:
+        persisted = await fresh.scalar(select(JoySafeterCredential).where(JoySafeterCredential.id == credential_id))
+        audit_count = await fresh.scalar(
+            select(text("count(*)"))
+            .select_from(SecurityAuditLog)
+            .where(
+                SecurityAuditLog.event_type == event_type,
+                SecurityAuditLog.details["target_id"].astext == str(credential_id),
+            )
+        )
+        assert (persisted.archived_at is not None) is baseline_archived
+        assert persisted.deleted_at is None
+        assert audit_count == 0
+        assert await _sandbox_status(fresh, sandbox_id) == "ready"
 
 
 @pytest.mark.asyncio

@@ -43,6 +43,14 @@ class JoySafeterCredential(JoySafeterBaseModel):
             "AND group_id IS NULL AND is_default = false)",
             name="kind_identity",
         ),
+        CheckConstraint(
+            "deleted_at IS NULL OR (material_erased_at IS NOT NULL AND data = '{}'::jsonb AND oauth_config IS NULL)",
+            name="deleted_material_erased",
+        ),
+        CheckConstraint(
+            "material_erased_at IS NULL OR deleted_at IS NOT NULL",
+            name="material_erasure_requires_delete",
+        ),
         Index(
             "uq_credentials_project_kind_name",
             "project_id",
@@ -60,9 +68,7 @@ class JoySafeterCredential(JoySafeterBaseModel):
             postgresql_where=text(
                 "is_default = true AND kind = 'model' AND archived_at IS NULL AND deleted_at IS NULL"
             ),
-            sqlite_where=text(
-                "is_default = true AND kind = 'model' AND archived_at IS NULL AND deleted_at IS NULL"
-            ),
+            sqlite_where=text("is_default = true AND kind = 'model' AND archived_at IS NULL AND deleted_at IS NULL"),
         ),
         Index(
             "uq_credentials_group_url",
@@ -106,12 +112,11 @@ class JoySafeterCredential(JoySafeterBaseModel):
     mcp_server_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     normalized_mcp_server_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     credential_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    oauth_config: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    group_id: Mapped[Optional[CredentialGroupId]] = mapped_column(
-        EntityIdType(CredentialGroupId), nullable=True
-    )
+    oauth_config: Mapped[Optional[dict]] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    group_id: Mapped[Optional[CredentialGroupId]] = mapped_column(EntityIdType(CredentialGroupId), nullable=True)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    material_erased_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class JoySafeterCredentialGroup(JoySafeterBaseModel):
@@ -141,9 +146,7 @@ class JoySafeterCredentialGroup(JoySafeterBaseModel):
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    metadata_: Mapped[dict] = mapped_column(
-        "metadata", JSONB, nullable=False, default=dict, server_default="{}"
-    )
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict, server_default="{}")
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

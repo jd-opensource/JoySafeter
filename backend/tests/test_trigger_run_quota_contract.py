@@ -9,6 +9,7 @@ import uuid
 
 import pytest
 from error_contract_helpers import handled_app_error_payload
+from fastapi import Request
 from sqlalchemy import func, select
 
 from app.joysafeter_api.api.v1.triggers import run_trigger_now
@@ -28,6 +29,20 @@ class _FakeRedis:
 
     async def rpush(self, key: str, value: str) -> None:
         self.rpushed.append((key, value))
+
+
+def _fake_request() -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "scheme": "http",
+            "server": ("testserver", 80),
+            "path": "/",
+            "headers": [],
+            "query_string": b"",
+        }
+    )
 
 
 async def _seed(db_session):
@@ -79,7 +94,7 @@ async def test_trigger_manual_run_enforces_owner_user_quota(db_session, monkeypa
 
     auth = JoySafeterAuthContext(user_id="clicker", org_id=org.id, project_id=project.id, role=JoySafeterRole.MEMBER)
     with pytest.raises(AppError) as exc_info:
-        await run_trigger_now(trigger.id, db_session, auth)
+        await run_trigger_now(_fake_request(), trigger.id, db_session, auth)
 
     payload = await handled_app_error_payload(exc_info.value, status_code=429)
     assert payload["code"] == "USER_TASK_LIMIT_EXCEEDED"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import logging
 from collections import Counter
 from collections.abc import Iterable, Mapping
@@ -52,6 +53,7 @@ from .ports import (
 logger = logging.getLogger(__name__)
 _MAX_SOURCE_ATTEMPTS = 3
 _REFERENCE_CODEC = CredentialReferenceCodec()
+_ENVIRONMENT_CONFIG_OVERLAY_KEYS = frozenset({"type", "packages", "networking", "env_vars"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,12 +79,18 @@ class CreateCredentialAwareSession:
         group_ids = tuple(dict.fromkeys(self.credential_group_ids))
         object.__setattr__(self, "project_id", project_id)
         object.__setattr__(self, "credential_group_ids", group_ids)
-        object.__setattr__(self, "metadata", dict(self.metadata or {}))
-        object.__setattr__(self, "environment_config_overlay", dict(self.environment_config_overlay or {}))
+        overlay = copy.deepcopy(dict(self.environment_config_overlay or {}))
+        unsupported_overlay_keys = sorted(set(overlay) - _ENVIRONMENT_CONFIG_OVERLAY_KEYS)
+        if unsupported_overlay_keys:
+            raise ValueError(
+                "environment_config_overlay contains unsupported keys: " + ", ".join(unsupported_overlay_keys)
+            )
+        object.__setattr__(self, "metadata", copy.deepcopy(dict(self.metadata or {})))
+        object.__setattr__(self, "environment_config_overlay", overlay)
         object.__setattr__(
             self,
             "environment_mount_resources",
-            tuple(dict(resource) for resource in self.environment_mount_resources),
+            tuple(copy.deepcopy(dict(resource)) for resource in self.environment_mount_resources),
         )
 
 

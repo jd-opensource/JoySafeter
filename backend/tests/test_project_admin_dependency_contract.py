@@ -9,6 +9,7 @@ promotes it to a declarative dependency scoped to the path project.
 """
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from fastapi.params import Depends
@@ -41,7 +42,7 @@ def _patch_role(monkeypatch, role_value, *, expect_project_id=None):
     async def fake_project(self, project_id, org_id):
         if expect_project_id is not None:
             assert project_id == expect_project_id, "project lookup must use the PATH project_id"
-        return object()
+        return SimpleNamespace(archived_at=None)
 
     async def fake_role(self, project_id, user_id):
         if expect_project_id is not None:
@@ -65,6 +66,27 @@ async def test_project_admin_of_path_project_is_allowed(monkeypatch):
     _patch_role(monkeypatch, "admin", expect_project_id="path-proj")
     result = await deps.require_joysafeter_project_admin("path-proj", db=object(), ctx=_ctx(JoySafeterRole.MEMBER))
     assert result.user_id == "u"
+
+
+@pytest.mark.asyncio
+async def test_project_admin_is_rejected_for_archived_path_project(monkeypatch):
+    async def fake_project(self, project_id, org_id):
+        return SimpleNamespace(archived_at="2026-08-23T00:00:00Z")
+
+    async def fake_role(self, project_id, user_id):
+        return "admin"
+
+    monkeypatch.setattr(deps.ProjectService, "get_project", fake_project)
+    monkeypatch.setattr(deps.ProjectService, "get_project_member_role", fake_role)
+
+    with pytest.raises(AppError) as exc_info:
+        await deps.require_joysafeter_project_admin(
+            "path-proj",
+            db=object(),
+            ctx=_ctx(JoySafeterRole.MEMBER),
+        )
+
+    assert exc_info.value.code == "PROJECT_ARCHIVED"
 
 
 @pytest.mark.asyncio
@@ -102,7 +124,7 @@ async def test_dependency_reads_project_id_from_path_via_fastapi(monkeypatch):
         return "viewer"
 
     async def fake_project(self, project_id, org_id):
-        return object()
+        return SimpleNamespace(archived_at=None)
 
     monkeypatch.setattr(deps.ProjectService, "get_project", fake_project)
     monkeypatch.setattr(deps.ProjectService, "get_project_member_role", fake_role)
@@ -135,11 +157,18 @@ def test_project_scoped_api_key_routes_require_project_admin():
 async def test_project_scoped_api_key_routes_use_path_project(monkeypatch):
     seen: list[tuple[str, str]] = []
 
+    class FakeDb:
+        async def commit(self):
+            return None
+
+        async def rollback(self):
+            return None
+
     async def fake_list(self, project_id, *, limit, after_id):
         seen.append(("list", project_id))
         return [], False
 
-    async def fake_create(self, *, project_id, org_id, name, created_by, role):
+    async def fake_create(self, *, project_id, org_id, name, created_by, role, expires_at):
         from types import SimpleNamespace
 
         seen.append(("create", project_id))
@@ -151,14 +180,18 @@ async def test_project_scoped_api_key_routes_use_path_project(monkeypatch):
                 key_prefix="sk-test",
                 role=role,
                 created_at=None,
+                expires_at=expires_at,
+                revoked_at=None,
                 last_used_at=None,
             ),
             "raw-key",
         )
 
     async def fake_revoke(self, key_id, project_id):
+        from app.joysafeter_application.api_keys.service import ApiKeyRevokeResult
+
         seen.append(("revoke", project_id))
-        return True
+        return ApiKeyRevokeResult.REVOKED
 
     async def fake_project_role(self, project_id, user_id):
         return "admin"
@@ -177,19 +210,20 @@ async def test_project_scoped_api_key_routes_use_path_project(monkeypatch):
     request = Request({"type": "http", "method": "POST", "path": "/", "headers": []})
     ctx = _ctx(JoySafeterRole.MEMBER)
     ctx.project_role = "admin"
-    await auth.list_project_api_keys("path-project", db=object(), auth_ctx=ctx)
+    db = FakeDb()
+    await auth.list_project_api_keys("path-project", db=db, auth_ctx=ctx)
     await auth.create_project_api_key(
         "path-project",
         auth.CreateApiKeyRequest(name="key", role="viewer"),
         request,
-        db=object(),
+        db=db,
         auth_ctx=ctx,
     )
     await auth.revoke_project_api_key(
         "path-project",
         uuid.UUID("00000000-0000-0000-0000-000000000002"),
         request,
-        db=object(),
+        db=db,
         auth_ctx=ctx,
     )
 

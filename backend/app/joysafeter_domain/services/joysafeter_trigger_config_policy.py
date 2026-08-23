@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger, TriggerConcurrencyPolicy
-from app.joysafeter_domain.services.joysafeter_trigger_webhook_auth_service import WebhookAuthService
 from app.joysafeter_domain.triggers import get_provider, supported_kinds
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
 from app.joysafeter_shared.ids import CredentialId, SessionId
@@ -59,7 +58,20 @@ class TriggerConfigPolicy:
 
     @staticmethod
     def webhook_auth_methods(config: Any) -> frozenset[str]:
-        return WebhookAuthService.auth_methods(config)
+        if not isinstance(config, dict):
+            return frozenset()
+        configured = config.get("auth_methods")
+        if not isinstance(configured, list) or not configured:
+            return frozenset()
+        normalized: set[str] = set()
+        for method in configured:
+            if not isinstance(method, str):
+                return frozenset()
+            normalized_method = method.strip().lower()
+            if normalized_method not in _SUPPORTED_WEBHOOK_AUTH_METHODS:
+                return frozenset()
+            normalized.add(normalized_method)
+        return frozenset(normalized)
 
     @classmethod
     def validate_create_fields(
@@ -153,9 +165,7 @@ class TriggerConfigPolicy:
                     else trigger.webhook_auth_credential_id
                 ),
                 webhook_auth_field=(
-                    fields["webhook_auth_field"]
-                    if "webhook_auth_field" in fields
-                    else trigger.webhook_auth_field
+                    fields["webhook_auth_field"] if "webhook_auth_field" in fields else trigger.webhook_auth_field
                 ),
                 config=config,
             )
@@ -335,8 +345,7 @@ class TriggerConfigPolicy:
                 user_action="fix_input",
             )
         if not isinstance(raw_auth_methods, list) or any(
-            not isinstance(method, str) or method not in _SUPPORTED_WEBHOOK_AUTH_METHODS
-            for method in raw_auth_methods
+            not isinstance(method, str) or method not in _SUPPORTED_WEBHOOK_AUTH_METHODS for method in raw_auth_methods
         ):
             raise RequestValidationAppError(
                 code="TRIGGER_AUTH_METHODS_INVALID",

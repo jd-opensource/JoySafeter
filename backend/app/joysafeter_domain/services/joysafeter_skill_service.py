@@ -622,7 +622,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
 
         # JSONB array containment: skills @> [{"skill_id": "...", "version": "..."}].
         # ``agent.skills`` / ``agent_versions.snapshot.skills`` are written only by
-        # ``_merge_agent_assets`` via ``model_dump(mode="json")``, which serializes
+        # ``merge_agent_assets`` via ``model_dump(mode="json")``, which serializes
         # SkillId to the canonical prefixed ``skill_<uuid>`` — so one canonical
         # needle suffices (no historical bare-uuid rows exist).
         needles = [(version_str, json.dumps([{"skill_id": str(skill_id), "version": version_str}]))]
@@ -638,8 +638,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         referrers: list[dict] = []
         for requested_version, needle in needles:
             stmt = sa_text(
-                "SELECT id, name FROM joysafeter_agents "
-                "WHERE deleted_at IS NULL AND skills @> CAST(:needle AS jsonb)"
+                "SELECT id, name FROM joysafeter_agents WHERE deleted_at IS NULL AND skills @> CAST(:needle AS jsonb)"
             ).bindparams(needle=needle)
             result = await self.db.execute(stmt)
             for row in result.mappings():
@@ -1140,9 +1139,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         ver_repo = SkillVersionRepository(self.db)
         same_project_ids = [skill.id for skill in skills if project_id is not None and skill.project_id == project_id]
         latest_map = await ver_repo.latest_version_map(same_project_ids)
-        cross_project_skills = [
-            skill for skill in skills if project_id is None or skill.project_id != project_id
-        ]
+        cross_project_skills = [skill for skill in skills if project_id is None or skill.project_id != project_id]
         project_org_map: dict[str, str] = {}
         pointer_version_map = {}
         projection_id_by_skill_id: dict[SkillId, SkillVersionId] = {}
@@ -1235,9 +1232,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             org_result = await self.db.execute(select(Project.org_id).where(Project.id == skill.project_id))
             skill_org_id = org_result.scalar_one_or_none()
             pointer_ids = [
-                pointer_id
-                for pointer_id in (skill.org_version_id, skill.public_version_id)
-                if pointer_id is not None
+                pointer_id for pointer_id in (skill.org_version_id, skill.public_version_id) if pointer_id is not None
             ]
             pointer_versions = await SkillVersionRepository(self.db).version_strings_by_ids(pointer_ids)
             exposure = SkillVersionExposure(

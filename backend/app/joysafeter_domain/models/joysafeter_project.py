@@ -68,6 +68,7 @@ class Project(Base, TimestampMixin):
 
     __table_args__ = (
         UniqueConstraint("org_id", "slug", name="uq_joysafeter_organization_projects_org_slug"),
+        UniqueConstraint("id", "org_id", name="uq_joysafeter_organization_projects_id_org"),
         Index("ix_joysafeter_organization_projects_org_id", "org_id"),
         Index("ix_joysafeter_organization_projects_created_by_user_id", "created_by_user_id"),
         Index(

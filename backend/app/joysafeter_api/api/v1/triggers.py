@@ -7,6 +7,9 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Body, Depends, Header, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.api.v1.audit import credential_audit_actor
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.triggers import TriggerApplicationService
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_trigger import (
     TriggerCreateRequest,
@@ -93,7 +96,10 @@ async def create_trigger(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> TriggerResponse:
-    svc = JoySafeterTriggerService(db)
+    svc = TriggerApplicationService(
+        db,
+        credential_audit_actor=credential_audit_actor(request, auth_ctx),
+    )
     trigger = await svc.create(
         name=body.name,
         type=body.type,
@@ -169,7 +175,10 @@ async def update_trigger(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> TriggerResponse:
-    svc = JoySafeterTriggerService(db)
+    svc = TriggerApplicationService(
+        db,
+        credential_audit_actor=credential_audit_actor(request, auth_ctx),
+    )
     fields = body.model_dump(exclude_unset=True)
     updated = await svc.update(trigger_id, auth_ctx.project_id, **fields)
     if updated is None:
@@ -194,16 +203,17 @@ async def delete_trigger(
 
 @router.post("/{trigger_id}/run", status_code=202, response_model=TriggerFireResponse)
 async def run_trigger_now(
+    request: Request,
     trigger_id: TriggerId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
     idempotency_key_header: Optional[str] = Header(None, alias="Idempotency-Key"),
 ) -> TriggerFireResponse:
     trigger = await _get_or_404(db, trigger_id, auth_ctx.project_id)
-    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db).fire_manual(
-        trigger,
-        idempotency_header=idempotency_key_header,
-    )
+    status, task, session_id, deduped, reason = await TriggerApplicationService(
+        db,
+        credential_audit_actor=credential_audit_actor(request, auth_ctx),
+    ).fire_manual(trigger, idempotency_header=idempotency_key_header)
     return TriggerFireResponse(
         status=status,
         task_id=task.id if task is not None else None,
@@ -258,8 +268,8 @@ async def fire_webhook_trigger(
     authorization: Optional[str] = Header(None),
     db: AsyncSession = Depends(get_db),
 ) -> TriggerFireResponse:
-    svc = JoySafeterTriggerService(db)
-    trigger = await svc.get(trigger_id)
+    lookup_service = JoySafeterTriggerService(db)
+    trigger = await lookup_service.get(trigger_id)
     if trigger is None or trigger.type != "webhook":
         raise NotFoundError(
             code="TRIGGER_NOT_FOUND",
@@ -267,6 +277,17 @@ async def fire_webhook_trigger(
             data={"trigger_id": str(trigger_id)},
             user_action="refresh",
         )
+    svc = TriggerApplicationService(
+        db,
+        credential_audit_actor=CredentialAuditActor(
+            user_id=None,
+            principal_type="webhook_request",
+            principal_id="anonymous",
+            ip_address=get_client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+            org_id=str(trigger.org_id) if trigger.org_id is not None else None,
+        ),
+    )
     raw_body = await request.body()
     signature = x_joysafeter_signature or x_hub_signature_256
     token = x_joysafeter_token
@@ -347,7 +368,10 @@ async def test_fire_webhook_trigger(
         "headers": {"content_type": "application/json", "user_agent": "joysafeter-test", "forwarded_for": None},
         "trigger": {"id": str(trigger.id), "name": trigger.name, "type": "webhook", "test": True},
     }
-    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db).fire_webhook(
+    status, task, session_id, deduped, reason = await TriggerApplicationService(
+        db,
+        credential_audit_actor=credential_audit_actor(request, auth_ctx),
+    ).fire_webhook(
         trigger,
         raw_body=raw_body,
         payload=payload,
@@ -382,7 +406,10 @@ async def webhook_sample(
         )
     url = _webhook_url(request, trigger.id)
     sample_body = {"example": "payload"}
-    curl = await JoySafeterTriggerService(db).build_webhook_curl(trigger, url=url, sample_body=sample_body)
+    curl = await TriggerApplicationService(
+        db,
+        credential_audit_actor=credential_audit_actor(request, auth_ctx),
+    ).build_webhook_curl(trigger, url=url, sample_body=sample_body)
     return {
         "url": url,
         "signature_header": "X-JoySafeter-Signature",

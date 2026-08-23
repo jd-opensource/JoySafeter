@@ -10,12 +10,14 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any, Literal, Optional, cast
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.api.v1.audit import credential_audit_actor
 from app.joysafeter_application.credentials.composition import compose_credential_application
+from app.joysafeter_application.credentials.ports import CredentialAccessContext
 from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_domain.llm.compatibility import (
     validate_credential_data,
@@ -867,13 +869,15 @@ async def _stream_openai_responses(
 @router.post("/chat")
 async def quickstart_chat(
     req: QuickstartChatRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ):
+    actor = credential_audit_actor(request, auth_ctx)
     application = compose_credential_application(
         db,
         auto_commit=False,
-        compatibility_mode=False,
+        audit_actor=actor,
     )
     try:
         binding = build_model_inference_policy(
@@ -883,8 +887,14 @@ async def quickstart_chat(
             engine_kind=req.engine_kind,
             model_id=req.agent_context.model if req.agent_context is not None else None,
         )
-        validated, resolution = await application.binding_service.validate_model_inference(binding)
-        material = await application.material_adapter.load(validated)
+        material, resolution = await application.material_access_service.resolve_model_inference(
+            binding,
+            context=CredentialAccessContext(
+                consumer_type="quickstart_chat",
+                consumer_id="quickstart",
+                actor=actor,
+            ),
+        )
     except ModelInferenceMaterialFieldMissingError as exc:
         validate_credential_data(
             exc.provider_id,

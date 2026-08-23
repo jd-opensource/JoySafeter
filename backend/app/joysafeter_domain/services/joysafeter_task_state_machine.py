@@ -265,20 +265,6 @@ class JoySafeterTaskStateMachine:
         await self.db.commit()
         return cast(CursorResult[Any], result).rowcount > 0
 
-    async def attach_sandbox_if_scheduling(self, task_id: TaskId, sandbox_id: SandboxId) -> bool:
-        result = await self.db.execute(
-            sa_update(JoySafeterTask)
-            .where(
-                and_(
-                    JoySafeterTask.id == task_id,
-                    JoySafeterTask.status == JoySafeterTaskStatus.SCHEDULING.value,
-                )
-            )
-            .values(sandbox_id=sandbox_id)
-        )
-        await self.db.commit()
-        return cast(CursorResult[Any], result).rowcount > 0
-
     async def renew_leases(self, instance_id: str) -> int:
         """Extend the lease on every running task owned by ``instance_id``.
 

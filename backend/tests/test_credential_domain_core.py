@@ -651,10 +651,18 @@ def test_group_restore_revalidates_members_and_cross_group_urls() -> None:
     )
     assert restored.state is CredentialState.ACTIVE
 
+    restored_with_archived_member = decide_group_lifecycle(
+        group,
+        CredentialLifecycleCommand.RESTORE,
+        restore_context=_group_restore_context(
+            members=(_mcp_resource(state=CredentialState.ARCHIVED),),
+        ),
+    )
+    assert restored_with_archived_member.state is CredentialState.ACTIVE
+
     invalid_contexts = (
         _group_restore_context(project_id="project-b"),
         _group_restore_context(members=(_mcp_resource(project_id="project-b"),)),
-        _group_restore_context(members=(_mcp_resource(state=CredentialState.ARCHIVED),)),
         _group_restore_context(members=(_mcp_resource(scheme=CredentialAuthScheme.OAUTH2_LEGACY_DISABLED),)),
         _group_restore_context(members=(_mcp_resource(fields=("other",)),)),
         _group_restore_context(members=(_mcp_resource(group_id="group-b"),)),

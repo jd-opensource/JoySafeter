@@ -1,8 +1,9 @@
 import uuid
+from datetime import timedelta
 
 import pytest
 from error_contract_helpers import handled_app_error_payload
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.joysafeter_api.api.v1.sessions import (
     UpdateRepoResourceRequest,
@@ -13,6 +14,7 @@ from app.joysafeter_api.api.v1.sessions import (
     update_repo_resource_token,
 )
 from app.joysafeter_application.credentials.composition import compose_repository_access_material_adapter
+from app.joysafeter_application.sessions.resource_service import SessionResourceService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_file import JoySafeterFile
@@ -29,12 +31,11 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
     SessionRepoResourceRequest,
     SessionResourceRequest,
 )
-from app.joysafeter_domain.services.joysafeter_session_resource_service import SessionResourceService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.config.settings import joysafeter_config
-from app.joysafeter_shared.ids import FileId, MemoryStoreId, SessionResourceId
+from app.joysafeter_shared.ids import FileId, MemoryStoreId, SessionResourceId, as_uuid
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -526,6 +527,80 @@ async def test_session_repo_resources_keep_token_encrypted_and_never_echoed(db_s
     assert rotated.encrypted_token.startswith("enc:")
     assert rotated.encrypted_token != "rotated-token"
     assert rotated.encrypted_token != initial_encrypted_token
+
+
+@pytest.mark.asyncio
+async def test_repository_token_is_erased_when_session_becomes_terminal(db_session):
+    session = await _create_session(db_session)
+    repo = JoySafeterSessionRepo(
+        session_id=session.id,
+        url="https://github.com/example/private-repo.git",
+        branch="main",
+        mount_path="/workspace/private-repo",
+        mount_name="private-repo",
+        encrypted_token="enc:v1:terminal-secret",
+    )
+    db_session.add(repo)
+    await db_session.commit()
+
+    transitioned = await SessionService(db_session).update_session_status(session.id, "terminated")
+
+    assert transitioned is True
+    row = (
+        await db_session.execute(
+            text(
+                """
+                SELECT encrypted_token, token_erased_at
+                FROM joysafeter_session_repos
+                WHERE id = :repo_id
+                """
+            ),
+            {"repo_id": as_uuid(repo.id)},
+        )
+    ).one()
+    assert row.encrypted_token == ""
+    assert row.token_erased_at is not None
+
+
+@pytest.mark.asyncio
+async def test_repository_token_rotation_records_expiry_and_rotation_metadata(db_session):
+    session = await _create_session(db_session)
+    repo = JoySafeterSessionRepo(
+        session_id=session.id,
+        url="https://github.com/example/private-repo.git",
+        branch="main",
+        mount_path="/workspace/private-repo",
+        mount_name="private-repo",
+        encrypted_token="",
+    )
+    db_session.add(repo)
+    await db_session.commit()
+    await db_session.refresh(repo)
+    expires_at = utc_now() + timedelta(hours=1)
+
+    await SessionResourceService(db_session).rotate_repo_token(
+        session.id,
+        repo.id,
+        "rotated-token",
+        token_expires_at=expires_at,
+    )
+
+    row = (
+        await db_session.execute(
+            text(
+                """
+                SELECT encrypted_token, token_expires_at, token_rotated_at, token_erased_at
+                FROM joysafeter_session_repos
+                WHERE id = :repo_id
+                """
+            ),
+            {"repo_id": as_uuid(repo.id)},
+        )
+    ).one()
+    assert row.encrypted_token.startswith("enc:")
+    assert row.token_expires_at == expires_at
+    assert row.token_rotated_at is not None
+    assert row.token_erased_at is None
 
 
 @pytest.mark.asyncio

@@ -37,7 +37,11 @@ def validate_agent_identity_configuration() -> None:
         return
     validate_provider_configuration()
     try:
-        compose_task_identity_material_adapter(os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", "")).require_enabled()
+        compose_task_identity_material_adapter(
+            os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", ""),
+            keyring_json=os.environ.get("JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING"),
+            write_key_id=os.environ.get("JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID"),
+        ).require_enabled()
         _context_ttl()
     except ValueError as exc:
         raise RuntimeError(str(exc)) from exc
@@ -45,9 +49,13 @@ def validate_agent_identity_configuration() -> None:
 
 def _encrypt(value: str, vault_key: str) -> str:
     try:
-        return compose_task_identity_material_adapter(vault_key).protect_identity_credential(value)
+        return compose_task_identity_material_adapter(
+            vault_key,
+            keyring_json=os.environ.get("JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING"),
+            write_key_id=os.environ.get("JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID"),
+        ).protect_identity_credential(value)
     except TaskIdentityMaterialConfigurationError as exc:
-        raise ValueError("JOYSAFETER_VAULT_ENCRYPTION_KEY must encode a 32-byte key") from exc
+        raise ValueError(f"credential encryption configuration must contain valid 32-byte keys: {exc}") from exc
 
 
 def _context_ttl() -> timedelta:

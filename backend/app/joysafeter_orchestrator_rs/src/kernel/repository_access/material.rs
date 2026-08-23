@@ -1,15 +1,15 @@
 use crate::kernel::credentials::error::CredentialRuntimeError;
-use crate::kernel::sensitive_material::legacy_v1::LegacyV1MaterialProtector;
+use crate::kernel::sensitive_material::versioned::VersionedMaterialProtector;
 
 #[derive(Clone)]
 pub struct RepositoryAccessMaterialAdapter {
-    protector: LegacyV1MaterialProtector,
+    protector: VersionedMaterialProtector,
 }
 
 impl RepositoryAccessMaterialAdapter {
     pub fn from_env() -> Self {
         Self {
-            protector: LegacyV1MaterialProtector::from_env(),
+            protector: VersionedMaterialProtector::from_env(),
         }
     }
 

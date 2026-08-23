@@ -10,6 +10,10 @@ from app.joysafeter_application.credentials.composition import (
     compose_repository_access_material_adapter,
     compose_task_identity_material_adapter,
 )
+from app.joysafeter_application.credentials.ports import (
+    CredentialAccessContext,
+    CredentialAuditActor,
+)
 from app.joysafeter_domain.credentials import (
     CredentialFieldName,
     CredentialGroupId,
@@ -57,7 +61,7 @@ async def _project(db_session) -> str:
 @pytest.mark.asyncio
 async def test_runtime_binding_matrix_limits_material_to_each_consumer(db_session) -> None:
     project_id = await _project(db_session)
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     model = await application.resource_service.create(
         CreateCredentialRequest(
             kind="model",
@@ -84,8 +88,14 @@ async def test_runtime_binding_matrix_limits_material_to_each_consumer(db_sessio
         engine_kind=EngineKind.CODEX,
         model_id="gpt-5",
     )
-    validated_model, _ = await application.binding_service.validate_model_inference(model_binding)
-    model_material = await application.material_adapter.load(validated_model)
+    access_context = CredentialAccessContext(
+        consumer_type="credential_runtime_e2e",
+        actor=CredentialAuditActor.system("test"),
+    )
+    model_material, _ = await application.material_access_service.resolve_model_inference(
+        model_binding,
+        context=access_context,
+    )
 
     http_binding = HttpEgressBinding(
         ProjectId(project_id),
@@ -104,12 +114,17 @@ async def test_runtime_binding_matrix_limits_material_to_each_consumer(db_sessio
         CredentialId(str(service.id)),
     )
 
-    http_material = await application.material_adapter.load(await application.binding_service.validate(http_binding))
-    webhook_material = await application.material_adapter.load(
-        await application.binding_service.validate(webhook_binding)
+    http_material = await application.material_access_service.resolve(
+        http_binding,
+        context=access_context,
     )
-    environment_material = await application.material_adapter.load(
-        await application.binding_service.validate(environment_binding)
+    webhook_material = await application.material_access_service.resolve(
+        webhook_binding,
+        context=access_context,
+    )
+    environment_material = await application.material_access_service.resolve(
+        environment_binding,
+        context=access_context,
     )
 
     assert dict(model_material.fields) == {
@@ -132,7 +147,7 @@ async def test_runtime_binding_matrix_limits_material_to_each_consumer(db_sessio
 @pytest.mark.asyncio
 async def test_mcp_group_validates_live_member_without_exposing_token(db_session) -> None:
     project_id = await _project(db_session)
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     group = await application.group_service.create(
         CreateCredentialGroupRequest(name="runtime-mcp-group"),
         project_id,

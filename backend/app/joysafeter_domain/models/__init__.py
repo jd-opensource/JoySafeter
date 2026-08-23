@@ -12,6 +12,8 @@ from .joysafeter_credential import (  # noqa: F401 — alembic discovery
     JoySafeterCredentialGroup,
     JoySafeterSessionCredentialGroup,
 )
+from .joysafeter_credential_access_audit import JoySafeterCredentialAccessAudit
+from .joysafeter_credential_encryption_canary import JoySafeterCredentialEncryptionCanary
 from .joysafeter_environment import JoySafeterEnvironment  # noqa: F401 — alembic discovery
 from .joysafeter_file import JoySafeterFile  # noqa: F401 — alembic discovery
 from .joysafeter_memory import (  # noqa: F401 — alembic discovery
@@ -64,6 +66,8 @@ __all__ = [
     "Project",
     "ProjectMember",
     "JoySafeterApiKey",
+    "JoySafeterCredentialAccessAudit",
+    "JoySafeterCredentialEncryptionCanary",
     "JoySafeterAgent",
     "JoySafeterAgentVersion",
     "JoySafeterSkill",

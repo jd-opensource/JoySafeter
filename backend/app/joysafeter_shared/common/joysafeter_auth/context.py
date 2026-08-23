@@ -139,3 +139,10 @@ class JoySafeterAuthContext:
     # Platform-level super user. This is distinct from org owner/admin and is
     # reserved for cross-organization infrastructure operations.
     is_super_user: bool = False
+    # Stable identity of the authenticating principal. Human callers default to
+    # their user id; API-key callers carry the exact key id for audit attribution.
+    principal_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.principal_id is None:
+            self.principal_id = self.user_id

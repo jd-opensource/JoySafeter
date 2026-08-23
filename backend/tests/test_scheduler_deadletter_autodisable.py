@@ -13,6 +13,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.triggers import TriggerApplicationService
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 
 _FUTURE = datetime(2999, 1, 1, tzinfo=timezone.utc)
@@ -135,7 +137,9 @@ async def test_re_enable_clears_dead_letter_and_resumes(db_session):
     await db_session.commit()
     await db_session.refresh(trigger)
 
-    updated = await JoySafeterTriggerService(db_session).update(trigger.id, project.id, enabled=True)
+    updated = await TriggerApplicationService(
+        db_session, credential_audit_actor=CredentialAuditActor.system("test")
+    ).update(trigger.id, project.id, enabled=True)
 
     assert updated is not None
     assert updated.enabled is True

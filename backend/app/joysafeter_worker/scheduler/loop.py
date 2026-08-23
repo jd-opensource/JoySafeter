@@ -40,14 +40,20 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger, TriggerConcurrencyPolicy
-from app.joysafeter_domain.services.agent_trigger_execution import (
+from app.joysafeter_application.agents import compose_agent_application
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.sensitive_material_cleanup import (
+    erase_expired_repository_token_material,
+    erase_expired_task_identity_material,
+    rewrap_sensitive_material,
+)
+from app.joysafeter_application.triggers.execution_service import (
     AgentTriggerExecutor,
     AgentTriggerRunConfig,
     render_prompt_template,
     render_session_key,
 )
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger, TriggerConcurrencyPolicy
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_session_service import (
     SessionService,  # noqa: F401  (kept as a test monkeypatch target)
@@ -56,9 +62,10 @@ from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeter
 from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
 from app.joysafeter_domain.triggers import get_provider
+from app.joysafeter_infrastructure.sensitive_material.versioned import VersionedMaterialProtector
 from app.joysafeter_shared.common.app_errors import AppError, RateLimitExceededError, ServiceUnavailableError
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
-from app.joysafeter_shared.config.settings import settings
+from app.joysafeter_shared.config.settings import joysafeter_config, settings
 from app.joysafeter_shared.database import AsyncSessionLocal
 from app.joysafeter_shared.ids import SessionId, TaskId
 
@@ -277,6 +284,68 @@ class SchedulerLoop:
                         pass
 
     async def _tick(self) -> None:
+        try:
+            async with AsyncSessionLocal() as cleanup_db:
+                erased = await erase_expired_repository_token_material(cleanup_db, limit=100)
+                await cleanup_db.commit()
+            if erased:
+                logger.info("Erased %d expired repository token(s)", erased)
+        except Exception as exc:
+            log_boundary_failure(
+                logger,
+                boundary="scheduler_loop",
+                code="REPOSITORY_TOKEN_CLEANUP_FAILED",
+                message="Expired repository token cleanup failed",
+                operation="erase_expired_repository_token_material",
+                error=exc,
+                data={"worker_id": self._worker_id},
+                source="worker",
+            )
+        try:
+            async with AsyncSessionLocal() as cleanup_db:
+                erased = await erase_expired_task_identity_material(cleanup_db, limit=100)
+                await cleanup_db.commit()
+            if erased:
+                logger.info("Erased %d expired task identity credential(s)", erased)
+        except Exception as exc:
+            log_boundary_failure(
+                logger,
+                boundary="scheduler_loop",
+                code="TASK_IDENTITY_CLEANUP_FAILED",
+                message="Expired task identity cleanup failed",
+                operation="erase_expired_task_identity_material",
+                error=exc,
+                data={"worker_id": self._worker_id},
+                source="worker",
+            )
+        if joysafeter_config.credential_encryption_keyring:
+            try:
+                protector = VersionedMaterialProtector(
+                    joysafeter_config.vault_encryption_key,
+                    keyring_json=joysafeter_config.credential_encryption_keyring,
+                    write_key_id=joysafeter_config.credential_encryption_write_key_id,
+                )
+                async with AsyncSessionLocal() as cleanup_db:
+                    rewrapped = await rewrap_sensitive_material(cleanup_db, protector, limit_per_store=100)
+                    await cleanup_db.commit()
+                if rewrapped.total:
+                    logger.info(
+                        "Rewrapped sensitive material (credentials=%d task_identities=%d repository_tokens=%d)",
+                        rewrapped.managed_credentials,
+                        rewrapped.task_identities,
+                        rewrapped.repository_tokens,
+                    )
+            except Exception as exc:
+                log_boundary_failure(
+                    logger,
+                    boundary="scheduler_loop",
+                    code="SENSITIVE_MATERIAL_REWRAP_FAILED",
+                    message="Sensitive material rewrap failed",
+                    operation="rewrap_sensitive_material",
+                    error=exc,
+                    data={"worker_id": self._worker_id},
+                    source="worker",
+                )
         async with AsyncSessionLocal() as db:
             triggers = await JoySafeterTriggerService(db).claim_due_cron_triggers(
                 worker_id=self._worker_id,
@@ -413,7 +482,10 @@ class SchedulerLoop:
             # row is still locked. REPLACE cancellation commits internally and
             # therefore releases this lock; no Trigger field may be consulted
             # after that boundary to assemble the replacement run.
-            agent = await JoySafeterAgentService(db).get_agent(trigger.agent_id, project_id=trigger.project_id)
+            agent = await compose_agent_application(db).queries.get_agent(
+                trigger.agent_id,
+                project_id=trigger.project_id,
+            )
             if agent is None:
                 logger.warning("Trigger %s targets missing agent %s; skipping", trigger.id, trigger.agent_id)
                 return _FireOutcome(status="skipped")
@@ -488,7 +560,10 @@ class SchedulerLoop:
                 enforce_user_quota=False,
             )
 
-            result = await AgentTriggerExecutor(db).run(
+            result = await AgentTriggerExecutor(
+                db,
+                audit_actor=CredentialAuditActor.system("trigger_scheduler"),
+            ).run(
                 run_config,
                 enforce_user_quota=False,
             )

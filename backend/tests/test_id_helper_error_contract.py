@@ -1,11 +1,15 @@
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import BigInteger, DateTime, Text
 
 from app.joysafeter_api.api.v1.files import _parse_session_scope
 from app.joysafeter_api.api.v1.network_policies import NetworkPolicyStatusResponse
+from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
+from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.schemas.analytics import AgentMetricsResponse, AgentRankingItem, AlertItem, CallRecord
 from app.joysafeter_domain.schemas.joysafeter_file import FileResponse
 from app.joysafeter_domain.schemas.joysafeter_sandbox import SandboxResponse
@@ -22,6 +26,8 @@ from app.joysafeter_shared.ids import (
 )
 
 pytestmark = pytest.mark.no_db
+
+BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_analytics_call_record_serializes_canonical_resource_ids():
@@ -90,6 +96,56 @@ def test_task_references_in_operational_responses_use_canonical_prefix():
     assert sandbox_payload["id"] == str(sandbox_id)
     assert policy_payload["sandbox_id"] == str(sandbox_id)
     assert policy_payload["task_id"] == f"task_{task_id}"
+
+
+def test_sandbox_response_exposes_runtime_config_freshness():
+    now = datetime.now(UTC)
+
+    payload = SandboxResponse(
+        id=SandboxId.new(),
+        provider="kubernetes",
+        status="idle",
+        image="sandbox:latest",
+        last_used_at=now,
+        created_at=now,
+        runtime_config_status="restart_required",
+        runtime_config_last_reason="credential_updated",
+        runtime_config_required_at=now,
+    ).model_dump()
+
+    assert payload["runtime_config_status"] == "restart_required"
+    assert payload["runtime_config_last_reason"] == "credential_updated"
+    assert payload["runtime_config_required_at"] == now
+
+
+def test_runtime_config_generation_model_contracts():
+    session_columns = JoySafeterSession.__table__.columns
+    sandbox_columns = JoySafeterSandbox.__table__.columns
+
+    session_generation = session_columns["runtime_config_generation"]
+    session_reason = session_columns["runtime_config_generation_reason"]
+    session_updated_at = session_columns["runtime_config_generation_updated_at"]
+    sandbox_generation = sandbox_columns["runtime_config_applied_generation"]
+
+    assert isinstance(session_generation.type, BigInteger)
+    assert session_generation.nullable is False
+    assert session_generation.default.arg == 0
+    assert str(session_generation.server_default.arg) == "0"
+    assert isinstance(session_reason.type, Text)
+    assert session_reason.nullable is True
+    assert isinstance(session_updated_at.type, DateTime)
+    assert session_updated_at.type.timezone is True
+    assert session_updated_at.nullable is True
+    assert isinstance(sandbox_generation.type, BigInteger)
+    assert sandbox_generation.nullable is False
+    assert sandbox_generation.default.arg == 0
+    assert str(sandbox_generation.server_default.arg) == "0"
+
+    rust_models = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/db/models.rs").read_text()
+    assert "pub runtime_config_generation: i64," in rust_models
+    assert "pub runtime_config_generation_reason: Option<String>," in rust_models
+    assert "pub runtime_config_generation_updated_at: Option<chrono::DateTime<chrono::Utc>>," in rust_models
+    assert "pub runtime_config_applied_generation: i64," in rust_models
 
 
 def test_file_response_uses_canonical_session_prefix():

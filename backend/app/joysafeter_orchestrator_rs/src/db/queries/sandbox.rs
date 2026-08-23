@@ -1,7 +1,10 @@
 use crate::db::models::JoySafeterSandbox;
 use crate::ids::{SandboxId, SessionId, TaskId};
+use chrono::{DateTime, Utc};
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
+
+use crate::kernel::runtime_freshness::RuntimeFreshnessError;
 
 // ---------------------------------------------------------------------------
 // Structs
@@ -11,6 +14,29 @@ use sqlx::PgPool;
 pub struct CommandDestroySandboxClaim {
     pub external_id: Option<String>,
     pub previous_status: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct GuardedStoppedSandboxRestartClaim {
+    pub session_id: SessionId,
+    pub project_id: Option<String>,
+    pub previous_runtime_config_status: String,
+    pub previous_runtime_config_last_reason: Option<String>,
+    pub previous_runtime_config_required_at: Option<DateTime<Utc>>,
+    pub previous_runtime_config_applied_generation: i64,
+    pub claimed_runtime_config_applied_generation: i64,
+    pub claimed_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AttachedPoolSandboxClaim {
+    pub sandbox_id: SandboxId,
+    pub external_id: Option<String>,
+    pub session_id: SessionId,
+    pub project_id: Option<String>,
+    pub config_fingerprint: Value,
+    pub claimed_status: String,
+    pub claimed_runtime_config_applied_generation: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -26,6 +52,50 @@ pub struct UpsertNetworkPolicy<'a> {
 // ---------------------------------------------------------------------------
 // Sandbox queries
 // ---------------------------------------------------------------------------
+
+async fn lock_active_session_generation(
+    transaction: &mut Transaction<'_, Postgres>,
+    session_id: SessionId,
+    project_id: Option<&str>,
+    captured_generation: i64,
+) -> Result<(), RuntimeFreshnessError> {
+    let session = sqlx::query_as::<_, (Option<String>, String, Option<DateTime<Utc>>, i64)>(
+        r#"
+        SELECT project_id, status, archived_at, runtime_config_generation
+        FROM joysafeter_sessions
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(session_id)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    let Some((session_project_id, session_status, archived_at, actual_generation)) = session else {
+        return Err(RuntimeFreshnessError::SessionBindingInvalid {
+            session_id,
+            reason: "missing session",
+        });
+    };
+    if archived_at.is_some() || session_status == "terminated" {
+        return Err(RuntimeFreshnessError::SessionBindingInvalid {
+            session_id,
+            reason: "inactive session",
+        });
+    }
+    if session_project_id.as_deref() != project_id {
+        return Err(RuntimeFreshnessError::SessionBindingInvalid {
+            session_id,
+            reason: "project mismatch",
+        });
+    }
+    if actual_generation != captured_generation {
+        return Err(RuntimeFreshnessError::GenerationChanged {
+            expected: captured_generation,
+            actual: actual_generation,
+        });
+    }
+    Ok(())
+}
 
 /// Get a sandbox by ID.
 pub async fn get_sandbox(
@@ -143,8 +213,12 @@ pub async fn create_sandbox(
     sqlx::query_as::<_, JoySafeterSandbox>(
         r#"
         INSERT INTO joysafeter_sandboxes
-            (id, external_id, provider, status, image, chat_session_id, project_id, workspace_path, config, last_used_at, created_at, updated_at)
-        VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7, $8, NOW(), NOW(), NOW())
+            (id, external_id, provider, status, image, chat_session_id, project_id, workspace_path, config,
+             runtime_config_status, runtime_config_last_reason, runtime_config_required_at,
+             last_used_at, created_at, updated_at)
+        VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7, $8,
+                'ready', NULL, NULL,
+                NOW(), NOW(), NOW())
         RETURNING *
         "#,
     )
@@ -158,6 +232,54 @@ pub async fn create_sandbox(
     .bind(config)
     .fetch_one(pool)
     .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn create_session_bound_sandbox_guarded(
+    pool: &PgPool,
+    id: SandboxId,
+    external_id: &str,
+    provider: &str,
+    image: &str,
+    session_id: SessionId,
+    project_id: Option<&str>,
+    workspace_path: Option<&str>,
+    config: Option<&serde_json::Value>,
+    captured_generation: i64,
+) -> Result<JoySafeterSandbox, RuntimeFreshnessError> {
+    let mut transaction = pool.begin().await?;
+    lock_active_session_generation(
+        &mut transaction,
+        session_id,
+        project_id,
+        captured_generation,
+    )
+    .await?;
+
+    let sandbox = sqlx::query_as::<_, JoySafeterSandbox>(
+        r#"
+        INSERT INTO joysafeter_sandboxes
+            (id, external_id, provider, status, image, chat_session_id, project_id, workspace_path, config,
+             runtime_config_status, runtime_config_last_reason, runtime_config_required_at,
+             runtime_config_applied_generation, last_used_at, created_at, updated_at)
+        VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7, $8,
+                'ready', NULL, NULL, $9, NOW(), NOW(), NOW())
+        RETURNING *
+        "#,
+    )
+    .bind(id)
+    .bind(external_id)
+    .bind(provider)
+    .bind(image)
+    .bind(session_id)
+    .bind(project_id)
+    .bind(workspace_path)
+    .bind(config)
+    .bind(captured_generation)
+    .fetch_one(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok(sandbox)
 }
 
 pub async fn mark_sandbox_error(
@@ -1256,50 +1378,128 @@ pub async fn transition_sandbox_cas(
     Ok(result.rows_affected() > 0)
 }
 
-/// Claim a stopped sandbox row before restarting its external runtime.
-pub async fn claim_stopped_sandbox_for_restart(
+/// Claim a session-bound stopped sandbox for restart under the canonical
+/// session -> sandbox lock order.
+pub async fn claim_stopped_sandbox_for_restart_guarded(
     pool: &PgPool,
     sandbox_id: SandboxId,
     expected_external_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query(
+    session_id: SessionId,
+    project_id: Option<&str>,
+    captured_generation: i64,
+) -> Result<GuardedStoppedSandboxRestartClaim, RuntimeFreshnessError> {
+    let mut transaction = pool.begin().await?;
+    lock_active_session_generation(
+        &mut transaction,
+        session_id,
+        project_id,
+        captured_generation,
+    )
+    .await?;
+
+    let claim = sqlx::query_as::<_, GuardedStoppedSandboxRestartClaim>(
         r#"
-        UPDATE joysafeter_sandboxes
+        WITH candidate AS (
+            SELECT id,
+                   chat_session_id AS session_id,
+                   project_id,
+                   runtime_config_status AS previous_runtime_config_status,
+                   runtime_config_last_reason AS previous_runtime_config_last_reason,
+                   runtime_config_required_at AS previous_runtime_config_required_at,
+                   runtime_config_applied_generation AS previous_runtime_config_applied_generation
+            FROM joysafeter_sandboxes
+            WHERE id = $1
+              AND status = 'stopped'
+              AND destroyed_at IS NULL
+              AND external_id = $2
+              AND chat_session_id = $3
+              AND project_id IS NOT DISTINCT FROM $4
+            FOR UPDATE
+        )
+        UPDATE joysafeter_sandboxes AS sandbox
         SET status = 'provisioning',
-            last_used_at = NOW(),
-            updated_at = NOW(),
+            runtime_config_status = 'ready',
+            runtime_config_last_reason = NULL,
+            runtime_config_required_at = NULL,
+            runtime_config_applied_generation = $5,
+            last_used_at = clock_timestamp(),
+            updated_at = clock_timestamp(),
             idle_since = NULL
-        WHERE id = $1
-          AND status = 'stopped'
-          AND destroyed_at IS NULL
-          AND external_id = $2
+        FROM candidate
+        WHERE sandbox.id = candidate.id
+        RETURNING candidate.session_id,
+                  candidate.project_id,
+                  candidate.previous_runtime_config_status,
+                  candidate.previous_runtime_config_last_reason,
+                  candidate.previous_runtime_config_required_at,
+                  candidate.previous_runtime_config_applied_generation,
+                  sandbox.runtime_config_applied_generation AS claimed_runtime_config_applied_generation,
+                  sandbox.updated_at AS claimed_at
         "#,
     )
     .bind(sandbox_id)
     .bind(expected_external_id)
-    .execute(pool)
+    .bind(session_id)
+    .bind(project_id)
+    .bind(captured_generation)
+    .fetch_optional(&mut *transaction)
     .await?;
-
-    Ok(result.rows_affected() > 0)
+    let Some(claim) = claim else {
+        return Err(RuntimeFreshnessError::Conflict(format!(
+            "stopped sandbox {sandbox_id} changed ownership or lifecycle before restart claim"
+        )));
+    };
+    transaction.commit().await?;
+    Ok(claim)
 }
 
-/// Restore a restart claim when provider start fails before task dispatch.
-pub async fn restore_stopped_sandbox_after_restart_start_failure(
+/// Restore an exact guarded stopped-restart claim after provider start fails.
+pub async fn restore_stopped_sandbox_after_restart_start_failure_guarded(
     pool: &PgPool,
     sandbox_id: SandboxId,
     expected_external_id: &str,
-) -> Result<bool, sqlx::Error> {
+    claim: &GuardedStoppedSandboxRestartClaim,
+) -> Result<bool, RuntimeFreshnessError> {
+    let mut transaction = pool.begin().await?;
+    let session = sqlx::query_scalar::<_, SessionId>(
+        r#"
+        SELECT id
+        FROM joysafeter_sessions
+        WHERE id = $1
+          AND project_id IS NOT DISTINCT FROM $2
+        FOR UPDATE
+        "#,
+    )
+    .bind(claim.session_id)
+    .bind(claim.project_id.as_deref())
+    .fetch_optional(&mut *transaction)
+    .await?;
+    if session.is_none() {
+        return Ok(false);
+    }
+
     let result = sqlx::query(
         r#"
         UPDATE joysafeter_sandboxes
         SET status = 'stopped',
-            last_used_at = NOW(),
-            updated_at = NOW(),
+            runtime_config_status = $6,
+            runtime_config_last_reason = $7,
+            runtime_config_required_at = $8,
+            runtime_config_applied_generation = $9,
+            last_used_at = clock_timestamp(),
+            updated_at = clock_timestamp(),
             idle_since = NULL
         WHERE id = $1
+          AND external_id = $2
+          AND chat_session_id = $3
+          AND project_id IS NOT DISTINCT FROM $4
           AND status = 'provisioning'
           AND destroyed_at IS NULL
-          AND external_id = $2
+          AND updated_at = $5
+          AND runtime_config_status = 'ready'
+          AND runtime_config_last_reason IS NULL
+          AND runtime_config_required_at IS NULL
+          AND runtime_config_applied_generation = $10
           AND NOT EXISTS (
               SELECT 1 FROM joysafeter_tasks
               WHERE sandbox_id = $1
@@ -1309,9 +1509,161 @@ pub async fn restore_stopped_sandbox_after_restart_start_failure(
     )
     .bind(sandbox_id)
     .bind(expected_external_id)
-    .execute(pool)
+    .bind(claim.session_id)
+    .bind(claim.project_id.as_deref())
+    .bind(claim.claimed_at)
+    .bind(&claim.previous_runtime_config_status)
+    .bind(claim.previous_runtime_config_last_reason.as_deref())
+    .bind(claim.previous_runtime_config_required_at)
+    .bind(claim.previous_runtime_config_applied_generation)
+    .bind(claim.claimed_runtime_config_applied_generation)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Attach a reserved warm-pool sandbox to one captured session generation.
+pub async fn activate_reserved_pool_sandbox_guarded(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+    expected_external_id: &str,
+    session_id: SessionId,
+    project_id: Option<&str>,
+    config_fingerprint: &Value,
+    captured_generation: i64,
+) -> Result<AttachedPoolSandboxClaim, RuntimeFreshnessError> {
+    let mut transaction = pool.begin().await?;
+    lock_active_session_generation(
+        &mut transaction,
+        session_id,
+        project_id,
+        captured_generation,
+    )
     .await?;
 
+    let claim = sqlx::query_as::<_, AttachedPoolSandboxClaim>(
+        r#"
+        WITH candidate AS (
+            SELECT id
+            FROM joysafeter_sandboxes
+            WHERE id = $1
+              AND external_id = $2
+              AND status = 'provisioning'
+              AND destroyed_at IS NULL
+              AND chat_session_id IS NULL
+              AND project_id IS NULL
+              AND config #>> '{provisioning,stage}' = 'pool_warm'
+            FOR UPDATE
+        )
+        UPDATE joysafeter_sandboxes AS sandbox
+        SET chat_session_id = $3,
+            project_id = $4,
+            config = jsonb_set(
+                COALESCE(sandbox.config, '{}'::jsonb),
+                '{fingerprint}',
+                $5::jsonb,
+                true
+            ),
+            runtime_config_status = 'ready',
+            runtime_config_last_reason = NULL,
+            runtime_config_required_at = NULL,
+            runtime_config_applied_generation = $6,
+            last_used_at = clock_timestamp(),
+            updated_at = clock_timestamp(),
+            idle_since = NULL
+        FROM candidate
+        WHERE sandbox.id = candidate.id
+        RETURNING sandbox.id AS sandbox_id,
+                  sandbox.external_id,
+                  sandbox.chat_session_id AS session_id,
+                  sandbox.project_id,
+                  sandbox.config->'fingerprint' AS config_fingerprint,
+                  sandbox.status AS claimed_status,
+                  sandbox.runtime_config_applied_generation AS claimed_runtime_config_applied_generation
+        "#,
+    )
+    .bind(sandbox_id)
+    .bind(expected_external_id)
+    .bind(session_id)
+    .bind(project_id)
+    .bind(config_fingerprint)
+    .bind(captured_generation)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let Some(claim) = claim else {
+        return Err(RuntimeFreshnessError::Conflict(format!(
+            "reserved pool sandbox {sandbox_id} changed ownership or lifecycle before activation"
+        )));
+    };
+    transaction.commit().await?;
+    Ok(claim)
+}
+
+/// Claim an exactly-attached pool sandbox for provider cleanup without
+/// detaching its ownership from the session.
+pub async fn claim_attached_pool_sandbox_for_cleanup_guarded(
+    pool: &PgPool,
+    claim: &AttachedPoolSandboxClaim,
+    reason: &str,
+) -> Result<bool, RuntimeFreshnessError> {
+    let mut transaction = pool.begin().await?;
+    let session = sqlx::query_scalar::<_, SessionId>(
+        r#"
+        SELECT id
+        FROM joysafeter_sessions
+        WHERE id = $1
+          AND project_id IS NOT DISTINCT FROM $2
+        FOR UPDATE
+        "#,
+    )
+    .bind(claim.session_id)
+    .bind(claim.project_id.as_deref())
+    .fetch_optional(&mut *transaction)
+    .await?;
+    if session.is_none() {
+        return Ok(false);
+    }
+
+    let result = sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET status = 'stopping',
+            runtime_config_status = 'restart_required',
+            runtime_config_last_reason = $8,
+            runtime_config_required_at = clock_timestamp(),
+            last_used_at = clock_timestamp(),
+            updated_at = clock_timestamp(),
+            idle_since = NULL
+        WHERE id = $1
+          AND external_id IS NOT DISTINCT FROM $2
+          AND chat_session_id = $3
+          AND project_id IS NOT DISTINCT FROM $4
+          AND status = $5
+          AND runtime_config_status = 'ready'
+          AND runtime_config_last_reason IS NULL
+          AND runtime_config_required_at IS NULL
+          AND runtime_config_applied_generation = $6
+          AND config->'fingerprint' = $7::jsonb
+          AND destroyed_at IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM joysafeter_tasks
+              WHERE sandbox_id = $1
+                AND status IN ('pending', 'scheduling', 'running')
+          )
+        "#,
+    )
+    .bind(claim.sandbox_id)
+    .bind(claim.external_id.as_deref())
+    .bind(claim.session_id)
+    .bind(claim.project_id.as_deref())
+    .bind(&claim.claimed_status)
+    .bind(claim.claimed_runtime_config_applied_generation)
+    .bind(&claim.config_fingerprint)
+    .bind(reason)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
     Ok(result.rows_affected() > 0)
 }
 
@@ -1394,7 +1746,8 @@ pub async fn claim_pool_sandbox(
     sqlx::query_as::<_, JoySafeterSandbox>(
         r#"
         UPDATE joysafeter_sandboxes
-        SET status = 'provisioning', updated_at = NOW()
+        SET status = 'provisioning',
+            updated_at = NOW()
         WHERE id = (
             SELECT id FROM joysafeter_sandboxes
             WHERE status = 'pooled' AND image = $1 AND destroyed_at IS NULL

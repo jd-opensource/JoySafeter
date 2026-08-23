@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::path::{Component, Path};
+#[cfg(test)]
+use std::sync::Arc;
 
 use base64::Engine as _;
 use flate2::write::GzEncoder;
@@ -8,29 +10,30 @@ use flate2::Compression;
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
 use tar::{Builder, Header};
+#[cfg(test)]
+use tokio::sync::Notify;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::db::queries;
 use crate::grpc::proto;
 use crate::ids::{
-    CredentialId, EnvironmentId, SandboxId, SessionId, SkillId, SkillSecurityScanId, SkillUsageId,
-    SkillVersionId, TaskId,
+    SandboxId, SessionId, SkillId, SkillSecurityScanId, SkillUsageId, SkillVersionId, TaskId,
+};
+use crate::kernel::credentials::access::{
+    CredentialAccessContext, CredentialMaterialAccessService,
 };
 use crate::kernel::credentials::error::{require_bound_credential_id, CredentialRuntimeError};
-use crate::kernel::credentials::mcp::resolve_mcp_members;
-use crate::kernel::credentials::model::resolve_model_credential;
+use crate::kernel::credentials::mcp::resolve_mcp_member_urls;
 use crate::kernel::credentials::record::ProjectId;
-use crate::kernel::credentials::service::{
-    resolve_service_credential, ResolvedServiceCredential, ServiceUsage,
-};
 use crate::kernel::credentials::store::CredentialStore;
-use crate::kernel::llm_catalog::RuntimeCredentialBinding;
+use crate::kernel::environment_binding::{self, EnvironmentBinding};
 use crate::kernel::mcp_url;
 use crate::kernel::repository_access::material::RepositoryAccessMaterialAdapter;
 use crate::kernel::run_spec::{
-    agent_for_execution, environment_credential_ids, environment_for_execution, SnapshotEnvironment,
+    agent_for_execution, environment_for_execution, SnapshotEnvironment,
 };
+use crate::kernel::runtime_freshness::RuntimeFreshnessError;
 
 fn apply_runtime_protocol_env(
     env: &mut HashMap<String, String>,
@@ -68,6 +71,23 @@ pub struct HarnessInputBuilder {
     /// keep their https:// URL and the sandbox's TLS handshake fails ("Failed to
     /// connect") because the internal CA cert is untrusted in the container.
     pub envoy_enabled: bool,
+    #[cfg(test)]
+    checkpoint_hook: Option<HarnessBuildTestHook>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HarnessBuildCheckpoint {
+    AfterInitialRead,
+    DuringMaterialization,
+    AfterFinalRead,
+}
+
+#[cfg(test)]
+struct HarnessBuildTestHook {
+    checkpoint: HarnessBuildCheckpoint,
+    reached: Arc<Notify>,
+    resume: Arc<Notify>,
 }
 
 #[derive(Clone, Default)]
@@ -77,7 +97,6 @@ pub struct HarnessInput {
     pub system_prompt: Option<String>,
     pub prompt: String,
     pub env: HashMap<String, String>,
-    pub secrets: HashMap<String, String>,
     pub permission_mode: Option<String>,
     pub session_id: Option<String>,
     pub mcp_servers: Vec<proto::McpConfig>,
@@ -106,7 +125,6 @@ impl fmt::Debug for HarnessInput {
             .field("system_prompt", &"<redacted>")
             .field("prompt", &"<redacted>")
             .field("env", &"<redacted>")
-            .field("secrets", &"<redacted>")
             .field("permission_mode", &self.permission_mode)
             .field("session_id", &self.session_id)
             .field("mcp_servers", &self.mcp_servers.len())
@@ -132,15 +150,65 @@ impl HarnessInputBuilder {
         Self {
             pool,
             envoy_enabled,
+            #[cfg(test)]
+            checkpoint_hook: None,
         }
+    }
+
+    #[cfg(test)]
+    fn with_test_checkpoint(
+        mut self,
+        checkpoint: HarnessBuildCheckpoint,
+        reached: Arc<Notify>,
+        resume: Arc<Notify>,
+    ) -> Self {
+        self.checkpoint_hook = Some(HarnessBuildTestHook {
+            checkpoint,
+            reached,
+            resume,
+        });
+        self
+    }
+
+    #[cfg(test)]
+    async fn pause_at_checkpoint(&self, checkpoint: HarnessBuildCheckpoint) {
+        let Some(hook) = self
+            .checkpoint_hook
+            .as_ref()
+            .filter(|hook| hook.checkpoint == checkpoint)
+        else {
+            return;
+        };
+        hook.reached.notify_one();
+        hook.resume.notified().await;
     }
 
     pub async fn build(
         &self,
         task: &crate::db::models::JoySafeterTask,
         sandbox_external_id: &str,
-        _sandbox_db_id: SandboxId,
+        sandbox_db_id: SandboxId,
     ) -> anyhow::Result<HarnessInput> {
+        let initial_fence = match task.session_id {
+            Some(session_id) => {
+                let fence = self
+                    .load_generation_fence(session_id, sandbox_db_id)
+                    .await?;
+                fence.validate(sandbox_db_id)?;
+                Some(fence)
+            }
+            None => None,
+        };
+        let credential_access_context = CredentialAccessContext::runtime(
+            task.session_id,
+            Some(task.id),
+            initial_fence.as_ref().map(|fence| fence.generation),
+        );
+        let credential_access = CredentialMaterialAccessService::new(self.pool.clone());
+        #[cfg(test)]
+        self.pause_at_checkpoint(HarnessBuildCheckpoint::AfterInitialRead)
+            .await;
+
         let live_agent = match task.agent_id {
             Some(aid) => queries::get_agent(&self.pool, aid).await?,
             None => None,
@@ -151,6 +219,13 @@ impl HarnessInputBuilder {
         };
         let snapshot_environment = environment_for_execution(session.as_ref());
         let agent = agent_for_execution(live_agent, session.as_ref())?;
+        let live_environment = self
+            .load_live_environment(
+                session.as_ref(),
+                agent.as_ref(),
+                snapshot_environment.as_ref(),
+            )
+            .await?;
 
         let mut input = HarnessInput {
             provider: agent
@@ -180,23 +255,40 @@ impl HarnessInputBuilder {
                 .permission_mode
                 .clone()
                 .or_else(|| Some(derive_permission_mode_from_tools(agent.tools.as_ref())));
-            input.setup_commands = self
-                .resolve_environment_setup_commands(agent, snapshot_environment.as_ref())
-                .await;
+            input.setup_commands = Self::resolve_environment_setup_commands(
+                snapshot_environment.as_ref(),
+                live_environment.as_ref(),
+            );
             input
                 .setup_commands
                 .extend(extract_setup_commands(agent.metadata.as_ref()));
 
-            self.resolve_environment_env(agent, snapshot_environment.as_ref(), &mut input)
-                .await?;
-            match self.resolve_agent_credential(agent, &mut input).await {
-                Ok(binding) => {
+            Self::apply_environment_env(
+                snapshot_environment.as_ref(),
+                live_environment.as_ref(),
+                &mut input,
+            );
+            #[cfg(test)]
+            self.pause_at_checkpoint(HarnessBuildCheckpoint::DuringMaterialization)
+                .await;
+            match self
+                .resolve_agent_credential(
+                    &credential_access,
+                    &credential_access_context,
+                    agent,
+                    input.model.is_none(),
+                )
+                .await
+            {
+                Ok(resolved) => {
                     apply_runtime_protocol_env(
                         &mut input.env,
                         &input.provider,
-                        &binding.protocol_id,
+                        &resolved.binding.protocol_id,
                     );
-                    resolve_model_from_binding(&mut input, &binding);
+                    if input.model.is_none() {
+                        input.model = resolved.model;
+                    }
                 }
                 Err(error) if error.downcast_ref() == Some(&CredentialRuntimeError::NotBound) => {}
                 Err(error) => return Err(error),
@@ -265,6 +357,23 @@ impl HarnessInputBuilder {
             }
         }
 
+        if let Some(initial_fence) = initial_fence {
+            let final_fence = self
+                .load_generation_fence(initial_fence.session_id, sandbox_db_id)
+                .await?;
+            if final_fence.generation != initial_fence.generation {
+                return Err(RuntimeFreshnessError::GenerationChanged {
+                    expected: initial_fence.generation,
+                    actual: final_fence.generation,
+                }
+                .into());
+            }
+            final_fence.validate(sandbox_db_id)?;
+        }
+        #[cfg(test)]
+        self.pause_at_checkpoint(HarnessBuildCheckpoint::AfterFinalRead)
+            .await;
+
         debug!(task_id = %task.id, "Built harness input");
         Ok(input)
     }
@@ -277,6 +386,9 @@ impl HarnessInputBuilder {
             setup_commands: input.setup_commands.clone(),
             work_dir: input.work_dir.clone(),
             env: input.env.clone(),
+            // Keep the protobuf field for rolling compatibility with runners that
+            // still understand it. Current orchestration injects credential material
+            // at sandbox creation or the Envoy boundary, so it must remain empty.
             secrets: HashMap::new(),
             permission_mode: input.permission_mode.clone(),
             provider: input.provider.clone(),
@@ -307,6 +419,9 @@ impl HarnessInputBuilder {
             max_turns: Some(input.max_turns),
             timeout_seconds,
             env: input.env.clone(),
+            // Keep the protobuf field for rolling compatibility with runners that
+            // still understand it. Current orchestration never sends credentials
+            // over the task-control stream.
             secrets: HashMap::new(),
             mcp_servers: input.mcp_servers.clone(),
             repos: input.repos.clone(),
@@ -326,177 +441,106 @@ impl HarnessInputBuilder {
         }
     }
 
-    async fn resolve_environment_setup_commands(
-        &self,
-        agent: &crate::db::models::JoySafeterAgent,
+    fn resolve_environment_setup_commands(
         snapshot_environment: Option<&SnapshotEnvironment>,
+        live_environment: Option<&EnvironmentBinding>,
     ) -> Vec<String> {
         if let Some(environment) = snapshot_environment {
             return extract_package_install_commands(environment.config.get("packages"));
         }
 
-        let Some(env_ref) = agent
-            .environment_ref
-            .as_deref()
-            .filter(|v| !v.trim().is_empty())
-        else {
-            return vec![];
-        };
-        let environment = match self
-            .load_environment(env_ref, agent.project_id.as_deref())
-            .await
-        {
-            Ok(Some(env)) => env,
-            Ok(None) => return vec![],
-            Err(e) => {
-                warn!(environment_ref = env_ref, "Failed to load environment: {e}");
-                return vec![];
-            }
-        };
-        extract_package_install_commands(environment.config.get("packages"))
+        live_environment
+            .map(|environment| extract_package_install_commands(environment.config.get("packages")))
+            .unwrap_or_default()
     }
 
-    async fn load_environment(
+    async fn load_live_environment(
         &self,
-        env_ref: &str,
-        project_id: Option<&str>,
-    ) -> anyhow::Result<Option<EnvironmentRow>> {
-        if let Ok(env_id) = EnvironmentId::from_public(env_ref) {
-            return sqlx::query_as::<_, EnvironmentRow>(
-                r#"
-                SELECT config FROM joysafeter_environments
-                WHERE id = $1 AND deleted_at IS NULL
-                  AND ($2::text IS NULL OR project_id = $2)
-                "#,
-            )
-            .bind(env_id)
-            .bind(project_id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(Into::into);
-        }
-
-        sqlx::query_as::<_, EnvironmentRow>(
-            r#"
-            SELECT config FROM joysafeter_environments
-            WHERE name = $1 AND deleted_at IS NULL
-              AND ($2::text IS NULL OR project_id = $2)
-            "#,
+        session: Option<&crate::db::models::JoySafeterSession>,
+        agent: Option<&crate::db::models::JoySafeterAgent>,
+        snapshot_environment: Option<&SnapshotEnvironment>,
+    ) -> anyhow::Result<Option<EnvironmentBinding>> {
+        let project_id = match session {
+            Some(session) => session.project_id.as_deref(),
+            None => agent.and_then(|agent| agent.project_id.as_deref()),
+        };
+        environment_binding::resolve_live_environment_binding(
+            &self.pool,
+            session.and_then(|session| session.environment_ref.as_deref()),
+            snapshot_environment.and_then(|environment| environment.reference.as_deref()),
+            agent.and_then(|agent| agent.environment_ref.as_deref()),
+            project_id,
+            session.map(|session| session.id),
         )
-        .bind(env_ref)
-        .bind(project_id)
-        .fetch_optional(&self.pool)
         .await
         .map_err(Into::into)
     }
 
+    async fn load_generation_fence(
+        &self,
+        session_id: SessionId,
+        sandbox_id: SandboxId,
+    ) -> anyhow::Result<HarnessGenerationFence> {
+        sqlx::query_as::<_, HarnessGenerationFence>(
+            r#"
+            SELECT
+                session.id AS session_id,
+                session.project_id AS session_project_id,
+                session.status AS session_status,
+                session.archived_at AS session_archived_at,
+                session.runtime_config_generation AS generation,
+                sandbox.chat_session_id AS sandbox_session_id,
+                sandbox.project_id AS sandbox_project_id,
+                sandbox.runtime_config_status,
+                sandbox.runtime_config_applied_generation AS applied_generation
+            FROM joysafeter_sessions AS session
+            JOIN joysafeter_sandboxes AS sandbox ON sandbox.id = $2
+            WHERE session.id = $1
+            "#,
+        )
+        .bind(session_id)
+        .bind(sandbox_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| RuntimeFreshnessError::RuntimeRestartRequired { sandbox_id }.into())
+    }
+
     async fn resolve_agent_credential(
         &self,
+        credential_access: &CredentialMaterialAccessService,
+        context: &CredentialAccessContext,
         agent: &crate::db::models::JoySafeterAgent,
-        input: &mut HarnessInput,
-    ) -> anyhow::Result<RuntimeCredentialBinding> {
+        needs_model_value: bool,
+    ) -> anyhow::Result<crate::kernel::credentials::access::ResolvedModelRuntimeConfig> {
         let model_credential_id = require_bound_credential_id(agent.model_credential_id)?;
-        let engine_kind = input.provider.clone();
-
-        let binding = self
-            .resolve_credential_ref_into_input(
-                model_credential_id,
-                agent.project_id.as_deref(),
-                input,
-                true,
-                Some(&engine_kind),
-            )
-            .await?;
-        binding.ok_or_else(|| CredentialRuntimeError::CorruptRecord.into())
-    }
-
-    async fn resolve_environment_env(
-        &self,
-        agent: &crate::db::models::JoySafeterAgent,
-        snapshot_environment: Option<&SnapshotEnvironment>,
-        input: &mut HarnessInput,
-    ) -> anyhow::Result<()> {
-        let environment_config = if let Some(environment) = snapshot_environment {
-            Some(environment.config.clone())
-        } else {
-            let Some(env_ref) = agent
-                .environment_ref
+        let project_id = ProjectId::parse(
+            agent
+                .project_id
                 .as_deref()
-                .filter(|v| !v.trim().is_empty())
-            else {
-                return Ok(());
-            };
-
-            self.load_environment(env_ref, agent.project_id.as_deref())
-                .await?
-                .map(|environment| environment.config)
-        };
-
-        let Some(environment_config) = environment_config else {
-            return Ok(());
-        };
-
-        input.env.extend(json_object_to_string_map(
-            environment_config.get("env_vars"),
-        ));
-
-        // Environment-level credentials are referenced by id. Both the legacy
-        // list form (`secret_refs`) and the single `service_credential_id` now
-        // hold canonical `cred_` ids resolved against `joysafeter_credentials`.
-        for credential_id in environment_credential_ids(&environment_config)? {
-            self.resolve_credential_ref_into_input(
-                credential_id,
-                agent.project_id.as_deref(),
-                input,
-                false,
-                None,
+                .ok_or(CredentialRuntimeError::ProjectMismatch)?,
+        )?;
+        credential_access
+            .resolve_model_runtime_config(
+                &project_id,
+                model_credential_id,
+                agent.engine_kind.as_deref().unwrap_or("claude"),
+                needs_model_value,
+                context,
             )
-            .await?;
-        }
-
-        Ok(())
+            .await
     }
 
-    async fn resolve_credential_ref_into_input(
-        &self,
-        credential_id: CredentialId,
-        project_id: Option<&str>,
+    fn apply_environment_env(
+        snapshot_environment: Option<&SnapshotEnvironment>,
+        live_environment: Option<&EnvironmentBinding>,
         input: &mut HarnessInput,
-        override_existing: bool,
-        runtime_engine_kind: Option<&str>,
-    ) -> anyhow::Result<Option<RuntimeCredentialBinding>> {
-        let project_id =
-            ProjectId::parse(project_id.ok_or(CredentialRuntimeError::ProjectMismatch)?)?;
-        let record = CredentialStore::new(self.pool.clone())
-            .get_active(&project_id, credential_id)
-            .await?;
-
-        if let Some(engine_kind) = runtime_engine_kind {
-            let resolved = resolve_model_credential(&record, engine_kind)?;
-            for (key, value) in resolved.material.iter() {
-                if override_existing || !input.secrets.contains_key(key) {
-                    input.secrets.insert(key.to_string(), value.to_string());
-                }
-            }
-            return Ok(Some(resolved.runtime_binding()));
-        }
-
-        let resolved = resolve_service_credential(&record, ServiceUsage::EnvironmentInjection)?;
-        let ResolvedServiceCredential::Environment(material) = resolved else {
-            return Err(CredentialRuntimeError::CorruptRecord.into());
-        };
-        let material = material
-            .as_object()
-            .ok_or(CredentialRuntimeError::CorruptRecord)?;
-        for (key, value) in material {
-            let value = value
-                .as_str()
-                .ok_or(CredentialRuntimeError::CorruptRecord)?;
-            if override_existing || !input.secrets.contains_key(key) {
-                input.secrets.insert(key.clone(), value.to_string());
-            }
-        }
-        Ok(None)
+    ) {
+        let frozen_config = snapshot_environment
+            .map(|environment| &environment.config)
+            .or_else(|| live_environment.map(|environment| &environment.config));
+        input.env.extend(json_object_to_string_map(
+            frozen_config.and_then(|config| config.get("env_vars")),
+        ));
     }
 
     async fn resolve_skill_archives(
@@ -766,13 +810,9 @@ impl HarnessInputBuilder {
         let project_id =
             ProjectId::parse(project_id.ok_or(CredentialRuntimeError::ProjectMismatch)?)?;
         let members = CredentialStore::new(self.pool.clone())
-            .load_session_mcp_members(&project_id, session_id)
+            .load_session_mcp_member_metadata(&project_id, session_id)
             .await?;
-        let credentials = resolve_mcp_members(&members)?;
-        let credential_urls = credentials
-            .into_iter()
-            .map(|credential| credential.normalized_server_url)
-            .collect::<std::collections::HashSet<_>>();
+        let credential_urls = resolve_mcp_member_urls(&members)?;
 
         for mcp in mcp_servers {
             let normalized = mcp_url::normalize(&mcp.url);
@@ -896,7 +936,12 @@ impl HarnessInputBuilder {
     ) -> anyhow::Result<()> {
         let rows: Vec<SessionRepoRow> = sqlx::query_as(
             r#"
-            SELECT url, branch, mount_path, mount_name, encrypted_token
+            SELECT url, branch, mount_path, mount_name,
+                   CASE
+                       WHEN token_expires_at IS NULL OR token_expires_at > NOW()
+                       THEN encrypted_token
+                       ELSE ''
+                   END AS encrypted_token
             FROM joysafeter_session_repos
             WHERE session_id = $1
             ORDER BY created_at
@@ -1164,24 +1209,24 @@ fn extract_content_text(payload: &serde_json::Value) -> String {
 mod tests {
     use std::collections::HashMap;
     use std::env;
+    use std::sync::Arc;
 
     use serde_json::json;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
+    use tokio::sync::Notify;
 
     use super::{
         apply_runtime_protocol_env, extract_content_text, parse_semver,
-        published_version_scan_audit, resolve_model_from_binding, resolve_skill_version_request,
-        session_container_work_dir, should_inject_conversation_history,
-        trim_history_lines_to_budget, HarnessInput, HarnessInputBuilder, SkillForArchive,
-        SkillVersionForArchive,
+        published_version_scan_audit, resolve_skill_version_request, session_container_work_dir,
+        should_inject_conversation_history, trim_history_lines_to_budget, HarnessBuildCheckpoint,
+        HarnessInputBuilder, SkillForArchive, SkillVersionForArchive,
     };
     use crate::ids::{
         AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId,
         SessionResourceId, SkillVersionId, TaskId,
     };
-    use crate::kernel::credentials::error::CredentialRuntimeError;
-    use crate::kernel::llm_catalog::validate_runtime_secret;
+    use crate::kernel::runtime_freshness::RuntimeFreshnessError;
     use uuid::Uuid;
 
     const ENCRYPTED_HELLO_WORLD: &str =
@@ -1208,28 +1253,445 @@ mod tests {
         )
     }
 
-    #[test]
-    fn model_resolution_uses_catalog_profile_key_only() {
-        let binding = validate_runtime_secret(
-            "native",
-            "model",
-            Some("deepseek"),
-            Some("chat_completions"),
+    async fn insert_ready_sandbox(
+        pool: &PgPool,
+        sandbox_id: SandboxId,
+        session_id: SessionId,
+        project_id: &str,
+        applied_generation: i64,
+    ) {
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_sandboxes (
+                id, external_id, provider, status, config, chat_session_id,
+                project_id, image, runtime_config_status,
+                runtime_config_applied_generation
+            )
+            VALUES ($1, $2, 'docker', 'running', '{}'::jsonb, $3, $4,
+                    'test-image:latest', 'ready', $5)
+            "#,
         )
-        .expect("DeepSeek Chat Completions must be valid for Native");
-        let mut input = HarnessInput {
-            provider: "native".to_string(),
-            secrets: HashMap::from([
-                ("OPENAI_MODEL".to_string(), "deepseek-reasoner".to_string()),
-                ("ANTHROPIC_MODEL".to_string(), "wrong-model".to_string()),
-                ("MODEL".to_string(), "legacy-fallback".to_string()),
-            ]),
-            ..Default::default()
+        .bind(sandbox_id)
+        .bind(format!("harness-sandbox-{sandbox_id}"))
+        .bind(session_id)
+        .bind(project_id)
+        .bind(applied_generation)
+        .execute(pool)
+        .await
+        .expect("insert ready sandbox");
+    }
+
+    struct GenerationFixture {
+        agent_id: AgentId,
+        session_id: SessionId,
+        task_id: TaskId,
+        sandbox_id: SandboxId,
+        environment_id: EnvironmentId,
+        org_id: String,
+        project_id: String,
+    }
+
+    async fn insert_generation_fixture(pool: &PgPool) -> GenerationFixture {
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
+        let org_id = format!("harness-generation-org-{unique}");
+        let project_id = format!("harness-generation-project-{unique}");
+        let environment_ref = environment_id.to_string();
+        let snapshot = json!({
+            "schema": "joysafeter.agent_execution_snapshot.v1",
+            "id": agent_id.to_string(),
+            "version": 1,
+            "name": format!("harness-generation-agent-{unique}"),
+            "engine_kind": "claude",
+            "system": "snapshot system",
+            "env": {"AGENT_LEVEL": "snapshot-agent"},
+            "mcp_servers": [],
+            "tools": [],
+            "skills": [],
+            "agents": [],
+            "commands": [],
+            "environment_ref": environment_ref,
+            "model_credential_id": null,
+            "environment": {
+                "ref": environment_ref,
+                "id": environment_id.to_string(),
+                "name": format!("harness-generation-env-{unique}"),
+                "image_tag": "snapshot-image:1",
+                "image_version": 1,
+                "config": {
+                    "env_vars": {"FROZEN_VALUE": "snapshot"},
+                    "secret_refs": [],
+                    "packages": {"pip": ["snapshot-package"]}
+                }
+            }
+        });
+
+        sqlx::query(
+            "INSERT INTO joysafeter_organizations (id, name, slug, storage_used_bytes, departed_member_usage) VALUES ($1, $2, $3, 0, 0)",
+        )
+        .bind(&org_id)
+        .bind(format!("Harness Generation Org {unique}"))
+        .bind(format!("harness-generation-org-{unique}"))
+        .execute(pool)
+        .await
+        .expect("insert generation organization");
+        sqlx::query(
+            "INSERT INTO joysafeter_organization_projects (id, org_id, name, slug, is_default) VALUES ($1, $2, $3, $4, false)",
+        )
+        .bind(&project_id)
+        .bind(&org_id)
+        .bind(format!("Harness Generation Project {unique}"))
+        .bind(format!("harness-generation-project-{unique}"))
+        .execute(pool)
+        .await
+        .expect("insert generation project");
+        sqlx::query(
+            "INSERT INTO joysafeter_environments (id, project_id, name, description, config, image_tag, image_version) VALUES ($1, $2, $3, '', $4, 'live-image:2', 2)",
+        )
+        .bind(environment_id)
+        .bind(&project_id)
+        .bind(format!("harness-generation-env-{unique}"))
+        .bind(json!({"env_vars": {"FROZEN_VALUE": "live"}, "secret_refs": []}))
+        .execute(pool)
+        .await
+        .expect("insert generation environment");
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_agents (
+                id, project_id, name, engine_kind, env, mcp_servers, skills, tools,
+                agents, commands, permission_mode, metadata, version, environment_ref
+            )
+            VALUES ($1, $2, $3, 'claude', '{}'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'default', '{}'::jsonb, 1, $4)
+            "#,
+        )
+        .bind(agent_id)
+        .bind(&project_id)
+        .bind(format!("harness-generation-agent-{unique}"))
+        .bind(&environment_ref)
+        .execute(pool)
+        .await
+        .expect("insert generation agent");
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_sessions (
+                id, agent_id, project_id, status, agent_version, agent_snapshot,
+                environment_ref, runtime_config_generation
+            )
+            VALUES ($1, $2, $3, 'idle', 1, $4, $5, 7)
+            "#,
+        )
+        .bind(session_id)
+        .bind(agent_id)
+        .bind(&project_id)
+        .bind(&snapshot)
+        .bind(&environment_ref)
+        .execute(pool)
+        .await
+        .expect("insert generation session");
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_sandboxes (
+                id, external_id, provider, status, config, chat_session_id,
+                project_id, image, runtime_config_status,
+                runtime_config_applied_generation
+            )
+            VALUES ($1, $2, 'docker', 'running', '{}'::jsonb, $3, $4,
+                    'snapshot-image:1', 'ready', 7)
+            "#,
+        )
+        .bind(sandbox_id)
+        .bind(format!("harness-generation-sandbox-{unique}"))
+        .bind(session_id)
+        .bind(&project_id)
+        .execute(pool)
+        .await
+        .expect("insert generation sandbox");
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_tasks (
+                id, agent_id, chat_session_id, sandbox_id, status, prompt, output,
+                timeout_sec, retry_count, max_retries
+            )
+            VALUES ($1, $2, $3, $4, 'running', 'generation fence', '', 7200, 0, 2)
+            "#,
+        )
+        .bind(task_id)
+        .bind(agent_id)
+        .bind(session_id)
+        .bind(sandbox_id)
+        .execute(pool)
+        .await
+        .expect("insert generation task");
+
+        GenerationFixture {
+            agent_id,
+            session_id,
+            task_id,
+            sandbox_id,
+            environment_id,
+            org_id,
+            project_id,
+        }
+    }
+
+    async fn delete_generation_fixture(pool: &PgPool, fixture: &GenerationFixture) {
+        let _ = sqlx::query("DELETE FROM joysafeter_tasks WHERE id = $1")
+            .bind(fixture.task_id)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(fixture.sandbox_id)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(fixture.session_id)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(fixture.agent_id)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_environments WHERE id = $1")
+            .bind(fixture.environment_id)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
+            .bind(&fixture.project_id)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_organizations WHERE id = $1")
+            .bind(&fixture.org_id)
+            .execute(pool)
+            .await;
+    }
+
+    async fn advance_generation(pool: &PgPool, fixture: &GenerationFixture) {
+        sqlx::query(
+            r#"
+            UPDATE joysafeter_sessions
+            SET runtime_config_generation = runtime_config_generation + 1
+            WHERE id = $1
+            "#,
+        )
+        .bind(fixture.session_id)
+        .execute(pool)
+        .await
+        .expect("advance desired generation");
+        sqlx::query(
+            r#"
+            UPDATE joysafeter_sandboxes
+            SET runtime_config_status = 'restart_required'
+            WHERE id = $1
+            "#,
+        )
+        .bind(fixture.sandbox_id)
+        .execute(pool)
+        .await
+        .expect("mark sandbox stale");
+    }
+
+    async fn assert_generation_change_rejected(checkpoint: HarnessBuildCheckpoint) {
+        let Some(pool) = test_pool().await else {
+            return;
         };
+        let fixture = insert_generation_fixture(&pool).await;
+        let task = crate::db::queries::get_task(&pool, fixture.task_id)
+            .await
+            .expect("load generation task")
+            .expect("generation task exists");
+        let reached = Arc::new(Notify::new());
+        let resume = Arc::new(Notify::new());
+        let builder = HarnessInputBuilder::new(pool.clone(), false).with_test_checkpoint(
+            checkpoint,
+            reached.clone(),
+            resume.clone(),
+        );
+        let sandbox_id = fixture.sandbox_id;
+        let build =
+            tokio::spawn(async move { builder.build(&task, "sandbox-ext", sandbox_id).await });
 
-        resolve_model_from_binding(&mut input, &binding);
+        reached.notified().await;
+        advance_generation(&pool, &fixture).await;
+        resume.notify_one();
 
-        assert_eq!(input.model.as_deref(), Some("deepseek-reasoner"));
+        let error = build
+            .await
+            .expect("join harness build")
+            .expect_err("generation change must reject materialized input");
+        assert!(matches!(
+            error.downcast_ref::<RuntimeFreshnessError>(),
+            Some(RuntimeFreshnessError::GenerationChanged {
+                expected: 7,
+                actual: 8
+            })
+        ));
+        delete_generation_fixture(&pool, &fixture).await;
+    }
+
+    #[tokio::test]
+    async fn harness_input_rejects_generation_change_after_initial_read() {
+        assert_generation_change_rejected(HarnessBuildCheckpoint::AfterInitialRead).await;
+    }
+
+    #[tokio::test]
+    async fn harness_input_rejects_generation_change_during_materialization() {
+        assert_generation_change_rejected(HarnessBuildCheckpoint::DuringMaterialization).await;
+    }
+
+    #[tokio::test]
+    async fn harness_input_allows_generation_change_after_final_check() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let fixture = insert_generation_fixture(&pool).await;
+        let task = crate::db::queries::get_task(&pool, fixture.task_id)
+            .await
+            .expect("load generation task")
+            .expect("generation task exists");
+        let reached = Arc::new(Notify::new());
+        let resume = Arc::new(Notify::new());
+        let builder = HarnessInputBuilder::new(pool.clone(), false).with_test_checkpoint(
+            HarnessBuildCheckpoint::AfterFinalRead,
+            reached.clone(),
+            resume.clone(),
+        );
+        let sandbox_id = fixture.sandbox_id;
+        let build =
+            tokio::spawn(async move { builder.build(&task, "sandbox-ext", sandbox_id).await });
+
+        reached.notified().await;
+        advance_generation(&pool, &fixture).await;
+        resume.notify_one();
+
+        let input = build
+            .await
+            .expect("join harness build")
+            .expect("post-check mutation may leave the completed old-generation payload valid");
+        assert_eq!(
+            input.env.get("FROZEN_VALUE").map(String::as_str),
+            Some("snapshot")
+        );
+        delete_generation_fixture(&pool, &fixture).await;
+    }
+
+    #[tokio::test]
+    async fn harness_input_requires_raw_ready_and_matching_applied_generation() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let fixture = insert_generation_fixture(&pool).await;
+        let task = crate::db::queries::get_task(&pool, fixture.task_id)
+            .await
+            .expect("load generation task")
+            .expect("generation task exists");
+
+        sqlx::query("UPDATE joysafeter_sandboxes SET runtime_config_status = 'restart_required' WHERE id = $1")
+            .bind(fixture.sandbox_id)
+            .execute(&pool)
+            .await
+            .expect("mark sandbox stale");
+        let stale_error = HarnessInputBuilder::new(pool.clone(), false)
+            .build(&task, "sandbox-ext", fixture.sandbox_id)
+            .await
+            .expect_err("raw stale sandbox must reject harness input");
+        assert!(matches!(
+            stale_error.downcast_ref::<RuntimeFreshnessError>(),
+            Some(RuntimeFreshnessError::RuntimeRestartRequired { sandbox_id })
+                if *sandbox_id == fixture.sandbox_id
+        ));
+
+        sqlx::query("UPDATE joysafeter_sandboxes SET runtime_config_status = 'ready', runtime_config_applied_generation = 6 WHERE id = $1")
+            .bind(fixture.sandbox_id)
+            .execute(&pool)
+            .await
+            .expect("set applied generation mismatch");
+        let generation_error = HarnessInputBuilder::new(pool.clone(), false)
+            .build(&task, "sandbox-ext", fixture.sandbox_id)
+            .await
+            .expect_err("applied generation mismatch must reject harness input");
+        assert!(matches!(
+            generation_error.downcast_ref::<RuntimeFreshnessError>(),
+            Some(RuntimeFreshnessError::GenerationChanged {
+                expected: 7,
+                actual: 6
+            })
+        ));
+
+        delete_generation_fixture(&pool, &fixture).await;
+    }
+
+    #[tokio::test]
+    async fn harness_input_explicit_invalid_environment_binding_fails_closed() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let fixture = insert_generation_fixture(&pool).await;
+        let missing_environment = EnvironmentId::from_uuid(Uuid::now_v7()).to_string();
+        sqlx::query("UPDATE joysafeter_sessions SET environment_ref = $2 WHERE id = $1")
+            .bind(fixture.session_id)
+            .bind(&missing_environment)
+            .execute(&pool)
+            .await
+            .expect("replace canonical environment binding");
+        let task = crate::db::queries::get_task(&pool, fixture.task_id)
+            .await
+            .expect("load generation task")
+            .expect("generation task exists");
+
+        let error = HarnessInputBuilder::new(pool.clone(), false)
+            .build(&task, "sandbox-ext", fixture.sandbox_id)
+            .await
+            .expect_err("explicit missing binding must not fall back to the snapshot");
+        assert!(
+            matches!(
+            error.downcast_ref::<RuntimeFreshnessError>(),
+            Some(RuntimeFreshnessError::SessionBindingInvalid { session_id, .. })
+                if *session_id == fixture.session_id
+            ),
+            "unexpected error: {error:?}"
+        );
+        delete_generation_fixture(&pool, &fixture).await;
+    }
+
+    #[tokio::test]
+    async fn harness_input_global_session_does_not_inherit_agent_project_for_environment_binding() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let fixture = insert_generation_fixture(&pool).await;
+        sqlx::query("UPDATE joysafeter_sessions SET project_id = NULL WHERE id = $1")
+            .bind(fixture.session_id)
+            .execute(&pool)
+            .await
+            .expect("make session explicitly global");
+        sqlx::query("UPDATE joysafeter_sandboxes SET project_id = NULL WHERE id = $1")
+            .bind(fixture.sandbox_id)
+            .execute(&pool)
+            .await
+            .expect("keep sandbox ownership aligned with global session");
+        let task = crate::db::queries::get_task(&pool, fixture.task_id)
+            .await
+            .expect("load generation task")
+            .expect("generation task exists");
+
+        let error = HarnessInputBuilder::new(pool.clone(), false)
+            .build(&task, "sandbox-ext", fixture.sandbox_id)
+            .await
+            .expect_err("global session must not resolve a project-scoped environment");
+        assert!(
+            matches!(
+            error.downcast_ref::<RuntimeFreshnessError>(),
+            Some(RuntimeFreshnessError::SessionBindingInvalid { session_id, .. })
+                if *session_id == fixture.session_id
+            ),
+            "unexpected error: {error:?}"
+        );
+        delete_generation_fixture(&pool, &fixture).await;
     }
 
     #[test]
@@ -1274,6 +1736,10 @@ mod tests {
                 .bind(agent_id)
                 .execute(pool)
                 .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE chat_session_id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await;
         let _ = sqlx::query("DELETE FROM joysafeter_session_events WHERE session_id = $1")
             .bind(session_id)
             .execute(pool)
@@ -1440,6 +1906,7 @@ mod tests {
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let session_id = SessionId::from_uuid(Uuid::now_v7());
         let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
         let org_id = format!("org-{unique}");
@@ -1447,6 +1914,8 @@ mod tests {
         let environment_ref = environment_id.to_string();
         let snapshot_credential_id = CredentialId::from_uuid(Uuid::now_v7());
         let live_credential_id = CredentialId::from_uuid(Uuid::now_v7());
+        let snapshot_environment_credential_id = CredentialId::from_uuid(Uuid::now_v7());
+        let live_environment_credential_id = CredentialId::from_uuid(Uuid::now_v7());
         let agent_name = format!("snapshot-agent-{unique}");
         let environment_name = format!("snapshot-env-{unique}");
         let snapshot = json!({
@@ -1455,7 +1924,7 @@ mod tests {
             "version": 7,
             "name": agent_name,
             "engine_kind": "claude",
-            "model": {"id": "snapshot-model"},
+            "model": null,
             "system": "snapshot system",
             "env": {"AGENT_LEVEL": "snapshot-agent-env"},
             "mcp_servers": [{
@@ -1483,7 +1952,7 @@ mod tests {
                 "image_version": 1,
                 "config": {
                     "env_vars": {"ENV_LEVEL": "snapshot-env"},
-                    "secret_refs": [],
+                    "secret_refs": [snapshot_environment_credential_id.to_string()],
                     "packages": {"pip": ["snapshot-pkg"]}
                 }
             }
@@ -1531,7 +2000,7 @@ mod tests {
             .bind(&environment_name)
             .bind(json!({
                 "env_vars": {"ENV_LEVEL": "live-env", "LIVE_ONLY": "must-not-appear"},
-                "secret_refs": [],
+                "secret_refs": [live_environment_credential_id.to_string()],
                 "packages": {"pip": ["live-pkg"]}
             }))
             .execute(&pool)
@@ -1548,7 +2017,10 @@ mod tests {
             .bind(snapshot_credential_id)
             .bind(&project_id)
             .bind(format!("snapshot-credential-{unique}"))
-            .bind(json!({"ANTHROPIC_API_KEY": ENCRYPTED_HELLO_WORLD}))
+            .bind(json!({
+                "ANTHROPIC_API_KEY": "invalid-envelope-must-not-be-read",
+                "ANTHROPIC_MODEL": ENCRYPTED_HELLO_WORLD
+            }))
             .execute(&pool)
             .await
             .expect("insert snapshot test credential");
@@ -1567,6 +2039,34 @@ mod tests {
             .execute(&pool)
             .await
             .expect("insert live test credential");
+
+            for (credential_id, name, field) in [
+                (
+                    snapshot_environment_credential_id,
+                    format!("snapshot-environment-credential-{unique}"),
+                    "SNAPSHOT_ENV_SECRET",
+                ),
+                (
+                    live_environment_credential_id,
+                    format!("live-environment-credential-{unique}"),
+                    "LIVE_ENV_SECRET",
+                ),
+            ] {
+                sqlx::query(
+                    r#"
+                    INSERT INTO joysafeter_credentials
+                        (id, project_id, kind, name, data)
+                    VALUES ($1, $2, 'service', $3, $4)
+                    "#,
+                )
+                .bind(credential_id)
+                .bind(&project_id)
+                .bind(name)
+                .bind(json!({(field): "invalid-envelope-must-not-be-read"}))
+                .execute(&pool)
+                .await
+                .expect("insert environment credential");
+            }
 
             sqlx::query(
                 r#"
@@ -1610,6 +2110,8 @@ mod tests {
             .await
             .expect("insert snapshot session");
 
+            insert_ready_sandbox(&pool, sandbox_id, session_id, &project_id, 0).await;
+
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_tasks (
@@ -1631,12 +2133,12 @@ mod tests {
                 .expect("load task")
                 .expect("task exists");
             let input = HarnessInputBuilder::new(pool.clone(), false)
-                .build(&task, "sandbox-ext", SandboxId::from_uuid(Uuid::now_v7()))
+                .build(&task, "sandbox-ext", sandbox_id)
                 .await
                 .expect("build harness input");
 
             assert_eq!(input.provider, "claude");
-            assert_eq!(input.model.as_deref(), Some("snapshot-model"));
+            assert_eq!(input.model.as_deref(), Some("hello-world"));
             assert_eq!(input.system_prompt.as_deref(), Some("snapshot system"));
             assert_eq!(input.max_turns, 12);
             assert_eq!(
@@ -1649,9 +2151,31 @@ mod tests {
             );
             assert!(!input.env.contains_key("LIVE_ONLY"));
             assert!(!input.env.contains_key("LIVE_AGENT_ONLY"));
+            let access_rows = sqlx::query_as::<_, (CredentialId, String, serde_json::Value)>(
+                r#"
+                SELECT credential_id, usage, field_names
+                FROM joysafeter_credential_access_audits
+                WHERE credential_id = ANY($1)
+                ORDER BY created_at, id
+                "#,
+            )
+            .bind(
+                &[
+                    snapshot_credential_id,
+                    snapshot_environment_credential_id,
+                    live_environment_credential_id,
+                ][..],
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("load harness credential access audits");
             assert_eq!(
-                input.secrets.get("ANTHROPIC_API_KEY").map(String::as_str),
-                Some("hello-world")
+                access_rows,
+                vec![(
+                    snapshot_credential_id,
+                    "model_inference".to_string(),
+                    json!(["ANTHROPIC_MODEL"]),
+                )]
             );
             assert_eq!(
                 input.setup_commands,
@@ -1672,7 +2196,12 @@ mod tests {
             agent_id,
             session_id,
             environment_id,
-            &[snapshot_credential_id, live_credential_id],
+            &[
+                snapshot_credential_id,
+                live_credential_id,
+                snapshot_environment_credential_id,
+                live_environment_credential_id,
+            ],
         )
         .await;
         let _ = sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
@@ -1694,6 +2223,7 @@ mod tests {
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let session_id = SessionId::from_uuid(Uuid::now_v7());
         let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let file_id = FileId::from_uuid(Uuid::now_v7());
         let session_file_id = SessionResourceId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
@@ -1766,6 +2296,8 @@ mod tests {
             .await
             .expect("insert session");
 
+            insert_ready_sandbox(&pool, sandbox_id, session_id, &project_id, 0).await;
+
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_files (
@@ -1821,7 +2353,7 @@ mod tests {
                 .expect("load task")
                 .expect("task exists");
             let err = HarnessInputBuilder::new(pool.clone(), false)
-                .build(&task, "sandbox-ext", SandboxId::from_uuid(Uuid::now_v7()))
+                .build(&task, "sandbox-ext", sandbox_id)
                 .await
                 .expect_err("missing session file content must fail harness input build");
             let message = err.to_string();
@@ -1845,6 +2377,10 @@ mod tests {
             .bind(file_id)
             .execute(&pool)
             .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
         let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
             .bind(session_id)
             .execute(&pool)
@@ -1864,7 +2400,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn harness_input_resolves_session_credential_groups_for_mcp_egress() {
+    async fn harness_input_resolves_mcp_urls_without_revealing_tokens() {
         let Some(pool) = test_pool().await else {
             return;
         };
@@ -1872,6 +2408,7 @@ mod tests {
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let session_id = SessionId::from_uuid(Uuid::now_v7());
         let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let group_id = CredentialGroupId::from_uuid(Uuid::now_v7());
         let credential_id = CredentialId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
@@ -1937,7 +2474,7 @@ mod tests {
             .bind(mcp_url)
             .bind(&normalized)
             .bind(group_id)
-            .bind(json!({"token_value": ENCRYPTED_HELLO_WORLD}))
+            .bind(json!({"token_value": "invalid-envelope-must-not-be-read"}))
             .execute(&pool)
             .await
             .expect("insert mcp credential");
@@ -1981,6 +2518,8 @@ mod tests {
             .await
             .expect("insert session");
 
+            insert_ready_sandbox(&pool, sandbox_id, session_id, &project_id, 0).await;
+
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_session_credential_groups (session_id, credential_group_id)
@@ -2014,7 +2553,7 @@ mod tests {
                 .expect("load task")
                 .expect("task exists");
             let input = HarnessInputBuilder::new(pool.clone(), false)
-                .build(&task, "sandbox-ext", SandboxId::from_uuid(Uuid::now_v7()))
+                .build(&task, "sandbox-ext", sandbox_id)
                 .await
                 .expect("build harness input");
 
@@ -2025,6 +2564,17 @@ mod tests {
                 "http://mcp.vault-alias.example/api"
             );
             assert!(input.mcp_servers[0].headers.is_empty());
+            let audit_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM joysafeter_credential_access_audits WHERE credential_id = $1",
+            )
+            .bind(credential_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count MCP credential access audits");
+            assert_eq!(
+                audit_count, 0,
+                "metadata-only resolution is not material access"
+            );
         }
         .await;
 
@@ -2039,6 +2589,10 @@ mod tests {
                 .bind(session_id)
                 .execute(&pool)
                 .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
         let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
             .bind(session_id)
             .execute(&pool)
@@ -2066,7 +2620,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn harness_input_session_plaintext_credential_fails_build() {
+    async fn harness_input_session_mcp_metadata_does_not_reveal_plaintext_token() {
         let Some(pool) = test_pool().await else {
             return;
         };
@@ -2074,6 +2628,7 @@ mod tests {
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let session_id = SessionId::from_uuid(Uuid::now_v7());
         let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let group_id = CredentialGroupId::from_uuid(Uuid::now_v7());
         let credential_id = CredentialId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
@@ -2125,8 +2680,8 @@ mod tests {
             .await
             .expect("insert credential group");
 
-            // Residual plaintext must fail the harness build rather than being
-            // injected into the sandbox or egress boundary.
+            // Harness only needs the MCP URL. Token material is resolved later
+            // by the sandbox egress boundary, never while building gRPC input.
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_credentials
@@ -2185,6 +2740,8 @@ mod tests {
             .await
             .expect("insert session");
 
+            insert_ready_sandbox(&pool, sandbox_id, session_id, &project_id, 0).await;
+
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_session_credential_groups (session_id, credential_group_id)
@@ -2217,14 +2774,23 @@ mod tests {
                 .await
                 .expect("load task")
                 .expect("task exists");
-            let err = HarnessInputBuilder::new(pool.clone(), false)
-                .build(&task, "sandbox-ext", SandboxId::from_uuid(Uuid::now_v7()))
+            let input = HarnessInputBuilder::new(pool.clone(), false)
+                .build(&task, "sandbox-ext", sandbox_id)
                 .await
-                .expect_err("broken vault credential must fail harness input build");
+                .expect("MCP metadata must not reveal token material");
+            assert_eq!(input.mcp_servers.len(), 1);
             assert_eq!(
-                err.downcast_ref(),
-                Some(&CredentialRuntimeError::EnvelopeInvalid)
+                input.mcp_servers[0].url,
+                mcp_url.replace("https://", "http://")
             );
+            let access_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM joysafeter_credential_access_audits WHERE credential_id = $1",
+            )
+            .bind(credential_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count MCP access audits");
+            assert_eq!(access_count, 0);
         }
         .await;
 
@@ -2239,6 +2805,10 @@ mod tests {
                 .bind(session_id)
                 .execute(&pool)
                 .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
         let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
             .bind(session_id)
             .execute(&pool)
@@ -2264,55 +2834,6 @@ mod tests {
             .execute(&pool)
             .await;
     }
-
-    #[test]
-    fn resolve_model_uses_openai_profile_for_pi() {
-        let binding =
-            validate_runtime_secret("pi", "model", Some("openai"), Some("chat_completions"))
-                .expect("OpenAI Chat Completions must be valid for Pi");
-        let mut input = HarnessInput {
-            provider: "pi".to_string(),
-            secrets: HashMap::from([
-                ("OPENAI_MODEL".to_string(), "gpt-4.1".to_string()),
-                ("ANTHROPIC_MODEL".to_string(), "wrong-model".to_string()),
-            ]),
-            ..Default::default()
-        };
-        resolve_model_from_binding(&mut input, &binding);
-        assert_eq!(input.model.as_deref(), Some("gpt-4.1"));
-    }
-
-    #[test]
-    fn resolve_model_uses_anthropic_profile_for_pi() {
-        let binding =
-            validate_runtime_secret("pi", "model", Some("anthropic"), Some("anthropic_messages"))
-                .expect("Anthropic Messages must be valid for Pi");
-        let mut input = HarnessInput {
-            provider: "pi".to_string(),
-            secrets: HashMap::from([
-                ("OPENAI_MODEL".to_string(), "wrong-model".to_string()),
-                ("ANTHROPIC_MODEL".to_string(), "claude-opus-4.6".to_string()),
-            ]),
-            ..Default::default()
-        };
-        resolve_model_from_binding(&mut input, &binding);
-        assert_eq!(input.model.as_deref(), Some("claude-opus-4.6"));
-    }
-
-    #[test]
-    fn resolve_model_noop_when_already_set() {
-        let binding =
-            validate_runtime_secret("pi", "model", Some("openai"), Some("openai_responses"))
-                .expect("OpenAI Responses must be valid for Pi");
-        let mut input = HarnessInput {
-            provider: "pi".to_string(),
-            model: Some("preset".to_string()),
-            secrets: HashMap::from([("OPENAI_MODEL".to_string(), "gpt-4.1".to_string())]),
-            ..Default::default()
-        };
-        resolve_model_from_binding(&mut input, &binding);
-        assert_eq!(input.model.as_deref(), Some("preset"));
-    }
 }
 
 fn json_object_to_string_map(value: Option<&serde_json::Value>) -> HashMap<String, String> {
@@ -2330,16 +2851,6 @@ fn json_object_to_string_map(value: Option<&serde_json::Value>) -> HashMap<Strin
                 .collect()
         })
         .unwrap_or_default()
-}
-
-fn resolve_model_from_binding(input: &mut HarnessInput, binding: &RuntimeCredentialBinding) {
-    if input.model.is_some() || input.secrets.is_empty() {
-        return;
-    }
-
-    if let Some(model_key) = binding.model_key.as_deref() {
-        input.model = input.secrets.get(model_key).cloned();
-    }
 }
 
 fn parse_mcp_servers(value: Option<&serde_json::Value>) -> Vec<proto::McpConfig> {
@@ -2765,8 +3276,44 @@ struct SessionRepoRow {
 }
 
 #[derive(Debug, FromRow)]
-struct EnvironmentRow {
-    config: serde_json::Value,
+struct HarnessGenerationFence {
+    session_id: SessionId,
+    session_project_id: Option<String>,
+    session_status: String,
+    session_archived_at: Option<chrono::DateTime<chrono::Utc>>,
+    sandbox_session_id: Option<SessionId>,
+    sandbox_project_id: Option<String>,
+    runtime_config_status: String,
+    generation: i64,
+    applied_generation: i64,
+}
+
+impl HarnessGenerationFence {
+    fn validate(&self, sandbox_id: SandboxId) -> Result<(), RuntimeFreshnessError> {
+        if self.session_archived_at.is_some() || self.session_status == "terminated" {
+            return Err(RuntimeFreshnessError::SessionBindingInvalid {
+                session_id: self.session_id,
+                reason: "inactive session",
+            });
+        }
+        if self.sandbox_session_id != Some(self.session_id)
+            || self.sandbox_project_id != self.session_project_id
+        {
+            return Err(RuntimeFreshnessError::Conflict(format!(
+                "sandbox {sandbox_id} ownership changed"
+            )));
+        }
+        if self.applied_generation != self.generation {
+            return Err(RuntimeFreshnessError::GenerationChanged {
+                expected: self.generation,
+                actual: self.applied_generation,
+            });
+        }
+        if self.runtime_config_status != "ready" {
+            return Err(RuntimeFreshnessError::RuntimeRestartRequired { sandbox_id });
+        }
+        Ok(())
+    }
 }
 
 /// Extract custom tool names and MCP server names from agent config.

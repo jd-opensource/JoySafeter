@@ -2335,7 +2335,7 @@ mod tests {
                     .get("source_event_id")
                     .and_then(|value| value.as_str())
                     .map(str::to_string),
-                Some(interrupt_event_id.to_string())
+                Some(EventId::from_uuid(interrupt_event_id).to_string())
             );
 
             let processed_after_success: i64 =
@@ -2361,6 +2361,12 @@ mod tests {
         };
         let (agent_id, session_id) = create_agent_and_session(&pool).await;
         let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let project_id: String =
+            sqlx::query_scalar("SELECT project_id FROM joysafeter_sessions WHERE id = $1")
+                .bind(session_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load late-link session project");
 
         let result = async {
             let sandbox_config = json!({});
@@ -2383,12 +2389,22 @@ mod tests {
             let link_pool = pool.clone();
             let link_task = tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(25)).await;
-                sqlx::query("UPDATE joysafeter_sandboxes SET chat_session_id = $2 WHERE id = $1")
-                    .bind(sandbox_id)
-                    .bind(session_id)
-                    .execute(&link_pool)
-                    .await
-                    .expect("link sandbox to session");
+                sqlx::query(
+                    r#"
+                    UPDATE joysafeter_sandboxes
+                    SET chat_session_id = $2,
+                        project_id = $3,
+                        runtime_config_status = 'ready',
+                        runtime_config_applied_generation = 0
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(sandbox_id)
+                .bind(session_id)
+                .bind(&project_id)
+                .execute(&link_pool)
+                .await
+                .expect("link sandbox to session with complete runtime ownership");
             });
 
             let sent = send_setup(&pool, &bridge, sandbox_id, &tx, false)
@@ -2632,6 +2648,7 @@ mod tests {
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let session_id = SessionId::from_uuid(Uuid::now_v7());
         let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let file_id = FileId::from_uuid(Uuid::now_v7());
         let session_file_id = SessionResourceId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
@@ -2706,6 +2723,25 @@ mod tests {
 
             sqlx::query(
                 r#"
+                INSERT INTO joysafeter_sandboxes (
+                    id, external_id, provider, status, config, chat_session_id,
+                    project_id, image, runtime_config_status,
+                    runtime_config_applied_generation
+                )
+                VALUES ($1, $2, 'docker', 'running', '{}'::jsonb, $3, $4,
+                        'test-image:latest', 'ready', 0)
+                "#,
+            )
+            .bind(sandbox_id)
+            .bind(format!("grpc-harness-sandbox-{unique}"))
+            .bind(session_id)
+            .bind(&project_id)
+            .execute(&pool)
+            .await
+            .expect("insert ready sandbox");
+
+            sqlx::query(
+                r#"
                 INSERT INTO joysafeter_files (
                     id, project_id, filename, purpose, content_type, size_bytes,
                     sha256, storage_key, downloadable
@@ -2758,15 +2794,11 @@ mod tests {
                 .await
                 .expect("load task")
                 .expect("task exists");
-            let err = build_start_task_full(
-                &pool,
-                &task,
-                SandboxId::from_uuid(Uuid::now_v7()),
-                &JoySafeterConfig::from_env(),
-            )
-            .await
-            .expect_err("harness input build failure must not produce fallback StartTask")
-            .to_string();
+            let err =
+                build_start_task_full(&pool, &task, sandbox_id, &JoySafeterConfig::from_env())
+                    .await
+                    .expect_err("harness input build failure must not produce fallback StartTask")
+                    .to_string();
 
             assert!(err.contains("failed to prepare session file"), "{err}");
             assert!(err.contains(&missing_storage_key), "{err}");
@@ -2783,6 +2815,10 @@ mod tests {
             .await;
         let _ = sqlx::query("DELETE FROM joysafeter_files WHERE id = $1")
             .bind(file_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
             .execute(&pool)
             .await;
         let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")

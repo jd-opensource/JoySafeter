@@ -377,3 +377,12 @@ docker compose --profile rust-orchestrator up -d --no-build
 - 如果 sandbox 需要跨机器回连，修改 `deploy/.env` 里的 `JOYSAFETER_GRPC_PUBLIC_URL`。
 
 当前仓库只保留 `deploy/docker-compose.yml` 这一份 Compose 文件。云 Redis / 云 PostgreSQL 场景仍使用同一文件，通过 `deploy/.env` 覆盖 `POSTGRES_*`、`REDIS_URL`、镜像名、端口和 `JOYSAFETER_GRPC_PUBLIC_URL`。
+
+## 2026-08-23 凭据加密密钥轮换
+
+1. 保留 `JOYSAFETER_VAULT_ENCRYPTION_KEY`，并把新旧 v2 key 写入 `JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING`。
+2. 设置 `JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID` 为新 key ID，先运行 `backend/.venv/bin/python backend/scripts/credential_encryption_rotation.py --initialize-missing-canaries`。
+3. 部署支持 v2 的 API、worker、orchestrator；任一 key 的数据库 canary 缺失或不可解密都会拒绝启动。
+4. worker 使用 `FOR UPDATE SKIP LOCKED` 有界重包裹；也可运行 `backend/.venv/bin/python backend/scripts/credential_encryption_rotation.py --rewrap-batch 100` 查看前后库存。v2 会认证完整 `enc:v2:<key_id>:` 前缀；明文、异常 JSON 形状以及本批实际解密到的损坏信封都会失败，不会被在线任务静默改写。启动库存只校验信封格式与读 key 覆盖，不会全量解密已使用当前 key 的业务密文。
+5. 在删除任何读 key 前运行 `backend/.venv/bin/python backend/scripts/credential_encryption_rotation.py --verify-integrity --integrity-batch-size 500`。该离线模式在 PostgreSQL `REPEATABLE READ, READ ONLY` 事务内按主键游标分页，扫描 Credential `data`、OAuth `client_secret`/`refresh_token`、Task Identity 和 Repository Token 的全部非空密文，包括当前 write key；发现问题时退出码为 `1`，JSON 只包含 surface、记录 ID、字段名和稳定错误类别，不包含明文或密文。
+6. 只有库存中不再出现 `enc:v1`、`enc:legacy` 或旧 `enc:v2:<key_id>`，完整性巡检通过，且回滚窗口关闭后，才可删除旧读 key；API、worker 与 orchestrator 启动时会强制检查密钥覆盖条件。

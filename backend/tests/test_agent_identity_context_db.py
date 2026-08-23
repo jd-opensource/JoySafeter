@@ -1,3 +1,5 @@
+import uuid
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +11,7 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.models.joysafeter_task_identity import JoySafeterTaskIdentityContext
+from app.joysafeter_shared.utils.datetime import utc_now
 
 
 @pytest.mark.asyncio
@@ -69,3 +72,34 @@ async def test_auth_code_replay_is_rejected_and_task_delete_cascades(
     await db_session.commit()
     count = await db_session.scalar(select(func.count()).select_from(JoySafeterTaskIdentityContext))
     assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_terminal_task_transition_erases_unconsumed_identity_material(db_session) -> None:
+    user = AuthUser(name="Terminal Identity User", email=f"terminal-{uuid.uuid4()}@example.com")
+    agent = JoySafeterAgent(name=f"terminal-agent-{uuid.uuid4()}")
+    db_session.add_all([user, agent])
+    await db_session.flush()
+    task = JoySafeterTask(agent_id=agent.id, prompt="terminal", status="pending", user_id=user.id)
+    db_session.add(task)
+    await db_session.flush()
+    db_session.add(
+        JoySafeterTaskIdentityContext(
+            task_id=task.id,
+            project_id=None,
+            user_id=user.id,
+            credential_kind="identity_token",
+            encrypted_credential="enc:v1:still-secret",
+            captured_at=utc_now(),
+            expires_at=utc_now() + timedelta(minutes=5),
+        )
+    )
+    await db_session.commit()
+
+    task.status = "failed"
+    await db_session.commit()
+    await db_session.refresh(task)
+    identity = await db_session.get(JoySafeterTaskIdentityContext, task.id)
+
+    assert identity is not None
+    assert identity.encrypted_credential is None

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::Index;
 
@@ -104,6 +104,31 @@ pub struct CredentialRecord {
     pub normalized_server_url: Option<String>,
     pub auth_scheme: Option<String>,
     pub material: CredentialMaterial,
+}
+
+#[derive(Debug, Clone)]
+pub struct CredentialMetadataRecord {
+    pub id: CredentialId,
+    pub project_id: ProjectId,
+    pub kind: CredentialKind,
+    pub provider: Option<String>,
+    pub protocol: Option<String>,
+    pub group_id: Option<CredentialGroupId>,
+    pub server_url: Option<String>,
+    pub normalized_server_url: Option<String>,
+    pub auth_scheme: Option<String>,
+    pub material_fields: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct McpCredentialMetadataRecord {
+    pub id: CredentialId,
+    pub project_id: ProjectId,
+    pub group_id: CredentialGroupId,
+    pub server_url: String,
+    pub normalized_server_url: String,
+    pub auth_scheme: String,
+    pub material_fields: BTreeSet<String>,
 }
 
 impl fmt::Debug for CredentialRecord {

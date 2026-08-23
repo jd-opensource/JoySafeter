@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from fastapi import Depends, Request
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_api_key import JoySafeterApiKey
@@ -250,18 +250,15 @@ async def _auth_via_api_key(
 
     key_hash = _hash_api_key(raw_key)
 
-    result = await db.execute(select(JoySafeterApiKey).where(JoySafeterApiKey.key_hash == key_hash))
+    now = datetime.now(timezone.utc)
+    active_key_predicate = and_(
+        JoySafeterApiKey.key_hash == key_hash,
+        JoySafeterApiKey.revoked_at.is_(None),
+        or_(JoySafeterApiKey.expires_at.is_(None), JoySafeterApiKey.expires_at > now),
+    )
+    result = await db.execute(select(JoySafeterApiKey).where(active_key_predicate))
     api_key = result.scalar_one_or_none()
     if api_key is None:
-        return None
-
-    # Check revocation
-    if api_key.revoked_at is not None:
-        return None
-
-    # Check expiration
-    now = datetime.now(timezone.utc)
-    if api_key.expires_at is not None and api_key.expires_at < now:
         return None
 
     # The key delegates its creator's authority, so it is only valid while the
@@ -292,9 +289,35 @@ async def _auth_via_api_key(
             code="AUTH_API_KEY_ACCESS_REVOKED",
         )
 
-    # Best-effort update last_used_at (non-blocking; failures are swallowed)
+    still_active = await db.scalar(
+        select(JoySafeterApiKey.id).where(
+            JoySafeterApiKey.id == api_key.id,
+            JoySafeterApiKey.revoked_at.is_(None),
+            or_(JoySafeterApiKey.expires_at.is_(None), JoySafeterApiKey.expires_at > now),
+        )
+    )
+    if still_active is None:
+        return None
+
+    principal_id = str(api_key.id)
+    creator_id = api_key.created_by
+    organization_id = api_key.org_id
+    project_id = api_key.project_id
+    project_role = api_key.role
+
+    # Best-effort synchronous telemetry update. Use a conditional SQL update so
+    # concurrent requests cannot move the timestamp backwards, and keep the
+    # returned auth context independent from ORM expiration after rollback.
     try:
-        api_key.last_used_at = now
+        await db.execute(
+            update(JoySafeterApiKey)
+            .where(
+                JoySafeterApiKey.id == api_key.id,
+                or_(JoySafeterApiKey.last_used_at.is_(None), JoySafeterApiKey.last_used_at < now),
+            )
+            .values(last_used_at=now)
+            .execution_options(synchronize_session=False)
+        )
         await db.commit()
     except Exception:
         logger.debug("Failed to update last_used_at for API key", exc_info=True)
@@ -308,13 +331,14 @@ async def _auth_via_api_key(
     # the org role at the non-super-user baseline so effective_project_capability
     # scopes it to this project only.
     return JoySafeterAuthContext(
-        user_id=api_key.created_by,
-        org_id=api_key.org_id,
-        project_id=api_key.project_id,
+        user_id=creator_id,
+        org_id=organization_id,
+        project_id=project_id,
         role=JoySafeterRole.MEMBER,
         principal_type="api_key",
-        project_role=api_key.role,
+        project_role=project_role,
         is_super_user=False,
+        principal_id=principal_id,
     )
 
 
@@ -483,6 +507,12 @@ async def require_joysafeter_project_admin(
         raise AccessDeniedError(
             "Project admin access required",
             code="JOYSAFETER_PROJECT_ADMIN_REQUIRED",
+        )
+    if project.archived_at is not None:
+        raise ResourceConflictError(
+            "项目已归档，仅支持只读操作 / Project is archived and read-only",
+            code="PROJECT_ARCHIVED",
+            user_action="refresh",
         )
     actor_role = await project_service.get_project_member_role(project_id, ctx.user_id)
     if effective_project_capability(ctx.role, actor_role) < ProjectCapability.ADMIN:

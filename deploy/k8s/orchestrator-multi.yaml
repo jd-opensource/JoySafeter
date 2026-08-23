@@ -17,7 +17,9 @@
 #     --from-literal=REDIS_URL="redis://:pass@host:6379/0" \
 #     --from-literal=SECRET_KEY="xxx" \
 #     --from-literal=JWT_SECRET_KEY="xxx" \
-#     --from-literal=JOYSAFETER_VAULT_ENCRYPTION_KEY="xxx"
+#     --from-literal=JOYSAFETER_VAULT_ENCRYPTION_KEY="xxx" \
+#     --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING='{"active-2026-08":"xxx"}' \
+#     --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID="active-2026-08"
 #
 # 扩缩容:
 #   kubectl scale deployment joysafeter-orchestrator -n joysafeter --replicas=5

@@ -12,8 +12,13 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.joysafeter_application.credentials.application_service import (
+    CredentialGroupService,
+    CredentialService,
+)
 from app.joysafeter_application.credentials.composition import compose_credential_application
 from app.joysafeter_application.credentials.lifecycle_coordinator import CredentialLifecycleCoordinator
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_application.credentials.snapshot_service import (
     CredentialSnapshotService,
     NoPersistentDependencyScanner,
@@ -35,8 +40,6 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     CreateCredentialGroupRequest,
     CreateCredentialRequest,
 )
-from app.joysafeter_domain.services.joysafeter_credential_group_service import CredentialGroupService
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_infrastructure.credentials.dependency_scanners import (
     ActiveSessionSnapshotScanner,
     AgentVersionExecutableSnapshotScanner,
@@ -56,6 +59,12 @@ BLOCK_RESOURCE = frozenset(
     }
 )
 SHADOW_CREDENTIAL_ID = "cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f010"
+
+
+async def _no_group_dependencies(_project_id, _group_id):
+    return ()
+
+
 EXPECTED_DESCRIPTOR_MATRIX = {
     "live_agent_model_binding": (
         ReferenceSurfaceKind.LIVE_BINDING,
@@ -141,7 +150,10 @@ EXPECTED_DESCRIPTOR_MATRIX = {
 @pytest.mark.no_db
 def test_default_observation_session_uses_current_uow_bind() -> None:
     current_bind = object()
-    application = compose_credential_application(SimpleNamespace(bind=current_bind))
+    application = compose_credential_application(
+        SimpleNamespace(bind=current_bind),
+        audit_actor=CredentialAuditActor.system("test"),
+    )
 
     assert application.dependency_session_factory.kw["bind"] is current_bind
 
@@ -259,13 +271,21 @@ async def _persist_reference_path_fixture(
 
 
 def test_registry_has_complete_operation_specific_descriptor_matrix(db_session) -> None:
-    application = compose_credential_application(db_session, auto_commit=False)
+    application = compose_credential_application(
+        db_session,
+        audit_actor=CredentialAuditActor.system("test"),
+        auto_commit=False,
+    )
 
     assert _descriptor_matrix(application) == EXPECTED_DESCRIPTOR_MATRIX
 
 
 def test_composition_is_the_validated_one_to_one_assembly_point(db_session) -> None:
-    application = compose_credential_application(db_session, auto_commit=False)
+    application = compose_credential_application(
+        db_session,
+        audit_actor=CredentialAuditActor.system("test"),
+        auto_commit=False,
+    )
     registry = application.snapshot_service
 
     registry.validate_scanner_registration()
@@ -357,7 +377,9 @@ async def test_enforce_resource_lifecycle_never_calls_legacy_repository_dependen
         expire_on_commit=False,
         autoflush=False,
     )
-    service = CredentialService(db_session, dependency_session_factory=observation_factory)
+    service = CredentialService(
+        db_session, dependency_session_factory=observation_factory, audit_actor=CredentialAuditActor.system("test")
+    )
     credential = await service.create(
         CreateCredentialRequest(
             kind="service",
@@ -394,7 +416,9 @@ async def test_enforce_group_lifecycle_never_calls_legacy_session_query(
         expire_on_commit=False,
         autoflush=False,
     )
-    service = CredentialGroupService(db_session, dependency_session_factory=observation_factory)
+    service = CredentialGroupService(
+        db_session, dependency_session_factory=observation_factory, audit_actor=CredentialAuditActor.system("test")
+    )
     group = await service.create(
         CreateCredentialGroupRequest(name=f"registry-enforce-group-{uuid.uuid4()}"),
         project_id=project_id,
@@ -440,7 +464,7 @@ async def test_real_snapshot_scanner_covers_top_level_legacy_secret_refs_by_sche
     document,
     expected_dispositions,
 ) -> None:
-    credential = await CredentialService(db_session).create(
+    credential = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="service",
             name=f"snapshot-ref-{uuid.uuid4()}",
@@ -466,7 +490,11 @@ async def test_real_snapshot_scanner_covers_top_level_legacy_secret_refs_by_sche
     db_session.add(source)
     await db_session.commit()
 
-    application = compose_credential_application(db_session, auto_commit=False)
+    application = compose_credential_application(
+        db_session,
+        audit_actor=CredentialAuditActor.system("test"),
+        auto_commit=False,
+    )
     dependencies = await application.snapshot_service.scan_resource(
         ProjectId(project_id),
         DomainCredentialId(str(credential.id)),
@@ -491,7 +519,7 @@ async def test_real_snapshot_scanner_rejects_legacy_alias_in_explicit_v2(
     document,
     scanner_type,
 ) -> None:
-    credential = await CredentialService(db_session).create(
+    credential = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="service",
             name=f"snapshot-v2-legacy-ref-{uuid.uuid4()}",
@@ -536,7 +564,7 @@ async def test_every_credential_identity_path_has_a_real_dependency_scanner_fixt
     entry,
     schema,
 ) -> None:
-    credential = await CredentialService(db_session).create(
+    credential = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="service",
             name=f"contract-path-ref-{uuid.uuid4()}",
@@ -552,7 +580,11 @@ async def test_every_credential_identity_path_has_a_real_dependency_scanner_fixt
         schema=schema,
     )
 
-    application = compose_credential_application(db_session, auto_commit=False)
+    application = compose_credential_application(
+        db_session,
+        audit_actor=CredentialAuditActor.system("test"),
+        auto_commit=False,
+    )
     dependencies = await application.snapshot_service.scan_resource(
         ProjectId(project_id),
         DomainCredentialId(str(credential.id)),
@@ -658,7 +690,7 @@ async def test_shadow_runs_old_and_new_enforces_old_and_logs_only_safe_diff(
     caplog,
 ) -> None:
     monkeypatch.setattr(settings, "credential_dependency_registry_mode", "shadow")
-    service = CredentialService(db_session)
+    service = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     credential = await service.create(
         CreateCredentialRequest(
             kind="model",
@@ -732,6 +764,7 @@ async def test_shadow_overlap_uses_independent_postgres_sessions(
     service = CredentialService(
         db_session,
         dependency_session_factory=observation_factory,
+        audit_actor=CredentialAuditActor.system("test"),
     )
     old_started = asyncio.Event()
     new_started = asyncio.Event()
@@ -755,7 +788,7 @@ async def test_shadow_overlap_uses_independent_postgres_sessions(
     monkeypatch.setattr(service._application.uow.credentials, "dependencies", overlapping_old_scan)
     monkeypatch.setattr(CredentialSnapshotService, "scan_resource", overlapping_new_scan)
 
-    await service._observe_dependency_registry(
+    await service._application.lifecycle._observe_resource(
         SHADOW_CREDENTIAL_ID,
         project_id,
         DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
@@ -803,6 +836,7 @@ async def test_shadow_observation_session_is_read_only_and_closed(monkeypatch) -
     service = CredentialService(
         db=SimpleNamespace(),
         dependency_session_factory=ObservationFactory(),
+        audit_actor=CredentialAuditActor.system("test"),
     )
 
     async def old_scan(credential_id, project_id):
@@ -814,7 +848,7 @@ async def test_shadow_observation_session_is_read_only_and_closed(monkeypatch) -
     monkeypatch.setattr(service._application.uow.credentials, "dependencies", old_scan)
     monkeypatch.setattr(CredentialSnapshotService, "scan_resource", new_scan)
 
-    await service._observe_dependency_registry(
+    await service._application.lifecycle._observe_resource(
         SHADOW_CREDENTIAL_ID,
         "project-id",
         DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
@@ -851,16 +885,21 @@ async def test_shadow_new_scanner_failure_cannot_change_old_result_or_leak_paylo
         async def archive(self, credential_id, project_id):
             return SimpleNamespace(archived_at="legacy-result")
 
-    service = CredentialService.__new__(CredentialService)
-    service._application = SimpleNamespace(
-        uow=SimpleNamespace(credentials=LegacyRepository()),
+    lifecycle = CredentialLifecycleCoordinator(
+        SimpleNamespace(credentials=LegacyRepository()),
+        SimpleNamespace(),
         scan_resource_dependencies=FailingRegistry().scan_resource,
+        scan_group_dependencies=_no_group_dependencies,
     )
-    service._service = LegacyResourceService()
 
     caplog.set_level(logging.INFO)
 
-    archived = await service.archive(SHADOW_CREDENTIAL_ID, project_id="project-id")
+    await lifecycle._observe_resource(
+        SHADOW_CREDENTIAL_ID,
+        "project-id",
+        DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
+    )
+    archived = await LegacyResourceService().archive(SHADOW_CREDENTIAL_ID, project_id="project-id")
 
     assert archived.archived_at is not None
     logs = "\n".join(record.getMessage() for record in caplog.records).lower()
@@ -883,15 +922,15 @@ async def test_shadow_old_scanner_failure_remains_authoritative(monkeypatch) -> 
         async def scan_resource(self, scan_project_id, scan_credential_id):
             return ()
 
-    service = CredentialService.__new__(CredentialService)
-    service._application = SimpleNamespace(
-        uow=SimpleNamespace(credentials=LegacyRepository()),
+    lifecycle = CredentialLifecycleCoordinator(
+        SimpleNamespace(credentials=LegacyRepository()),
+        SimpleNamespace(),
         scan_resource_dependencies=ObservationRegistry().scan_resource,
+        scan_group_dependencies=_no_group_dependencies,
     )
-    service._service = SimpleNamespace()
 
     with pytest.raises(RuntimeError) as exc_info:
-        await service._observe_dependency_registry(
+        await lifecycle._observe_resource(
             SHADOW_CREDENTIAL_ID,
             "project-id",
             DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
@@ -913,14 +952,15 @@ async def test_shadow_child_cancelled_error_propagates(monkeypatch) -> None:
         async def scan_resource(self, scan_project_id, scan_credential_id):
             raise asyncio.CancelledError
 
-    service = CredentialService.__new__(CredentialService)
-    service._application = SimpleNamespace(
-        uow=SimpleNamespace(credentials=LegacyRepository()),
+    lifecycle = CredentialLifecycleCoordinator(
+        SimpleNamespace(credentials=LegacyRepository()),
+        SimpleNamespace(),
         scan_resource_dependencies=CancelledRegistry().scan_resource,
+        scan_group_dependencies=_no_group_dependencies,
     )
 
     with pytest.raises(asyncio.CancelledError):
-        await service._observe_dependency_registry(
+        await lifecycle._observe_resource(
             SHADOW_CREDENTIAL_ID,
             "project-id",
             DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
@@ -943,13 +983,14 @@ async def test_shadow_parent_task_cancellation_propagates(monkeypatch) -> None:
         async def scan_resource(self, scan_project_id, scan_credential_id):
             await wait_forever.wait()
 
-    service = CredentialService.__new__(CredentialService)
-    service._application = SimpleNamespace(
-        uow=SimpleNamespace(credentials=LegacyRepository()),
+    lifecycle = CredentialLifecycleCoordinator(
+        SimpleNamespace(credentials=LegacyRepository()),
+        SimpleNamespace(),
         scan_resource_dependencies=ObservationRegistry().scan_resource,
+        scan_group_dependencies=_no_group_dependencies,
     )
     observation = asyncio.create_task(
-        service._observe_dependency_registry(
+        lifecycle._observe_resource(
             SHADOW_CREDENTIAL_ID,
             "project-id",
             DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,

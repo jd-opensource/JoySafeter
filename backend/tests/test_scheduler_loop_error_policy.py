@@ -30,6 +30,9 @@ class _FakeSession:
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
+    async def commit(self):
+        return None
+
 
 def _fake_session_factory():
     return _FakeSession()
@@ -124,6 +127,36 @@ def _install_common(monkeypatch, *, claimed, captured):
     )
 
 
+@pytest.mark.asyncio
+async def test_tick_runs_sensitive_material_cleanup_without_blocking_trigger_claim(monkeypatch):
+    captured: list = []
+    _install_common(monkeypatch, claimed=[], captured=captured)
+    task_identity_cleanup_calls: list[int] = []
+    repository_token_cleanup_calls: list[int] = []
+
+    async def cleanup_task_identity(db, *, limit):
+        task_identity_cleanup_calls.append(limit)
+        return 2
+
+    async def cleanup_repository_token(db, *, limit):
+        repository_token_cleanup_calls.append(limit)
+        return 3
+
+    monkeypatch.setattr(
+        "app.joysafeter_worker.scheduler.loop.erase_expired_task_identity_material",
+        cleanup_task_identity,
+    )
+    monkeypatch.setattr(
+        "app.joysafeter_worker.scheduler.loop.erase_expired_repository_token_material",
+        cleanup_repository_token,
+    )
+
+    await SchedulerLoop(worker_id="cleanup-worker")._tick()
+
+    assert task_identity_cleanup_calls == [100]
+    assert repository_token_cleanup_calls == [100]
+
+
 def _trigger():
     return SimpleNamespace(id=uuid4(), next_run_at=datetime.now(timezone.utc), pending_slot_at=None)
 
@@ -208,7 +241,10 @@ async def test_idempotent_slot_precheck_skips_auto_session_creation(monkeypatch)
 
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.AsyncSessionLocal", _fake_session_factory)
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.TaskSubmissionService", _FakeSubmission)
-    monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.JoySafeterAgentService", _FakeAgentService)
+    monkeypatch.setattr(
+        "app.joysafeter_worker.scheduler.loop.compose_agent_application",
+        lambda _db: SimpleNamespace(queries=_FakeAgentService(_db)),
+    )
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.EnvironmentService", _FakeEnvironmentService)
     monkeypatch.setattr("app.joysafeter_worker.scheduler.loop.SessionService", _ExplodingSessionService)
     _patch_claim(monkeypatch, trigger)

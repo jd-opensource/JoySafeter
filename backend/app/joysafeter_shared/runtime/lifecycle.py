@@ -11,16 +11,23 @@ from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.config.service_role import current_role
 from app.joysafeter_shared.config.settings import settings
-from app.joysafeter_shared.database import close_db, engine
+from app.joysafeter_shared.database import AsyncSessionLocal, close_db, engine
 from app.joysafeter_shared.observation.otel.global_provider import init_global_provider
 from app.joysafeter_shared.observation.otel.provider import init_global_processors
 from app.joysafeter_shared.security.credential_cipher import CredentialCipher
+from app.joysafeter_shared.security.credential_encryption_canary import (
+    validate_credential_encryption_canaries,
+)
 
 
 def validate_credential_encryption_configuration() -> None:
     from app.joysafeter_shared.config.settings import joysafeter_config
 
-    CredentialCipher(joysafeter_config.vault_encryption_key).require_enabled()
+    CredentialCipher(
+        joysafeter_config.vault_encryption_key,
+        keyring_json=joysafeter_config.credential_encryption_keyring,
+        write_key_id=joysafeter_config.credential_encryption_write_key_id,
+    ).require_enabled()
 
 
 def validate_llm_catalog_configuration() -> None:
@@ -34,6 +41,23 @@ async def _check_db_connection() -> None:
         logger.info("   Database connection check: OK")
     except Exception as e:
         logger.opt(exception=True).error(f"   Database connection check failed: {e}")
+
+
+async def validate_credential_encryption_database_state() -> None:
+    from app.joysafeter_infrastructure.sensitive_material import (
+        validate_credential_encryption_storage_coverage,
+    )
+    from app.joysafeter_shared.config.settings import joysafeter_config
+
+    cipher = CredentialCipher(
+        joysafeter_config.vault_encryption_key,
+        keyring_json=joysafeter_config.credential_encryption_keyring,
+        write_key_id=joysafeter_config.credential_encryption_write_key_id,
+    )
+    cipher.require_enabled()
+    async with AsyncSessionLocal() as db:
+        await validate_credential_encryption_canaries(db, cipher)
+        await validate_credential_encryption_storage_coverage(db, cipher)
 
 
 async def _check_redis_connection() -> None:
@@ -65,7 +89,6 @@ async def _check_docker_availability() -> None:
 
 
 async def _run_common_startup() -> None:
-    validate_credential_encryption_configuration()
     validate_llm_catalog_configuration()
     init_global_provider()
     init_global_processors()
@@ -95,6 +118,7 @@ async def _run_common_startup() -> None:
         logger.info("   Redis not configured (caching/rate-limiting disabled)")
 
     await _check_db_connection()
+    await validate_credential_encryption_database_state()
     await _check_redis_connection()
 
 

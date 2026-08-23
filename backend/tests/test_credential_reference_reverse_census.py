@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy import Column, ForeignKey, MetaData, Table
 
 from app.joysafeter_application.credentials.composition import compose_credential_application
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_domain.models import *  # noqa: F403
 from app.joysafeter_shared.database import Base
 
@@ -57,13 +58,13 @@ REGISTERED_CLASSIFICATIONS = {
     "typed_id:alembic:20260814_000001_unify_credentials:joysafeter_session_credential_groups.credential_group_id->joysafeter_credential_groups.id": {
         "session_credential_group_association"
     },
-    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L151C20-L151C56:webhook_auth_credential_id:58260fff0370": {
+    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L163C20-L163C56:webhook_auth_credential_id:58260fff0370": {
         "trigger_webhook_auth_binding"
     },
-    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L152C23-L152C61:webhook_auth_credential_id:3367698b1fc3": {
+    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L164C23-L164C61:webhook_auth_credential_id:3367698b1fc3": {
         "trigger_webhook_auth_binding"
     },
-    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L165C34-L165C110:webhook_auth_credential_id:62ee839db546": {
+    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L175C34-L175C110:webhook_auth_credential_id:62ee839db546": {
         "trigger_webhook_auth_binding"
     },
     "raw_key:backend/app/joysafeter_domain/triggers/providers/webhook.py:<module>.WebhookTriggerProvider.build_config:L16C44-L16C84:webhook_auth_credential_id:9c088451c7c5": {
@@ -91,11 +92,11 @@ AGGREGATE_INTERNAL_CLASSIFICATIONS = {
     "typed_id:alembic:20260814_000001_unify_credentials:joysafeter_credentials.project_id->joysafeter_credential_groups.project_id",
 }
 EXPECTED_PRODUCTION_RAW_KEY_SURFACES = {
-    "raw_key:backend/app/joysafeter_api/api/v1/credentials.py:<module>.get_credential:L376C1-L376C31:/{credential_id}:cb1cb666ca53",
+    "raw_key:backend/app/joysafeter_api/api/v1/credentials.py:<module>.get_credential:L363C1-L363C31:/{credential_id}:cb1cb666ca53",
     "raw_key:backend/app/joysafeter_domain/services/credential_binding_errors.py:<module>.raise_public_credential_error:L21C8-L21C63:credential_id:9c4f2e9cd651",
-    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L151C20-L151C56:webhook_auth_credential_id:58260fff0370",
-    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L152C23-L152C61:webhook_auth_credential_id:3367698b1fc3",
-    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L165C34-L165C110:webhook_auth_credential_id:62ee839db546",
+    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L163C20-L163C56:webhook_auth_credential_id:58260fff0370",
+    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L164C23-L164C61:webhook_auth_credential_id:3367698b1fc3",
+    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L175C34-L175C110:webhook_auth_credential_id:62ee839db546",
     "raw_key:backend/app/joysafeter_domain/triggers/providers/webhook.py:<module>.WebhookTriggerProvider.build_config:L16C44-L16C84:webhook_auth_credential_id:9c088451c7c5",
 }
 
@@ -1384,7 +1385,11 @@ def _production_findings() -> set[CensusFinding]:
 
 
 def test_reverse_census_independently_closes_every_production_finding(db_session) -> None:
-    application = compose_credential_application(db_session, auto_commit=False)
+    application = compose_credential_application(
+        db_session,
+        audit_actor=CredentialAuditActor.system("test"),
+        auto_commit=False,
+    )
     registered_surface_ids = {str(descriptor.surface_id) for descriptor in application.snapshot_service.descriptors}
     findings = _production_findings()
 

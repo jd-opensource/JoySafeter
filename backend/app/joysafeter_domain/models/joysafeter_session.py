@@ -70,6 +70,17 @@ class JoySafeterSession(JoySafeterBaseModel):
     last_work_dir: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_sandbox_id: Mapped[Optional[SandboxId]] = mapped_column(EntityIdType(SandboxId), nullable=True)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    runtime_config_generation: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    runtime_config_generation_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    runtime_config_generation_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
     events: Mapped[list["JoySafeterSessionEvent"]] = relationship(
         back_populates="session",

@@ -32,6 +32,12 @@ class JoySafeterTaskIdentityContext(Base, TimestampMixin):
             unique=True,
             postgresql_where=text("credential_kind = 'auth_code'"),
         ),
+        Index(
+            "ix_task_identity_pending_expiry",
+            "expires_at",
+            "task_id",
+            postgresql_where=text("encrypted_credential IS NOT NULL"),
+        ),
     )
 
     task_id: Mapped[TaskId] = mapped_column(
@@ -48,3 +54,4 @@ class JoySafeterTaskIdentityContext(Base, TimestampMixin):
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    erased_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

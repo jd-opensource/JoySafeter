@@ -3,7 +3,7 @@ use std::fmt;
 use serde_json::{Map, Value};
 
 use super::error::CredentialRuntimeError;
-use super::record::{CredentialKind, CredentialRecord};
+use super::record::{CredentialKind, CredentialMetadataRecord, CredentialRecord};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServiceUsage<'a> {
@@ -58,4 +58,19 @@ pub fn resolve_service_credential(
             record.material.require(field)?.to_string(),
         )),
     }
+}
+
+pub fn validate_service_credential_metadata(
+    record: &CredentialMetadataRecord,
+    usage: ServiceUsage<'_>,
+) -> Result<(), CredentialRuntimeError> {
+    if record.kind != CredentialKind::Service {
+        return Err(CredentialRuntimeError::KindMismatch);
+    }
+    if let ServiceUsage::HttpEgressField { field } = usage {
+        if !record.material_fields.contains(field) {
+            return Err(CredentialRuntimeError::FieldMissing);
+        }
+    }
+    Ok(())
 }

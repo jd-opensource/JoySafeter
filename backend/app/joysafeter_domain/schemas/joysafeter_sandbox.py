@@ -64,5 +64,8 @@ class SandboxResponse(BaseModel):
     created_at: datetime
     destroyed_at: Optional[datetime] = None
     workspace_path: Optional[str] = None
+    runtime_config_status: str = "ready"
+    runtime_config_last_reason: Optional[str] = None
+    runtime_config_required_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)

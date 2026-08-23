@@ -7,6 +7,7 @@ use crate::kernel::credentials::reference::{decode_environment, decode_snapshot}
 
 #[derive(Debug, Clone)]
 pub struct SnapshotEnvironment {
+    pub reference: Option<String>,
     pub config: Value,
     pub image_tag: Option<String>,
 }
@@ -105,7 +106,19 @@ pub fn environment_for_execution(
         .get("image_tag")
         .and_then(|value| value.as_str())
         .map(ToOwned::to_owned);
-    Some(SnapshotEnvironment { config, image_tag })
+    let reference = ["id", "ref", "name"].into_iter().find_map(|key| {
+        environment
+            .get(key)
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+    });
+    Some(SnapshotEnvironment {
+        reference,
+        config,
+        image_tag,
+    })
 }
 
 fn snapshot_value_override(snapshot: Option<&Value>, key: &str) -> Option<Option<Value>> {
@@ -195,7 +208,10 @@ mod tests {
     use serde_json::json;
     use uuid::Uuid;
 
-    use super::{agent_for_execution, environment_credential_ids, snapshot_credential_id_override};
+    use super::{
+        agent_for_execution, environment_credential_ids, environment_for_execution,
+        snapshot_credential_id_override,
+    };
     use crate::db::models::{JoySafeterAgent, JoySafeterSession};
     use crate::ids::{AgentId, SessionId};
 
@@ -235,6 +251,9 @@ mod tests {
             last_harness_session_id: None,
             last_work_dir: None,
             environment_ref: None,
+            runtime_config_generation: 0,
+            runtime_config_generation_reason: None,
+            runtime_config_generation_updated_at: None,
         };
 
         let execution_agent = agent_for_execution(Some(live_agent), Some(&session))
@@ -274,5 +293,33 @@ mod tests {
             .expect_err("bare UUID in persisted environment must fail");
 
         assert!(error.to_string().contains("secret_refs"));
+    }
+
+    #[test]
+    fn snapshot_environment_reference_skips_null_id_for_legacy_ref() {
+        let session = JoySafeterSession {
+            id: SessionId::from_uuid(Uuid::now_v7()),
+            agent_id: None,
+            project_id: Some("project".to_string()),
+            status: "idle".to_string(),
+            agent_version: None,
+            agent_snapshot: Some(json!({
+                "environment": {
+                    "id": null,
+                    "ref": "legacy-environment",
+                    "config": {"env_vars": {"FROZEN": "yes"}}
+                }
+            })),
+            last_harness_session_id: None,
+            last_work_dir: None,
+            environment_ref: None,
+            runtime_config_generation: 0,
+            runtime_config_generation_reason: None,
+            runtime_config_generation_updated_at: None,
+        };
+
+        let environment = environment_for_execution(Some(&session)).expect("snapshot environment");
+
+        assert_eq!(environment.reference.as_deref(), Some("legacy-environment"));
     }
 }

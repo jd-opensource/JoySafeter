@@ -13,10 +13,20 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.joysafeter_application.agents import compose_agent_application
+from app.joysafeter_application.credentials.application_service import (
+    CredentialGroupService,
+    CredentialService,
+)
 from app.joysafeter_application.credentials.composition import compose_credential_application
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.credentials.snapshot_service import CreateCredentialAwareSession
+from app.joysafeter_application.sessions.creation_service import SessionCreationService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
+from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_security_audit_log import SecurityAuditLog
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterCreateAgentRequest,
@@ -27,12 +37,8 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     CreateCredentialGroupRequest,
     CreateCredentialRequest,
 )
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
-from app.joysafeter_domain.services.joysafeter_credential_group_service import (
-    CredentialGroupService,
-)
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_shared.common.app_errors import AppError
+from app.joysafeter_shared.ids import EnvironmentId
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -67,7 +73,7 @@ async def project_id(db_session: AsyncSession) -> str:
 
 
 async def _model_credential(db: AsyncSession, project_id: str):
-    return await CredentialService(db).create(
+    return await CredentialService(db, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="model",
             name=f"snapshot-model-{uuid.uuid4()}",
@@ -86,7 +92,7 @@ async def _agent(
     model_credential_id=None,
     mcp_servers: list[dict[str, str]] | None = None,
 ):
-    return await JoySafeterAgentService(db).create_agent(
+    return await compose_agent_application(db).commands.create_agent(
         JoySafeterCreateAgentRequest(
             name=f"snapshot-agent-{uuid.uuid4()}",
             engine_kind=JoySafeterEngineKind.CLAUDE,
@@ -98,13 +104,22 @@ async def _agent(
 
 
 async def _group(db: AsyncSession, project_id: str):
-    return await CredentialGroupService(db).create(
+    return await CredentialGroupService(db, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialGroupRequest(name=f"snapshot-group-{uuid.uuid4()}"),
         project_id=project_id,
     )
 
 
-def _command(command_type, *, project_id: str, agent, pinned_version=None, group_ids=()):
+def _command(
+    command_type,
+    *,
+    project_id: str,
+    agent,
+    pinned_version=None,
+    group_ids=(),
+    environment_config_overlay=None,
+    environment_mount_resources=(),
+):
     return command_type(
         project_id=project_id,
         agent_id=agent.id,
@@ -114,7 +129,118 @@ def _command(command_type, *, project_id: str, agent, pinned_version=None, group
         title="Credential snapshot linearization",
         metadata={"caller": "test"},
         caller="test",
+        environment_config_overlay=environment_config_overlay,
+        environment_mount_resources=environment_mount_resources,
     )
+
+
+async def _environment(
+    db: AsyncSession,
+    *,
+    project_id: str | None,
+    archived: bool = False,
+    deleted: bool = False,
+) -> JoySafeterEnvironment:
+    now = datetime.now(timezone.utc)
+    environment = JoySafeterEnvironment(
+        project_id=project_id,
+        name=f"snapshot-environment-{uuid.uuid4()}",
+        description="",
+        config={},
+        image_version=1,
+        archived_at=now if archived else None,
+        deleted_at=now if deleted else None,
+    )
+    db.add(environment)
+    await db.commit()
+    return environment
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("case", "expected_code"),
+    [
+        ("missing", "SESSION_ENVIRONMENT_NOT_FOUND"),
+        ("cross_project", "SESSION_ENVIRONMENT_NOT_FOUND"),
+        ("archived", "ENVIRONMENT_ARCHIVED"),
+        ("deleted", "SESSION_ENVIRONMENT_NOT_FOUND"),
+    ],
+)
+async def test_session_creation_validates_canonical_environment_binding(
+    db_session: AsyncSession,
+    project_id: str,
+    case: str,
+    expected_code: str,
+) -> None:
+    agent = await _agent(db_session, project_id)
+    if case == "missing":
+        environment_id = EnvironmentId.new()
+    elif case == "cross_project":
+        environment_id = (await _environment(db_session, project_id=await _make_project(db_session))).id
+    else:
+        environment_id = (
+            await _environment(
+                db_session,
+                project_id=project_id,
+                archived=case == "archived",
+                deleted=case == "deleted",
+            )
+        ).id
+
+    with pytest.raises(AppError) as exc_info:
+        await SessionCreationService(db_session, audit_actor=CredentialAuditActor.system("test")).create_from_source(
+            CreateCredentialAwareSession(
+                project_id=project_id,
+                agent_id=agent.id,
+                environment_ref=str(environment_id),
+                caller="test",
+            )
+        )
+
+    assert exc_info.value.code == expected_code
+    assert await db_session.scalar(select(func.count()).select_from(JoySafeterSession)) == 0
+
+
+@pytest.mark.asyncio
+async def test_two_created_sessions_isolate_nested_overlay_and_typed_mounts(
+    db_session: AsyncSession,
+    project_id: str,
+) -> None:
+    command_type, create = _snapshot_api()
+    agent = await _agent(db_session, project_id)
+    overlay = {"packages": {"apt": ["git"]}, "env_vars": {"MODE": "test"}}
+    mounts = ({"type": "storage", "name": "data", "volume_ref": "volume", "mount_path": "/workspace/data"},)
+    first_command = _command(
+        command_type,
+        project_id=project_id,
+        agent=agent,
+        environment_config_overlay=overlay,
+        environment_mount_resources=mounts,
+    )
+    second_command = _command(
+        command_type,
+        project_id=project_id,
+        agent=agent,
+        environment_config_overlay=overlay,
+        environment_mount_resources=mounts,
+    )
+    first_command.environment_config_overlay["packages"]["apt"].append("curl")
+    first_command.environment_mount_resources[0]["name"] = "first-only"
+
+    application = compose_credential_application(
+        db_session,
+        audit_actor=CredentialAuditActor.system("test"),
+        auto_commit=False,
+    )
+    first = await create(first_command, application.uow)
+    second = await create(second_command, application.uow)
+
+    first_config = first.agent_snapshot["environment"]["config"]
+    second_config = second.agent_snapshot["environment"]["config"]
+    assert first_config["packages"]["apt"] == ["git", "curl"]
+    assert second_config["packages"]["apt"] == ["git"]
+    assert first_config["mount_resources"][0]["name"] == "first-only"
+    assert second_config["mount_resources"][0]["name"] == "data"
 
 
 def _production_create_session_calls(path: Path) -> list[ast.Call]:
@@ -130,7 +256,7 @@ def test_snapshot_callers_submit_source_commands_and_scheduler_uses_kernel_servi
     python_paths = (
         ROOT / "app/joysafeter_api/api/v1/sessions.py",
         ROOT / "app/joysafeter_api/api/v1/tasks.py",
-        ROOT / "app/joysafeter_domain/services/agent_trigger_execution.py",
+        ROOT / "app/joysafeter_application/triggers/execution_service.py",
     )
     forbidden = []
     for path in python_paths:
@@ -206,9 +332,15 @@ async def test_pinned_agent_version_revalidates_credential_and_creates_no_sessio
         .values(model_credential_id=None, updated_at=datetime.now(timezone.utc))
     )
     await db_session.commit()
-    await getattr(CredentialService(db_session), lifecycle)(credential.id, project_id=project_id)
+    await getattr(CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")), lifecycle)(
+        credential.id, project_id=project_id
+    )
 
-    application = compose_credential_application(db_session, auto_commit=False)
+    application = compose_credential_application(
+        db_session,
+        audit_actor=CredentialAuditActor.system("test"),
+        auto_commit=False,
+    )
     with pytest.raises(AppError) as exc:
         await create(
             _command(command_type, project_id=project_id, agent=agent, pinned_version=1),
@@ -241,16 +373,33 @@ async def test_pinned_explicit_v2_agent_version_persists_new_session_as_v1(
     version.snapshot = explicit_v2
     await db_session.commit()
 
-    application = compose_credential_application(db_session, auto_commit=False)
-    session = await create(
-        _command(command_type, project_id=project_id, agent=agent, pinned_version=1),
-        application.uow,
+    actor = CredentialAuditActor(
+        user_id="snapshot-user",
+        principal_type="api_key",
+        principal_id="snapshot-key",
+        ip_address="203.0.113.20",
+        user_agent="snapshot-test/1.0",
+    )
+    session = await SessionCreationService(db_session, audit_actor=actor).create_from_source(
+        _command(command_type, project_id=project_id, agent=agent, pinned_version=1)
     )
     await db_session.refresh(session)
 
     assert session.agent_snapshot["schema"] == "joysafeter.agent_execution_snapshot.v1"
     assert session.agent_snapshot["secret_refs"] == []
     assert "environment_credential_ids" not in session.agent_snapshot
+    audit = await db_session.scalar(
+        select(SecurityAuditLog).where(
+            SecurityAuditLog.event_type == "session.snapshot.created",
+            SecurityAuditLog.details["target_id"].astext == str(session.id),
+        )
+    )
+    assert audit is not None
+    assert audit.user_id == "snapshot-user"
+    assert audit.ip_address == "203.0.113.20"
+    assert audit.user_agent == "snapshot-test/1.0"
+    assert audit.details["principal_type"] == "api_key"
+    assert audit.details["principal_id"] == "snapshot-key"
 
 
 async def _pause_after_locked_source(application, locked: asyncio.Event, release: asyncio.Event) -> None:
@@ -292,14 +441,20 @@ async def test_snapshot_create_serializes_against_credential_archive(
     locked, release = asyncio.Event(), asyncio.Event()
     try:
         async with factory() as create_db, factory() as archive_db:
-            application = compose_credential_application(create_db, auto_commit=False)
+            application = compose_credential_application(
+                create_db,
+                audit_actor=CredentialAuditActor.system("test"),
+                auto_commit=False,
+            )
             await _pause_after_locked_credentials(application, locked, release)
             create_task = asyncio.create_task(
                 create(_command(command_type, project_id=project_id, agent=agent), application.uow)
             )
             await asyncio.wait_for(locked.wait(), timeout=2)
             archive_task = asyncio.create_task(
-                CredentialService(archive_db).archive(credential.id, project_id=project_id)
+                CredentialService(archive_db, audit_actor=CredentialAuditActor.system("test")).archive(
+                    credential.id, project_id=project_id
+                )
             )
             await asyncio.sleep(0.1)
             assert not archive_task.done()
@@ -330,7 +485,11 @@ async def test_snapshot_create_serializes_against_group_archive(
     locked, release = asyncio.Event(), asyncio.Event()
     try:
         async with factory() as create_db, factory() as archive_db:
-            application = compose_credential_application(create_db, auto_commit=False)
+            application = compose_credential_application(
+                create_db,
+                audit_actor=CredentialAuditActor.system("test"),
+                auto_commit=False,
+            )
             await _pause_after_locked_source(application, locked, release)
             create_task = asyncio.create_task(
                 create(
@@ -340,7 +499,9 @@ async def test_snapshot_create_serializes_against_group_archive(
             )
             await asyncio.wait_for(locked.wait(), timeout=2)
             archive_task = asyncio.create_task(
-                CredentialGroupService(archive_db).archive(group.id, project_id=project_id)
+                CredentialGroupService(archive_db, audit_actor=CredentialAuditActor.system("test")).archive(
+                    group.id, project_id=project_id
+                )
             )
             await asyncio.sleep(0.1)
             assert not archive_task.done()
@@ -376,7 +537,11 @@ async def test_group_member_mutation_cannot_cross_session_snapshot_boundary(
     locked, release = asyncio.Event(), asyncio.Event()
     try:
         async with factory() as create_db, factory() as mutate_db:
-            application = compose_credential_application(create_db, auto_commit=False)
+            application = compose_credential_application(
+                create_db,
+                audit_actor=CredentialAuditActor.system("test"),
+                auto_commit=False,
+            )
             await _pause_after_locked_source(application, locked, release)
             create_task = asyncio.create_task(
                 create(
@@ -386,7 +551,7 @@ async def test_group_member_mutation_cannot_cross_session_snapshot_boundary(
             )
             await asyncio.wait_for(locked.wait(), timeout=2)
             mutation_task = asyncio.create_task(
-                CredentialGroupService(mutate_db).add_credential(
+                CredentialGroupService(mutate_db, audit_actor=CredentialAuditActor.system("test")).add_credential(
                     group.id,
                     AddGroupCredentialRequest(
                         name=f"racing-member-{uuid.uuid4()}",
@@ -426,7 +591,11 @@ async def test_stale_prelock_references_retry_and_persist_reread_snapshot(
     preloaded, release = asyncio.Event(), asyncio.Event()
     try:
         async with factory() as create_db, factory() as mutate_db:
-            application = compose_credential_application(create_db, auto_commit=False)
+            application = compose_credential_application(
+                create_db,
+                audit_actor=CredentialAuditActor.system("test"),
+                auto_commit=False,
+            )
             original = application.uow.sources.load
             pre_reads = 0
 
@@ -479,7 +648,11 @@ async def test_unrelated_agent_metadata_churn_uses_locked_source_without_retry(
     preloaded, release = asyncio.Event(), asyncio.Event()
     try:
         async with factory() as create_db, factory() as mutate_db:
-            application = compose_credential_application(create_db, auto_commit=False)
+            application = compose_credential_application(
+                create_db,
+                audit_actor=CredentialAuditActor.system("test"),
+                auto_commit=False,
+            )
             original = application.uow.sources.load
             pre_reads = 0
 
@@ -524,7 +697,11 @@ async def test_refresh_failure_rolls_back_before_snapshot_commit(
 ) -> None:
     command_type, create = _snapshot_api()
     agent = await _agent(db_session, project_id)
-    application = compose_credential_application(db_session, auto_commit=False)
+    application = compose_credential_application(
+        db_session,
+        audit_actor=CredentialAuditActor.system("test"),
+        auto_commit=False,
+    )
 
     async def fail_refresh(_session):
         raise RuntimeError("injected refresh failure")

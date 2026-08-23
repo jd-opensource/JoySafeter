@@ -8,16 +8,16 @@ from typing import Annotated, Literal, Optional, cast
 from fastapi import APIRouter, Body, Depends, Header, Query, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from loguru import logger
-from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, model_validator
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
+from app.joysafeter_application.api_keys import ApiKeyRevokeResult, ApiKeyService, api_key_status
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
-from app.joysafeter_domain.services.joysafeter_api_key_service import ApiKeyService
 from app.joysafeter_domain.services.joysafeter_auth_service import AuthService
 from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
 from app.joysafeter_domain.services.joysafeter_organization_service import OrganizationService
@@ -127,8 +127,11 @@ class ApiKeyResponse(BaseModel):
     name: str
     key_prefix: str
     role: str
-    created_at: Optional[str] = None
-    last_used_at: Optional[str] = None
+    status: Literal["active", "expired", "revoked"]
+    created_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
 
 
 class PaginatedApiKeysResponse(BaseModel):
@@ -138,20 +141,36 @@ class PaginatedApiKeysResponse(BaseModel):
     last_id: Optional[str] = None
 
 
-class ApiKeyCreateResponse(BaseModel):
+class ApiKeyCreateResponse(ApiKeyResponse):
     """Response for API key creation — includes the raw key (shown only once)."""
 
-    id: str
-    project_id: str
-    name: str
-    key_prefix: str
-    role: str
     raw_key: str
 
 
+def _normalize_api_key_name(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("API key name must not be blank")
+    return normalized
+
+
+ApiKeyName = Annotated[str, Field(max_length=255), AfterValidator(_normalize_api_key_name)]
+
+
 class CreateApiKeyRequest(BaseModel):
-    name: str
+    name: ApiKeyName
     role: str = "viewer"
+    expires_at: Optional[datetime] = None
+
+    @model_validator(mode="after")
+    def validate_expiry(self):
+        if self.expires_at is None:
+            return self
+        if self.expires_at.utcoffset() is None:
+            raise ValueError("expires_at must include a timezone")
+        if self.expires_at <= datetime.now(timezone.utc):
+            raise ValueError("expires_at must be in the future")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -260,9 +279,39 @@ def _api_key_to_response(key) -> ApiKeyResponse:
         name=key.name,
         key_prefix=key.key_prefix,
         role=key.role,
-        created_at=str(key.created_at) if key.created_at else None,
-        last_used_at=str(key.last_used_at) if key.last_used_at else None,
+        status=api_key_status(key).value,
+        created_at=key.created_at,
+        expires_at=key.expires_at,
+        revoked_at=key.revoked_at,
+        last_used_at=key.last_used_at,
     )
+
+
+async def _commit_api_key_audit(
+    db: AsyncSession,
+    request: Request,
+    auth_ctx: JoySafeterAuthContext,
+    *,
+    event_type: str,
+    target_id: str,
+    details: dict | None = None,
+) -> None:
+    try:
+        await audit_joysafeter_event(
+            db,
+            request,
+            auth_ctx,
+            event_type=event_type,
+            target_type="api_key",
+            target_id=target_id,
+            details=details,
+            commit=False,
+            best_effort=False,
+        )
+        await db.commit()
+    except BaseException:
+        await db.rollback()
+        raise
 
 
 def _auth_permission_error(
@@ -1185,13 +1234,13 @@ async def create_api_key(
         name=req.name,
         created_by=auth_ctx.user_id,
         role=role.value,
+        expires_at=req.expires_at,
     )
-    await audit_joysafeter_event(
+    await _commit_api_key_audit(
         db,
         request,
         auth_ctx,
         event_type="api_key.created",
-        target_type="api_key",
         target_id=str(api_key.id),
         details={"name": api_key.name, "key_prefix": api_key.key_prefix, "assigned_role": api_key.role},
     )
@@ -1201,6 +1250,11 @@ async def create_api_key(
         name=api_key.name,
         key_prefix=api_key.key_prefix,
         role=api_key.role,
+        status=api_key_status(api_key).value,
+        created_at=api_key.created_at,
+        expires_at=api_key.expires_at,
+        revoked_at=api_key.revoked_at,
+        last_used_at=api_key.last_used_at,
         raw_key=raw_key,
     )
 
@@ -1214,22 +1268,22 @@ async def revoke_api_key(
 ) -> None:
     """Revoke an API key."""
     svc = ApiKeyService(db)
-    revoked = await svc.revoke_key(key_id, auth_ctx.project_id)
-    if not revoked:
+    revoke_result = await svc.revoke_key(key_id, auth_ctx.project_id)
+    if revoke_result is ApiKeyRevokeResult.NOT_FOUND:
         raise NotFoundError(
             code="API_KEY_NOT_FOUND",
             message="API key not found",
             data={"key_id": str(key_id)},
             user_action="refresh",
         )
-    await audit_joysafeter_event(
-        db,
-        request,
-        auth_ctx,
-        event_type="api_key.revoked",
-        target_type="api_key",
-        target_id=str(key_id),
-    )
+    if revoke_result is ApiKeyRevokeResult.REVOKED:
+        await _commit_api_key_audit(
+            db,
+            request,
+            auth_ctx,
+            event_type="api_key.revoked",
+            target_id=str(key_id),
+        )
 
 
 @router.get("/projects/{project_id}/api-keys")
@@ -1271,13 +1325,13 @@ async def create_project_api_key(
         name=req.name,
         created_by=auth_ctx.user_id,
         role=role.value,
+        expires_at=req.expires_at,
     )
-    await audit_joysafeter_event(
+    await _commit_api_key_audit(
         db,
         request,
         auth_ctx,
         event_type="api_key.created",
-        target_type="api_key",
         target_id=str(api_key.id),
         details={"name": api_key.name, "key_prefix": api_key.key_prefix, "assigned_role": api_key.role},
     )
@@ -1287,6 +1341,11 @@ async def create_project_api_key(
         name=api_key.name,
         key_prefix=api_key.key_prefix,
         role=api_key.role,
+        status=api_key_status(api_key).value,
+        created_at=api_key.created_at,
+        expires_at=api_key.expires_at,
+        revoked_at=api_key.revoked_at,
+        last_used_at=api_key.last_used_at,
         raw_key=raw_key,
     )
 
@@ -1300,22 +1359,22 @@ async def revoke_project_api_key(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_project_admin),
 ) -> None:
     """Revoke an API key from the project identified by the route."""
-    revoked = await ApiKeyService(db).revoke_key(key_id, project_id)
-    if not revoked:
+    revoke_result = await ApiKeyService(db).revoke_key(key_id, project_id)
+    if revoke_result is ApiKeyRevokeResult.NOT_FOUND:
         raise NotFoundError(
             code="API_KEY_NOT_FOUND",
             message="API key not found",
             data={"key_id": str(key_id), "project_id": project_id},
             user_action="refresh",
         )
-    await audit_joysafeter_event(
-        db,
-        request,
-        auth_ctx,
-        event_type="api_key.revoked",
-        target_type="api_key",
-        target_id=str(key_id),
-    )
+    if revoke_result is ApiKeyRevokeResult.REVOKED:
+        await _commit_api_key_audit(
+            db,
+            request,
+            auth_ctx,
+            event_type="api_key.revoked",
+            target_id=str(key_id),
+        )
 
 
 # ---------------------------------------------------------------------------

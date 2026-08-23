@@ -23,10 +23,13 @@ kubectl create secret docker-registry aisec-repo-cred -n joysafeter-prod \
   --docker-username=<user> --docker-password=<pass>
 ```
 
-**2. DB / Redis / Vault 凭证** (`joysafeter-secrets-{env}`)
+**2. DB / Redis / 凭据加密配置** (`joysafeter-secrets-{env}`)
 
 Orchestrator 从 `POSTGRES_*` / `REDIS_*` 拆分字段组装连接串（密码内部自动
-URL-encode，无需手动处理 `@#!`），Vault 密钥用 `JOYSAFETER_VAULT_ENCRYPTION_KEY`。
+URL-encode，无需手动处理 `@#!`）。新部署使用
+`JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING` 与
+`JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID`；只有仍含 `enc:`/`enc:v1:` 数据的旧部署才临时保留
+`JOYSAFETER_VAULT_ENCRYPTION_KEY`。切流前必须初始化数据库 canary。
 
 ```bash
 # 预发
@@ -40,7 +43,8 @@ kubectl create secret generic joysafeter-secrets-pre -n joysafeter-pre \
   --from-literal=REDIS_PORT=6379 \
   --from-literal=REDIS_PASSWORD='<密码>' \
   --from-literal=REDIS_DB=0 \
-  --from-literal=JOYSAFETER_VAULT_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+  --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING='{"active-2026-08":"<32-byte-base64-key>"}' \
+  --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID=active-2026-08
 
 # 生产 (namespace / host / db 名替换为 prod)
 kubectl create secret generic joysafeter-secrets-prod -n joysafeter-prod \
@@ -53,7 +57,8 @@ kubectl create secret generic joysafeter-secrets-prod -n joysafeter-prod \
   --from-literal=REDIS_PORT=6379 \
   --from-literal=REDIS_PASSWORD='<密码>' \
   --from-literal=REDIS_DB=0 \
-  --from-literal=JOYSAFETER_VAULT_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+  --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING='{"active-2026-08":"<32-byte-base64-key>"}' \
+  --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID=active-2026-08
 ```
 
 > 云 Redis/PG 走 TLS 时，追加 `--from-literal=REDIS_SCHEME=rediss` /
@@ -303,7 +308,9 @@ kubectl scale deployment joysafeter-orchestrator -n joysafeter-prod --replicas=5
 | `joysafeter-secrets-{env}` | `REDIS_HOST/PORT/PASSWORD/DB` | 云 Redis 连接 |
 | `joysafeter-secrets-{env}` | `REDIS_SCHEME` | 可选, TLS 时 `rediss` |
 | `joysafeter-secrets-{env}` | `POSTGRES_SSLMODE` | 可选, 强制 SSL 时 `require` |
-| `joysafeter-secrets-{env}` | `JOYSAFETER_VAULT_ENCRYPTION_KEY` | Vault 加密密钥 |
+| `joysafeter-secrets-{env}` | `JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING` | 当前及回滚窗口内读 key 的 JSON 映射 |
+| `joysafeter-secrets-{env}` | `JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID` | 新写入使用的 key ID |
+| `joysafeter-secrets-{env}` | `JOYSAFETER_VAULT_ENCRYPTION_KEY` | 仅用于读取尚未重包裹的 `enc:`/`enc:v1:` 历史密文 |
 | `joysafeter-secrets-{env}` | `STORAGE_OSS_BUCKET/STORAGE_OSS_ENDPOINT/STORAGE_OSS_REGION` | OSS 连接参数；也可放 `orchestrator.storage.oss` |
 | `joysafeter-secrets-{env}` | `STORAGE_OSS_ACCESS_KEY/STORAGE_OSS_SECRET_KEY` | OSS 凭证；线上推荐放 Secret |
 | `joysafeter-secrets-{env}` | `STORAGE_S3_BUCKET/STORAGE_S3_ENDPOINT/STORAGE_S3_REGION` | S3 连接参数；也可放 `orchestrator.storage.s3` |

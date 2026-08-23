@@ -1,4 +1,4 @@
-"""Shared execution helpers for cron/webhook agent triggers."""
+"""Application orchestration for cron/webhook agent execution."""
 
 from __future__ import annotations
 
@@ -9,17 +9,25 @@ from typing import Any, Optional
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_application.credentials.snapshot_service import CreateCredentialAwareSession
+from app.joysafeter_application.sessions.creation_service import SessionCreationService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, SessionStatus
 from app.joysafeter_domain.models.joysafeter_task import (
     JOYSAFETER_TERMINAL_STATUSES,
     JoySafeterTask,
 )
+from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import TriggerRuntimeGate
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
-from app.joysafeter_shared.common.app_errors import ConflictError, NotFoundError, RequestValidationAppError
+from app.joysafeter_shared.common.app_errors import (
+    ConflictError,
+    NotFoundError,
+    RequestValidationAppError,
+    ResourceConflictError,
+)
 from app.joysafeter_shared.ids import SessionId, TriggerId
 
 _TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
@@ -112,13 +120,42 @@ class AgentTriggerRunResult:
 
 
 class AgentTriggerExecutor:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, *, audit_actor: CredentialAuditActor) -> None:
         self.db = db
+        self._audit_actor = audit_actor
 
     async def _lock_trigger_for_submission(self, *, trigger_id: TriggerId, project_id: Optional[str]) -> None:
         result = await self.db.execute(TriggerRuntimeGate.lock_stmt(trigger_id, project_id))
         if result.scalar_one_or_none() is None:
             raise TriggerRuntimeGate.trigger_not_found_error(trigger_id)
+
+    async def _reuse_session(
+        self,
+        session: JoySafeterSession,
+        *,
+        project_id: Optional[str],
+    ) -> tuple[JoySafeterSession, bool]:
+        environment_ref = (getattr(session, "environment_ref", None) or "").strip()
+        if environment_ref:
+            environment = await EnvironmentService(self.db).get_environment_by_ref(
+                environment_ref,
+                project_id=project_id,
+            )
+            if environment is None:
+                raise RequestValidationAppError(
+                    code="SESSION_ENVIRONMENT_NOT_FOUND",
+                    message=f"Environment not found: {environment_ref}",
+                    data={"environment_ref": environment_ref},
+                    user_action="fix_input",
+                )
+            if environment.archived_at is not None:
+                raise ResourceConflictError(
+                    code="ENVIRONMENT_ARCHIVED",
+                    message=f"Environment is archived: {environment_ref}",
+                    data={"environment_ref": environment_ref, "environment_id": str(environment.id)},
+                    user_action="refresh",
+                )
+        return session, False
 
     async def resolve_session(self, config: AgentTriggerRunConfig) -> tuple[JoySafeterSession, bool]:
         session_svc = SessionService(self.db)
@@ -148,7 +185,7 @@ class AgentTriggerExecutor:
                 )
             if session.status != SessionStatus.IDLE.value:
                 raise ConflictError(code="CONFLICT", message="Pinned session is not idle")
-            return session, False
+            return await self._reuse_session(session, project_id=config.project_id)
 
         if mode == "reuse":
             session = None
@@ -157,7 +194,7 @@ class AgentTriggerExecutor:
                 if session is not None and (session.archived_at is not None or session.agent_id != config.agent.id):
                     session = None
             if session is not None and session.status == SessionStatus.IDLE.value:
-                return session, False
+                return await self._reuse_session(session, project_id=config.project_id)
 
         keyed_value = _normalize_session_key(config.session_key) if mode == "keyed" else None
         if mode == "keyed" and keyed_value:
@@ -177,7 +214,7 @@ class AgentTriggerExecutor:
             )
             keyed_session = result.scalar_one_or_none()
             if keyed_session is not None and keyed_session.status == SessionStatus.IDLE.value:
-                return keyed_session, False
+                return await self._reuse_session(keyed_session, project_id=config.project_id)
 
         session_metadata: dict[str, Any] = {
             "trigger_source": config.source,
@@ -185,7 +222,10 @@ class AgentTriggerExecutor:
         }
         if keyed_value:
             session_metadata["trigger_session_key"] = keyed_value
-        session = await session_svc.create_session_from_source(
+        session = await SessionCreationService(
+            self.db,
+            audit_actor=self._audit_actor,
+        ).create_from_source(
             CreateCredentialAwareSession(
                 project_id=config.project_id,
                 agent_id=config.agent.id,

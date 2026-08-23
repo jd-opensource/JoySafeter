@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.joysafeter_api.api.v1.sessions import _canonical_environment_ref
+from app.joysafeter_application.credentials.snapshot_service import CreateCredentialAwareSession
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
     UpdateEnvironmentRequest,
@@ -108,3 +109,41 @@ def test_session_environment_api_ingress_classifies_names_and_entity_references(
         with pytest.raises(AppError) as exc_info:
             _canonical_environment_ref(invalid_ref)
         assert exc_info.value.code == "ENVIRONMENT_ID_INVALID"
+
+
+def test_snapshot_overlay_accepts_only_frozen_keys_and_deep_copies_inputs() -> None:
+    overlay = {
+        "type": "cloud",
+        "packages": {"apt": ["git"]},
+        "networking": {"mode": "limited"},
+        "env_vars": {"MODE": "test"},
+    }
+    mounts = ({"name": "data", "volume_ref": "volume", "mount_path": "/workspace/data"},)
+    command = CreateCredentialAwareSession(
+        project_id="project",
+        agent_id=AgentId.new(),
+        environment_config_overlay=overlay,
+        environment_mount_resources=mounts,
+    )
+
+    overlay["packages"]["apt"].append("curl")
+    mounts[0]["name"] = "mutated"
+
+    assert command.environment_config_overlay["packages"] == {"apt": ["git"]}
+    assert command.environment_mount_resources[0]["name"] == "data"
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "environment_credential_ids",
+        "secret_refs",
+        "service_credential_id",
+        "egress_services",
+        "mount_resources",
+        "future_field",
+    ],
+)
+def test_snapshot_overlay_rejects_credential_aliases_mounts_and_unknown_keys(key: str) -> None:
+    with pytest.raises(ValueError, match="environment_config_overlay"):
+        CreateCredentialAwareSession(project_id="project", agent_id=AgentId.new(), environment_config_overlay={key: []})

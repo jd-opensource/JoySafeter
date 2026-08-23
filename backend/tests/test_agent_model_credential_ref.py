@@ -19,17 +19,19 @@ from sqlalchemy.pool import NullPool
 
 from app.joysafeter_api.api.v1.agents import _agent_to_response
 from app.joysafeter_api.api.v1.model_connection_summary import load_model_connection_summaries
+from app.joysafeter_application.agents import compose_agent_application
+from app.joysafeter_application.credentials.application_service import CredentialService
 from app.joysafeter_application.credentials.composition import CredentialApplication
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterCreateAgentRequest,
     JoySafeterEngineKind,
+    JoySafeterUpdateAgentRequest,
 )
 from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.ids import CredentialId
 
@@ -60,7 +62,7 @@ async def _make_model_credential(
     data = {"API_KEY": "sk-secret"}
     if model:
         data["ANTHROPIC_MODEL" if provider == "anthropic" else "OPENAI_MODEL"] = model
-    cred = await CredentialService(db_session).create(
+    cred = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="model",
             name=f"m-{uuid.uuid4()}",
@@ -74,7 +76,7 @@ async def _make_model_credential(
 
 
 async def _make_service_credential(db_session, project_id: str) -> CredentialId:
-    cred = await CredentialService(db_session).create(
+    cred = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(kind="service", name=f"s-{uuid.uuid4()}", data={"TOKEN": "t"}),
         project_id=project_id,
     )
@@ -92,7 +94,7 @@ def _create_req(model_credential_id: CredentialId | None) -> JoySafeterCreateAge
 @pytest.mark.asyncio
 async def test_create_agent_persists_model_credential_id(db_session, project_id):
     cred_id = await _make_model_credential(db_session, project_id)
-    svc = JoySafeterAgentService(db_session)
+    svc = compose_agent_application(db_session).commands
 
     agent = await svc.create_agent(_create_req(cred_id), project_id=project_id)
 
@@ -106,7 +108,7 @@ async def test_create_agent_persists_model_credential_id(db_session, project_id)
 @pytest.mark.asyncio
 async def test_agent_response_includes_model_connection_summary(db_session, project_id):
     cred_id = await _make_model_credential(db_session, project_id, model="claude-sonnet-4-5")
-    svc = JoySafeterAgentService(db_session)
+    svc = compose_agent_application(db_session).commands
 
     agent = await svc.create_agent(_create_req(cred_id), project_id=project_id)
     summaries = await load_model_connection_summaries(db_session, [cred_id], project_id=project_id)
@@ -122,17 +124,18 @@ async def test_agent_response_includes_model_connection_summary(db_session, proj
 @pytest.mark.asyncio
 async def test_execution_snapshot_embeds_model_credential_id(db_session, project_id):
     cred_id = await _make_model_credential(db_session, project_id)
-    svc = JoySafeterAgentService(db_session)
+    application = compose_agent_application(db_session)
+    svc = application.commands
     agent = await svc.create_agent(_create_req(cred_id), project_id=project_id)
 
-    snapshot = svc.build_execution_snapshot(agent)
+    snapshot = application.queries.build_execution_snapshot(agent)
     assert snapshot["model_credential_id"] == str(cred_id)
     assert "secret_ref" not in snapshot
 
 
 @pytest.mark.asyncio
 async def test_create_agent_without_model_credential_id(db_session, project_id):
-    svc = JoySafeterAgentService(db_session)
+    svc = compose_agent_application(db_session).commands
     agent = await svc.create_agent(_create_req(None), project_id=project_id)
 
     assert agent.model_credential_id is None
@@ -141,7 +144,7 @@ async def test_create_agent_without_model_credential_id(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_create_agent_with_nonexistent_credential_raises(db_session, project_id):
-    svc = JoySafeterAgentService(db_session)
+    svc = compose_agent_application(db_session).commands
     with pytest.raises(AppError) as exc:
         await svc.create_agent(_create_req(CredentialId.new()), project_id=project_id)
     assert exc.value.code == "CREDENTIAL_NOT_FOUND"
@@ -150,7 +153,7 @@ async def test_create_agent_with_nonexistent_credential_raises(db_session, proje
 @pytest.mark.asyncio
 async def test_create_agent_with_non_model_credential_raises_kind_invalid(db_session, project_id):
     service_cred_id = await _make_service_credential(db_session, project_id)
-    svc = JoySafeterAgentService(db_session)
+    svc = compose_agent_application(db_session).commands
     with pytest.raises(AppError) as exc:
         await svc.create_agent(_create_req(service_cred_id), project_id=project_id)
     assert exc.value.code == "CREDENTIAL_KIND_INVALID"
@@ -160,7 +163,7 @@ async def test_create_agent_with_non_model_credential_raises_kind_invalid(db_ses
 async def test_create_agent_with_credential_from_other_project_raises(db_session, project_id):
     other_project = await _make_project(db_session)
     other_cred_id = await _make_model_credential(db_session, other_project)
-    svc = JoySafeterAgentService(db_session)
+    svc = compose_agent_application(db_session).commands
     with pytest.raises(AppError) as exc:
         await svc.create_agent(_create_req(other_cred_id), project_id=project_id)
     assert exc.value.code == "CREDENTIAL_NOT_FOUND"
@@ -169,12 +172,16 @@ async def test_create_agent_with_credential_from_other_project_raises(db_session
 @pytest.mark.asyncio
 async def test_create_agent_with_archived_credential_raises_state_invalid(db_session, project_id):
     credential_id = await _make_model_credential(db_session, project_id)
-    credential = await CredentialService(db_session).get(credential_id, project_id=project_id)
+    credential = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).get(
+        credential_id, project_id=project_id
+    )
     credential.archived_at = datetime.now(timezone.utc)
     await db_session.commit()
 
     with pytest.raises(AppError) as exc:
-        await JoySafeterAgentService(db_session).create_agent(_create_req(credential_id), project_id=project_id)
+        await compose_agent_application(db_session).commands.create_agent(
+            _create_req(credential_id), project_id=project_id
+        )
 
     assert exc.value.code == "CREDENTIAL_STATE_INVALID"
     assert exc.value.data == {"credential_id": str(credential_id)}
@@ -183,12 +190,15 @@ async def test_create_agent_with_archived_credential_raises_state_invalid(db_ses
 @pytest.mark.asyncio
 async def test_create_agent_with_deleted_credential_raises_not_found(db_session, project_id):
     credential_id = await _make_model_credential(db_session, project_id)
-    credential = await CredentialService(db_session).get(credential_id, project_id=project_id)
-    credential.deleted_at = datetime.now(timezone.utc)
-    await db_session.commit()
+    await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).soft_delete(
+        credential_id,
+        project_id=project_id,
+    )
 
     with pytest.raises(AppError) as exc:
-        await JoySafeterAgentService(db_session).create_agent(_create_req(credential_id), project_id=project_id)
+        await compose_agent_application(db_session).commands.create_agent(
+            _create_req(credential_id), project_id=project_id
+        )
 
     assert exc.value.code == "CREDENTIAL_NOT_FOUND"
     assert exc.value.data == {"credential_id": str(credential_id)}
@@ -204,9 +214,31 @@ async def test_create_agent_rejects_model_protocol_incompatible_with_engine(db_s
     )
 
     with pytest.raises(AppError) as exc:
-        await JoySafeterAgentService(db_session).create_agent(_create_req(credential_id), project_id=project_id)
+        await compose_agent_application(db_session).commands.create_agent(
+            _create_req(credential_id), project_id=project_id
+        )
 
     assert exc.value.code == "CREDENTIAL_KIND_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_update_agent_revalidates_retained_credential_when_engine_changes(db_session, project_id):
+    credential_id = await _make_model_credential(db_session, project_id)
+    application = compose_agent_application(db_session)
+    agent = await application.commands.create_agent(_create_req(credential_id), project_id=project_id)
+
+    with pytest.raises(AppError) as exc:
+        await application.commands.update_agent(
+            agent.id,
+            JoySafeterUpdateAgentRequest(version=agent.version, engine_kind=JoySafeterEngineKind.CODEX),
+            project_id=project_id,
+        )
+
+    assert exc.value.code == "CREDENTIAL_KIND_INVALID"
+    await db_session.refresh(agent)
+    assert agent.engine_kind == JoySafeterEngineKind.CLAUDE.value
+    assert agent.model_credential_id == credential_id
+    assert agent.version == 1
 
 
 @pytest.mark.asyncio
@@ -215,12 +247,12 @@ async def test_create_agent_rejects_disabled_engine(db_session, project_id, monk
     catalog = get_llm_catalog().model_copy(deep=True)
     catalog.engine("claude").enabled = False
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_agent_service.get_llm_catalog",
+        "app.joysafeter_infrastructure.agents.credential_binding_adapter.get_llm_catalog",
         lambda: catalog,
     )
 
     with pytest.raises(AppError) as exc:
-        await JoySafeterAgentService(db_session).create_agent(
+        await compose_agent_application(db_session).commands.create_agent(
             _create_req(credential_id),
             project_id=project_id,
         )
@@ -246,7 +278,7 @@ async def test_archive_serializes_against_concurrent_agent_binding(
 
     try:
         async with session_factory() as archive_db, session_factory() as binding_db:
-            credential_service = CredentialService(archive_db)
+            credential_service = CredentialService(archive_db, audit_actor=CredentialAuditActor.system("test"))
             archive_application = credential_service._application
             original_scan = CredentialApplication.scan_resource_dependencies
 
@@ -263,11 +295,11 @@ async def test_archive_serializes_against_concurrent_agent_binding(
                 pause_after_dependency_scan,
             )
 
-            agent_service = JoySafeterAgentService(binding_db)
+            agent_service = compose_agent_application(binding_db).commands
             original_validate = agent_service._validate_model_credential_ref
 
-            async def observe_binding_validation(candidate_id, scoped_project_id):
-                await original_validate(candidate_id, scoped_project_id)
+            async def observe_binding_validation(candidate_id, scoped_project_id, **kwargs):
+                await original_validate(candidate_id, scoped_project_id, **kwargs)
                 binding_validated.set()
 
             agent_service._validate_model_credential_ref = observe_binding_validation
@@ -301,7 +333,7 @@ async def test_archive_serializes_against_concurrent_agent_binding(
 
 def test_agent_model_binding_has_no_legacy_credential_inspection() -> None:
     source = (
-        Path(__file__).resolve().parents[1] / "app/joysafeter_domain/services/joysafeter_agent_service.py"
+        Path(__file__).resolve().parents[1] / "app/joysafeter_infrastructure/agents/credential_binding_adapter.py"
     ).read_text()
     assert "build_model_inference_policy" in source
     assert "ModelInferenceBinding(" not in source
@@ -310,6 +342,6 @@ def test_agent_model_binding_has_no_legacy_credential_inspection() -> None:
         "cred.kind",
         "cred.archived_at",
         "get_credential_data",
-        "LegacyV1MaterialProtector",
+        "VersionedMaterialProtector",
     ):
         assert forbidden not in source

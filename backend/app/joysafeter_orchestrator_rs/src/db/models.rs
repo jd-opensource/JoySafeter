@@ -83,6 +83,9 @@ pub struct JoySafeterSession {
     pub last_harness_session_id: Option<String>,
     pub last_work_dir: Option<String>,
     pub environment_ref: Option<String>,
+    pub runtime_config_generation: i64,
+    pub runtime_config_generation_reason: Option<String>,
+    pub runtime_config_generation_updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +106,10 @@ pub struct JoySafeterSandbox {
     pub networking_policy_version: i64,
     pub networking_last_error: Option<String>,
     pub networking_ready_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub runtime_config_status: String,
+    pub runtime_config_last_reason: Option<String>,
+    pub runtime_config_required_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub runtime_config_applied_generation: i64,
 }
 
 // ---------------------------------------------------------------------------

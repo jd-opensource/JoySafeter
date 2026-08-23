@@ -1,28 +1,11 @@
-import logging
 import uuid
-from typing import Any, Optional
+from typing import Optional
 
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.joysafeter_application.credentials.composition import compose_credential_application
-from app.joysafeter_application.credentials.ports import CredentialAuditEntry
-from app.joysafeter_domain.credentials.bindings import (
-    EgressInjectKind,
-    EgressInjectPolicy,
-    EnvironmentInjectionBinding,
-    HttpEgressBinding,
-)
-from app.joysafeter_domain.credentials.dependencies import CredentialImpact, DependencyDisposition
 from app.joysafeter_domain.credentials.references import CredentialReferenceCodec
-from app.joysafeter_domain.credentials.types import (
-    CredentialFieldName,
-    CredentialUsage,
-    NormalizedEndpoint,
-    ProjectId,
-)
-from app.joysafeter_domain.credentials.types import CredentialId as DomainCredentialId
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
@@ -36,47 +19,7 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
 from app.joysafeter_shared.ids import EnvironmentId, TaskId, registered_entity_id_prefix
 from app.joysafeter_shared.utils.datetime import utc_now
 
-logger = logging.getLogger(__name__)
-_IMPACT_SURFACE_PROJECT_ID = ProjectId("environment-impact-surface")
 _REFERENCE_CODEC = CredentialReferenceCodec()
-
-
-def _credential_binding_surfaces(config: dict[str, Any] | None) -> dict[CredentialUsage, frozenset[object]]:
-    decoded = _REFERENCE_CODEC.decode_environment(config or {})
-    direct = frozenset(
-        EnvironmentInjectionBinding(
-            project_id=_IMPACT_SURFACE_PROJECT_ID,
-            credential_id=DomainCredentialId(str(credential_id)),
-        )
-        for credential_id in decoded.direct_credential_ids
-    )
-    egress_bindings = {
-        HttpEgressBinding(
-            project_id=_IMPACT_SURFACE_PROJECT_ID,
-            credential_id=reference.credential_id,
-            endpoint=NormalizedEndpoint(reference.endpoint),
-            inject=EgressInjectPolicy(
-                kind=EgressInjectKind(reference.inject_kind),
-                credential_field=CredentialFieldName(reference.credential_field),
-                header=reference.header,
-                cookie_name=reference.cookie_name,
-            ),
-        )
-        for reference in decoded.http_egress
-    }
-    return {
-        CredentialUsage.ENVIRONMENT_INJECTION: direct,
-        CredentialUsage.HTTP_EGRESS: frozenset(egress_bindings),
-    }
-
-
-def _changed_credential_binding_usages(
-    old_config: dict[str, Any] | None,
-    new_config: dict[str, Any] | None,
-) -> tuple[CredentialUsage, ...]:
-    old_surfaces = _credential_binding_surfaces(old_config)
-    new_surfaces = _credential_binding_surfaces(new_config)
-    return tuple(usage for usage in CredentialUsage if old_surfaces.get(usage) != new_surfaces.get(usage))
 
 
 def _environment_ref_matches(ref: object, env_name: str, env_id: EnvironmentId) -> bool:
@@ -124,47 +67,6 @@ class EnvironmentService:
         else:
             await self.db.flush()
         return env
-
-    async def commit_update(
-        self,
-        env: JoySafeterEnvironment,
-        *,
-        project_id: str,
-        old_config: dict[str, Any] | None,
-        new_config: dict[str, Any] | None,
-    ) -> None:
-        application = compose_credential_application(self.db, auto_commit=False)
-        changed_usages = _changed_credential_binding_usages(old_config, new_config)
-        if changed_usages:
-            await application.uow.audit.append(
-                CredentialAuditEntry(
-                    action="environment.credentials.updated",
-                    project_id=project_id,
-                    target_type="environment",
-                    target_id=str(env.id),
-                    details={"environment_id": str(env.id)},
-                )
-            )
-        for usage in changed_usages:
-            await application.uow.impacts.mark_pending(
-                CredentialImpact(
-                    usage=usage,
-                    source="environment",
-                    source_id=str(env.id),
-                    reason="environment.updated",
-                    project_id=ProjectId(project_id),
-                    affected_sandbox_ids=frozenset(),
-                    affected_session_ids=frozenset(),
-                    dispositions=frozenset({DependencyDisposition.REFRESH_RUNTIME_POLICY}),
-                )
-            )
-        await application.uow.commit()
-        await self.db.refresh(env)
-        if changed_usages:
-            try:
-                await application.uow.impacts.nudge_after_commit()
-            except Exception:
-                logger.warning("environment credential impact nudge failed after commit", exc_info=True)
 
     async def get_environment(
         self, env_id: EnvironmentId, project_id: Optional[str] = None

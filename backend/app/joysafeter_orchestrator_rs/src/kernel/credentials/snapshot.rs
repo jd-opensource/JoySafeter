@@ -7,12 +7,12 @@ use crate::db::models::{JoySafeterAgent, JoySafeterSession};
 use crate::ids::{AgentId, EnvironmentId, SessionId, TaskId};
 
 use super::error::CredentialRuntimeError;
-use super::model::resolve_model_credential;
+use super::model::validate_model_credential_metadata;
 use super::record::ProjectId;
 use super::reference::{
     decode_snapshot, encode_snapshot, DecodedSnapshot, EncodeVersion, SnapshotCredentialReference,
 };
-use super::service::{resolve_service_credential, ServiceUsage};
+use super::service::{validate_service_credential_metadata, ServiceUsage};
 use super::CredentialStore;
 
 const MAX_SOURCE_ATTEMPTS: usize = 3;
@@ -191,7 +191,7 @@ async fn lock_and_validate_references(
     let mut records = Vec::with_capacity(credential_ids.len());
     for credential_id in credential_ids {
         let record = store
-            .lock_active(connection, project_id, credential_id)
+            .lock_active_metadata(connection, project_id, credential_id)
             .await?;
         records.push((credential_id, record));
     }
@@ -205,13 +205,13 @@ async fn lock_and_validate_references(
             .ok_or(CredentialRuntimeError::CorruptRecord)?;
         match reference {
             SnapshotCredentialReference::Model(_) => {
-                resolve_model_credential(record, engine_kind)?;
+                validate_model_credential_metadata(record, engine_kind)?;
             }
             SnapshotCredentialReference::Environment(_) => {
-                resolve_service_credential(record, ServiceUsage::EnvironmentInjection)?;
+                validate_service_credential_metadata(record, ServiceUsage::EnvironmentInjection)?;
             }
             SnapshotCredentialReference::HttpEgress { field, .. } => {
-                resolve_service_credential(
+                validate_service_credential_metadata(
                     record,
                     ServiceUsage::HttpEgressField {
                         field: field.as_str(),
@@ -387,9 +387,12 @@ async fn load_environment_from_connection(
 }
 
 fn build_source(
-    agent: JoySafeterAgent,
+    mut agent: JoySafeterAgent,
     environment: Option<EnvironmentSnapshot>,
 ) -> Result<SnapshotSource, CredentialRuntimeError> {
+    if let Some(ref environment) = environment {
+        agent.environment_ref = Some(environment.id.to_string());
+    }
     let mut snapshot = json!({
         "id": agent.id.to_string(),
         "version": agent.version,

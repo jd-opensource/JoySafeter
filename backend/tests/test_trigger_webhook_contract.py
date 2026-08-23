@@ -6,6 +6,8 @@ from sqlalchemy import select
 from starlette.requests import Request
 
 from app.joysafeter_api.api.v1.triggers import _webhook_delivery_id
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.triggers import TriggerApplicationService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
@@ -28,7 +30,7 @@ class _FakeQueueRedis:
         return 1
 
 
-class _StubSecretTriggerService(JoySafeterTriggerService):
+class _StubSecretTriggerService(TriggerApplicationService):
     def __init__(self, secret: str):
         self._secret = secret
         self.db = SimpleNamespace()
@@ -148,7 +150,7 @@ def test_webhook_delivery_id_ignores_transport_request_id_for_body_hash_fallback
 async def test_webhook_auth_methods_missing_or_empty_fail_closed():
     svc = _StubSecretTriggerService("s3kret")
     raw_body = b'{"kind":"wanted"}'
-    signature = f"sha256={JoySafeterTriggerService._sign('s3kret', raw_body)}"
+    signature = f"sha256={TriggerApplicationService._sign('s3kret', raw_body)}"
 
     assert not await svc.verify_webhook_auth(
         SimpleNamespace(config={}),
@@ -173,7 +175,9 @@ async def test_fire_webhook_stamps_trigger_id_for_run_history(db_session, monkey
     )
     trigger = await _seed_webhook_trigger(db_session)
 
-    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db_session).fire_webhook(
+    status, task, session_id, deduped, reason = await TriggerApplicationService(
+        db_session, credential_audit_actor=CredentialAuditActor.system("test")
+    ).fire_webhook(
         trigger,
         raw_body=b'{"kind":"wanted"}',
         payload={"body": {"kind": "wanted"}},
@@ -218,7 +222,9 @@ async def test_fire_webhook_redacts_and_bounds_persisted_last_payload(db_session
         "headers": {"content_type": "application/json"},
     }
 
-    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db_session).fire_webhook(
+    status, task, session_id, deduped, reason = await TriggerApplicationService(
+        db_session, credential_audit_actor=CredentialAuditActor.system("test")
+    ).fire_webhook(
         trigger,
         raw_body=b'{"kind":"wanted"}',
         payload=payload,
@@ -251,7 +257,9 @@ async def test_fire_webhook_bounds_oversized_external_delivery_key(db_session, m
     trigger = await _seed_webhook_trigger(db_session)
     oversized_delivery_id = "x" * 10_000
 
-    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db_session).fire_webhook(
+    status, task, session_id, deduped, reason = await TriggerApplicationService(
+        db_session, credential_audit_actor=CredentialAuditActor.system("test")
+    ).fire_webhook(
         trigger,
         raw_body=b'{"kind":"wanted"}',
         payload={"body": {"kind": "wanted"}},
@@ -277,8 +285,9 @@ async def test_fire_webhook_bounds_oversized_external_delivery_key(db_session, m
 
     reloaded_trigger = await db_session.get(JoySafeterTrigger, trigger_id)
     assert reloaded_trigger is not None
-    replay_status, replay_task, replay_session_id, replay_deduped, replay_reason = await JoySafeterTriggerService(
-        db_session
+    replay_status, replay_task, replay_session_id, replay_deduped, replay_reason = await TriggerApplicationService(
+        db_session,
+        credential_audit_actor=CredentialAuditActor.system("test"),
     ).fire_webhook(
         reloaded_trigger,
         raw_body=b'{"kind":"wanted"}',
@@ -306,7 +315,9 @@ async def test_fire_webhook_skips_when_project_triggers_paused(db_session):
     trigger.consecutive_failures = 2
     await db_session.commit()
 
-    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db_session).fire_webhook(
+    status, task, session_id, deduped, reason = await TriggerApplicationService(
+        db_session, credential_audit_actor=CredentialAuditActor.system("test")
+    ).fire_webhook(
         trigger,
         raw_body=b'{"kind":"wanted"}',
         payload={"body": {"kind": "wanted"}},
@@ -341,7 +352,9 @@ async def test_fire_webhook_filter_skip_is_not_bookkept_as_success(db_session):
     trigger.consecutive_failures = 2
     await db_session.commit()
 
-    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db_session).fire_webhook(
+    status, task, session_id, deduped, reason = await TriggerApplicationService(
+        db_session, credential_audit_actor=CredentialAuditActor.system("test")
+    ).fire_webhook(
         trigger,
         raw_body=b'{"kind":"ignored"}',
         payload={"body": {"kind": "ignored"}},
@@ -371,7 +384,9 @@ async def test_fire_webhook_skips_when_project_archived(db_session):
     project.archived_at = utc_now()
     await db_session.commit()
 
-    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db_session).fire_webhook(
+    status, task, session_id, deduped, reason = await TriggerApplicationService(
+        db_session, credential_audit_actor=CredentialAuditActor.system("test")
+    ).fire_webhook(
         trigger,
         raw_body=b'{"kind":"wanted"}',
         payload={"body": {"kind": "wanted"}},

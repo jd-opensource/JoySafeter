@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use crate::db::models::JoySafeterTask;
 use crate::ids::{SandboxId, SessionId, TaskId};
+use crate::kernel::runtime_freshness::RuntimeFreshnessError;
 
 // ---------------------------------------------------------------------------
 // Structs
@@ -112,25 +113,110 @@ pub async fn claim_next_sandbox_task(
     .await
 }
 
-/// Attach a sandbox to a task that is in 'scheduling' status.
-pub async fn attach_sandbox_to_task(
+pub async fn attach_sandbox_to_task_guarded(
     pool: &PgPool,
     task_id: TaskId,
     sandbox_id: SandboxId,
-) -> Result<bool, sqlx::Error> {
+    session_id: SessionId,
+    project_id: Option<&str>,
+    captured_generation: i64,
+) -> Result<(), RuntimeFreshnessError> {
+    let mut transaction = pool.begin().await?;
+    let session = sqlx::query_as::<
+        _,
+        (
+            Option<String>,
+            String,
+            Option<chrono::DateTime<chrono::Utc>>,
+            i64,
+        ),
+    >(
+        r#"
+        SELECT project_id, status, archived_at, runtime_config_generation
+        FROM joysafeter_sessions
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(session_id)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let Some((session_project_id, session_status, archived_at, actual_generation)) = session else {
+        return Err(RuntimeFreshnessError::SessionBindingInvalid {
+            session_id,
+            reason: "missing session",
+        });
+    };
+    if archived_at.is_some() || session_status == "terminated" {
+        return Err(RuntimeFreshnessError::SessionBindingInvalid {
+            session_id,
+            reason: "inactive session",
+        });
+    }
+    if session_project_id.as_deref() != project_id {
+        return Err(RuntimeFreshnessError::SessionBindingInvalid {
+            session_id,
+            reason: "project mismatch",
+        });
+    }
+    if actual_generation != captured_generation {
+        return Err(RuntimeFreshnessError::GenerationChanged {
+            expected: captured_generation,
+            actual: actual_generation,
+        });
+    }
+
+    let sandbox = sqlx::query_as::<_, (Option<SessionId>, Option<String>, String, i64)>(
+        r#"
+        SELECT chat_session_id, project_id, runtime_config_status,
+               runtime_config_applied_generation
+        FROM joysafeter_sandboxes
+        WHERE id = $1 AND destroyed_at IS NULL
+        FOR UPDATE
+        "#,
+    )
+    .bind(sandbox_id)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let Some((sandbox_session_id, sandbox_project_id, runtime_status, applied_generation)) =
+        sandbox
+    else {
+        return Err(RuntimeFreshnessError::Conflict(format!(
+            "sandbox {sandbox_id} is not available"
+        )));
+    };
+    if sandbox_session_id != Some(session_id) || sandbox_project_id.as_deref() != project_id {
+        return Err(RuntimeFreshnessError::Conflict(format!(
+            "sandbox {sandbox_id} ownership changed"
+        )));
+    }
+    if runtime_status != "ready" || applied_generation != actual_generation {
+        return Err(RuntimeFreshnessError::RuntimeRestartRequired { sandbox_id });
+    }
+
     let result = sqlx::query(
         r#"
         UPDATE joysafeter_tasks
         SET sandbox_id = $2, updated_at = NOW()
-        WHERE id = $1 AND status = 'scheduling'
+        WHERE id = $1
+          AND status = 'scheduling'
+          AND chat_session_id = $3
+          AND project_id IS NOT DISTINCT FROM $4
         "#,
     )
     .bind(task_id)
     .bind(sandbox_id)
-    .execute(pool)
+    .bind(session_id)
+    .bind(project_id)
+    .execute(&mut *transaction)
     .await?;
-
-    Ok(result.rows_affected() > 0)
+    if result.rows_affected() == 0 {
+        return Err(RuntimeFreshnessError::Conflict(format!(
+            "task {task_id} changed before sandbox attachment"
+        )));
+    }
+    transaction.commit().await?;
+    Ok(())
 }
 
 /// Return a claimed task to PENDING only if it is still in SCHEDULING.

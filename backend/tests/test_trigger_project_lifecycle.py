@@ -18,6 +18,10 @@ from app.joysafeter_api.api.v1.triggers import (
     run_trigger_now,
     update_trigger,
 )
+from app.joysafeter_application.agents import compose_agent_application
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.triggers.execution_service import AgentTriggerExecutor, render_prompt_template
+from app.joysafeter_application.triggers.service import TriggerApplicationService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
@@ -27,13 +31,12 @@ from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_trigger import TriggerCreateRequest, TriggerUpdateRequest
-from app.joysafeter_domain.services.agent_trigger_execution import AgentTriggerExecutor, render_prompt_template
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
 from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
 from app.joysafeter_domain.triggers.providers.base import get_provider
+from app.joysafeter_infrastructure.agents import SqlAlchemyAgentRepository
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.ids import as_uuid
@@ -277,7 +280,9 @@ async def test_update_returns_missing_when_concurrent_delete_wins(db_session, po
 
                 update_pid = (await update_session.execute(text("SELECT pg_backend_pid()"))).scalar_one()
                 update_task = asyncio.create_task(
-                    JoySafeterTriggerService(update_session).update(
+                    TriggerApplicationService(
+                        update_session, credential_audit_actor=CredentialAuditActor.system("test")
+                    ).update(
                         trigger_id,
                         project.id,
                         prompt_template="stale update after delete",
@@ -927,7 +932,7 @@ async def test_agent_archive_pauses_target_triggers_without_disabling_user_inten
     trigger.locked_at = utc_now() - timedelta(minutes=20)
     await db_session.commit()
 
-    archived, archived_session_ids = await JoySafeterAgentService(db_session).archive_agent_with_sessions(
+    archived, archived_session_ids = await compose_agent_application(db_session).lifecycle.archive_agent_with_sessions(
         agent_id,
         project_id=project.id,
     )
@@ -976,7 +981,7 @@ async def test_agent_archive_uses_trigger_then_agent_lock_order_without_schedule
             lifecycle_pid = await lifecycle_db.scalar(text("SELECT pg_backend_pid()"))
             assert lifecycle_pid is not None
             archive_future = asyncio.create_task(
-                JoySafeterAgentService(lifecycle_db).archive_agent_with_sessions(
+                compose_agent_application(lifecycle_db).lifecycle.archive_agent_with_sessions(
                     agent_id,
                     project_id=project.id,
                 )
@@ -984,7 +989,7 @@ async def test_agent_archive_uses_trigger_then_agent_lock_order_without_schedule
             await _wait_for_backend_lock_wait(db_session, pid=lifecycle_pid)
 
             locked_agent = await asyncio.wait_for(
-                JoySafeterAgentService(scheduler_db).lock_agent(agent_id, project_id=project.id),
+                SqlAlchemyAgentRepository(scheduler_db).lock(agent_id, project_id=project.id),
                 timeout=3,
             )
             assert locked_agent is not None
@@ -1047,7 +1052,7 @@ async def test_hard_delete_prelocks_mismatched_project_trigger_before_agent(
             delete_pid = await delete_db.scalar(text("SELECT pg_backend_pid()"))
             assert delete_pid is not None
             delete_future = asyncio.create_task(
-                JoySafeterAgentService(delete_db).hard_delete_agent(
+                compose_agent_application(delete_db).lifecycle.hard_delete_agent(
                     agent_id,
                     project_id=project.id,
                 )
@@ -1055,7 +1060,7 @@ async def test_hard_delete_prelocks_mismatched_project_trigger_before_agent(
             await _wait_for_backend_lock_wait(db_session, pid=delete_pid)
 
             locked_agent = await asyncio.wait_for(
-                JoySafeterAgentService(scheduler_db).lock_agent(agent_id, project_id=project.id),
+                SqlAlchemyAgentRepository(scheduler_db).lock(agent_id, project_id=project.id),
                 timeout=3,
             )
             assert locked_agent is not None
@@ -1082,7 +1087,7 @@ async def test_agent_soft_delete_pauses_target_triggers_without_disabling_user_i
     trigger.slot_attempts = 1
     await db_session.commit()
 
-    deleted = await JoySafeterAgentService(db_session).delete_agent(
+    deleted = await compose_agent_application(db_session).lifecycle.delete_agent(
         agent.id,
         project_id=project.id,
     )
@@ -1296,7 +1301,7 @@ async def test_manual_trigger_run_rejects_archived_agent_without_creating_task(d
     await db_session.commit()
 
     with pytest.raises(AppError) as exc_info:
-        await run_trigger_now(trigger_id, db_session, _admin_ctx(project.id, org.id))
+        await run_trigger_now(_fake_request(), trigger_id, db_session, _admin_ctx(project.id, org.id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "AGENT_ARCHIVED",
@@ -1344,7 +1349,9 @@ async def test_manual_fire_rechecks_deleted_trigger_before_creating_session_or_t
     assert await JoySafeterTriggerService(db_session).delete(trigger_id, project.id) is True
 
     with pytest.raises(AppError) as exc_info:
-        await JoySafeterTriggerService(db_session).fire_manual(stale_trigger)  # type: ignore[arg-type]
+        await TriggerApplicationService(
+            db_session, credential_audit_actor=CredentialAuditActor.system("test")
+        ).fire_manual(stale_trigger)  # type: ignore[arg-type]
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "TRIGGER_NOT_FOUND",
@@ -1382,7 +1389,7 @@ async def test_manual_fire_cleans_auto_session_when_trigger_deleted_after_sessio
     monkeypatch.setattr(AgentTriggerExecutor, "resolve_session", delete_trigger_after_session_create)
 
     with pytest.raises(AppError) as exc_info:
-        await run_trigger_now(trigger_id, db_session, _admin_ctx(project.id, org.id))
+        await run_trigger_now(_fake_request(), trigger_id, db_session, _admin_ctx(project.id, org.id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "TRIGGER_NOT_FOUND",
@@ -1419,7 +1426,7 @@ async def test_manual_trigger_run_skips_when_project_archived(db_session, monkey
     project.archived_at = utc_now()
     await db_session.commit()
 
-    response = await run_trigger_now(trigger_id, db_session, _admin_ctx(project.id, org.id))
+    response = await run_trigger_now(_fake_request(), trigger_id, db_session, _admin_ctx(project.id, org.id))
 
     assert response.status == "skipped"
     assert response.task_id is None
@@ -1454,7 +1461,7 @@ async def test_manual_trigger_run_skips_when_project_triggers_paused(db_session,
     project.triggers_paused = True
     await db_session.commit()
 
-    response = await run_trigger_now(trigger_id, db_session, _admin_ctx(project.id, org.id))
+    response = await run_trigger_now(_fake_request(), trigger_id, db_session, _admin_ctx(project.id, org.id))
 
     assert response.status == "skipped"
     assert response.task_id is None
@@ -1489,6 +1496,7 @@ async def test_manual_trigger_run_bounds_oversized_idempotency_header(db_session
     oversized_header = "x" * 10_000
 
     response = await run_trigger_now(
+        _fake_request(),
         trigger.id,
         db_session,
         _admin_ctx(project.id, org.id),
@@ -1507,6 +1515,7 @@ async def test_manual_trigger_run_bounds_oversized_idempotency_header(db_session
     assert len(stored_task.idempotency_key) < 260
 
     replay = await run_trigger_now(
+        _fake_request(),
         trigger.id,
         db_session,
         _admin_ctx(project.id, org.id),
@@ -1544,7 +1553,7 @@ async def test_manual_trigger_run_stores_full_execution_snapshot(db_session, mon
     trigger.environment_ref = environment_ref
     await db_session.commit()
 
-    response = await run_trigger_now(trigger.id, db_session, _admin_ctx(project.id, org.id))
+    response = await run_trigger_now(_fake_request(), trigger.id, db_session, _admin_ctx(project.id, org.id))
 
     assert response.task_id is not None
     assert response.session_id is not None
@@ -1725,7 +1734,7 @@ async def test_trigger_service_rejects_cross_project_agent_without_creating_trig
     _, other_project, other_agent = await _create_project_with_agent(db_session, name="TriggerSvcProjectB")
 
     with pytest.raises(AppError) as exc_info:
-        await JoySafeterTriggerService(db_session).create(
+        await TriggerApplicationService(db_session, credential_audit_actor=CredentialAuditActor.system("test")).create(
             name=f"cross-agent-{uuid.uuid4()}",
             type="cron",
             agent_id=other_agent.id,
@@ -1762,7 +1771,7 @@ async def test_trigger_service_create_rejects_duplicate_name_without_creating_tr
     existing = await _create_due_trigger(db_session, project=project, agent=agent, name="duplicate-create")
 
     with pytest.raises(AppError) as exc_info:
-        await JoySafeterTriggerService(db_session).create(
+        await TriggerApplicationService(db_session, credential_audit_actor=CredentialAuditActor.system("test")).create(
             name=existing.name,
             type="cron",
             agent_id=agent.id,
@@ -1797,7 +1806,7 @@ async def test_trigger_service_create_race_converts_db_unique_violation_to_confl
     existing = await _create_due_trigger(db_session, project=project, agent=agent, name="duplicate-create-race")
     existing_id = existing.id
     existing_name = existing.name
-    svc = JoySafeterTriggerService(db_session)
+    svc = TriggerApplicationService(db_session, credential_audit_actor=CredentialAuditActor.system("test"))
     real_lookup = svc.get_by_name
 
     async def _race_misses_existing_name(name: str, lookup_project_id: str | None, *, type: str | None = None):
@@ -1850,7 +1859,7 @@ async def test_trigger_service_create_global_name_race_converts_db_unique_violat
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
-    svc = JoySafeterTriggerService(db_session)
+    svc = TriggerApplicationService(db_session, credential_audit_actor=CredentialAuditActor.system("test"))
     existing = await svc.create(
         name=f"global-duplicate-{uuid.uuid4()}",
         type="cron",
@@ -1917,7 +1926,7 @@ async def test_trigger_service_rejects_cross_project_environment_without_creatin
     other_env_ref = str(other_env.id)
 
     with pytest.raises(AppError) as exc_info:
-        await JoySafeterTriggerService(db_session).create(
+        await TriggerApplicationService(db_session, credential_audit_actor=CredentialAuditActor.system("test")).create(
             name=f"cross-env-{uuid.uuid4()}",
             type="cron",
             agent_id=agent.id,
@@ -1994,7 +2003,7 @@ async def test_manual_trigger_run_rejects_archived_environment_without_creating_
     await db_session.commit()
 
     with pytest.raises(AppError) as exc_info:
-        await run_trigger_now(trigger_id, db_session, _admin_ctx(project.id, org.id))
+        await run_trigger_now(_fake_request(), trigger_id, db_session, _admin_ctx(project.id, org.id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "ENVIRONMENT_ARCHIVED",
@@ -2052,7 +2061,7 @@ async def test_update_trigger_rejects_missing_environment_without_persisting_oth
     missing_ref = f"env_{uuid.uuid4()}"
 
     with pytest.raises(AppError) as exc_info:
-        await JoySafeterTriggerService(db_session).update(
+        await TriggerApplicationService(db_session, credential_audit_actor=CredentialAuditActor.system("test")).update(
             trigger_id,
             project.id,
             name="should-not-persist",
@@ -2087,7 +2096,7 @@ async def test_trigger_service_update_rejects_cross_project_environment_without_
     other_env_ref = str(other_env.id)
 
     with pytest.raises(AppError) as exc_info:
-        await JoySafeterTriggerService(db_session).update(
+        await TriggerApplicationService(db_session, credential_audit_actor=CredentialAuditActor.system("test")).update(
             trigger_id,
             project.id,
             environment_ref=other_env_ref,
@@ -2145,7 +2154,7 @@ async def test_trigger_service_update_race_converts_db_unique_violation_to_confl
     existing_name = existing.name
     target_id = target.id
     original_name = target.name
-    svc = JoySafeterTriggerService(db_session)
+    svc = TriggerApplicationService(db_session, credential_audit_actor=CredentialAuditActor.system("test"))
     real_lookup = svc.get_by_name
 
     async def _race_misses_existing_name(name: str, lookup_project_id: str | None, *, type: str | None = None):
@@ -2469,7 +2478,9 @@ async def test_updating_trigger_in_paused_project_does_not_rearm_next_run(db_ses
         triggers_paused=True,
     )
 
-    updated = await JoySafeterTriggerService(db_session).update(
+    updated = await TriggerApplicationService(
+        db_session, credential_audit_actor=CredentialAuditActor.system("test")
+    ).update(
         trigger_id,
         project_id=project.id,
         cron_expr="*/2 * * * *",

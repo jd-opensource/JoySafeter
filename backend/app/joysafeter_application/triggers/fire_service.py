@@ -7,16 +7,17 @@ from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
-from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
-from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
-from app.joysafeter_domain.services.agent_trigger_execution import (
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.triggers.execution_service import (
     AgentTriggerExecutor,
     AgentTriggerRunConfig,
     payload_filter_matches,
     render_prompt_template,
     render_session_key,
 )
+from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import TriggerRuntimeGate
 from app.joysafeter_domain.services.joysafeter_trigger_scheduler_state_service import TriggerSchedulerStateService
 from app.joysafeter_domain.triggers import get_provider
@@ -36,6 +37,7 @@ class TriggerFireService:
         project_trigger_block_reason: Optional[ProjectBlockReason] = None,
         resolve_runnable_target: Optional[ResolveRunnableTarget] = None,
         mark_attempt: Optional[MarkAttempt] = None,
+        audit_actor: CredentialAuditActor,
     ) -> None:
         self.db = db
         self._runtime_gate = TriggerRuntimeGate(db)
@@ -43,6 +45,7 @@ class TriggerFireService:
         self._project_trigger_block_reason = project_trigger_block_reason
         self._resolve_runnable_target = resolve_runnable_target
         self._mark_attempt = mark_attempt
+        self._audit_actor = audit_actor
 
     async def project_trigger_block_reason(self, project_id: Optional[str]) -> Optional[str]:
         if self._project_trigger_block_reason is not None:
@@ -117,7 +120,7 @@ class TriggerFireService:
         metadata: dict[str, Any],
         enforce_user_quota: bool,
     ) -> FireResult:
-        result = await AgentTriggerExecutor(self.db).run(
+        result = await AgentTriggerExecutor(self.db, audit_actor=self._audit_actor).run(
             AgentTriggerRunConfig(
                 agent=agent,
                 name=trigger.name,

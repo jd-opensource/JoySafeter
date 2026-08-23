@@ -4,7 +4,19 @@ use std::fmt;
 use crate::ids::CredentialId;
 
 use super::error::CredentialRuntimeError;
-use super::record::McpCredentialRecord;
+use super::record::{McpCredentialMetadataRecord, McpCredentialRecord};
+
+pub fn resolve_mcp_member_urls(
+    members: &[McpCredentialMetadataRecord],
+) -> Result<HashSet<String>, CredentialRuntimeError> {
+    let mut normalized_urls = HashSet::new();
+    for member in members {
+        if !normalized_urls.insert(member.normalized_server_url.clone()) {
+            return Err(CredentialRuntimeError::CorruptRecord);
+        }
+    }
+    Ok(normalized_urls)
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ResolvedMcpCredential {

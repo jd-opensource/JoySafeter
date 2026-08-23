@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.joysafeter_api.api.v1.agents import archive_agent, delete_agent, delete_agent_preview
+from app.joysafeter_application.agents import compose_agent_application
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
@@ -17,8 +18,8 @@ from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_agent import JoySafeterCreateAgentRequest
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
+from app.joysafeter_infrastructure.agents import SqlAlchemyAgentRepository
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.ids import SandboxId, as_uuid
@@ -161,7 +162,7 @@ async def test_create_agent_allows_same_active_name_in_different_projects(db_ses
     await _ensure_project(db_session, "project-a")
     await _ensure_project(db_session, "project-b")
     name = f"scoped-agent-{uuid.uuid4()}"
-    svc = JoySafeterAgentService(db_session)
+    svc = compose_agent_application(db_session).commands
 
     agent_a = await svc.create_agent(
         JoySafeterCreateAgentRequest(name=name, engine_kind="claude"), project_id="project-a"
@@ -179,7 +180,7 @@ async def test_create_agent_allows_same_active_name_in_different_projects(db_ses
 async def test_create_agent_reuses_soft_deleted_name_without_purging_history(db_session):
     await _ensure_project(db_session, "project-a")
     name = f"reused-agent-{uuid.uuid4()}"
-    svc = JoySafeterAgentService(db_session)
+    svc = compose_agent_application(db_session).commands
     old_agent = await svc.create_agent(
         JoySafeterCreateAgentRequest(name=name, engine_kind="claude"), project_id="project-a"
     )
@@ -207,7 +208,7 @@ async def test_hard_delete_agent_rejects_cross_project_at_service_boundary(db_se
     await db_session.refresh(agent)
     agent_id = agent.id
 
-    deleted = await JoySafeterAgentService(db_session).hard_delete_agent(agent_id, project_id="project-a")
+    deleted = await compose_agent_application(db_session).lifecycle.hard_delete_agent(agent_id, project_id="project-a")
 
     assert deleted is False
     db_session.expire_all()
@@ -230,18 +231,18 @@ async def test_hard_delete_agent_locks_aggregate_before_active_task_scan(
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     try:
         async with factory() as blocker_db, factory() as delete_db:
-            locked_agent = await JoySafeterAgentService(blocker_db).lock_agent(agent_id)
+            locked_agent = await SqlAlchemyAgentRepository(blocker_db).lock(agent_id)
             assert locked_agent is not None
 
-            delete_service = JoySafeterAgentService(delete_db)
+            delete_service = compose_agent_application(delete_db).lifecycle
             scan_started = asyncio.Event()
-            original_count = delete_service._count_active_tasks_for_agent
+            original_count = delete_service._repository.count_active_tasks
 
             async def observed_count(*args, **kwargs):
                 scan_started.set()
                 return await original_count(*args, **kwargs)
 
-            monkeypatch.setattr(delete_service, "_count_active_tasks_for_agent", observed_count)
+            monkeypatch.setattr(delete_service._repository, "count_active_tasks", observed_count)
             delete_pid = await delete_db.scalar(text("SELECT pg_backend_pid()"))
             assert delete_pid is not None
             delete_future = asyncio.create_task(delete_service.hard_delete_agent(agent_id))
@@ -283,13 +284,13 @@ async def test_hard_delete_agent_locks_aggregate_before_active_task_scan(
 async def test_agent_child_resources_reject_cross_project_at_service_boundary(db_session):
     await _ensure_project(db_session, "project-a")
     await _ensure_project(db_session, "project-b")
-    svc = JoySafeterAgentService(db_session)
+    application = compose_agent_application(db_session)
 
-    await svc.create_agent(
+    await application.commands.create_agent(
         JoySafeterCreateAgentRequest(name=f"project-a-agent-{uuid.uuid4()}", engine_kind="claude"),
         project_id="project-a",
     )
-    agent_b = await svc.create_agent(
+    agent_b = await application.commands.create_agent(
         JoySafeterCreateAgentRequest(name=f"project-b-agent-{uuid.uuid4()}", engine_kind="claude"),
         project_id="project-b",
     )
@@ -312,10 +313,10 @@ async def test_agent_child_resources_reject_cross_project_at_service_boundary(db
     await db_session.refresh(task_b)
     task_b_id = task_b.id
 
-    versions, has_more = await svc.list_versions(agent_b_id, project_id="project-a")
-    snapshot = await svc.get_agent_version_snapshot(agent_b_id, 1, project_id="project-a")
-    active_tasks = await svc.list_active_tasks_for_agent(agent_b_id, project_id="project-a")
-    archived_session_ids = await svc.archive_sessions_for_agent(agent_b_id, project_id="project-a")
+    versions, has_more = await application.queries.list_versions(agent_b_id, project_id="project-a")
+    snapshot = await application.queries.get_agent_version_snapshot(agent_b_id, 1, project_id="project-a")
+    active_tasks = await application.queries.list_active_tasks_for_agent(agent_b_id, project_id="project-a")
+    archived_session_ids = await application.lifecycle.archive_sessions_for_agent(agent_b_id, project_id="project-a")
 
     assert versions == []
     assert has_more is False
@@ -331,8 +332,8 @@ async def test_agent_child_resources_reject_cross_project_at_service_boundary(db
     assert session_row.archived_at is None
     assert session_row.status == "idle"
 
-    project_b_tasks = await svc.list_active_tasks_for_agent(agent_b_id, project_id="project-b")
-    project_b_snapshot = await svc.get_agent_version_snapshot(agent_b_id, 1, project_id="project-b")
+    project_b_tasks = await application.queries.list_active_tasks_for_agent(agent_b_id, project_id="project-b")
+    project_b_snapshot = await application.queries.get_agent_version_snapshot(agent_b_id, 1, project_id="project-b")
     assert [task.id for task in project_b_tasks] == [task_b_id]
     assert project_b_snapshot is not None
 
@@ -411,7 +412,7 @@ async def test_archive_sessions_for_agent_rejects_active_task_even_when_session_
     session_id = session.id
 
     with pytest.raises(ValueError) as exc_info:
-        await JoySafeterAgentService(db_session).archive_sessions_for_agent(agent_id)
+        await compose_agent_application(db_session).lifecycle.archive_sessions_for_agent(agent_id)
 
     assert str(exc_info.value) == "Agent has active tasks. Stop or cancel them before archiving sessions."
     db_session.expire_all()
@@ -448,8 +449,8 @@ async def test_archive_agent_fails_closed_when_task_appears_after_active_check(d
         return 0
 
     monkeypatch.setattr(
-        JoySafeterAgentService,
-        "_count_active_tasks_for_agent",
+        SqlAlchemyAgentRepository,
+        "count_active_tasks",
         active_task_appears_after_check,
     )
 
@@ -553,7 +554,7 @@ async def test_hard_delete_agent_removes_related_triggers(db_session):
     await db_session.refresh(trigger)
     trigger_id = trigger.id
 
-    deleted = await JoySafeterAgentService(db_session).hard_delete_agent(agent_id)
+    deleted = await compose_agent_application(db_session).lifecycle.hard_delete_agent(agent_id)
 
     assert deleted is True
     db_session.expire_all()
@@ -827,7 +828,7 @@ async def test_delete_agent_race_active_task_becomes_409_not_500(db_session, mon
         return []
 
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_agent_service.JoySafeterAgentService.list_active_tasks_for_agent",
+        "app.joysafeter_infrastructure.agents.sqlalchemy_repository.SqlAlchemyAgentRepository.list_active_tasks",
         hide_active_tasks_once,
     )
 

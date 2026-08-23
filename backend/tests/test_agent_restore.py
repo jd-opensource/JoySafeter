@@ -5,12 +5,12 @@ import pytest
 from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.agents import unarchive_agent
+from app.joysafeter_application.agents import compose_agent_application
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
@@ -104,7 +104,7 @@ async def test_unarchive_clears_archived_at_and_rearms_triggers(db_session):
     agent_id = agent.id
     trigger_id = trigger.id
     ctx = _write_ctx(project.id, project.org_id)
-    svc = JoySafeterAgentService(db_session)
+    svc = compose_agent_application(db_session).lifecycle
 
     archived, _ = await svc.archive_agent_with_sessions(agent_id, project_id=ctx.project_id)
     assert archived is True
@@ -140,7 +140,7 @@ async def test_unarchive_leaves_terminated_sessions_archived(db_session):
     agent_id = agent.id
     session_id = session.id
 
-    svc = JoySafeterAgentService(db_session)
+    svc = compose_agent_application(db_session).lifecycle
     archived, archived_session_ids = await svc.archive_agent_with_sessions(agent_id, project_id=project.id)
     assert archived is True
     assert archived_session_ids == [session_id]
@@ -166,7 +166,10 @@ async def test_unarchive_does_not_rearm_cron_when_project_triggers_are_paused(db
     agent_id = agent.id
     trigger_id = trigger.id
 
-    restored = await JoySafeterAgentService(db_session).restore_agent(agent_id, project_id=project.id)
+    restored = await compose_agent_application(db_session).lifecycle.restore_agent(
+        agent_id,
+        project_id=project.id,
+    )
     assert restored is True
 
     db_session.expire_all()

@@ -298,15 +298,6 @@ class JoySafeterTaskService:
     async def update_task_usage(self, task_id: TaskId, usage: dict, expected_epoch: Optional[int] = None) -> bool:
         return await self.state_machine.update_usage(task_id, usage, expected_epoch=expected_epoch)
 
-    async def update_task_sandbox(self, task_id: TaskId, sandbox_id: SandboxId) -> None:
-        await self.db.execute(
-            sa_update(JoySafeterTask).where(JoySafeterTask.id == task_id).values(sandbox_id=sandbox_id)
-        )
-        await self.db.commit()
-
-    async def attach_sandbox_if_scheduling(self, task_id: TaskId, sandbox_id: SandboxId) -> bool:
-        return await self.state_machine.attach_sandbox_if_scheduling(task_id, sandbox_id)
-
     async def increment_retry(self, task_id: TaskId, expected_epoch: Optional[int] = None) -> bool:
         return await self.state_machine.retry(task_id, expected_epoch=expected_epoch)
 

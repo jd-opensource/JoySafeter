@@ -8,7 +8,6 @@ from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_application.credentials.composition import compose_credential_application
 from app.joysafeter_domain.credentials.bindings import WebhookAuthBinding, WebhookAuthMethod
 from app.joysafeter_domain.credentials.types import CredentialFieldName, ProjectId
 from app.joysafeter_domain.credentials.types import CredentialId as DomainCredentialId
@@ -16,12 +15,21 @@ from app.joysafeter_domain.services.credential_binding_errors import raise_publi
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
 from app.joysafeter_shared.ids import CredentialId, TriggerId
 
+from .composition import compose_credential_application
+from .ports import CredentialAccessContext, CredentialAuditActor
+
 _WEBHOOK_AUTH_METHODS = frozenset({"hmac", "bearer", "token"})
 
 
 class WebhookAuthService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        audit_actor: CredentialAuditActor,
+    ) -> None:
         self.db = db
+        self._audit_actor = audit_actor
 
     @staticmethod
     def sign(secret: str, body: bytes) -> str:
@@ -91,7 +99,11 @@ class WebhookAuthService:
             context["trigger_id"] = str(trigger_id)
         if project_id is None:
             raise_public_credential_error(LookupError(), credential_id=webhook_auth_credential_id)
-        application = compose_credential_application(self.db, auto_commit=False)
+        application = compose_credential_application(
+            self.db,
+            auto_commit=False,
+            audit_actor=self._audit_actor,
+        )
         try:
             methods = ("hmac", "bearer") if auth_methods is None else auth_methods
             normalized_methods = frozenset(
@@ -115,8 +127,14 @@ class WebhookAuthService:
                 credential_field=credential_field,
                 methods=normalized_methods,
             )
-            validated = await application.binding_service.validate(binding)
-            material = await application.material_adapter.load(validated)
+            material = await application.material_access_service.resolve(
+                binding,
+                context=CredentialAccessContext(
+                    consumer_type="webhook_auth",
+                    consumer_id=str(trigger_id) if trigger_id is not None else None,
+                    actor=self._audit_actor,
+                ),
+            )
             secret_value = material.fields[credential_field]
         except Exception as exc:
             raise_public_credential_error(exc, credential_id=webhook_auth_credential_id)

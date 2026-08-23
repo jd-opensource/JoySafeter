@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 from app.joysafeter_domain.credentials.dependencies import (
     CredentialDependency,
     CredentialImpact,
+    CredentialUsage,
     ReferenceScannerId,
 )
 from app.joysafeter_domain.credentials.resource import CredentialGroupResource, CredentialResource
@@ -27,6 +29,109 @@ T = TypeVar("T")
 class MutationOutcome(Generic[T]):
     value: T
     changed: bool
+
+
+def combine_credential_impacts(
+    impacts: Sequence[CredentialImpact],
+) -> CredentialImpact | None:
+    if not impacts:
+        return None
+    first = impacts[0]
+    identity = (first.source, first.source_id, first.project_id, first.reason)
+    if any((impact.source, impact.source_id, impact.project_id, impact.reason) != identity for impact in impacts[1:]):
+        raise ValueError("one logical mutation cannot combine impacts from different sources")
+    usage = next(
+        (impact.usage for impact in impacts if impact.usage is CredentialUsage.ENVIRONMENT_INJECTION),
+        first.usage,
+    )
+    return CredentialImpact(
+        usage=usage,
+        source=first.source,
+        source_id=first.source_id,
+        reason=first.reason,
+        project_id=first.project_id,
+        affected_sandbox_ids=frozenset(sandbox_id for impact in impacts for sandbox_id in impact.affected_sandbox_ids),
+        affected_session_ids=frozenset(session_id for impact in impacts for session_id in impact.affected_session_ids),
+        dispositions=frozenset(disposition for impact in impacts for disposition in impact.dispositions),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class CredentialAuditActor:
+    user_id: str | None
+    principal_type: str
+    principal_id: str
+    ip_address: str
+    user_agent: str | None = None
+    org_id: str | None = None
+    role: str | None = None
+
+    @classmethod
+    def system(cls, principal_id: str = "credential_application") -> "CredentialAuditActor":
+        return cls(
+            user_id=None,
+            principal_type="system",
+            principal_id=principal_id,
+            ip_address="application",
+        )
+
+
+class CredentialAccessResult(StrEnum):
+    SUCCESS = "success"
+    DENIED = "denied"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class CredentialAccessContext:
+    consumer_type: str
+    actor: CredentialAuditActor
+    consumer_id: str | None = None
+    session_id: object | None = None
+    task_id: object | None = None
+    generation: int | None = None
+
+    def __post_init__(self) -> None:
+        consumer_type = self.consumer_type.strip()
+        if not consumer_type:
+            raise ValueError("credential access consumer type must not be blank")
+        object.__setattr__(self, "consumer_type", consumer_type)
+
+
+@dataclass(frozen=True, slots=True)
+class CredentialAccessAuditEntry:
+    project_id: ProjectId
+    credential_id: CredentialId
+    usage: CredentialUsage
+    consumer_type: str
+    actor: CredentialAuditActor
+    field_names: tuple[CredentialFieldName, ...]
+    result: CredentialAccessResult
+    credential_kind: str | None = None
+    consumer_id: str | None = None
+    session_id: object | None = None
+    task_id: object | None = None
+    generation: int | None = None
+    error_code: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.result is CredentialAccessResult.SUCCESS:
+            if self.error_code is not None:
+                raise ValueError("successful credential access must not have an error code")
+        elif not isinstance(self.error_code, str) or not self.error_code.strip():
+            raise ValueError("denied or failed credential access requires an error code")
+        normalized_fields = tuple(
+            sorted(
+                {
+                    field if isinstance(field, CredentialFieldName) else CredentialFieldName(str(field))
+                    for field in self.field_names
+                },
+                key=str,
+            )
+        )
+        object.__setattr__(self, "field_names", normalized_fields)
+        if self.error_code is not None:
+            object.__setattr__(self, "error_code", self.error_code.strip())
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,10 +258,18 @@ class CredentialAuditPort(Protocol):
     async def append(self, entry: CredentialAuditEntry) -> None: ...
 
 
+class CredentialAccessAuditPort(Protocol):
+    async def append(self, entry: CredentialAccessAuditEntry) -> bool: ...
+
+
 class CredentialImpactPort(Protocol):
+    def begin_mutation(self) -> None: ...
+
     async def mark_pending(self, impact: CredentialImpact) -> CredentialImpact: ...
 
     async def nudge_after_commit(self) -> None: ...
+
+    def clear_pending(self) -> None: ...
 
 
 class ReferenceScanner(Protocol):

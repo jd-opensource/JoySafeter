@@ -112,8 +112,154 @@ def _upgrade_to(database: MigrationDatabase, revision: str) -> subprocess.Comple
     )
 
 
+def _downgrade_to(database: MigrationDatabase, revision: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [ALEMBIC, "downgrade", revision],
+        cwd=BACKEND_ROOT,
+        env=database.env,
+        capture_output=True,
+        text=True,
+    )
+
+
 def _connect(database: MigrationDatabase) -> psycopg.Connection:
     return psycopg.connect(database.dsn)
+
+
+def test_credential_access_audit_migration_is_append_only_and_runtime_idempotent(
+    migration_database: MigrationDatabase,
+) -> None:
+    previous_revision = "20260821_000004"
+    result = _upgrade_to(migration_database, previous_revision)
+    assert result.returncode == 0, result.stderr
+
+    with _connect(migration_database) as connection:
+        assert connection.execute("SELECT to_regclass('joysafeter_credential_access_audits')").fetchone()[0] is None
+
+    result = _upgrade_head(migration_database)
+    assert result.returncode == 0, result.stderr
+
+    credential_id = uuid4()
+    audit_id = uuid4()
+    session_id = uuid4()
+    with _connect(migration_database) as connection:
+        connection.autocommit = True
+        columns = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'joysafeter_credential_access_audits'
+                """
+            ).fetchall()
+        }
+        assert "updated_at" not in columns
+        assert {
+            "credential_id",
+            "field_names",
+            "result",
+            "created_at",
+            "user_id",
+            "org_id",
+            "role",
+            "ip_address",
+            "user_agent",
+        } <= columns
+        assert "credential_public_id" not in columns
+
+        credential_foreign_keys = connection.execute(
+            """
+            SELECT constraint_name
+            FROM information_schema.constraint_column_usage
+            WHERE table_name = 'joysafeter_credential_access_audits'
+              AND column_name = 'credential_id'
+            """
+        ).fetchall()
+        assert credential_foreign_keys == []
+
+        index_definition = connection.execute(
+            """
+            SELECT indexdef
+            FROM pg_indexes
+            WHERE indexname = 'uq_credential_access_audits_runtime_success'
+            """
+        ).fetchone()[0]
+        assert "NULLS NOT DISTINCT" in index_definition
+        assert "result" in index_definition
+        assert "'success'" in index_definition
+        assert "session_id IS NOT NULL" in index_definition
+        assert "generation IS NOT NULL" in index_definition
+
+        principal_index_definition = connection.execute(
+            """
+            SELECT indexdef
+            FROM pg_indexes
+            WHERE indexname = 'ix_credential_access_audits_principal_created'
+            """
+        ).fetchone()[0]
+        assert "principal_type" in principal_index_definition
+        assert "principal_id" in principal_index_definition
+        assert "created_at" in principal_index_definition
+
+        values = (
+            audit_id,
+            PROJECT_ID,
+            credential_id,
+            "service",
+            "http_egress",
+            "sandbox",
+            None,
+            "system",
+            "runtime",
+            session_id,
+            1,
+            Jsonb(["TOKEN"]),
+            "success",
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_credential_access_audits
+                (id, project_id, credential_id, credential_kind, usage,
+                 consumer_type, consumer_id, principal_type, principal_id,
+                 session_id, generation, field_names, result)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            values,
+        )
+
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            connection.execute(
+                """
+                INSERT INTO joysafeter_credential_access_audits
+                    (id, project_id, credential_id, credential_kind, usage,
+                     consumer_type, consumer_id, principal_type, principal_id,
+                     session_id, generation, field_names, result)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (uuid4(), *values[1:]),
+            )
+
+        with pytest.raises(psycopg.errors.RaiseException):
+            connection.execute(
+                "UPDATE joysafeter_credential_access_audits SET result = 'failed' WHERE id = %s",
+                (audit_id,),
+            )
+
+        with pytest.raises(psycopg.errors.RaiseException):
+            connection.execute(
+                "DELETE FROM joysafeter_credential_access_audits WHERE id = %s",
+                (audit_id,),
+            )
+
+    result = _downgrade_to(migration_database, previous_revision)
+    assert result.returncode == 0, result.stderr
+    with _connect(migration_database) as connection:
+        assert connection.execute("SELECT to_regclass('joysafeter_credential_access_audits')").fetchone()[0] is None
+        function_exists = connection.execute(
+            "SELECT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'prevent_credential_access_audit_mutation')"
+        ).fetchone()[0]
+        assert function_exists is False
 
 
 def _seed_project(connection: psycopg.Connection) -> None:
@@ -242,6 +388,368 @@ def test_migration_renames_mcp_configs_without_changing_values(
     assert "mcp_servers" in columns
     assert "mcp_configs" not in columns
     assert stored_value == mcp_configs
+
+
+def test_migration_adds_sandbox_runtime_config_freshness_columns(
+    migration_database: MigrationDatabase,
+) -> None:
+    result = _upgrade_to(migration_database, "20260821_000002")
+    assert result.returncode == 0, result.stderr
+
+    with _connect(migration_database) as connection:
+        columns_before_upgrade = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'joysafeter_sandboxes'
+                  AND column_name IN (
+                      'runtime_config_status',
+                      'runtime_config_last_reason',
+                      'runtime_config_required_at'
+                  )
+                """
+            ).fetchall()
+        }
+
+    assert columns_before_upgrade == set()
+
+    result = _upgrade_to(migration_database, "20260821_000003")
+    assert result.returncode == 0, result.stderr
+
+    with _connect(migration_database) as connection:
+        columns = {
+            row[0]: (row[1], row[2])
+            for row in connection.execute(
+                """
+                SELECT column_name, is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_name = 'joysafeter_sandboxes'
+                  AND column_name IN (
+                      'runtime_config_status',
+                      'runtime_config_last_reason',
+                      'runtime_config_required_at'
+                  )
+                """
+            ).fetchall()
+        }
+        constraints = [
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT pg_get_constraintdef(check_constraint.oid)
+                FROM pg_constraint AS check_constraint
+                JOIN pg_class AS relation ON relation.oid = check_constraint.conrelid
+                WHERE relation.relname = 'joysafeter_sandboxes'
+                  AND check_constraint.contype = 'c'
+                """
+            ).fetchall()
+        ]
+
+    assert columns.keys() == {
+        "runtime_config_status",
+        "runtime_config_last_reason",
+        "runtime_config_required_at",
+    }
+    assert columns["runtime_config_status"] == ("NO", "'ready'::text")
+    assert columns["runtime_config_last_reason"] == ("YES", None)
+    assert columns["runtime_config_required_at"] == ("YES", None)
+    assert any(
+        all(value in definition for value in ("runtime_config_status", "ready", "restart_required"))
+        for definition in constraints
+    )
+
+    result = _downgrade_to(migration_database, "20260821_000002")
+    assert result.returncode == 0, result.stderr
+
+    with _connect(migration_database) as connection:
+        columns_after_downgrade = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'joysafeter_sandboxes'
+                  AND column_name IN (
+                      'runtime_config_status',
+                      'runtime_config_last_reason',
+                      'runtime_config_required_at'
+                  )
+                """
+            ).fetchall()
+        }
+        constraints_after_downgrade = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT pg_get_constraintdef(pg_constraint.oid)
+                FROM pg_constraint
+                JOIN pg_class AS relation ON relation.oid = pg_constraint.conrelid
+                WHERE relation.relname = 'joysafeter_sandboxes'
+                  AND pg_get_constraintdef(pg_constraint.oid) LIKE '%runtime_config_status%'
+                """
+            ).fetchall()
+        }
+
+    assert columns_after_downgrade == set()
+    assert constraints_after_downgrade == set()
+
+
+def test_migration_adds_runtime_config_generations_with_conservative_backfill(
+    migration_database: MigrationDatabase,
+) -> None:
+    result = _upgrade_to(migration_database, "20260821_000003")
+    assert result.returncode == 0, result.stderr
+
+    agent_id = uuid4()
+    idle_session_id = uuid4()
+    running_session_id = uuid4()
+    rescheduling_session_id = uuid4()
+    terminated_session_id = uuid4()
+    archived_session_id = uuid4()
+    raw_ready_sandbox_id = uuid4()
+    raw_stale_sandbox_id = uuid4()
+    destroyed_sandbox_id = uuid4()
+    pool_sandbox_id = uuid4()
+    required_at = "2026-08-20 12:34:56+00"
+
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        connection.execute(
+            """
+            INSERT INTO joysafeter_agents
+                (id, project_id, name, engine_kind, env, mcp_servers, skills, tools,
+                 agents, commands, permission_mode, metadata, version)
+            VALUES
+                (%s, %s, 'runtime-generation-agent', 'codex', '{}'::jsonb,
+                 '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                 'default', '{}'::jsonb, 1)
+            """,
+            (agent_id, PROJECT_ID),
+        )
+        connection.cursor().executemany(
+            """
+            INSERT INTO joysafeter_sessions
+                (id, project_id, agent_id, status, archived_at)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            [
+                (idle_session_id, PROJECT_ID, agent_id, "idle", None),
+                (running_session_id, PROJECT_ID, agent_id, "running", None),
+                (rescheduling_session_id, PROJECT_ID, agent_id, "rescheduling", None),
+                (terminated_session_id, PROJECT_ID, agent_id, "terminated", None),
+                (archived_session_id, PROJECT_ID, agent_id, "idle", "2026-08-20 10:00:00+00"),
+            ],
+        )
+        connection.cursor().executemany(
+            """
+            INSERT INTO joysafeter_sandboxes
+                (id, project_id, external_id, provider, status, config,
+                 chat_session_id, image, destroyed_at, runtime_config_status,
+                 runtime_config_last_reason, runtime_config_required_at)
+            VALUES (%s, %s, %s, 'docker', %s, '{}'::jsonb, %s,
+                    'sandbox:latest', %s, %s, %s, %s)
+            """,
+            [
+                (
+                    raw_ready_sandbox_id,
+                    PROJECT_ID,
+                    "runtime-generation-ready",
+                    "idle",
+                    idle_session_id,
+                    None,
+                    "ready",
+                    None,
+                    None,
+                ),
+                (
+                    raw_stale_sandbox_id,
+                    PROJECT_ID,
+                    "runtime-generation-stale",
+                    "stopped",
+                    running_session_id,
+                    None,
+                    "restart_required",
+                    "credential.updated",
+                    required_at,
+                ),
+                (
+                    destroyed_sandbox_id,
+                    PROJECT_ID,
+                    "runtime-generation-destroyed",
+                    "idle",
+                    rescheduling_session_id,
+                    "2026-08-20 11:00:00+00",
+                    "ready",
+                    None,
+                    None,
+                ),
+                (
+                    pool_sandbox_id,
+                    PROJECT_ID,
+                    "runtime-generation-pool",
+                    "pooled",
+                    None,
+                    None,
+                    "ready",
+                    None,
+                    None,
+                ),
+            ],
+        )
+        connection.commit()
+
+        columns_before_upgrade = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE (table_name = 'joysafeter_sessions'
+                       AND column_name IN (
+                           'runtime_config_generation',
+                           'runtime_config_generation_reason',
+                           'runtime_config_generation_updated_at'
+                       ))
+                   OR (table_name = 'joysafeter_sandboxes'
+                       AND column_name = 'runtime_config_applied_generation')
+                """
+            ).fetchall()
+        }
+
+    assert columns_before_upgrade == set()
+
+    result = _upgrade_to(migration_database, "20260821_000004")
+    assert result.returncode == 0, result.stderr
+
+    with _connect(migration_database) as connection:
+        session_columns = {
+            row[0]: (row[1], row[2], row[3])
+            for row in connection.execute(
+                """
+                SELECT column_name, data_type, is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_name = 'joysafeter_sessions'
+                  AND column_name IN (
+                      'runtime_config_generation',
+                      'runtime_config_generation_reason',
+                      'runtime_config_generation_updated_at'
+                  )
+                """
+            ).fetchall()
+        }
+        sandbox_columns = {
+            row[0]: (row[1], row[2], row[3])
+            for row in connection.execute(
+                """
+                SELECT column_name, data_type, is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_name = 'joysafeter_sandboxes'
+                  AND column_name = 'runtime_config_applied_generation'
+                """
+            ).fetchall()
+        }
+        session_rows = {
+            row[0]: row[1:]
+            for row in connection.execute(
+                """
+                SELECT id, runtime_config_generation,
+                       runtime_config_generation_reason,
+                       runtime_config_generation_updated_at
+                FROM joysafeter_sessions
+                WHERE id = ANY(%s)
+                """,
+                (
+                    [
+                        idle_session_id,
+                        running_session_id,
+                        rescheduling_session_id,
+                        terminated_session_id,
+                        archived_session_id,
+                    ],
+                ),
+            ).fetchall()
+        }
+        sandbox_rows = {
+            row[0]: row[1:]
+            for row in connection.execute(
+                """
+                SELECT id, chat_session_id, destroyed_at, runtime_config_status,
+                       runtime_config_last_reason, runtime_config_required_at,
+                       runtime_config_applied_generation
+                FROM joysafeter_sandboxes
+                WHERE id = ANY(%s)
+                """,
+                (
+                    [
+                        raw_ready_sandbox_id,
+                        raw_stale_sandbox_id,
+                        destroyed_sandbox_id,
+                        pool_sandbox_id,
+                    ],
+                ),
+            ).fetchall()
+        }
+
+    assert session_columns == {
+        "runtime_config_generation": ("bigint", "NO", "0"),
+        "runtime_config_generation_reason": ("text", "YES", None),
+        "runtime_config_generation_updated_at": ("timestamp with time zone", "YES", None),
+    }
+    assert sandbox_columns == {
+        "runtime_config_applied_generation": ("bigint", "NO", "0"),
+    }
+
+    for session_id in (idle_session_id, running_session_id, rescheduling_session_id):
+        generation, reason, updated_at = session_rows[session_id]
+        assert generation == 1
+        assert reason == "migration.runtime_config_generation_backfill"
+        assert updated_at is not None
+
+    assert session_rows[terminated_session_id] == (0, None, None)
+    assert session_rows[archived_session_id] == (0, None, None)
+
+    ready_row = sandbox_rows[raw_ready_sandbox_id]
+    assert ready_row[2:] == ("ready", None, None, 0)
+    assert ready_row[-1] != session_rows[idle_session_id][0]
+
+    stale_row = sandbox_rows[raw_stale_sandbox_id]
+    assert stale_row[2] == "restart_required"
+    assert stale_row[3] == "credential.updated"
+    assert stale_row[4].isoformat() == "2026-08-20T12:34:56+00:00"
+    assert stale_row[5] == 0
+
+    destroyed_row = sandbox_rows[destroyed_sandbox_id]
+    assert destroyed_row[1] is not None
+    assert destroyed_row[2:] == ("ready", None, None, 0)
+
+    pool_row = sandbox_rows[pool_sandbox_id]
+    assert pool_row == (None, None, "ready", None, None, 0)
+
+    result = _downgrade_to(migration_database, "20260821_000003")
+    assert result.returncode == 0, result.stderr
+
+    with _connect(migration_database) as connection:
+        columns_after_downgrade = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE (table_name = 'joysafeter_sessions'
+                       AND column_name IN (
+                           'runtime_config_generation',
+                           'runtime_config_generation_reason',
+                           'runtime_config_generation_updated_at'
+                       ))
+                   OR (table_name = 'joysafeter_sandboxes'
+                       AND column_name = 'runtime_config_applied_generation')
+                """
+            ).fetchall()
+        }
+
+    assert columns_after_downgrade == set()
 
 
 def test_migration_rejects_normalized_mcp_url_collisions_before_creating_tables(

@@ -18,12 +18,13 @@ import uuid
 
 import pytest
 
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.triggers.execution_service import AgentTriggerExecutor, AgentTriggerRunConfig
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
-from app.joysafeter_domain.services.agent_trigger_execution import AgentTriggerExecutor, AgentTriggerRunConfig
 
 
 class _FakeRedis:
@@ -102,12 +103,16 @@ async def test_idempotent_replay_returns_live_session_no_fk_violation(db_session
         metadata={"trigger_type": "manual"},
     )
 
-    first = await AgentTriggerExecutor(db_session).run(cfg, enforce_user_quota=False)
+    first = await AgentTriggerExecutor(db_session, audit_actor=CredentialAuditActor.system("test")).run(
+        cfg, enforce_user_quota=False
+    )
     assert first.created is True
 
     # Replay with the SAME idempotency key — the fresh session created for this
     # attempt is deduped/deleted; run() must hand back the existing task's session.
-    second = await AgentTriggerExecutor(db_session).run(cfg, enforce_user_quota=False)
+    second = await AgentTriggerExecutor(db_session, audit_actor=CredentialAuditActor.system("test")).run(
+        cfg, enforce_user_quota=False
+    )
     assert second.created is False
     assert second.task.id == first.task.id
     assert second.session.id == first.task.chat_session_id

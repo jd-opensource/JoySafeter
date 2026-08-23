@@ -228,6 +228,10 @@ fn sandbox_for(session_id: SessionId) -> JoySafeterSandbox {
         networking_policy_version: 0,
         networking_last_error: None,
         networking_ready_at: None,
+        runtime_config_status: "ready".to_string(),
+        runtime_config_last_reason: None,
+        runtime_config_required_at: None,
+        runtime_config_applied_generation: 0,
     }
 }
 
@@ -236,14 +240,40 @@ async fn build_harness_error(pool: &PgPool, task_id: TaskId) -> anyhow::Error {
         .await
         .expect("load task fixture")
         .expect("task fixture exists");
-    HarnessInputBuilder::new(pool.clone(), false)
-        .build(
-            &task,
-            "runtime-contract",
-            SandboxId::from_uuid(Uuid::now_v7()),
-        )
+    let session_id = task.session_id.expect("runtime contract task has session");
+    let (session_project_id, captured_generation): (Option<String>, i64) = sqlx::query_as(
+        "SELECT project_id, runtime_config_generation FROM joysafeter_sessions WHERE id = $1",
+    )
+    .bind(session_id)
+    .fetch_one(pool)
+    .await
+    .expect("load session runtime scope");
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    db::queries::create_session_bound_sandbox_guarded(
+        pool,
+        sandbox_id,
+        &format!("runtime-contract-{sandbox_id}"),
+        "test",
+        "joysafeter/runtime-contract:latest",
+        session_id,
+        session_project_id.as_deref(),
+        None,
+        Some(&json!({})),
+        captured_generation,
+    )
+    .await
+    .expect("create guarded runtime contract sandbox");
+
+    let error = HarnessInputBuilder::new(pool.clone(), false)
+        .build(&task, "runtime-contract", sandbox_id)
         .await
-        .expect_err("configured invalid credential must fail harness build")
+        .expect_err("configured invalid credential must fail harness build");
+    sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(pool)
+        .await
+        .expect("delete guarded runtime contract sandbox");
+    error
 }
 
 async fn cleanup(

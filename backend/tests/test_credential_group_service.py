@@ -14,6 +14,14 @@ import pytest_asyncio
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.joysafeter_application.agents import compose_agent_application
+from app.joysafeter_application.credentials.application_service import (
+    CredentialGroupService,
+    CredentialService,
+)
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.credentials.snapshot_service import CreateCredentialAwareSession
+from app.joysafeter_application.sessions.creation_service import SessionCreationService
 from app.joysafeter_domain.credentials.dependencies import DependencyDisposition
 from app.joysafeter_domain.credentials.resource import McpCredentialIdentity
 from app.joysafeter_domain.credentials.types import CredentialGroupId as DomainCredentialGroupId
@@ -24,6 +32,7 @@ from app.joysafeter_domain.models.joysafeter_credential import (
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
+from app.joysafeter_domain.models.joysafeter_security_audit_log import SecurityAuditLog
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterCreateAgentRequest,
     JoySafeterEngineKind,
@@ -33,11 +42,6 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     CreateCredentialGroupRequest,
     UpdateCredentialGroupRequest,
 )
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
-from app.joysafeter_domain.services.joysafeter_credential_group_service import (
-    CredentialGroupService,
-)
-from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -84,7 +88,7 @@ async def _sandbox_status(db_session, sandbox_id) -> str:
 
 @pytest.mark.asyncio
 async def test_create_get_list_group(db_session, project_id):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     group = await svc.create(
         CreateCredentialGroupRequest(
             name="g1",
@@ -107,10 +111,34 @@ async def test_create_get_list_group(db_session, project_id):
 
 
 @pytest.mark.asyncio
+async def test_group_member_audit_records_group_and_credential_ids(db_session, project_id):
+    service = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
+    group = await service.create(CreateCredentialGroupRequest(name="audit-membership"), project_id=project_id)
+    credential = await service.add_credential(
+        group.id,
+        AddGroupCredentialRequest(
+            name="audited-member",
+            mcp_server_url="https://audit-member.example.com/mcp",
+            data={"token_value": "secret"},
+        ),
+        project_id=project_id,
+    )
+
+    audit = await db_session.scalar(
+        select(SecurityAuditLog).where(
+            SecurityAuditLog.event_type == "credential_group.member_added",
+            SecurityAuditLog.details["target_id"].astext == str(credential.id),
+        )
+    )
+    assert audit is not None
+    assert audit.details["credential_group_id"] == str(group.id)
+
+
+@pytest.mark.asyncio
 async def test_get_missing_group_raises(db_session, project_id):
     from app.joysafeter_shared.ids import CredentialGroupId
 
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     with pytest.raises(AppError) as exc:
         await svc.get_or_raise(CredentialGroupId.new(), project_id=project_id)
     assert exc.value.code == "CREDENTIAL_GROUP_NOT_FOUND"
@@ -118,7 +146,7 @@ async def test_get_missing_group_raises(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_group_name_unique_per_project(db_session, project_id):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     await svc.create(CreateCredentialGroupRequest(name="dup"), project_id=project_id)
     with pytest.raises(AppError) as exc:
         await svc.create(CreateCredentialGroupRequest(name="dup"), project_id=project_id)
@@ -127,7 +155,7 @@ async def test_group_name_unique_per_project(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_group_name_reusable_across_projects(db_session, project_id, other_project_id):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     await svc.create(CreateCredentialGroupRequest(name="shared"), project_id=project_id)
     # Same name in a different project is fine.
     other = await svc.create(CreateCredentialGroupRequest(name="shared"), project_id=other_project_id)
@@ -136,7 +164,7 @@ async def test_group_name_reusable_across_projects(db_session, project_id, other
 
 @pytest.mark.asyncio
 async def test_update_group(db_session, project_id):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     updated = await svc.update(
         group.id,
@@ -154,7 +182,7 @@ async def test_update_group(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_archive_soft_delete_group_mark_pending(db_session, project_id):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     for method in ("archive", "soft_delete"):
         sandbox = _limited_sandbox(project_id)
         db_session.add(sandbox)
@@ -177,12 +205,57 @@ async def test_archive_soft_delete_group_mark_pending(db_session, project_id):
     assert await svc.get(deleted.id, project_id=project_id) is None
 
 
+@pytest.mark.asyncio
+async def test_soft_delete_group_soft_deletes_members_and_releases_member_name(
+    db_session,
+    project_id,
+):
+    group_service = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
+    credential_service = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
+    group = await group_service.create(
+        CreateCredentialGroupRequest(name="delete-with-members"),
+        project_id=project_id,
+    )
+    member = await group_service.add_credential(
+        group.id,
+        AddGroupCredentialRequest(
+            name="reusable-member",
+            mcp_server_url="https://deleted-group.example.com/mcp",
+            data={"token_value": "secret"},
+        ),
+        project_id=project_id,
+    )
+
+    await group_service.soft_delete(group.id, project_id=project_id)
+
+    await db_session.refresh(member)
+    assert member.deleted_at is not None
+    assert member.data == {}
+    assert member.material_erased_at is not None
+    assert await credential_service.get(member.id, project_id=project_id) is None
+
+    replacement_group = await group_service.create(
+        CreateCredentialGroupRequest(name="replacement-group"),
+        project_id=project_id,
+    )
+    replacement = await group_service.add_credential(
+        replacement_group.id,
+        AddGroupCredentialRequest(
+            name="reusable-member",
+            mcp_server_url="https://replacement-group.example.com/mcp",
+            data={"token_value": "replacement"},
+        ),
+        project_id=project_id,
+    )
+    assert replacement.name == "reusable-member"
+
+
 # --- membership (add / remove / list) --------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_add_credential_creates_mcp_member_with_normalized_url(db_session, project_id):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
 
     cred = await svc.add_credential(
@@ -206,7 +279,7 @@ async def test_add_credential_creates_mcp_member_with_normalized_url(db_session,
 
 @pytest.mark.asyncio
 async def test_add_credential_requires_static_bearer_token(db_session, project_id):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
 
     with pytest.raises(AppError) as exc:
@@ -229,7 +302,7 @@ async def test_add_credential_marks_sandbox_pending(db_session, project_id):
     await db_session.commit()
     sandbox_id = sandbox.id
 
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     await svc.add_credential(
         group.id,
@@ -241,7 +314,7 @@ async def test_add_credential_marks_sandbox_pending(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_group_lifecycle_is_idempotent_and_archived_group_rejects_mutation(db_session, project_id):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     group = await svc.create(CreateCredentialGroupRequest(name="group-matrix"), project_id=project_id)
     group_id = group.id
 
@@ -287,7 +360,7 @@ async def test_active_session_blocks_group_lifecycle_but_member_changes_refresh_
     db_session.add(sandbox)
     await db_session.commit()
     sandbox_id = sandbox.id
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     first_group = await svc.create(CreateCredentialGroupRequest(name="active-session-first"), project_id=project_id)
     second_group = await svc.create(CreateCredentialGroupRequest(name="active-session-second"), project_id=project_id)
     first_group_id = first_group.id
@@ -301,19 +374,20 @@ async def test_active_session_blocks_group_lifecycle_but_member_changes_refresh_
         ),
         project_id=project_id,
     )
-    agent = await JoySafeterAgentService(db_session).create_agent(
+    agent = await compose_agent_application(db_session).commands.create_agent(
         JoySafeterCreateAgentRequest(
             name="active-session-agent",
             engine_kind=JoySafeterEngineKind.CLAUDE,
         ),
         project_id=project_id,
     )
-    await SessionService(db_session).create_session(
-        agent_id=agent.id,
-        agent_name=agent.name,
-        credential_group_ids=[first_group_id, second_group_id],
-        agent_snapshot=JoySafeterAgentService(db_session).build_execution_snapshot(agent),
-        project_id=project_id,
+    await SessionCreationService(db_session, audit_actor=CredentialAuditActor.system("test")).create_from_source(
+        CreateCredentialAwareSession(
+            project_id=project_id,
+            agent_id=agent.id,
+            credential_group_ids=(first_group_id, second_group_id),
+            caller="test",
+        )
     )
 
     for lifecycle in (svc.archive, svc.soft_delete):
@@ -374,7 +448,39 @@ async def test_active_session_blocks_group_lifecycle_but_member_changes_refresh_
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("invalid_case", ("archived", "scheme", "material", "project", "group"))
+async def test_group_restore_keeps_archived_members_archived_until_individually_restored(
+    db_session,
+    project_id,
+):
+    group_service = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
+    credential_service = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
+    group = await group_service.create(
+        CreateCredentialGroupRequest(name="restore-with-archived-member"),
+        project_id=project_id,
+    )
+    member = await group_service.add_credential(
+        group.id,
+        AddGroupCredentialRequest(
+            name="archived-member",
+            mcp_server_url="https://archived-member.example.com/mcp",
+            data={"token_value": "secret"},
+        ),
+        project_id=project_id,
+    )
+    await group_service.archive_credential(group.id, member.id, project_id=project_id)
+    await group_service.archive(group.id, project_id=project_id)
+
+    restored_group = await group_service.restore(group.id, project_id=project_id)
+
+    assert restored_group.archived_at is None
+    await db_session.refresh(member)
+    assert member.archived_at is not None
+
+    restored_member = await credential_service.restore(member.id, project_id=project_id)
+    assert restored_member.archived_at is None
+
+
+@pytest.mark.parametrize("invalid_case", ("scheme", "material", "project", "group"))
 async def test_persisted_group_restore_rejects_invalid_loaded_member(
     db_session,
     project_id,
@@ -384,7 +490,7 @@ async def test_persisted_group_restore_rejects_invalid_loaded_member(
 ):
     from app.joysafeter_infrastructure.credentials import sqlalchemy_repository
 
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     group = await svc.create(CreateCredentialGroupRequest(name=f"restore-{invalid_case}"), project_id=project_id)
     other_group = await svc.create(
         CreateCredentialGroupRequest(name=f"restore-peer-{invalid_case}"),
@@ -401,13 +507,7 @@ async def test_persisted_group_restore_rejects_invalid_loaded_member(
     )
     await svc.archive(group.id, project_id=project_id)
 
-    if invalid_case == "archived":
-        await db_session.execute(
-            update(JoySafeterCredential)
-            .where(JoySafeterCredential.id == member.id)
-            .values(archived_at=group.archived_at)
-        )
-    elif invalid_case == "scheme":
+    if invalid_case == "scheme":
         await db_session.execute(
             update(JoySafeterCredential).where(JoySafeterCredential.id == member.id).values(credential_type="oauth")
         )
@@ -450,7 +550,7 @@ async def test_persisted_group_restore_rejects_bound_session_normalized_url_conf
     db_session,
     project_id,
 ):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     restoring = await svc.create(CreateCredentialGroupRequest(name="restore-url-conflict"), project_id=project_id)
     peer = await svc.create(CreateCredentialGroupRequest(name="restore-url-peer"), project_id=project_id)
     restoring_member = await svc.add_credential(
@@ -471,16 +571,17 @@ async def test_persisted_group_restore_rejects_bound_session_normalized_url_conf
         ),
         project_id=project_id,
     )
-    agent = await JoySafeterAgentService(db_session).create_agent(
+    agent = await compose_agent_application(db_session).commands.create_agent(
         JoySafeterCreateAgentRequest(name="restore-url-agent", engine_kind=JoySafeterEngineKind.CLAUDE),
         project_id=project_id,
     )
-    await SessionService(db_session).create_session(
-        agent_id=agent.id,
-        agent_name=agent.name,
-        credential_group_ids=[restoring.id, peer.id],
-        agent_snapshot=JoySafeterAgentService(db_session).build_execution_snapshot(agent),
-        project_id=project_id,
+    await SessionCreationService(db_session, audit_actor=CredentialAuditActor.system("test")).create_from_source(
+        CreateCredentialAwareSession(
+            project_id=project_id,
+            agent_id=agent.id,
+            credential_group_ids=(restoring.id, peer.id),
+            caller="test",
+        )
     )
     await db_session.execute(
         update(JoySafeterCredentialGroup)
@@ -506,7 +607,7 @@ async def test_persisted_group_restore_rejects_bound_session_normalized_url_conf
 
 @pytest.mark.asyncio
 async def test_add_duplicate_normalized_url_in_same_group_conflicts(db_session, project_id):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     await svc.add_credential(
         group.id,
@@ -529,7 +630,7 @@ async def test_add_duplicate_normalized_url_in_same_group_conflicts(db_session, 
 
 @pytest.mark.asyncio
 async def test_add_credential_to_group_in_other_project_rejected(db_session, project_id, other_project_id):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     # Attempt to add a member using the WRONG project_id -> group not found.
     with pytest.raises(AppError) as exc:
@@ -543,7 +644,7 @@ async def test_add_credential_to_group_in_other_project_rejected(db_session, pro
 
 @pytest.mark.asyncio
 async def test_remove_credential_soft_deletes(db_session, project_id):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     cred = await svc.add_credential(
         group.id,
@@ -564,8 +665,8 @@ async def test_remove_credential_soft_deletes(db_session, project_id):
 
 
 @pytest.mark.asyncio
-async def test_remove_credential_marks_sandbox_pending(db_session, project_id):
-    svc = CredentialGroupService(db_session)
+async def test_remove_credential_without_active_group_session_keeps_sandbox_ready(db_session, project_id):
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     cred = await svc.add_credential(
         group.id,
@@ -579,12 +680,15 @@ async def test_remove_credential_marks_sandbox_pending(db_session, project_id):
     sandbox_id = sandbox.id
 
     await svc.remove_credential(group.id, cred.id, project_id=project_id)
-    assert await _sandbox_status(db_session, sandbox_id) == "pending"
+    assert await _sandbox_status(db_session, sandbox_id) == "ready"
 
 
 @pytest.mark.asyncio
-async def test_archive_credential_marks_pending_and_preserves_member_history(db_session, project_id):
-    svc = CredentialGroupService(db_session)
+async def test_archive_credential_without_active_group_session_preserves_history_and_keeps_sandbox_ready(
+    db_session,
+    project_id,
+):
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     cred = await svc.add_credential(
         group.id,
@@ -607,14 +711,14 @@ async def test_archive_credential_marks_pending_and_preserves_member_history(db_
     assert cred.id not in {
         member.id for member in await svc.list_members(group.id, project_id=project_id, include_archived=False)
     }
-    assert await _sandbox_status(db_session, sandbox_id) == "pending"
+    assert await _sandbox_status(db_session, sandbox_id) == "ready"
 
 
 @pytest.mark.asyncio
 async def test_remove_credential_missing_raises(db_session, project_id):
     from app.joysafeter_shared.ids import CredentialId
 
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     group = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     with pytest.raises(AppError) as exc:
         await svc.remove_credential(group.id, CredentialId.new(), project_id=project_id)
@@ -626,7 +730,7 @@ async def test_remove_credential_missing_raises(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_check_url_conflict_for_session_disjoint_ok(db_session, project_id):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     g1 = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     g2 = await svc.create(CreateCredentialGroupRequest(name="g2"), project_id=project_id)
     await svc.add_credential(
@@ -645,7 +749,7 @@ async def test_check_url_conflict_for_session_disjoint_ok(db_session, project_id
 
 @pytest.mark.asyncio
 async def test_check_url_conflict_for_session_shared_url_conflicts(db_session, project_id):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     g1 = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     g2 = await svc.create(CreateCredentialGroupRequest(name="g2"), project_id=project_id)
     await svc.add_credential(
@@ -670,7 +774,7 @@ async def test_check_url_conflict_for_session_shared_url_conflicts(db_session, p
 
 @pytest.mark.asyncio
 async def test_check_url_conflict_single_group_ok(db_session, project_id):
-    svc = CredentialGroupService(db_session)
+    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
     g1 = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
     await svc.add_credential(
         g1.id,

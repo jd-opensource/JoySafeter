@@ -225,7 +225,7 @@ REVIEWED_ENTITY_UUID_ADAPTERS = {
     ),
     "rust:app/joysafeter_orchestrator_rs/src/kernel/sandbox_resolver.rs::as_uuid": (
         ("physical_resource_naming", "third_party_uuid_contracts"),
-        17,
+        23,
     ),
     "rust:app/joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs::as_uuid": (
         ("redis_queue_channel_payloads",),
@@ -670,18 +670,20 @@ CORE_TYPED_ID_FILES = (
     "app/joysafeter_api/api/v1/sessions.py",
     "app/joysafeter_api/api/v1/tasks.py",
     "app/joysafeter_api/api/v1/triggers.py",
-    "app/joysafeter_domain/services/agent_trigger_execution.py",
+    "app/joysafeter_application/triggers/execution_service.py",
     "app/joysafeter_domain/services/analytics_service.py",
-    "app/joysafeter_domain/services/joysafeter_agent_service.py",
-    "app/joysafeter_domain/services/joysafeter_credential_service.py",
-    "app/joysafeter_domain/services/joysafeter_credential_group_service.py",
+    "app/joysafeter_application/agents/command_service.py",
+    "app/joysafeter_application/agents/lifecycle_service.py",
+    "app/joysafeter_application/agents/query_service.py",
+    "app/joysafeter_infrastructure/agents/sqlalchemy_repository.py",
+    "app/joysafeter_application/credentials/application_service.py",
     "app/joysafeter_domain/services/joysafeter_file_service.py",
     "app/joysafeter_domain/services/joysafeter_sandbox_service.py",
-    "app/joysafeter_domain/services/joysafeter_session_resource_service.py",
+    "app/joysafeter_application/sessions/resource_service.py",
     "app/joysafeter_domain/services/joysafeter_session_service.py",
     "app/joysafeter_domain/services/joysafeter_task_service.py",
     "app/joysafeter_domain/services/joysafeter_task_state_machine.py",
-    "app/joysafeter_domain/services/joysafeter_trigger_fire_service.py",
+    "app/joysafeter_application/triggers/fire_service.py",
     "app/joysafeter_domain/services/joysafeter_trigger_runtime_gate.py",
     "app/joysafeter_domain/services/joysafeter_trigger_service.py",
     "app/joysafeter_domain/services/task_submission_service.py",
@@ -1125,17 +1127,20 @@ def test_session_event_model_keeps_event_identity_typed():
 def test_session_credential_groups_are_typed_not_jsonb():
     """Sessions bind credential GROUPS via the typed association table, not a
     ``vault_ids`` JSONB list. The schema carries ``list[CredentialGroupId]`` (on
-    both request + response) and the service persists typed
+    both request + response) and the credential snapshot adapter persists typed
     ``JoySafeterSessionCredentialGroup`` rows — so ids stay typed end to end and
-    the legacy JSONB column is gone.
+    the legacy JSONB column is gone. (Persistence lives in the infrastructure
+    credential adapter after application-layering; the session service now only
+    queries the typed association model.)
     """
     schema_source = (BACKEND_ROOT / "app/joysafeter_domain/schemas/joysafeter_session.py").read_text()
     service_source = (BACKEND_ROOT / "app/joysafeter_domain/services/joysafeter_session_service.py").read_text()
+    adapter_source = (BACKEND_ROOT / "app/joysafeter_infrastructure/credentials/snapshot_adapter.py").read_text()
 
     assert "vault_ids" not in schema_source
     assert "vault_ids" not in service_source
     assert schema_source.count("credential_group_ids: list[CredentialGroupId]") == 2
-    assert "JoySafeterSessionCredentialGroup(" in service_source
+    assert "JoySafeterSessionCredentialGroup(" in adapter_source
 
 
 def test_rust_orchestrator_has_no_bare_core_entity_uuid_annotations():
@@ -1169,7 +1174,11 @@ def test_rust_environment_and_credential_identity_boundaries_are_typed():
     assert "EnvironmentId::from_public(env_ref)" in rust_resolver
     assert ".bind(env_id)" in rust_resolver
     assert 'strip_prefix("env_").unwrap_or(env_ref)' not in rust_resolver
-    assert "id: CredentialId" in rust_harness
+    # The harness resolves the model credential through the typed-id boundary
+    # helper (Option<CredentialId> -> CredentialId); the former inline
+    # `credential_id: CredentialId` struct field moved into the credential
+    # material-access service during application-layering.
+    assert "require_bound_credential_id(agent.model_credential_id)" in rust_harness
     assert "association_group_id: Option<CredentialGroupId>" in rust_store
     assert "credential_id: Option<CredentialId>" in rust_store
 

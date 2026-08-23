@@ -16,6 +16,7 @@ import pytest
 import pytest_asyncio
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy import select
+from starlette.requests import Request
 
 from app.joysafeter_api.api.v1.credential_groups import create_credential_group
 from app.joysafeter_api.api.v1.quickstart import (
@@ -31,6 +32,11 @@ from app.joysafeter_api.api.v1.quickstart import (
     _upstream_stream_error_event,
     quickstart_chat,
 )
+from app.joysafeter_application.credentials.application_service import (
+    CredentialGroupService,
+    CredentialService,
+)
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredentialGroup
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
@@ -39,8 +45,6 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     CreateCredentialGroupRequest,
     CreateCredentialRequest,
 )
-from app.joysafeter_domain.services.joysafeter_credential_group_service import CredentialGroupService
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.ids import CredentialId
@@ -70,6 +74,21 @@ def _auth_ctx(project_id: str) -> JoySafeterAuthContext:
     )
 
 
+def _request() -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/credential-groups",
+            "headers": [(b"user-agent", b"quickstart-test/1.0")],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+            "scheme": "http",
+            "query_string": b"",
+        }
+    )
+
+
 def _chat_req(*, model_credential_id: CredentialId, engine_kind: str = "codex") -> QuickstartChatRequest:
     return QuickstartChatRequest(
         model_credential_id=model_credential_id,
@@ -79,7 +98,7 @@ def _chat_req(*, model_credential_id: CredentialId, engine_kind: str = "codex") 
 
 
 async def _make_model_credential(db_session, project_id: str, data: dict[str, str]) -> CredentialId:
-    cred = await CredentialService(db_session).create(
+    cred = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="model",
             name=f"m-{uuid.uuid4()}",
@@ -224,11 +243,12 @@ async def test_credential_group_create_accepts_initial_mcp_members(db_session, p
                 )
             ],
         ),
+        request=_request(),
         db=db_session,
         auth_ctx=_auth_ctx(project_id),
     )
 
-    members = await CredentialGroupService(db_session).list_members(
+    members = await CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test")).list_members(
         response.id,
         project_id=project_id,
         include_archived=True,
@@ -256,6 +276,7 @@ async def test_credential_group_create_initial_member_failure_rolls_back_group(d
                     )
                 ],
             ),
+            request=_request(),
             db=db_session,
             auth_ctx=_auth_ctx(project_id),
         )
@@ -315,7 +336,7 @@ async def test_quickstart_chat_missing_credential_returns_structured_error(db_se
     missing_id = CredentialId.new()
 
     with pytest.raises(AppError) as exc_info:
-        await quickstart_chat(_chat_req(model_credential_id=missing_id), db_session, _auth_ctx(project_id))
+        await quickstart_chat(_chat_req(model_credential_id=missing_id), _request(), db_session, _auth_ctx(project_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "CREDENTIAL_NOT_FOUND",
@@ -337,7 +358,7 @@ async def test_quickstart_chat_missing_provider_key_returns_structured_error(
     cred_id = await _make_model_credential(db_session, project_id, data)
 
     with pytest.raises(AppError) as exc_info:
-        await quickstart_chat(_chat_req(model_credential_id=cred_id), db_session, _auth_ctx(project_id))
+        await quickstart_chat(_chat_req(model_credential_id=cred_id), _request(), db_session, _auth_ctx(project_id))
 
     payload = await handled_app_error_payload(exc_info.value, status_code=400)
     assert payload == {
@@ -364,7 +385,7 @@ async def test_quickstart_chat_invalid_base_url_returns_structured_error(db_sess
     )
 
     with pytest.raises(AppError) as exc_info:
-        await quickstart_chat(_chat_req(model_credential_id=cred_id), db_session, _auth_ctx(project_id))
+        await quickstart_chat(_chat_req(model_credential_id=cred_id), _request(), db_session, _auth_ctx(project_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "QUICKSTART_BASE_URL_INVALID",
@@ -390,7 +411,7 @@ async def test_quickstart_chat_rejects_unallowlisted_openai_base_url(db_session,
     )
 
     with pytest.raises(AppError) as exc_info:
-        await quickstart_chat(_chat_req(model_credential_id=cred_id), db_session, _auth_ctx(project_id))
+        await quickstart_chat(_chat_req(model_credential_id=cred_id), _request(), db_session, _auth_ctx(project_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "QUICKSTART_BASE_URL_NOT_ALLOWED",
@@ -408,9 +429,7 @@ async def test_quickstart_chat_rejects_unallowlisted_openai_base_url(db_session,
 
 
 @pytest.mark.asyncio
-async def test_quickstart_chat_requires_model_when_credential_has_none(
-    db_session, project_id, monkeypatch
-):
+async def test_quickstart_chat_requires_model_when_credential_has_none(db_session, project_id, monkeypatch):
     monkeypatch.setenv("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS", "api.openai.com")
     # Valid credential (API key + allowlisted base URL) but NO OPENAI_MODEL — the
     # catalog marks the model field optional, so this used to silently fall back to
@@ -422,7 +441,7 @@ async def test_quickstart_chat_requires_model_when_credential_has_none(
     )
 
     with pytest.raises(AppError) as exc_info:
-        await quickstart_chat(_chat_req(model_credential_id=cred_id), db_session, _auth_ctx(project_id))
+        await quickstart_chat(_chat_req(model_credential_id=cred_id), _request(), db_session, _auth_ctx(project_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "QUICKSTART_MODEL_REQUIRED",

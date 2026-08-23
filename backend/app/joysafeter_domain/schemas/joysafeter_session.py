@@ -28,6 +28,7 @@ from app.joysafeter_shared.ids import (
     SessionResourceId,
     StorageVolumeId,
 )
+from app.joysafeter_shared.utils.datetime import utc_now
 
 # ---------------------------------------------------------------------------
 # JoySafeter Session Schemas
@@ -203,11 +204,22 @@ class SessionRepoResourceRequest(BaseModel):
     mount_path: Optional[str] = None
     mount_name: Optional[str] = None
     authorization_token: Optional[str] = None
+    token_expires_at: Optional[datetime] = None
 
     @field_validator("url", "authorization_token")
     @classmethod
     def trim_config_value(cls, v: Optional[str]) -> Optional[str]:
         return v.strip() if v is not None else v
+
+    @model_validator(mode="after")
+    def validate_token_expiry(self):
+        if self.token_expires_at is not None and not self.authorization_token:
+            raise ValueError("token_expires_at requires authorization_token")
+        if self.token_expires_at is not None and self.token_expires_at.utcoffset() is None:
+            raise ValueError("token_expires_at must include a timezone")
+        if self.token_expires_at is not None and self.token_expires_at <= utc_now():
+            raise ValueError("token_expires_at must be in the future")
+        return self
 
     @model_validator(mode="after")
     def validate_mount_path(self):
@@ -281,6 +293,11 @@ class SessionRepoResourceResponse(BaseModel):
     branch: str = ""
     mount_path: str = ""
     mount_name: str = ""
+    has_authorization_token: bool
+    token_status: Literal["none", "active", "expired", "erased"]
+    token_expires_at: Optional[datetime] = None
+    token_rotated_at: Optional[datetime] = None
+    token_erased_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -313,6 +330,22 @@ class UpdateRepoResourceRequest(BaseModel):
     """Rotate the clone credential on a github_repository resource."""
 
     authorization_token: str
+    token_expires_at: Optional[datetime] = None
+
+    @field_validator("authorization_token")
+    @classmethod
+    def trim_authorization_token(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def validate_token_expiry(self):
+        if self.token_expires_at is not None and not self.authorization_token:
+            raise ValueError("token_expires_at requires authorization_token")
+        if self.token_expires_at is not None and self.token_expires_at.utcoffset() is None:
+            raise ValueError("token_expires_at must include a timezone")
+        if self.token_expires_at is not None and self.token_expires_at <= utc_now():
+            raise ValueError("token_expires_at must be in the future")
+        return self
 
 
 class SessionResponse(BaseModel):

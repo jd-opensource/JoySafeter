@@ -5,12 +5,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.joysafeter_domain.models.joysafeter_session import SessionStatus
-from app.joysafeter_domain.services.agent_trigger_execution import (
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.triggers.execution_service import (
     AgentTriggerExecutor,
     AgentTriggerRunConfig,
     render_session_key,
 )
+from app.joysafeter_domain.models.joysafeter_session import SessionStatus
 
 pytestmark = pytest.mark.no_db
 
@@ -64,7 +65,7 @@ def _config(agent, **over):
 
 @pytest.fixture(autouse=True)
 def patch_deps(monkeypatch):
-    state = {"created": []}
+    state = {"created": [], "audit_actors": []}
 
     class FakeSessionService:
         def __init__(self, db):
@@ -73,7 +74,11 @@ def patch_deps(monkeypatch):
         async def get_session(self, session_id, project_id=None):
             return None
 
-        async def create_session_from_source(self, command):
+    class FakeSessionCreationService:
+        def __init__(self, db, *, audit_actor):
+            state["audit_actors"].append(audit_actor)
+
+        async def create_from_source(self, command):
             session = SimpleNamespace(
                 id=uuid.uuid4(),
                 agent_id=command.agent_id,
@@ -84,7 +89,11 @@ def patch_deps(monkeypatch):
             state["created"].append(session)
             return session
 
-    monkeypatch.setattr("app.joysafeter_domain.services.agent_trigger_execution.SessionService", FakeSessionService)
+    monkeypatch.setattr("app.joysafeter_application.triggers.execution_service.SessionService", FakeSessionService)
+    monkeypatch.setattr(
+        "app.joysafeter_application.triggers.execution_service.SessionCreationService",
+        FakeSessionCreationService,
+    )
     return state
 
 
@@ -98,7 +107,9 @@ async def test_keyed_reuses_session_matching_the_key(patch_deps):
         archived_at=None,
         metadata_={"trigger_session_key": "alpha"},
     )
-    executor = AgentTriggerExecutor(_SequencedDb(keyed_session=existing))
+    executor = AgentTriggerExecutor(
+        _SequencedDb(keyed_session=existing), audit_actor=CredentialAuditActor.system("test")
+    )
     session, created = await executor.resolve_session(_config(agent, session_key="alpha"))
     assert created is False
     assert session.id == existing.id
@@ -108,11 +119,12 @@ async def test_keyed_reuses_session_matching_the_key(patch_deps):
 @pytest.mark.asyncio
 async def test_keyed_creates_new_session_stamped_with_key_on_miss(patch_deps):
     agent = _agent()
-    executor = AgentTriggerExecutor(_SequencedDb(keyed_session=None))
+    executor = AgentTriggerExecutor(_SequencedDb(keyed_session=None), audit_actor=CredentialAuditActor.system("test"))
     session, created = await executor.resolve_session(_config(agent, session_key="beta"))
     assert created is True
     assert session.metadata_.get("trigger_session_key") == "beta"
     assert len(patch_deps["created"]) == 1
+    assert patch_deps["audit_actors"] == [CredentialAuditActor.system("test")]
 
 
 def test_rendered_keyed_session_key_is_trimmed_and_bounded():
@@ -126,7 +138,7 @@ def test_rendered_keyed_session_key_is_trimmed_and_bounded():
 @pytest.mark.asyncio
 async def test_keyed_executor_bounds_direct_config_session_key_on_miss(patch_deps):
     agent = _agent()
-    executor = AgentTriggerExecutor(_SequencedDb(keyed_session=None))
+    executor = AgentTriggerExecutor(_SequencedDb(keyed_session=None), audit_actor=CredentialAuditActor.system("test"))
     session, created = await executor.resolve_session(_config(agent, session_key=" y" * 10_000))
 
     assert created is True

@@ -36,8 +36,8 @@ class CredentialGroupService:
         batch = CredentialResourceService(
             self._uow,
             manage_transaction=False,
-            unconditional_rollback=True,
         )
+        batch.begin_batch()
         batch_groups = CredentialGroupService(self._uow, batch)
         try:
             group = await batch_groups.create(request, project_id)
@@ -109,6 +109,7 @@ class CredentialGroupService:
             action="credential_group.member_added",
             project_id=project_id,
             target_type="credential",
+            details={"credential_group_id": str(group_id)},
         )
 
     async def archive_credential(self, group_id: Any, credential_id: CredentialId, project_id: str) -> Any:
@@ -117,6 +118,7 @@ class CredentialGroupService:
             action="credential_group.member_archived",
             project_id=project_id,
             target_id=str(credential_id),
+            details={"credential_group_id": str(group_id)},
         )
 
     async def validate_member_mutation(self, group_id: Any, credential_id: CredentialId, project_id: str) -> Any:
@@ -128,6 +130,7 @@ class CredentialGroupService:
             action="credential_group.member_removed",
             project_id=project_id,
             target_id=str(credential_id),
+            details={"credential_group_id": str(group_id)},
         )
 
     async def list_members(self, *args: Any, **kwargs: Any) -> Any:
@@ -135,6 +138,3 @@ class CredentialGroupService:
 
     async def check_url_conflict_for_session(self, group_ids: list[Any], project_id: str) -> None:
         await self._uow.groups.check_url_conflict_for_session(group_ids, project_id)
-
-    async def nudge_pending_network_policy_refreshes(self) -> None:
-        await self._transactions.nudge_pending_network_policy_refreshes()

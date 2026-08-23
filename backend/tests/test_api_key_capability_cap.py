@@ -6,13 +6,19 @@ against the creator's effective_project_capability, not their org-role rank.
 """
 
 import pytest
+from pydantic import ValidationError
 
-from app.joysafeter_api.api.v1.auth import _ensure_key_capability_within_creator
+from app.joysafeter_api.api.v1.auth import CreateApiKeyRequest, _ensure_key_capability_within_creator
 from app.joysafeter_shared.common.app_errors import AccessDeniedError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
 from app.joysafeter_shared.common.joysafeter_auth.context import ProjectRole
 
 pytestmark = pytest.mark.no_db
+
+
+def test_api_key_name_rejects_blank_input():
+    with pytest.raises(ValidationError):
+        CreateApiKeyRequest(name="   ", role="viewer")
 
 
 def _assert_forbidden(creator_role, creator_project_role, requested_role):

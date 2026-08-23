@@ -8,9 +8,23 @@ from fastapi import Request
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_domain.services.joysafeter_security_audit_service import SecurityAuditService
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext
+from app.joysafeter_shared.rate_limit import get_client_ip
+
+
+def credential_audit_actor(request: Request | None, auth_ctx: JoySafeterAuthContext) -> CredentialAuditActor:
+    return CredentialAuditActor(
+        user_id=auth_ctx.user_id,
+        principal_type=auth_ctx.principal_type,
+        principal_id=auth_ctx.principal_id or auth_ctx.user_id,
+        ip_address=get_client_ip(request) if request is not None else "unknown",
+        user_agent=request.headers.get("user-agent") if request is not None else None,
+        org_id=auth_ctx.org_id,
+        role=auth_ctx.role.value,
+    )
 
 
 async def audit_joysafeter_event(
@@ -35,6 +49,8 @@ async def audit_joysafeter_event(
         "org_id": auth_ctx.org_id,
         "project_id": auth_ctx.project_id,
         "role": auth_ctx.role.value,
+        "principal_type": auth_ctx.principal_type,
+        "principal_id": auth_ctx.principal_id,
     }
     if target_type:
         payload["target_type"] = target_type

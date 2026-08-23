@@ -30,7 +30,20 @@ pub struct CredentialContract {
     disabled_auth_schemes: Vec<String>,
     runtime_errors: Vec<String>,
     #[allow(dead_code)]
-    encryption_envelope: String,
+    encryption_envelopes: CredentialEncryptionEnvelopeContract,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CredentialEncryptionEnvelopeContract {
+    #[allow(dead_code)]
+    legacy_read: Vec<String>,
+    #[allow(dead_code)]
+    current_write: String,
+    #[allow(dead_code)]
+    v2_authenticated_associated_data: String,
+    #[allow(dead_code)]
+    startup_requires_all_referenced_read_keys: bool,
 }
 
 impl CredentialContract {

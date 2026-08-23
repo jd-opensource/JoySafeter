@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,6 +14,10 @@ from app.joysafeter_shared.ids import EntityIdType, SandboxId, SessionId, TaskId
 class JoySafeterSandbox(JoySafeterBaseModel):
     __tablename__ = "joysafeter_sandboxes"
     __table_args__ = (
+        CheckConstraint(
+            "runtime_config_status IN ('ready', 'restart_required')",
+            name="ck_joysafeter_sandboxes_runtime_config_status",
+        ),
         Index("idx_csb_status", "status"),
         Index(
             "idx_csb_pool",
@@ -78,3 +82,12 @@ class JoySafeterSandbox(JoySafeterBaseModel):
     networking_policy_version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
     networking_last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     networking_ready_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    runtime_config_status: Mapped[str] = mapped_column(Text, nullable=False, default="ready", server_default="ready")
+    runtime_config_last_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    runtime_config_required_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    runtime_config_applied_generation: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )

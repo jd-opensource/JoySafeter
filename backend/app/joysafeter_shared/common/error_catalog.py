@@ -195,6 +195,18 @@ CATALOG: dict[str, CatalogEntry] = {
     "AGENT_NOT_FOUND": CatalogEntry(
         code="AGENT_NOT_FOUND", error_class=NotFoundError, default_message="Agent not found"
     ),
+    "AGENT_ENVIRONMENT_NOT_FOUND": CatalogEntry(
+        code="AGENT_ENVIRONMENT_NOT_FOUND",
+        error_class=InvalidRequestError,
+        default_message="Agent environment not found",
+        user_action="fix_input",
+    ),
+    "AGENT_NAME_CONFLICT": CatalogEntry(
+        code="AGENT_NAME_CONFLICT",
+        error_class=ResourceConflictError,
+        default_message="An agent with this name already exists in the project",
+        user_action="fix_input",
+    ),
     "AGENT_SANDBOX_STATE_SYNC_FAILED": CatalogEntry(
         code="AGENT_SANDBOX_STATE_SYNC_FAILED",
         error_class=ServiceUnavailableError,
@@ -863,6 +875,24 @@ CATALOG: dict[str, CatalogEntry] = {
     ),
     "SESSION_REPO_RESOURCE_NOT_FOUND": CatalogEntry(
         code="SESSION_REPO_RESOURCE_NOT_FOUND", error_class=NotFoundError, default_message="Repo resource not found"
+    ),
+    "SESSION_REPO_TOKEN_EXPIRY_INVALID": CatalogEntry(
+        code="SESSION_REPO_TOKEN_EXPIRY_INVALID",
+        error_class=InvalidRequestError,
+        default_message="Repository token expiry must be in the future",
+        user_action="fix_input",
+    ),
+    "SESSION_REPO_TOKEN_EXPIRY_TIMEZONE_REQUIRED": CatalogEntry(
+        code="SESSION_REPO_TOKEN_EXPIRY_TIMEZONE_REQUIRED",
+        error_class=InvalidRequestError,
+        default_message="Repository token expiry must include a timezone",
+        user_action="fix_input",
+    ),
+    "SESSION_REPO_TOKEN_EXPIRY_WITHOUT_TOKEN": CatalogEntry(
+        code="SESSION_REPO_TOKEN_EXPIRY_WITHOUT_TOKEN",
+        error_class=InvalidRequestError,
+        default_message="Repository token expiry requires an authorization token",
+        user_action="fix_input",
     ),
     "SESSION_REPO_URL_REQUIRED": CatalogEntry(
         code="SESSION_REPO_URL_REQUIRED", error_class=InvalidRequestError, default_message="Repo url is required"

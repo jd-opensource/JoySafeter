@@ -11,6 +11,9 @@ from sqlalchemy.pool import NullPool
 
 from app.joysafeter_api.api.v1.sessions import create_session
 from app.joysafeter_api.api.v1.tasks import create_task
+from app.joysafeter_application.agents import compose_agent_application
+from app.joysafeter_application.credentials.application_service import CredentialService
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
@@ -22,8 +25,6 @@ from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredential
 from app.joysafeter_domain.schemas.joysafeter_environment import CreateEnvironmentRequest, EnvironmentConfig
 from app.joysafeter_domain.schemas.joysafeter_session import CreateSessionRequest
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRequest
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_infrastructure.credentials.snapshot_adapter import SqlAlchemyCredentialSnapshotSourceAdapter
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
@@ -58,7 +59,7 @@ async def _project(db: AsyncSession) -> tuple[Project, JoySafeterAuthContext]:
 
 
 async def _credential(db: AsyncSession, project_id: str, *, kind: str = "model"):
-    return await CredentialService(db).create(
+    return await CredentialService(db, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind=kind,
             name=f"caller-race-credential-{uuid.uuid4()}",
@@ -77,7 +78,7 @@ async def _agent(
     model_credential_id=None,
     environment_ref: str | None = None,
 ):
-    return await JoySafeterAgentService(db).create_agent(
+    return await compose_agent_application(db).commands.create_agent(
         JoySafeterCreateAgentRequest(
             name=f"caller-race-agent-{uuid.uuid4()}",
             engine_kind=JoySafeterEngineKind.CLAUDE,
@@ -111,7 +112,10 @@ async def test_session_api_refreshes_retained_agent_reference_state(db_session, 
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     try:
         async with factory() as caller_db, factory() as mutate_db:
-            retained = await JoySafeterAgentService(caller_db).get_agent(agent.id, project_id=project.id)
+            retained = await compose_agent_application(caller_db).queries.get_agent(
+                agent.id,
+                project_id=project.id,
+            )
             assert retained is not None
             await mutate_db.execute(
                 update(JoySafeterAgent)
@@ -178,7 +182,7 @@ async def test_task_api_refreshes_retained_environment_reference_state(
                 JoySafeterCreateTaskRequest(
                     agent_id=agent.id,
                     prompt="retained environment race",
-                    environment_ref=str(environment.id),
+                    environment_ref=environment.name,
                 ),
                 caller_db,
                 auth,
@@ -191,6 +195,9 @@ async def test_task_api_refreshes_retained_environment_reference_state(
                 .execution_options(populate_existing=True)
             )
             assert session is not None
+            assert session.environment_ref == str(environment.id)
+            assert session.agent_snapshot["environment_ref"] == str(environment.id)
+            assert session.agent_snapshot["environment"]["ref"] == str(environment.id)
             assert session.agent_snapshot["environment"]["config"]["secret_refs"] == [str(second.id)]
     finally:
         await engine.dispose()
@@ -215,7 +222,10 @@ async def test_agent_archive_waits_then_archives_new_session(
             )
             await asyncio.wait_for(locked.wait(), timeout=2)
             archive_future = asyncio.create_task(
-                JoySafeterAgentService(writer_db).archive_agent_with_sessions(agent.id, project_id=project.id)
+                compose_agent_application(writer_db).lifecycle.archive_agent_with_sessions(
+                    agent.id,
+                    project_id=project.id,
+                )
             )
             await asyncio.sleep(0.1)
             assert not archive_future.done()

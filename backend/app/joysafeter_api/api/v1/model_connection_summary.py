@@ -5,10 +5,11 @@ from collections.abc import Iterable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_application.credentials.application_service import CredentialService
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_domain.llm.compatibility import resolve_credential_profile
 from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredential
 from app.joysafeter_domain.schemas.joysafeter_credential import ModelCredentialSummary
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_shared.ids import CredentialId
 
 
@@ -84,6 +85,6 @@ async def load_model_connection_summaries(
         query = query.where(JoySafeterCredential.project_id == project_id)
 
     result = await db.execute(query)
-    service = CredentialService(db)
+    service = CredentialService(db, audit_actor=CredentialAuditActor.system("model_connection_summary"))
     summaries = [model_connection_summary(credential, service) for credential in result.scalars().all()]
     return {summary.id: summary for summary in summaries if summary is not None}

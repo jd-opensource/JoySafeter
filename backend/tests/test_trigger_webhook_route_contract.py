@@ -4,16 +4,21 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import select
 
 from app.joysafeter_api.api.v1 import triggers as trigger_api
+from app.joysafeter_application.credentials.application_service import CredentialService
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.credentials.webhook_auth_service import WebhookAuthService
+from app.joysafeter_application.triggers import TriggerApplicationService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_domain.models.joysafeter_credential_access_audit import (
+    JoySafeterCredentialAccessAudit,
+)
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
-from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
-from app.joysafeter_domain.services.joysafeter_trigger_webhook_auth_service import WebhookAuthService
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.ids import SessionId, TaskId
 from app.joysafeter_shared.rate_limit import _rate_limiter
@@ -51,7 +56,7 @@ async def _seed_webhook_trigger(
     db_session.add(agent)
     await db_session.flush()
 
-    credential = await CredentialService(db_session).create(
+    credential = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="service",
             name=f"hook-secret-{unique}",
@@ -112,8 +117,8 @@ async def test_webhook_route_maps_hmac_headers_payload_and_delivery_id(db_sessio
         }
         return "fired", SimpleNamespace(id=task_id), session_id, False, None
 
-    monkeypatch.setattr(JoySafeterTriggerService, "verify_webhook_auth", fake_verify)
-    monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
+    monkeypatch.setattr(TriggerApplicationService, "verify_webhook_auth", fake_verify)
+    monkeypatch.setattr(TriggerApplicationService, "fire_webhook", fake_fire)
 
     app = _app(db_session)
     async with _client(app) as client:
@@ -188,7 +193,7 @@ async def test_webhook_route_resolves_project_secret_and_verifies_real_hmac(db_s
         }
         return "fired", SimpleNamespace(id=task_id), session_id, False, None
 
-    monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
+    monkeypatch.setattr(TriggerApplicationService, "fire_webhook", fake_fire)
 
     app = _app(db_session)
     async with _client(app) as client:
@@ -209,6 +214,19 @@ async def test_webhook_route_resolves_project_secret_and_verifies_real_hmac(db_s
         "delivery_id": "real-hmac-delivery",
         "auth_fingerprint": signature,
     }
+    audit = await db_session.scalar(
+        select(JoySafeterCredentialAccessAudit).where(
+            JoySafeterCredentialAccessAudit.credential_id == trigger.webhook_auth_credential_id
+        )
+    )
+    assert audit is not None
+    assert audit.result == "success"
+    assert audit.usage == "webhook_auth"
+    assert audit.consumer_type == "webhook_auth"
+    assert audit.consumer_id == str(trigger.id)
+    assert audit.principal_type == "webhook_request"
+    assert audit.principal_id == "anonymous"
+    assert audit.field_names == ["WEBHOOK_SECRET"]
 
 
 @pytest.mark.asyncio
@@ -241,8 +259,8 @@ async def test_webhook_route_accepts_bearer_token_and_wraps_non_json_body(db_ses
         }
         return "deduped", SimpleNamespace(id=task_id), session_id, True, None
 
-    monkeypatch.setattr(JoySafeterTriggerService, "verify_webhook_auth", fake_verify)
-    monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
+    monkeypatch.setattr(TriggerApplicationService, "verify_webhook_auth", fake_verify)
+    monkeypatch.setattr(TriggerApplicationService, "fire_webhook", fake_fire)
 
     app = _app(db_session)
     async with _client(app) as client:
@@ -295,8 +313,8 @@ async def test_webhook_route_rejects_invalid_auth_before_fire(db_session, monkey
     async def fake_fire(self, *args, **kwargs):
         raise AssertionError("invalid webhook auth must not fire the trigger")
 
-    monkeypatch.setattr(JoySafeterTriggerService, "verify_webhook_auth", fake_verify)
-    monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
+    monkeypatch.setattr(TriggerApplicationService, "verify_webhook_auth", fake_verify)
+    monkeypatch.setattr(TriggerApplicationService, "fire_webhook", fake_fire)
 
     app = _app(db_session)
     async with _client(app) as client:
@@ -322,7 +340,7 @@ async def test_webhook_route_hides_secret_resolution_errors_from_public_callers(
     async def fake_fire(self, *args, **kwargs):
         raise AssertionError("misconfigured webhook auth must not fire the trigger")
 
-    monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
+    monkeypatch.setattr(TriggerApplicationService, "fire_webhook", fake_fire)
 
     app = _app(db_session)
     async with _client(app) as client:
@@ -359,8 +377,8 @@ async def test_webhook_route_rate_limits_by_trigger_and_client_ip(db_session, mo
         fire_count += 1
         return "fired", SimpleNamespace(id=task_id), session_id, False, None
 
-    monkeypatch.setattr(JoySafeterTriggerService, "verify_webhook_auth", fake_verify)
-    monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
+    monkeypatch.setattr(TriggerApplicationService, "verify_webhook_auth", fake_verify)
+    monkeypatch.setattr(TriggerApplicationService, "fire_webhook", fake_fire)
 
     app = _app(db_session)
     try:
@@ -414,8 +432,8 @@ async def test_webhook_route_rate_limit_cannot_be_bypassed_by_spoofing_forwarded
         fire_count += 1
         return "fired", SimpleNamespace(id=task_id), session_id, False, None
 
-    monkeypatch.setattr(JoySafeterTriggerService, "verify_webhook_auth", fake_verify)
-    monkeypatch.setattr(JoySafeterTriggerService, "fire_webhook", fake_fire)
+    monkeypatch.setattr(TriggerApplicationService, "verify_webhook_auth", fake_verify)
+    monkeypatch.setattr(TriggerApplicationService, "fire_webhook", fake_fire)
 
     app = _app(db_session)
     try:

@@ -256,8 +256,17 @@ async fn scheduler_snapshot_validation_and_session_attach_share_one_transaction(
     let credential_id = CredentialId::from_uuid(Uuid::now_v7());
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
     let task_id = TaskId::from_uuid(Uuid::now_v7());
+    let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
     seed_credential(&pool, credential_id, &project_id, false).await;
     seed_agent_and_task(&pool, agent_id, task_id, credential_id, &project_id).await;
+    seed_environment(&pool, environment_id, &project_id).await;
+    let environment_name = format!("task-11-environment-{environment_id}");
+    sqlx::query("UPDATE joysafeter_agents SET environment_ref = $2 WHERE id = $1")
+        .bind(agent_id)
+        .bind(&environment_name)
+        .execute(&pool)
+        .await
+        .expect("bind Agent to Environment name");
     let store = CredentialStore::with_material_adapter(
         pool.clone(),
         ManagedCredentialMaterialAdapter::from_key(TEST_KEY),
@@ -282,6 +291,24 @@ async fn scheduler_snapshot_validation_and_session_attach_share_one_transaction(
             .as_ref()
             .and_then(|value| value["model_credential_id"].as_str()),
         Some(credential_id.to_string().as_str())
+    );
+    assert_eq!(
+        session.environment_ref.as_deref(),
+        Some(environment_id.to_string().as_str())
+    );
+    assert_eq!(
+        session
+            .agent_snapshot
+            .as_ref()
+            .and_then(|value| value["environment_ref"].as_str()),
+        Some(environment_id.to_string().as_str())
+    );
+    assert_eq!(
+        session
+            .agent_snapshot
+            .as_ref()
+            .and_then(|value| value["environment"]["ref"].as_str()),
+        Some(environment_id.to_string().as_str())
     );
     let attached: Option<joysafeter_orchestrator::ids::SessionId> =
         sqlx::query_scalar("SELECT chat_session_id FROM joysafeter_tasks WHERE id = $1")
@@ -315,6 +342,10 @@ async fn scheduler_snapshot_validation_and_session_attach_share_one_transaction(
         credential_id,
     )
     .await;
+    let _ = sqlx::query("DELETE FROM joysafeter_environments WHERE id = $1")
+        .bind(environment_id)
+        .execute(&pool)
+        .await;
 }
 
 #[tokio::test]

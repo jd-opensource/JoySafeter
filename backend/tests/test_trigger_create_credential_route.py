@@ -14,8 +14,8 @@ from starlette.requests import Request
 
 from app.joysafeter_api.api.v1 import triggers as trigger_api
 from app.joysafeter_api.api.v1.triggers import create_trigger
+from app.joysafeter_application.triggers import TriggerApplicationService
 from app.joysafeter_domain.schemas.joysafeter_trigger import TriggerCreateRequest
-from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.ids import AgentId, CredentialId
 
@@ -68,7 +68,7 @@ async def test_create_route_passes_credential_id_and_field(monkeypatch):
         captured.update(kwargs)
         return _Trigger()
 
-    monkeypatch.setattr(JoySafeterTriggerService, "create", fake_create)
+    monkeypatch.setattr(TriggerApplicationService, "create", fake_create)
     # Neutralize response URL building (needs no real work for kwarg assertions).
     monkeypatch.setattr(trigger_api, "_response", lambda trigger, request: trigger)
 

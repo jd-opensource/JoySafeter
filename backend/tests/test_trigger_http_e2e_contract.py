@@ -8,15 +8,17 @@ from fastapi import FastAPI
 from sqlalchemy import select
 
 from app.joysafeter_api.api.v1 import triggers as trigger_api
+from app.joysafeter_application.credentials.application_service import CredentialService
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.triggers import TriggerApplicationService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_domain.models.joysafeter_security_audit_log import SecurityAuditLog
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
-from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.ids import SessionId, TaskId, TriggerId
@@ -77,7 +79,7 @@ async def _seed_project_agent_and_secret(db_session):
     db_session.add(agent)
     await db_session.flush()
 
-    credential = await CredentialService(db_session).create(
+    credential = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="service",
             name=f"hook-secret-{unique}",
@@ -151,6 +153,17 @@ async def test_trigger_http_crud_manual_run_history_and_delete_flow(db_session, 
         assert fired["task_id"].startswith("task_")
         assert fired["session_id"].startswith("sess_")
         assert fired["deduped"] is False
+
+        snapshot_audit = await db_session.scalar(
+            select(SecurityAuditLog).where(
+                SecurityAuditLog.event_type == "session.snapshot.created",
+                SecurityAuditLog.details["target_id"].astext == fired["session_id"],
+            )
+        )
+        assert snapshot_audit is not None
+        assert snapshot_audit.user_id == "trigger-http-e2e-user"
+        assert snapshot_audit.details["principal_type"] == "user"
+        assert snapshot_audit.details["principal_id"] == "trigger-http-e2e-user"
 
         replay_resp = await client.post(
             f"/api/v1/triggers/{trigger_id}/run",
@@ -337,11 +350,13 @@ async def test_trigger_http_webhook_test_fire_and_sample_flow(db_session, monkey
             "delivery_id": delivery_id,
             "auth_fingerprint": auth_fingerprint,
             "ignore_enabled": ignore_enabled,
+            "principal_type": self._credential_audit_actor.principal_type,
+            "principal_id": self._credential_audit_actor.principal_id,
         }
         return "fired", SimpleNamespace(id=task_id), session_id, False, None
 
     monkeypatch.setattr(
-        "app.joysafeter_domain.services.joysafeter_trigger_service.JoySafeterTriggerService.fire_webhook",
+        "app.joysafeter_application.triggers.service.TriggerApplicationService.fire_webhook",
         fake_fire_webhook,
     )
     app = _app(db_session, _ctx(project.id, org.id))
@@ -379,6 +394,8 @@ async def test_trigger_http_webhook_test_fire_and_sample_flow(db_session, monkey
     assert str(captured["fire"]["delivery_id"]).startswith("test:")
     assert captured["fire"]["auth_fingerprint"] == "test"
     assert captured["fire"]["ignore_enabled"] is True
+    assert captured["fire"]["principal_type"] == "user"
+    assert captured["fire"]["principal_id"] == "trigger-http-e2e-user"
 
 
 @pytest.mark.asyncio
@@ -495,7 +512,7 @@ async def test_trigger_http_management_endpoints_are_project_scoped(db_session, 
     async def fail_fire_manual(self, *args, **kwargs):
         raise AssertionError("cross-project trigger must not reach fire_manual")
 
-    monkeypatch.setattr(JoySafeterTriggerService, "fire_manual", fail_fire_manual)
+    monkeypatch.setattr(TriggerApplicationService, "fire_manual", fail_fire_manual)
     app = _app(db_session, _ctx(project_a.id, org_a.id))
     trigger_id = str(trigger_b.id)
 

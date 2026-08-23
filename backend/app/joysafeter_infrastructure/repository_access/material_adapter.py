@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from app.joysafeter_infrastructure.sensitive_material.legacy_v1 import LegacyV1MaterialProtector
+from app.joysafeter_infrastructure.sensitive_material.versioned import VersionedMaterialProtector
 
 
 class RepositoryAccessMaterialAdapter:
-    def __init__(self, protector: LegacyV1MaterialProtector) -> None:
+    def __init__(self, protector: VersionedMaterialProtector) -> None:
         self._protector = protector
 
     def protect_repository_token(self, value: str) -> str:

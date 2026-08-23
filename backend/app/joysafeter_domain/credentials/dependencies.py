@@ -42,6 +42,12 @@ class DependencyDisposition(StrEnum):
     AUDIT_ONLY = "audit_only"
 
 
+def runtime_impact_dispositions(usage: CredentialUsage) -> frozenset[DependencyDisposition]:
+    if usage is CredentialUsage.ENVIRONMENT_INJECTION:
+        return frozenset({DependencyDisposition.REVALIDATE_ON_ACTIVATION})
+    return frozenset({DependencyDisposition.REFRESH_RUNTIME_POLICY})
+
+
 @dataclass(frozen=True, slots=True)
 class ReferenceSurfaceDescriptor:
     surface_id: ReferenceSurfaceId

@@ -137,6 +137,8 @@ pub struct JoySafeterConfig {
 
     // Vault
     pub vault_encryption_key: Option<String>,
+    pub credential_encryption_keyring: Option<String>,
+    pub credential_encryption_write_key_id: Option<String>,
 
     // HA
     pub heartbeat_interval: u64,
@@ -316,6 +318,12 @@ impl JoySafeterConfig {
             ),
 
             vault_encryption_key: env::var("JOYSAFETER_VAULT_ENCRYPTION_KEY").ok(),
+            credential_encryption_keyring: env::var("JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING")
+                .ok(),
+            credential_encryption_write_key_id: env::var(
+                "JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID",
+            )
+            .ok(),
 
             heartbeat_interval: env_u64("JOYSAFETER_HEARTBEAT_INTERVAL", 15),
             heartbeat_ttl: env_u64("JOYSAFETER_HEARTBEAT_TTL", 30),

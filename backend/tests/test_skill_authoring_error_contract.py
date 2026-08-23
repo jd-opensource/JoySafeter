@@ -14,6 +14,7 @@ import pytest
 import pytest_asyncio
 from error_contract_helpers import handled_app_error_payload
 from sqlalchemy.exc import IntegrityError
+from starlette.requests import Request
 
 from app.joysafeter_api.api.v1.skills_ai_authoring import (
     AuthoringChatRequest,
@@ -22,10 +23,11 @@ from app.joysafeter_api.api.v1.skills_ai_authoring import (
     authoring_chat,
     authoring_save_draft,
 )
+from app.joysafeter_application.credentials.application_service import CredentialService
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillService
 from app.joysafeter_shared.common.app_errors import AppError, ResourceConflictError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
@@ -56,6 +58,21 @@ def _auth_ctx(project_id: str | None = "proj-a") -> JoySafeterAuthContext:
     )
 
 
+def _request() -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/skills/ai-authoring/chat",
+            "headers": [(b"user-agent", b"skill-authoring-test/1.0")],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+            "scheme": "http",
+            "query_string": b"",
+        }
+    )
+
+
 def _chat_req(cred_id: CredentialId) -> AuthoringChatRequest:
     return AuthoringChatRequest(
         model_credential_id=cred_id,
@@ -71,7 +88,7 @@ async def _make_model_credential(
     provider: str = "openai",
     protocol: str = "openai_responses",
 ) -> CredentialId:
-    cred = await CredentialService(db_session).create(
+    cred = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="model",
             name=f"m-{uuid.uuid4()}",
@@ -117,7 +134,7 @@ async def test_authoring_chat_missing_credential_returns_structured_error(db_ses
     missing_id = CredentialId.new()
 
     with pytest.raises(AppError) as exc_info:
-        await authoring_chat(_chat_req(missing_id), db_session, _auth_ctx(project_id))
+        await authoring_chat(_chat_req(missing_id), _request(), db_session, _auth_ctx(project_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "CREDENTIAL_NOT_FOUND",
@@ -139,7 +156,7 @@ async def test_authoring_chat_missing_openai_key_returns_structured_error(
     cred_id = await _make_model_credential(db_session, project_id, data)
 
     with pytest.raises(AppError) as exc_info:
-        await authoring_chat(_chat_req(cred_id), db_session, _auth_ctx(project_id))
+        await authoring_chat(_chat_req(cred_id), _request(), db_session, _auth_ctx(project_id))
 
     payload = await handled_app_error_payload(exc_info.value, status_code=400)
     assert payload == {
@@ -164,7 +181,7 @@ async def test_authoring_chat_rejects_wrong_protocol_credential(db_session, proj
     )
 
     with pytest.raises(AppError) as exc_info:
-        await authoring_chat(_chat_req(cred_id), db_session, _auth_ctx(project_id))
+        await authoring_chat(_chat_req(cred_id), _request(), db_session, _auth_ctx(project_id))
 
     assert exc_info.value.code == "CREDENTIAL_KIND_INVALID"
 
@@ -178,7 +195,7 @@ async def test_authoring_chat_invalid_openai_base_url_returns_structured_error(d
     )
 
     with pytest.raises(AppError) as exc_info:
-        await authoring_chat(_chat_req(cred_id), db_session, _auth_ctx(project_id))
+        await authoring_chat(_chat_req(cred_id), _request(), db_session, _auth_ctx(project_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "SKILL_AUTHORING_BASE_URL_INVALID",
@@ -204,7 +221,7 @@ async def test_authoring_chat_rejects_unallowlisted_openai_base_url(db_session, 
     )
 
     with pytest.raises(AppError) as exc_info:
-        await authoring_chat(_chat_req(cred_id), db_session, _auth_ctx(project_id))
+        await authoring_chat(_chat_req(cred_id), _request(), db_session, _auth_ctx(project_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "SKILL_AUTHORING_BASE_URL_NOT_ALLOWED",

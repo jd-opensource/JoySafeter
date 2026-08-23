@@ -10,7 +10,7 @@
 //!   demotion.
 //! - On demotion the leader stops all write services (scheduler, controller) before
 //!   releasing readiness, ensuring no split-brain writes.
-//! - DB-level CAS (`claim_pending_task`, `attach_sandbox_to_task`) serves as the
+//! - DB-level CAS (`claim_pending_task`, `attach_sandbox_to_task_guarded`) serves as the
 //!   ultimate fence even if the Lease layer has a transient gap.
 
 use std::sync::atomic::{AtomicBool, Ordering};

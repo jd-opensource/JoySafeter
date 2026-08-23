@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from app.joysafeter_api.api.v1.agent_identity_capture import _encrypt
 from app.joysafeter_application.credentials import composition as credential_composition
+from app.joysafeter_application.credentials.application_service import CredentialService
 from app.joysafeter_application.credentials.binding_service import (
     BindingIssuanceAuthority,
     CredentialBindingService,
@@ -19,6 +20,8 @@ from app.joysafeter_application.credentials.binding_service import (
 )
 from app.joysafeter_application.credentials.composition import compose_credential_application
 from app.joysafeter_application.credentials.ports import (
+    CredentialAccessContext,
+    CredentialAuditActor,
     CredentialAuditEntry,
     CredentialUnitOfWork,
 )
@@ -55,6 +58,7 @@ from app.joysafeter_domain.models.joysafeter_credential import (
     JoySafeterCredential,
     JoySafeterCredentialGroup,
 )
+from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
@@ -64,7 +68,6 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     CreateCredentialRequest,
     UpdateCredentialRequest,
 )
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_infrastructure.credentials.audit_adapter import (
     SqlAlchemyCredentialAuditAdapter,
 )
@@ -74,7 +77,7 @@ from app.joysafeter_infrastructure.credentials.material_adapter import (
 from app.joysafeter_infrastructure.repository_access.material_adapter import (
     RepositoryAccessMaterialAdapter,
 )
-from app.joysafeter_infrastructure.sensitive_material.legacy_v1 import LegacyV1MaterialProtector
+from app.joysafeter_infrastructure.sensitive_material.versioned import VersionedMaterialProtector
 from app.joysafeter_infrastructure.task_identity.material_adapter import TaskIdentityMaterialAdapter
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -115,8 +118,7 @@ def test_credential_transaction_ownership_is_application_only() -> None:
     paths = (
         APP_ROOT / "joysafeter_api/api/v1/credentials.py",
         APP_ROOT / "joysafeter_api/api/v1/credential_groups.py",
-        APP_ROOT / "joysafeter_domain/services/joysafeter_credential_service.py",
-        APP_ROOT / "joysafeter_domain/services/joysafeter_credential_group_service.py",
+        APP_ROOT / "joysafeter_application/credentials/application_service.py",
         APP_ROOT / "joysafeter_infrastructure/credentials/sqlalchemy_repository.py",
     )
     for path in paths:
@@ -158,7 +160,7 @@ def _credential_boundary_violations(source: str) -> set[str]:
     tree = ast.parse(source)
     forbidden_calls = {
         "CredentialCipher",
-        "LegacyV1MaterialProtector",
+        "VersionedMaterialProtector",
         "decrypt",
         "get_credential_data",
         "reveal_values",
@@ -275,25 +277,228 @@ def _credential_boundary_violations(source: str) -> set[str]:
     return violations
 
 
-def test_legacy_credential_service_is_an_application_facade() -> None:
-    path = APP_ROOT / "joysafeter_domain/services/joysafeter_credential_service.py"
-    imports = _imports(path)
+@pytest.mark.no_db
+def test_credential_management_facades_live_in_application_layer() -> None:
+    application_path = APP_ROOT / "joysafeter_application/credentials/application_service.py"
+    legacy_paths = (
+        APP_ROOT / "joysafeter_domain/services/joysafeter_credential_service.py",
+        APP_ROOT / "joysafeter_domain/services/joysafeter_credential_group_service.py",
+    )
 
+    assert application_path.is_file()
+    assert all(not path.exists() for path in legacy_paths)
+    imports = _imports(application_path)
     assert not any(name.startswith("app.joysafeter_api") for name in imports)
-    assert "app.joysafeter_domain.schemas.joysafeter_credential" not in imports
-    assert "sqlalchemy" not in imports
-    assert not any(name.startswith("sqlalchemy.") for name in imports)
-    assert "app.joysafeter_application.credentials.composition" in imports
+    assert "composition" in imports
 
 
+@pytest.mark.no_db
 def test_repository_access_does_not_call_credential_service_encryption_helpers() -> None:
-    path = APP_ROOT / "joysafeter_domain/services/joysafeter_session_resource_service.py"
+    path = APP_ROOT / "joysafeter_application/sessions/resource_service.py"
+    legacy_path = APP_ROOT / "joysafeter_domain/services/joysafeter_session_resource_service.py"
+
+    assert path.is_file()
+    assert not legacy_path.exists()
     imports = _imports(path)
     calls = _calls(path)
 
     assert "app.joysafeter_domain.services.joysafeter_credential_service" not in imports
     assert "encrypt_data_for_storage" not in calls
     assert "app.joysafeter_application.credentials.composition" in imports
+
+
+@pytest.mark.no_db
+def test_credential_aware_session_creation_lives_in_application_layer() -> None:
+    application_path = APP_ROOT / "joysafeter_application/sessions/creation_service.py"
+    domain_path = APP_ROOT / "joysafeter_domain/services/joysafeter_session_service.py"
+
+    assert application_path.is_file()
+    assert not any(name.startswith("app.joysafeter_application") for name in _imports(domain_path))
+
+    domain_tree = ast.parse(domain_path.read_text())
+    session_service = next(
+        node for node in domain_tree.body if isinstance(node, ast.ClassDef) and node.name == "SessionService"
+    )
+    method_names = {
+        node.name for node in session_service.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert "create_session_from_source" not in method_names
+    assert "create_session" not in method_names
+
+
+@pytest.mark.no_db
+def test_environment_credential_transactions_live_in_application_layer() -> None:
+    application_path = APP_ROOT / "joysafeter_application/environments/credential_service.py"
+    domain_path = APP_ROOT / "joysafeter_domain/services/joysafeter_environment_service.py"
+
+    assert application_path.is_file()
+    assert not any(name.startswith("app.joysafeter_application") for name in _imports(domain_path))
+
+    domain_tree = ast.parse(domain_path.read_text())
+    environment_service = next(
+        node for node in domain_tree.body if isinstance(node, ast.ClassDef) and node.name == "EnvironmentService"
+    )
+    method_names = {
+        node.name for node in environment_service.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert "commit_update" not in method_names
+
+
+@pytest.mark.no_db
+def test_trigger_execution_orchestration_lives_in_application_layer() -> None:
+    application_paths = (
+        APP_ROOT / "joysafeter_application/triggers/execution_service.py",
+        APP_ROOT / "joysafeter_application/triggers/fire_service.py",
+    )
+    legacy_paths = (
+        APP_ROOT / "joysafeter_domain/services/agent_trigger_execution.py",
+        APP_ROOT / "joysafeter_domain/services/joysafeter_trigger_fire_service.py",
+    )
+
+    assert all(path.is_file() for path in application_paths)
+    assert all(not path.exists() for path in legacy_paths)
+    assert not any(name.startswith("app.joysafeter_api") for path in application_paths for name in _imports(path))
+
+
+@pytest.mark.no_db
+def test_trigger_credential_commands_live_in_application_layer() -> None:
+    application_path = APP_ROOT / "joysafeter_application/triggers/service.py"
+    domain_path = APP_ROOT / "joysafeter_domain/services/joysafeter_trigger_service.py"
+
+    assert application_path.is_file()
+    assert not any(name.startswith("app.joysafeter_application") for name in _imports(domain_path))
+
+    domain_tree = ast.parse(domain_path.read_text())
+    trigger_service = next(
+        node for node in domain_tree.body if isinstance(node, ast.ClassDef) and node.name == "JoySafeterTriggerService"
+    )
+    method_names = {
+        node.name for node in trigger_service.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert (
+        not {
+            "create",
+            "update",
+            "verify_webhook_auth",
+            "fire_webhook",
+            "fire_manual",
+            "build_webhook_curl",
+        }
+        & method_names
+    )
+
+
+@pytest.mark.no_db
+def test_agent_services_are_fully_layered() -> None:
+    application_root = APP_ROOT / "joysafeter_application/agents"
+    domain_root = APP_ROOT / "joysafeter_domain/agents"
+    infrastructure_root = APP_ROOT / "joysafeter_infrastructure/agents"
+    legacy_path = APP_ROOT / "joysafeter_domain/services/joysafeter_agent_service.py"
+
+    assert {
+        "command_service.py",
+        "lifecycle_service.py",
+        "query_service.py",
+    } <= {path.name for path in application_root.glob("*.py")}
+    assert {
+        "assets.py",
+        "configuration_policy.py",
+        "snapshots.py",
+    } <= {path.name for path in domain_root.glob("*.py")}
+    assert {
+        "credential_binding_adapter.py",
+        "runtime_adapter.py",
+        "sqlalchemy_repository.py",
+        "trigger_lifecycle_adapter.py",
+        "unit_of_work.py",
+    } <= {path.name for path in infrastructure_root.glob("*.py")}
+    assert not legacy_path.exists()
+
+    for path in domain_root.glob("*.py"):
+        imports = _imports(path)
+        assert not any(name.startswith("app.joysafeter_application") for name in imports), path
+        assert not any(name.startswith("app.joysafeter_infrastructure") for name in imports), path
+        assert not any(name.startswith("sqlalchemy") for name in imports), path
+
+    for name in ("command_service.py", "lifecycle_service.py", "query_service.py", "ports.py"):
+        path = application_root / name
+        imports = _imports(path)
+        assert not any(module.startswith("app.joysafeter_api") for module in imports), path
+        assert not any(module.startswith("app.joysafeter_infrastructure") for module in imports), path
+        assert not any(module.startswith("sqlalchemy") for module in imports), path
+        assert "._uow.db" not in path.read_text()
+
+    api_source = (APP_ROOT / "joysafeter_api/api/v1/agents.py").read_text()
+    for removed_helper in (
+        "_validate_mcp_servers",
+        "_validate_tool_mcp_references",
+        "_validate_environment_ref",
+        "_cancel_active_tasks_for_agent",
+        "_destroy_sandboxes_for_agent",
+    ):
+        assert f"def {removed_helper}" not in api_source
+
+
+@pytest.mark.no_db
+def test_trigger_execution_preserves_explicit_credential_audit_actor() -> None:
+    trigger_api = (APP_ROOT / "joysafeter_api/api/v1/triggers.py").read_text()
+    trigger_service = (APP_ROOT / "joysafeter_application/triggers/service.py").read_text()
+    fire_service = (APP_ROOT / "joysafeter_application/triggers/fire_service.py").read_text()
+    executor = (APP_ROOT / "joysafeter_application/triggers/execution_service.py").read_text()
+    scheduler = (APP_ROOT / "joysafeter_worker/scheduler/loop.py").read_text()
+
+    assert trigger_api.count("credential_audit_actor(request, auth_ctx)") >= 4
+    assert "audit_actor=self._credential_audit_actor" in trigger_service
+    assert "AgentTriggerExecutor(self.db, audit_actor=self._audit_actor)" in fire_service
+    assert "audit_actor=self._audit_actor" in executor
+    assert 'CredentialAuditActor.system("trigger_scheduler")' in scheduler
+
+
+@pytest.mark.no_db
+def test_credential_composition_requires_explicit_audit_actor() -> None:
+    path = APP_ROOT / "joysafeter_application/credentials/composition.py"
+    tree = ast.parse(path.read_text())
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "compose_credential_application"
+    )
+    actor_index = [argument.arg for argument in function.args.kwonlyargs].index("audit_actor")
+
+    assert function.args.kw_defaults[actor_index] is None
+
+
+@pytest.mark.no_db
+def test_credential_application_entrypoints_require_explicit_audit_actor() -> None:
+    entrypoints = (
+        ("joysafeter_application/credentials/application_service.py", "CredentialService", "audit_actor"),
+        ("joysafeter_application/credentials/application_service.py", "CredentialGroupService", "audit_actor"),
+        ("joysafeter_application/environments/credential_service.py", "EnvironmentCredentialService", "audit_actor"),
+        ("joysafeter_application/sessions/creation_service.py", "SessionCreationService", "audit_actor"),
+        ("joysafeter_application/credentials/webhook_auth_service.py", "WebhookAuthService", "audit_actor"),
+        ("joysafeter_application/triggers/fire_service.py", "TriggerFireService", "audit_actor"),
+        ("joysafeter_application/triggers/execution_service.py", "AgentTriggerExecutor", "audit_actor"),
+        ("joysafeter_application/triggers/service.py", "TriggerApplicationService", "credential_audit_actor"),
+    )
+
+    for relative_path, class_name, actor_name in entrypoints:
+        tree = ast.parse((APP_ROOT / relative_path).read_text())
+        class_node = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == class_name)
+        initializer = next(
+            node for node in class_node.body if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+        )
+        actor_index = [argument.arg for argument in initializer.args.kwonlyargs].index(actor_name)
+        assert initializer.args.kw_defaults[actor_index] is None, f"{class_name}.{actor_name} must be required"
+
+
+@pytest.mark.no_db
+def test_credential_management_compatibility_facades_are_removed() -> None:
+    credentials_root = APP_ROOT / "joysafeter_application/credentials"
+
+    assert not (credentials_root / "management_service.py").exists()
+    for path in (credentials_root / "application_service.py", credentials_root / "resource_service.py"):
+        tree = ast.parse(path.read_text())
+        assert not any(isinstance(node, ast.FunctionDef) and node.name == "__getattr__" for node in ast.walk(tree))
 
 
 def test_task_identity_uses_its_purpose_specific_material_adapter() -> None:
@@ -311,19 +516,34 @@ def test_new_infrastructure_does_not_import_api_layer() -> None:
         assert not any(name.startswith("app.joysafeter_api") for name in _imports(path)), path
 
 
+@pytest.mark.no_db
+def test_domain_to_application_reverse_imports_are_explicitly_bounded() -> None:
+    expected: set[str] = set()
+    domain_root = APP_ROOT / "joysafeter_domain"
+    observed = {
+        path.relative_to(domain_root).as_posix()
+        for path in domain_root.rglob("*.py")
+        if any(name.startswith("app.joysafeter_application") for name in _imports(path))
+    }
+
+    assert observed == expected
+
+
 def test_persistent_consumers_have_ast_aware_credential_boundary_guards() -> None:
     paths = (
-        APP_ROOT / "joysafeter_domain/services/joysafeter_agent_service.py",
+        APP_ROOT / "joysafeter_application/agents/command_service.py",
         APP_ROOT / "joysafeter_domain/services/joysafeter_trigger_service.py",
-        APP_ROOT / "joysafeter_domain/services/joysafeter_trigger_webhook_auth_service.py",
+        APP_ROOT / "joysafeter_application/credentials/webhook_auth_service.py",
+        APP_ROOT / "joysafeter_application/environments/credential_service.py",
         APP_ROOT / "joysafeter_api/api/v1/environments.py",
         APP_ROOT / "joysafeter_domain/services/joysafeter_environment_service.py",
         APP_ROOT / "joysafeter_domain/services/joysafeter_session_service.py",
     )
     forbidden_imports = {
+        "app.joysafeter_application.credentials.application_service",
         "app.joysafeter_domain.services.joysafeter_credential_service",
         "app.joysafeter_domain.services.joysafeter_credential_group_service",
-        "app.joysafeter_infrastructure.sensitive_material.legacy_v1",
+        "app.joysafeter_infrastructure.sensitive_material.versioned",
     }
     for path in paths:
         assert not (_imports(path) & forbidden_imports), path
@@ -367,8 +587,8 @@ def test_persistent_consumer_ast_guard_allows_unrelated_state_fields() -> None:
     assert not _credential_boundary_violations(source)
 
 
-def test_purpose_material_adapters_import_only_neutral_legacy_protector() -> None:
-    expected = "app.joysafeter_infrastructure.sensitive_material.legacy_v1"
+def test_purpose_material_adapters_import_only_neutral_versioned_protector() -> None:
+    expected = "app.joysafeter_infrastructure.sensitive_material.versioned"
     for relative_path in (
         "joysafeter_infrastructure/credentials/material_adapter.py",
         "joysafeter_infrastructure/task_identity/material_adapter.py",
@@ -397,7 +617,7 @@ class _EncryptedMaterialRepository:
 @pytest.mark.asyncio
 async def test_managed_material_adapter_returns_only_binding_authorized_fields(db_session) -> None:
     project_id = await _make_project(db_session)
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     credential = await application.resource_service.create(
         CreateCredentialRequest(
             kind="service",
@@ -416,8 +636,13 @@ async def test_managed_material_adapter_returns_only_binding_authorized_fields(d
         ),
     )
 
-    validated = await application.binding_service.validate(binding)
-    resolved = await application.material_adapter.load(validated)
+    resolved = await application.material_access_service.resolve(
+        binding,
+        context=CredentialAccessContext(
+            consumer_type="test_http_egress",
+            actor=CredentialAuditActor.system("test"),
+        ),
+    )
 
     assert dict(resolved.fields) == {CredentialFieldName("TOKEN"): "allowed"}
     assert "must-not-leak" not in repr(resolved)
@@ -426,7 +651,7 @@ async def test_managed_material_adapter_returns_only_binding_authorized_fields(d
 @pytest.mark.asyncio
 async def test_environment_injection_is_the_only_binding_that_can_load_all_fields(db_session) -> None:
     project_id = await _make_project(db_session)
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     credential = await application.resource_service.create(
         CreateCredentialRequest(
             kind="service",
@@ -440,8 +665,13 @@ async def test_environment_injection_is_the_only_binding_that_can_load_all_field
         credential_id=CredentialId(str(credential.id)),
     )
 
-    validated = await application.binding_service.validate(binding)
-    resolved = await application.material_adapter.load(validated)
+    resolved = await application.material_access_service.resolve(
+        binding,
+        context=CredentialAccessContext(
+            consumer_type="test_environment_injection",
+            actor=CredentialAuditActor.system("test"),
+        ),
+    )
 
     assert dict(resolved.fields) == {
         CredentialFieldName("TOKEN"): "one",
@@ -483,7 +713,7 @@ def test_model_validated_binding_cannot_be_caller_constructed_with_fields() -> N
 
 @pytest.mark.asyncio
 async def test_material_adapter_rejects_forged_model_validation_before_repository_load() -> None:
-    protector = LegacyV1MaterialProtector(TEST_KEY)
+    protector = VersionedMaterialProtector(TEST_KEY)
     repository = _EncryptedMaterialRepository({"UNRELATED_SECRET": protector.protect("must-not-load")})
     adapter = ManagedCredentialMaterialAdapter(repository, protector, BindingIssuanceAuthority())
     binding = ModelInferenceBinding(
@@ -507,8 +737,8 @@ async def test_material_adapter_rejects_forged_model_validation_before_repositor
     assert repository.load_count == 0
 
 
-def test_purpose_specific_adapters_share_only_legacy_v1_protector() -> None:
-    protector = LegacyV1MaterialProtector(TEST_KEY)
+def test_purpose_specific_adapters_share_only_versioned_protector() -> None:
+    protector = VersionedMaterialProtector(TEST_KEY)
     identity = TaskIdentityMaterialAdapter(protector)
     repository = RepositoryAccessMaterialAdapter(protector)
 
@@ -561,7 +791,14 @@ class _CapturingDb:
 @pytest.mark.asyncio
 async def test_audit_adapter_target_type_cannot_be_overridden_by_details() -> None:
     db = _CapturingDb()
-    adapter = SqlAlchemyCredentialAuditAdapter(db)
+    actor = CredentialAuditActor(
+        user_id="user-1",
+        principal_type="api_key",
+        principal_id="key-1",
+        ip_address="203.0.113.10",
+        user_agent="credential-test/1.0",
+    )
+    adapter = SqlAlchemyCredentialAuditAdapter(db, actor=actor)
 
     await adapter.append(
         CredentialAuditEntry(
@@ -569,11 +806,21 @@ async def test_audit_adapter_target_type_cannot_be_overridden_by_details() -> No
             project_id="project-1",
             target_type="environment",
             target_id="environment-1",
-            details={"target_type": "credential"},
+            details={
+                "target_type": "credential",
+                "principal_type": "spoofed",
+                "principal_id": "spoofed",
+            },
         )
     )
 
-    assert db.added[0].details["target_type"] == "environment"
+    audit = db.added[0]
+    assert audit.user_id == "user-1"
+    assert audit.ip_address == "203.0.113.10"
+    assert audit.user_agent == "credential-test/1.0"
+    assert audit.details["target_type"] == "environment"
+    assert audit.details["principal_type"] == "api_key"
+    assert audit.details["principal_id"] == "key-1"
 
 
 @dataclass
@@ -636,6 +883,20 @@ async def test_application_service_rolls_back_repository_failure() -> None:
     assert uow.audit.entries == []
 
 
+@pytest.mark.no_db
+@pytest.mark.asyncio
+async def test_non_owning_application_service_leaves_rollback_to_outer_transaction() -> None:
+    uow = _FakeUnitOfWork(credentials=_FakeCredentialRepository(error=RuntimeError("write failed")))
+    service = CredentialResourceService(uow, manage_transaction=False)
+
+    with pytest.raises(RuntimeError, match="write failed"):
+        await service.create(object(), project_id="project-1")
+
+    assert uow.commits == 0
+    assert uow.rollbacks == 0
+    assert uow.audit.entries == []
+
+
 def test_managed_adapter_is_the_only_importer_of_domain_reveal_seam() -> None:
     importers: list[Path] = []
     for path in APP_ROOT.rglob("*.py"):
@@ -648,7 +909,7 @@ def test_managed_adapter_is_the_only_importer_of_domain_reveal_seam() -> None:
 
 
 def test_managed_adapter_protects_domain_material_without_exposing_reveal_capability() -> None:
-    protector = LegacyV1MaterialProtector(TEST_KEY)
+    protector = VersionedMaterialProtector(TEST_KEY)
     adapter = ManagedCredentialMaterialAdapter(
         _EncryptedMaterialRepository({}),
         protector,
@@ -675,7 +936,7 @@ async def _make_project(db_session) -> str:
 @pytest.mark.asyncio
 async def test_production_composition_binding_service_maps_sqlalchemy_resource(db_session) -> None:
     project_id = await _make_project(db_session)
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     credential = await application.resource_service.create(
         CreateCredentialRequest(
             kind="model",
@@ -702,10 +963,13 @@ async def test_production_composition_binding_service_maps_sqlalchemy_resource(d
 
 
 def test_canonical_composition_owns_catalog_and_shared_issuance_authority(db_session) -> None:
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
 
     assert application.binding_service._catalog is get_llm_catalog()
-    assert application.binding_service._issuance_authority is application.material_adapter._issuance_authority
+    assert (
+        application.binding_service._issuance_authority
+        is application.material_access_service._material._issuance_authority
+    )
     assert not any(
         marker in name.lower()
         for name in dir(application.binding_service._issuance_authority)
@@ -733,7 +997,7 @@ def test_composition_cannot_substitute_catalog_for_binding_service() -> None:
 @pytest.mark.asyncio
 async def test_generic_binding_validation_rejects_model_inference(db_session) -> None:
     project_id = await _make_project(db_session)
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     credential = await application.resource_service.create(
         CreateCredentialRequest(
             kind="model",
@@ -764,7 +1028,7 @@ async def test_generic_binding_validation_rejects_model_inference(db_session) ->
 @pytest.mark.asyncio
 async def test_tampered_validated_model_binding_cannot_reach_material_repository(db_session) -> None:
     project_id = await _make_project(db_session)
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     credential = await application.resource_service.create(
         CreateCredentialRequest(
             kind="model",
@@ -789,7 +1053,8 @@ async def test_tampered_validated_model_binding_cannot_reach_material_repository
         frozenset({CredentialFieldName("UNRELATED_SECRET")}),
     )
     load_count = 0
-    repository = application.material_adapter._repository
+    material_adapter = application.material_access_service._material
+    repository = material_adapter._repository
     original_load = repository.load_encrypted_material
 
     async def observe_load(credential_id, scoped_project_id):
@@ -800,7 +1065,7 @@ async def test_tampered_validated_model_binding_cannot_reach_material_repository
     repository.load_encrypted_material = observe_load
 
     with pytest.raises(TypeError, match="mutated"):
-        await application.material_adapter.load(validated)
+        await material_adapter.load(validated)
 
     assert load_count == 0
 
@@ -811,7 +1076,7 @@ async def test_tampered_validated_model_binding_cannot_reach_material_repository
 @pytest.mark.asyncio
 async def test_copied_validated_binding_identity_cannot_reach_material_repository(db_session) -> None:
     project_id = await _make_project(db_session)
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     credential = await application.resource_service.create(
         CreateCredentialRequest(
             kind="model",
@@ -841,7 +1106,8 @@ async def test_copied_validated_binding_identity_cannot_reach_material_repositor
         if hasattr(validated, name):
             object.__setattr__(copied, name, getattr(validated, name))
     load_count = 0
-    repository = application.material_adapter._repository
+    material_adapter = application.material_access_service._material
+    repository = material_adapter._repository
     original_load = repository.load_encrypted_material
 
     async def observe_load(credential_id, scoped_project_id):
@@ -852,7 +1118,7 @@ async def test_copied_validated_binding_identity_cannot_reach_material_repositor
     repository.load_encrypted_material = observe_load
 
     with pytest.raises(TypeError, match="not issued"):
-        await application.material_adapter.load(copied)
+        await material_adapter.load(copied)
 
     assert load_count == 0
 
@@ -860,8 +1126,14 @@ async def test_copied_validated_binding_identity_cannot_reach_material_repositor
 @pytest.mark.asyncio
 async def test_validated_binding_is_frozen_and_cannot_cross_compositions(db_session) -> None:
     project_id = await _make_project(db_session)
-    issuing_application = compose_credential_application(db_session)
-    other_application = compose_credential_application(db_session)
+    issuing_application = compose_credential_application(
+        db_session,
+        audit_actor=CredentialAuditActor.system("test"),
+    )
+    other_application = compose_credential_application(
+        db_session,
+        audit_actor=CredentialAuditActor.system("test"),
+    )
     credential = await issuing_application.resource_service.create(
         CreateCredentialRequest(
             kind="model",
@@ -885,7 +1157,7 @@ async def test_validated_binding_is_frozen_and_cannot_cross_compositions(db_sess
         validated.authorized_fields = frozenset({CredentialFieldName("UNRELATED_SECRET")})
 
     with pytest.raises(TypeError, match="not issued"):
-        await other_application.material_adapter.load(validated)
+        await other_application.material_access_service._material.load(validated)
 
 
 def test_binding_service_module_has_no_reproducible_model_seal_recipe() -> None:
@@ -898,7 +1170,7 @@ def test_binding_service_module_has_no_reproducible_model_seal_recipe() -> None:
 @pytest.mark.asyncio
 async def test_production_composition_group_service_maps_groups_and_members(db_session) -> None:
     project_id = await _make_project(db_session)
-    protector = LegacyV1MaterialProtector(TEST_KEY)
+    protector = VersionedMaterialProtector(TEST_KEY)
     group = JoySafeterCredentialGroup(project_id=project_id, name="composed-group")
     db_session.add(group)
     await db_session.flush()
@@ -914,7 +1186,7 @@ async def test_production_composition_group_service_maps_groups_and_members(db_s
     )
     db_session.add(member)
     await db_session.commit()
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     binding = McpGroupBinding(
         project_id=ProjectId(project_id),
         group_ids=(CredentialGroupId(str(group.id)),),
@@ -930,10 +1202,24 @@ async def test_production_composition_orders_mutation_audit_impact_commit_nudge(
     monkeypatch,
 ) -> None:
     project_id = await _make_project(db_session)
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     credential = await application.resource_service.create(
         CreateCredentialRequest(kind="service", name="ordered", data={"TOKEN": "old"}),
         project_id=project_id,
+    )
+    environment = JoySafeterEnvironment(
+        project_id=project_id,
+        name=f"env-{uuid.uuid4()}",
+        config={
+            "egress_services": [
+                {
+                    "name": "api",
+                    "base_url": "https://api.example.com",
+                    "service_credential_id": str(credential.id),
+                    "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                }
+            ]
+        },
     )
     sandbox = JoySafeterSandbox(
         project_id=project_id,
@@ -942,7 +1228,7 @@ async def test_production_composition_orders_mutation_audit_impact_commit_nudge(
         networking_status="ready",
         config={"fingerprint": {"networking": {"type": "limited"}}},
     )
-    db_session.add(sandbox)
+    db_session.add_all([environment, sandbox])
     await db_session.commit()
     credential_id = credential.id
     sandbox_id = sandbox.id
@@ -1010,12 +1296,37 @@ async def test_production_composition_orders_mutation_audit_impact_commit_nudge(
 
 
 @pytest.mark.asyncio
+async def test_credential_application_service_records_explicit_system_audit_for_mutations(db_session) -> None:
+    project_id = await _make_project(db_session)
+    actor = CredentialAuditActor.system("credential_application_test")
+
+    credential = await CredentialService(db_session, audit_actor=actor).create(
+        CreateCredentialRequest(kind="service", name="facade-audit", data={"TOKEN": "value"}),
+        project_id=project_id,
+    )
+
+    audit = (
+        await db_session.execute(
+            select(SecurityAuditLog).where(
+                SecurityAuditLog.event_type == "credential.created",
+                SecurityAuditLog.details["project_id"].astext == project_id,
+                SecurityAuditLog.details["target_id"].astext == str(credential.id),
+            )
+        )
+    ).scalar_one()
+    assert audit.user_id is None
+    assert audit.ip_address == "application"
+    assert audit.details["principal_type"] == "system"
+    assert audit.details["principal_id"] == "credential_application_test"
+
+
+@pytest.mark.asyncio
 async def test_production_composition_rolls_back_unconditionally_before_commit(
     db_session,
     monkeypatch,
 ) -> None:
     project_id = await _make_project(db_session)
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     credential = await application.resource_service.create(
         CreateCredentialRequest(kind="service", name="rollback-original", data={"TOKEN": "old"}),
         project_id=project_id,
@@ -1053,7 +1364,7 @@ async def test_production_composition_rolls_back_unconditionally_before_commit(
 @pytest.mark.asyncio
 async def test_post_commit_nudge_failure_is_best_effort(db_session, monkeypatch) -> None:
     project_id = await _make_project(db_session)
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     credential = await application.resource_service.create(
         CreateCredentialRequest(kind="service", name="nudge", data={"TOKEN": "old"}),
         project_id=project_id,
@@ -1079,7 +1390,7 @@ async def test_idempotent_resource_and_group_lifecycle_skip_transition_audit_and
     monkeypatch,
 ) -> None:
     project_id = await _make_project(db_session)
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     credential = await application.resource_service.create(
         CreateCredentialRequest(kind="service", name="idempotent-audit", data={"TOKEN": "old"}),
         project_id=project_id,
@@ -1307,11 +1618,11 @@ def test_canonical_composition_rejects_invalid_ephemeral_registration(
     )
 
     with pytest.raises(ValueError, match="credential scanner registry mismatch"):
-        compose_credential_application(db_session)
+        compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
 
 
 def test_canonical_composition_registers_validated_dependency_scanners(db_session) -> None:
-    application = compose_credential_application(db_session)
+    application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
 
     assert application.snapshot_service.descriptors
     application.snapshot_service.validate_scanner_registration()

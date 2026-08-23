@@ -10,6 +10,8 @@ import pytest
 import pytest_asyncio
 from error_contract_helpers import handled_app_error_payload
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
+from starlette.requests import Request
 
 from app.joysafeter_api.api.v1 import quickstart as quickstart_module
 from app.joysafeter_api.api.v1 import skills_ai_authoring as authoring_module
@@ -23,16 +25,20 @@ from app.joysafeter_api.api.v1.skills_ai_authoring import (
     AuthoringMessage,
     authoring_chat,
 )
+from app.joysafeter_application.credentials.application_service import CredentialService
 from app.joysafeter_application.credentials.composition import compose_credential_application
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_application.credentials.snapshot_service import NoPersistentDependencyScanner
 from app.joysafeter_domain.credentials.bindings import ModelInferenceBinding
 from app.joysafeter_domain.credentials.dependencies import ReferenceSurfaceKind
 from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_domain.llm.model_inference_policy import build_model_inference_policy
+from app.joysafeter_domain.models.joysafeter_credential_access_audit import (
+    JoySafeterCredentialAccessAudit,
+)
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_infrastructure.credentials.material_adapter import ManagedCredentialMaterialAdapter
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
@@ -43,7 +49,7 @@ ENDPOINT_PATHS = (
     APP_ROOT / "joysafeter_api/api/v1/quickstart.py",
     APP_ROOT / "joysafeter_api/api/v1/skills_ai_authoring.py",
 )
-AGENT_SERVICE_PATH = APP_ROOT / "joysafeter_domain/services/joysafeter_agent_service.py"
+AGENT_CREDENTIAL_BINDING_PATH = APP_ROOT / "joysafeter_infrastructure/agents/credential_binding_adapter.py"
 
 
 async def _make_project(db_session) -> str:
@@ -70,6 +76,21 @@ def _auth_ctx(project_id: str) -> JoySafeterAuthContext:
     )
 
 
+def _request() -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/credential-material-consumer",
+            "headers": [(b"user-agent", b"credential-consumer-test/1.0")],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+            "scheme": "http",
+            "query_string": b"",
+        }
+    )
+
+
 async def _make_model_credential(
     db_session,
     project_id: str,
@@ -78,7 +99,7 @@ async def _make_model_credential(
     protocol: str = "openai_responses",
     data: dict[str, str] | None = None,
 ) -> CredentialId:
-    credential = await CredentialService(db_session).create(
+    credential = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="model",
             name=f"model-{uuid.uuid4()}",
@@ -99,6 +120,7 @@ async def _invoke(endpoint: str, credential_id: CredentialId, db_session, projec
                 engine_kind="codex",
                 messages=[QuickstartMessage(role="user", content="Configure an agent")],
             ),
+            _request(),
             db_session,
             _auth_ctx(project_id),
         )
@@ -107,6 +129,7 @@ async def _invoke(endpoint: str, credential_id: CredentialId, db_session, projec
             model_credential_id=credential_id,
             messages=[AuthoringMessage(role="user", content="Draft a skill")],
         ),
+        _request(),
         db_session,
         _auth_ctx(project_id),
     )
@@ -183,7 +206,9 @@ async def _assert_binding_error_contract(
 @pytest.mark.asyncio
 async def test_ephemeral_consumers_reject_archived_credentials(endpoint, db_session, project_id):
     credential_id = await _make_model_credential(db_session, project_id)
-    credential = await CredentialService(db_session).get(credential_id, project_id=project_id)
+    credential = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).get(
+        credential_id, project_id=project_id
+    )
     credential.archived_at = datetime.now(timezone.utc)
     await db_session.commit()
 
@@ -202,9 +227,10 @@ async def test_ephemeral_consumers_reject_archived_credentials(endpoint, db_sess
 @pytest.mark.asyncio
 async def test_ephemeral_consumers_hide_deleted_credentials(endpoint, db_session, project_id):
     credential_id = await _make_model_credential(db_session, project_id)
-    credential = await CredentialService(db_session).get(credential_id, project_id=project_id)
-    credential.deleted_at = datetime.now(timezone.utc)
-    await db_session.commit()
+    await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).soft_delete(
+        credential_id,
+        project_id=project_id,
+    )
 
     with pytest.raises(AppError) as exc_info:
         await _invoke(endpoint, credential_id, db_session, project_id)
@@ -245,7 +271,9 @@ async def test_ephemeral_consumers_reject_incompatible_catalog_binding(endpoint,
 @pytest.mark.asyncio
 async def test_ephemeral_consumers_fail_closed_on_corrupt_material(endpoint, db_session, project_id):
     credential_id = await _make_model_credential(db_session, project_id)
-    credential = await CredentialService(db_session).get(credential_id, project_id=project_id)
+    credential = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).get(
+        credential_id, project_id=project_id
+    )
     credential.data = {"OPENAI_API_KEY": "not-an-envelope"}
     await db_session.commit()
 
@@ -315,13 +343,25 @@ async def test_ephemeral_consumers_load_only_catalog_authorized_material(
 
     assert isinstance(response, StreamingResponse)
     assert loaded_fields == [{"OPENAI_API_KEY", "OPENAI_MODEL"}]
-    credential = await CredentialService(db_session).get(credential_id, project_id=project_id)
+    audit = await db_session.scalar(
+        select(JoySafeterCredentialAccessAudit).where(JoySafeterCredentialAccessAudit.credential_id == credential_id)
+    )
+    assert audit is not None
+    assert audit.result == "success"
+    assert audit.usage == "model_inference"
+    assert audit.consumer_type == ("quickstart_chat" if endpoint == "quickstart" else "skill_ai_authoring")
+    assert audit.principal_type == "user"
+    assert audit.principal_id == "test-user"
+    assert audit.field_names == ["OPENAI_API_KEY", "OPENAI_MODEL"]
+    credential = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).get(
+        credential_id, project_id=project_id
+    )
     assert credential.data["OPENAI_API_KEY"].startswith("enc:v1:")
     assert credential.data["UNRELATED_SECRET"].startswith("enc:v1:")
 
 
 def test_ephemeral_consumers_share_agent_model_inference_policy_builder() -> None:
-    for path in (*ENDPOINT_PATHS, AGENT_SERVICE_PATH):
+    for path in (*ENDPOINT_PATHS, AGENT_CREDENTIAL_BINDING_PATH):
         source = path.read_text()
         assert "build_model_inference_policy" in source, path
         assert "ModelInferenceBinding(" not in source, path
@@ -349,8 +389,8 @@ async def test_model_inference_builder_returns_only_binding_and_service_resolves
     credential_id = await _make_model_credential(db_session, project_id)
     application = compose_credential_application(
         db_session,
+        audit_actor=CredentialAuditActor.system("test"),
         auto_commit=False,
-        compatibility_mode=False,
     )
     binding = build_model_inference_policy(
         get_llm_catalog(),
@@ -458,8 +498,8 @@ async def test_tampered_binding_fails_before_material_load(
 def test_ephemeral_descriptors_use_explicit_no_persistent_scanners(db_session) -> None:
     application = compose_credential_application(
         db_session,
+        audit_actor=CredentialAuditActor.system("test"),
         auto_commit=False,
-        compatibility_mode=False,
     )
     descriptors = {
         str(descriptor.surface_id): descriptor
@@ -487,8 +527,8 @@ def test_no_persistent_dependency_scanner_rejects_invalid_reason() -> None:
 async def test_ephemeral_scanners_never_create_persistent_dependencies(db_session, project_id) -> None:
     application = compose_credential_application(
         db_session,
+        audit_actor=CredentialAuditActor.system("test"),
         auto_commit=False,
-        compatibility_mode=False,
     )
     credential_id = await _make_model_credential(db_session, project_id)
 
@@ -541,7 +581,7 @@ def _ephemeral_endpoint_boundary_violations(source: str, *, require_flow: bool) 
     }
     forbidden_calls = {
         "CredentialService",
-        "LegacyV1MaterialProtector",
+        "VersionedMaterialProtector",
         "decrypt",
         "decrypt_data",
         "get_credential_data",
@@ -549,6 +589,7 @@ def _ephemeral_endpoint_boundary_violations(source: str, *, require_flow: bool) 
         "reveal_values",
     }
     forbidden_import_fragments = {
+        "joysafeter_application.credentials.application_service",
         "joysafeter_domain.services.joysafeter_credential_service",
         "joysafeter_infrastructure.credentials.material_adapter",
         "joysafeter_infrastructure.credentials.sqlalchemy_repository",
@@ -665,6 +706,8 @@ def _ephemeral_endpoint_boundary_violations(source: str, *, require_flow: bool) 
                 if receiver is not None and receiver[0] == "application":
                     if node.attr == "binding_service":
                         return ("binding_service", receiver[1], receiver[2])
+                    if node.attr == "material_access_service":
+                        return ("material_access_service", receiver[1], receiver[2])
                     if node.attr == "material_adapter":
                         return ("material_adapter", receiver[1], receiver[2])
                 if "repository" in node.attr.lower() or node.attr == "credentials":
@@ -676,6 +719,9 @@ def _ephemeral_endpoint_boundary_violations(source: str, *, require_flow: bool) 
                         return ("callable", "generic_validation")
                 if receiver is not None and receiver[0] == "material_adapter" and node.attr == "load":
                     return ("callable", "material_load", receiver[1], receiver[2])
+                if receiver is not None and receiver[0] == "material_access_service":
+                    if node.attr == "resolve_model_inference":
+                        return ("callable", "material_access_model", receiver[1], receiver[2])
                 if (
                     receiver is not None
                     and receiver[0] == "repository"
@@ -704,12 +750,7 @@ def _ephemeral_endpoint_boundary_violations(source: str, *, require_flow: bool) 
                 if callable_value is not None and callable_value[0] == "callable":
                     operation = str(callable_value[1])
                 if operation == "compose_credential_application":
-                    canonical = any(
-                        keyword.arg == "compatibility_mode"
-                        and isinstance(keyword.value, ast.Constant)
-                        and keyword.value.value is False
-                        for keyword in node.keywords
-                    )
+                    canonical = not any(keyword.arg == "compatibility_mode" for keyword in node.keywords)
                     return ("application", (function.name, node.lineno, node.col_offset), canonical)
                 if operation == "build_model_inference_policy":
                     return ("binding", (function.name, node.lineno, node.col_offset))
@@ -746,6 +787,17 @@ def _ephemeral_endpoint_boundary_violations(source: str, *, require_flow: bool) 
                     )
                     state.material_loads.append((connected, canonical))
                     return ("sensitive",)
+                if operation == "material_access_model":
+                    connected = bool(
+                        callable_value is not None
+                        and len(callable_value) == 4
+                        and call_arguments
+                        and call_arguments[0] is not None
+                        and call_arguments[0][0] == "binding"
+                    )
+                    canonical = bool(connected and callable_value is not None and callable_value[3])
+                    state.material_loads.append((connected, canonical))
+                    return ("access_result",)
                 if operation == "repository" and callable_value is not None:
                     repository_method = str(callable_value[2])
                     state.violations.add(f"repository_call:{repository_method}")
@@ -818,6 +870,8 @@ def _ephemeral_endpoint_boundary_violations(source: str, *, require_flow: bool) 
             values: tuple[object, ...] = ()
             if value is not None and value[0] == "validation_result":
                 values = (("validated", value[1], value[2], value[3]), ("resolution",))
+            elif value is not None and value[0] == "access_result":
+                values = (("sensitive",), ("resolution",))
             elif value is not None and value[0] == "sequence":
                 values = value[1:]
             for index, element in enumerate(target.elts):
@@ -1132,7 +1186,7 @@ def test_ephemeral_endpoint_ast_guard_accepts_connected_alias_flow() -> None:
 async def endpoint(project_id, credential_id):
     composer = compose_credential_application
     builder = build_model_inference_policy
-    application = composer(db, compatibility_mode=False)
+    application = composer(db)
     validator = application.binding_service.validate_model_inference
     loader = application.material_adapter.load
     binding = builder(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
@@ -1155,7 +1209,7 @@ async def endpoint(project_id, credential_id):
 async def endpoint(project_id, credential_id, decoy):
     composer = decoy.compose_credential_application
     builder = decoy.build_model_inference_policy
-    application = composer(db, compatibility_mode=False)
+    application = composer(db)
     binding = builder(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     validator = application.binding_service.validate_model_inference
     validated, resolution = await validator(binding)
@@ -1173,7 +1227,7 @@ def build_model_inference_policy(*args, **kwargs):
 async def endpoint(project_id, credential_id):
     composer = compose_credential_application
     builder = build_model_inference_policy
-    application = composer(db, compatibility_mode=False)
+    application = composer(db)
     binding = builder(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     validator = application.binding_service.validate_model_inference
     validated, resolution = await validator(binding)
@@ -1198,7 +1252,7 @@ def test_ephemeral_endpoint_ast_guard_rejects_same_named_decoy_aliases(source: s
         (
             """
 async def endpoint(project_id, credential_id):
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     binding = replacement_binding
     validated, resolution = await application.binding_service.validate_model_inference(binding)
@@ -1210,7 +1264,7 @@ async def endpoint(project_id, credential_id):
         (
             """
 async def endpoint(project_id, credential_id):
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     validated, resolution = await application.binding_service.validate_model_inference(binding)
     validated = replacement_validated
@@ -1226,7 +1280,7 @@ async def endpoint(project_id, credential_id):
     binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     validated, resolution = await application.binding_service.validate_model_inference(binding)
     material = await application.material_adapter.load(validated)
-    unrelated = compose_credential_application(db, compatibility_mode=False)
+    unrelated = compose_credential_application(db)
     return material.fields
 """,
             {"canonical_composition"},
@@ -1248,8 +1302,8 @@ def test_ephemeral_endpoint_ast_guard_rejects_replaced_or_late_provenance(
     [
         """
 async def endpoint(project_id, credential_id):
-    first = compose_credential_application(db, compatibility_mode=False)
-    second = compose_credential_application(db, compatibility_mode=False)
+    first = compose_credential_application(db)
+    second = compose_credential_application(db)
     binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     validator = first.binding_service.validate_model_inference
     loader = second.material_adapter.load
@@ -1259,11 +1313,11 @@ async def endpoint(project_id, credential_id):
 """,
         """
 async def endpoint(project_id, credential_id):
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     validator = application.binding_service.validate_model_inference
     validated, resolution = await validator(binding)
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     loader = application.material_adapter.load
     material = await loader(validated)
     return material.fields
@@ -1289,26 +1343,26 @@ async def decoy_validator(application, binding):
     return await application.binding_service.validate_model_inference(binding)
 
 async def endpoint():
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     material = await application.material_adapter.load(unvalidated)
     return material.fields
 """,
         """
 async def decoy(project_id, credential_id):
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     validated, resolution = await application.binding_service.validate_model_inference(binding)
     material = await application.material_adapter.load(validated)
     return material.fields
 
 async def endpoint():
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     material = await application.material_adapter.load(unvalidated)
     return material.fields
 """,
         """
 async def endpoint(project_id, credential_id):
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     validated, resolution = await application.binding_service.validate_model_inference(other_binding)
     material = await application.material_adapter.load(validated)
@@ -1316,7 +1370,7 @@ async def endpoint(project_id, credential_id):
 """,
         """
 async def endpoint(project_id, credential_id):
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     validated, resolution = await application.binding_service.validate_model_inference(binding)
     material = await application.material_adapter.load(other_validated)
@@ -1324,7 +1378,7 @@ async def endpoint(project_id, credential_id):
 """,
         """
 async def endpoint(project_id, credential_id):
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     validated, resolution = await application.binding_service.validate_model_inference(binding)
     decoy_material = await application.material_adapter.load(validated)
@@ -1349,7 +1403,7 @@ async def endpoint(project_id, credential_id):
     legacy_validated, legacy_resolution = await legacy_application.binding_service.validate_model_inference(legacy_binding)
     legacy_material = await legacy_application.material_adapter.load(legacy_validated)
 
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     validated, resolution = await application.binding_service.validate_model_inference(binding)
     material = await application.material_adapter.load(validated)
@@ -1366,7 +1420,7 @@ async def endpoint(project_id, credential_id):
         (
             """
 async def endpoint(project_id, credential_id):
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     validated, resolution = await application.binding_service.validate_model_inference(binding)
     material = await application.material_adapter.load(validated)
@@ -1380,7 +1434,7 @@ async def endpoint(project_id, credential_id):
             """
 async def endpoint(project_id, credential_id):
     return None
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     validated, resolution = await application.binding_service.validate_model_inference(binding)
     material = await application.material_adapter.load(validated)
@@ -1408,7 +1462,7 @@ async def endpoint(project_id, credential_id, use_legacy):
         validated, resolution = await application.binding_service.validate_model_inference(binding)
         material = await application.material_adapter.load(validated)
     else:
-        application = compose_credential_application(db, compatibility_mode=False)
+        application = compose_credential_application(db)
         binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
         validated, resolution = await application.binding_service.validate_model_inference(binding)
         material = await application.material_adapter.load(validated)
@@ -1424,7 +1478,7 @@ def test_ephemeral_endpoint_ast_guard_rejects_terminating_composition_flag_decoy
 async def endpoint(project_id, credential_id, use_decoy):
     application = compose_credential_application(db, compatibility_mode=True)
     if use_decoy:
-        application = compose_credential_application(db, compatibility_mode=False)
+        application = compose_credential_application(db)
         return None
     binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
     validated, resolution = await application.binding_service.validate_model_inference(binding)
@@ -1442,7 +1496,7 @@ async def endpoint(project_id, credential_id, use_decoy):
         (
             """
 async def endpoint(project_id, credential_id):
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     try:
         binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
         validated, resolution = await application.binding_service.validate_model_inference(binding)
@@ -1462,7 +1516,7 @@ async def endpoint(project_id, credential_id):
         validated, resolution = await application.binding_service.validate_model_inference(binding)
         material = await application.material_adapter.load(validated)
     except Exception:
-        application = compose_credential_application(db, compatibility_mode=False)
+        application = compose_credential_application(db)
         binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
         validated, resolution = await application.binding_service.validate_model_inference(binding)
         material = await application.material_adapter.load(validated)
@@ -1473,7 +1527,7 @@ async def endpoint(project_id, credential_id):
         (
             """
 async def endpoint(project_id, credential_id):
-    application = compose_credential_application(db, compatibility_mode=False)
+    application = compose_credential_application(db)
     try:
         binding = build_model_inference_policy(catalog, project_id=project_id, credential_id=credential_id, engine_kind="codex", model_id=None)
         validated, resolution = await application.binding_service.validate_model_inference(binding)
@@ -1570,7 +1624,7 @@ async def bypass(credential_repository, credential_id):
         ),
         (
             """
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService as Facade
+from app.joysafeter_application.credentials.application_service import CredentialService as Facade
 
 async def bypass(db, credential_id):
     service = Facade(db)
@@ -1652,11 +1706,11 @@ def bypass(crypto, ciphertext):
         (
             """
 def bypass(ciphertext):
-    protector = LegacyV1MaterialProtector(key)
+    protector = VersionedMaterialProtector(key)
     unwrap = protector.reveal
     return unwrap(ciphertext)
 """,
-            {"call:LegacyV1MaterialProtector", "call:reveal"},
+            {"call:VersionedMaterialProtector", "call:reveal"},
         ),
     ],
 )

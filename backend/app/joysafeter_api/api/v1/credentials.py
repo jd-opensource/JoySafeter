@@ -16,9 +16,12 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.api.v1.audit import credential_audit_actor
+from app.joysafeter_application.credentials.application_service import CredentialService
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_domain.llm.anthropic_auth import normalize_anthropic_auth
 from app.joysafeter_domain.llm.catalog import LlmCatalogError, get_llm_catalog
 from app.joysafeter_domain.llm.compatibility import (
@@ -37,7 +40,6 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     TestCredentialRequest,
     UpdateCredentialRequest,
 )
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
 from app.joysafeter_shared.common.joysafeter_auth import (
     JoySafeterAuthContext,
@@ -122,22 +124,6 @@ def _validate_list_filters(provider: str | None, protocol: str | None) -> None:
             ) from exc
     if provider is not None and protocol is not None:
         validate_provider_protocol(provider, protocol)
-
-
-def _audit_details(cred: JoySafeterCredential) -> dict:
-    """Non-sensitive audit details: name/kind/provider/protocol/keys only.
-
-    Never includes any ``data`` value (masked or otherwise) — just the set of
-    field names present, so the audit log records what changed without leaking
-    secret material.
-    """
-    return {
-        "name": cred.name,
-        "kind": cred.kind,
-        "provider": cred.provider,
-        "protocol": cred.protocol,
-        "keys": sorted((cred.data or {}).keys()),
-    }
 
 
 # --- test-connection helpers (ported verbatim from secrets.py) ------------------
@@ -321,10 +307,11 @@ async def _test_credential_connectivity(req: TestCredentialRequest) -> Credentia
 @router.post("", status_code=201)
 async def create_credential(
     req: CreateCredentialRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
-    svc = CredentialService(db, compatibility_mode=False)
+    svc = CredentialService(db, audit_actor=credential_audit_actor(request, auth_ctx))
     req.data = _apply_anthropic_auth(req.provider, req.data, req.auth_scheme)
     cred = await svc.create(req, project_id=auth_ctx.project_id)
     return _credential_response(cred, svc)
@@ -351,7 +338,7 @@ async def list_credentials(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ):
-    svc = CredentialService(db)
+    svc = CredentialService(db, audit_actor=CredentialAuditActor.system("credential_query"))
     _validate_list_filters(provider, protocol)
     creds, has_more = await svc.list(
         project_id=auth_ctx.project_id,
@@ -379,8 +366,8 @@ async def get_credential(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> CredentialResponse:
-    svc = CredentialService(db)
-    cred = await svc._get_or_raise(credential_id, project_id=auth_ctx.project_id)
+    svc = CredentialService(db, audit_actor=CredentialAuditActor.system("credential_query"))
+    cred = await svc.get_or_raise(credential_id, project_id=auth_ctx.project_id)
     return _credential_response(cred, svc)
 
 
@@ -388,12 +375,13 @@ async def get_credential(
 async def update_credential(
     req: UpdateCredentialRequest,
     credential_id: CredentialId,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
-    svc = CredentialService(db, compatibility_mode=False)
+    svc = CredentialService(db, audit_actor=credential_audit_actor(request, auth_ctx))
     if req.data is not None:
-        existing = await svc._get_or_raise(credential_id, project_id=auth_ctx.project_id)
+        existing = await svc.get_or_raise(credential_id, project_id=auth_ctx.project_id)
         req.data = _apply_anthropic_auth(getattr(existing, "provider", None), req.data, req.auth_scheme)
     cred = await svc.update(credential_id, req, project_id=auth_ctx.project_id)
     return _credential_response(cred, svc)
@@ -402,10 +390,11 @@ async def update_credential(
 @router.delete("/{credential_id}", status_code=204)
 async def delete_credential(
     credential_id: CredentialId,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> None:
-    svc = CredentialService(db, compatibility_mode=False)
+    svc = CredentialService(db, audit_actor=credential_audit_actor(request, auth_ctx))
     # Lifecycle soft_delete raises CREDENTIAL_IN_USE (409) when still referenced.
     await svc.soft_delete(credential_id, project_id=auth_ctx.project_id)
 
@@ -413,10 +402,11 @@ async def delete_credential(
 @router.post("/{credential_id}/default")
 async def set_default_credential(
     credential_id: CredentialId,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
-    svc = CredentialService(db, compatibility_mode=False)
+    svc = CredentialService(db, audit_actor=credential_audit_actor(request, auth_ctx))
     cred = await svc.set_default(credential_id, project_id=auth_ctx.project_id)
     return _credential_response(cred, svc)
 
@@ -424,10 +414,11 @@ async def set_default_credential(
 @router.post("/{credential_id}/archive")
 async def archive_credential(
     credential_id: CredentialId,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
-    svc = CredentialService(db, compatibility_mode=False)
+    svc = CredentialService(db, audit_actor=credential_audit_actor(request, auth_ctx))
     # Lifecycle archive raises CREDENTIAL_IN_USE (409) when still referenced.
     cred = await svc.archive(credential_id, project_id=auth_ctx.project_id)
     return _credential_response(cred, svc)
@@ -436,9 +427,10 @@ async def archive_credential(
 @router.post("/{credential_id}/restore")
 async def restore_credential(
     credential_id: CredentialId,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> CredentialResponse:
-    svc = CredentialService(db, compatibility_mode=False)
+    svc = CredentialService(db, audit_actor=credential_audit_actor(request, auth_ctx))
     cred = await svc.restore(credential_id, project_id=auth_ctx.project_id)
     return _credential_response(cred, svc)

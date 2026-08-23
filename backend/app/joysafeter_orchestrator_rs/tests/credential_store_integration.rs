@@ -1,7 +1,20 @@
 use std::env;
+use std::str::FromStr;
+use std::time::Duration;
 
-use joysafeter_orchestrator::ids::{AgentId, CredentialGroupId, CredentialId, SessionId};
+use chrono::{DateTime, Utc};
+use joysafeter_orchestrator::db::queries;
+use joysafeter_orchestrator::ids::{
+    AgentId, CredentialGroupId, CredentialId, EnvironmentId, SandboxId, SessionId, TaskId,
+};
 use joysafeter_orchestrator::kernel;
+use joysafeter_orchestrator::kernel::credentials::access::{
+    CredentialAccessContext, CredentialMaterialAccessService,
+};
+use joysafeter_orchestrator::kernel::credentials::audit::{
+    CredentialAccessAuditEntry, CredentialAccessAuditWriter, CredentialAccessFailure,
+    CredentialAccessUsage,
+};
 use joysafeter_orchestrator::kernel::credentials::error::{
     require_bound_credential_id, CredentialRuntimeError,
 };
@@ -13,9 +26,9 @@ use joysafeter_orchestrator::kernel::credentials::service::{
     resolve_service_credential, ResolvedServiceCredential, ServiceUsage,
 };
 use joysafeter_orchestrator::kernel::credentials::store::CredentialStore;
-use joysafeter_orchestrator::kernel::harness_input_builder::HarnessInput;
+use joysafeter_orchestrator::kernel::runtime_freshness::RuntimeFreshnessError;
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -39,6 +52,44 @@ async fn test_pool() -> PgPool {
         .connect(&database_url())
         .await
         .expect("connect to migrated PostgreSQL test database")
+}
+
+async fn named_single_connection_pool(application_name: &str) -> PgPool {
+    let options = PgConnectOptions::from_str(&database_url())
+        .expect("parse PostgreSQL test database URL")
+        .application_name(application_name);
+    PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("connect named PostgreSQL test pool")
+}
+
+async fn wait_for_database_lock(pool: &PgPool, application_name: &str) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                r#"
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_stat_activity
+                    WHERE application_name = $1
+                      AND wait_event_type = 'Lock'
+                )
+                "#,
+            )
+            .bind(application_name)
+            .fetch_one(pool)
+            .await
+            .expect("inspect PostgreSQL lock wait");
+            if waiting {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("database writer did not reach the expected lock wait");
 }
 
 fn test_store(pool: PgPool) -> CredentialStore {
@@ -118,6 +169,30 @@ async fn insert_session(pool: &PgPool, session_id: SessionId, agent_id: AgentId,
     .expect("insert session fixture");
 }
 
+async fn insert_environment(
+    pool: &PgPool,
+    environment_id: EnvironmentId,
+    project_id: &str,
+    name: &str,
+    archived: bool,
+) {
+    sqlx::query(
+        r#"
+        INSERT INTO joysafeter_environments
+            (id, project_id, name, description, config, image_tag, image_version, archived_at)
+        VALUES ($1, $2, $3, '', '{}'::jsonb, NULL, 1,
+                CASE WHEN $4 THEN NOW() ELSE NULL END)
+        "#,
+    )
+    .bind(environment_id)
+    .bind(project_id)
+    .bind(name)
+    .bind(archived)
+    .execute(pool)
+    .await
+    .expect("insert environment fixture");
+}
+
 struct CredentialFixture<'a> {
     id: CredentialId,
     project_id: &'a str,
@@ -138,12 +213,14 @@ async fn insert_credential(pool: &PgPool, fixture: CredentialFixture<'_>) {
         INSERT INTO joysafeter_credentials (
             id, project_id, kind, name, provider, protocol, data, group_id,
             mcp_server_url, normalized_mcp_server_url, credential_type,
-            archived_at, deleted_at
+            archived_at, deleted_at, material_erased_at
         )
         VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8,
+            $1, $2, $3, $4, $5, $6,
+            CASE WHEN $13 THEN '{}'::jsonb ELSE $7 END, $8,
             $9, $10, $11,
             CASE WHEN $12 THEN NOW() ELSE NULL END,
+            CASE WHEN $13 THEN NOW() ELSE NULL END,
             CASE WHEN $13 THEN NOW() ELSE NULL END
         )
         "#,
@@ -257,6 +334,1158 @@ async fn cleanup(
     }
 }
 
+async fn runtime_config_state(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+) -> (String, Option<String>, Option<DateTime<Utc>>) {
+    sqlx::query_as(
+        r#"
+        SELECT runtime_config_status, runtime_config_last_reason, runtime_config_required_at
+        FROM joysafeter_sandboxes
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .fetch_one(pool)
+    .await
+    .expect("load sandbox runtime configuration state")
+}
+
+async fn runtime_config_state_with_generation(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+) -> (String, Option<String>, Option<DateTime<Utc>>, i64) {
+    sqlx::query_as(
+        r#"
+        SELECT runtime_config_status, runtime_config_last_reason,
+               runtime_config_required_at, runtime_config_applied_generation
+        FROM joysafeter_sandboxes
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .fetch_one(pool)
+    .await
+    .expect("load sandbox runtime configuration generation state")
+}
+
+async fn delete_sandbox(pool: &PgPool, sandbox_id: SandboxId) {
+    sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(pool)
+        .await
+        .expect("delete sandbox fixture");
+}
+
+#[tokio::test]
+async fn new_sandbox_creation_starts_runtime_configuration_ready() {
+    let pool = test_pool().await;
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let external_id = format!("task-3-new-{sandbox_id}");
+    let config = json!({});
+
+    queries::create_sandbox(
+        &pool,
+        sandbox_id,
+        &external_id,
+        "test",
+        "joysafeter/task-3-new:latest",
+        None,
+        None,
+        None,
+        Some(&config),
+    )
+    .await
+    .expect("create sandbox fixture");
+
+    assert_eq!(
+        runtime_config_state(&pool, sandbox_id).await,
+        ("ready".to_string(), None, None)
+    );
+    delete_sandbox(&pool, sandbox_id).await;
+}
+
+#[tokio::test]
+async fn session_bound_sandbox_insert_requires_captured_generation() {
+    let pool = test_pool().await;
+    let unique = Uuid::now_v7().simple().to_string();
+    let project_id = format!("proj-task3c-{unique}");
+    let organization_id = insert_project(&pool, &unique, &project_id).await;
+    let agent_id = AgentId::from_uuid(Uuid::now_v7());
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
+    insert_agent(&pool, agent_id, &project_id).await;
+    insert_session(&pool, session_id, agent_id, &project_id).await;
+    sqlx::query("UPDATE joysafeter_sessions SET runtime_config_generation = 7 WHERE id = $1")
+        .bind(session_id)
+        .execute(&pool)
+        .await
+        .expect("set desired generation");
+
+    let rejected_id = SandboxId::from_uuid(Uuid::now_v7());
+    let rejected = queries::create_session_bound_sandbox_guarded(
+        &pool,
+        rejected_id,
+        &format!("task-3c-rejected-{rejected_id}"),
+        "test",
+        "joysafeter/task-3c:latest",
+        session_id,
+        Some(&project_id),
+        None,
+        Some(&json!({})),
+        6,
+    )
+    .await;
+    assert!(matches!(
+        rejected,
+        Err(RuntimeFreshnessError::GenerationChanged {
+            expected: 6,
+            actual: 7
+        })
+    ));
+    assert!(queries::get_sandbox(&pool, rejected_id)
+        .await
+        .expect("query rejected sandbox")
+        .is_none());
+
+    let accepted_id = SandboxId::from_uuid(Uuid::now_v7());
+    let accepted = queries::create_session_bound_sandbox_guarded(
+        &pool,
+        accepted_id,
+        &format!("task-3c-accepted-{accepted_id}"),
+        "test",
+        "joysafeter/task-3c:latest",
+        session_id,
+        Some(&project_id),
+        None,
+        Some(&json!({})),
+        7,
+    )
+    .await
+    .expect("matching generation inserts sandbox");
+    assert_eq!(accepted.runtime_config_applied_generation, 7);
+
+    delete_sandbox(&pool, accepted_id).await;
+    cleanup(
+        &pool,
+        &[agent_id],
+        &[session_id],
+        &[],
+        &[],
+        &[(&project_id, &organization_id)],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn task_attach_rejects_generation_change_after_resolution() {
+    let pool = test_pool().await;
+    let unique = Uuid::now_v7().simple().to_string();
+    let project_id = format!("proj-task3c-attach-{unique}");
+    let organization_id = insert_project(&pool, &unique, &project_id).await;
+    let agent_id = AgentId::from_uuid(Uuid::now_v7());
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
+    let task_id = joysafeter_orchestrator::ids::TaskId::from_uuid(Uuid::now_v7());
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    insert_agent(&pool, agent_id, &project_id).await;
+    insert_session(&pool, session_id, agent_id, &project_id).await;
+    sqlx::query("UPDATE joysafeter_sessions SET runtime_config_generation = 8 WHERE id = $1")
+        .bind(session_id)
+        .execute(&pool)
+        .await
+        .expect("advance desired generation after resolution");
+    queries::create_session_bound_sandbox_guarded(
+        &pool,
+        sandbox_id,
+        &format!("task-3c-attach-{sandbox_id}"),
+        "test",
+        "joysafeter/task-3c:latest",
+        session_id,
+        Some(&project_id),
+        None,
+        Some(&json!({})),
+        8,
+    )
+    .await
+    .expect("insert current sandbox");
+    sqlx::query(
+        r#"
+        INSERT INTO joysafeter_tasks (
+            id, agent_id, chat_session_id, status, prompt, output, timeout_sec,
+            retry_count, max_retries, project_id
+        )
+        VALUES ($1, $2, $3, 'scheduling', 'task-3c attach', '', 7200, 0, 3, $4)
+        "#,
+    )
+    .bind(task_id)
+    .bind(agent_id)
+    .bind(session_id)
+    .bind(&project_id)
+    .execute(&pool)
+    .await
+    .expect("insert scheduling task");
+
+    let result = queries::attach_sandbox_to_task_guarded(
+        &pool,
+        task_id,
+        sandbox_id,
+        session_id,
+        Some(&project_id),
+        7,
+    )
+    .await;
+    assert!(matches!(
+        result,
+        Err(RuntimeFreshnessError::GenerationChanged {
+            expected: 7,
+            actual: 8
+        })
+    ));
+    let attached: Option<SandboxId> =
+        sqlx::query_scalar("SELECT sandbox_id FROM joysafeter_tasks WHERE id = $1")
+            .bind(task_id)
+            .fetch_one(&pool)
+            .await
+            .expect("load task attachment");
+    assert!(attached.is_none());
+
+    sqlx::query("DELETE FROM joysafeter_tasks WHERE id = $1")
+        .bind(task_id)
+        .execute(&pool)
+        .await
+        .expect("delete task fixture");
+    delete_sandbox(&pool, sandbox_id).await;
+    cleanup(
+        &pool,
+        &[agent_id],
+        &[session_id],
+        &[],
+        &[],
+        &[(&project_id, &organization_id)],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn pool_reservation_is_freshness_neutral() {
+    let pool = test_pool().await;
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let external_id = format!("task-3-pool-{sandbox_id}");
+    let image = format!("joysafeter/task-3-pool-{sandbox_id}:latest");
+    let config = json!({});
+    let required_at = "2026-08-21T11:22:33.123456Z"
+        .parse::<DateTime<Utc>>()
+        .expect("valid fixed timestamp");
+
+    queries::create_sandbox(
+        &pool,
+        sandbox_id,
+        &external_id,
+        "test",
+        &image,
+        None,
+        None,
+        None,
+        Some(&config),
+    )
+    .await
+    .expect("create pooled sandbox fixture");
+    sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET status = 'pooled',
+            runtime_config_status = 'restart_required',
+            runtime_config_last_reason = 'credential_rotated',
+            runtime_config_required_at = $2,
+            runtime_config_applied_generation = 41
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .bind(required_at)
+    .execute(&pool)
+    .await
+    .expect("mark pooled sandbox restart required");
+
+    let claimed = queries::claim_pool_sandbox(&pool, &image)
+        .await
+        .expect("claim pooled sandbox")
+        .expect("pooled sandbox is claimable");
+
+    assert_eq!(claimed.id, sandbox_id);
+    assert_eq!(claimed.status, "provisioning");
+    assert_eq!(claimed.runtime_config_status, "restart_required");
+    assert_eq!(
+        claimed.runtime_config_last_reason.as_deref(),
+        Some("credential_rotated")
+    );
+    assert_eq!(claimed.runtime_config_required_at, Some(required_at));
+    assert_eq!(claimed.runtime_config_applied_generation, 41);
+    assert_eq!(
+        runtime_config_state_with_generation(&pool, sandbox_id).await,
+        (
+            "restart_required".to_string(),
+            Some("credential_rotated".to_string()),
+            Some(required_at),
+            41,
+        )
+    );
+    delete_sandbox(&pool, sandbox_id).await;
+}
+
+#[tokio::test]
+async fn guarded_stopped_restart_rejects_generation_mismatch_without_writing() {
+    let pool = test_pool().await;
+    let unique = Uuid::now_v7().simple().to_string();
+    let project_id = format!("proj-task3c-stopped-mismatch-{unique}");
+    let organization_id = insert_project(&pool, &unique, &project_id).await;
+    let agent_id = AgentId::from_uuid(Uuid::now_v7());
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let external_id = format!("task-3-stopped-{sandbox_id}");
+    let config = json!({});
+    insert_agent(&pool, agent_id, &project_id).await;
+    insert_session(&pool, session_id, agent_id, &project_id).await;
+    sqlx::query("UPDATE joysafeter_sessions SET runtime_config_generation = 9 WHERE id = $1")
+        .bind(session_id)
+        .execute(&pool)
+        .await
+        .expect("set desired generation");
+
+    queries::create_sandbox(
+        &pool,
+        sandbox_id,
+        &external_id,
+        "test",
+        "joysafeter/task-3-stopped:latest",
+        Some(session_id),
+        Some(&project_id),
+        None,
+        Some(&config),
+    )
+    .await
+    .expect("create stopped sandbox fixture");
+    sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET status = 'stopped',
+            runtime_config_status = 'restart_required',
+            runtime_config_last_reason = 'environment_changed',
+            runtime_config_required_at = NOW(),
+            runtime_config_applied_generation = 8
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .execute(&pool)
+    .await
+    .expect("mark stopped sandbox restart required");
+
+    let before = runtime_config_state_with_generation(&pool, sandbox_id).await;
+    let result = queries::claim_stopped_sandbox_for_restart_guarded(
+        &pool,
+        sandbox_id,
+        &external_id,
+        session_id,
+        Some(&project_id),
+        8,
+    )
+    .await;
+    assert!(matches!(
+        result,
+        Err(RuntimeFreshnessError::GenerationChanged {
+            expected: 8,
+            actual: 9
+        })
+    ));
+    assert_eq!(
+        runtime_config_state_with_generation(&pool, sandbox_id).await,
+        before
+    );
+    delete_sandbox(&pool, sandbox_id).await;
+    cleanup(
+        &pool,
+        &[agent_id],
+        &[session_id],
+        &[],
+        &[],
+        &[(&project_id, &organization_id)],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn guarded_stopped_restart_rejects_inactive_or_cross_project_session_without_writing() {
+    let pool = test_pool().await;
+    let unique = Uuid::now_v7().simple().to_string();
+    let project_id = format!("proj-task3c-stopped-validation-{unique}");
+    let other_project_id = format!("proj-task3c-stopped-validation-other-{unique}");
+    let organization_id = insert_project(&pool, &unique, &project_id).await;
+    let other_organization_id =
+        insert_project(&pool, &format!("{unique}-other"), &other_project_id).await;
+    let agent_id = AgentId::from_uuid(Uuid::now_v7());
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let external_id = format!("task-3c-stopped-validation-{sandbox_id}");
+    insert_agent(&pool, agent_id, &project_id).await;
+    insert_session(&pool, session_id, agent_id, &project_id).await;
+    sqlx::query("UPDATE joysafeter_sessions SET runtime_config_generation = 10 WHERE id = $1")
+        .bind(session_id)
+        .execute(&pool)
+        .await
+        .expect("set desired generation");
+    queries::create_sandbox(
+        &pool,
+        sandbox_id,
+        &external_id,
+        "test",
+        "joysafeter/task-3c-stopped-validation:latest",
+        Some(session_id),
+        Some(&project_id),
+        None,
+        Some(&json!({})),
+    )
+    .await
+    .expect("create stopped sandbox fixture");
+    sqlx::query("UPDATE joysafeter_sandboxes SET status = 'stopped' WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await
+        .expect("mark sandbox stopped");
+    let before = runtime_config_state_with_generation(&pool, sandbox_id).await;
+
+    let wrong_project = queries::claim_stopped_sandbox_for_restart_guarded(
+        &pool,
+        sandbox_id,
+        &external_id,
+        session_id,
+        Some(&other_project_id),
+        10,
+    )
+    .await;
+    assert!(matches!(
+        wrong_project,
+        Err(RuntimeFreshnessError::SessionBindingInvalid {
+            reason: "project mismatch",
+            ..
+        })
+    ));
+
+    sqlx::query("UPDATE joysafeter_sessions SET status = 'terminated' WHERE id = $1")
+        .bind(session_id)
+        .execute(&pool)
+        .await
+        .expect("terminate session");
+    let inactive = queries::claim_stopped_sandbox_for_restart_guarded(
+        &pool,
+        sandbox_id,
+        &external_id,
+        session_id,
+        Some(&project_id),
+        10,
+    )
+    .await;
+    assert!(matches!(
+        inactive,
+        Err(RuntimeFreshnessError::SessionBindingInvalid {
+            reason: "inactive session",
+            ..
+        })
+    ));
+    assert_eq!(
+        runtime_config_state_with_generation(&pool, sandbox_id).await,
+        before
+    );
+
+    delete_sandbox(&pool, sandbox_id).await;
+    cleanup(
+        &pool,
+        &[agent_id],
+        &[session_id],
+        &[],
+        &[],
+        &[
+            (&project_id, &organization_id),
+            (&other_project_id, &other_organization_id),
+        ],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn stopped_restart_compensation_restores_exact_runtime_configuration() {
+    let pool = test_pool().await;
+    let unique = Uuid::now_v7().simple().to_string();
+    let project_id = format!("proj-task3c-stopped-restore-{unique}");
+    let organization_id = insert_project(&pool, &unique, &project_id).await;
+    let agent_id = AgentId::from_uuid(Uuid::now_v7());
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let external_id = format!("task-3-stopped-restore-{sandbox_id}");
+    let config = json!({});
+    let required_at = "2026-08-21T12:34:56.123456Z"
+        .parse::<DateTime<Utc>>()
+        .expect("valid fixed timestamp");
+    insert_agent(&pool, agent_id, &project_id).await;
+    insert_session(&pool, session_id, agent_id, &project_id).await;
+    sqlx::query("UPDATE joysafeter_sessions SET runtime_config_generation = 12 WHERE id = $1")
+        .bind(session_id)
+        .execute(&pool)
+        .await
+        .expect("set desired generation");
+
+    queries::create_sandbox(
+        &pool,
+        sandbox_id,
+        &external_id,
+        "test",
+        "joysafeter/task-3-stopped-restore:latest",
+        Some(session_id),
+        Some(&project_id),
+        None,
+        Some(&config),
+    )
+    .await
+    .expect("create stopped sandbox fixture");
+    sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET status = 'stopped',
+            runtime_config_status = 'restart_required',
+            runtime_config_last_reason = 'credential_rotated_before_restart',
+            runtime_config_required_at = $2,
+            runtime_config_applied_generation = 11
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .bind(required_at)
+    .execute(&pool)
+    .await
+    .expect("mark stopped sandbox restart required");
+
+    let claim = queries::claim_stopped_sandbox_for_restart_guarded(
+        &pool,
+        sandbox_id,
+        &external_id,
+        session_id,
+        Some(&project_id),
+        12,
+    )
+    .await
+    .expect("claim stopped sandbox for restart");
+    assert_eq!(claim.previous_runtime_config_applied_generation, 11);
+    assert_eq!(claim.claimed_runtime_config_applied_generation, 12);
+    assert!(
+        queries::restore_stopped_sandbox_after_restart_start_failure_guarded(
+            &pool,
+            sandbox_id,
+            &external_id,
+            &claim,
+        )
+        .await
+        .expect("restore stopped sandbox after restart failure")
+    );
+
+    let restored: (String, String, Option<String>, Option<DateTime<Utc>>, i64) = sqlx::query_as(
+        r#"
+        SELECT status, runtime_config_status, runtime_config_last_reason,
+               runtime_config_required_at, runtime_config_applied_generation
+        FROM joysafeter_sandboxes
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .fetch_one(&pool)
+    .await
+    .expect("load restored sandbox state");
+    assert_eq!(
+        restored,
+        (
+            "stopped".to_string(),
+            "restart_required".to_string(),
+            Some("credential_rotated_before_restart".to_string()),
+            Some(required_at),
+            11,
+        )
+    );
+    delete_sandbox(&pool, sandbox_id).await;
+    cleanup(
+        &pool,
+        &[agent_id],
+        &[session_id],
+        &[],
+        &[],
+        &[(&project_id, &organization_id)],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn stopped_restart_compensation_does_not_clobber_newer_applied_generation() {
+    let pool = test_pool().await;
+    let unique = Uuid::now_v7().simple().to_string();
+    let project_id = format!("proj-task3c-stopped-no-clobber-{unique}");
+    let organization_id = insert_project(&pool, &unique, &project_id).await;
+    let agent_id = AgentId::from_uuid(Uuid::now_v7());
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let external_id = format!("task-3-stopped-no-clobber-{sandbox_id}");
+    let config = json!({});
+    insert_agent(&pool, agent_id, &project_id).await;
+    insert_session(&pool, session_id, agent_id, &project_id).await;
+    sqlx::query("UPDATE joysafeter_sessions SET runtime_config_generation = 20 WHERE id = $1")
+        .bind(session_id)
+        .execute(&pool)
+        .await
+        .expect("set desired generation");
+
+    queries::create_sandbox(
+        &pool,
+        sandbox_id,
+        &external_id,
+        "test",
+        "joysafeter/task-3-stopped-no-clobber:latest",
+        Some(session_id),
+        Some(&project_id),
+        None,
+        Some(&config),
+    )
+    .await
+    .expect("create stopped sandbox fixture");
+    sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET status = 'stopped',
+            runtime_config_status = 'restart_required',
+            runtime_config_last_reason = 'older_marker',
+            runtime_config_required_at = '2026-08-21T12:00:00Z'::timestamptz,
+            runtime_config_applied_generation = 19
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .execute(&pool)
+    .await
+    .expect("mark stopped sandbox restart required");
+
+    let claim = queries::claim_stopped_sandbox_for_restart_guarded(
+        &pool,
+        sandbox_id,
+        &external_id,
+        session_id,
+        Some(&project_id),
+        20,
+    )
+    .await
+    .expect("claim stopped sandbox for restart");
+    sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET runtime_config_applied_generation = 21
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .execute(&pool)
+    .await
+    .expect("write newer applied generation");
+
+    assert!(
+        !queries::restore_stopped_sandbox_after_restart_start_failure_guarded(
+            &pool,
+            sandbox_id,
+            &external_id,
+            &claim,
+        )
+        .await
+        .expect("restore stopped sandbox after restart failure")
+    );
+
+    let restored: (String, String, Option<String>, Option<DateTime<Utc>>, i64) = sqlx::query_as(
+        r#"
+        SELECT status, runtime_config_status, runtime_config_last_reason,
+               runtime_config_required_at, runtime_config_applied_generation
+        FROM joysafeter_sandboxes
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .fetch_one(&pool)
+    .await
+    .expect("load no-clobber sandbox state");
+    assert_eq!(
+        restored,
+        (
+            "provisioning".to_string(),
+            "ready".to_string(),
+            None,
+            None,
+            21,
+        )
+    );
+    delete_sandbox(&pool, sandbox_id).await;
+    cleanup(
+        &pool,
+        &[agent_id],
+        &[session_id],
+        &[],
+        &[],
+        &[(&project_id, &organization_id)],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn guarded_pool_activation_attaches_complete_freshness_state_and_cleanup_claims_exact_token()
+{
+    let pool = test_pool().await;
+    let unique = Uuid::now_v7().simple().to_string();
+    let project_id = format!("proj-task3c-pool-activation-{unique}");
+    let organization_id = insert_project(&pool, &unique, &project_id).await;
+    let agent_id = AgentId::from_uuid(Uuid::now_v7());
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let external_id = format!("task-3c-pool-activation-{sandbox_id}");
+    let image = format!("joysafeter/task-3c-pool-activation-{sandbox_id}:latest");
+    let original_config = json!({
+        "provisioning": {"stage": "pool_warm"},
+        "fingerprint": {"image": "old"}
+    });
+    let fingerprint = json!({"image": image, "engine_kind": "claude", "networking": null});
+    insert_agent(&pool, agent_id, &project_id).await;
+    insert_session(&pool, session_id, agent_id, &project_id).await;
+    sqlx::query("UPDATE joysafeter_sessions SET runtime_config_generation = 31 WHERE id = $1")
+        .bind(session_id)
+        .execute(&pool)
+        .await
+        .expect("set desired generation");
+    queries::create_sandbox(
+        &pool,
+        sandbox_id,
+        &external_id,
+        "test",
+        &image,
+        None,
+        None,
+        None,
+        Some(&original_config),
+    )
+    .await
+    .expect("create pooled sandbox fixture");
+    sqlx::query("UPDATE joysafeter_sandboxes SET status = 'pooled' WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await
+        .expect("mark sandbox pooled");
+    queries::claim_pool_sandbox(&pool, &image)
+        .await
+        .expect("reserve pooled sandbox")
+        .expect("pooled sandbox is reservable");
+
+    let attachment = queries::activate_reserved_pool_sandbox_guarded(
+        &pool,
+        sandbox_id,
+        &external_id,
+        session_id,
+        Some(&project_id),
+        &fingerprint,
+        31,
+    )
+    .await
+    .expect("activate reserved pool sandbox");
+    let attached: (
+        String,
+        Option<SessionId>,
+        Option<String>,
+        Value,
+        String,
+        Option<String>,
+        Option<DateTime<Utc>>,
+        i64,
+    ) = sqlx::query_as(
+        r#"
+        SELECT status, chat_session_id, project_id, config->'fingerprint',
+               runtime_config_status, runtime_config_last_reason,
+               runtime_config_required_at, runtime_config_applied_generation
+        FROM joysafeter_sandboxes
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .fetch_one(&pool)
+    .await
+    .expect("load attached pool sandbox");
+    assert_eq!(
+        attached,
+        (
+            "provisioning".to_string(),
+            Some(session_id),
+            Some(project_id.clone()),
+            fingerprint,
+            "ready".to_string(),
+            None,
+            None,
+            31,
+        )
+    );
+
+    sqlx::query(
+        "UPDATE joysafeter_sandboxes SET runtime_config_applied_generation = 32 WHERE id = $1",
+    )
+    .bind(sandbox_id)
+    .execute(&pool)
+    .await
+    .expect("advance applied generation after pool attachment");
+    assert!(!queries::claim_attached_pool_sandbox_for_cleanup_guarded(
+        &pool,
+        &attachment,
+        "stale pool attachment token",
+    )
+    .await
+    .expect("stale attachment token is a zero-write cleanup claim"));
+    let preserved: (String, Option<SessionId>, String, i64) = sqlx::query_as(
+        r#"
+        SELECT status, chat_session_id, runtime_config_status,
+               runtime_config_applied_generation
+        FROM joysafeter_sandboxes
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .fetch_one(&pool)
+    .await
+    .expect("load pool sandbox after stale cleanup token");
+    assert_eq!(
+        preserved,
+        (
+            "provisioning".to_string(),
+            Some(session_id),
+            "ready".to_string(),
+            32,
+        )
+    );
+    sqlx::query(
+        "UPDATE joysafeter_sandboxes SET runtime_config_applied_generation = 31 WHERE id = $1",
+    )
+    .bind(sandbox_id)
+    .execute(&pool)
+    .await
+    .expect("restore claimed applied generation for exact cleanup token");
+
+    assert!(queries::claim_attached_pool_sandbox_for_cleanup_guarded(
+        &pool,
+        &attachment,
+        "pool activation failed",
+    )
+    .await
+    .expect("claim attached pool sandbox for cleanup"));
+    let cleanup_state: (String, Option<SessionId>, String, Option<String>, i64) = sqlx::query_as(
+        r#"
+        SELECT status, chat_session_id, runtime_config_status,
+               runtime_config_last_reason, runtime_config_applied_generation
+        FROM joysafeter_sandboxes
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .fetch_one(&pool)
+    .await
+    .expect("load attached pool cleanup state");
+    assert_eq!(
+        cleanup_state,
+        (
+            "stopping".to_string(),
+            Some(session_id),
+            "restart_required".to_string(),
+            Some("pool activation failed".to_string()),
+            31,
+        )
+    );
+
+    delete_sandbox(&pool, sandbox_id).await;
+    cleanup(
+        &pool,
+        &[agent_id],
+        &[session_id],
+        &[],
+        &[],
+        &[(&project_id, &organization_id)],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn guarded_pool_activation_waits_for_session_before_locking_sandbox() {
+    let pool = test_pool().await;
+    let unique = Uuid::now_v7().simple().to_string();
+    let project_id = format!("proj-task3c-pool-mutation-first-{unique}");
+    let organization_id = insert_project(&pool, &unique, &project_id).await;
+    let agent_id = AgentId::from_uuid(Uuid::now_v7());
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let external_id = format!("task-3c-pool-mutation-first-{sandbox_id}");
+    let image = format!("joysafeter/task-3c-pool-mutation-first-{sandbox_id}:latest");
+    insert_agent(&pool, agent_id, &project_id).await;
+    insert_session(&pool, session_id, agent_id, &project_id).await;
+    sqlx::query("UPDATE joysafeter_sessions SET runtime_config_generation = 51 WHERE id = $1")
+        .bind(session_id)
+        .execute(&pool)
+        .await
+        .expect("set desired generation");
+    queries::create_sandbox(
+        &pool,
+        sandbox_id,
+        &external_id,
+        "test",
+        &image,
+        None,
+        None,
+        None,
+        Some(&json!({"provisioning": {"stage": "pool_warm"}})),
+    )
+    .await
+    .expect("create pooled sandbox fixture");
+    sqlx::query("UPDATE joysafeter_sandboxes SET status = 'pooled' WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await
+        .expect("mark sandbox pooled");
+    queries::claim_pool_sandbox(&pool, &image)
+        .await
+        .expect("reserve pooled sandbox")
+        .expect("pooled sandbox is reservable");
+
+    let mut mutation = pool.begin().await.expect("begin session mutation");
+    sqlx::query("SELECT id FROM joysafeter_sessions WHERE id = $1 FOR UPDATE")
+        .bind(session_id)
+        .execute(&mut *mutation)
+        .await
+        .expect("lock session before activation");
+    let application_name = format!("task3c-pool-mutation-first-{unique}");
+    let writer_pool = named_single_connection_pool(&application_name).await;
+    let project_for_writer = project_id.clone();
+    let external_for_writer = external_id.clone();
+    let writer = tokio::spawn(async move {
+        queries::activate_reserved_pool_sandbox_guarded(
+            &writer_pool,
+            sandbox_id,
+            &external_for_writer,
+            session_id,
+            Some(&project_for_writer),
+            &json!({"image": "guarded"}),
+            51,
+        )
+        .await
+    });
+    wait_for_database_lock(&pool, &application_name).await;
+
+    let sandbox_lock_available: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM joysafeter_sandboxes WHERE id = $1 FOR UPDATE NOWAIT
+        )
+        "#,
+    )
+    .bind(sandbox_id)
+    .fetch_one(&pool)
+    .await
+    .expect("sandbox must remain unlocked while activation waits for session");
+    assert!(sandbox_lock_available);
+    sqlx::query("UPDATE joysafeter_sessions SET runtime_config_generation = 52 WHERE id = $1")
+        .bind(session_id)
+        .execute(&mut *mutation)
+        .await
+        .expect("advance generation while holding session lock");
+    mutation.commit().await.expect("commit session mutation");
+
+    let result = tokio::time::timeout(Duration::from_secs(5), writer)
+        .await
+        .expect("activation completes after session unlock")
+        .expect("join activation task");
+    assert!(matches!(
+        result,
+        Err(RuntimeFreshnessError::GenerationChanged {
+            expected: 51,
+            actual: 52
+        })
+    ));
+    let ownership: (Option<SessionId>, Option<String>) = sqlx::query_as(
+        "SELECT chat_session_id, project_id FROM joysafeter_sandboxes WHERE id = $1",
+    )
+    .bind(sandbox_id)
+    .fetch_one(&pool)
+    .await
+    .expect("load rejected pool activation ownership");
+    assert_eq!(ownership, (None, None));
+
+    delete_sandbox(&pool, sandbox_id).await;
+    cleanup(
+        &pool,
+        &[agent_id],
+        &[session_id],
+        &[],
+        &[],
+        &[(&project_id, &organization_id)],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn guarded_stopped_restart_holds_session_lock_while_waiting_for_sandbox() {
+    let pool = test_pool().await;
+    let unique = Uuid::now_v7().simple().to_string();
+    let project_id = format!("proj-task3c-stopped-writer-first-{unique}");
+    let organization_id = insert_project(&pool, &unique, &project_id).await;
+    let agent_id = AgentId::from_uuid(Uuid::now_v7());
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let external_id = format!("task-3c-stopped-writer-first-{sandbox_id}");
+    insert_agent(&pool, agent_id, &project_id).await;
+    insert_session(&pool, session_id, agent_id, &project_id).await;
+    sqlx::query("UPDATE joysafeter_sessions SET runtime_config_generation = 61 WHERE id = $1")
+        .bind(session_id)
+        .execute(&pool)
+        .await
+        .expect("set desired generation");
+    queries::create_sandbox(
+        &pool,
+        sandbox_id,
+        &external_id,
+        "test",
+        "joysafeter/task-3c-stopped-writer-first:latest",
+        Some(session_id),
+        Some(&project_id),
+        None,
+        Some(&json!({})),
+    )
+    .await
+    .expect("create stopped sandbox fixture");
+    sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET status = 'stopped',
+            runtime_config_status = 'restart_required',
+            runtime_config_last_reason = 'credential_rotated',
+            runtime_config_required_at = NOW(),
+            runtime_config_applied_generation = 60
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .execute(&pool)
+    .await
+    .expect("mark stopped sandbox stale");
+
+    let mut sandbox_blocker = pool.begin().await.expect("begin sandbox blocker");
+    sqlx::query("SELECT id FROM joysafeter_sandboxes WHERE id = $1 FOR UPDATE")
+        .bind(sandbox_id)
+        .execute(&mut *sandbox_blocker)
+        .await
+        .expect("lock sandbox before guarded writer");
+    let application_name = format!("task3c-stopped-writer-first-{unique}");
+    let writer_pool = named_single_connection_pool(&application_name).await;
+    let project_for_writer = project_id.clone();
+    let external_for_writer = external_id.clone();
+    let writer = tokio::spawn(async move {
+        queries::claim_stopped_sandbox_for_restart_guarded(
+            &writer_pool,
+            sandbox_id,
+            &external_for_writer,
+            session_id,
+            Some(&project_for_writer),
+            61,
+        )
+        .await
+    });
+    wait_for_database_lock(&pool, &application_name).await;
+
+    let session_probe =
+        sqlx::query("SELECT id FROM joysafeter_sessions WHERE id = $1 FOR UPDATE NOWAIT")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+    assert_eq!(
+        session_probe
+            .expect_err("guarded writer must hold the session lock before waiting on sandbox")
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
+        Some("55P03")
+    );
+    sandbox_blocker
+        .commit()
+        .await
+        .expect("release sandbox lock");
+    let claim = tokio::time::timeout(Duration::from_secs(5), writer)
+        .await
+        .expect("stopped claim completes after sandbox unlock")
+        .expect("join stopped claim task")
+        .expect("guarded stopped claim succeeds");
+    assert_eq!(claim.claimed_runtime_config_applied_generation, 61);
+
+    delete_sandbox(&pool, sandbox_id).await;
+    cleanup(
+        &pool,
+        &[agent_id],
+        &[session_id],
+        &[],
+        &[],
+        &[(&project_id, &organization_id)],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn ordinary_running_idle_transitions_preserve_restart_required_runtime_configuration() {
+    let pool = test_pool().await;
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let external_id = format!("task-3-transitions-{sandbox_id}");
+    let config = json!({});
+
+    queries::create_sandbox(
+        &pool,
+        sandbox_id,
+        &external_id,
+        "test",
+        "joysafeter/task-3-transitions:latest",
+        None,
+        None,
+        None,
+        Some(&config),
+    )
+    .await
+    .expect("create transition sandbox fixture");
+    sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET status = 'idle',
+            runtime_config_status = 'restart_required',
+            runtime_config_last_reason = 'credential_rotated',
+            runtime_config_required_at = NOW()
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .execute(&pool)
+    .await
+    .expect("mark idle sandbox restart required");
+    let expected = runtime_config_state(&pool, sandbox_id).await;
+
+    assert!(
+        queries::transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
+            .await
+            .expect("transition sandbox to running")
+    );
+    assert!(
+        queries::transition_sandbox_cas(&pool, sandbox_id, "running", "idle")
+            .await
+            .expect("transition sandbox to idle")
+    );
+
+    assert_eq!(runtime_config_state(&pool, sandbox_id).await, expected);
+    delete_sandbox(&pool, sandbox_id).await;
+}
+
 #[tokio::test]
 async fn store_and_usage_resolvers_cover_model_and_service_happy_paths() {
     let pool = test_pool().await;
@@ -332,21 +1561,12 @@ async fn store_and_usage_resolvers_cover_model_and_service_happy_paths() {
         ResolvedServiceCredential::HttpEgressField("hello-world".to_string())
     );
 
-    let mut harness_input = HarnessInput::default();
-    harness_input.env.insert(
-        "EXPLICIT_SERVICE_TOKEN".to_string(),
-        "hello-world".to_string(),
-    );
-    harness_input
-        .secrets
-        .insert("MODEL_TOKEN".to_string(), "hello-world".to_string());
     for formatted in [
         format!("{model:?}"),
         format!("{resolved_model:?}"),
         format!("{service:?}"),
         format!("{injected:?}"),
         format!("{egress:?}"),
-        format!("{harness_input:?}"),
     ] {
         assert!(!formatted.contains("hello-world"), "{formatted}");
         assert!(formatted.contains("redacted"), "{formatted}");
@@ -869,6 +2089,448 @@ async fn mcp_urls_are_canonical_unique_and_stably_ordered() {
         ],
         &[group_a, group_b],
         &[(&project_raw, &organization_id)],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn credential_access_audit_deduplicates_success_and_preserves_failures() {
+    let pool = test_pool().await;
+    let writer = CredentialAccessAuditWriter::new(pool.clone());
+    let credential_id = CredentialId::from_uuid(Uuid::now_v7());
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
+    let task_id = TaskId::from_uuid(Uuid::now_v7());
+    let entry = CredentialAccessAuditEntry {
+        project_id: ProjectId::parse("project-a").unwrap(),
+        credential_id,
+        credential_kind:
+            joysafeter_orchestrator::kernel::credentials::record::CredentialKind::Service,
+        usage: CredentialAccessUsage::HttpEgress,
+        consumer_type: "sandbox".to_string(),
+        consumer_id: None,
+        principal_type: "system".to_string(),
+        principal_id: "runtime".to_string(),
+        session_id: Some(session_id),
+        task_id: Some(task_id),
+        generation: Some(7),
+        field_names: ["TOKEN".to_string()].into_iter().collect(),
+    };
+
+    assert!(writer.append_success(&entry).await.unwrap());
+    assert!(!writer.append_success(&entry).await.unwrap());
+
+    let next_generation = CredentialAccessAuditEntry {
+        generation: Some(8),
+        ..entry.clone()
+    };
+    assert!(writer.append_success(&next_generation).await.unwrap());
+    assert!(writer
+        .append_failure(&entry, CredentialAccessFailure::Failed, "envelope_invalid")
+        .await
+        .unwrap());
+    assert!(writer
+        .append_failure(&entry, CredentialAccessFailure::Failed, "envelope_invalid")
+        .await
+        .unwrap());
+
+    let rows = sqlx::query_as::<_, (String, i64, serde_json::Value, String, Option<String>)>(
+        r#"
+        SELECT result, generation, field_names, principal_id, error_code
+        FROM joysafeter_credential_access_audits
+        WHERE credential_id = $1
+        ORDER BY created_at, id
+        "#,
+    )
+    .bind(credential_id)
+    .fetch_all(&pool)
+    .await
+    .expect("load credential access audits");
+
+    assert_eq!(rows.len(), 4);
+    assert_eq!(
+        rows.iter()
+            .filter(|(result, ..)| result == "success")
+            .count(),
+        2
+    );
+    assert_eq!(
+        rows.iter()
+            .filter(|(result, ..)| result == "failed")
+            .count(),
+        2
+    );
+    assert!(rows.iter().all(|(_, _, fields, principal_id, _)| {
+        fields == &json!(["TOKEN"]) && principal_id == "runtime"
+    }));
+    assert!(rows.iter().all(|(_, _, _, _, error_code)| {
+        error_code
+            .as_deref()
+            .is_none_or(|code| code == "envelope_invalid")
+    }));
+}
+
+#[tokio::test]
+async fn credential_material_access_audits_success_and_ciphertext_failure_without_values() {
+    let pool = test_pool().await;
+    let unique = Uuid::now_v7().simple().to_string();
+    let project_raw = format!("proj-access-{unique}");
+    let organization_id = insert_project(&pool, &unique, &project_raw).await;
+    let project_id = ProjectId::parse(&project_raw).expect("valid project id");
+    let model_id = CredentialId::from_uuid(Uuid::now_v7());
+    let metadata_only_model_id = CredentialId::from_uuid(Uuid::now_v7());
+    let model_name_only_id = CredentialId::from_uuid(Uuid::now_v7());
+    let valid_id = CredentialId::from_uuid(Uuid::now_v7());
+    let invalid_id = CredentialId::from_uuid(Uuid::now_v7());
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
+    let task_id = TaskId::from_uuid(Uuid::now_v7());
+
+    insert_credential(
+        &pool,
+        CredentialFixture {
+            id: model_id,
+            project_id: &project_raw,
+            kind: "model",
+            provider: Some("anthropic"),
+            protocol: Some("anthropic_messages"),
+            data: json!({"ANTHROPIC_API_KEY": ENCRYPTED_HELLO_WORLD}),
+            group_id: None,
+            server_url: None,
+            scheme: None,
+            archived: false,
+            deleted: false,
+        },
+    )
+    .await;
+    for (id, model_value) in [
+        (metadata_only_model_id, "invalid-model-envelope"),
+        (model_name_only_id, ENCRYPTED_HELLO_WORLD),
+    ] {
+        insert_credential(
+            &pool,
+            CredentialFixture {
+                id,
+                project_id: &project_raw,
+                kind: "model",
+                provider: Some("anthropic"),
+                protocol: Some("anthropic_messages"),
+                data: json!({
+                    "ANTHROPIC_API_KEY": "invalid-api-key-envelope",
+                    "ANTHROPIC_MODEL": model_value
+                }),
+                group_id: None,
+                server_url: None,
+                scheme: None,
+                archived: false,
+                deleted: false,
+            },
+        )
+        .await;
+    }
+
+    for (id, token) in [
+        (valid_id, ENCRYPTED_HELLO_WORLD),
+        (invalid_id, "invalid-envelope-secret-sentinel"),
+    ] {
+        insert_credential(
+            &pool,
+            CredentialFixture {
+                id,
+                project_id: &project_raw,
+                kind: "service",
+                provider: None,
+                protocol: None,
+                data: json!({"TOKEN": token}),
+                group_id: None,
+                server_url: None,
+                scheme: None,
+                archived: false,
+                deleted: false,
+            },
+        )
+        .await;
+    }
+
+    let access = CredentialMaterialAccessService::with_material_adapter(
+        pool.clone(),
+        ManagedCredentialMaterialAdapter::from_key(TEST_KEY),
+    );
+    let context = CredentialAccessContext::runtime(Some(session_id), Some(task_id), Some(12));
+
+    let model = access
+        .resolve_model(&project_id, model_id, "claude", &context)
+        .await
+        .unwrap();
+    assert_eq!(model.protocol_id, "anthropic_messages");
+    assert_eq!(model.material["ANTHROPIC_API_KEY"], "hello-world");
+    let metadata_only = access
+        .resolve_model_runtime_config(
+            &project_id,
+            metadata_only_model_id,
+            "claude",
+            false,
+            &context,
+        )
+        .await
+        .unwrap();
+    assert_eq!(metadata_only.binding.protocol_id, "anthropic_messages");
+    assert_eq!(metadata_only.model, None);
+    let model_name_only = access
+        .resolve_model_runtime_config(&project_id, model_name_only_id, "claude", true, &context)
+        .await
+        .unwrap();
+    assert_eq!(model_name_only.binding.protocol_id, "anthropic_messages");
+    assert_eq!(model_name_only.model.as_deref(), Some("hello-world"));
+    let model_name_debug = format!("{model_name_only:?}");
+    assert!(!model_name_debug.contains("hello-world"));
+    assert!(model_name_debug.contains("redacted"));
+    assert_eq!(
+        access
+            .resolve_environment(&project_id, valid_id, &context)
+            .await
+            .unwrap(),
+        ResolvedServiceCredential::Environment(json!({"TOKEN": "hello-world"}))
+    );
+    assert_eq!(
+        access
+            .resolve_http_egress_field(&project_id, valid_id, "TOKEN", &context)
+            .await
+            .unwrap(),
+        "hello-world"
+    );
+    assert_eq!(
+        access
+            .resolve_http_egress_field(&project_id, valid_id, "TOKEN", &context)
+            .await
+            .unwrap(),
+        "hello-world"
+    );
+    assert_eq!(
+        access
+            .resolve_http_egress_field(&project_id, invalid_id, "TOKEN", &context)
+            .await
+            .unwrap_err()
+            .downcast_ref::<CredentialRuntimeError>(),
+        Some(&CredentialRuntimeError::EnvelopeInvalid)
+    );
+
+    let rows = sqlx::query_as::<
+        _,
+        (
+            CredentialId,
+            String,
+            String,
+            serde_json::Value,
+            String,
+            Option<String>,
+        ),
+    >(
+        r#"
+        SELECT credential_id, usage, result, field_names, principal_id, error_code
+        FROM joysafeter_credential_access_audits
+        WHERE credential_id = ANY($1)
+        ORDER BY created_at, id
+        "#,
+    )
+    .bind(
+        &[
+            model_id,
+            metadata_only_model_id,
+            model_name_only_id,
+            valid_id,
+            invalid_id,
+        ][..],
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("load material access audits");
+
+    assert_eq!(rows.len(), 5);
+    assert!(rows
+        .iter()
+        .any(|(credential_id, usage, result, fields, _, error)| {
+            *credential_id == model_id
+                && usage == "model_inference"
+                && result == "success"
+                && fields == &json!(["ANTHROPIC_API_KEY"])
+                && error.is_none()
+        }));
+    assert!(!rows
+        .iter()
+        .any(|(credential_id, ..)| *credential_id == metadata_only_model_id));
+    assert!(rows
+        .iter()
+        .any(|(credential_id, usage, result, fields, _, error)| {
+            *credential_id == model_name_only_id
+                && usage == "model_inference"
+                && result == "success"
+                && fields == &json!(["ANTHROPIC_MODEL"])
+                && error.is_none()
+        }));
+    assert!(rows
+        .iter()
+        .any(|(credential_id, usage, result, fields, _, error)| {
+            *credential_id == valid_id
+                && usage == "environment_injection"
+                && result == "success"
+                && fields == &json!(["TOKEN"])
+                && error.is_none()
+        }));
+    assert!(rows
+        .iter()
+        .any(|(credential_id, usage, result, fields, _, error)| {
+            *credential_id == valid_id
+                && usage == "http_egress"
+                && result == "success"
+                && fields == &json!(["TOKEN"])
+                && error.is_none()
+        }));
+    assert!(rows
+        .iter()
+        .any(|(credential_id, usage, result, fields, principal, error)| {
+            *credential_id == invalid_id
+                && usage == "http_egress"
+                && result == "failed"
+                && fields == &json!(["TOKEN"])
+                && principal == "runtime"
+                && error.as_deref() == Some("envelope_invalid")
+        }));
+    assert!(!serde_json::to_string(&rows)
+        .unwrap()
+        .contains("invalid-envelope-secret-sentinel"));
+
+    cleanup(
+        &pool,
+        &[],
+        &[],
+        &[
+            model_id,
+            metadata_only_model_id,
+            model_name_only_id,
+            valid_id,
+            invalid_id,
+        ],
+        &[],
+        &[(&project_raw, &organization_id)],
+    )
+    .await;
+}
+
+/// Regression: the sandbox resolver and the harness must agree on which
+/// environment bindings are valid. Both now route through
+/// `resolve_live_environment_binding`, so an explicit (session) binding that is
+/// archived or cross-project fails closed with `SessionBindingInvalid` before a
+/// sandbox is ever provisioned, while a soft (agent/snapshot) fallback that no
+/// longer resolves is not a hard error.
+#[tokio::test]
+async fn resolve_live_environment_binding_rejects_archived_or_cross_project_explicit_ref() {
+    let pool = test_pool().await;
+    let unique = Uuid::now_v7().simple().to_string();
+    let project_id = format!("proj-envbind-{unique}");
+    let other_project_id = format!("proj-envbind-other-{unique}");
+    let organization_id = insert_project(&pool, &unique, &project_id).await;
+    let other_organization_id =
+        insert_project(&pool, &format!("{unique}-other"), &other_project_id).await;
+    let agent_id = AgentId::from_uuid(Uuid::now_v7());
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
+    let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
+    let environment_ref = environment_id.to_string();
+    insert_agent(&pool, agent_id, &project_id).await;
+    insert_session(&pool, session_id, agent_id, &project_id).await;
+    insert_environment(
+        &pool,
+        environment_id,
+        &project_id,
+        &format!("env-{unique}"),
+        false,
+    )
+    .await;
+
+    // Valid, same-project, non-archived explicit binding resolves.
+    let resolved = kernel::environment_binding::resolve_live_environment_binding(
+        &pool,
+        Some(&environment_ref),
+        None,
+        None,
+        Some(&project_id),
+        Some(session_id),
+    )
+    .await;
+    assert!(
+        matches!(resolved, Ok(Some(_))),
+        "valid explicit binding must resolve, got {resolved:?}"
+    );
+
+    // Cross-project explicit binding fails closed (before any provisioning).
+    let cross_project = kernel::environment_binding::resolve_live_environment_binding(
+        &pool,
+        Some(&environment_ref),
+        None,
+        None,
+        Some(&other_project_id),
+        Some(session_id),
+    )
+    .await;
+    assert!(
+        matches!(
+            cross_project,
+            Err(RuntimeFreshnessError::SessionBindingInvalid { .. })
+        ),
+        "cross-project explicit binding must fail closed, got {cross_project:?}"
+    );
+
+    // Archiving the environment makes the explicit binding fail closed too.
+    sqlx::query("UPDATE joysafeter_environments SET archived_at = NOW() WHERE id = $1")
+        .bind(environment_id)
+        .execute(&pool)
+        .await
+        .expect("archive environment fixture");
+    let archived = kernel::environment_binding::resolve_live_environment_binding(
+        &pool,
+        Some(&environment_ref),
+        None,
+        None,
+        Some(&project_id),
+        Some(session_id),
+    )
+    .await;
+    assert!(
+        matches!(
+            archived,
+            Err(RuntimeFreshnessError::SessionBindingInvalid { .. })
+        ),
+        "archived explicit binding must fail closed, got {archived:?}"
+    );
+
+    // A soft (agent/snapshot) fallback that no longer resolves is not a hard
+    // error — only an explicit session binding blocks the run.
+    let soft_fallback = kernel::environment_binding::resolve_live_environment_binding(
+        &pool,
+        None,
+        None,
+        Some(&environment_ref),
+        Some(&project_id),
+        Some(session_id),
+    )
+    .await;
+    assert!(
+        matches!(soft_fallback, Ok(None)),
+        "archived soft fallback must be Ok(None), got {soft_fallback:?}"
+    );
+
+    let _ = sqlx::query("DELETE FROM joysafeter_environments WHERE id = $1")
+        .bind(environment_id)
+        .execute(&pool)
+        .await;
+    cleanup(
+        &pool,
+        &[agent_id],
+        &[session_id],
+        &[],
+        &[],
+        &[
+            (&project_id, &organization_id),
+            (&other_project_id, &other_organization_id),
+        ],
     )
     .await;
 }

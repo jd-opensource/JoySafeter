@@ -14,17 +14,22 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.api.v1.audit import credential_audit_actor
 from app.joysafeter_api.api.v1.model_connection_summary import (
     load_model_connection_summaries,
     maybe_credential_id,
     normalize_agent_model,
 )
+from app.joysafeter_application.agents import compose_agent_application
 from app.joysafeter_application.credentials.snapshot_service import CreateCredentialAwareSession
+from app.joysafeter_application.sessions.creation_service import SessionCreationService
+from app.joysafeter_application.sessions.resource_service import SessionResourceService
 from app.joysafeter_domain.credentials.references import snapshot_model_credential_id
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog
 from app.joysafeter_domain.models.joysafeter_storage_mount import JoySafeterSessionStorageMount
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
+from app.joysafeter_domain.schemas.joysafeter_credential import ModelCredentialSummary
 from app.joysafeter_domain.schemas.joysafeter_session import (
     MAX_MEMORY_STORE_RESOURCES,
     MAX_STORAGE_MOUNT_RESOURCES,
@@ -42,11 +47,8 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
     SingleEventRequest,
     UpdateRepoResourceRequest,
 )
-from app.joysafeter_domain.schemas.joysafeter_credential import ModelCredentialSummary
 from app.joysafeter_domain.schemas.joysafeter_skill import SkillUsageResponse as SessionSkillUsageResponse
 from app.joysafeter_domain.schemas.joysafeter_task import MAX_PROMPT_CHARS
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService as AgentService
-from app.joysafeter_domain.services.joysafeter_session_resource_service import SessionResourceService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
 from app.joysafeter_shared.common.app_errors import (
@@ -274,6 +276,11 @@ def _session_to_response(
                 branch=rr.branch or "",
                 mount_path=rr.mount_path or "",
                 mount_name=rr.mount_name or "",
+                has_authorization_token=rr.has_authorization_token,
+                token_status=rr.token_status,
+                token_expires_at=rr.token_expires_at,
+                token_rotated_at=rr.token_rotated_at,
+                token_erased_at=rr.token_erased_at,
             )
         )
     storage_mount_responses = []
@@ -316,6 +323,7 @@ async def create_session(
     req: CreateSessionRequest,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+    request: Request = None,
 ) -> SessionResponse:
     # --- Validate memory_store resources limit ---
     if len(req.resources) > MAX_MEMORY_STORE_RESOURCES:
@@ -337,7 +345,7 @@ async def create_session(
     environment_ref = _canonical_environment_ref(req.environment_id)
 
     # --- Resolve agent ---
-    agent_svc = AgentService(db)
+    agent_svc = compose_agent_application(db).queries
     agent = None
     pinned_version: Optional[int] = None
     if req.agent:
@@ -411,7 +419,10 @@ async def create_session(
     )
 
     svc = SessionService(db)
-    session = await svc.create_session_from_source(
+    session = await SessionCreationService(
+        db,
+        audit_actor=credential_audit_actor(request, auth_ctx),
+    ).create_from_source(
         CreateCredentialAwareSession(
             project_id=auth_ctx.project_id,
             agent_id=agent.id,
@@ -502,7 +513,7 @@ async def list_sessions(
 ) -> PaginatedResponse[SessionResponse]:
     svc = SessionService(db)
     if agent_id:
-        agent_svc = AgentService(db)
+        agent_svc = compose_agent_application(db).queries
         agent = await agent_svc.get_agent(agent_id, project_id=auth_ctx.project_id)
         if not agent:
             raise NotFoundError(
@@ -583,7 +594,7 @@ async def get_session(
     storage_mount_records = await _load_session_storage_mounts(db, session_id, auth_ctx.project_id)
     agent = None
     if session.agent_id:
-        agent_svc = AgentService(db)
+        agent_svc = compose_agent_application(db).queries
         agent = await agent_svc.get_agent(session.agent_id, project_id=auth_ctx.project_id)
     model_connections = await load_model_connection_summaries(
         db,
@@ -1648,7 +1659,10 @@ async def send_event(
             )
             from app.joysafeter_domain.services.task_submission_service import TaskSubmissionService
 
-            agent_obj = await AgentService(db).get_agent(session.agent_id, project_id=auth_ctx.project_id)
+            agent_obj = await compose_agent_application(db).queries.get_agent(
+                session.agent_id,
+                project_id=auth_ctx.project_id,
+            )
             identity_hook = None
             if agent_obj is not None:
                 identity_hook = await prepare_agent_identity_capture(
@@ -2433,4 +2447,5 @@ async def update_repo_resource_token(
         resource_id,
         req.authorization_token,
         project_id=auth_ctx.project_id,
+        token_expires_at=req.token_expires_at,
     )

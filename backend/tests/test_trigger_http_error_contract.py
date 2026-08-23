@@ -5,13 +5,14 @@ import pytest
 from fastapi import FastAPI
 
 from app.joysafeter_api.api.v1 import triggers as trigger_api
+from app.joysafeter_application.credentials.application_service import CredentialService
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.triggers import TriggerApplicationService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
-from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
@@ -19,7 +20,7 @@ from app.joysafeter_shared.ids import AgentId, CredentialId, TriggerId
 
 
 async def _make_service_credential(db_session, project_id: str) -> CredentialId:
-    cred = await CredentialService(db_session).create(
+    cred = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="service",
             name=f"s-{uuid.uuid4()}",
@@ -133,7 +134,7 @@ async def test_update_invalid_webhook_auth_method_returns_semantic_error_without
     ids=("non-iterable", "string", "mapping", "unhashable-item", "non-string-item"),
 )
 async def test_direct_create_rejects_malformed_auth_methods_before_db_access(auth_methods):
-    service = JoySafeterTriggerService(_NoDb())
+    service = TriggerApplicationService(_NoDb(), credential_audit_actor=CredentialAuditActor.system("test"))
 
     with pytest.raises(RequestValidationAppError) as exc:
         await service.create(
@@ -164,7 +165,7 @@ async def test_direct_create_rejects_malformed_auth_methods_before_db_access(aut
     ids=("non-iterable", "string", "mapping", "unhashable-item", "non-string-item"),
 )
 async def test_direct_update_rejects_malformed_auth_methods_before_db_access(auth_methods):
-    service = JoySafeterTriggerService(_NoDb())
+    service = TriggerApplicationService(_NoDb(), credential_audit_actor=CredentialAuditActor.system("test"))
 
     with pytest.raises(RequestValidationAppError) as exc:
         await service.update(TriggerId.new(), "proj-http", auth_methods=auth_methods)

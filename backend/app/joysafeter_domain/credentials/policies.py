@@ -155,6 +155,8 @@ def validate_group_restore(
     for member in context.members:
         if member.project_id != group.project_id:
             raise CredentialPolicyError(CredentialPolicyErrorCode.PROJECT_MISMATCH, "MCP member project mismatch")
+        if member.state is CredentialState.ARCHIVED:
+            continue
         _require_active(member.state, subject="credential")
         if member.kind is not CredentialKind.MCP or not isinstance(member.identity, McpCredentialIdentity):
             raise CredentialPolicyError(CredentialPolicyErrorCode.KIND_MISMATCH, "MCP member kind mismatch")

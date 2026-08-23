@@ -189,13 +189,8 @@ class OrganizationService:
 
     async def _project_resource_blockers(self, project_ids: list[str]) -> list[str]:
         blockers: list[str] = []
-        # Credentials / credential groups are soft-deleted; a tombstoned row must
-        # not block org/project deletion, so those two are scoped to live rows.
-        soft_delete_models = {JoySafeterCredential, JoySafeterCredentialGroup}
         for resource_name, model in PROJECT_RESOURCE_BLOCKERS:
             query = select(model.id).where(model.project_id.in_(project_ids))
-            if model in soft_delete_models:
-                query = query.where(getattr(model, "deleted_at").is_(None))
             result = await self.db.execute(query.limit(1))
             if result.scalar_one_or_none() is not None:
                 blockers.append(resource_name)

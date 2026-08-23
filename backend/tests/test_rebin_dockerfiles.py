@@ -32,8 +32,13 @@ def test_binary_dockerfiles_target_distinct_architectures() -> None:
     amd64 = (REPO_ROOT / "deploy/docker/orchestrator-rs-amd64.Dockerfile").read_text()
     arm64 = (REPO_ROOT / "deploy/docker/orchestrator-rs-arm64.Dockerfile").read_text()
 
-    assert "target/x86_64-unknown-linux-gnu/release/" in amd64
+    # amd64 parameterizes the triple via `ARG TARGET` (deploy.sh passes the
+    # build-platform triple); its default declares x86_64. arm64 hardcodes its
+    # triple. Either way each image must target its own arch and not the other's.
+    assert "x86_64-unknown-linux-gnu" in amd64
+    assert "aarch64-unknown-linux-gnu" not in amd64
     assert "target/aarch64-unknown-linux-gnu/release/" in arm64
+    assert "x86_64-unknown-linux-gnu" not in arm64
 
 
 @pytest.mark.parametrize("filename", SOURCE_ORCHESTRATOR_DOCKERFILES)
@@ -43,9 +48,7 @@ def test_orchestrator_source_dockerfile_copies_compile_time_inputs(filename: str
     assert "COPY proto ./proto" in source
     assert "COPY backend/app/joysafeter_orchestrator_rs ./backend/app/joysafeter_orchestrator_rs" in source
     assert "COPY backend/config ./backend/config" in source
-    build_command = next(
-        marker for marker in ("RUN cargo build", "RUN cargo zigbuild") if marker in source
-    )
+    build_command = next(marker for marker in ("RUN cargo build", "RUN cargo zigbuild") if marker in source)
     assert source.index("COPY backend/config ./backend/config") < source.index(build_command)
 
 

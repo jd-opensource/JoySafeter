@@ -10,11 +10,12 @@ import uuid
 
 import pytest
 
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.triggers import TriggerApplicationService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
-from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 
 
 async def _seed_disabled_webhook(db_session):
@@ -51,7 +52,9 @@ async def _seed_disabled_webhook(db_session):
 @pytest.mark.asyncio
 async def test_disabled_returns_disabled_without_ignore(db_session):
     trigger = await _seed_disabled_webhook(db_session)
-    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db_session).fire_webhook(
+    status, task, session_id, deduped, reason = await TriggerApplicationService(
+        db_session, credential_audit_actor=CredentialAuditActor.system("test")
+    ).fire_webhook(
         trigger,
         raw_body=b"{}",
         payload={"body": {"kind": "other"}},
@@ -65,7 +68,9 @@ async def test_disabled_returns_disabled_without_ignore(db_session):
 @pytest.mark.asyncio
 async def test_ignore_enabled_passes_the_enabled_gate(db_session):
     trigger = await _seed_disabled_webhook(db_session)
-    status, task, session_id, deduped, reason = await JoySafeterTriggerService(db_session).fire_webhook(
+    status, task, session_id, deduped, reason = await TriggerApplicationService(
+        db_session, credential_audit_actor=CredentialAuditActor.system("test")
+    ).fire_webhook(
         trigger,
         raw_body=b"{}",
         payload={"body": {"kind": "other"}},  # does not match the filter

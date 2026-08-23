@@ -29,7 +29,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.joysafeter_application.agents import compose_agent_application
+from app.joysafeter_application.credentials.application_service import (
+    CredentialGroupService,
+    CredentialService,
+)
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_application.credentials.snapshot_service import CreateCredentialAwareSession
+from app.joysafeter_application.sessions.creation_service import SessionCreationService
 from app.joysafeter_domain.models.joysafeter_credential import JoySafeterSessionCredentialGroup
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
@@ -45,11 +52,6 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     CreateCredentialRequest,
 )
 from app.joysafeter_domain.schemas.joysafeter_session import CreateSessionRequest
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
-from app.joysafeter_domain.services.joysafeter_credential_group_service import (
-    CredentialGroupService,
-)
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.ids import CredentialGroupId, CredentialId
@@ -71,7 +73,7 @@ async def project_id(db_session) -> str:
 
 
 async def _make_model_credential(db_session, project_id: str) -> CredentialId:
-    cred = await CredentialService(db_session).create(
+    cred = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="model",
             name=f"m-{uuid.uuid4()}",
@@ -85,7 +87,7 @@ async def _make_model_credential(db_session, project_id: str) -> CredentialId:
 
 
 async def _make_service_credential(db_session, project_id: str) -> CredentialId:
-    cred = await CredentialService(db_session).create(
+    cred = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(kind="service", name=f"s-{uuid.uuid4()}", data={"TOKEN": "t"}),
         project_id=project_id,
     )
@@ -93,7 +95,7 @@ async def _make_service_credential(db_session, project_id: str) -> CredentialId:
 
 
 async def _make_group(db_session, project_id: str) -> CredentialGroupId:
-    group = await CredentialGroupService(db_session).create(
+    group = await CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialGroupRequest(name=f"g-{uuid.uuid4()}"),
         project_id=project_id,
     )
@@ -101,7 +103,7 @@ async def _make_group(db_session, project_id: str) -> CredentialGroupId:
 
 
 async def _add_mcp_member(db_session, group_id, project_id: str, url: str) -> CredentialId:
-    cred = await CredentialGroupService(db_session).add_credential(
+    cred = await CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test")).add_credential(
         group_id,
         AddGroupCredentialRequest(
             name=f"mcp-{uuid.uuid4()}",
@@ -114,7 +116,7 @@ async def _add_mcp_member(db_session, group_id, project_id: str, url: str) -> Cr
 
 
 async def _make_agent(db_session, project_id: str, model_credential_id=None):
-    return await JoySafeterAgentService(db_session).create_agent(
+    return await compose_agent_application(db_session).commands.create_agent(
         JoySafeterCreateAgentRequest(
             name=f"agent-{uuid.uuid4()}",
             engine_kind=JoySafeterEngineKind.CLAUDE,
@@ -125,14 +127,13 @@ async def _make_agent(db_session, project_id: str, model_credential_id=None):
 
 
 async def _make_session(db_session, agent, project_id: str, group_ids=None):
-    svc = SessionService(db_session)
-    snapshot = JoySafeterAgentService(db_session).build_execution_snapshot(agent)
-    return await svc.create_session(
-        agent_id=agent.id,
-        agent_name=agent.name,
-        credential_group_ids=group_ids or [],
-        agent_snapshot=snapshot,
-        project_id=project_id,
+    return await SessionCreationService(db_session, audit_actor=CredentialAuditActor.system("test")).create_from_source(
+        CreateCredentialAwareSession(
+            project_id=project_id,
+            agent_id=agent.id,
+            credential_group_ids=tuple(group_ids or ()),
+            caller="test",
+        )
     )
 
 
@@ -147,10 +148,10 @@ def test_vault_ids_removed_from_model_and_schema():
 
 def test_session_group_binding_uses_live_mcp_policy_service() -> None:
     source = (
-        Path(__file__).resolve().parents[1] / "app/joysafeter_domain/services/joysafeter_session_service.py"
+        Path(__file__).resolve().parents[1] / "app/joysafeter_application/credentials/snapshot_service.py"
     ).read_text()
     assert "McpGroupBinding" in source
-    assert "application.group_service.validate_binding" in source
+    assert "validate_mcp_group_binding" in source
     assert "from app.joysafeter_domain.services.joysafeter_credential_group_service import" not in source
 
     tree = ast.parse(source)
@@ -225,7 +226,9 @@ async def test_create_session_group_from_other_project_rejected(db_session, proj
 @pytest.mark.asyncio
 async def test_create_session_archived_group_rejected(db_session, project_id):
     group_id = await _make_group(db_session, project_id)
-    await CredentialGroupService(db_session).archive(group_id, project_id=project_id)
+    await CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test")).archive(
+        group_id, project_id=project_id
+    )
     agent = await _make_agent(db_session, project_id)
     with pytest.raises(AppError) as exc:
         await _make_session(db_session, agent, project_id, group_ids=[group_id])
@@ -235,7 +238,9 @@ async def test_create_session_archived_group_rejected(db_session, project_id):
 @pytest.mark.asyncio
 async def test_create_session_deleted_group_rejected(db_session, project_id):
     group_id = await _make_group(db_session, project_id)
-    group = await CredentialGroupService(db_session).get(group_id, project_id=project_id)
+    group = await CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test")).get(
+        group_id, project_id=project_id
+    )
     group.deleted_at = datetime.now(timezone.utc)
     await db_session.commit()
     agent = await _make_agent(db_session, project_id)
@@ -263,17 +268,11 @@ async def test_create_session_rejects_declared_and_live_group_url_conflict(db_se
     group_id = await _make_group(db_session, project_id)
     await _add_mcp_member(db_session, group_id, project_id, "https://mcp.example.com/sse")
     agent = await _make_agent(db_session, project_id)
-    snapshot = JoySafeterAgentService(db_session).build_execution_snapshot(agent)
-    snapshot["mcp_servers"] = [{"type": "url", "url": "HTTPS://MCP.example.com:443/sse/"}]
+    agent.mcp_servers = [{"type": "url", "url": "HTTPS://MCP.example.com:443/sse/"}]
+    await db_session.commit()
 
     with pytest.raises(AppError) as exc:
-        await SessionService(db_session).create_session(
-            agent_id=agent.id,
-            agent_name=agent.name,
-            credential_group_ids=[group_id],
-            agent_snapshot=snapshot,
-            project_id=project_id,
-        )
+        await _make_session(db_session, agent, project_id, group_ids=[group_id])
 
     assert exc.value.code == "CREDENTIAL_GROUP_URL_CONFLICT"
 
@@ -282,17 +281,11 @@ async def test_create_session_rejects_declared_and_live_group_url_conflict(db_se
 async def test_create_session_maps_malformed_declared_mcp_url_to_conflict(db_session, project_id):
     group_id = await _make_group(db_session, project_id)
     agent = await _make_agent(db_session, project_id)
-    snapshot = JoySafeterAgentService(db_session).build_execution_snapshot(agent)
-    snapshot["mcp_servers"] = [{"type": "url", "url": "not-a-url"}]
+    agent.mcp_servers = [{"type": "url", "url": "not-a-url"}]
+    await db_session.commit()
 
     with pytest.raises(AppError) as exc:
-        await SessionService(db_session).create_session(
-            agent_id=agent.id,
-            agent_name=agent.name,
-            credential_group_ids=[group_id],
-            agent_snapshot=snapshot,
-            project_id=project_id,
-        )
+        await _make_session(db_session, agent, project_id, group_ids=[group_id])
 
     assert exc.value.code == "CREDENTIAL_GROUP_URL_CONFLICT"
 
@@ -301,17 +294,11 @@ async def test_create_session_maps_malformed_declared_mcp_url_to_conflict(db_ses
 async def test_create_session_maps_non_string_declared_mcp_url_to_conflict(db_session, project_id):
     group_id = await _make_group(db_session, project_id)
     agent = await _make_agent(db_session, project_id)
-    snapshot = JoySafeterAgentService(db_session).build_execution_snapshot(agent)
-    snapshot["mcp_servers"] = [{"type": "url", "url": 123}]
+    agent.mcp_servers = [{"type": "url", "url": 123}]
+    await db_session.commit()
 
     with pytest.raises(AppError) as exc:
-        await SessionService(db_session).create_session(
-            agent_id=agent.id,
-            agent_name=agent.name,
-            credential_group_ids=[group_id],
-            agent_snapshot=snapshot,
-            project_id=project_id,
-        )
+        await _make_session(db_session, agent, project_id, group_ids=[group_id])
 
     assert exc.value.code == "CREDENTIAL_GROUP_URL_CONFLICT"
 
@@ -321,7 +308,7 @@ async def test_create_session_ignores_archived_member_url_conflict(db_session, p
     g1 = await _make_group(db_session, project_id)
     g2 = await _make_group(db_session, project_id)
     archived_credential_id = await _add_mcp_member(db_session, g1, project_id, "https://mcp.example.com/sse")
-    await CredentialGroupService(db_session).archive_credential(
+    await CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test")).archive_credential(
         g1,
         archived_credential_id,
         project_id=project_id,
@@ -356,7 +343,7 @@ async def test_add_member_ignores_archived_peer_url_for_bound_session(db_session
     await _add_mcp_member(db_session, g2, project_id, "https://other.example.com/sse")
     agent = await _make_agent(db_session, project_id)
     await _make_session(db_session, agent, project_id, group_ids=[g1, g2])
-    await CredentialGroupService(db_session).archive_credential(
+    await CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test")).archive_credential(
         g1,
         archived_credential_id,
         project_id=project_id,
@@ -372,7 +359,7 @@ async def test_restore_mcp_member_rejects_url_conflict_for_bound_session(db_sess
     g1 = await _make_group(db_session, project_id)
     g2 = await _make_group(db_session, project_id)
     archived_credential_id = await _add_mcp_member(db_session, g1, project_id, "https://mcp.example.com/sse")
-    await CredentialGroupService(db_session).archive_credential(
+    await CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test")).archive_credential(
         g1,
         archived_credential_id,
         project_id=project_id,
@@ -382,7 +369,7 @@ async def test_restore_mcp_member_rejects_url_conflict_for_bound_session(db_sess
     await _make_session(db_session, agent, project_id, group_ids=[g1, g2])
 
     with pytest.raises(AppError) as exc:
-        await CredentialService(db_session).restore(
+        await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).restore(
             archived_credential_id,
             project_id=project_id,
         )
@@ -400,7 +387,7 @@ async def test_generic_mcp_create_rejects_url_conflict_for_already_bound_session
     await _make_session(db_session, agent, project_id, group_ids=[g1, g2])
 
     with pytest.raises(AppError) as exc:
-        await CredentialService(db_session).create(
+        await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
             CreateCredentialRequest(
                 kind="mcp",
                 name=f"mcp-{uuid.uuid4()}",
@@ -419,7 +406,7 @@ async def test_generic_mcp_create_rejects_url_conflict_for_already_bound_session
 @pytest.mark.asyncio
 async def test_unused_credential_can_be_soft_deleted(db_session, project_id):
     cred_id = await _make_service_credential(db_session, project_id)
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     assert (await svc.dependencies(cred_id, project_id)).in_use is False
     deleted = await svc.soft_delete(cred_id, project_id=project_id)
     assert deleted.deleted_at is not None
@@ -430,7 +417,9 @@ async def test_soft_delete_credential_referenced_by_agent_rejected(db_session, p
     cred_id = await _make_model_credential(db_session, project_id)
     await _make_agent(db_session, project_id, model_credential_id=cred_id)
     with pytest.raises(AppError) as exc:
-        await CredentialService(db_session).soft_delete(cred_id, project_id=project_id)
+        await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).soft_delete(
+            cred_id, project_id=project_id
+        )
     assert exc.value.code == "CREDENTIAL_IN_USE"
 
 
@@ -439,7 +428,9 @@ async def test_archive_credential_referenced_by_agent_rejected(db_session, proje
     cred_id = await _make_model_credential(db_session, project_id)
     await _make_agent(db_session, project_id, model_credential_id=cred_id)
     with pytest.raises(AppError) as exc:
-        await CredentialService(db_session).archive(cred_id, project_id=project_id)
+        await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).archive(
+            cred_id, project_id=project_id
+        )
     assert exc.value.code == "CREDENTIAL_IN_USE"
 
 
@@ -454,7 +445,9 @@ async def test_soft_delete_credential_referenced_by_environment_config_rejected(
     db_session.add(env)
     await db_session.commit()
     with pytest.raises(AppError) as exc:
-        await CredentialService(db_session).soft_delete(cred_id, project_id=project_id)
+        await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).soft_delete(
+            cred_id, project_id=project_id
+        )
     assert exc.value.code == "CREDENTIAL_IN_USE"
 
 
@@ -475,7 +468,7 @@ async def test_soft_delete_credential_pinned_only_by_active_session_snapshot_rej
     agent.model_credential_id = None
     await db_session.commit()
 
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     assert (await svc.dependencies(cred_id, project_id)).in_use is True
     with pytest.raises(AppError) as exc:
         await svc.soft_delete(cred_id, project_id=project_id)
@@ -503,12 +496,16 @@ async def test_service_credential_pinned_only_by_frozen_session_environment_reje
     }
     await db_session.commit()
 
-    dependencies = await CredentialService(db_session).dependencies(cred_id, project_id)
+    dependencies = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).dependencies(
+        cred_id, project_id
+    )
 
     assert dependencies.environment_ids == []
     assert dependencies.session_ids == [session.id]
     with pytest.raises(AppError) as exc:
-        await CredentialService(db_session).soft_delete(cred_id, project_id=project_id)
+        await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).soft_delete(
+            cred_id, project_id=project_id
+        )
     assert exc.value.code == "CREDENTIAL_IN_USE"
 
 
@@ -521,7 +518,7 @@ async def test_terminated_session_snapshot_does_not_pin_credential(db_session, p
     session.status = "terminated"
     await db_session.commit()
 
-    svc = CredentialService(db_session)
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
     assert (await svc.dependencies(cred_id, project_id)).in_use is False
     deleted = await svc.soft_delete(cred_id, project_id=project_id)
     assert deleted.deleted_at is not None
@@ -534,7 +531,9 @@ async def test_live_mcp_group_member_can_be_removed_after_session_binding(db_ses
     agent = await _make_agent(db_session, project_id)
     await _make_session(db_session, agent, project_id, group_ids=[group_id])
 
-    deleted = await CredentialService(db_session).soft_delete(mcp_cred_id, project_id=project_id)
+    deleted = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).soft_delete(
+        mcp_cred_id, project_id=project_id
+    )
     assert deleted.deleted_at is not None
 
 
@@ -544,7 +543,9 @@ async def test_group_archive_rejected_when_bound_to_active_session(db_session, p
     agent = await _make_agent(db_session, project_id)
     await _make_session(db_session, agent, project_id, group_ids=[group_id])
     with pytest.raises(AppError) as exc:
-        await CredentialGroupService(db_session).archive(group_id, project_id=project_id)
+        await CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test")).archive(
+            group_id, project_id=project_id
+        )
     assert exc.value.code == "CREDENTIAL_IN_USE"
 
 
@@ -555,7 +556,9 @@ async def test_group_archive_allowed_after_session_terminated(db_session, projec
     session = await _make_session(db_session, agent, project_id, group_ids=[group_id])
     session.status = "terminated"
     await db_session.commit()
-    archived = await CredentialGroupService(db_session).archive(group_id, project_id=project_id)
+    archived = await CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test")).archive(
+        group_id, project_id=project_id
+    )
     assert archived.archived_at is not None
 
 
@@ -574,7 +577,7 @@ async def test_group_archive_serializes_against_concurrent_session_binding(
 
     try:
         async with session_factory() as archive_db, session_factory() as binding_db:
-            group_service = CredentialGroupService(archive_db)
+            group_service = CredentialGroupService(archive_db, audit_actor=CredentialAuditActor.system("test"))
             original_lock = group_service._application.uow.groups.lock_credential_group
 
             async def pause_after_group_lock(candidate_group_id, *, project_id=None):
@@ -584,12 +587,14 @@ async def test_group_archive_serializes_against_concurrent_session_binding(
 
             group_service._application.uow.groups.lock_credential_group = pause_after_group_lock
 
-            session_service = SessionService(binding_db)
+            session_creation_service = SessionCreationService(
+                binding_db, audit_actor=CredentialAuditActor.system("test")
+            )
 
             archive_task = asyncio.create_task(group_service.archive(group_id, project_id=project_id))
             await asyncio.wait_for(archive_locked.wait(), timeout=2)
             binding_task = asyncio.create_task(
-                session_service.create_session_from_source(
+                session_creation_service.create_from_source(
                     CreateCredentialAwareSession(
                         project_id=project_id,
                         agent_id=agent.id,

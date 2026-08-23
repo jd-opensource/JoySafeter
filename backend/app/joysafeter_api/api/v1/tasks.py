@@ -8,12 +8,14 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, Header, Query, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.joysafeter_api.api.v1.audit import credential_audit_actor
+from app.joysafeter_application.agents import compose_agent_application
 from app.joysafeter_application.credentials.snapshot_service import CreateCredentialAwareSession
+from app.joysafeter_application.sessions.creation_service import SessionCreationService
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRequest as CreateTaskRequest
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskResponse as CreateTaskResponse
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterTaskResponse as TaskResponse
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService as AgentService
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService as TaskService
@@ -294,7 +296,10 @@ async def _validate_idempotent_task_environment_replay(
         if session is not None:
             effective_ref = session.environment_ref
     if not effective_ref:
-        agent = await AgentService(db).get_agent(existing.agent_id, project_id=project_id)
+        agent = await compose_agent_application(db).queries.get_agent(
+            existing.agent_id,
+            project_id=project_id,
+        )
         effective_ref = getattr(agent, "environment_ref", None) if agent is not None else None
     if await _task_environment_refs_match_for_replay(db, req.environment_ref, effective_ref, project_id):
         return
@@ -341,7 +346,7 @@ async def create_task(
                 raise _task_enqueue_failed_error(task_id=existing.id, session_id=existing.chat_session_id)
             return CreateTaskResponse(id=existing.id, status=existing.status)
 
-    agent_svc = AgentService(db)
+    agent_svc = compose_agent_application(db).queries
     agent = None
     if req.agent_id:
         agent = await agent_svc.get_agent(req.agent_id, project_id=auth_ctx.project_id)
@@ -380,7 +385,10 @@ async def create_task(
         if environment_ref and requested_environment is None:
             await _load_task_environment_or_raise(db, environment_ref, auth_ctx.project_id)
         session_svc = SessionService(db)
-        session = await session_svc.create_session_from_source(
+        session = await SessionCreationService(
+            db,
+            audit_actor=credential_audit_actor(request, auth_ctx),
+        ).create_from_source(
             CreateCredentialAwareSession(
                 project_id=auth_ctx.project_id,
                 agent_id=agent.id,

@@ -46,6 +46,10 @@ async fn main() -> anyhow::Result<()> {
     // Initialize database pool
     let db_pool = db::pool::create_pool(&config.database_url).await?;
     info!("Database pool initialized");
+    kernel::sensitive_material::versioned::VersionedMaterialProtector::validate_database_state(
+        &db_pool,
+    )
+    .await?;
 
     // Initialize Redis (optional)
     let redis_client = match &config.redis_url {
@@ -99,7 +103,6 @@ async fn main() -> anyhow::Result<()> {
             AgentIdentityProviderKind::Jd => {
                 #[cfg(feature = "jd-identity")]
                 {
-                    kernel::sensitive_material::legacy_v1::LegacyV1MaterialProtector::validate_env_key()?;
                     let redis = redis_client.as_ref().ok_or_else(|| {
                         anyhow::anyhow!("Redis is required when AGENT_IDENTITY_PROVIDER=jd")
                     })?;

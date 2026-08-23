@@ -101,6 +101,7 @@ pub struct RuntimeCredentialBinding {
     pub default_base_url: Option<String>,
     pub base_url_key: String,
     pub model_key: Option<String>,
+    pub material_fields: Vec<String>,
     pub required_material_fields: Vec<String>,
     pub required_material_alternatives: Vec<Vec<String>>,
 }
@@ -420,6 +421,11 @@ fn validate_runtime_secret_with_catalog(
             .clone()
             .unwrap_or_else(|| "BASE_URL".to_string()),
         model_key: profile.model_key.clone(),
+        material_fields: profile
+            .fields
+            .iter()
+            .map(|field| field.key.clone())
+            .collect(),
         required_material_fields: profile
             .fields
             .iter()
@@ -504,6 +510,15 @@ mod tests {
         );
         assert_eq!(binding.base_url_key, "OPENAI_BASE_URL");
         assert_eq!(binding.model_key.as_deref(), Some("OPENAI_MODEL"));
+        assert_eq!(
+            binding.material_fields,
+            vec![
+                "OPENAI_API_KEY",
+                "OPENAI_BASE_URL",
+                "OPENAI_MODEL",
+                "OPENAI_REASONING_EFFORT",
+            ]
+        );
     }
 
     #[test]

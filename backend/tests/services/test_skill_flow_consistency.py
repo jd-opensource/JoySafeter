@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.joysafeter_application.agents import compose_agent_application
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
@@ -13,7 +14,6 @@ from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMemb
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill, JoySafeterSkillVersion
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
-from app.joysafeter_domain.services.joysafeter_agent_service import JoySafeterAgentService
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillService, SkillVersionService
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
@@ -102,7 +102,7 @@ async def test_agent_skill_ref_same_org_latest_resolves_only_promoted_versions(d
     skill, _versions = await _seed_skill_with_versions(db_session, project=source_project, owner=owner)
     await db_session.flush()
 
-    normalized = await JoySafeterAgentService(db_session)._validate_skill_refs(
+    normalized = await compose_agent_application(db_session).commands._validate_skill_refs(
         [{"skill_id": str(skill.id), "version": "latest"}],
         consumer_project.id,
     )
@@ -116,7 +116,7 @@ async def test_agent_skill_ref_cross_org_latest_resolves_public_pointer(db_sessi
     owner = await _seed_user(db_session)
     skill, _versions = await _seed_skill_with_versions(db_session, project=source_project, owner=owner)
 
-    normalized = await JoySafeterAgentService(db_session)._validate_skill_refs(
+    normalized = await compose_agent_application(db_session).commands._validate_skill_refs(
         [{"skill_id": str(skill.id), "version": "latest"}],
         consumer_project.id,
     )
@@ -138,7 +138,7 @@ async def test_agent_skill_ref_cross_project_rejects_unpromoted_explicit_version
     await db_session.flush()
 
     with pytest.raises(InvalidRequestError) as exc:
-        await JoySafeterAgentService(db_session)._validate_skill_refs(
+        await compose_agent_application(db_session).commands._validate_skill_refs(
             [{"skill_id": str(skill.id), "version": "2.0.0"}],
             consumer_project.id,
         )

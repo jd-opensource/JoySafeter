@@ -13,14 +13,14 @@ from app.joysafeter_domain.credentials.material import (
     _issue_material_reveal_capability,
 )
 from app.joysafeter_domain.credentials.types import CredentialFieldName
-from app.joysafeter_infrastructure.sensitive_material.legacy_v1 import LegacyV1MaterialProtector
+from app.joysafeter_infrastructure.sensitive_material.versioned import VersionedMaterialProtector
 
 
 class ManagedCredentialMaterialAdapter:
     def __init__(
         self,
         repository: EncryptedCredentialMaterialRepositoryPort | None,
-        protector: LegacyV1MaterialProtector,
+        protector: VersionedMaterialProtector,
         issuance_authority: BindingIssuanceAuthority,
     ) -> None:
         if type(issuance_authority) is not BindingIssuanceAuthority:

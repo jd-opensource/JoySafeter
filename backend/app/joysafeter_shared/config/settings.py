@@ -913,6 +913,8 @@ class JoySafeterConfig(BaseSettings):
 
     # Vault encryption
     vault_encryption_key: Optional[str] = None
+    credential_encryption_keyring: Optional[str] = None
+    credential_encryption_write_key_id: Optional[str] = None
 
     # HA
     instance_id: str = Field(default_factory=socket.gethostname)

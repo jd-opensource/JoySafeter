@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.joysafeter_infrastructure.sensitive_material.legacy_v1 import LegacyV1MaterialProtector
+from app.joysafeter_infrastructure.sensitive_material.versioned import VersionedMaterialProtector
 from app.joysafeter_shared.security.credential_cipher import CredentialCipherConfigurationError
 
 
@@ -9,7 +9,7 @@ class TaskIdentityMaterialConfigurationError(ValueError):
 
 
 class TaskIdentityMaterialAdapter:
-    def __init__(self, protector: LegacyV1MaterialProtector) -> None:
+    def __init__(self, protector: VersionedMaterialProtector) -> None:
         self._protector = protector
 
     def require_enabled(self) -> None:

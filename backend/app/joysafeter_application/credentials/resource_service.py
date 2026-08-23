@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, TypeVar
 
 from app.joysafeter_domain.credentials.types import CredentialId
 
-from .ports import CredentialAuditEntry, CredentialUnitOfWork, MutationOutcome
+from .ports import (
+    CredentialAuditEntry,
+    CredentialUnitOfWork,
+    MutationOutcome,
+    combine_credential_impacts,
+)
 
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
@@ -20,14 +25,9 @@ class CredentialResourceService:
         uow: CredentialUnitOfWork,
         *,
         manage_transaction: bool = True,
-        unconditional_rollback: bool = True,
     ) -> None:
         self._uow = uow
         self._manage_transaction = manage_transaction
-        self._unconditional_rollback = unconditional_rollback
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._uow.credentials, name)
 
     def _clear_pending(self) -> None:
         clear_pending_impacts = getattr(self._uow.credentials, "clear_pending_impacts", None)
@@ -52,6 +52,20 @@ class CredentialResourceService:
         await self._uow.commit()
         await self._nudge_after_commit()
 
+    def begin_batch(self) -> None:
+        """Reset the per-session generation-advance dedup window once for a batch.
+
+        Managed single mutations reset the window inside `_mutate`. A
+        `manage_transaction=False` batch shares one commit across many
+        mutations, so the window must be reset exactly once at the start —
+        `_mutate` deliberately skips the per-mutation reset there. Doing it here
+        makes the batch's transaction start explicit instead of relying on the
+        impact adapter happening to be freshly composed.
+        """
+        begin_mutation = getattr(self._uow.impacts, "begin_mutation", None)
+        if begin_mutation is not None:
+            begin_mutation()
+
     async def _mutate(
         self,
         operation: Callable[[], Awaitable[T]],
@@ -60,6 +74,7 @@ class CredentialResourceService:
         project_id: str,
         target_id: str | None = None,
         target_type: str = "credential",
+        details: Mapping[str, object] | None = None,
     ) -> T:
         try:
             raw_result = await operation()
@@ -76,21 +91,28 @@ class CredentialResourceService:
                     project_id=project_id,
                     target_type=target_type,
                     target_id=resolved_target_id,
+                    details=details or {},
                 )
             )
             take_pending_impacts = getattr(self._uow.credentials, "take_pending_impacts", None)
             pending_impacts = () if take_pending_impacts is None else take_pending_impacts()
-            for impact in pending_impacts:
-                await self._uow.impacts.mark_pending(impact)
+            combined_impact = combine_credential_impacts(pending_impacts)
+            if combined_impact is not None:
+                # Reset the per-session generation-advance dedup only when this
+                # _mutate owns its transaction. In a batch (manage_transaction=
+                # False), multiple mutations share one commit, so the dedup set
+                # must span the whole batch — the adapter already clears it at
+                # the transaction boundary (nudge_after_commit / clear_pending).
+                if self._manage_transaction:
+                    begin_mutation = getattr(self._uow.impacts, "begin_mutation", None)
+                    if begin_mutation is not None:
+                        begin_mutation()
+                await self._uow.impacts.mark_pending(combined_impact)
             if self._manage_transaction:
                 await self._uow.commit()
         except Exception:
             self._clear_pending()
-            rollback_required = self._unconditional_rollback
-            if not rollback_required:
-                requires_rollback = getattr(self._uow, "rollback_required", None)
-                rollback_required = requires_rollback is None or requires_rollback()
-            if rollback_required:
+            if self._manage_transaction:
                 await self._uow.rollback()
             raise
         if self._manage_transaction:
@@ -155,7 +177,7 @@ class CredentialResourceService:
     async def get(self, credential_id: CredentialId, project_id: str) -> Any | None:
         return await self._uow.credentials.get(credential_id, project_id)
 
-    async def _get_or_raise(self, credential_id: CredentialId, project_id: str) -> Any:
+    async def get_or_raise(self, credential_id: CredentialId, project_id: str) -> Any:
         return await self._uow.credentials._get_or_raise(credential_id, project_id)
 
     async def list(self, *args: Any, **kwargs: Any) -> Any:
@@ -164,43 +186,8 @@ class CredentialResourceService:
     async def dependencies(self, credential_id: CredentialId, project_id: str) -> Any:
         return await self._uow.credentials.dependencies(credential_id, project_id)
 
-    async def lock_credentials(self, *args: Any, **kwargs: Any) -> Any:
-        return await self._uow.credentials.lock_credentials(*args, **kwargs)
-
-    async def lock_credential_group(self, *args: Any, **kwargs: Any) -> Any:
-        return await self._uow.credentials.lock_credential_group(*args, **kwargs)
-
-    async def lock_credential_scope(self, *args: Any, **kwargs: Any) -> Any:
-        return await self._uow.credentials.lock_credential_scope(*args, **kwargs)
-
-    async def lock_credential(self, *args: Any, **kwargs: Any) -> Any:
-        return await self._uow.credentials.lock_credential(*args, **kwargs)
-
-    async def nudge_pending_network_policy_refreshes(self) -> None:
-        try:
-            await self._uow.impacts.nudge_after_commit()
-        except Exception:
-            credential_nudge_failures["compatibility_after_commit"] += 1
-            logger.warning("credential impact nudge failed after compatibility commit", exc_info=True)
-
-    def encrypt_data_for_storage(self, data: dict[str, str] | None) -> dict[str, str]:
-        return self._uow.credentials.encrypt_data_for_storage(data)
-
-    def decrypt_data(self, data: dict | None) -> dict[str, str]:
-        return self._uow.credentials.decrypt_data(data)
-
     def get_credential_data(self, credential: Any | None) -> dict[str, str]:
         return self._uow.credentials.get_credential_data(credential)
 
-    def mask_data(self, data: dict[str, str]) -> dict[str, str]:
-        return self._uow.credentials.mask_data(data)
-
     def get_masked(self, credential: Any | None) -> dict[str, str]:
         return self._uow.credentials.get_masked(credential)
-
-    def merge_update_plaintext(
-        self,
-        current_data: dict | None,
-        requested_data: dict[str, str] | None,
-    ) -> dict[str, str]:
-        return self._uow.credentials.merge_update_plaintext(current_data, requested_data)

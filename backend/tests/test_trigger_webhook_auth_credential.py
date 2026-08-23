@@ -16,14 +16,15 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 
+from app.joysafeter_application.credentials.application_service import CredentialService
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.credentials.webhook_auth_service import WebhookAuthService
+from app.joysafeter_application.triggers import TriggerApplicationService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
-from app.joysafeter_domain.services.joysafeter_credential_service import CredentialService
 from app.joysafeter_domain.services.joysafeter_trigger_config_policy import TriggerConfigPolicy
-from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
-from app.joysafeter_domain.services.joysafeter_trigger_webhook_auth_service import WebhookAuthService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.ids import CredentialId
 
@@ -45,10 +46,8 @@ async def project_id(db_session) -> str:
     return await _make_project(db_session)
 
 
-async def _make_service_credential(
-    db_session, project_id: str, data: dict[str, str] | None = None
-) -> CredentialId:
-    cred = await CredentialService(db_session).create(
+async def _make_service_credential(db_session, project_id: str, data: dict[str, str] | None = None) -> CredentialId:
+    cred = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="service",
             name=f"s-{uuid.uuid4()}",
@@ -60,7 +59,7 @@ async def _make_service_credential(
 
 
 async def _make_model_credential(db_session, project_id: str) -> CredentialId:
-    cred = await CredentialService(db_session).create(
+    cred = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="model",
             name=f"m-{uuid.uuid4()}",
@@ -84,7 +83,7 @@ async def _make_agent(db_session, project_id: str) -> JoySafeterAgent:
 @pytest.mark.asyncio
 async def test_resolve_reads_field_from_service_credential(db_session, project_id):
     cred_id = await _make_service_credential(db_session, project_id)
-    svc = WebhookAuthService(db_session)
+    svc = WebhookAuthService(db_session, audit_actor=CredentialAuditActor.system("test"))
 
     value = await svc.resolve_secret_value(
         webhook_auth_credential_id=cred_id,
@@ -98,7 +97,7 @@ async def test_resolve_reads_field_from_service_credential(db_session, project_i
 @pytest.mark.asyncio
 async def test_hmac_verify_passes_with_resolved_secret(db_session, project_id):
     cred_id = await _make_service_credential(db_session, project_id)
-    svc = WebhookAuthService(db_session)
+    svc = WebhookAuthService(db_session, audit_actor=CredentialAuditActor.system("test"))
     secret = await svc.resolve_secret_value(
         webhook_auth_credential_id=cred_id,
         webhook_auth_field="WEBHOOK_SECRET",
@@ -120,7 +119,7 @@ async def test_hmac_verify_passes_with_resolved_secret(db_session, project_id):
 @pytest.mark.asyncio
 async def test_token_verify_passes_with_resolved_secret(db_session, project_id):
     cred_id = await _make_service_credential(db_session, project_id)
-    svc = WebhookAuthService(db_session)
+    svc = WebhookAuthService(db_session, audit_actor=CredentialAuditActor.system("test"))
     secret = await svc.resolve_secret_value(
         webhook_auth_credential_id=cred_id,
         webhook_auth_field="WEBHOOK_SECRET",
@@ -145,7 +144,7 @@ async def test_token_verify_passes_with_resolved_secret(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_missing_credential_raises_not_found(db_session, project_id):
-    svc = WebhookAuthService(db_session)
+    svc = WebhookAuthService(db_session, audit_actor=CredentialAuditActor.system("test"))
     with pytest.raises(AppError) as exc:
         await svc.resolve_secret_value(
             webhook_auth_credential_id=CredentialId.new(),
@@ -158,12 +157,14 @@ async def test_missing_credential_raises_not_found(db_session, project_id):
 @pytest.mark.asyncio
 async def test_archived_credential_raises_not_found(db_session, project_id):
     cred_id = await _make_service_credential(db_session, project_id)
-    credential = await CredentialService(db_session).get(cred_id, project_id=project_id)
+    credential = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).get(
+        cred_id, project_id=project_id
+    )
     credential.archived_at = datetime.now(timezone.utc)
     await db_session.commit()
 
     with pytest.raises(AppError) as exc:
-        await WebhookAuthService(db_session).resolve_secret_value(
+        await WebhookAuthService(db_session, audit_actor=CredentialAuditActor.system("test")).resolve_secret_value(
             webhook_auth_credential_id=cred_id,
             webhook_auth_field="WEBHOOK_SECRET",
             project_id=project_id,
@@ -174,7 +175,7 @@ async def test_archived_credential_raises_not_found(db_session, project_id):
 @pytest.mark.asyncio
 async def test_non_service_credential_raises_kind_invalid(db_session, project_id):
     model_cred_id = await _make_model_credential(db_session, project_id)
-    svc = WebhookAuthService(db_session)
+    svc = WebhookAuthService(db_session, audit_actor=CredentialAuditActor.system("test"))
     with pytest.raises(AppError) as exc:
         await svc.resolve_secret_value(
             webhook_auth_credential_id=model_cred_id,
@@ -187,7 +188,7 @@ async def test_non_service_credential_raises_kind_invalid(db_session, project_id
 @pytest.mark.asyncio
 async def test_absent_field_raises_key_not_found(db_session, project_id):
     cred_id = await _make_service_credential(db_session, project_id)
-    svc = WebhookAuthService(db_session)
+    svc = WebhookAuthService(db_session, audit_actor=CredentialAuditActor.system("test"))
     with pytest.raises(AppError) as exc:
         await svc.resolve_secret_value(
             webhook_auth_credential_id=cred_id,
@@ -200,7 +201,7 @@ async def test_absent_field_raises_key_not_found(db_session, project_id):
 @pytest.mark.asyncio
 async def test_blank_field_value_raises_value_blank(db_session, project_id):
     cred_id = await _make_service_credential(db_session, project_id, data={"WEBHOOK_SECRET": "   "})
-    svc = WebhookAuthService(db_session)
+    svc = WebhookAuthService(db_session, audit_actor=CredentialAuditActor.system("test"))
     with pytest.raises(AppError) as exc:
         await svc.resolve_secret_value(
             webhook_auth_credential_id=cred_id,
@@ -214,7 +215,7 @@ async def test_blank_field_value_raises_value_blank(db_session, project_id):
 async def test_credential_from_other_project_raises_not_found(db_session, project_id):
     other_project = await _make_project(db_session)
     other_cred_id = await _make_service_credential(db_session, other_project)
-    svc = WebhookAuthService(db_session)
+    svc = WebhookAuthService(db_session, audit_actor=CredentialAuditActor.system("test"))
     with pytest.raises(AppError) as exc:
         await svc.resolve_secret_value(
             webhook_auth_credential_id=other_cred_id,
@@ -227,12 +228,13 @@ async def test_credential_from_other_project_raises_not_found(db_session, projec
 @pytest.mark.asyncio
 async def test_deleted_credential_raises_canonical_not_found(db_session, project_id):
     credential_id = await _make_service_credential(db_session, project_id)
-    credential = await CredentialService(db_session).get(credential_id, project_id=project_id)
-    credential.deleted_at = datetime.now(timezone.utc)
-    await db_session.commit()
+    await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).soft_delete(
+        credential_id,
+        project_id=project_id,
+    )
 
     with pytest.raises(AppError) as exc:
-        await WebhookAuthService(db_session).resolve_secret_value(
+        await WebhookAuthService(db_session, audit_actor=CredentialAuditActor.system("test")).resolve_secret_value(
             webhook_auth_credential_id=credential_id,
             webhook_auth_field="WEBHOOK_SECRET",
             project_id=project_id,
@@ -251,7 +253,7 @@ async def test_resolve_authorizes_exact_webhook_method_and_field(db_session, pro
         data={"WEBHOOK_SECRET": _WEBHOOK_SECRET, "OTHER": "must-not-load"},
     )
 
-    secret = await WebhookAuthService(db_session).resolve_secret_value(
+    secret = await WebhookAuthService(db_session, audit_actor=CredentialAuditActor.system("test")).resolve_secret_value(
         webhook_auth_credential_id=credential_id,
         webhook_auth_field="WEBHOOK_SECRET",
         project_id=project_id,
@@ -266,7 +268,9 @@ async def test_trigger_create_uses_canonical_webhook_binding_and_preserves_paylo
     credential_id = await _make_service_credential(db_session, project_id)
     agent = await _make_agent(db_session, project_id)
 
-    trigger = await JoySafeterTriggerService(db_session).create(
+    trigger = await TriggerApplicationService(
+        db_session, credential_audit_actor=CredentialAuditActor.system("test")
+    ).create(
         name=f"hook-{uuid.uuid4()}",
         agent_id=agent.id,
         prompt_template="handle webhook",
@@ -288,7 +292,7 @@ async def test_trigger_create_maps_invalid_auth_method_to_semantic_error(db_sess
     agent = await _make_agent(db_session, project_id)
 
     with pytest.raises(AppError) as exc:
-        await JoySafeterTriggerService(db_session).create(
+        await TriggerApplicationService(db_session, credential_audit_actor=CredentialAuditActor.system("test")).create(
             name=f"hook-{uuid.uuid4()}",
             agent_id=agent.id,
             prompt_template="handle webhook",
@@ -320,7 +324,7 @@ async def test_trigger_create_rejects_malformed_auth_method_collections(
     agent = await _make_agent(db_session, project_id)
 
     with pytest.raises(AppError) as exc:
-        await JoySafeterTriggerService(db_session).create(
+        await TriggerApplicationService(db_session, credential_audit_actor=CredentialAuditActor.system("test")).create(
             name=f"hook-{uuid.uuid4()}",
             agent_id=agent.id,
             prompt_template="handle webhook",
@@ -338,7 +342,7 @@ async def test_trigger_create_rejects_malformed_auth_method_collections(
 async def test_trigger_update_maps_invalid_field_constructor_to_field_missing(db_session, project_id):
     credential_id = await _make_service_credential(db_session, project_id)
     agent = await _make_agent(db_session, project_id)
-    service = JoySafeterTriggerService(db_session)
+    service = TriggerApplicationService(db_session, credential_audit_actor=CredentialAuditActor.system("test"))
     trigger = await service.create(
         name=f"hook-{uuid.uuid4()}",
         agent_id=agent.id,
@@ -364,7 +368,7 @@ async def test_trigger_update_maps_invalid_field_constructor_to_field_missing(db
 async def test_trigger_update_maps_invalid_method_to_semantic_error(db_session, project_id):
     credential_id = await _make_service_credential(db_session, project_id)
     agent = await _make_agent(db_session, project_id)
-    service = JoySafeterTriggerService(db_session)
+    service = TriggerApplicationService(db_session, credential_audit_actor=CredentialAuditActor.system("test"))
     trigger = await service.create(
         name=f"hook-{uuid.uuid4()}",
         agent_id=agent.id,
@@ -386,7 +390,7 @@ async def test_trigger_update_maps_invalid_method_to_semantic_error(db_session, 
 async def test_trigger_update_translates_non_iterable_auth_methods(db_session, project_id):
     credential_id = await _make_service_credential(db_session, project_id)
     agent = await _make_agent(db_session, project_id)
-    service = JoySafeterTriggerService(db_session)
+    service = TriggerApplicationService(db_session, credential_audit_actor=CredentialAuditActor.system("test"))
     trigger = await service.create(
         name=f"hook-{uuid.uuid4()}",
         agent_id=agent.id,
@@ -475,16 +479,29 @@ def test_build_config_serializes_credential_id_to_string():
 
 
 def test_webhook_binding_uses_field_scoped_material_port_only() -> None:
-    root = Path(__file__).resolve().parents[1] / "app/joysafeter_domain/services"
-    source = "\n".join((root / name).read_text() for name in ("joysafeter_trigger_service.py", "joysafeter_trigger_webhook_auth_service.py"))
+    app_root = Path(__file__).resolve().parents[1] / "app"
+    source = "\n".join(
+        path.read_text()
+        for path in (
+            app_root / "joysafeter_domain/services/joysafeter_trigger_service.py",
+            app_root / "joysafeter_application/credentials/webhook_auth_service.py",
+        )
+    )
     assert "WebhookAuthBinding" in source
-    assert "material_adapter.load" in source
-    for forbidden in ("CredentialService", "credential.kind", "get_credential_data", "reveal_values", "LegacyV1MaterialProtector"):
+    assert "material_access_service.resolve" in source
+    assert "material_adapter.load" not in source
+    for forbidden in (
+        "CredentialService",
+        "credential.kind",
+        "get_credential_data",
+        "reveal_values",
+        "VersionedMaterialProtector",
+    ):
         assert forbidden not in source
 
 
 def test_webhook_binding_construction_is_inside_translation_boundary() -> None:
-    path = Path(__file__).resolve().parents[1] / "app/joysafeter_domain/services/joysafeter_trigger_webhook_auth_service.py"
+    path = Path(__file__).resolve().parents[1] / "app/joysafeter_application/credentials/webhook_auth_service.py"
     tree = ast.parse(path.read_text(), filename=str(path))
     parents: dict[ast.AST, ast.AST] = {}
     for node in ast.walk(tree):

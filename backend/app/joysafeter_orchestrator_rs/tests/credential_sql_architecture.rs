@@ -24,6 +24,21 @@ fn production_managed_credential_sql_is_owned_by_the_store() {
         .join("kernel/credentials/store.rs")
         .canonicalize()
         .expect("canonical Store path");
+    // Reviewed non-Store Managed Credential SQL. Envelope inventory/canary
+    // validation lives in the sensitive-material module rather than the Store: it
+    // aggregates ciphertext envelope versions and key ids to prove key-rotation
+    // coverage, never selects plaintext, and never participates in runtime
+    // credential resolution. Kept as an explicit owned exception so the
+    // Store-ownership rule still fails closed for any other credential SQL.
+    let reviewed_non_store: Vec<PathBuf> = ["kernel/sensitive_material/versioned.rs"]
+        .into_iter()
+        .map(|rel| {
+            source_root
+                .join(rel)
+                .canonicalize()
+                .expect("canonical reviewed non-Store path")
+        })
+        .collect();
     let inventory = RustCompileInventory::scan_roots(&[lib_root.clone(), main_root.clone()]);
 
     assert!(
@@ -50,11 +65,11 @@ fn production_managed_credential_sql_is_owned_by_the_store() {
     let violations = inventory
         .credential_sql
         .into_iter()
-        .filter(|finding| finding.path != allowed)
+        .filter(|finding| finding.path != allowed && !reviewed_non_store.contains(&finding.path))
         .collect::<Vec<_>>();
     assert!(
         violations.is_empty(),
-        "production Managed Credential SQL must live only in {}:\n{}",
+        "production Managed Credential SQL must live only in {} (or a reviewed sensitive-material exception):\n{}",
         allowed.display(),
         violations
             .iter()

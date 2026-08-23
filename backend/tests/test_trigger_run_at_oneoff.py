@@ -5,10 +5,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.triggers import TriggerApplicationService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
-from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 
 
 async def _seed(db_session):
@@ -29,7 +30,7 @@ async def _seed(db_session):
 @pytest.mark.asyncio
 async def test_one_off_sets_next_run_to_run_at_then_parks_after_fire(db_session):
     org, project, agent = await _seed(db_session)
-    svc = JoySafeterTriggerService(db_session)
+    svc = TriggerApplicationService(db_session, credential_audit_actor=CredentialAuditActor.system("test"))
     run_at = datetime.now(timezone.utc) + timedelta(hours=1)
 
     trigger = await svc.create(

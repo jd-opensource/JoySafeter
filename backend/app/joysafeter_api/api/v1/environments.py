@@ -2,33 +2,22 @@ import logging
 import re
 from typing import NamedTuple, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.joysafeter_application.credentials.composition import compose_credential_application
-from app.joysafeter_domain.credentials.bindings import (
-    EgressInjectKind,
-    EgressInjectPolicy,
-    EnvironmentInjectionBinding,
-    HttpEgressBinding,
-)
-from app.joysafeter_domain.credentials.types import CredentialFieldName, NormalizedEndpoint, ProjectId
-from app.joysafeter_domain.credentials.types import CredentialId as DomainCredentialId
+from app.joysafeter_api.api.v1.audit import credential_audit_actor
+from app.joysafeter_application.environments import EnvironmentCredentialService
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
-    EnvironmentConfig,
     EnvironmentResponse,
     UpdateEnvironmentRequest,
-    extract_environment_credential_references,
 )
-from app.joysafeter_domain.services.credential_binding_errors import raise_public_credential_error
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
 from app.joysafeter_shared.common.app_errors import (
     AppError,
     InternalServiceError,
-    InvalidRequestError,
     NotFoundError,
     ResourceConflictError,
     ServiceUnavailableError,
@@ -187,105 +176,6 @@ def _env_to_response(env) -> EnvironmentResponse:
     )
 
 
-async def _validate_credential_references(
-    db: AsyncSession,
-    config: EnvironmentConfig,
-    project_id: Optional[str],
-) -> None:
-    """Validate that every referenced credential id (egress service_credential_id
-    and direct environment injection) resolves to a live, in-project ``kind='service'``
-    credential in the unified credential store.
-
-    There is no FK (the refs are buried in JSONB), so this write-time check is the
-    integrity guard on create/update. Delete-time dependency scanning is Task 9e.
-    """
-    references = extract_environment_credential_references(config)
-    if not references:
-        return
-
-    if project_id is None:
-        # A project-less environment cannot pin a project-scoped credential.
-        reference = references[0]
-        raise NotFoundError(
-            code="CREDENTIAL_NOT_FOUND",
-            message="Credential not found",
-            data={
-                "credential_id": str(reference.credential_id),
-                "source": reference.source,
-            },
-            user_action="fix_input",
-        )
-
-    application = compose_credential_application(db, auto_commit=False)
-    await application.uow.credentials.lock_credentials(
-        list(dict.fromkeys(reference.credential_id for reference in references)),
-        project_id=project_id,
-    )
-    for reference in references:
-        reference_data = {
-            "source": reference.source,
-            "index": reference.index,
-            "path": reference.path,
-        }
-        if reference.source == "environment_credential_ids":
-            try:
-                binding = EnvironmentInjectionBinding(
-                    ProjectId(project_id),
-                    DomainCredentialId(str(reference.credential_id)),
-                )
-            except (TypeError, ValueError) as exc:
-                raise_public_credential_error(
-                    exc,
-                    credential_id=reference.credential_id,
-                    data=reference_data,
-                )
-        else:
-            service = config.egress_services[reference.index or 0]
-            inject = service.inject
-            if not inject.credential_field:
-                raise InvalidRequestError(
-                    code="CREDENTIAL_FIELD_MISSING",
-                    message="A required credential field is missing",
-                    data={"credential_id": str(reference.credential_id), **reference_data},
-                    user_action="fix_input",
-                )
-            try:
-                credential_field = CredentialFieldName(inject.credential_field)
-            except (TypeError, ValueError) as exc:
-                raise_public_credential_error(
-                    exc,
-                    credential_id=reference.credential_id,
-                    data=reference_data,
-                    constructor_error="field_missing",
-                )
-            try:
-                binding = HttpEgressBinding(
-                    ProjectId(project_id),
-                    DomainCredentialId(str(reference.credential_id)),
-                    NormalizedEndpoint(service.base_url),
-                    EgressInjectPolicy(
-                        EgressInjectKind(inject.type),
-                        credential_field,
-                        header=inject.header,
-                        cookie_name=inject.cookie_name,
-                    ),
-                )
-            except (TypeError, ValueError) as exc:
-                raise_public_credential_error(
-                    exc,
-                    credential_id=reference.credential_id,
-                    data=reference_data,
-                )
-        try:
-            await application.binding_service.validate_reference(binding)
-        except Exception as exc:
-            raise_public_credential_error(
-                exc,
-                credential_id=reference.credential_id,
-                data=reference_data,
-            )
-
-
 @router.get("/mount-catalog/storage")
 async def get_storage_mount_catalog(
     db: AsyncSession = Depends(get_db),
@@ -299,8 +189,10 @@ async def create_environment(
     req: CreateEnvironmentRequest,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+    request: Request = None,
 ) -> EnvironmentResponse:
-    await _validate_credential_references(db, req.config, auth_ctx.project_id)
+    credential_service = EnvironmentCredentialService(db, audit_actor=credential_audit_actor(request, auth_ctx))
+    await credential_service.validate_references(req.config, auth_ctx.project_id)
     await StorageMountService(db).validate_mount_resources(req.config.mount_resources, auth_ctx.project_id)
 
     svc = EnvironmentService(db)
@@ -313,7 +205,7 @@ async def create_environment(
             await db.commit()
             await db.refresh(env)
         else:
-            await svc.commit_update(
+            await credential_service.commit_update(
                 env,
                 project_id=auth_ctx.project_id,
                 old_config=None,
@@ -376,7 +268,9 @@ async def update_environment(
     env_id: EnvironmentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
+    request: Request = None,
 ) -> EnvironmentResponse:
+    credential_service = EnvironmentCredentialService(db, audit_actor=credential_audit_actor(request, auth_ctx))
     svc = EnvironmentService(db)
     env = await svc.lock_environment(env_id, project_id=auth_ctx.project_id)
     if not env:
@@ -391,7 +285,7 @@ async def update_environment(
         )
 
     if req.config is not None:
-        await _validate_credential_references(db, req.config, auth_ctx.project_id)
+        await credential_service.validate_references(req.config, auth_ctx.project_id)
         await StorageMountService(db).validate_mount_resources(req.config.mount_resources, auth_ctx.project_id)
 
     old_config = dict(env.config or {})
@@ -408,7 +302,7 @@ async def update_environment(
         # environment pointing at the previous image.
         if req.config is not None:
             _apply_image_update(env, await _build_image_update(env))
-        await svc.commit_update(
+        await credential_service.commit_update(
             env,
             project_id=auth_ctx.project_id,
             old_config=old_config,

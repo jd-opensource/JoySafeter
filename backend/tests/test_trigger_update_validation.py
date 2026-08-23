@@ -4,6 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.triggers import TriggerApplicationService
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_config_policy import TriggerConfigPolicy
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
@@ -63,7 +65,10 @@ def test_update_can_switch_cron_to_future_one_off():
 def test_update_rejects_keyed_session_without_key():
     _assert_invalid(
         _trigger(
-            type="webhook", webhook_auth_credential_id=_WEBHOOK_CRED_ID, webhook_auth_field="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}
+            type="webhook",
+            webhook_auth_credential_id=_WEBHOOK_CRED_ID,
+            webhook_auth_field="WEBHOOK_SECRET",
+            config={"auth_methods": ["hmac"]},
         ),
         {"session_mode": "keyed"},
         "TRIGGER_SESSION_KEY_REQUIRED",
@@ -73,7 +78,10 @@ def test_update_rejects_keyed_session_without_key():
 def test_update_rejects_invalid_session_mode():
     _assert_invalid(
         _trigger(
-            type="webhook", webhook_auth_credential_id=_WEBHOOK_CRED_ID, webhook_auth_field="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}
+            type="webhook",
+            webhook_auth_credential_id=_WEBHOOK_CRED_ID,
+            webhook_auth_field="WEBHOOK_SECRET",
+            config={"auth_methods": ["hmac"]},
         ),
         {"session_mode": "loop"},
         "TRIGGER_SESSION_MODE_INVALID",
@@ -91,7 +99,10 @@ def test_update_rejects_invalid_concurrency_policy():
 def test_update_rejects_empty_webhook_auth_methods():
     _assert_invalid(
         _trigger(
-            type="webhook", webhook_auth_credential_id=_WEBHOOK_CRED_ID, webhook_auth_field="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}
+            type="webhook",
+            webhook_auth_credential_id=_WEBHOOK_CRED_ID,
+            webhook_auth_field="WEBHOOK_SECRET",
+            config={"auth_methods": ["hmac"]},
         ),
         {"auth_methods": []},
         "TRIGGER_AUTH_METHODS_REQUIRED",
@@ -100,7 +111,9 @@ def test_update_rejects_empty_webhook_auth_methods():
 
 def test_update_rejects_webhook_config_missing_auth_methods():
     _assert_invalid(
-        _trigger(type="webhook", webhook_auth_credential_id=_WEBHOOK_CRED_ID, webhook_auth_field="WEBHOOK_SECRET", config={}),
+        _trigger(
+            type="webhook", webhook_auth_credential_id=_WEBHOOK_CRED_ID, webhook_auth_field="WEBHOOK_SECRET", config={}
+        ),
         {"description": "updated"},
         "TRIGGER_AUTH_METHODS_REQUIRED",
     )
@@ -109,7 +122,10 @@ def test_update_rejects_webhook_config_missing_auth_methods():
 def test_update_rejects_unknown_webhook_auth_methods():
     _assert_invalid(
         _trigger(
-            type="webhook", webhook_auth_credential_id=_WEBHOOK_CRED_ID, webhook_auth_field="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}
+            type="webhook",
+            webhook_auth_credential_id=_WEBHOOK_CRED_ID,
+            webhook_auth_field="WEBHOOK_SECRET",
+            config={"auth_methods": ["hmac"]},
         ),
         {"auth_methods": ["hmac", "magic-link"]},
         "TRIGGER_AUTH_METHODS_INVALID",
@@ -119,7 +135,10 @@ def test_update_rejects_unknown_webhook_auth_methods():
 def test_update_rejects_cron_expr_on_webhook_trigger():
     _assert_invalid(
         _trigger(
-            type="webhook", webhook_auth_credential_id=_WEBHOOK_CRED_ID, webhook_auth_field="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}
+            type="webhook",
+            webhook_auth_credential_id=_WEBHOOK_CRED_ID,
+            webhook_auth_field="WEBHOOK_SECRET",
+            config={"auth_methods": ["hmac"]},
         ),
         {"cron_expr": "*/5 * * * *"},
         "TRIGGER_SCHEDULE_FIELD_NOT_ALLOWED",
@@ -129,7 +148,10 @@ def test_update_rejects_cron_expr_on_webhook_trigger():
 def test_update_rejects_concurrency_policy_on_webhook_trigger():
     _assert_invalid(
         _trigger(
-            type="webhook", webhook_auth_credential_id=_WEBHOOK_CRED_ID, webhook_auth_field="WEBHOOK_SECRET", config={"auth_methods": ["hmac"]}
+            type="webhook",
+            webhook_auth_credential_id=_WEBHOOK_CRED_ID,
+            webhook_auth_field="WEBHOOK_SECRET",
+            config={"auth_methods": ["hmac"]},
         ),
         {"concurrency_policy": "forbid"},
         "TRIGGER_SCHEDULE_FIELD_NOT_ALLOWED",
@@ -205,7 +227,10 @@ def test_update_plan_marks_cron_rearm_and_reenable_intent():
 @pytest.mark.asyncio
 async def test_create_rejects_webhook_without_credential_at_domain_boundary():
     with pytest.raises(RequestValidationAppError) as exc_info:
-        await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
+        await _NoDbCreateService(
+            _NoDb(),  # type: ignore[arg-type]
+            credential_audit_actor=CredentialAuditActor.system("test"),
+        ).create(
             name="unsafe-webhook",
             type="webhook",
             agent_id=AgentId.new(),
@@ -219,7 +244,10 @@ async def test_create_rejects_webhook_without_credential_at_domain_boundary():
 @pytest.mark.asyncio
 async def test_create_rejects_cron_without_schedule_at_domain_boundary():
     with pytest.raises(RequestValidationAppError) as exc_info:
-        await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
+        await _NoDbCreateService(
+            _NoDb(),  # type: ignore[arg-type]
+            credential_audit_actor=CredentialAuditActor.system("test"),
+        ).create(
             name="broken-cron",
             type="cron",
             agent_id=AgentId.new(),
@@ -232,7 +260,10 @@ async def test_create_rejects_cron_without_schedule_at_domain_boundary():
 @pytest.mark.asyncio
 async def test_create_rejects_empty_webhook_auth_methods_at_domain_boundary():
     with pytest.raises(RequestValidationAppError) as exc_info:
-        await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
+        await _NoDbCreateService(
+            _NoDb(),  # type: ignore[arg-type]
+            credential_audit_actor=CredentialAuditActor.system("test"),
+        ).create(
             name="unsafe-webhook",
             type="webhook",
             agent_id=AgentId.new(),
@@ -247,7 +278,10 @@ async def test_create_rejects_empty_webhook_auth_methods_at_domain_boundary():
 @pytest.mark.asyncio
 async def test_create_rejects_missing_webhook_auth_methods_at_domain_boundary():
     with pytest.raises(RequestValidationAppError) as exc_info:
-        await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
+        await _NoDbCreateService(
+            _NoDb(),  # type: ignore[arg-type]
+            credential_audit_actor=CredentialAuditActor.system("test"),
+        ).create(
             name="unsafe-webhook",
             type="webhook",
             agent_id=AgentId.new(),
@@ -261,7 +295,10 @@ async def test_create_rejects_missing_webhook_auth_methods_at_domain_boundary():
 @pytest.mark.asyncio
 async def test_create_rejects_cron_expr_on_webhook_at_domain_boundary():
     with pytest.raises(RequestValidationAppError) as exc_info:
-        await _NoDbCreateService(_NoDb()).create(  # type: ignore[arg-type]
+        await _NoDbCreateService(
+            _NoDb(),  # type: ignore[arg-type]
+            credential_audit_actor=CredentialAuditActor.system("test"),
+        ).create(
             name="dirty-webhook",
             type="webhook",
             agent_id=AgentId.new(),
@@ -276,7 +313,10 @@ async def test_create_rejects_cron_expr_on_webhook_at_domain_boundary():
 @pytest.mark.asyncio
 async def test_create_manual_trigger_has_no_schedule_or_webhook_config_pollution():
     db = _NoDb()
-    trigger = await _NoDbCreateService(db).create(  # type: ignore[arg-type]
+    trigger = await _NoDbCreateService(
+        db,  # type: ignore[arg-type]
+        credential_audit_actor=CredentialAuditActor.system("test"),
+    ).create(
         name="manual-only",
         type="manual",
         agent_id=AgentId.new(),
@@ -312,7 +352,7 @@ class _NoDb:
         pass
 
 
-class _NoDbCreateService(JoySafeterTriggerService):
+class _NoDbCreateService(TriggerApplicationService):
     async def get_by_name(self, *_args, **_kwargs):
         return None
 
