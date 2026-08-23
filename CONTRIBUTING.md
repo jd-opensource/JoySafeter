@@ -111,7 +111,7 @@ Unsure where to begin? Look for issues labeled:
 
    手动执行全部检查：`backend/.venv/bin/python -m pre_commit run --all-files`。CI 会执行相同配置。
 
-   更多信息请参考 [Development Guide - Pre-commit Hooks](DEVELOPMENT.md#using-pre-commit-hooks)。
+   更多信息请参考 [Development Guide - Tests and Quality Checks](DEVELOPMENT.md#tests-and-quality-checks)。
 
 7. **Commit your changes** following our commit guidelines
 

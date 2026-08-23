@@ -80,6 +80,36 @@ def test_reports_anchor_defined_only_inside_fenced_code_block(tmp_path: Path) ->
     assert "#pseudo-heading" in violations[0].message
 
 
+def test_reports_anchor_after_mixed_fence_character(tmp_path: Path) -> None:
+    write(tmp_path / "README.md", "[pseudo](target.md#mixed-fence-heading)\n")
+    write(tmp_path / "target.md", "````markdown\n~~~\n# Mixed Fence Heading\n````\n")
+
+    violations = checker.check_relative_markdown_links(
+        tmp_path,
+        [Path("README.md")],
+    )
+
+    assert [(item.code, item.path.as_posix()) for item in violations] == [
+        ("DOC-LINK", "README.md"),
+    ]
+    assert "#mixed-fence-heading" in violations[0].message
+
+
+def test_reports_anchor_after_shorter_same_character_fence(tmp_path: Path) -> None:
+    write(tmp_path / "README.md", "[pseudo](target.md#short-fence-heading)\n")
+    write(tmp_path / "target.md", "````markdown\n```\n# Short Fence Heading\n````\n")
+
+    violations = checker.check_relative_markdown_links(
+        tmp_path,
+        [Path("README.md")],
+    )
+
+    assert [(item.code, item.path.as_posix()) for item in violations] == [
+        ("DOC-LINK", "README.md"),
+    ]
+    assert "#short-fence-heading" in violations[0].message
+
+
 def test_run_checks_aggregates_selected_checks_in_stable_order(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         checker,
@@ -96,3 +126,47 @@ def test_run_checks_aggregates_selected_checks_in_stable_order(monkeypatch: pyte
         ("DOC-A", "a.md", 3),
         ("DOC-Z", "z.md", 2),
     ]
+
+
+def test_architecture_source_layout_uses_current_credential_boundaries() -> None:
+    architecture = (_SCRIPT.parent.parent / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    source_layout = architecture.split("## 10. Source layout", maxsplit=1)[1]
+
+    assert "joysafeter_application/" in source_layout
+    assert "joysafeter_infrastructure/" in source_layout
+    assert "skill/secret/vault" not in source_layout
+
+
+def test_required_content_accepts_present_markers(tmp_path: Path) -> None:
+    write(tmp_path / "docs/ARCHITECTURE.md", "JoySafeterCredential and /credentials plus /credential-groups\n")
+
+    violations = checker.check_required_document_content(
+        tmp_path,
+        {Path("docs/ARCHITECTURE.md"): ("JoySafeterCredential", "/credentials", "/credential-groups")},
+    )
+
+    assert violations == []
+
+
+def test_required_content_reports_missing_marker(tmp_path: Path) -> None:
+    write(tmp_path / "docs/ARCHITECTURE.md", "Only mentions /credentials here.\n")
+
+    violations = checker.check_required_document_content(
+        tmp_path,
+        {Path("docs/ARCHITECTURE.md"): ("JoySafeterCredential", "/credentials", "/credential-groups")},
+    )
+
+    assert [(item.code, item.path.as_posix()) for item in violations] == [
+        ("DOC-CONTENT", "docs/ARCHITECTURE.md"),
+        ("DOC-CONTENT", "docs/ARCHITECTURE.md"),
+    ]
+    assert "JoySafeterCredential" in violations[0].message
+    assert "/credential-groups" in violations[1].message
+
+
+def test_architecture_contains_unified_credential_markers() -> None:
+    repo_root = _SCRIPT.resolve().parents[1]
+
+    violations = checker.check_required_document_content(repo_root)
+
+    assert violations == []
