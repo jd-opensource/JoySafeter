@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
+import { compatibleCredentialsScopePrefix } from '@/hooks/managed/use-compatible-credentials'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { managedDelete, managedPatch, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
@@ -27,9 +28,9 @@ import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { findCredentialProfileForBinding } from '@/lib/managed/llm-catalog'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseSecretDetailResponse } from '@/lib/managed/secret-response-parsers'
+import { parseCredentialDetailResponse } from '@/lib/managed/credential-response-parsers'
 import type { LlmCredentialField } from '@/types/llm'
-import type { SecretDetail } from '@/types/managed'
+import type { CredentialDetail } from '@/types/managed'
 
 function inputType(field: LlmCredentialField, showValues: boolean) {
   if (field.type === 'secret' && !showValues) return 'password'
@@ -37,7 +38,7 @@ function inputType(field: LlmCredentialField, showValues: boolean) {
   return 'text'
 }
 
-export function ModelConnectionDetail({ credential }: { credential: SecretDetail }) {
+export function ModelConnectionDetail({ credential }: { credential: CredentialDetail }) {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -96,10 +97,10 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
         managedRequestOptions(action.requestScope),
       )
       if (!isCurrentAction(action.runId, action.scope)) return
-      const updated = parseSecretDetailResponse(response)
+      const updated = parseCredentialDetailResponse(response)
       queryClient.setQueryData(['credential-detail', action.scope, credential.id], updated)
       queryClient.invalidateQueries({ queryKey: ['credentials', action.scope] })
-      queryClient.invalidateQueries({ queryKey: ['compatible-secrets', action.scope] })
+      queryClient.invalidateQueries({ queryKey: compatibleCredentialsScopePrefix(action.scope) })
       sourceDataRef.current = updated.data
       setValues(updated.data)
       setDirty(false)
@@ -114,7 +115,7 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
   const invalidate = (scope: string) => {
     queryClient.invalidateQueries({ queryKey: ['credential-detail', scope, credential.id] })
     queryClient.invalidateQueries({ queryKey: ['credentials', scope] })
-    queryClient.invalidateQueries({ queryKey: ['compatible-secrets', scope] })
+    queryClient.invalidateQueries({ queryKey: compatibleCredentialsScopePrefix(scope) })
   }
 
   const setDefault = async () => {
@@ -160,7 +161,9 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
           queryKey: ['credential-detail', scopedAction.scope, credential.id],
         })
         queryClient.invalidateQueries({ queryKey: ['credentials', scopedAction.scope] })
-        queryClient.invalidateQueries({ queryKey: ['compatible-secrets', scopedAction.scope] })
+        queryClient.invalidateQueries({
+          queryKey: compatibleCredentialsScopePrefix(scopedAction.scope),
+        })
         router.push('/managed/credentials?tab=models')
       } else {
         await managedPost(
@@ -280,14 +283,16 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
       <section className="space-y-4 rounded-xl border bg-card p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="font-semibold">{t('managed.secrets.dataLabel')}</h2>
+            <h2 className="font-semibold">{t('managed.credentials.resources.dataLabel')}</h2>
             <p className="text-xs text-muted-foreground">
               {t('managed.llm.identityImmutableHint')}
             </p>
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={() => setShowValues((v) => !v)}>
             {showValues ? <EyeOff className="mr-1 h-4 w-4" /> : <Eye className="mr-1 h-4 w-4" />}
-            {showValues ? t('managed.secrets.hideValues') : t('managed.secrets.showValues')}
+            {showValues
+              ? t('managed.credentials.resources.hideValues')
+              : t('managed.credentials.resources.showValues')}
           </Button>
         </div>
         {profile ? (
@@ -341,17 +346,17 @@ export function ModelConnectionDetail({ credential }: { credential: SecretDetail
         open={Boolean(confirmAction)}
         title={t(
           confirmAction === 'delete'
-            ? 'managed.secrets.deleteTitle'
+            ? 'managed.credentials.resources.deleteTitle'
             : confirmAction === 'restore'
-              ? 'managed.secrets.restoreTitle'
-              : 'managed.secrets.archiveTitle',
+              ? 'managed.credentials.resources.restoreTitle'
+              : 'managed.credentials.resources.archiveTitle',
         )}
         description={t(
           confirmAction === 'delete'
-            ? 'managed.secrets.deleteDescription'
+            ? 'managed.credentials.resources.deleteDescription'
             : confirmAction === 'restore'
-              ? 'managed.secrets.restoreDescription'
-              : 'managed.secrets.archiveDescription',
+              ? 'managed.credentials.resources.restoreDescription'
+              : 'managed.credentials.resources.archiveDescription',
           { name: credential.name },
         )}
         confirmLabel={t(

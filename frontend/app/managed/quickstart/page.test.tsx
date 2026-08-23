@@ -53,7 +53,7 @@ const quickstartState = vi.hoisted(() => ({
   sessionEvents: [] as Array<{ id: string; type: string; data?: Record<string, unknown> }>,
   trialTasks: [] as Array<Record<string, unknown>>,
   pendingConfirmation: null as { step: number; curl: string } | null,
-  createVault: vi.fn(),
+  createCredentialGroup: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
@@ -72,13 +72,13 @@ vi.mock('@/lib/managed/llm-catalog', () => ({
   }),
 }))
 
-vi.mock('@/hooks/managed/use-compatible-secrets', () => ({
-  compatibleSecretsQueryPrefix: () => ['compatible-secrets'],
+vi.mock('@/hooks/managed/use-compatible-credentials', () => ({
+  compatibleCredentialsQueryPrefix: () => ['compatible-credentials'],
   useActiveModelConnections: () => ({
     data: quickstartState.activeModelConnections,
     isSuccess: true,
   }),
-  useCompatibleSecrets: () => ({
+  useCompatibleCredentials: () => ({
     data: quickstartState.compatibleSecrets,
     isSuccess: true,
   }),
@@ -113,7 +113,7 @@ vi.mock('@/hooks/managed/use-quickstart-chat', () => ({
     createSession: vi.fn(),
     createEnvironment: vi.fn(),
     selectExistingEnvironment: vi.fn(),
-    createVault: quickstartState.createVault,
+    createCredentialGroup: quickstartState.createCredentialGroup,
     selectExistingCredentialGroup: vi.fn(),
     goToStep: vi.fn(),
     reopenStep: quickstartState.reopenStep,
@@ -158,7 +158,7 @@ describe('Quickstart page Model Connection completion', () => {
     quickstartState.sessionEvents = []
     quickstartState.trialTasks = []
     quickstartState.pendingConfirmation = null
-    quickstartState.createVault.mockReset()
+    quickstartState.createCredentialGroup.mockReset()
     quickstartState.reopenStep.mockReset()
     quickstartState.enabledEngines = []
     quickstartState.compatibleSecrets = [
@@ -376,8 +376,9 @@ describe('Quickstart page Model Connection completion', () => {
     expect(appliedArg.agent.blueprint.workflow).toBeUndefined()
     expect(appliedArg.agent.blueprint.capability_plan).toBeUndefined()
     expect(
-      screen.getAllByText(/Secure defaults: sandbox, credential isolation, least privilege, audit\./)
-        .length,
+      screen.getAllByText(
+        /Secure defaults: sandbox, credential isolation, least privilege, audit\./,
+      ).length,
     ).toBeGreaterThan(0)
   })
 
@@ -629,7 +630,7 @@ describe('Quickstart page Model Connection completion', () => {
         credential_name: 'GitHub token',
       },
     }
-    quickstartState.createVault.mockResolvedValue(true)
+    quickstartState.createCredentialGroup.mockResolvedValue(true)
 
     render(<QuickstartPage />, { wrapper })
 
@@ -638,12 +639,12 @@ describe('Quickstart page Model Connection completion', () => {
     expect(screen.getAllByText('https://api.github.com/mcp').length).toBeGreaterThan(0)
     const createButton = screen.getByRole('button', { name: 'Authorize external tools' })
     expect(createButton).toBeDisabled()
-    expect(quickstartState.createVault).not.toHaveBeenCalled()
+    expect(quickstartState.createCredentialGroup).not.toHaveBeenCalled()
 
     fireEvent.change(tokenInput, { target: { value: 'ghp_secret_token' } })
     fireEvent.click(createButton)
 
-    expect(quickstartState.createVault).toHaveBeenCalledWith('GitHub tools', {
+    expect(quickstartState.createCredentialGroup).toHaveBeenCalledWith('GitHub tools', {
       credential: {
         name: 'GitHub token',
         mcpServerUrl: 'https://api.github.com/mcp',

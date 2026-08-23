@@ -11,12 +11,12 @@ import type {
   StorageVolumeCatalogItem,
   Environment,
   EnvironmentMountResource,
-  Secret,
+  Credential,
 } from '@/types/managed'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { parseEnvironmentResponse } from '@/lib/managed/environment-response-parsers'
-import { parseSecretResponse } from '@/lib/managed/secret-response-parsers'
+import { parseCredentialResponse } from '@/lib/managed/credential-response-parsers'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { Button } from '@/components/ui/button'
@@ -157,12 +157,12 @@ export default function EnvironmentListPage() {
     parseItem: parseEnvironmentResponse,
     parseCursor: parseEnvironmentId,
   })
-  const { data: secrets } = usePaginatedList<Secret>({
+  const { data: secrets } = usePaginatedList<Credential>({
     queryKey: 'service-credentials',
     path: '/credentials?kind=service',
     includeArchived: false,
     limit: 50,
-    parseItem: parseSecretResponse,
+    parseItem: parseCredentialResponse,
     parseCursor: parseCredentialId,
   })
   const { data: storageCatalog } = useQuery({

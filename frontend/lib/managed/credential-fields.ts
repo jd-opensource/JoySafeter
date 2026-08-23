@@ -1,4 +1,4 @@
-export interface SecretKeyGroup {
+export interface CredentialFieldGroup {
   id: string
   label: string
   labelKey: string
@@ -7,16 +7,16 @@ export interface SecretKeyGroup {
   keys: string[]
 }
 
-export const SECRET_KEY_GROUPS: SecretKeyGroup[] = [
+export const CREDENTIAL_FIELD_GROUPS: CredentialFieldGroup[] = [
   {
     id: 'anthropic',
     label: 'Anthropic',
-    labelKey: 'managed.secrets.keyGroups.claude',
+    labelKey: 'managed.credentials.resources.keyGroups.claude',
     icon: 'C',
     bgColor: '#f97316',
     // Autocomplete suggestions for the generic Service Credential key picker
-    // (SecretKeySelect) only. These keys do NOT render editable inputs on their
-    // own: the anthropic Model Connection form (LlmSecretConfigurator) is the
+    // (CredentialFieldSelect) only. These keys do NOT render editable inputs on their
+    // own: the anthropic Model Connection form (ModelConnectionConfigurator) is the
     // single source of truth for anthropic rendering. It exposes ANTHROPIC_API_KEY
     // plus the auth-method switch, and hides ANTHROPIC_AUTH_TOKEN so there is no
     // second raw Auth Token box.
@@ -25,39 +25,41 @@ export const SECRET_KEY_GROUPS: SecretKeyGroup[] = [
   {
     id: 'openai',
     label: 'OpenAI-compatible',
-    labelKey: 'managed.secrets.keyGroups.codex',
+    labelKey: 'managed.credentials.resources.keyGroups.codex',
     icon: 'C',
     bgColor: '#111827',
     keys: ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_BASE_URL', 'OPENAI_REASONING_EFFORT'],
   },
 ]
 
-export const SECRET_KEY_OPTIONS = [...new Set(SECRET_KEY_GROUPS.flatMap((g) => g.keys))]
+export const CREDENTIAL_FIELD_OPTIONS = [
+  ...new Set(CREDENTIAL_FIELD_GROUPS.flatMap((group) => group.keys)),
+]
 
-const SECRET_KEY_GROUP_IDS_BY_PROVIDER: Record<string, string[]> = {
+const CREDENTIAL_FIELD_GROUP_IDS_BY_PROVIDER: Record<string, string[]> = {
   anthropic: ['anthropic'],
   openai: ['openai'],
   deepseek: ['openai'],
 }
 
-export function getSecretKeyGroups(provider?: string | null, protocol?: string | null) {
+export function getCredentialFieldGroups(provider?: string | null, protocol?: string | null) {
   const normalizedProvider = (provider || '').toLowerCase()
-  const groupIds = SECRET_KEY_GROUP_IDS_BY_PROVIDER[normalizedProvider]
+  const groupIds = CREDENTIAL_FIELD_GROUP_IDS_BY_PROVIDER[normalizedProvider]
 
   if (groupIds) {
-    return SECRET_KEY_GROUPS.filter((group) => groupIds.includes(group.id))
+    return CREDENTIAL_FIELD_GROUPS.filter((group) => groupIds.includes(group.id))
   }
 
   if (protocol === 'anthropic_messages') {
-    return SECRET_KEY_GROUPS.filter((group) => group.id === 'anthropic')
+    return CREDENTIAL_FIELD_GROUPS.filter((group) => group.id === 'anthropic')
   }
 
   if (protocol === 'openai_responses' || protocol === 'chat_completions') {
-    return SECRET_KEY_GROUPS.filter((group) => group.id === 'openai')
+    return CREDENTIAL_FIELD_GROUPS.filter((group) => group.id === 'openai')
   }
 
   const seen = new Set<string>()
-  return SECRET_KEY_GROUPS.map((group) => {
+  return CREDENTIAL_FIELD_GROUPS.map((group) => {
     const keys = group.keys.filter((key) => {
       if (seen.has(key)) return false
       seen.add(key)
@@ -67,7 +69,7 @@ export function getSecretKeyGroups(provider?: string | null, protocol?: string |
   }).filter((group) => group.keys.length > 0)
 }
 
-function normalizeSecretKey(key: string) {
+function normalizeCredentialField(key: string) {
   return key
     .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
     .replace(/[^a-zA-Z0-9]+/g, '_')
@@ -75,8 +77,8 @@ function normalizeSecretKey(key: string) {
     .toUpperCase()
 }
 
-export function isSecretValueMaskedKey(key: string) {
-  const normalized = normalizeSecretKey(key)
+export function isCredentialValueMaskedField(key: string) {
+  const normalized = normalizeCredentialField(key)
   if (!normalized) return true
   return (
     normalized === 'API_KEY' ||
@@ -94,7 +96,7 @@ export function isSecretValueMaskedKey(key: string) {
   )
 }
 
-export const MODEL_OPTIONS = [
+export const MODEL_NAME_OPTIONS = [
   'GPT-5.5',
   'gpt-5.3-codex',
   'Claude-Opus-4.6',

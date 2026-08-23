@@ -82,7 +82,7 @@ export function CreateCredentialGroupDialog({
     },
     onError: (error, { runId, scope }) => {
       if (!isCurrentAction(runId, scope)) return
-      toastOperationError(t, error, 'managed.vaults.createFailed')
+      toastOperationError(t, error, 'managed.credentials.groups.createFailed')
     },
   })
 
@@ -112,20 +112,20 @@ export function CreateCredentialGroupDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t('managed.vaults.createTitle')}</DialogTitle>
+          <DialogTitle>{t('managed.credentials.groups.createTitle')}</DialogTitle>
           <DialogDescription className="sr-only">
-            {t('managed.vaults.createDescription')}
+            {t('managed.credentials.groups.createDescription')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
-            {t('managed.vaults.sharedWarning')}{' '}
+            {t('managed.credentials.groups.sharedWarning')}{' '}
             <a href="#" className="font-medium underline">
-              {t('managed.vaults.learnMore')}
+              {t('managed.credentials.groups.learnMore')}
             </a>
-            {t('managed.vaults.learnMoreSuffix')}
+            {t('managed.credentials.groups.learnMoreSuffix')}
           </p>
         </div>
 
@@ -136,7 +136,7 @@ export function CreateCredentialGroupDialog({
             </label>
             <Input
               id="vault-name"
-              placeholder={t('managed.vaults.namePlaceholder')}
+              placeholder={t('managed.credentials.groups.namePlaceholder')}
               value={name}
               disabled={readOnly}
               onChange={(e) => setName(e.target.value.slice(0, MAX_NAME_LENGTH))}
@@ -144,7 +144,7 @@ export function CreateCredentialGroupDialog({
               autoFocus
             />
             <p className="text-xs text-muted-foreground">
-              {t('managed.vaults.nameHint', {
+              {t('managed.credentials.groups.nameHint', {
                 max: MAX_NAME_LENGTH,
               })}
             </p>
@@ -152,7 +152,7 @@ export function CreateCredentialGroupDialog({
 
           <div className="flex justify-end">
             <Button type="submit" disabled={!name.trim() || mutation.isPending || readOnly}>
-              {mutation.isPending ? t('managed.vaults.creating') : t('common.create')}
+              {mutation.isPending ? t('managed.credentials.groups.creating') : t('common.create')}
             </Button>
           </div>
         </form>

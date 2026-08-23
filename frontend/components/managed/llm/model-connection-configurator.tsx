@@ -25,14 +25,14 @@ import {
   stableConnectionFingerprint,
 } from '@/lib/managed/llm-catalog'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseSecretDetailResponse } from '@/lib/managed/secret-response-parsers'
+import { parseCredentialDetailResponse } from '@/lib/managed/credential-response-parsers'
 import { cn } from '@/lib/utils'
 import type { LlmCredentialField } from '@/types/llm'
-import type { SecretDetail } from '@/types/managed'
+import type { CredentialDetail } from '@/types/managed'
 
-interface LlmSecretConfiguratorProps {
+interface ModelConnectionConfiguratorProps {
   initialEngineId?: string
-  onCreated: (secret: SecretDetail) => void
+  onCreated: (credential: CredentialDetail) => void
   onCancel?: () => void
   className?: string
 }
@@ -66,12 +66,12 @@ function fieldInputType(field: LlmCredentialField) {
   return 'text'
 }
 
-export function LlmSecretConfigurator({
+export function ModelConnectionConfigurator({
   initialEngineId,
   onCreated,
   onCancel,
   className,
-}: LlmSecretConfiguratorProps) {
+}: ModelConnectionConfiguratorProps) {
   const { t } = useTranslation()
   const catalogQuery = useLlmCatalog()
   const engineId = initialEngineId ?? ''
@@ -290,7 +290,7 @@ export function LlmSecretConfigurator({
         managedRequestOptions(action.requestScope),
       )
       if (!isCurrentAction(action.runId, action.scope)) return
-      onCreated(parseSecretDetailResponse(response))
+      onCreated(parseCredentialDetailResponse(response))
     } catch (error) {
       if (!isCurrentAction(action.runId, action.scope)) return
       setRequestError(error instanceof Error ? error.message : t('managed.llm.createFailed'))
@@ -466,7 +466,9 @@ export function LlmSecretConfigurator({
                 onChange={(event) => setAuthScheme(event.target.value as AnthropicAuthScheme)}
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
-                <option value={ANTHROPIC_AUTH_SCHEME.auto}>{t('managed.llm.authSchemeAuto')}</option>
+                <option value={ANTHROPIC_AUTH_SCHEME.auto}>
+                  {t('managed.llm.authSchemeAuto')}
+                </option>
                 <option value={ANTHROPIC_AUTH_SCHEME.xapikey}>
                   {t('managed.llm.authSchemeApiKey')}
                 </option>

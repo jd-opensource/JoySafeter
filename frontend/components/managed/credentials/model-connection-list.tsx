@@ -17,6 +17,7 @@ import {
 import { CompatibleEngineBadges } from '@/components/managed/shared/compatible-engine-badges'
 import { Badge } from '@/components/ui/badge'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
+import { compatibleCredentialsScopePrefix } from '@/hooks/managed/use-compatible-credentials'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
@@ -27,10 +28,10 @@ import { toastOperationError } from '@/lib/managed/errors'
 import { filterByCreatedTime, createCreatedTimeFilter, matchesSearch } from '@/lib/managed/filters'
 import { findProtocol, findProvider } from '@/lib/managed/llm-catalog'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseSecretResponse } from '@/lib/managed/secret-response-parsers'
+import { parseCredentialResponse } from '@/lib/managed/credential-response-parsers'
 import { parseCredentialId } from '@/types/entity-id'
 import type { LlmCatalog } from '@/types/llm'
-import type { Secret } from '@/types/managed'
+import type { Credential } from '@/types/managed'
 
 import { CredentialIdentity } from './credential-identity'
 import { CredentialListPanel } from './credential-list-panel'
@@ -94,9 +95,9 @@ export function ModelConnectionList({
   const setSearchQuery = (value: string) => updateListState({ searchQuery: value })
   const setCreatedFilter = (value: string) => updateListState({ createdFilter: value })
   const setShowArchived = (value: boolean) => updateListState({ showArchived: value })
-  const [deleteTarget, setDeleteTarget] = useState<Secret | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Credential | null>(null)
   const [lifecycleTarget, setLifecycleTarget] = useState<{
-    credential: Secret
+    credential: Credential
     action: 'archive' | 'restore'
   } | null>(null)
   const [mutationPending, setMutationPending] = useState(false)
@@ -115,7 +116,7 @@ export function ModelConnectionList({
     },
   })
 
-  const list = usePaginatedList<Secret>({
+  const list = usePaginatedList<Credential>({
     queryKey: 'credentials',
     path: '/credentials',
     query: { kind: 'model' },
@@ -124,7 +125,7 @@ export function ModelConnectionList({
     enabled: catalogReady,
     pageSize: listState.pageSize,
     onPageSizeChange: (pageSize) => updateListState({ pageSize }),
-    parseItem: parseSecretResponse,
+    parseItem: parseCredentialResponse,
     parseCursor: parseCredentialId,
   })
 
@@ -158,9 +159,9 @@ export function ModelConnectionList({
 
   const invalidate = (scope: string) => {
     queryClient.invalidateQueries({ queryKey: ['credentials', scope] })
-    queryClient.invalidateQueries({ queryKey: ['compatible-secrets', scope] })
+    queryClient.invalidateQueries({ queryKey: compatibleCredentialsScopePrefix(scope) })
   }
-  const handleSetDefault = async (s: Secret) => {
+  const handleSetDefault = async (s: Credential) => {
     if (projectReadOnly || mutationPending) return
     const current = list.data.find((item) => item.id === s.id)
     if (!current || current.kind !== 'model' || current.archived_at || current.is_default) return
@@ -247,7 +248,7 @@ export function ModelConnectionList({
     }
   }
 
-  const columns: Column<Secret>[] = [
+  const columns: Column<Credential>[] = [
     {
       key: 'identity',
       header: t('managed.credentials.tabs.models'),
@@ -304,7 +305,7 @@ export function ModelConnectionList({
     },
   ]
 
-  const rowActions = (s: Secret) =>
+  const rowActions = (s: Credential) =>
     projectReadOnly || mutationPending
       ? []
       : [
@@ -465,13 +466,13 @@ export function ModelConnectionList({
         open={!projectReadOnly && Boolean(lifecycleTarget)}
         title={t(
           lifecycleTarget?.action === 'restore'
-            ? 'managed.secrets.restoreTitle'
-            : 'managed.secrets.archiveTitle',
+            ? 'managed.credentials.resources.restoreTitle'
+            : 'managed.credentials.resources.archiveTitle',
         )}
         description={t(
           lifecycleTarget?.action === 'restore'
-            ? 'managed.secrets.restoreDescription'
-            : 'managed.secrets.archiveDescription',
+            ? 'managed.credentials.resources.restoreDescription'
+            : 'managed.credentials.resources.archiveDescription',
           { name: lifecycleTarget?.credential.name },
         )}
         confirmLabel={t(
@@ -485,8 +486,10 @@ export function ModelConnectionList({
       />
       <ConfirmDialog
         open={!projectReadOnly && Boolean(deleteTarget)}
-        title={t('managed.secrets.deleteTitle')}
-        description={t('managed.secrets.deleteDescription', { name: deleteTarget?.name })}
+        title={t('managed.credentials.resources.deleteTitle')}
+        description={t('managed.credentials.resources.deleteDescription', {
+          name: deleteTarget?.name,
+        })}
         confirmLabel={t('common.delete')}
         destructive
         onConfirm={handleDelete}

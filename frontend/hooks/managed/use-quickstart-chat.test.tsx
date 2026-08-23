@@ -350,7 +350,7 @@ describe('useQuickstartChat resource creation', () => {
     await act(async () => {
       await result.current.sendMessage('make an agent', { stepOverride: 3 })
       environmentCreated = await result.current.createEnvironment('limited', ['api.example.com'])
-      vaultCreated = await result.current.createVault('prod-secrets')
+      vaultCreated = await result.current.createCredentialGroup('prod-secrets')
       generated = await result.current.generateTestMessage()
     })
 
@@ -412,7 +412,7 @@ describe('useQuickstartChat resource creation', () => {
 
     let created: boolean | undefined
     await act(async () => {
-      created = await result.current.createVault('prod-secrets')
+      created = await result.current.createCredentialGroup('prod-secrets')
     })
 
     expect(created).toBe(true)
@@ -433,7 +433,7 @@ describe('useQuickstartChat resource creation', () => {
 
     let created: boolean | undefined
     await act(async () => {
-      created = await result.current.createVault('github-tools', {
+      created = await result.current.createCredentialGroup('github-tools', {
         credential: {
           name: 'github-mcp',
           mcpServerUrl: 'https://api.github.com/mcp',
@@ -472,7 +472,7 @@ describe('useQuickstartChat resource creation', () => {
 
     let created: boolean | undefined
     await act(async () => {
-      created = await result.current.createVault('github-tools', {
+      created = await result.current.createCredentialGroup('github-tools', {
         credential: {
           name: 'github-mcp',
           mcpServerUrl: 'https://api.github.com/mcp',
@@ -511,7 +511,7 @@ describe('useQuickstartChat resource creation', () => {
       await result.current.createEnvironment('limited', ['api.example.com'])
     })
     await act(async () => {
-      await result.current.createVault('prod-secrets')
+      await result.current.createCredentialGroup('prod-secrets')
     })
 
     expect(result.current.completedSteps.has(1)).toBe(true)
@@ -568,7 +568,7 @@ describe('useQuickstartChat resource creation', () => {
 
     let createdPromise!: Promise<boolean | undefined>
     await act(async () => {
-      createdPromise = result.current.createVault('prod-secrets')
+      createdPromise = result.current.createCredentialGroup('prod-secrets')
       await Promise.resolve()
     })
 
@@ -739,7 +739,7 @@ describe('useQuickstartChat resource creation', () => {
       await result.current.createEnvironment('unrestricted', [])
     })
     await act(async () => {
-      await result.current.createVault('prod-secrets')
+      await result.current.createCredentialGroup('prod-secrets')
     })
 
     expect(result.current.resourceIds).toMatchObject({
@@ -786,7 +786,7 @@ describe('useQuickstartChat resource creation', () => {
       await result.current.createEnvironment('unrestricted', [])
     })
     await act(async () => {
-      await result.current.createVault('prod-secrets')
+      await result.current.createCredentialGroup('prod-secrets')
     })
 
     expect(result.current.resourceIds).toMatchObject({
@@ -1221,7 +1221,7 @@ describe('useQuickstartChat resource creation', () => {
       await result.current.createEnvironment('unrestricted', [])
     })
     await act(async () => {
-      await result.current.createVault('prod-secrets')
+      await result.current.createCredentialGroup('prod-secrets')
     })
 
     expect(result.current.resourceIds).toMatchObject({

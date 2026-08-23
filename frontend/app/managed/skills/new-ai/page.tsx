@@ -51,7 +51,7 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
 import { managedGet } from '@/lib/api-client'
-import { useProtocolSecrets } from '@/hooks/managed/use-compatible-secrets'
+import { useProtocolCredentials } from '@/hooks/managed/use-compatible-credentials'
 import {
   useSkillAuthoring,
   type SkillDraft,
@@ -158,7 +158,7 @@ export default function SkillAiAuthoringPage() {
   const [activeTab, setActiveTab] = useState<string>(TAB_EDITOR)
   const [activeFilePath, setActiveFilePath] = useState<string>('SKILL.md')
 
-  const { data: secrets = [] } = useProtocolSecrets({ protocolId: 'openai_responses' })
+  const { data: secrets = [] } = useProtocolCredentials({ protocolId: 'openai_responses' })
 
   const effectiveSecretRef = useMemo(() => {
     if (!secrets.length) return ''
@@ -452,7 +452,7 @@ export default function SkillAiAuthoringPage() {
         <div className="flex items-center gap-2">
           {secrets.length === 0 && (
             <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive">
-              {t('managed.skills.aiAuthor.noSecrets')}
+              {t('managed.skills.aiAuthor.noModelConnections')}
             </span>
           )}
           {/* Wrapped in a span so the tooltip still shows while the button

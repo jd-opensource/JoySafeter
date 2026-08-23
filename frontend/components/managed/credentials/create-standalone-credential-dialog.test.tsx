@@ -4,12 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { managedPost } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
 
-import { CreateSecretDialog } from './create-secret-dialog'
+import { CreateStandaloneCredentialDialog } from './create-standalone-credential-dialog'
 
 vi.mock('@/lib/api-client', () => ({ managedPost: vi.fn() }))
 vi.mock('@/lib/i18n', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
-vi.mock('@/components/managed/llm/llm-secret-configurator', () => ({
-  LlmSecretConfigurator: () => <div data-testid="llm-configurator">llm</div>,
+vi.mock('@/components/managed/llm/model-connection-configurator', () => ({
+  ModelConnectionConfigurator: () => <div data-testid="llm-configurator">llm</div>,
 }))
 vi.mock('@/components/ui/dialog', () => ({
   Dialog: ({ open, children }: any) => (open ? <div>{children}</div> : null),
@@ -59,21 +59,21 @@ function fillGenericForm() {
   })
 }
 
-describe('CreateSecretDialog', () => {
+describe('CreateStandaloneCredentialDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setProject('project-a')
   })
 
   it('defaults to inline LLM configuration', () => {
-    render(<CreateSecretDialog open onOpenChange={vi.fn()} onCreated={vi.fn()} />)
+    render(<CreateStandaloneCredentialDialog open onOpenChange={vi.fn()} onCreated={vi.fn()} />)
 
     expect(screen.getByTestId('llm-configurator')).toBeTruthy()
   })
 
   it('hides the kind tablist when lockKind is set', () => {
     const { queryByRole } = render(
-      <CreateSecretDialog
+      <CreateStandaloneCredentialDialog
         open
         onOpenChange={() => {}}
         onCreated={() => {}}
@@ -86,7 +86,7 @@ describe('CreateSecretDialog', () => {
 
   it('uses a specific title when the model kind is locked', () => {
     render(
-      <CreateSecretDialog
+      <CreateStandaloneCredentialDialog
         open
         onOpenChange={() => {}}
         onCreated={() => {}}
@@ -101,7 +101,7 @@ describe('CreateSecretDialog', () => {
 
   it('uses a specific title when the service kind is locked', () => {
     render(
-      <CreateSecretDialog
+      <CreateStandaloneCredentialDialog
         open
         onOpenChange={() => {}}
         onCreated={() => {}}
@@ -128,9 +128,9 @@ describe('CreateSecretDialog', () => {
       created_at: '2026-08-07T00:00:00Z',
       updated_at: '2026-08-07T00:00:00Z',
     })
-    render(<CreateSecretDialog open onOpenChange={vi.fn()} onCreated={vi.fn()} />)
+    render(<CreateStandaloneCredentialDialog open onOpenChange={vi.fn()} onCreated={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('tab', { name: 'managed.llm.genericSecret' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'managed.llm.serviceCredential' }))
     fillGenericForm()
     fireEvent.click(screen.getByRole('button', { name: 'common.create' }))
 
@@ -146,7 +146,7 @@ describe('CreateSecretDialog', () => {
 
   it('does not create from stale form state in the same turn as a project switch', async () => {
     render(
-      <CreateSecretDialog
+      <CreateStandaloneCredentialDialog
         open
         initialKind="generic"
         lockKind
@@ -171,7 +171,7 @@ describe('CreateSecretDialog', () => {
     const onCreated = vi.fn()
     const onOpenChange = vi.fn()
     render(
-      <CreateSecretDialog
+      <CreateStandaloneCredentialDialog
         open
         initialKind="generic"
         lockKind
@@ -213,7 +213,7 @@ describe('CreateSecretDialog', () => {
 
   it('blocks submission when the current project becomes archived', async () => {
     render(
-      <CreateSecretDialog
+      <CreateStandaloneCredentialDialog
         open
         initialKind="generic"
         lockKind

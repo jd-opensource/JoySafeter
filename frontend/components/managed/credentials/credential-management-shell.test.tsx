@@ -113,7 +113,7 @@ vi.mock('./service-credential-list', () => ({
     </div>
   ),
 }))
-vi.mock('./mcp-vault-list', () => ({
+vi.mock('./mcp-credential-group-list', () => ({
   McpCredentialGroupList: ({ onCreate }: { onCreate: () => void }) => (
     <button onClick={onCreate}>vault-add</button>
   ),
@@ -121,8 +121,8 @@ vi.mock('./mcp-vault-list', () => ({
 vi.mock('./credential-kind-chooser', () => ({
   CredentialKindChooser: ({ open }: { open: boolean }) => (open ? <div>chooser-open</div> : null),
 }))
-vi.mock('@/app/managed/secrets/components/create-secret-dialog', () => ({
-  CreateSecretDialog: ({
+vi.mock('./create-standalone-credential-dialog', () => ({
+  CreateStandaloneCredentialDialog: ({
     open,
     initialKind,
     lockKind,
@@ -132,7 +132,7 @@ vi.mock('@/app/managed/secrets/components/create-secret-dialog', () => ({
     lockKind?: boolean
   }) => (open ? <div>{`secret-dialog:${initialKind}:${String(lockKind)}`}</div> : null),
 }))
-vi.mock('@/app/managed/vaults/components/create-vault-dialog', () => ({
+vi.mock('./create-credential-group-dialog', () => ({
   CreateCredentialGroupDialog: ({ open }: { open: boolean }) =>
     open ? <div>vault-dialog</div> : null,
 }))

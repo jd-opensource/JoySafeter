@@ -124,6 +124,7 @@ import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
+import { useSessionSkillUsageRefresh } from '@/hooks/managed/use-session-skill-usage-refresh'
 
 const TRANSCRIPT_TYPES = new Set([
   'user.message',
@@ -493,6 +494,8 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
   const canEditMessage = !projectReadOnly && !isArchived && !isSending
   const canSendMessage = !projectReadOnly && isIdle && !isArchived && !isSending
   const wasRunningRef = useRef(false)
+
+  useSessionSkillUsageRefresh({ isRunning, sessionScope })
 
   // Update session status from live SSE events only. Initial SSE replay can contain
   // out-of-order status events, while the session query is DB-authoritative.

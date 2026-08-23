@@ -47,7 +47,10 @@ export type SkillVersionDiff = {
   totalRemoved: number
 }
 
-type SkillDiffFile = Pick<SkillFileRecord | SkillVersionFileRecord, 'path' | 'file_name' | 'content'>
+type SkillDiffFile = Pick<
+  SkillFileRecord | SkillVersionFileRecord,
+  'path' | 'file_name' | 'content'
+>
 
 const fullPath = (file: SkillDiffFile): string => `${file.path || ''}${file.file_name}`
 

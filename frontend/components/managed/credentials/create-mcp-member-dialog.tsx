@@ -23,7 +23,7 @@ import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import type { CredentialGroupId } from '@/types/entity-id'
 
-interface CreateCredentialGroupCredentialDialogProps {
+interface CreateMcpMemberDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   credentialGroupId: CredentialGroupId
@@ -44,13 +44,13 @@ interface CreateCredentialVariables {
   requestScope: ManagedRequestScope
 }
 
-export function CreateCredentialGroupCredentialDialog({
+export function CreateMcpMemberDialog({
   open,
   onOpenChange,
   credentialGroupId,
   queryKey,
   canSubmit,
-}: CreateCredentialGroupCredentialDialogProps) {
+}: CreateMcpMemberDialogProps) {
   const { t } = useTranslation()
   const [name, setName] = useState('')
   const [mcpServerUrl, setMcpServerUrl] = useState('')
@@ -95,7 +95,7 @@ export function CreateCredentialGroupCredentialDialog({
     onError: (error, { runId, scope }) => {
       if (!isCurrentAction(runId, scope)) return
       if (canSubmit && !canSubmit()) return
-      toastOperationError(t, error, 'managed.vaults.cred.createFailed')
+      toastOperationError(t, error, 'managed.credentials.groups.members.createFailed')
     },
   })
 
@@ -145,21 +145,23 @@ export function CreateCredentialGroupCredentialDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t('managed.vaults.cred.createTitle')}</DialogTitle>
-          <DialogDescription>{t('managed.vaults.cred.createDescription')}</DialogDescription>
+          <DialogTitle>{t('managed.credentials.groups.members.createTitle')}</DialogTitle>
+          <DialogDescription>
+            {t('managed.credentials.groups.members.createDescription')}
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="mt-2 space-y-4">
           <div className="space-y-1.5">
             <label htmlFor="cred-name" className="text-sm font-medium">
-              {t('managed.vaults.cred.name')}{' '}
+              {t('managed.credentials.groups.members.name')}{' '}
               <span className="font-normal text-muted-foreground">
-                {t('managed.vaults.cred.nameOptional')}
+                {t('managed.credentials.groups.members.nameOptional')}
               </span>
             </label>
             <Input
               id="cred-name"
-              placeholder={t('managed.vaults.cred.namePlaceholder')}
+              placeholder={t('managed.credentials.groups.members.namePlaceholder')}
               value={name}
               disabled={readOnly}
               onChange={(e) => setName(e.target.value)}
@@ -169,7 +171,7 @@ export function CreateCredentialGroupCredentialDialog({
 
           <div className="space-y-1.5">
             <label htmlFor="cred-url" className="text-sm font-medium">
-              {t('managed.vaults.cred.mcpServer')}
+              {t('managed.credentials.groups.members.mcpServer')}
             </label>
             <Input
               id="cred-url"
@@ -182,12 +184,12 @@ export function CreateCredentialGroupCredentialDialog({
 
           <div className="space-y-1.5">
             <label htmlFor="cred-token" className="text-sm font-medium">
-              {t('managed.vaults.cred.token')}
+              {t('managed.credentials.groups.members.token')}
             </label>
             <Input
               id="cred-token"
               type="password"
-              placeholder={t('managed.vaults.cred.tokenPlaceholder')}
+              placeholder={t('managed.credentials.groups.members.tokenPlaceholder')}
               value={tokenValue}
               disabled={readOnly}
               onChange={(e) => setTokenValue(e.target.value)}
@@ -201,7 +203,9 @@ export function CreateCredentialGroupCredentialDialog({
                 !mcpServerUrl.trim() || !tokenValue.trim() || mutation.isPending || readOnly
               }
             >
-              {mutation.isPending ? t('managed.vaults.cred.adding') : t('managed.vaults.cred.add')}
+              {mutation.isPending
+                ? t('managed.credentials.groups.members.adding')
+                : t('managed.credentials.groups.members.add')}
             </Button>
           </div>
         </form>

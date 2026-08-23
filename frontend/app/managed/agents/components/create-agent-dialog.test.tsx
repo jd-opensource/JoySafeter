@@ -81,8 +81,8 @@ vi.mock('@/hooks/managed/use-llm-catalog', () => ({
   }),
 }))
 
-vi.mock('@/components/managed/llm/llm-secret-configurator', () => ({
-  LlmSecretConfigurator: ({
+vi.mock('@/components/managed/llm/model-connection-configurator', () => ({
+  ModelConnectionConfigurator: ({
     onCreated,
     onCancel,
   }: {
@@ -533,7 +533,7 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     })
 
     await act(async () => {
-      queryClient.setQueryData(['compatible-secrets', 'org-a:project-a', 'claude'], [])
+      queryClient.setQueryData(['compatible-credentials', 'org-a:project-a', 'claude'], [])
       fireEvent.click(getByText('managed.agents.create.submit'))
       await Promise.resolve()
     })

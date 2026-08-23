@@ -1,7 +1,7 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Trash2 } from 'lucide-react'
+import { RotateCcw, Trash2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
@@ -75,6 +75,7 @@ export function McpCredentialGroupList({
   const setSearchQuery = (value: string) => updateListState({ searchQuery: value })
   const setCreatedFilter = (value: string) => updateListState({ createdFilter: value })
   const [archiveTarget, setArchiveTarget] = useState<CredentialGroup | null>(null)
+  const [restoreTarget, setRestoreTarget] = useState<CredentialGroup | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<CredentialGroup | null>(null)
   const {
     scopeRef: managedScopeRef,
@@ -87,16 +88,25 @@ export function McpCredentialGroupList({
   } = useScopedActions({
     onReset: () => {
       setArchiveTarget(null)
+      setRestoreTarget(null)
       setDeleteTarget(null)
     },
   })
 
-  const currentCredentialGroupIsActive = (_credentialGroup: CredentialGroup, scope: string) =>
-    scopeIsActive(scope) && currentProjectAllowsWrite()
+  const currentCredentialGroupMatchesState = (
+    credentialGroup: CredentialGroup,
+    scope: string,
+    archived: boolean,
+  ) =>
+    scopeIsActive(scope) &&
+    currentProjectAllowsWrite() &&
+    data.some(
+      (current) => current.id === credentialGroup.id && Boolean(current.archived_at) === archived,
+    )
 
   const openArchiveDialog = (credentialGroup: CredentialGroup) => {
-    if (!currentCredentialGroupIsActive(credentialGroup, managedScopeRef.current)) {
-      toastError(t('managed.vaults.actionUnavailable'))
+    if (!currentCredentialGroupMatchesState(credentialGroup, managedScopeRef.current, false)) {
+      toastError(t('managed.credentials.groups.actionUnavailable'))
       return
     }
     bumpRun()
@@ -106,9 +116,21 @@ export function McpCredentialGroupList({
     bumpRun()
     setArchiveTarget(null)
   }
+  const openRestoreDialog = (credentialGroup: CredentialGroup) => {
+    if (!currentCredentialGroupMatchesState(credentialGroup, managedScopeRef.current, true)) {
+      toastError(t('managed.credentials.groups.actionUnavailable'))
+      return
+    }
+    bumpRun()
+    setRestoreTarget(credentialGroup)
+  }
+  const closeRestoreDialog = () => {
+    bumpRun()
+    setRestoreTarget(null)
+  }
   const openDeleteDialog = (credentialGroup: CredentialGroup) => {
-    if (!currentCredentialGroupIsActive(credentialGroup, managedScopeRef.current)) {
-      toastError(t('managed.vaults.actionUnavailable'))
+    if (!scopeIsActive(managedScopeRef.current) || !currentProjectAllowsWrite()) {
+      toastError(t('managed.credentials.groups.actionUnavailable'))
       return
     }
     bumpRun()
@@ -173,6 +195,35 @@ export function McpCredentialGroupList({
       toastOperationError(t, err, 'common.operationFailed')
     },
   })
+  const restoreMutation = useMutation({
+    mutationFn: ({
+      credentialGroup,
+      runId,
+      scope,
+      requestScope,
+    }: CredentialGroupActionVariables) => {
+      if (!isCurrentAction(runId, scope)) {
+        throw new Error('Stale credential group restore ignored')
+      }
+      if (!currentProjectAllowsWrite()) {
+        throw new Error('Archived project credential group restore ignored')
+      }
+      return managedPost(
+        apiResourcePath('credential-groups', credentialGroup.id, 'restore'),
+        {},
+        managedRequestOptions(requestScope),
+      )
+    },
+    onSuccess: (_data, { runId, scope }) => {
+      if (!isCurrentAction(runId, scope)) return
+      queryClient.invalidateQueries({ queryKey: ['credential-groups', scope] })
+      setRestoreTarget(null)
+    },
+    onError: (error, { runId, scope }) => {
+      if (!isCurrentAction(runId, scope)) return
+      toastOperationError(t, error, 'common.operationFailed')
+    },
+  })
   const deleteMutation = useMutation({
     mutationFn: ({
       credentialGroup,
@@ -220,16 +271,22 @@ export function McpCredentialGroupList({
   ]
 
   useEffect(() => {
-    const activeById = new Map(data.filter((v) => !v.archived_at).map((v) => [v.id, v]))
+    const byId = new Map(data.map((credentialGroup) => [credentialGroup.id, credentialGroup]))
     setArchiveTarget((target) => {
       if (!target) return null
-      const current = activeById.get(target.id) ?? null
-      if (!current) bumpRun()
-      return current
+      const current = byId.get(target.id) ?? null
+      if (!current || current.archived_at) bumpRun()
+      return current && !current.archived_at ? current : null
+    })
+    setRestoreTarget((target) => {
+      if (!target) return null
+      const current = byId.get(target.id) ?? null
+      if (!current || !current.archived_at) bumpRun()
+      return current?.archived_at ? current : null
     })
     setDeleteTarget((target) => {
       if (!target) return null
-      const current = activeById.get(target.id) ?? null
+      const current = byId.get(target.id) ?? null
       if (!current) bumpRun()
       return current
     })
@@ -316,10 +373,19 @@ export function McpCredentialGroupList({
         fetching={isFetching}
         onRowClick={(v) => router.push(`/managed/credentials/mcp/${v.id}`)}
         actionMenu={(v) =>
-          readOnly || v.archived_at
+          readOnly
             ? []
             : [
-                { label: t('managed.vaults.archiveVault'), onClick: () => openArchiveDialog(v) },
+                v.archived_at
+                  ? {
+                      label: t('common.restore'),
+                      icon: <RotateCcw className="size-3.5" />,
+                      onClick: () => openRestoreDialog(v),
+                    }
+                  : {
+                      label: t('managed.credentials.groups.archiveCredentialGroup'),
+                      onClick: () => openArchiveDialog(v),
+                    },
                 {
                   label: t('common.delete'),
                   destructive: true,
@@ -357,8 +423,10 @@ export function McpCredentialGroupList({
       />
       <ConfirmDialog
         open={!readOnly && !!archiveTarget}
-        title={t('managed.vaults.archiveTitle')}
-        description={t('managed.vaults.archiveDescription', { name: archiveTarget?.name })}
+        title={t('managed.credentials.groups.archiveTitle')}
+        description={t('managed.credentials.groups.archiveDescription', {
+          name: archiveTarget?.name,
+        })}
         confirmLabel={t('common.archive')}
         destructive
         onConfirm={() => {
@@ -367,7 +435,9 @@ export function McpCredentialGroupList({
             return
           }
           if (archiveTarget) {
-            if (!currentCredentialGroupIsActive(archiveTarget, managedScopeRef.current)) {
+            if (
+              !currentCredentialGroupMatchesState(archiveTarget, managedScopeRef.current, false)
+            ) {
               closeArchiveDialog()
               return
             }
@@ -387,9 +457,43 @@ export function McpCredentialGroupList({
         onCancel={closeArchiveDialog}
       />
       <ConfirmDialog
+        open={!readOnly && !!restoreTarget}
+        title={t('managed.credentials.groups.restoreTitle')}
+        description={t('managed.credentials.groups.restoreDescription', {
+          name: restoreTarget?.name,
+        })}
+        confirmLabel={t('common.restore')}
+        onConfirm={() => {
+          if (!currentProjectAllowsWrite()) {
+            closeRestoreDialog()
+            return
+          }
+          if (restoreTarget) {
+            if (!currentCredentialGroupMatchesState(restoreTarget, managedScopeRef.current, true)) {
+              closeRestoreDialog()
+              return
+            }
+            const action = beginAction()
+            if (!action) {
+              closeRestoreDialog()
+              return
+            }
+            restoreMutation.mutate({
+              credentialGroup: restoreTarget,
+              runId: action.runId,
+              scope: action.scope,
+              requestScope: action.requestScope,
+            })
+          }
+        }}
+        onCancel={closeRestoreDialog}
+      />
+      <ConfirmDialog
         open={!readOnly && !!deleteTarget}
-        title={t('managed.vaults.deleteTitle')}
-        description={t('managed.vaults.deleteDescription', { name: deleteTarget?.name })}
+        title={t('managed.credentials.groups.deleteTitle')}
+        description={t('managed.credentials.groups.deleteDescription', {
+          name: deleteTarget?.name,
+        })}
         confirmLabel={t('common.delete')}
         destructive
         onConfirm={() => {
@@ -398,7 +502,7 @@ export function McpCredentialGroupList({
             return
           }
           if (deleteTarget) {
-            if (!currentCredentialGroupIsActive(deleteTarget, managedScopeRef.current)) {
+            if (!scopeIsActive(managedScopeRef.current)) {
               closeDeleteDialog()
               return
             }

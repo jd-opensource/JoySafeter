@@ -6,7 +6,7 @@ import type {
   ModelConnectionSummary,
 } from '@/types/managed'
 
-import { parseModelConnectionSummaryResponse } from './secret-response-parsers'
+import { parseModelConnectionSummaryResponse } from './credential-response-parsers'
 
 type RawAgentSkillRef = Omit<AgentSkillRef, 'skill_id'> & { skill_id: string }
 

@@ -15,7 +15,7 @@ import {
   managedRequestOptions,
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
-import { parseSecretDetailResponse } from '@/lib/managed/secret-response-parsers'
+import { parseCredentialDetailResponse } from '@/lib/managed/credential-response-parsers'
 import type { CredentialId } from '@/types/entity-id'
 
 import { ModelConnectionDetail } from './model-connection-detail'
@@ -33,7 +33,7 @@ export function CredentialDetail({ credentialId }: { credentialId: CredentialId 
         apiResourcePath('credentials', credentialId),
         managedRequestOptions(managedScope),
       )
-      return parseSecretDetailResponse(res)
+      return parseCredentialDetailResponse(res)
     },
     enabled: hasManagedRequestScope(managedScope),
   })
@@ -46,10 +46,14 @@ export function CredentialDetail({ credentialId }: { credentialId: CredentialId 
   }, [redirectGroupId, router])
 
   if (query.isError) {
-    return <ResourceErrorState error={query.error} resource="secret" onRetry={() => query.refetch()} />
+    return (
+      <ResourceErrorState error={query.error} resource="secret" onRetry={() => query.refetch()} />
+    )
   }
   if (query.isLoading || !credential) {
-    return <div className="py-10 text-center text-sm text-muted-foreground">{t('common.loading')}</div>
+    return (
+      <div className="py-10 text-center text-sm text-muted-foreground">{t('common.loading')}</div>
+    )
   }
   if (credential.kind === 'model') return <ModelConnectionDetail credential={credential} />
   if (credential.kind === 'service') return <ServiceCredentialDetail credential={credential} />

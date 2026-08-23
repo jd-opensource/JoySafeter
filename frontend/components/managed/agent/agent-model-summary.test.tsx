@@ -9,7 +9,8 @@ const translations: Record<string, string> = {
   'managed.modelDisplay.connection': 'Model Connection',
   'managed.modelDisplay.defaultConnection': 'Default',
   'managed.modelDisplay.connectionUnavailable': 'Bound model connection unavailable',
-  'managed.modelDisplay.connectionUnavailableHint': 'The bound model connection could not be loaded.',
+  'managed.modelDisplay.connectionUnavailableHint':
+    'The bound model connection could not be loaded.',
   'managed.modelDisplay.unbound': 'No model connection',
   'managed.modelDisplay.unboundHint': 'The agent will not receive model credentials.',
 }
@@ -21,9 +22,7 @@ vi.mock('@/lib/i18n', () => ({
   }),
 }))
 
-const modelConnection = (
-  overrides: Partial<ModelConnectionSummary> = {},
-): ModelConnectionSummary =>
+const modelConnection = (overrides: Partial<ModelConnectionSummary> = {}): ModelConnectionSummary =>
   ({
     id: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f002',
     name: 'GPT-5',

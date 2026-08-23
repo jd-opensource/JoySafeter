@@ -43,10 +43,10 @@ app/
     ├── agents/                   # Agent 列表、详情、编辑、版本
     ├── sessions/                 # 会话列表、会话详情、SSE 事件流
     ├── environments/             # 沙箱镜像与网络配置
-    ├── vaults/                   # MCP / OAuth 凭据库
+    ├── credentials/              # 统一凭据界面：模型、服务与 MCP 凭据组
     ├── files/                    # 上传文件资源
     ├── skills/                   # Skill 导入、编辑、版本、安全扫描、AI authoring
-    ├── secrets/                  # 模型供应商密钥
+    ├── secrets/、vaults/         # 旧地址兼容，仅重定向到 credentials
     ├── memory-stores/            # 记忆库与版本
     ├── settings/                 # 组织设置
     ├── projects/                 # 项目管理

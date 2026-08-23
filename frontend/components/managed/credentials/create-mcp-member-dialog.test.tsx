@@ -77,7 +77,7 @@ import { managedPost } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { parseCredentialGroupId, type CredentialGroupId } from '@/types/entity-id'
 
-import { CreateCredentialGroupCredentialDialog } from './create-credential-dialog'
+import { CreateMcpMemberDialog } from './create-mcp-member-dialog'
 
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 const vaultAId = parseCredentialGroupId('credgrp_00000000-0000-0000-0000-000000000001')
@@ -108,7 +108,7 @@ function renderDialog(
 ) {
   return (
     <QueryClientProvider client={queryClient}>
-      <CreateCredentialGroupCredentialDialog
+      <CreateMcpMemberDialog
         key={credentialGroupId}
         open
         onOpenChange={onOpenChange}
@@ -119,7 +119,7 @@ function renderDialog(
   )
 }
 
-describe('CreateCredentialGroupCredentialDialog object lifecycle', () => {
+describe('CreateMcpMemberDialog object lifecycle', () => {
   beforeEach(() => {
     managedPostMock.mockReset()
     managedPostMock.mockResolvedValue({
@@ -169,9 +169,12 @@ describe('CreateCredentialGroupCredentialDialog object lifecycle', () => {
     fireEvent.input(view.getByPlaceholderText('https://mcp.example.com'), {
       target: { value: 'https://mcp-a.example.com' },
     })
-    fireEvent.input(view.getByPlaceholderText('managed.vaults.cred.tokenPlaceholder'), {
-      target: { value: 'bearer-token' },
-    })
+    fireEvent.input(
+      view.getByPlaceholderText('managed.credentials.groups.members.tokenPlaceholder'),
+      {
+        target: { value: 'bearer-token' },
+      },
+    )
 
     act(() => {
       useProjectStore.setState((state) => ({
@@ -183,7 +186,9 @@ describe('CreateCredentialGroupCredentialDialog object lifecycle', () => {
 
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
     expect(view.getByPlaceholderText('https://mcp.example.com')).toHaveValue('')
-    expect(view.getByPlaceholderText('managed.vaults.cred.tokenPlaceholder')).toHaveValue('')
+    expect(
+      view.getByPlaceholderText('managed.credentials.groups.members.tokenPlaceholder'),
+    ).toHaveValue('')
   })
 
   it('does not submit credential draft data to a different vault after vault id changes', async () => {
@@ -200,13 +205,13 @@ describe('CreateCredentialGroupCredentialDialog object lifecycle', () => {
     )
 
     await act(async () => {
-      fireEvent.input(getByPlaceholderText('managed.vaults.cred.namePlaceholder'), {
+      fireEvent.input(getByPlaceholderText('managed.credentials.groups.members.namePlaceholder'), {
         target: { value: 'Vault A Credential' },
       })
       fireEvent.input(getByPlaceholderText('https://mcp.example.com'), {
         target: { value: 'https://mcp-a.example.com' },
       })
-      fireEvent.input(getByPlaceholderText('managed.vaults.cred.tokenPlaceholder'), {
+      fireEvent.input(getByPlaceholderText('managed.credentials.groups.members.tokenPlaceholder'), {
         target: { value: 'bearer-token' },
       })
     })
@@ -216,7 +221,7 @@ describe('CreateCredentialGroupCredentialDialog object lifecycle', () => {
     })
 
     await act(async () => {
-      fireEvent.click(getByText('managed.vaults.cred.add'))
+      fireEvent.click(getByText('managed.credentials.groups.members.add'))
     })
 
     expect(managedPostMock).not.toHaveBeenCalled()
@@ -242,12 +247,12 @@ describe('CreateCredentialGroupCredentialDialog object lifecycle', () => {
       fireEvent.input(getByPlaceholderText('https://mcp.example.com'), {
         target: { value: 'https://mcp-a.example.com' },
       })
-      fireEvent.input(getByPlaceholderText('managed.vaults.cred.tokenPlaceholder'), {
+      fireEvent.input(getByPlaceholderText('managed.credentials.groups.members.tokenPlaceholder'), {
         target: { value: 'bearer-token' },
       })
     })
     await act(async () => {
-      fireEvent.click(getByText('managed.vaults.cred.add'))
+      fireEvent.click(getByText('managed.credentials.groups.members.add'))
       await Promise.resolve()
     })
 
@@ -290,13 +295,16 @@ describe('CreateCredentialGroupCredentialDialog object lifecycle', () => {
       fireEvent.input(view.getByPlaceholderText('https://mcp.example.com'), {
         target: { value: 'https://mcp-a.example.com' },
       })
-      fireEvent.input(view.getByPlaceholderText('managed.vaults.cred.tokenPlaceholder'), {
-        target: { value: 'bearer-token' },
-      })
+      fireEvent.input(
+        view.getByPlaceholderText('managed.credentials.groups.members.tokenPlaceholder'),
+        {
+          target: { value: 'bearer-token' },
+        },
+      )
     })
 
     await act(async () => {
-      fireEvent.click(view.getByText('managed.vaults.cred.add'))
+      fireEvent.click(view.getByText('managed.credentials.groups.members.add'))
       await Promise.resolve()
     })
 
@@ -332,15 +340,18 @@ describe('CreateCredentialGroupCredentialDialog object lifecycle', () => {
     const view = render(renderDialog(vaultAId, queryClient, onOpenChange))
 
     expect(view.queryByText('OAuth')).toBeNull()
-    const submit = view.getByText('managed.vaults.cred.add').closest('button')!
+    const submit = view.getByText('managed.credentials.groups.members.add').closest('button')!
     expect(submit.disabled).toBe(true)
 
     fireEvent.input(view.getByPlaceholderText('https://mcp.example.com'), {
       target: { value: 'https://mcp-a.example.com' },
     })
-    fireEvent.input(view.getByPlaceholderText('managed.vaults.cred.tokenPlaceholder'), {
-      target: { value: ' bearer-token ' },
-    })
+    fireEvent.input(
+      view.getByPlaceholderText('managed.credentials.groups.members.tokenPlaceholder'),
+      {
+        target: { value: ' bearer-token ' },
+      },
+    )
     await act(async () => {
       fireEvent.click(submit)
     })

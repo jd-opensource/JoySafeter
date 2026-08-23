@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/components/managed/llm/compatible-secret-picker', () => ({
-  CompatibleSecretPicker: ({
+vi.mock('@/components/managed/llm/compatible-credential-picker', () => ({
+  CompatibleCredentialPicker: ({
     onChange,
     onCreateRequested,
   }: {
@@ -20,8 +20,8 @@ vi.mock('@/components/managed/llm/compatible-secret-picker', () => ({
   ),
 }))
 
-vi.mock('@/components/managed/llm/llm-secret-configurator', () => ({
-  LlmSecretConfigurator: ({
+vi.mock('@/components/managed/llm/model-connection-configurator', () => ({
+  ModelConnectionConfigurator: ({
     initialEngineId,
     onCancel,
     onCreated,

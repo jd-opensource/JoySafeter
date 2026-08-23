@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 
 import { createInstance } from 'i18next'
@@ -21,14 +21,19 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ['navigation', 'nav.apiKeys', 'Project Access Tokens', '项目访问令牌'],
   [
     'connections and credentials',
-    'managed.secrets.new',
+    'managed.credentials.resources.new',
     'New Connection or Credential',
     '新建连接或凭据',
   ],
-  ['connections and credentials', 'managed.secrets.dataLabel', 'Credential Fields', '凭据字段'],
   [
     'connections and credentials',
-    'managed.secrets.deleteTitle',
+    'managed.credentials.resources.dataLabel',
+    'Credential Fields',
+    '凭据字段',
+  ],
+  [
+    'connections and credentials',
+    'managed.credentials.resources.deleteTitle',
     'Delete Connection or Credential',
     '删除连接或凭据',
   ],
@@ -39,7 +44,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     '按名称或 ID 搜索凭据',
   ],
   ['model and service', 'managed.llm.modelConfiguration', 'Model Connection', '模型连接'],
-  ['model and service', 'managed.llm.genericSecret', 'Service Credential', '服务凭据'],
+  ['model and service', 'managed.llm.serviceCredential', 'Service Credential', '服务凭据'],
   ['agent model connection', 'agents.edit.secretRef', 'Model Connection', '模型连接'],
   [
     'agent model connection',
@@ -157,90 +162,105 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'We could not load this MCP credential group right now. Please retry or check your connection.',
     '暂时无法加载此 MCP 凭据组。请重试，或检查网络连接。',
   ],
-  ['MCP credential groups', 'managed.vaults.title', 'MCP Credential Groups', 'MCP 凭据组'],
-  ['MCP credential groups', 'managed.vaults.new', 'New MCP Credential Group', '新建 MCP 凭据组'],
-  ['MCP credential groups', 'managed.vaults.credentials', 'MCP Credentials', 'MCP 凭据'],
   [
     'MCP credential groups',
-    'managed.vaults.addCredential',
+    'managed.credentials.groups.title',
+    'MCP Credential Groups',
+    'MCP 凭据组',
+  ],
+  [
+    'MCP credential groups',
+    'managed.credentials.groups.new',
+    'New MCP Credential Group',
+    '新建 MCP 凭据组',
+  ],
+  [
+    'MCP credential groups',
+    'managed.credentials.groups.credentials',
+    'MCP Credentials',
+    'MCP 凭据',
+  ],
+  [
+    'MCP credential groups',
+    'managed.credentials.groups.addCredential',
     'Add MCP Bearer Credential',
     '添加 MCP Bearer 凭据',
   ],
   [
     'MCP credential groups',
-    'managed.vaults.empty',
+    'managed.credentials.groups.empty',
     'No MCP credential groups yet.',
     '暂无 MCP 凭据组。',
   ],
   [
     'MCP credential groups',
-    'managed.vaults.archiveVault',
+    'managed.credentials.groups.archiveCredentialGroup',
     'Archive MCP Credential Group',
     '归档 MCP 凭据组',
   ],
   [
     'MCP credential groups',
-    'managed.vaults.archiveTitle',
+    'managed.credentials.groups.archiveTitle',
     'Archive MCP Credential Group',
     '归档 MCP 凭据组',
   ],
   [
     'MCP credential groups',
-    'managed.vaults.deleteTitle',
+    'managed.credentials.groups.deleteTitle',
     'Delete MCP Credential Group',
     '删除 MCP 凭据组',
   ],
   [
     'MCP credential groups',
-    'managed.vaults.backToVaults',
+    'managed.credentials.groups.backToCredentialGroups',
     'Back to MCP Credential Groups',
     '返回 MCP 凭据组',
   ],
   [
     'MCP credential groups',
-    'managed.vaults.subtitle',
+    'managed.credentials.groups.subtitle',
     'Manage MCP credential groups that give agents access to MCP servers and other tools.',
     '管理 MCP 凭据组，为智能体提供访问 MCP 服务器和其他工具的权限。',
   ],
   [
     'MCP credential groups',
-    'managed.vaults.createTitle',
+    'managed.credentials.groups.createTitle',
     'Create MCP Credential Group',
     '创建 MCP 凭据组',
   ],
   [
     'MCP credential groups',
-    'managed.vaults.createDescription',
+    'managed.credentials.groups.createDescription',
     'Create a new MCP credential group.',
     '创建新的 MCP 凭据组。',
   ],
   [
     'MCP credential groups',
-    'managed.vaults.sharedWarning',
+    'managed.credentials.groups.sharedWarning',
     'MCP credential groups are shared within the current project. Access and management require appropriate project permissions.',
     'MCP 凭据组在当前项目内共享，访问和管理需要相应的项目权限。',
   ],
   [
     'MCP credential groups',
-    'managed.vaults.namePlaceholder',
+    'managed.credentials.groups.namePlaceholder',
     'Production MCP Credential Group',
     '生产 MCP 凭据组',
   ],
   [
     'MCP credential groups',
-    'managed.vaults.createFailed',
+    'managed.credentials.groups.createFailed',
     'Failed to create MCP credential group. Please try again.',
     '创建 MCP 凭据组失败，请重试。',
   ],
   [
     'MCP credential groups',
-    'managed.vaults.archiveDescription',
+    'managed.credentials.groups.archiveDescription',
     'Are you sure you want to archive "{{name}}"? Credentials in this MCP credential group will no longer be available to agents.',
     '确定要归档 "{{name}}" 吗？此 MCP 凭据组中的凭据将不再对智能体可用。',
   ],
   [
     'MCP credential groups',
-    'managed.vaults.noCredentials',
+    'managed.credentials.groups.noCredentials',
     'No MCP credentials in this credential group yet.',
     '此 MCP 凭据组暂无 MCP 凭据。',
   ],
@@ -382,10 +402,10 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'How the platform uses a credential field to authenticate the outbound request.',
     '平台如何使用凭据字段为出站请求生成认证信息。',
   ],
-  ['environments', 'managed.environments.egressSecretKey', 'Credential Field', '凭据字段'],
+  ['environments', 'managed.environments.egressCredentialField', 'Credential Field', '凭据字段'],
   [
     'environments',
-    'managed.environments.egressSelectSecretKey',
+    'managed.environments.egressSelectCredentialField',
     'Select credential field',
     '选择凭据字段',
   ],
@@ -409,19 +429,19 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   [
     'environments',
-    'managed.environments.egressSecretKeyTooltip',
+    'managed.environments.egressCredentialFieldTooltip',
     'Credential field inside the service credential. Case-sensitive. The platform reads this field and injects its value into the request.',
     '服务凭据里的凭据字段，区分大小写；平台会读取这个字段的值并注入请求。',
   ],
   [
     'environments',
-    'managed.environments.egressCookieSecretKeyTooltip',
+    'managed.environments.egressCookieCredentialFieldTooltip',
     'Credential field in the service credential that stores the full Cookie header string. Case-sensitive. For example, COOKIE_HEADER contains thor=...; pin=..., so the injected header is Cookie: <COOKIE_HEADER>.',
     '服务凭据中保存完整 Cookie header 字符串的凭据字段，区分大小写。例如字段 COOKIE_HEADER 的值是 thor=...; pin=...，最终注入 Cookie: <COOKIE_HEADER>。',
   ],
   [
     'environments',
-    'managed.environments.egressSecretKeyHint',
+    'managed.environments.egressCredentialFieldHint',
     'Credential field inside the selected service credential. Case-sensitive.',
     '所选服务凭据里的凭据字段，区分大小写。',
   ],
@@ -446,31 +466,31 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ['sessions', 'managed.sessions.create.vaults', 'MCP Credential Groups', 'MCP 凭据组'],
   [
     'sessions',
-    'managed.sessions.create.manageVaults',
+    'managed.sessions.create.manageCredentialGroups',
     'Manage MCP Credential Groups',
     '管理 MCP 凭据组',
   ],
   [
     'sessions',
-    'managed.sessions.create.createVault',
+    'managed.sessions.create.createCredentialGroup',
     'Create MCP credential group…',
     '新建 MCP 凭据组…',
   ],
   [
     'sessions',
-    'managed.sessions.create.searchVault',
+    'managed.sessions.create.searchCredentialGroups',
     'Search MCP credential groups by name or ID',
     '按名称或 ID 搜索 MCP 凭据组',
   ],
   [
     'sessions',
-    'managed.sessions.create.noVaults',
+    'managed.sessions.create.noCredentialGroups',
     'No MCP credential groups available',
     '暂无可用 MCP 凭据组',
   ],
   [
     'sessions',
-    'managed.sessions.create.noVaultMatch',
+    'managed.sessions.create.noCredentialGroupMatch',
     'No matching MCP credential groups',
     '没有匹配的 MCP 凭据组',
   ],
@@ -488,7 +508,12 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'MCP 凭据组',
   ],
   ['quickstart', 'managed.quickstart.resourceKindAgent', 'Agent', '智能体'],
-  ['quickstart', 'managed.quickstart.step.chooseSecret', 'Secure Model Connection', '安全模型连接'],
+  [
+    'quickstart',
+    'managed.quickstart.step.chooseModelConnection',
+    'Secure Model Connection',
+    '安全模型连接',
+  ],
   [
     'quickstart',
     'managed.quickstart.noApiKey',
@@ -497,13 +522,13 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   [
     'quickstart',
-    'managed.quickstart.chooseSecret',
+    'managed.quickstart.chooseModelConnection',
     'Complete Step 2 above: choose or create a Model Connection',
     '请在上方完成第二步：选择或创建模型连接',
   ],
   [
     'quickstart',
-    'managed.quickstart.noCompatibleSecret',
+    'managed.quickstart.noCompatibleModelConnection',
     'No compatible Model Connection for this engine',
     '当前引擎没有兼容的模型连接',
   ],
@@ -594,14 +619,19 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   [
     'quickstart',
-    'managed.quickstart.step.configureVault',
+    'managed.quickstart.step.configureCredentialGroup',
     'Authorize External Tools',
     '授权外部工具',
   ],
-  ['quickstart', 'managed.quickstart.createThisVault', 'Authorize external tools', '授权外部工具'],
   [
     'quickstart',
-    'managed.quickstart.nextConfigureVault',
+    'managed.quickstart.createThisCredentialGroup',
+    'Authorize external tools',
+    '授权外部工具',
+  ],
+  [
+    'quickstart',
+    'managed.quickstart.nextConfigureCredentialGroup',
     'Next: Authorize External Tools',
     '下一步：授权外部工具 →',
   ],
@@ -774,10 +804,15 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'MCP server URL, e.g. https://api.github.com/mcp',
     'MCP Server URL，例如 https://api.github.com/mcp',
   ],
-  ['quickstart', 'managed.quickstart.createVault', 'Authorize External Tools', '授权外部工具'],
   [
     'quickstart',
-    'managed.quickstart.errors.createVaultFailed',
+    'managed.quickstart.createCredentialGroup',
+    'Authorize External Tools',
+    '授权外部工具',
+  ],
+  [
+    'quickstart',
+    'managed.quickstart.errors.createCredentialGroupFailed',
     'Failed to create MCP credential group',
     '创建 MCP 凭据组失败',
   ],
@@ -801,77 +836,87 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   [
     'Vault static Bearer',
-    'managed.vaults.cred.createTitle',
+    'managed.credentials.groups.members.createTitle',
     'Add MCP Bearer Credential',
     '添加 MCP Bearer 凭据',
   ],
   [
     'Vault static Bearer',
-    'managed.vaults.cred.createDescription',
+    'managed.credentials.groups.members.createDescription',
     'Store a Bearer token for one MCP server in this credential group.',
     '在当前 MCP 凭据组中保存一个 MCP Server 的 Bearer Token。',
   ],
-  ['Vault static Bearer', 'managed.vaults.cred.token', 'Bearer Token', 'Bearer Token'],
   [
     'Vault static Bearer',
-    'managed.vaults.cred.tokenPlaceholder',
+    'managed.credentials.groups.members.token',
+    'Bearer Token',
+    'Bearer Token',
+  ],
+  [
+    'Vault static Bearer',
+    'managed.credentials.groups.members.tokenPlaceholder',
     'Enter Bearer token',
     '输入 Bearer Token',
   ],
-  ['Vault static Bearer', 'managed.vaults.cred.adding', 'Adding…', '添加中…'],
-  ['Vault static Bearer', 'managed.vaults.cred.add', 'Add Credential', '添加凭据'],
-  ['MCP credentials', 'managed.vaults.credArchiveTitle', 'Archive MCP Credential', '归档 MCP 凭据'],
+  ['Vault static Bearer', 'managed.credentials.groups.members.adding', 'Adding…', '添加中…'],
+  ['Vault static Bearer', 'managed.credentials.groups.members.add', 'Add Credential', '添加凭据'],
   [
     'MCP credentials',
-    'managed.vaults.cred.createFailed',
+    'managed.credentials.groups.credArchiveTitle',
+    'Archive MCP Credential',
+    '归档 MCP 凭据',
+  ],
+  [
+    'MCP credentials',
+    'managed.credentials.groups.members.createFailed',
     'Failed to create MCP credential. Please try again.',
     '创建 MCP 凭据失败，请重试。',
   ],
   [
     'agent model connection',
-    'agents.edit.selectSecret',
+    'agents.edit.selectModelConnection',
     'Select a Model Connection',
     '选择模型连接',
   ],
   [
     'agent model connection',
-    'agents.edit.searchSecret',
+    'agents.edit.searchModelConnections',
     'Search Model Connections',
     '搜索模型连接',
   ],
   [
     'agent model connection',
-    'agents.edit.noSecretMatch',
+    'agents.edit.noModelConnectionMatch',
     'No matching Model Connections',
     '没有匹配的模型连接',
   ],
   [
     'agent model connection',
-    'agents.edit.createSecret',
+    'agents.edit.createModelConnection',
     'Create Model Connection…',
     '新建模型连接…',
   ],
   [
     'agent model connection',
-    'managed.agents.edit.selectSecret',
+    'managed.agents.edit.selectModelConnection',
     'Select a Model Connection',
     '选择模型连接',
   ],
   [
     'agent model connection',
-    'managed.agents.edit.searchSecret',
+    'managed.agents.edit.searchModelConnections',
     'Search Model Connections',
     '搜索模型连接',
   ],
   [
     'agent model connection',
-    'managed.agents.edit.noSecretMatch',
+    'managed.agents.edit.noModelConnectionMatch',
     'No matching Model Connections',
     '没有匹配的模型连接',
   ],
   [
     'agent model connection',
-    'managed.agents.edit.createSecret',
+    'managed.agents.edit.createModelConnection',
     'Create Model Connection…',
     '新建模型连接…',
   ],
@@ -883,7 +928,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   [
     'agent model connection',
-    'managed.skills.aiAuthor.noSecrets',
+    'managed.skills.aiAuthor.noModelConnections',
     'No model connections available',
     '暂无可用模型连接',
   ],
@@ -954,7 +999,7 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   ],
   [
     'service credentials',
-    'managed.environments.egressCreateSecretOption',
+    'managed.environments.egressCreateServiceCredentialOption',
     'Create a service credential…',
     '去创建服务凭据…',
   ],
@@ -1085,10 +1130,10 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
 const apiKeyFields = ['title', 'subtitle', 'create', 'empty', 'revokeTitle', 'revoke'] as const
 
 const quickstartModelConnectionPaths = [
-  'managed.quickstart.step.chooseSecret',
+  'managed.quickstart.step.chooseModelConnection',
   'managed.quickstart.noApiKey',
-  'managed.quickstart.chooseSecret',
-  'managed.quickstart.noCompatibleSecret',
+  'managed.quickstart.chooseModelConnection',
+  'managed.quickstart.noCompatibleModelConnection',
   'managed.quickstart.secretQuestion',
   'managed.quickstart.templateAppliedMessage',
   'managed.quickstart.engineHint',
@@ -1186,7 +1231,7 @@ describe('credential domain terminology', () => {
   it('inventories direct, template, and finite active translation leaves', () => {
     const inventory = getActiveTranslationInventory()
 
-    expect(inventory.sourceFileCount).toBe(286)
+    expect(inventory.sourceFileCount).toBe(287)
     expect(inventory.sourceFiles).toContain('lib/managed/errors.ts')
     expect(inventory.sourceFiles).not.toContain('lib/i18n/locales/en.ts')
     expect(inventory.sourceFiles).not.toContain(
@@ -1203,7 +1248,7 @@ describe('credential domain terminology', () => {
       0,
     )
 
-    expect(inventory.counts).toEqual({ direct: 1496, dynamic: 471, total: 1967 })
+    expect(inventory.counts).toEqual({ direct: 1506, dynamic: 471, total: 1977 })
     expect(templateAdditions).toBe(444)
     expect(finiteAdditions).toBe(27)
     expect(inventory.templateDynamicLeaves).toContain(
@@ -1399,13 +1444,94 @@ describe('credential domain closure terminology guards', () => {
   it('uses Credential Group in active types and parsers', () => {
     const types = read('types/managed.ts')
     const groupParser = read('lib/managed/credential-group-response-parsers.ts')
-    const compatibilityParser = read('lib/managed/vault-response-parsers.ts')
 
     expect(types).toContain('export interface CredentialGroup')
     expect(types).toContain('export interface CredentialGroupCredential')
     expect(types).not.toMatch(/export interface Vault\b/)
     expect(groupParser).not.toContain('Vault')
-    expect(compatibilityParser).toContain('as parseVaultResponse')
+    expect(existsSync(path.resolve(frontendRoot, 'lib/managed/vault-response-parsers.ts'))).toBe(
+      false,
+    )
+  })
+
+  it('keeps active credential modules and exported identifiers canonical', () => {
+    const canonicalModules = [
+      'lib/managed/credential-response-parsers.ts',
+      'hooks/managed/use-compatible-credentials.ts',
+      'components/managed/llm/compatible-credential-picker.tsx',
+      'components/managed/llm/model-connection-configurator.tsx',
+      'components/managed/shared/model-name-input.tsx',
+      'components/managed/shared/credential-field-select.tsx',
+      'lib/managed/credential-fields.ts',
+      'lib/managed/model-connection-selection.ts',
+      'lib/managed/quickstart-credential-group-recommendation.ts',
+    ]
+    const legacyModules = [
+      'lib/managed/secret-response-parsers.ts',
+      'hooks/managed/use-compatible-secrets.ts',
+      'components/managed/llm/compatible-secret-picker.tsx',
+      'components/managed/llm/llm-secret-configurator.tsx',
+      'components/managed/shared/secret-model-input.tsx',
+      'components/managed/shared/secret-key-select.tsx',
+      'lib/managed/secret-keys.ts',
+      'lib/managed/llm-selection.ts',
+      'lib/managed/quickstart-vault-recommendation.ts',
+    ]
+
+    for (const relativePath of canonicalModules) {
+      expect(existsSync(path.resolve(frontendRoot, relativePath)), relativePath).toBe(true)
+    }
+    for (const relativePath of legacyModules) {
+      expect(existsSync(path.resolve(frontendRoot, relativePath)), relativePath).toBe(false)
+    }
+
+    const types = read('types/managed.ts')
+    const parser = read('lib/managed/credential-response-parsers.ts')
+    const hook = read('hooks/managed/use-compatible-credentials.ts')
+
+    expect(types).toContain('export interface Credential')
+    expect(types).toContain('export interface CredentialDetail extends Credential')
+    expect(types).not.toMatch(/export interface Secret(?:Detail)?\b/)
+    expect(parser).toContain('parseCredentialResponse')
+    expect(parser).toContain('parseCredentialDetailResponse')
+    expect(parser).toContain('parseCredentialListResponse')
+    expect(parser).not.toMatch(/\bSecret(?:Detail)?\b|parseSecret|SelectableSecret/)
+    expect(hook).toContain('useCompatibleCredentials')
+    expect(hook).toContain('useModelConnectionByName')
+    expect(hook).toContain('useProtocolCredentials')
+    expect(hook).not.toMatch(
+      /\bSecret(?:s)?\b|useCompatibleSecrets|useLlmSecret|useProtocolSecrets/,
+    )
+  })
+
+  it('invalidates the canonical compatible-credential query after model connection mutations', () => {
+    const consumers = [
+      'components/managed/credentials/credential-management-shell.tsx',
+      'components/managed/credentials/model-connection-detail.tsx',
+      'components/managed/credentials/model-connection-list.tsx',
+    ]
+
+    for (const relativePath of consumers) {
+      const source = read(relativePath)
+      expect(source, relativePath).toContain('compatibleCredentialsScopePrefix')
+      expect(source, relativePath).not.toContain("'compatible-secrets'")
+    }
+  })
+
+  it('keeps credential translations under the canonical namespace', () => {
+    const enManaged = en.translation.managed as Record<string, unknown>
+    const zhManaged = zh.translation.managed as Record<string, unknown>
+
+    expect(enManaged).not.toHaveProperty('secrets')
+    expect(enManaged).not.toHaveProperty('vaults')
+    expect(zhManaged).not.toHaveProperty('secrets')
+    expect(zhManaged).not.toHaveProperty('vaults')
+    expect(en.translation.managed.credentials).toHaveProperty('resources.dataLabel')
+    expect(en.translation.managed.credentials).toHaveProperty('groups.archiveTitle')
+    expect(en.translation.managed.credentials).toHaveProperty('groups.members.createTitle')
+    expect(zh.translation.managed.credentials).toHaveProperty('resources.dataLabel')
+    expect(zh.translation.managed.credentials).toHaveProperty('groups.archiveTitle')
+    expect(zh.translation.managed.credentials).toHaveProperty('groups.members.createTitle')
   })
 
   it('keeps active Environment language canonical', () => {
@@ -1422,11 +1548,11 @@ describe('credential domain closure terminology guards', () => {
   it('keeps active Credential Group component identifiers canonical', () => {
     const activeFiles = [
       'components/managed/credentials/credential-management-shell.tsx',
-      'components/managed/credentials/mcp-vault-list.tsx',
-      'components/managed/credentials/mcp-vault-detail.tsx',
+      'components/managed/credentials/mcp-credential-group-list.tsx',
+      'components/managed/credentials/mcp-credential-group-detail.tsx',
       'app/managed/credentials/mcp/[credentialGroupId]/page.tsx',
-      'app/managed/vaults/components/create-vault-dialog.tsx',
-      'app/managed/vaults/components/create-credential-dialog.tsx',
+      'components/managed/credentials/create-credential-group-dialog.tsx',
+      'components/managed/credentials/create-mcp-member-dialog.tsx',
       'hooks/managed/use-quickstart-chat.ts',
       'app/managed/sessions/[sessionId]/page.tsx',
     ]
@@ -1442,6 +1568,11 @@ describe('credential domain closure terminology guards', () => {
     )
     expect(read('lib/managed/credential-redirects.ts')).toContain('create=credential-group')
     expect(read('lib/i18n/locales/en.ts')).not.toMatch(/(?:newMcpVault|searchMcpVaults|goToVault)/)
+  })
+
+  it('keeps legacy credential routes free of reusable implementation', () => {
+    expect(existsSync(path.resolve(frontendRoot, 'app/managed/secrets/components'))).toBe(false)
+    expect(existsSync(path.resolve(frontendRoot, 'app/managed/vaults/components'))).toBe(false)
   })
 
   it('does not expose Vault wording in localized UI copy', () => {

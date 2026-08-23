@@ -10,16 +10,16 @@ import {
   managedRequestOptions,
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
-import { parseSecretListResponse } from '@/lib/managed/secret-response-parsers'
-import type { Secret } from '@/types/managed'
+import { parseCredentialListResponse } from '@/lib/managed/credential-response-parsers'
+import type { Credential } from '@/types/managed'
 
-interface SecretPage {
+interface CredentialPage {
   data: unknown[]
   has_more: boolean
   last_id?: string | null
 }
 
-interface UseCompatibleSecretsOptions {
+interface UseCompatibleCredentialsOptions {
   engineId: string
   enabled?: boolean
 }
@@ -28,28 +28,28 @@ interface UseActiveModelConnectionsOptions {
   enabled?: boolean
 }
 
-interface UseLlmSecretByNameOptions {
+interface UseModelConnectionByNameOptions {
   name: string
   enabled?: boolean
 }
 
-interface UseProtocolSecretsOptions {
+interface UseProtocolCredentialsOptions {
   protocolId: string
   enabled?: boolean
 }
 
 const PAGE_SIZE = 100
 
-async function fetchAllLlmSecrets(
+async function fetchAllModelConnections(
   managedScope: ReturnType<typeof useManagedRequestScope>,
   filter: Record<string, string>,
   errorLabel: string,
-): Promise<Secret[]> {
-  const secrets: Secret[] = []
+): Promise<Credential[]> {
+  const credentials: Credential[] = []
   let afterId: string | undefined
 
   for (;;) {
-    const page = await managedGet<SecretPage>(
+    const page = await managedGet<CredentialPage>(
       apiCollectionPath('credentials', {
         limit: PAGE_SIZE,
         after_id: afterId,
@@ -59,8 +59,8 @@ async function fetchAllLlmSecrets(
       }),
       managedRequestOptions(managedScope),
     )
-    secrets.push(...parseSecretListResponse(page.data))
-    if (!page.has_more) return secrets
+    credentials.push(...parseCredentialListResponse(page.data))
+    if (!page.has_more) return credentials
     if (!page.last_id || page.last_id === afterId) {
       throw new Error(`${errorLabel} pagination returned an invalid cursor`)
     }
@@ -68,27 +68,42 @@ async function fetchAllLlmSecrets(
   }
 }
 
-export function compatibleSecretsQueryPrefix(scopeKey: string, engineId: string) {
-  return ['compatible-secrets', scopeKey, engineId] as const
+export function compatibleCredentialsScopePrefix(scopeKey: string) {
+  return ['compatible-credentials', scopeKey] as const
+}
+
+export function compatibleCredentialsQueryPrefix(scopeKey: string, engineId: string) {
+  return [...compatibleCredentialsScopePrefix(scopeKey), engineId] as const
 }
 
 export function activeModelConnectionsQueryKey(scopeKey: string, catalogVersion = '') {
   return ['active-model-connections', scopeKey, catalogVersion] as const
 }
 
-export function compatibleSecretsQueryKey(scopeKey: string, engineId: string, catalogVersion = '') {
-  return [...compatibleSecretsQueryPrefix(scopeKey, engineId), catalogVersion] as const
+export function compatibleCredentialsQueryKey(
+  scopeKey: string,
+  engineId: string,
+  catalogVersion = '',
+) {
+  return [...compatibleCredentialsQueryPrefix(scopeKey, engineId), catalogVersion] as const
 }
 
-export function llmSecretByNameQueryKey(scopeKey: string, name: string, catalogVersion = '') {
-  return ['llm-secret-by-name', scopeKey, name, catalogVersion] as const
+export function modelConnectionByNameQueryKey(scopeKey: string, name: string, catalogVersion = '') {
+  return ['model-connection-by-name', scopeKey, name, catalogVersion] as const
 }
 
-export function protocolSecretsQueryKey(scopeKey: string, protocolId: string, catalogVersion = '') {
-  return ['llm-protocol-secrets', scopeKey, protocolId, catalogVersion] as const
+export function protocolCredentialsQueryKey(
+  scopeKey: string,
+  protocolId: string,
+  catalogVersion = '',
+) {
+  return ['protocol-credentials', scopeKey, protocolId, catalogVersion] as const
 }
 
-export function useCompatibleSecrets({ engineId, enabled = true }: UseCompatibleSecretsOptions) {
+export function useCompatibleCredentials({
+  engineId,
+  enabled = true,
+}: UseCompatibleCredentialsOptions) {
   const managedScope = useManagedRequestScope()
   const catalogQuery = useLlmCatalog()
   const catalogVersion = catalogQuery.data?.version ?? ''
@@ -99,10 +114,14 @@ export function useCompatibleSecrets({ engineId, enabled = true }: UseCompatible
     Boolean(catalogVersion) &&
     hasManagedRequestScope(managedScope)
 
-  return useQuery<Secret[]>({
-    queryKey: compatibleSecretsQueryKey(managedScope.key, engineId, catalogVersion),
+  return useQuery<Credential[]>({
+    queryKey: compatibleCredentialsQueryKey(managedScope.key, engineId, catalogVersion),
     queryFn: () =>
-      fetchAllLlmSecrets(managedScope, { compatible_engine: engineId }, 'Compatible Secret'),
+      fetchAllModelConnections(
+        managedScope,
+        { compatible_engine: engineId },
+        'Compatible Credential',
+      ),
     enabled: queryEnabled,
     staleTime: 30_000,
   })
@@ -120,15 +139,18 @@ export function useActiveModelConnections({
     Boolean(catalogVersion) &&
     hasManagedRequestScope(managedScope)
 
-  return useQuery<Secret[]>({
+  return useQuery<Credential[]>({
     queryKey: activeModelConnectionsQueryKey(managedScope.key, catalogVersion),
-    queryFn: () => fetchAllLlmSecrets(managedScope, {}, 'Active Model Connection'),
+    queryFn: () => fetchAllModelConnections(managedScope, {}, 'Active Model Connection'),
     enabled: queryEnabled,
     staleTime: 30_000,
   })
 }
 
-export function useLlmSecretByName({ name, enabled = true }: UseLlmSecretByNameOptions) {
+export function useModelConnectionByName({
+  name,
+  enabled = true,
+}: UseModelConnectionByNameOptions) {
   const managedScope = useManagedRequestScope()
   const catalogQuery = useLlmCatalog()
   const catalogVersion = catalogQuery.data?.version ?? ''
@@ -139,22 +161,25 @@ export function useLlmSecretByName({ name, enabled = true }: UseLlmSecretByNameO
     Boolean(catalogVersion) &&
     hasManagedRequestScope(managedScope)
 
-  return useQuery<Secret | null>({
-    queryKey: llmSecretByNameQueryKey(managedScope.key, name, catalogVersion),
+  return useQuery<Credential | null>({
+    queryKey: modelConnectionByNameQueryKey(managedScope.key, name, catalogVersion),
     queryFn: async () => {
-      const page = await managedGet<SecretPage>(
+      const page = await managedGet<CredentialPage>(
         apiCollectionPath('credentials', { limit: 1, kind: 'model', name }),
         managedRequestOptions(managedScope),
       )
-      const secrets = parseSecretListResponse(page.data)
-      return secrets.find((secret) => secret.name === name) ?? null
+      const credentials = parseCredentialListResponse(page.data)
+      return credentials.find((credential) => credential.name === name) ?? null
     },
     enabled: queryEnabled,
     staleTime: 30_000,
   })
 }
 
-export function useProtocolSecrets({ protocolId, enabled = true }: UseProtocolSecretsOptions) {
+export function useProtocolCredentials({
+  protocolId,
+  enabled = true,
+}: UseProtocolCredentialsOptions) {
   const managedScope = useManagedRequestScope()
   const catalogQuery = useLlmCatalog()
   const catalogVersion = catalogQuery.data?.version ?? ''
@@ -165,9 +190,10 @@ export function useProtocolSecrets({ protocolId, enabled = true }: UseProtocolSe
     Boolean(catalogVersion) &&
     hasManagedRequestScope(managedScope)
 
-  return useQuery<Secret[]>({
-    queryKey: protocolSecretsQueryKey(managedScope.key, protocolId, catalogVersion),
-    queryFn: () => fetchAllLlmSecrets(managedScope, { protocol: protocolId }, 'Protocol Secret'),
+  return useQuery<Credential[]>({
+    queryKey: protocolCredentialsQueryKey(managedScope.key, protocolId, catalogVersion),
+    queryFn: () =>
+      fetchAllModelConnections(managedScope, { protocol: protocolId }, 'Protocol Credential'),
     enabled: queryEnabled,
     staleTime: 30_000,
   })

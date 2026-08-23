@@ -6,38 +6,38 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useCompatibleSecrets } from '@/hooks/managed/use-compatible-secrets'
+import { useCompatibleCredentials } from '@/hooks/managed/use-compatible-credentials'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
 import { useTranslation } from '@/lib/i18n'
 import { findProtocol, findProvider, getProtocol, getProvider } from '@/lib/managed/llm-catalog'
 import { cn } from '@/lib/utils'
-import type { Secret } from '@/types/managed'
+import type { Credential } from '@/types/managed'
 
-interface CompatibleSecretPickerProps {
+interface CompatibleCredentialPickerProps {
   engineId: string
   value: string
   onChange: (value: string) => void
   onCreateRequested: () => void
   allowNone?: boolean
   disabled?: boolean
-  conflictSecret?: Secret | null
+  conflictCredential?: Credential | null
   conflictValue?: string
   conflictMessage?: string
 }
 
-export function CompatibleSecretPicker({
+export function CompatibleCredentialPicker({
   engineId,
   value,
   onChange,
   onCreateRequested,
   allowNone = false,
   disabled = false,
-  conflictSecret,
+  conflictCredential,
   conflictValue,
   conflictMessage,
-}: CompatibleSecretPickerProps) {
+}: CompatibleCredentialPickerProps) {
   const { t } = useTranslation()
-  const query = useCompatibleSecrets({ engineId, enabled: Boolean(engineId) })
+  const query = useCompatibleCredentials({ engineId, enabled: Boolean(engineId) })
   const catalogQuery = useLlmCatalog()
 
   if (!engineId) {
@@ -75,29 +75,29 @@ export function CompatibleSecretPicker({
   }
 
   const options = query.data ?? []
-  const conflictMetadata = conflictSecret
+  const conflictMetadata = conflictCredential
     ? [
-        conflictSecret.provider
-          ? (findProvider(catalogQuery.data, conflictSecret.provider)?.display_name ??
-            conflictSecret.provider)
+        conflictCredential.provider
+          ? (findProvider(catalogQuery.data, conflictCredential.provider)?.display_name ??
+            conflictCredential.provider)
           : t('managed.llm.unknownProvider'),
-        conflictSecret.protocol
-          ? (findProtocol(catalogQuery.data, conflictSecret.protocol)?.display_name ??
-            conflictSecret.protocol)
+        conflictCredential.protocol
+          ? (findProtocol(catalogQuery.data, conflictCredential.protocol)?.display_name ??
+            conflictCredential.protocol)
           : t('managed.llm.unknownProtocol'),
-        conflictSecret.model,
+        conflictCredential.model,
       ]
         .filter(Boolean)
         .join(' · ')
     : ''
   return (
     <div className="space-y-3">
-      {(conflictSecret || conflictValue) && conflictMessage ? (
+      {(conflictCredential || conflictValue) && conflictMessage ? (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             <p>{conflictMessage}</p>
-            <p className="mt-1 font-medium">{conflictSecret?.name ?? conflictValue}</p>
+            <p className="mt-1 font-medium">{conflictCredential?.name ?? conflictValue}</p>
             {conflictMetadata ? (
               <p className="mt-1 text-xs opacity-80">{conflictMetadata}</p>
             ) : null}
@@ -137,22 +137,22 @@ export function CompatibleSecretPicker({
               </span>
             </button>
           ) : null}
-          {options.map((secret) => {
-            const selected = secret.id === value
-            const provider = secret.provider
-              ? getProvider(catalogQuery.data, secret.provider).display_name
+          {options.map((credential) => {
+            const selected = credential.id === value
+            const provider = credential.provider
+              ? getProvider(catalogQuery.data, credential.provider).display_name
               : t('managed.llm.unknownProvider')
-            const protocol = secret.protocol
-              ? getProtocol(catalogQuery.data, secret.protocol).display_name
+            const protocol = credential.protocol
+              ? getProtocol(catalogQuery.data, credential.protocol).display_name
               : t('managed.llm.unknownProtocol')
             return (
               <button
-                key={secret.id}
+                key={credential.id}
                 type="button"
                 role="radio"
                 aria-checked={selected}
                 disabled={disabled}
-                onClick={() => onChange(secret.id)}
+                onClick={() => onChange(credential.id)}
                 className={cn(
                   'flex w-full items-start gap-3 rounded-xl border p-3 text-left transition-colors',
                   selected
@@ -170,14 +170,14 @@ export function CompatibleSecretPicker({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{secret.name}</span>
-                    {secret.is_default ? (
+                    <span className="font-medium">{credential.name}</span>
+                    {credential.is_default ? (
                       <Badge variant="secondary">{t('managed.llm.defaultForProtocol')}</Badge>
                     ) : null}
                   </span>
                   <span className="mt-1 block text-xs text-muted-foreground">
                     {provider} · {protocol}
-                    {secret.model ? ` · ${secret.model}` : ''}
+                    {credential.model ? ` · ${credential.model}` : ''}
                   </span>
                 </span>
               </button>

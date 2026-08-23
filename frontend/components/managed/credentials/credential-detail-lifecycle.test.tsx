@@ -60,7 +60,7 @@ vi.mock('@/components/managed/shared/compatible-engine-badges', () => ({
 }))
 
 import { managedDelete, managedPost } from '@/lib/api-client'
-import type { SecretDetail } from '@/types/managed'
+import type { CredentialDetail } from '@/types/managed'
 
 import { ModelConnectionDetail } from './model-connection-detail'
 import { ServiceCredentialDetail } from './service-credential-detail'
@@ -75,9 +75,9 @@ function Wrap({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
 }
 
-function credential(kind: 'model' | 'service', archivedAt: string | null): SecretDetail {
+function credential(kind: 'model' | 'service', archivedAt: string | null): CredentialDetail {
   return {
-    id: (kind === 'model' ? MODEL_ID : SERVICE_ID) as SecretDetail['id'],
+    id: (kind === 'model' ? MODEL_ID : SERVICE_ID) as CredentialDetail['id'],
     name: kind === 'model' ? 'Primary model' : 'Payments service',
     kind,
     provider: kind === 'model' ? 'openai' : null,

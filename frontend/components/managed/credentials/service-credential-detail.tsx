@@ -21,16 +21,16 @@ import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { isSecretValueMaskedKey } from '@/lib/managed/secret-keys'
-import { parseSecretDetailResponse } from '@/lib/managed/secret-response-parsers'
-import type { SecretDetail } from '@/types/managed'
+import { isCredentialValueMaskedField } from '@/lib/managed/credential-fields'
+import { parseCredentialDetailResponse } from '@/lib/managed/credential-response-parsers'
+import type { CredentialDetail } from '@/types/managed'
 
 interface GenericPair {
   key: string
   value: string
 }
 
-export function ServiceCredentialDetail({ credential }: { credential: SecretDetail }) {
+export function ServiceCredentialDetail({ credential }: { credential: CredentialDetail }) {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -81,7 +81,7 @@ export function ServiceCredentialDetail({ credential }: { credential: SecretDeta
         managedRequestOptions(action.requestScope),
       )
       if (!isCurrentAction(action.runId, action.scope)) return
-      const updated = parseSecretDetailResponse(response)
+      const updated = parseCredentialDetailResponse(response)
       queryClient.setQueryData(['credential-detail', action.scope, credential.id], updated)
       queryClient.invalidateQueries({ queryKey: ['credentials', action.scope] })
       sourceDataRef.current = updated.data
@@ -156,7 +156,7 @@ export function ServiceCredentialDetail({ credential }: { credential: SecretDeta
         ]}
         titleExtra={
           <div className="flex items-center gap-2">
-            <Badge variant="outline">{t('managed.llm.genericSecret')}</Badge>
+            <Badge variant="outline">{t('managed.llm.serviceCredential')}</Badge>
             <StatusBadge status={credential.archived_at ? 'archived' : 'active'} />
           </div>
         }
@@ -214,10 +214,12 @@ export function ServiceCredentialDetail({ credential }: { credential: SecretDeta
       </section>
       <section className="space-y-4 rounded-xl border bg-card p-4">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="font-semibold">{t('managed.secrets.dataLabel')}</h2>
+          <h2 className="font-semibold">{t('managed.credentials.resources.dataLabel')}</h2>
           <Button type="button" variant="ghost" size="sm" onClick={() => setShowValues((v) => !v)}>
             {showValues ? <EyeOff className="mr-1 h-4 w-4" /> : <Eye className="mr-1 h-4 w-4" />}
-            {showValues ? t('managed.secrets.hideValues') : t('managed.secrets.showValues')}
+            {showValues
+              ? t('managed.credentials.resources.hideValues')
+              : t('managed.credentials.resources.showValues')}
           </Button>
         </div>
         <div className="space-y-3">
@@ -234,7 +236,7 @@ export function ServiceCredentialDetail({ credential }: { credential: SecretDeta
                 }}
               />
               <Input
-                type={isSecretValueMaskedKey(pair.key) && !showValues ? 'password' : 'text'}
+                type={isCredentialValueMaskedField(pair.key) && !showValues ? 'password' : 'text'}
                 value={pair.value}
                 disabled={formReadOnly}
                 onChange={(e) => {
@@ -270,7 +272,7 @@ export function ServiceCredentialDetail({ credential }: { credential: SecretDeta
               }}
             >
               <Plus className="mr-1 h-4 w-4" />
-              {t('managed.secrets.addPair')}
+              {t('managed.credentials.resources.addPair')}
             </Button>
           ) : null}
         </div>
@@ -279,17 +281,17 @@ export function ServiceCredentialDetail({ credential }: { credential: SecretDeta
         open={Boolean(confirmAction)}
         title={t(
           confirmAction === 'delete'
-            ? 'managed.secrets.deleteTitle'
+            ? 'managed.credentials.resources.deleteTitle'
             : confirmAction === 'restore'
-              ? 'managed.secrets.restoreTitle'
-              : 'managed.secrets.archiveTitle',
+              ? 'managed.credentials.resources.restoreTitle'
+              : 'managed.credentials.resources.archiveTitle',
         )}
         description={t(
           confirmAction === 'delete'
-            ? 'managed.secrets.deleteDescription'
+            ? 'managed.credentials.resources.deleteDescription'
             : confirmAction === 'restore'
-              ? 'managed.secrets.restoreDescription'
-              : 'managed.secrets.archiveDescription',
+              ? 'managed.credentials.resources.restoreDescription'
+              : 'managed.credentials.resources.archiveDescription',
           { name: credential.name },
         )}
         confirmLabel={t(

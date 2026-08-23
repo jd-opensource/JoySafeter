@@ -1,6 +1,6 @@
 import { objectValue } from '@/lib/managed/quickstart-value-coercion'
 
-export interface QuickstartVaultRecommendation {
+export interface QuickstartCredentialGroupRecommendation {
   name: string
   mcpServerUrl: string
   credentialName: string
@@ -19,10 +19,10 @@ function trimmedString(value: unknown): string {
  * `requiresCredential` signals that the UI must collect the token before creating the
  * group, so we never create an empty group that falsely looks authorized.
  */
-export function quickstartVaultRecommendation(
-  vaultConfig: Record<string, unknown> | undefined,
-): QuickstartVaultRecommendation {
-  const config = objectValue(vaultConfig) ?? {}
+export function quickstartCredentialGroupRecommendation(
+  credentialGroupConfig: Record<string, unknown> | undefined,
+): QuickstartCredentialGroupRecommendation {
+  const config = objectValue(credentialGroupConfig) ?? {}
   const mcpServerUrl = trimmedString(config.mcp_server_url)
   return {
     name: trimmedString(config.name),

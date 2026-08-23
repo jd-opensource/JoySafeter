@@ -38,7 +38,7 @@ Object.defineProperty(globalThis.HTMLElement.prototype, 'detachEvent', {
   value: () => {},
 })
 
-describe('SecretModelInput dropdown lifecycle', () => {
+describe('ModelNameInput dropdown lifecycle', () => {
   beforeEach(() => {
     vi.useFakeTimers()
   })
@@ -49,14 +49,14 @@ describe('SecretModelInput dropdown lifecycle', () => {
   })
 
   it('does not let an older blur timer close a dropdown that was reopened by focus', async () => {
-    const secretModelInputModulePath = './secret-model-input.tsx?dropdown-lifecycle-test'
-    const { SecretModelInput } = await import(secretModelInputModulePath)
-    function ControlledSecretModelInput() {
+    const modelNameInputModulePath = './model-name-input.tsx?dropdown-lifecycle-test'
+    const { ModelNameInput } = await import(modelNameInputModulePath)
+    function ControlledModelNameInput() {
       const [value, setValue] = useState('')
-      return <SecretModelInput value={value} onChange={setValue} placeholder="model" />
+      return <ModelNameInput value={value} onChange={setValue} placeholder="model" />
     }
 
-    const { getByPlaceholderText, getByText } = render(<ControlledSecretModelInput />)
+    const { getByPlaceholderText, getByText } = render(<ControlledModelNameInput />)
     const input = getByPlaceholderText('model')
 
     await act(async () => {

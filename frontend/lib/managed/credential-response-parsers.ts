@@ -1,9 +1,9 @@
 import { z } from 'zod'
 
 import { parseCredentialGroupId, parseCredentialId, parseNullableId } from '@/types/entity-id'
-import type { ModelConnectionSummary, Secret, SecretDetail } from '@/types/managed'
+import type { Credential, CredentialDetail, ModelConnectionSummary } from '@/types/managed'
 
-const secretBaseSchema = z
+const credentialBaseSchema = z
   .object({
     id: z.string(),
     name: z.string(),
@@ -21,14 +21,14 @@ const secretBaseSchema = z
   })
   .strict()
 
-const usableSecretDataSchema = z
+const usableCredentialDataSchema = z
   .record(z.string(), z.string())
   .default({})
   .transform((data) =>
     Object.fromEntries(Object.entries(data).filter(([field]) => field.trim().length > 0)),
   )
 
-const secretSchema = secretBaseSchema.extend({ data: usableSecretDataSchema }).strict()
+const credentialSchema = credentialBaseSchema.extend({ data: usableCredentialDataSchema }).strict()
 
 const modelConnectionSummarySchema = z
   .object({
@@ -50,8 +50,8 @@ export function parseModelConnectionSummaryResponse(response: unknown): ModelCon
   }
 }
 
-export function parseSecretResponse(response: unknown): Secret {
-  const raw = secretSchema.parse(response)
+export function parseCredentialResponse(response: unknown): Credential {
+  const raw = credentialSchema.parse(response)
   return {
     ...raw,
     id: parseCredentialId(raw.id),
@@ -59,8 +59,8 @@ export function parseSecretResponse(response: unknown): Secret {
   }
 }
 
-export function parseSecretDetailResponse(response: unknown): SecretDetail {
-  const raw = secretSchema.parse(response)
+export function parseCredentialDetailResponse(response: unknown): CredentialDetail {
+  const raw = credentialSchema.parse(response)
   return {
     ...raw,
     id: parseCredentialId(raw.id),
@@ -68,14 +68,16 @@ export function parseSecretDetailResponse(response: unknown): SecretDetail {
   }
 }
 
-export function parseSecretListResponse(response: unknown[]): Secret[] {
-  return response.map(parseSecretResponse)
+export function parseCredentialListResponse(response: unknown[]): Credential[] {
+  return response.map(parseCredentialResponse)
 }
 
-export function isSelectableSecretResourceName(name: string): boolean {
+export function isSelectableCredentialName(name: string): boolean {
   return name.length > 0 && name === name.trim()
 }
 
-export function filterSelectableSecretResources<T extends Pick<Secret, 'name'>>(secrets: T[]): T[] {
-  return secrets.filter((secret) => isSelectableSecretResourceName(secret.name))
+export function filterSelectableCredentials<T extends Pick<Credential, 'name'>>(
+  credentials: T[],
+): T[] {
+  return credentials.filter((credential) => isSelectableCredentialName(credential.name))
 }

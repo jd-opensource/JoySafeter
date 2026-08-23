@@ -45,12 +45,12 @@ vi.mock('@/lib/api-client', () => ({
   managedGet: vi.fn(),
 }))
 
-vi.mock('@/lib/managed/secret-response-parsers', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/managed/secret-response-parsers')>()
+vi.mock('@/lib/managed/credential-response-parsers', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/managed/credential-response-parsers')>()
   return {
     ...actual,
-    parseSecretListResponse: (response: unknown[]) =>
-      secretParserState.bypass ? response : actual.parseSecretListResponse(response),
+    parseCredentialListResponse: (response: unknown[]) =>
+      secretParserState.bypass ? response : actual.parseCredentialListResponse(response),
   }
 })
 
@@ -388,7 +388,7 @@ describe('CreateTriggerDialog edit mode', () => {
     expect(getByText('common.save').closest('button')).toBeDisabled()
   })
 
-  it('preserves an unavailable historical Secret field and disables save', async () => {
+  it('preserves an unavailable historical credential field and disables save', async () => {
     const { getByText } = renderDialog(
       webhookTrigger({ secretRef: SERVICE_CREDENTIAL_ID, secretKey: 'REMOVED_FIELD' }),
     )
@@ -399,7 +399,7 @@ describe('CreateTriggerDialog edit mode', () => {
     expect(getByText('common.save').closest('button')).toBeDisabled()
   })
 
-  it('reports a Secret with no metadata keys and disables save', async () => {
+  it('reports a credential with no metadata fields and disables save', async () => {
     mockManagedApi({ keys: [] })
     const { getByText } = renderDialog(
       webhookTrigger({ secretRef: SERVICE_CREDENTIAL_ID, secretKey: null }),
@@ -426,7 +426,7 @@ describe('CreateTriggerDialog edit mode', () => {
     expect(view.getByText('common.save').closest('button')).not.toBeDisabled()
   })
 
-  it('reports a failed Secret query and disables save', async () => {
+  it('reports a failed credential query and disables save', async () => {
     mockManagedApi({ secretError: new Error('secret metadata unavailable') })
     const { getByText } = renderDialog(
       webhookTrigger({ secretRef: SERVICE_CREDENTIAL_ID, secretKey: 'WEBHOOK_SECRET' }),

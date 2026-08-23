@@ -8,7 +8,7 @@ import { useTranslation } from '@/lib/i18n'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { parseEnvironmentResponse } from '@/lib/managed/environment-response-parsers'
-import { parseSecretResponse } from '@/lib/managed/secret-response-parsers'
+import { parseCredentialResponse } from '@/lib/managed/credential-response-parsers'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import {
   hasManagedRequestScope,
@@ -20,7 +20,7 @@ import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import type {
   Environment,
   EnvironmentMountResource,
-  Secret,
+  Credential,
   StorageVolumeCatalogItem,
 } from '@/types/managed'
 import { parseEnvironmentId, parseCredentialId, type EnvironmentId } from '@/types/entity-id'
@@ -135,12 +135,12 @@ function EnvironmentDetailPageInner({ params }: { params: Promise<{ envId: strin
     enabled: hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
-  const { data: secrets } = usePaginatedList<Secret>({
+  const { data: secrets } = usePaginatedList<Credential>({
     queryKey: 'service-credentials',
     path: '/credentials?kind=service',
     includeArchived: false,
     limit: 50,
-    parseItem: parseSecretResponse,
+    parseItem: parseCredentialResponse,
     parseCursor: parseCredentialId,
   })
   const { data: storageCatalog } = useQuery({

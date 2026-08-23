@@ -440,6 +440,11 @@ export interface SessionRepoResource {
   branch: string
   mount_path: string
   mount_name: string
+  has_authorization_token: boolean
+  token_status: 'none' | 'active' | 'expired' | 'erased'
+  token_expires_at: string | null
+  token_rotated_at: string | null
+  token_erased_at: string | null
   // The clone token (authorization_token) is never returned by the API.
 }
 
@@ -470,6 +475,7 @@ export interface AddRepoResourceRequest {
   branch?: string
   mount_path?: string
   authorization_token?: string
+  token_expires_at?: string
 }
 
 export interface SkillSecurityScanSummary {
@@ -617,7 +623,7 @@ export interface MemberRecord {
   joined_at: string
 }
 
-export interface Secret {
+export interface Credential {
   id: import('./entity-id').CredentialId
   name: string
   kind: 'model' | 'mcp' | 'service'
@@ -634,7 +640,7 @@ export interface Secret {
   updated_at: string
 }
 
-export interface SecretDetail extends Secret {
+export interface CredentialDetail extends Credential {
   data: Record<string, string>
 }
 
@@ -644,8 +650,10 @@ export interface ApiKeyInfo {
   key_prefix: string
   key?: string
   role?: string
+  status?: 'active' | 'expired' | 'revoked'
   last_used_at?: string
-  expires_at?: string
+  expires_at?: string | null
+  revoked_at?: string | null
   created_at: string
 }
 

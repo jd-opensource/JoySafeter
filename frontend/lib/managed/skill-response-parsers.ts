@@ -63,31 +63,20 @@ type RawSkillVersionRecord = Omit<SkillVersionRecord, 'id' | 'skill_id'> & {
   skill_id: string
 }
 
-type RawSkillVersionFileRecord = Omit<
-  SkillVersionFileRecord,
-  'id' | 'version_id' | 'content'
-> & {
+type RawSkillVersionFileRecord = Omit<SkillVersionFileRecord, 'id' | 'version_id' | 'content'> & {
   id: string
   version_id: string
   content: string | null
 }
 
-type RawSkillSecurityScanRecord = Omit<
-  SkillSecurityScanRecord,
-  'id' | 'skill_id'
-> & {
+type RawSkillSecurityScanRecord = Omit<SkillSecurityScanRecord, 'id' | 'skill_id'> & {
   id: string
   skill_id: string | null
 }
 
 type RawSessionSkillUsage = Omit<
   SessionSkillUsage,
-  | 'id'
-  | 'skill_id'
-  | 'skill_version_id'
-  | 'security_scan_id'
-  | 'session_id'
-  | 'agent_id'
+  'id' | 'skill_id' | 'skill_version_id' | 'security_scan_id' | 'session_id' | 'agent_id'
 > & {
   id: string
   skill_id?: string | null
@@ -108,7 +97,8 @@ type RawSkillLifecycleTransitionResponse = Omit<SkillLifecycleTransitionResponse
 function parseSecuritySummary(summary: RawSkillSecurityScanSummary): SkillSecurityScanSummary {
   return {
     ...summary,
-    scan_id: parseOptionalId<SkillSecurityScanId>(summary.scan_id, parseSkillSecurityScanId) ?? null,
+    scan_id:
+      parseOptionalId<SkillSecurityScanId>(summary.scan_id, parseSkillSecurityScanId) ?? null,
   }
 }
 

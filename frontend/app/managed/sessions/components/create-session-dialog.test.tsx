@@ -385,7 +385,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     })
 
     await act(async () => {
-      fireEvent.click(getByText('managed.sessions.create.selectVaults'))
+      fireEvent.click(getByText('managed.sessions.create.selectCredentialGroups'))
       await Promise.resolve()
     })
     await waitFor(() => {
@@ -502,7 +502,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     })
 
     await act(async () => {
-      fireEvent.click(getByText('managed.sessions.create.selectVaults'))
+      fireEvent.click(getByText('managed.sessions.create.selectCredentialGroups'))
       await Promise.resolve()
     })
     await waitFor(() => {

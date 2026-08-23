@@ -14,8 +14,12 @@ vi.mock('@/lib/managed/request-scope', () => ({
   managedRequestOptions: () => ({}),
   hasManagedRequestScope: () => true,
 }))
-vi.mock('./model-connection-detail', () => ({ ModelConnectionDetail: () => <div>model-detail</div> }))
-vi.mock('./service-credential-detail', () => ({ ServiceCredentialDetail: () => <div>service-detail</div> }))
+vi.mock('./model-connection-detail', () => ({
+  ModelConnectionDetail: () => <div>model-detail</div>,
+}))
+vi.mock('./service-credential-detail', () => ({
+  ServiceCredentialDetail: () => <div>service-detail</div>,
+}))
 
 import { managedGet } from '@/lib/api-client'
 

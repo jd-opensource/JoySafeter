@@ -167,9 +167,7 @@ describe('useSessionStream', () => {
   it('keeps a final SSE data frame when the stream closes without a trailing newline', async () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve(
-        sseResponseText(
-          `data: ${JSON.stringify({ id: EVENT_ID, type: 'user.message', seq: 1 })}`,
-        ),
+        sseResponseText(`data: ${JSON.stringify({ id: EVENT_ID, type: 'user.message', seq: 1 })}`),
       ),
     )
     globalThis.fetch = fetchMock as unknown as typeof fetch

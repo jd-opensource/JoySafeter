@@ -16,9 +16,9 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useTranslation } from '@/lib/i18n'
-import { filterSelectableSecretResources } from '@/lib/managed/secret-response-parsers'
+import { filterSelectableCredentials } from '@/lib/managed/credential-response-parsers'
 import { parseCredentialId } from '@/types/entity-id'
-import type { EnvironmentEgressService, Secret } from '@/types/managed'
+import type { Credential, EnvironmentEgressService } from '@/types/managed'
 
 // Sentinel value for the "create secret" option in the credential dropdown.
 const CREATE_SECRET_OPTION = '__create_secret__'
@@ -75,7 +75,7 @@ const defaultsForAuthType = (authType: EgressServiceForm['authType']) => {
   return { authType, secretKey: '', header: '' }
 }
 
-const secretKeysFor = (secret?: Secret) => Object.keys(secret?.data || {})
+const secretKeysFor = (secret?: Credential) => Object.keys(secret?.data || {})
 
 const preferredSecretKey = (keys: string[], authType: EgressServiceForm['authType']) => {
   if (keys.length === 0) return authType === 'cookie' ? 'COOKIE_HEADER' : ''
@@ -188,7 +188,7 @@ function SearchableSecretSelect({
   onCreate,
 }: {
   value: string
-  secrets: Secret[]
+  secrets: Credential[]
   placeholder: string
   searchPlaceholder: string
   emptyText: string
@@ -278,7 +278,7 @@ export function EgressServicesEditor({
 }: {
   services: EgressServiceForm[]
   setServices: Dispatch<SetStateAction<EgressServiceForm[]>>
-  secrets?: Secret[]
+  secrets?: Credential[]
   errors?: EgressServiceErrors
   onClearFieldError?: (index: number, field: EgressServiceErrorField) => void
   onRemove?: (index: number) => void
@@ -297,7 +297,7 @@ export function EgressServicesEditor({
     })
   }
 
-  const customSecrets = filterSelectableSecretResources(
+  const customSecrets = filterSelectableCredentials(
     secrets.filter((secret) => secret.kind === 'service'),
   )
 
@@ -406,7 +406,7 @@ export function EgressServicesEditor({
                       placeholder={t('managed.environments.egressSelectCredential')}
                       searchPlaceholder={t('managed.environments.egressSearchCredential')}
                       emptyText={t('managed.environments.egressNoCredentialFound')}
-                      createText={t('managed.environments.egressCreateSecretOption')}
+                      createText={t('managed.environments.egressCreateServiceCredentialOption')}
                       invalid={Boolean(errors[index]?.credentialRef)}
                       onCreate={() =>
                         window.open('/managed/credentials?tab=services&create=service', '_blank')
@@ -477,13 +477,13 @@ export function EgressServicesEditor({
 
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">
-                        {t('managed.environments.egressSecretKey')}
+                        {t('managed.environments.egressCredentialField')}
                         {service.authType === 'cookie' && <RequiredMark />}
                         <FieldHelp
                           text={
                             service.authType === 'cookie'
-                              ? t('managed.environments.egressCookieSecretKeyTooltip')
-                              : t('managed.environments.egressSecretKeyTooltip')
+                              ? t('managed.environments.egressCookieCredentialFieldTooltip')
+                              : t('managed.environments.egressCredentialFieldTooltip')
                           }
                         />
                         {service.authType !== 'cookie' && (
@@ -501,7 +501,7 @@ export function EgressServicesEditor({
                         >
                           <SelectTrigger aria-invalid={Boolean(errors[index]?.secretKey)}>
                             <SelectValue
-                              placeholder={t('managed.environments.egressSelectSecretKey')}
+                              placeholder={t('managed.environments.egressSelectCredentialField')}
                             />
                           </SelectTrigger>
                           <SelectContent>

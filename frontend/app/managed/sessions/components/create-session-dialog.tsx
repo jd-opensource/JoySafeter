@@ -817,7 +817,8 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                   onClick={() => router.push('/managed/credentials?tab=mcp')}
                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                 >
-                  {t('managed.sessions.create.manageVaults')} <ExternalLink className="h-3 w-3" />
+                  {t('managed.sessions.create.manageCredentialGroups')}{' '}
+                  <ExternalLink className="h-3 w-3" />
                 </button>
               </div>
               <div ref={vaultDropdownRef} className="relative">
@@ -838,7 +839,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                     }
                   >
                     {effectiveSelectedVaultIds.length === 0
-                      ? t('managed.sessions.create.selectVaults')
+                      ? t('managed.sessions.create.selectCredentialGroups')
                       : selectedVaultNames.join(', ')}
                   </span>
                   <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
@@ -853,7 +854,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                           value={vaultSearch}
                           onChange={(e) => setVaultSearch(e.target.value)}
                           onKeyDown={(e) => e.stopPropagation()}
-                          placeholder={t('managed.sessions.create.searchVault')}
+                          placeholder={t('managed.sessions.create.searchCredentialGroups')}
                           className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-7 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                         />
                         {vaultSearch && (
@@ -872,8 +873,8 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                     {filteredVaults.length === 0 ? (
                       <div className="px-3 py-6 text-center text-xs text-muted-foreground">
                         {vaultSearch
-                          ? t('managed.sessions.create.noVaultMatch')
-                          : t('managed.sessions.create.noVaults')}
+                          ? t('managed.sessions.create.noCredentialGroupMatch')
+                          : t('managed.sessions.create.noCredentialGroups')}
                       </div>
                     ) : (
                       filteredVaults.map((v) => (
@@ -906,7 +907,7 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
                       className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-sm text-primary hover:bg-muted/50"
                     >
                       <Plus className="h-3.5 w-3.5" />
-                      {t('managed.sessions.create.createVault')}
+                      {t('managed.sessions.create.createCredentialGroup')}
                     </button>
                   </div>
                 )}

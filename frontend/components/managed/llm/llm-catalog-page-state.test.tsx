@@ -12,7 +12,7 @@ describe('LlmCatalogPageState', () => {
     render(<LlmCatalogPageState state="loading" />)
 
     expect(screen.getByText('managed.llm.loadingCatalog')).toBeInTheDocument()
-    expect(screen.queryByText('managed.secrets.empty')).not.toBeInTheDocument()
+    expect(screen.queryByText('managed.credentials.resources.empty')).not.toBeInTheDocument()
   })
 
   it('keeps catalog failures actionable with an inline retry', () => {

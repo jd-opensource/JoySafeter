@@ -1,6 +1,6 @@
 'use client'
 
-import { getSecretKeyGroups } from '@/lib/managed/secret-keys'
+import { getCredentialFieldGroups } from '@/lib/managed/credential-fields'
 import { useTranslation } from '@/lib/i18n'
 import {
   Select,
@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 
-interface SecretKeySelectProps {
+interface CredentialFieldSelectProps {
   value: string
   onChange: (value: string) => void
   placeholder?: string
@@ -23,7 +23,7 @@ interface SecretKeySelectProps {
   disabled?: boolean
 }
 
-export function SecretKeySelect({
+export function CredentialFieldSelect({
   value,
   onChange,
   placeholder,
@@ -31,16 +31,16 @@ export function SecretKeySelect({
   provider,
   protocol,
   disabled = false,
-}: SecretKeySelectProps) {
+}: CredentialFieldSelectProps) {
   const { t } = useTranslation()
-  const groups = getSecretKeyGroups(provider, protocol)
+  const groups = getCredentialFieldGroups(provider, protocol)
   const visibleOptions = groups.flatMap((group) => group.keys)
   const showCurrentKey = !!value && !visibleOptions.includes(value)
 
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger className={cn('flex-1 font-mono text-sm', className)} disabled={disabled}>
-        <SelectValue placeholder={placeholder || t('managed.secrets.selectKey')} />
+        <SelectValue placeholder={placeholder || t('managed.credentials.resources.selectKey')} />
       </SelectTrigger>
       <SelectContent>
         {groups.map((group) => (
@@ -77,7 +77,7 @@ export function SecretKeySelect({
                 C
               </span>
               <span className="text-sm font-semibold text-foreground">
-                {t('managed.secrets.customKey')}
+                {t('managed.credentials.resources.customKey')}
               </span>
             </SelectLabel>
             <SelectItem value={value} className="pl-8 font-mono text-sm">

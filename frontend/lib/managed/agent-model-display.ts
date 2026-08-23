@@ -30,7 +30,10 @@ export function getAgentModelDisplayState(
     return {
       kind: 'connection',
       modelLabel:
-        nonBlank(modelConnection.name) ?? nonBlank(modelConnection.model) ?? connectionId ?? undefined,
+        nonBlank(modelConnection.name) ??
+        nonBlank(modelConnection.model) ??
+        connectionId ??
+        undefined,
       connection: modelConnection,
       connectionId,
     }

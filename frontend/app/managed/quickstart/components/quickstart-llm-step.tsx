@@ -2,16 +2,16 @@
 
 import { useState } from 'react'
 
-import { CompatibleSecretPicker } from '@/components/managed/llm/compatible-secret-picker'
-import { LlmSecretConfigurator } from '@/components/managed/llm/llm-secret-configurator'
-import type { SecretDetail } from '@/types/managed'
+import { CompatibleCredentialPicker } from '@/components/managed/llm/compatible-credential-picker'
+import { ModelConnectionConfigurator } from '@/components/managed/llm/model-connection-configurator'
+import type { CredentialDetail } from '@/types/managed'
 
 interface QuickstartLlmStepProps {
   engineId: string
   value: string
   disabled?: boolean
   onSelect: (value: string) => void
-  onCreated: (secret: SecretDetail) => void
+  onCreated: (credential: CredentialDetail) => void
 }
 
 export function QuickstartLlmStep({
@@ -25,7 +25,7 @@ export function QuickstartLlmStep({
 
   if (view === 'create') {
     return (
-      <LlmSecretConfigurator
+      <ModelConnectionConfigurator
         initialEngineId={engineId}
         onCancel={() => {
           setView('select')
@@ -39,7 +39,7 @@ export function QuickstartLlmStep({
   }
 
   return (
-    <CompatibleSecretPicker
+    <CompatibleCredentialPicker
       engineId={engineId}
       value={value}
       disabled={disabled}

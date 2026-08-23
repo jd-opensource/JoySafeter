@@ -3,7 +3,7 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { LlmSecretConfigurator } from '@/components/managed/llm/llm-secret-configurator'
+import { ModelConnectionConfigurator } from '@/components/managed/llm/model-connection-configurator'
 import { FormFieldError, FormFieldLabel } from '@/components/managed/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -18,16 +18,16 @@ import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseSecretDetailResponse } from '@/lib/managed/secret-response-parsers'
+import { parseCredentialDetailResponse } from '@/lib/managed/credential-response-parsers'
 import { cn } from '@/lib/utils'
-import type { SecretDetail } from '@/types/managed'
+import type { CredentialDetail } from '@/types/managed'
 
 type CreateSecretKind = 'llm' | 'generic'
 
-interface CreateSecretDialogProps {
+interface CreateStandaloneCredentialDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreated: (secret: SecretDetail) => void
+  onCreated: (credential: CredentialDetail) => void
   initialKind?: CreateSecretKind
   lockKind?: boolean
 }
@@ -37,13 +37,13 @@ interface GenericPair {
   value: string
 }
 
-export function CreateSecretDialog({
+export function CreateStandaloneCredentialDialog({
   open,
   onOpenChange,
   onCreated,
   initialKind = 'llm',
   lockKind = false,
-}: CreateSecretDialogProps) {
+}: CreateStandaloneCredentialDialogProps) {
   const { t } = useTranslation()
   const [kind, setKind] = useState<CreateSecretKind>(initialKind)
   const [name, setName] = useState('')
@@ -106,7 +106,7 @@ export function CreateSecretDialog({
         managedRequestOptions(action.requestScope),
       )
       if (!isCurrentAction(action.runId, action.scope)) return
-      onCreated(parseSecretDetailResponse(response))
+      onCreated(parseCredentialDetailResponse(response))
       onOpenChange(false)
     } catch (requestError) {
       if (!isCurrentAction(action.runId, action.scope)) return
@@ -135,7 +135,7 @@ export function CreateSecretDialog({
                 ? kind === 'llm'
                   ? 'managed.credentials.createModelConnection'
                   : 'managed.credentials.createServiceCredential'
-                : 'managed.secrets.new',
+                : 'managed.credentials.resources.new',
             )}
           </DialogTitle>
           <DialogDescription>{t('managed.llm.createDialogDescription')}</DialogDescription>
@@ -165,13 +165,13 @@ export function CreateSecretDialog({
                 kind === 'generic' ? 'bg-background shadow-sm' : 'text-muted-foreground',
               )}
             >
-              {t('managed.llm.genericSecret')}
+              {t('managed.llm.serviceCredential')}
             </button>
           </div>
         )}
 
         {kind === 'llm' ? (
-          <LlmSecretConfigurator
+          <ModelConnectionConfigurator
             onCreated={(secret) => {
               onCreated(secret)
               handleOpenChange(false)
@@ -246,7 +246,7 @@ export function CreateSecretDialog({
                 onClick={() => setPairs((current) => [...current, { key: '', value: '' }])}
               >
                 <Plus className="mr-1 h-4 w-4" />
-                {t('managed.secrets.addPair')}
+                {t('managed.credentials.resources.addPair')}
               </Button>
             </div>
 

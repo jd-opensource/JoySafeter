@@ -155,8 +155,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
       { role: 'user', content: 'build a skill' },
       {
         role: 'assistant',
-        content:
-          '⚠️ 请先在右上角选择一个包含 OPENAI_API_KEY 的模型接入，才能让我开始创作。',
+        content: '⚠️ 请先在右上角选择一个包含 OPENAI_API_KEY 的模型接入，才能让我开始创作。',
       },
     ])
   })

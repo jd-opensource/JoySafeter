@@ -77,8 +77,8 @@ import type {
   Environment,
   PaginatedResponse,
   QuickstartTaskSummary,
-  Secret,
-  SecretDetail,
+  Credential,
+  CredentialDetail,
   Session,
   SessionEvent,
   CredentialGroup,
@@ -117,9 +117,9 @@ import {
 } from '@/hooks/managed/use-current-project-read-only'
 import {
   useActiveModelConnections,
-  compatibleSecretsQueryPrefix,
-  useCompatibleSecrets,
-} from '@/hooks/managed/use-compatible-secrets'
+  compatibleCredentialsQueryPrefix,
+  useCompatibleCredentials,
+} from '@/hooks/managed/use-compatible-credentials'
 import { buildQuickstartEngineOptions } from '@/lib/managed/quickstart-engine-recommendation'
 import { deriveQuickstartLaunchAssurance } from '@/lib/managed/quickstart-launch-assurance'
 import { normalizeQuickstartAgentBlueprint } from '@/lib/managed/quickstart-agent-blueprint'
@@ -131,7 +131,7 @@ import {
   quickstartConfiguredSkillNames,
   toQuickstartAvailableSkills,
 } from '@/lib/managed/quickstart-capabilities'
-import { quickstartVaultRecommendation } from '@/lib/managed/quickstart-vault-recommendation'
+import { quickstartCredentialGroupRecommendation } from '@/lib/managed/quickstart-credential-group-recommendation'
 import { deriveQuickstartObservableChecks } from '@/lib/managed/quickstart-acceptance-checks'
 import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
 
@@ -573,7 +573,9 @@ function ApiCard({ endpoint, curl }: { endpoint: string; curl: string }) {
     <div className="rounded-xl border border-border bg-background">
       <div className="flex items-center justify-between border-b border-border px-3 py-2 text-xs">
         <div className="flex items-center gap-2">
-          <span className="rounded bg-muted px-1.5 py-0.5 font-semibold text-blue-600 dark:text-blue-400">POST</span>
+          <span className="rounded bg-muted px-1.5 py-0.5 font-semibold text-blue-600 dark:text-blue-400">
+            POST
+          </span>
           <span className="font-mono text-[12px] text-foreground">{endpoint}</span>
         </div>
         <div className="flex items-center gap-2 text-muted-foreground">
@@ -1126,7 +1128,7 @@ export default function QuickstartPage() {
     createSession,
     createEnvironment,
     selectExistingEnvironment,
-    createVault,
+    createCredentialGroup,
     selectExistingCredentialGroup,
     goToStep,
     reopenStep,
@@ -1134,7 +1136,7 @@ export default function QuickstartPage() {
     generateTestMessage,
   } = useQuickstartChat(secretRef, { availableSkills })
 
-  const compatibleSecretsQuery = useCompatibleSecrets({
+  const compatibleSecretsQuery = useCompatibleCredentials({
     engineId: selectedEngine ?? '',
     enabled: Boolean(selectedEngine),
   })
@@ -1241,7 +1243,8 @@ export default function QuickstartPage() {
     [agentMcpServerUrls, authorizedMcpServerUrls],
   )
   const vaultRecommendation = useMemo(
-    () => quickstartVaultRecommendation(config.vault as Record<string, unknown> | undefined),
+    () =>
+      quickstartCredentialGroupRecommendation(config.vault as Record<string, unknown> | undefined),
     [config.vault],
   )
 
@@ -1970,11 +1973,11 @@ export default function QuickstartPage() {
     selectAgentSecret(credentialId)
   }
 
-  const handleInlineSecretCreated = (created: SecretDetail) => {
+  const handleInlineSecretCreated = (created: CredentialDetail) => {
     if (!selectedEngine) return
-    const listItem: Secret = created
-    queryClient.setQueriesData<Secret[]>(
-      { queryKey: compatibleSecretsQueryPrefix(managedScope.key, selectedEngine) },
+    const listItem: Credential = created
+    queryClient.setQueriesData<Credential[]>(
+      { queryKey: compatibleCredentialsQueryPrefix(managedScope.key, selectedEngine) },
       (current) => [...(current ?? []).filter((secret) => secret.id !== listItem.id), listItem],
     )
     setSecretRef(created.id)
@@ -2368,16 +2371,14 @@ export default function QuickstartPage() {
                       <div className="flex items-center gap-3">
                         <Button
                           className="h-10 rounded-xl px-5 text-sm font-semibold"
-                          disabled={
-                            isCreating || currentProjectReadOnly || !vaultTokenValue.trim()
-                          }
+                          disabled={isCreating || currentProjectReadOnly || !vaultTokenValue.trim()}
                           onClick={async () => {
                             const urlError = validateUrlScheme(vaultRecommendation.mcpServerUrl)
                             if (urlError) {
                               alert(urlError)
                               return
                             }
-                            const created = await createVault(
+                            const created = await createCredentialGroup(
                               vaultRecommendation.name || 'quickstart-vault',
                               {
                                 credential: {
@@ -2397,7 +2398,7 @@ export default function QuickstartPage() {
                           }}
                         >
                           {isCreating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                          {t('managed.quickstart.createThisVault')}
+                          {t('managed.quickstart.createThisCredentialGroup')}
                         </Button>
                         <Button
                           variant="outline"
@@ -2435,7 +2436,7 @@ export default function QuickstartPage() {
                         ) : currentStep === 4 ? (
                           t('managed.quickstart.createThisEnvironment')
                         ) : currentStep === 5 ? (
-                          t('managed.quickstart.createThisVault')
+                          t('managed.quickstart.createThisCredentialGroup')
                         ) : (
                           t('common.create')
                         )}
@@ -2526,7 +2527,7 @@ export default function QuickstartPage() {
                               className="h-10 rounded-xl px-5 text-sm font-semibold"
                               onClick={confirmSelectedEnvironment}
                             >
-                              {t('managed.quickstart.nextConfigureVault')}
+                              {t('managed.quickstart.nextConfigureCredentialGroup')}
                             </Button>
                           </div>
                         </>
@@ -2863,7 +2864,7 @@ export default function QuickstartPage() {
                                       return
                                     }
                                   }
-                                  const created = await createVault(vaultName.trim(), {
+                                  const created = await createCredentialGroup(vaultName.trim(), {
                                     credential,
                                   })
                                   if (!created) return
@@ -2878,7 +2879,7 @@ export default function QuickstartPage() {
                                 {isCreating ? (
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                 ) : null}
-                                {t('managed.quickstart.createVault')}
+                                {t('managed.quickstart.createCredentialGroup')}
                               </Button>
                               <Button
                                 variant="ghost"
@@ -3182,7 +3183,7 @@ export default function QuickstartPage() {
                             currentStep === 3
                               ? t('managed.quickstart.nextConfigureEnv')
                               : currentStep === 4
-                                ? t('managed.quickstart.nextConfigureVault')
+                                ? t('managed.quickstart.nextConfigureCredentialGroup')
                                 : currentStep === 5
                                   ? t('managed.quickstart.nextStartSession')
                                   : t('common.done')
@@ -3535,7 +3536,8 @@ export default function QuickstartPage() {
                                           'text-[11px] font-medium',
                                           check.status === 'passed' && 'text-emerald-600',
                                           check.status === 'failed' && 'text-amber-600',
-                                          check.status === 'not_observed' && 'text-muted-foreground',
+                                          check.status === 'not_observed' &&
+                                            'text-muted-foreground',
                                         )}
                                       >
                                         {t(

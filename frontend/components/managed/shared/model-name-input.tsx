@@ -4,10 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { MODEL_OPTIONS } from '@/lib/managed/secret-keys'
+import { MODEL_NAME_OPTIONS } from '@/lib/managed/credential-fields'
 import { cn } from '@/lib/utils'
 
-interface SecretModelInputProps {
+interface ModelNameInputProps {
   value: string
   onChange: (value: string) => void
   placeholder?: string
@@ -15,13 +15,13 @@ interface SecretModelInputProps {
   disabled?: boolean
 }
 
-export function SecretModelInput({
+export function ModelNameInput({
   value,
   onChange,
   placeholder,
   className,
   disabled = false,
-}: SecretModelInputProps) {
+}: ModelNameInputProps) {
   const [open, setOpen] = useState(false)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -61,11 +61,11 @@ export function SecretModelInput({
 
   const filteredOptions = useMemo(() => {
     const keyword = value.trim().toLowerCase()
-    if (!keyword) return MODEL_OPTIONS
-    return MODEL_OPTIONS.filter((model) => model.toLowerCase().includes(keyword))
+    if (!keyword) return MODEL_NAME_OPTIONS
+    return MODEL_NAME_OPTIONS.filter((model) => model.toLowerCase().includes(keyword))
   }, [value])
 
-  const showCustomValue = value.trim() && !MODEL_OPTIONS.includes(value.trim())
+  const showCustomValue = value.trim() && !MODEL_NAME_OPTIONS.includes(value.trim())
 
   const selectModel = (model: string) => {
     if (disabled) return

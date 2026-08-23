@@ -3,7 +3,13 @@
 import { KeyRound, Lock, Zap } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useTranslation } from '@/lib/i18n'
 
 export type CredentialKindChoice = 'model' | 'service' | 'credential-group'

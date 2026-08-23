@@ -1,5 +1,5 @@
 import type { LlmEngineCapability } from '@/types/llm'
-import type { Secret } from '@/types/managed'
+import type { Credential } from '@/types/managed'
 
 export type QuickstartModelRecommendationReason =
   | 'onlyCompatible'
@@ -9,17 +9,17 @@ export type QuickstartModelRecommendationReason =
   | 'recentCompatible'
 
 export interface QuickstartModelRecommendation {
-  secret: Secret
+  secret: Credential
   reason: QuickstartModelRecommendationReason
   autoContinue: boolean
 }
 
-function createdTime(secret: Secret): number {
+function createdTime(secret: Credential): number {
   const time = Date.parse(secret.created_at)
   return Number.isFinite(time) ? time : 0
 }
 
-function protocolRank(engine: LlmEngineCapability | null | undefined, secret: Secret): number {
+function protocolRank(engine: LlmEngineCapability | null | undefined, secret: Credential): number {
   if (!engine || !secret.protocol) return Number.MAX_SAFE_INTEGER
   const preferredIndex = engine.preferred_protocol_ids.indexOf(secret.protocol)
   if (preferredIndex >= 0) return preferredIndex
@@ -30,8 +30,8 @@ function protocolRank(engine: LlmEngineCapability | null | undefined, secret: Se
 
 function compareRecommended(
   engine: LlmEngineCapability | null | undefined,
-  a: Secret,
-  b: Secret,
+  a: Credential,
+  b: Credential,
 ): number {
   const rankDiff = protocolRank(engine, a) - protocolRank(engine, b)
   if (rankDiff !== 0) return rankDiff
@@ -42,7 +42,7 @@ function compareRecommended(
 
 function isPreferredProtocol(
   engine: LlmEngineCapability | null | undefined,
-  secret: Secret,
+  secret: Credential,
 ): boolean {
   return Boolean(
     engine && secret.protocol && engine.preferred_protocol_ids.includes(secret.protocol),
@@ -50,7 +50,7 @@ function isPreferredProtocol(
 }
 
 export function recommendQuickstartModelConnection(
-  options: Secret[],
+  options: Credential[],
   engine: LlmEngineCapability | null | undefined,
 ): QuickstartModelRecommendation | null {
   const activeOptions = options.filter((option) => !option.archived_at)

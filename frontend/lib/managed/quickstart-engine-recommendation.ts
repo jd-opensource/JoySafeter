@@ -1,5 +1,5 @@
 import type { LlmEngineCapability } from '@/types/llm'
-import type { Secret } from '@/types/managed'
+import type { Credential } from '@/types/managed'
 
 const GENERAL_ENGINE_PRIORITY = ['native', 'claude_code', 'claude', 'codex', 'pi']
 const CODING_ENGINE_PRIORITY = ['claude_code', 'codex', 'claude', 'native', 'pi']
@@ -21,7 +21,7 @@ export interface QuickstartEngineOption {
 
 interface BuildQuickstartEngineOptionsInput {
   enabledEngines: LlmEngineCapability[]
-  modelConnections: Secret[]
+  modelConnections: Credential[]
   intentText: string
 }
 

@@ -15,6 +15,7 @@ import {
   type FilterDef,
 } from '@/components/managed/shared'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -35,6 +36,12 @@ import {
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { managedDelete, managedGet, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
+import {
+  apiKeyStatusLabelKey,
+  buildApiKeyCreatePayload,
+  canRevokeApiKey,
+  type ApiKeyStatus,
+} from '@/lib/managed/api-key-lifecycle'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { projectRoleLabel, projectRoleOptions } from '@/lib/managed/roles'
@@ -46,7 +53,10 @@ interface ApiKey {
   name: string
   key_prefix: string
   role: string
+  status: ApiKeyStatus
   created_at?: string
+  expires_at?: string | null
+  revoked_at?: string | null
   last_used_at?: string
 }
 
@@ -66,6 +76,7 @@ interface RevokeKeyVariables {
 interface CreateKeyVariables {
   name: string
   role: string
+  expiresAt: string
   scope: string
   runId: number
 }
@@ -94,6 +105,7 @@ export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) 
   const [showCreate, setShowCreate] = useState(false)
   const [keyName, setKeyName] = useState('')
   const [keyRole, setKeyRole] = useState('viewer')
+  const [keyExpiresAt, setKeyExpiresAt] = useState('')
   const [newRawKey, setNewRawKey] = useState<string | null>(null)
   const [newRawKeyName, setNewRawKeyName] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -144,6 +156,7 @@ export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) 
     setShowCreate(false)
     setKeyName('')
     setKeyRole('viewer')
+    setKeyExpiresAt('')
     setNewRawKey(null)
     setNewRawKeyName(null)
     setCopied(false)
@@ -158,6 +171,7 @@ export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) 
     setShowCreate(false)
     setKeyName('')
     setKeyRole('viewer')
+    setKeyExpiresAt('')
     setNewRawKey(null)
     setNewRawKeyName(null)
     setCopied(false)
@@ -176,7 +190,7 @@ export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) 
   const filteredKeys = keys.filter(
     (key) =>
       filterByCreatedTime(key.created_at || '', createdFilter) &&
-      matchesSearch(searchQuery, [key.id, key.name, key.key_prefix, key.role]),
+      matchesSearch(searchQuery, [key.id, key.name, key.key_prefix, key.role, key.status]),
   )
   const filters: FilterDef[] = [
     {
@@ -202,6 +216,25 @@ export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) 
       render: (key) => (
         <span className="text-muted-foreground">{projectRoleLabel(t, key.role)}</span>
       ),
+    },
+    {
+      key: 'status',
+      header: t('manage.apiKeys.statusLabel'),
+      render: (key) => (
+        <Badge variant={key.status === 'revoked' ? 'destructive' : 'outline'}>
+          {t(apiKeyStatusLabelKey(key.status))}
+        </Badge>
+      ),
+    },
+    {
+      key: 'expires',
+      header: t('manage.apiKeys.expiresAt'),
+      render: (key) =>
+        key.expires_at ? (
+          <RelativeTime date={key.expires_at} />
+        ) : (
+          <span className="text-muted-foreground">{t('manage.apiKeys.neverExpires')}</span>
+        ),
     },
     {
       key: 'created',
@@ -241,10 +274,10 @@ export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) 
       if (!currentManagedScopeAllowsWrite(data.scope) || data.runId !== createKeyRunRef.current) {
         throw new Error('Stale api key create ignored')
       }
-      return managedPost<{ raw_key: string }>(apiKeysPath, {
-        name: data.name,
-        role: data.role,
-      }).then((res) => ({ res, runId: data.runId, scope: data.scope, name: data.name }))
+      return managedPost<{ raw_key: string }>(
+        apiKeysPath,
+        buildApiKeyCreatePayload(data.name, data.role, data.expiresAt),
+      ).then((res) => ({ res, runId: data.runId, scope: data.scope, name: data.name }))
     },
     onSuccess: ({ res, runId, scope, name }) => {
       if (!currentManagedScopeAllowsWrite(scope)) return
@@ -255,6 +288,7 @@ export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) 
       setNewRawKeyName(name)
       setShowCreate(false)
       setKeyName('')
+      setKeyExpiresAt('')
     },
     onError: (error, variables) => {
       if (
@@ -290,7 +324,13 @@ export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) 
     }
     const runId = createKeyRunRef.current + 1
     createKeyRunRef.current = runId
-    createKey.mutate({ name, role: keyRole, runId, scope: managedScopeRef.current })
+    createKey.mutate({
+      name,
+      role: keyRole,
+      expiresAt: keyExpiresAt,
+      runId,
+      scope: managedScopeRef.current,
+    })
   }
 
   const revokeKey = useMutation({
@@ -463,6 +503,17 @@ export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) 
                   ))}
                 </SelectContent>
               </Select>
+              <label className="space-y-1 text-sm" htmlFor="api-key-expires-at">
+                <span className="text-muted-foreground">
+                  {t('manage.apiKeys.expiresAtOptional')}
+                </span>
+                <Input
+                  id="api-key-expires-at"
+                  type="datetime-local"
+                  value={keyExpiresAt}
+                  onChange={(event) => setKeyExpiresAt(event.target.value)}
+                />
+              </label>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => handleCreateOpenChange(false)}>
@@ -495,14 +546,17 @@ export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) 
         }}
         actionMenu={
           !projectReadOnly
-            ? (key) => [
-                {
-                  label: t('manage.apiKeys.revoke'),
-                  icon: <Trash2 className="h-3.5 w-3.5" />,
-                  destructive: true,
-                  onClick: () => openRevokeDialog(key),
-                },
-              ]
+            ? (key) =>
+                canRevokeApiKey(key.status)
+                  ? [
+                      {
+                        label: t('manage.apiKeys.revoke'),
+                        icon: <Trash2 className="h-3.5 w-3.5" />,
+                        destructive: true,
+                        onClick: () => openRevokeDialog(key),
+                      },
+                    ]
+                  : []
             : undefined
         }
       />

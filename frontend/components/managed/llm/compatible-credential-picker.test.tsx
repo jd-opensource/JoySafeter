@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { CompatibleSecretPicker } from './compatible-secret-picker'
+import { CompatibleCredentialPicker } from './compatible-credential-picker'
 
 const pickerMocks = vi.hoisted(() => ({
   queryError: false,
@@ -28,8 +28,8 @@ const options = [
   },
 ]
 
-vi.mock('@/hooks/managed/use-compatible-secrets', () => ({
-  useCompatibleSecrets: () => ({
+vi.mock('@/hooks/managed/use-compatible-credentials', () => ({
+  useCompatibleCredentials: () => ({
     data: options,
     isLoading: false,
     isError: pickerMocks.queryError,
@@ -66,7 +66,7 @@ vi.mock('@/hooks/managed/use-llm-catalog', () => ({
 }))
 vi.mock('@/lib/i18n', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 
-describe('CompatibleSecretPicker', () => {
+describe('CompatibleCredentialPicker', () => {
   beforeEach(() => {
     pickerMocks.queryError = false
     pickerMocks.catalogError = false
@@ -78,7 +78,7 @@ describe('CompatibleSecretPicker', () => {
     const onChange = vi.fn()
     const onCreateRequested = vi.fn()
     render(
-      <CompatibleSecretPicker
+      <CompatibleCredentialPicker
         engineId="codex"
         value=""
         onChange={onChange}
@@ -96,7 +96,7 @@ describe('CompatibleSecretPicker', () => {
   it('offers an explicit engine-default option when empty selection is allowed', () => {
     const onChange = vi.fn()
     render(
-      <CompatibleSecretPicker
+      <CompatibleCredentialPicker
         engineId="codex"
         value={SECRET_ID}
         allowNone
@@ -111,7 +111,7 @@ describe('CompatibleSecretPicker', () => {
 
   it('describes empty selection without claiming a runtime default exists', () => {
     render(
-      <CompatibleSecretPicker
+      <CompatibleCredentialPicker
         engineId="codex"
         value=""
         allowNone
@@ -126,12 +126,12 @@ describe('CompatibleSecretPicker', () => {
 
   it('keeps incompatible persisted configuration metadata visible', () => {
     render(
-      <CompatibleSecretPicker
+      <CompatibleCredentialPicker
         engineId="codex"
         value="legacy-anthropic"
         onChange={() => {}}
         onCreateRequested={() => {}}
-        conflictSecret={{
+        conflictCredential={{
           ...options[0],
           name: 'legacy-anthropic',
           provider: 'anthropic',
@@ -148,7 +148,7 @@ describe('CompatibleSecretPicker', () => {
 
   it('shows the persisted name while exact conflict metadata is still loading', () => {
     render(
-      <CompatibleSecretPicker
+      <CompatibleCredentialPicker
         engineId="codex"
         value="legacy-anthropic"
         onChange={() => {}}
@@ -164,12 +164,12 @@ describe('CompatibleSecretPicker', () => {
 
   it('keeps removed catalog identities visible without crashing', () => {
     render(
-      <CompatibleSecretPicker
+      <CompatibleCredentialPicker
         engineId="codex"
         value="orphan-secret"
         onChange={() => {}}
         onCreateRequested={() => {}}
-        conflictSecret={{
+        conflictCredential={{
           ...options[0],
           name: 'orphan-secret',
           provider: 'removed-provider',
@@ -186,7 +186,7 @@ describe('CompatibleSecretPicker', () => {
     pickerMocks.queryError = true
     pickerMocks.catalogError = true
     render(
-      <CompatibleSecretPicker
+      <CompatibleCredentialPicker
         engineId="codex"
         value=""
         onChange={() => {}}

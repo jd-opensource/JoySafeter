@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { managedPost } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
 
-import { LlmSecretConfigurator } from './llm-secret-configurator'
+import { ModelConnectionConfigurator } from './model-connection-configurator'
 
 const catalog = {
   version: '1',
@@ -190,40 +190,40 @@ function fillModelForm() {
   })
 }
 
-describe('LlmSecretConfigurator', () => {
+describe('ModelConnectionConfigurator', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setProject('project-a')
   })
 
   it('does not render an engine selector', () => {
-    render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
+    render(<ModelConnectionConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
     expect(screen.queryByLabelText('managed.llm.engine')).toBeNull()
   })
 
   it('auto-selects a unique provider and shows the single compatible protocol', () => {
-    render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
+    render(<ModelConnectionConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
     expect(screen.getByDisplayValue('Anthropic')).toBeTruthy()
     expect(screen.getByDisplayValue('Anthropic Messages')).toBeTruthy()
     expect(screen.getByText(/managed\.llm\.singleProtocolSelected/)).toBeTruthy()
   })
 
   it('explains that options are filtered by the selected engine and catalog-backed', () => {
-    render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
+    render(<ModelConnectionConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
     expect(screen.getByText('managed.llm.compatibilityScope')).toBeTruthy()
     expect(screen.getByText(/managed\.llm\.filteredByEngine: Claude Code/)).toBeTruthy()
     expect(screen.getByText('managed.llm.catalogBackedOnlyHint')).toBeTruthy()
   })
 
   it('shows the protocol selector for a provider with multiple protocols', () => {
-    render(<LlmSecretConfigurator initialEngineId="native" onCreated={vi.fn()} />)
+    render(<ModelConnectionConfigurator initialEngineId="native" onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('managed.llm.provider'), { target: { value: 'openai' } })
     expect(screen.getByLabelText('managed.llm.protocol')).toBeTruthy()
   })
 
   it('marks a successful connection test stale after any value changes', async () => {
     managedPostMock.mockResolvedValueOnce({ ok: true, message: 'ok' })
-    render(<LlmSecretConfigurator initialEngineId="native" onCreated={vi.fn()} />)
+    render(<ModelConnectionConfigurator initialEngineId="native" onCreated={vi.fn()} />)
 
     fireEvent.change(screen.getByLabelText('managed.llm.provider'), { target: { value: 'openai' } })
     fireEvent.change(screen.getByLabelText('managed.llm.protocol'), {
@@ -238,7 +238,7 @@ describe('LlmSecretConfigurator', () => {
   })
 
   it('does not create a model connection after the project becomes archived', async () => {
-    render(<LlmSecretConfigurator initialEngineId="native" onCreated={vi.fn()} />)
+    render(<ModelConnectionConfigurator initialEngineId="native" onCreated={vi.fn()} />)
     fillModelForm()
 
     await act(async () => {
@@ -254,7 +254,7 @@ describe('LlmSecretConfigurator', () => {
     const create = deferred<unknown>()
     managedPostMock.mockReturnValueOnce(create.promise)
     const onCreated = vi.fn()
-    render(<LlmSecretConfigurator initialEngineId="native" onCreated={onCreated} />)
+    render(<ModelConnectionConfigurator initialEngineId="native" onCreated={onCreated} />)
     fillModelForm()
     fireEvent.click(screen.getByRole('button', { name: 'managed.llm.createConfiguration' }))
     await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
@@ -282,36 +282,32 @@ describe('LlmSecretConfigurator', () => {
   })
 
   it('renders a single key input and an auth-scheme selector for anthropic', () => {
-    render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
+    render(<ModelConnectionConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
     expect(screen.getByLabelText('API Key')).toBeTruthy()
     expect(screen.queryByLabelText('Auth Token')).toBeNull()
     expect(screen.getByLabelText('managed.llm.authScheme')).toBeTruthy()
   })
 
   it('previews Bearer when base url is a gateway host', () => {
-    render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
+    render(<ModelConnectionConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
     // Anchor on the resolved-preview line's full text. In the test env t returns the
     // key, so the preview shows the preview key while the <option> labels show the
     // separate scheme keys — no overlap.
     expect(
-      screen.getByText(
-        (_content, el) => el?.textContent === 'managed.llm.authSchemePreviewApiKey',
-      ),
+      screen.getByText((_content, el) => el?.textContent === 'managed.llm.authSchemePreviewApiKey'),
     ).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Base URL'), {
       target: { value: 'http://ai-api.jdcloud.com/anthropic' },
     })
     expect(
-      screen.getByText(
-        (_content, el) => el?.textContent === 'managed.llm.authSchemePreviewBearer',
-      ),
+      screen.getByText((_content, el) => el?.textContent === 'managed.llm.authSchemePreviewBearer'),
     ).toBeTruthy()
   })
 
   it('submits auth_scheme for anthropic credentials', async () => {
     const create = deferred<unknown>()
     managedPostMock.mockReturnValueOnce(create.promise)
-    render(<LlmSecretConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
+    render(<ModelConnectionConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'k' } })
     fireEvent.change(screen.getByPlaceholderText('managed.llm.configurationNamePlaceholder'), {
       target: { value: 'Claude key' },

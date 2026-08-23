@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { LlmEngineCapability } from '@/types/llm'
-import type { Secret } from '@/types/managed'
+import type { Credential } from '@/types/managed'
 
 import { recommendQuickstartModelConnection } from './quickstart-model-recommendation'
 
@@ -15,10 +15,10 @@ const engine: LlmEngineCapability = {
 
 function secret(
   id: string,
-  patch: Partial<Pick<Secret, 'protocol' | 'is_default' | 'created_at' | 'archived_at'>> = {},
-): Secret {
+  patch: Partial<Pick<Credential, 'protocol' | 'is_default' | 'created_at' | 'archived_at'>> = {},
+): Credential {
   return {
-    id: `cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f0${id}` as Secret['id'],
+    id: `cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f0${id}` as Credential['id'],
     name: `connection-${id}`,
     kind: 'model',
     provider: 'openai',

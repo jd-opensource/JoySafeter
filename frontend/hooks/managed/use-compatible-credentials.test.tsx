@@ -6,11 +6,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { managedGet } from '@/lib/api-client'
 
 import {
-  compatibleSecretsQueryKey,
-  useCompatibleSecrets,
-  useProtocolSecrets,
-  useLlmSecretByName,
-} from './use-compatible-secrets'
+  compatibleCredentialsQueryKey,
+  compatibleCredentialsScopePrefix,
+  useCompatibleCredentials,
+  useModelConnectionByName,
+  useProtocolCredentials,
+} from './use-compatible-credentials'
 
 vi.mock('@/lib/api-client', () => ({ managedGet: vi.fn() }))
 vi.mock('@/lib/managed/request-scope', () => ({
@@ -58,7 +59,7 @@ function wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
 }
 
-describe('useCompatibleSecrets', () => {
+describe('useCompatibleCredentials', () => {
   afterEach(() => vi.clearAllMocks())
 
   it('requests the selected engine and follows all cursor pages', async () => {
@@ -75,7 +76,7 @@ describe('useCompatibleSecrets', () => {
       })
 
     const { result } = renderHook(
-      () => useCompatibleSecrets({ engineId: 'codex', enabled: true }),
+      () => useCompatibleCredentials({ engineId: 'codex', enabled: true }),
       { wrapper },
     )
 
@@ -91,8 +92,12 @@ describe('useCompatibleSecrets', () => {
   })
 
   it('includes the catalog version in the derived compatibility query key', () => {
-    expect(compatibleSecretsQueryKey('org-a:project-a', 'codex', 'catalog-v2')).toEqual([
-      'compatible-secrets',
+    expect(compatibleCredentialsScopePrefix('org-a:project-a')).toEqual([
+      'compatible-credentials',
+      'org-a:project-a',
+    ])
+    expect(compatibleCredentialsQueryKey('org-a:project-a', 'codex', 'catalog-v2')).toEqual([
+      'compatible-credentials',
       'org-a:project-a',
       'codex',
       'catalog-v2',
@@ -100,7 +105,7 @@ describe('useCompatibleSecrets', () => {
   })
 
   it('does not request without an engine', () => {
-    const { result } = renderHook(() => useCompatibleSecrets({ engineId: '', enabled: true }), {
+    const { result } = renderHook(() => useCompatibleCredentials({ engineId: '', enabled: true }), {
       wrapper,
     })
 
@@ -108,7 +113,7 @@ describe('useCompatibleSecrets', () => {
     expect(managedGetMock).not.toHaveBeenCalled()
   })
 
-  it('loads exact LLM Secret metadata by name for edit conflicts', async () => {
+  it('loads exact model connection metadata by name for edit conflicts', async () => {
     managedGetMock.mockResolvedValueOnce({
       data: [secret(UUID_A, 'persisted-secret')],
       has_more: false,
@@ -116,7 +121,7 @@ describe('useCompatibleSecrets', () => {
     })
 
     const { result } = renderHook(
-      () => useLlmSecretByName({ name: 'persisted-secret', enabled: true }),
+      () => useModelConnectionByName({ name: 'persisted-secret', enabled: true }),
       { wrapper },
     )
 
@@ -126,7 +131,7 @@ describe('useCompatibleSecrets', () => {
     expect(managedGetMock.mock.calls[0][0]).toContain('name=persisted-secret')
   })
 
-  it('loads all LLM secrets for an explicit protocol consumer', async () => {
+  it('loads all model credentials for an explicit protocol consumer', async () => {
     managedGetMock.mockResolvedValueOnce({
       data: [secret(UUID_A, 'authoring-openai')],
       has_more: false,
@@ -134,7 +139,7 @@ describe('useCompatibleSecrets', () => {
     })
 
     const { result } = renderHook(
-      () => useProtocolSecrets({ protocolId: 'openai_responses', enabled: true }),
+      () => useProtocolCredentials({ protocolId: 'openai_responses', enabled: true }),
       { wrapper },
     )
 

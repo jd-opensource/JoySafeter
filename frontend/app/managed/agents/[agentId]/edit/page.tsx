@@ -19,7 +19,7 @@ import {
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { validateUniqueMcpServerName } from '@/lib/utils/mcp-validation'
-import type { Agent, Secret } from '@/types/managed'
+import type { Agent, Credential } from '@/types/managed'
 import { parseAgentId, parseCredentialId, type AgentId, type SkillId } from '@/types/entity-id'
 import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
@@ -51,11 +51,11 @@ import {
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
 import {
-  compatibleSecretsQueryPrefix,
-  useCompatibleSecrets,
-  useLlmSecretByName,
-} from '@/hooks/managed/use-compatible-secrets'
-import { CompatibleSecretPicker } from '@/components/managed/llm/compatible-secret-picker'
+  compatibleCredentialsQueryPrefix,
+  useCompatibleCredentials,
+  useModelConnectionByName,
+} from '@/hooks/managed/use-compatible-credentials'
+import { CompatibleCredentialPicker } from '@/components/managed/llm/compatible-credential-picker'
 import { SearchableAgentConfigSelect } from '../../components/searchable-agent-config-select'
 
 const BUILTIN_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
@@ -205,7 +205,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
     [effectiveSelectedSkillIds, skillVersions],
   )
 
-  // ── Secret ref ──
+  // ── Model Connection reference ──
   const [secretRef, setSecretRef] = useState('')
   const enabledEngines = useMemo(
     () => (catalogQuery.data ? getEnabledEngines(catalogQuery.data) : []),
@@ -213,13 +213,13 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
   )
   const engineUnavailable =
     catalogQuery.isSuccess && !enabledEngines.some((engine) => engine.id === engineKind)
-  const compatibleSecretsQuery = useCompatibleSecrets({ engineId: engineKind })
+  const compatibleSecretsQuery = useCompatibleCredentials({ engineId: engineKind })
   const secrets = compatibleSecretsQuery.data
   const selectedSecretIsCompatible =
     !secretRef || Boolean(secrets?.some((secret) => secret.id === secretRef))
   const secretConflict =
     Boolean(secretRef) && compatibleSecretsQuery.isSuccess && !selectedSecretIsCompatible
-  const conflictSecretQuery = useLlmSecretByName({
+  const conflictSecretQuery = useModelConnectionByName({
     name: secretRef,
     enabled: secretConflict,
   })
@@ -322,7 +322,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
       Object.fromEntries(agentSkills.map((s) => [s.skill_id, s.version || 'latest'])),
     )
 
-    // Secret ref
+    // Model Connection reference
     setSecretRef(agent.model_credential_id || '')
 
     // Environment ref
@@ -424,8 +424,8 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
   ): Record<string, unknown> => {
     const currentSecrets =
       queryClient
-        .getQueriesData<Secret[]>({
-          queryKey: compatibleSecretsQueryPrefix(scopeKey, engineKind),
+        .getQueriesData<Credential[]>({
+          queryKey: compatibleCredentialsQueryPrefix(scopeKey, engineKind),
         })
         .at(-1)?.[1] ?? secrets
     const currentEnvironments =
@@ -618,7 +618,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
               </Select>
             </div>
 
-            {/* ───────── Secret Reference ───────── */}
+            {/* ───────── Model Connection Reference ───────── */}
             <section className="space-y-3">
               <h3 className="border-b border-border pb-2 text-sm font-semibold text-foreground">
                 {t('agents.edit.secretRef')}
@@ -626,12 +626,12 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
                   {t('managed.agents.formOptional')}
                 </span>
               </h3>
-              <CompatibleSecretPicker
+              <CompatibleCredentialPicker
                 engineId={engineKind}
                 value={secretRef}
                 allowNone
                 disabled={formReadOnly}
-                conflictSecret={conflictSecretQuery.data ?? null}
+                conflictCredential={conflictSecretQuery.data ?? null}
                 conflictValue={secretConflict ? secretRef : undefined}
                 conflictMessage={
                   secretConflict ? t('managed.llm.incompatibleWithSelectedEngine') : undefined
@@ -640,7 +640,9 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
                   setSecretRef(value)
                   markDirty()
                 }}
-                onCreateRequested={() => window.open('/managed/credentials?tab=models&create=model', '_blank')}
+                onCreateRequested={() =>
+                  window.open('/managed/credentials?tab=models&create=model', '_blank')
+                }
               />
               {secretConflict ? (
                 <div className="flex flex-wrap gap-2">

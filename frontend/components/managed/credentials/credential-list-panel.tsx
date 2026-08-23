@@ -4,7 +4,11 @@ import { Filter, Plus, Search, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { ActionMenu, type MenuItem } from '@/components/managed/shared/action-menu'
-import { DataTable, dataTableSelectionKey, type Column } from '@/components/managed/shared/data-table'
+import {
+  DataTable,
+  dataTableSelectionKey,
+  type Column,
+} from '@/components/managed/shared/data-table'
 import type { FilterDef } from '@/components/managed/shared/filter-bar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

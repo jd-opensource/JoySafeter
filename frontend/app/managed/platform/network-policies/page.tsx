@@ -70,87 +70,87 @@ export default function NetworkPolicyDiagnosticsPage() {
 
   const columns: Column<NetworkPolicyStatus>[] = useMemo(
     () => [
-    {
-      key: 'target',
-      header: t('managed.networkPolicies.columns.target'),
-      render: (row) => (
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Network className="h-3.5 w-3.5 text-muted-foreground" />
-            {row.session_title || row.agent_name || t('managed.networkPolicies.untitledSession')}
+      {
+        key: 'target',
+        header: t('managed.networkPolicies.columns.target'),
+        render: (row) => (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Network className="h-3.5 w-3.5 text-muted-foreground" />
+              {row.session_title || row.agent_name || t('managed.networkPolicies.untitledSession')}
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <span>{t('managed.networkPolicies.sandbox')}</span>
+              <MonoId id={row.sandbox_id} />
+              {row.session_id ? <MonoId id={row.session_id} /> : null}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-            <span>{t('managed.networkPolicies.sandbox')}</span>
-            <MonoId id={row.sandbox_id} />
-            {row.session_id ? <MonoId id={row.session_id} /> : null}
+        ),
+      },
+      {
+        key: 'status',
+        header: t('managed.networkPolicies.columns.status'),
+        render: (row) => (
+          <Badge
+            variant="outline"
+            className={
+              statusTone(row.networking_status) === 'failed'
+                ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                : ''
+            }
+          >
+            {row.networking_status}
+          </Badge>
+        ),
+      },
+      {
+        key: 'policy',
+        header: t('managed.networkPolicies.columns.policy'),
+        render: (row) => (
+          <div className="space-y-1 text-xs">
+            <div>v{row.networking_policy_version || 0}</div>
+            <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+              {shortHash(row.networking_policy_hash)}
+            </code>
           </div>
-        </div>
-      ),
-    },
-    {
-      key: 'status',
-      header: t('managed.networkPolicies.columns.status'),
-      render: (row) => (
-        <Badge
-          variant="outline"
-          className={
-            statusTone(row.networking_status) === 'failed'
-              ? 'border-destructive/40 bg-destructive/10 text-destructive'
-              : ''
+        ),
+      },
+      {
+        key: 'health',
+        header: t('managed.networkPolicies.columns.health'),
+        render: (row) => {
+          const errorText =
+            row.networking_last_error || row.latest_policy_error || row.latest_policy_nack_reason
+          if (!errorText) {
+            return (
+              <div className="flex items-center gap-1.5 text-sm text-emerald-600">
+                <CheckCircle2 className="h-4 w-4" />
+                {t('managed.networkPolicies.noError')}
+              </div>
+            )
           }
-        >
-          {row.networking_status}
-        </Badge>
-      ),
-    },
-    {
-      key: 'policy',
-      header: t('managed.networkPolicies.columns.policy'),
-      render: (row) => (
-        <div className="space-y-1 text-xs">
-          <div>v{row.networking_policy_version || 0}</div>
-          <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
-            {shortHash(row.networking_policy_hash)}
-          </code>
-        </div>
-      ),
-    },
-    {
-      key: 'health',
-      header: t('managed.networkPolicies.columns.health'),
-      render: (row) => {
-        const errorText =
-          row.networking_last_error || row.latest_policy_error || row.latest_policy_nack_reason
-        if (!errorText) {
           return (
-            <div className="flex items-center gap-1.5 text-sm text-emerald-600">
-              <CheckCircle2 className="h-4 w-4" />
-              {t('managed.networkPolicies.noError')}
+            <div className="max-w-[360px] space-y-1">
+              <div className="flex items-center gap-1.5 text-sm font-medium text-destructive">
+                <AlertTriangle className="h-4 w-4" />
+                {t('managed.networkPolicies.hasError')}
+              </div>
+              <p className="line-clamp-2 text-xs text-muted-foreground" title={errorText}>
+                {errorText}
+              </p>
             </div>
           )
-        }
-        return (
-          <div className="max-w-[360px] space-y-1">
-            <div className="flex items-center gap-1.5 text-sm font-medium text-destructive">
-              <AlertTriangle className="h-4 w-4" />
-              {t('managed.networkPolicies.hasError')}
-            </div>
-            <p className="line-clamp-2 text-xs text-muted-foreground" title={errorText}>
-              {errorText}
-            </p>
-          </div>
-        )
+        },
       },
-    },
-    {
-      key: 'updated',
-      header: t('managed.networkPolicies.columns.updated'),
-      render: (row) => (
-        <RelativeTime
-          date={row.latest_policy_updated_at || row.networking_ready_at || row.sandbox_updated_at}
-        />
-      ),
-    },
+      {
+        key: 'updated',
+        header: t('managed.networkPolicies.columns.updated'),
+        render: (row) => (
+          <RelativeTime
+            date={row.latest_policy_updated_at || row.networking_ready_at || row.sandbox_updated_at}
+          />
+        ),
+      },
     ],
     [t],
   )

@@ -22,9 +22,9 @@ import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { filterByCreatedTime, createCreatedTimeFilter, matchesSearch } from '@/lib/managed/filters'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseSecretResponse } from '@/lib/managed/secret-response-parsers'
+import { parseCredentialResponse } from '@/lib/managed/credential-response-parsers'
 import { parseCredentialId } from '@/types/entity-id'
-import type { Secret } from '@/types/managed'
+import type { Credential } from '@/types/managed'
 
 import { CredentialIdentity } from './credential-identity'
 import { CredentialListPanel } from './credential-list-panel'
@@ -66,9 +66,9 @@ export function ServiceCredentialList({
   const setSearchQuery = (value: string) => updateListState({ searchQuery: value })
   const setCreatedFilter = (value: string) => updateListState({ createdFilter: value })
   const setShowArchived = (value: boolean) => updateListState({ showArchived: value })
-  const [deleteTarget, setDeleteTarget] = useState<Secret | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Credential | null>(null)
   const [lifecycleTarget, setLifecycleTarget] = useState<{
-    credential: Secret
+    credential: Credential
     action: 'archive' | 'restore'
   } | null>(null)
   const [mutationPending, setMutationPending] = useState(false)
@@ -87,14 +87,14 @@ export function ServiceCredentialList({
     },
   })
 
-  const list = usePaginatedList<Secret>({
+  const list = usePaginatedList<Credential>({
     queryKey: 'credentials',
     path: '/credentials',
     query: { kind: 'service' },
     includeArchived: showArchived,
     pageSize: listState.pageSize,
     onPageSizeChange: (pageSize) => updateListState({ pageSize }),
-    parseItem: parseSecretResponse,
+    parseItem: parseCredentialResponse,
     parseCursor: parseCredentialId,
   })
 
@@ -184,7 +184,7 @@ export function ServiceCredentialList({
     }
   }
 
-  const columns: Column<Secret>[] = [
+  const columns: Column<Credential>[] = [
     {
       key: 'identity',
       header: t('managed.credentials.tabs.services'),
@@ -209,7 +209,7 @@ export function ServiceCredentialList({
     },
   ]
 
-  const rowActions = (s: Secret) =>
+  const rowActions = (s: Credential) =>
     projectReadOnly || mutationPending
       ? []
       : [
@@ -332,13 +332,13 @@ export function ServiceCredentialList({
         open={!projectReadOnly && Boolean(lifecycleTarget)}
         title={t(
           lifecycleTarget?.action === 'restore'
-            ? 'managed.secrets.restoreTitle'
-            : 'managed.secrets.archiveTitle',
+            ? 'managed.credentials.resources.restoreTitle'
+            : 'managed.credentials.resources.archiveTitle',
         )}
         description={t(
           lifecycleTarget?.action === 'restore'
-            ? 'managed.secrets.restoreDescription'
-            : 'managed.secrets.archiveDescription',
+            ? 'managed.credentials.resources.restoreDescription'
+            : 'managed.credentials.resources.archiveDescription',
           { name: lifecycleTarget?.credential.name },
         )}
         confirmLabel={t(
@@ -352,8 +352,10 @@ export function ServiceCredentialList({
       />
       <ConfirmDialog
         open={!projectReadOnly && Boolean(deleteTarget)}
-        title={t('managed.secrets.deleteTitle')}
-        description={t('managed.secrets.deleteDescription', { name: deleteTarget?.name })}
+        title={t('managed.credentials.resources.deleteTitle')}
+        description={t('managed.credentials.resources.deleteDescription', {
+          name: deleteTarget?.name,
+        })}
         confirmLabel={t('common.delete')}
         destructive
         onConfirm={handleDelete}

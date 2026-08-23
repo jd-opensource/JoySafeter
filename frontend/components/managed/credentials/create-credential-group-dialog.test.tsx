@@ -10,7 +10,9 @@ vi.mock('@/lib/i18n', async () => {
     i18n: { language: 'en' },
     useTranslation: () => ({
       t: (key: string, _params?: unknown) =>
-        key === 'managed.vaults.sharedWarning' ? en.translation.managed.vaults.sharedWarning : key,
+        key === 'managed.credentials.groups.sharedWarning'
+          ? en.translation.managed.credentials.groups.sharedWarning
+          : key,
     }),
   }
 })
@@ -77,7 +79,7 @@ globalThis.localStorage = dom.window.localStorage
 import { managedPost } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
 
-import { CreateCredentialGroupDialog } from './create-vault-dialog'
+import { CreateCredentialGroupDialog } from './create-credential-group-dialog'
 
 const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 
@@ -177,7 +179,7 @@ describe('CreateCredentialGroupDialog managed scope lifecycle', () => {
     )
 
     await act(async () => {
-      fireEvent.input(getByPlaceholderText('managed.vaults.namePlaceholder'), {
+      fireEvent.input(getByPlaceholderText('managed.credentials.groups.namePlaceholder'), {
         target: { value: 'My Vault' },
       })
     })
@@ -208,7 +210,7 @@ describe('CreateCredentialGroupDialog managed scope lifecycle', () => {
     )
 
     await act(async () => {
-      fireEvent.input(getByPlaceholderText('managed.vaults.namePlaceholder'), {
+      fireEvent.input(getByPlaceholderText('managed.credentials.groups.namePlaceholder'), {
         target: { value: 'Project A Vault' },
       })
     })
@@ -243,7 +245,7 @@ describe('CreateCredentialGroupDialog managed scope lifecycle', () => {
     )
 
     await act(async () => {
-      fireEvent.input(getByPlaceholderText('managed.vaults.namePlaceholder'), {
+      fireEvent.input(getByPlaceholderText('managed.credentials.groups.namePlaceholder'), {
         target: { value: 'Must not survive archive' },
       })
     })
@@ -258,7 +260,7 @@ describe('CreateCredentialGroupDialog managed scope lifecycle', () => {
     })
 
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
-    expect(getByPlaceholderText('managed.vaults.namePlaceholder')).toHaveValue('')
+    expect(getByPlaceholderText('managed.credentials.groups.namePlaceholder')).toHaveValue('')
   })
 
   it('does not invalidate from a create completion after the managed project changes', async () => {
@@ -281,7 +283,7 @@ describe('CreateCredentialGroupDialog managed scope lifecycle', () => {
     )
 
     await act(async () => {
-      fireEvent.input(getByPlaceholderText('managed.vaults.namePlaceholder'), {
+      fireEvent.input(getByPlaceholderText('managed.credentials.groups.namePlaceholder'), {
         target: { value: 'Project A Vault' },
       })
     })
@@ -322,7 +324,7 @@ describe('CreateCredentialGroupDialog managed scope lifecycle', () => {
     )
 
     await act(async () => {
-      fireEvent.input(view.getByPlaceholderText('managed.vaults.namePlaceholder'), {
+      fireEvent.input(view.getByPlaceholderText('managed.credentials.groups.namePlaceholder'), {
         target: { value: 'Unmounted Vault' },
       })
     })

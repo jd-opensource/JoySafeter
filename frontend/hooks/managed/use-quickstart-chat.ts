@@ -739,7 +739,7 @@ export function useQuickstartChat(
     [isCurrentLifecycleRun, isCurrentWritableLifecycleRun, isCurrentWritableManagedScope, t],
   )
 
-  const createVault = useCallback(
+  const createCredentialGroup = useCallback(
     async (name: string, options: CreateCredentialGroupOptions = {}) => {
       const requestScope = managedRequestScopeRef.current
       const scopeAtStart = requestScope.key
@@ -779,7 +779,7 @@ export function useQuickstartChat(
         if (!isCurrentWritableLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
         const rawCredentialGroupId = getCreatedResourceId(result)
         if (!rawCredentialGroupId) {
-          throw new Error(t('managed.quickstart.errors.createVaultFailed'))
+          throw new Error(t('managed.quickstart.errors.createCredentialGroupFailed'))
         }
         const credentialGroupId = parseCredentialGroupId(rawCredentialGroupId)
 
@@ -813,7 +813,7 @@ export function useQuickstartChat(
             content: getOperationErrorMessage(
               t,
               err,
-              'managed.quickstart.errors.createVaultFailed',
+              'managed.quickstart.errors.createCredentialGroupFailed',
             ),
           },
         ])
@@ -1276,7 +1276,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
     createSession,
     createEnvironment,
     selectExistingEnvironment,
-    createVault,
+    createCredentialGroup,
     selectExistingCredentialGroup,
     goToStep,
     reopenStep,

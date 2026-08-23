@@ -40,7 +40,7 @@ import { detectBrowserTimezone, isValidCron } from '@/lib/managed/cron'
 import { toastOperationError } from '@/lib/managed/errors'
 import { parseModelCredentialReference } from '@/lib/managed/environment-response-parsers'
 import { hasManagedRequestScope, managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseModelConnectionSummaryResponse } from '@/lib/managed/secret-response-parsers'
+import { parseModelConnectionSummaryResponse } from '@/lib/managed/credential-response-parsers'
 import {
   useCreateAgentTrigger,
   useUpdateAgentTrigger,
@@ -82,7 +82,9 @@ function parseAgentOption(value: unknown): AgentOption {
     ...raw,
     id: parseAgentId(raw.id),
     model_credential_id: parseModelCredentialReference(raw),
-    model_connection: raw.model_connection ? parseModelConnectionSummaryResponse(raw.model_connection) : null,
+    model_connection: raw.model_connection
+      ? parseModelConnectionSummaryResponse(raw.model_connection)
+      : null,
   }
 }
 
@@ -879,9 +881,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
                     disabled={!selectedCredential || credentialFields.length === 0}
                   >
                     <SelectTrigger aria-label={t('managed.triggers.credentialField')}>
-                      <SelectValue
-                        placeholder={t('managed.triggers.credentialFieldPlaceholder')}
-                      />
+                      <SelectValue placeholder={t('managed.triggers.credentialFieldPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>

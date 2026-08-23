@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { quickstartVaultRecommendation } from './quickstart-vault-recommendation'
+import { quickstartCredentialGroupRecommendation } from './quickstart-credential-group-recommendation'
 
-describe('quickstartVaultRecommendation', () => {
+describe('quickstartCredentialGroupRecommendation', () => {
   it('extracts name, MCP server URL, and credential name and requires a credential', () => {
     expect(
-      quickstartVaultRecommendation({
+      quickstartCredentialGroupRecommendation({
         name: '  GitHub tools  ',
         description: 'Authorize GitHub MCP',
         mcp_server_url: '  https://mcp.github.example  ',
@@ -20,7 +20,7 @@ describe('quickstartVaultRecommendation', () => {
   })
 
   it('does not require a credential when no MCP server URL is recommended', () => {
-    expect(quickstartVaultRecommendation({ name: 'Named group' })).toEqual({
+    expect(quickstartCredentialGroupRecommendation({ name: 'Named group' })).toEqual({
       name: 'Named group',
       mcpServerUrl: '',
       credentialName: '',
@@ -29,7 +29,7 @@ describe('quickstartVaultRecommendation', () => {
   })
 
   it('returns empty defaults for missing config', () => {
-    expect(quickstartVaultRecommendation(undefined)).toEqual({
+    expect(quickstartCredentialGroupRecommendation(undefined)).toEqual({
       name: '',
       mcpServerUrl: '',
       credentialName: '',

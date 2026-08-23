@@ -26,6 +26,6 @@ describe('quickstart input state', () => {
         isStreaming: false,
         readyKey: 'managed.quickstart.describeAgent',
       }),
-    ).toBe('managed.quickstart.chooseSecret')
+    ).toBe('managed.quickstart.chooseModelConnection')
   })
 })

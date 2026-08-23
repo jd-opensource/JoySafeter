@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { LlmEngineCapability } from '@/types/llm'
-import type { Secret } from '@/types/managed'
+import type { Credential } from '@/types/managed'
 
 import { buildQuickstartEngineOptions } from './quickstart-engine-recommendation'
 
@@ -29,9 +29,9 @@ const engines: LlmEngineCapability[] = [
   },
 ]
 
-function connection(id: string, compatibleEngineIds: string[], isDefault = false): Secret {
+function connection(id: string, compatibleEngineIds: string[], isDefault = false): Credential {
   return {
-    id: id as Secret['id'],
+    id: id as Credential['id'],
     name: id,
     kind: 'model',
     provider: 'test',

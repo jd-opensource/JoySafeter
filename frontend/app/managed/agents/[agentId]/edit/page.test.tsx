@@ -76,24 +76,24 @@ const codexSecret = {
   compatible_engine_ids: ['codex'],
 }
 
-vi.mock('@/hooks/managed/use-compatible-secrets', () => ({
-  compatibleSecretsQueryPrefix: (scopeKey: string, engineId: string) => [
-    'compatible-secrets',
+vi.mock('@/hooks/managed/use-compatible-credentials', () => ({
+  compatibleCredentialsQueryPrefix: (scopeKey: string, engineId: string) => [
+    'compatible-credentials',
     scopeKey,
     engineId,
   ],
-  compatibleSecretsQueryKey: (scopeKey: string, engineId: string) => [
-    'compatible-secrets',
+  compatibleCredentialsQueryKey: (scopeKey: string, engineId: string) => [
+    'compatible-credentials',
     scopeKey,
     engineId,
   ],
-  useCompatibleSecrets: ({ engineId }: { engineId: string }) => ({
+  useCompatibleCredentials: ({ engineId }: { engineId: string }) => ({
     data: engineId === 'claude' ? [persistedSecret] : [codexSecret],
     isSuccess: true,
     isLoading: false,
     isError: false,
   }),
-  useLlmSecretByName: ({ name, enabled }: { name: string; enabled: boolean }) => ({
+  useModelConnectionByName: ({ name, enabled }: { name: string; enabled: boolean }) => ({
     data: enabled && name === persistedSecret.id ? persistedSecret : null,
     isSuccess: true,
     isLoading: false,
@@ -101,22 +101,22 @@ vi.mock('@/hooks/managed/use-compatible-secrets', () => ({
   }),
 }))
 
-vi.mock('@/components/managed/llm/compatible-secret-picker', () => ({
-  CompatibleSecretPicker: ({
+vi.mock('@/components/managed/llm/compatible-credential-picker', () => ({
+  CompatibleCredentialPicker: ({
     value,
-    conflictSecret,
+    conflictCredential,
     conflictMessage,
     onChange,
   }: {
     value: string
-    conflictSecret?: { name: string } | null
+    conflictCredential?: { name: string } | null
     conflictMessage?: string
     onChange: (value: string) => void
   }) => (
     <div>
       <span data-testid="secret-value">{value}</span>
       {conflictMessage ? <span>{conflictMessage}</span> : null}
-      {conflictSecret ? <span>{conflictSecret.name}</span> : null}
+      {conflictCredential ? <span>{conflictCredential.name}</span> : null}
       <button type="button" onClick={() => onChange(codexSecret.id)}>
         choose-openai
       </button>
@@ -259,7 +259,7 @@ describe('AgentEditPage LLM compatibility', () => {
     managedPostMock.mockResolvedValue({})
   })
 
-  it('keeps an incompatible persisted Secret visible and blocks save until resolved', async () => {
+  it('keeps an incompatible persisted Model Connection visible and blocks save until resolved', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const params = Promise.resolve({ agentId: AGENT_ID })
     await params

@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { Secret } from '@/types/managed'
+import type { Credential } from '@/types/managed'
 
 vi.mock('@/lib/i18n', () => ({
   useTranslation: () => ({
@@ -37,9 +37,7 @@ vi.mock('@/components/ui/select', async () => {
         <div>{children}</div>
       </SelectContext.Provider>
     ),
-    SelectContent: ({ children }: { children: ReactNode }) => (
-      <div role="listbox">{children}</div>
-    ),
+    SelectContent: ({ children }: { children: ReactNode }) => <div role="listbox">{children}</div>,
     SelectGroup: ({ children }: { children: ReactNode }) => <div role="group">{children}</div>,
     SelectItem: ({ children, value }: { children: ReactNode; value: string }) => {
       const select = React.useContext(SelectContext)
@@ -88,9 +86,9 @@ vi.mock('@/components/ui/select', async () => {
 
 import { ServiceCredentialSelect } from './service-credential-select'
 
-function genericSecret(name: string, id: string, keys: string[]): Secret {
+function genericSecret(name: string, id: string, keys: string[]): Credential {
   return {
-    id: id as Secret['id'],
+    id: id as Credential['id'],
     name,
     kind: 'service',
     provider: null,

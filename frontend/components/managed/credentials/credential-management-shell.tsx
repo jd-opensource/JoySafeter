@@ -4,15 +4,19 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { CreateSecretDialog } from '@/app/managed/secrets/components/create-secret-dialog'
-import { CreateCredentialGroupDialog } from '@/app/managed/vaults/components/create-vault-dialog'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
+import { compatibleCredentialsScopePrefix } from '@/hooks/managed/use-compatible-credentials'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { useTranslation } from '@/lib/i18n'
 
 import type { CredentialKindChoice } from './credential-kind-chooser'
-import { McpCredentialGroupList, type McpCredentialGroupListState } from './mcp-vault-list'
+import { CreateCredentialGroupDialog } from './create-credential-group-dialog'
+import { CreateStandaloneCredentialDialog } from './create-standalone-credential-dialog'
+import {
+  McpCredentialGroupList,
+  type McpCredentialGroupListState,
+} from './mcp-credential-group-list'
 import { ModelConnectionList, type ModelConnectionListState } from './model-connection-list'
 import { ServiceCredentialList, type ServiceCredentialListState } from './service-credential-list'
 
@@ -134,16 +138,16 @@ export function CredentialManagementShell() {
   }, [searchParams, router, projectReadOnly])
 
   const perTabAdd = useCallback(() => {
-    openForKind(
-      tab === 'models' ? 'model' : tab === 'services' ? 'service' : 'credential-group',
-    )
+    openForKind(tab === 'models' ? 'model' : tab === 'services' ? 'service' : 'credential-group')
   }, [tab, openForKind])
 
   const onSecretCreated = useCallback(() => {
     if (!scopeIsActive() || !currentProjectAllowsWrite()) return
     queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })
     if (secretDialog.kind === 'llm')
-      queryClient.invalidateQueries({ queryKey: ['compatible-secrets', managedScope.key] })
+      queryClient.invalidateQueries({
+        queryKey: compatibleCredentialsScopePrefix(managedScope.key),
+      })
     goToTab(secretDialog.kind === 'llm' ? 'models' : 'services')
     setSecretDialog((s) => ({ ...s, open: false }))
   }, [queryClient, managedScope.key, secretDialog.kind, goToTab, scopeIsActive, setSecretDialog])
@@ -182,7 +186,7 @@ export function CredentialManagementShell() {
         />
       ) : null}
 
-      <CreateSecretDialog
+      <CreateStandaloneCredentialDialog
         open={secretDialog.open}
         initialKind={secretDialog.kind}
         lockKind

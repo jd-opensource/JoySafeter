@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from 'next/navigation'
 import React, { useEffect } from 'react'
 
-import { McpCredentialGroupDetail } from '@/components/managed/credentials/mcp-vault-detail'
+import { McpCredentialGroupDetail } from '@/components/managed/credentials/mcp-credential-group-detail'
 import { withEntityRouteGuard } from '@/components/managed/shared'
 import { parseCredentialGroupId } from '@/types/entity-id'
 

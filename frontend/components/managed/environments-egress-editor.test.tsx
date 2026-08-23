@@ -3,7 +3,7 @@ import { JSDOM } from 'jsdom'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { Secret } from '@/types/managed'
+import type { Credential } from '@/types/managed'
 
 const { localeState } = vi.hoisted(() => ({
   localeState: { current: 'en' as 'en' | 'zh' },
@@ -41,9 +41,7 @@ vi.mock('@/components/ui/input', () => ({
 }))
 
 vi.mock('@/components/ui/textarea', () => ({
-  Textarea: (props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => (
-    <textarea {...props} />
-  ),
+  Textarea: (props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea {...props} />,
 }))
 
 vi.mock('@/components/ui/label', () => ({
@@ -70,9 +68,9 @@ globalThis.HTMLElement = dom.window.HTMLElement
 
 import { EgressServicesEditor, emptyEgressService } from './environments-egress-editor'
 
-function genericSecret(name: string, id: string): Secret {
+function genericSecret(name: string, id: string): Credential {
   return {
-    id: id as Secret['id'],
+    id: id as Credential['id'],
     name,
     kind: 'service',
     provider: null,
@@ -109,21 +107,24 @@ describe('EgressServicesEditor terminology', () => {
       section: '服务凭据',
       skillHint: '在 skill 中使用此地址访问；平台会自动应用基于所选服务凭据生成的认证信息。',
     },
-  ])('renders approved $locale Service Credential semantics', ({ locale, baseUrlHint, section, skillHint }) => {
-    localeState.current = locale
-    const service = {
-      ...emptyEgressService(),
-      name: 'crm',
-      baseUrl: 'https://crm.example.com/api/',
-    }
-    const { getAllByText, getByText } = render(
-      <EgressServicesEditor services={[service]} setServices={vi.fn()} />,
-    )
+  ])(
+    'renders approved $locale Service Credential semantics',
+    ({ locale, baseUrlHint, section, skillHint }) => {
+      localeState.current = locale
+      const service = {
+        ...emptyEgressService(),
+        name: 'crm',
+        baseUrl: 'https://crm.example.com/api/',
+      }
+      const { getAllByText, getByText } = render(
+        <EgressServicesEditor services={[service]} setServices={vi.fn()} />,
+      )
 
-    expect(getByText(baseUrlHint)).toBeTruthy()
-    expect(getAllByText(section)).toHaveLength(2)
-    expect(getByText(skillHint)).toBeTruthy()
-  })
+      expect(getByText(baseUrlHint)).toBeTruthy()
+      expect(getAllByText(section)).toHaveLength(2)
+      expect(getByText(skillHint)).toBeTruthy()
+    },
+  )
 
   it('excludes blank and noncanonical historical names from Egress credential options', () => {
     localeState.current = 'en'

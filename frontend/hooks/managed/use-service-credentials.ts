@@ -11,12 +11,12 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import {
-  filterSelectableSecretResources,
-  parseSecretListResponse,
-} from '@/lib/managed/secret-response-parsers'
-import type { Secret } from '@/types/managed'
+  filterSelectableCredentials,
+  parseCredentialListResponse,
+} from '@/lib/managed/credential-response-parsers'
+import type { Credential } from '@/types/managed'
 
-interface SecretPage {
+interface CredentialPage {
   data: unknown[]
   has_more: boolean
   last_id?: string | null
@@ -28,13 +28,15 @@ export function serviceCredentialsQueryKey(scopeKey: string) {
   return ['service-credentials', scopeKey] as const
 }
 
-export async function fetchAllServiceCredentials(scope: ManagedRequestScope): Promise<Secret[]> {
-  const credentials: Secret[] = []
+export async function fetchAllServiceCredentials(
+  scope: ManagedRequestScope,
+): Promise<Credential[]> {
+  const credentials: Credential[] = []
   const seenCursors = new Set<string>()
   let afterId: string | undefined
 
   for (;;) {
-    const page = await managedGet<SecretPage>(
+    const page = await managedGet<CredentialPage>(
       apiCollectionPath('credentials', {
         limit: PAGE_SIZE,
         kind: 'service',
@@ -50,7 +52,7 @@ export async function fetchAllServiceCredentials(scope: ManagedRequestScope): Pr
       seenCursors.add(page.last_id)
       afterId = page.last_id
     }
-    credentials.push(...filterSelectableSecretResources(parseSecretListResponse(page.data)))
+    credentials.push(...filterSelectableCredentials(parseCredentialListResponse(page.data)))
     if (!page.has_more) return credentials
   }
 }

@@ -9,19 +9,19 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useTranslation } from '@/lib/i18n'
-import { filterSelectableSecretResources } from '@/lib/managed/secret-response-parsers'
-import type { Secret } from '@/types/managed'
+import { filterSelectableCredentials } from '@/lib/managed/credential-response-parsers'
+import type { Credential } from '@/types/managed'
 
 interface ServiceCredentialSelectProps {
   value: string
   onChange: (value: string) => void
-  credentials: Secret[]
+  credentials: Credential[]
   loading?: boolean
   disabled?: boolean
   ariaLabel: string
 }
 
-function usableFieldCount(credential: Secret): number {
+function usableFieldCount(credential: Credential): number {
   return Object.keys(credential.data ?? {}).filter((field) => field.trim().length > 0).length
 }
 
@@ -34,9 +34,8 @@ export function ServiceCredentialSelect({
   ariaLabel,
 }: ServiceCredentialSelectProps) {
   const { t } = useTranslation()
-  const selectableCredentials = filterSelectableSecretResources(credentials)
-  const showUnavailableValue =
-    Boolean(value) && !credentials.some((item) => item.id === value)
+  const selectableCredentials = filterSelectableCredentials(credentials)
+  const showUnavailableValue = Boolean(value) && !credentials.some((item) => item.id === value)
 
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled || loading}>

@@ -23,7 +23,8 @@ function connectionTitle(t: ReturnType<typeof useTranslation>['t'], state: Agent
       '-'
     )
   }
-  if (state.kind === 'connection_unavailable') return t('managed.modelDisplay.connectionUnavailable')
+  if (state.kind === 'connection_unavailable')
+    return t('managed.modelDisplay.connectionUnavailable')
   return t('managed.modelDisplay.unbound')
 }
 
@@ -34,7 +35,8 @@ function connectionMeta(state: AgentModelDisplayState) {
 
 function connectionHint(t: ReturnType<typeof useTranslation>['t'], state: AgentModelDisplayState) {
   if (state.connection) return connectionMeta(state)
-  if (state.kind === 'connection_unavailable') return t('managed.modelDisplay.connectionUnavailableHint')
+  if (state.kind === 'connection_unavailable')
+    return t('managed.modelDisplay.connectionUnavailableHint')
   if (state.kind === 'unbound') return t('managed.modelDisplay.unboundHint')
   return ''
 }

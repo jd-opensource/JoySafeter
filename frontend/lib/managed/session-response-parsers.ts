@@ -4,7 +4,7 @@ import type { ModelConnectionSummary, Session, SessionAgent } from '@/types/mana
 import { parseAgentModelResponse } from './agent-response-parsers'
 import { parseModelCredentialReference } from './environment-response-parsers'
 import { parseSessionRepoResourceResponse } from './file-response-parsers'
-import { parseModelConnectionSummaryResponse } from './secret-response-parsers'
+import { parseModelConnectionSummaryResponse } from './credential-response-parsers'
 import { parseSessionStorageMountResponse } from './storage-mount-response-parsers'
 
 type RawSessionAgent = Omit<

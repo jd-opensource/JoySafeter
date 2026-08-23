@@ -31,7 +31,9 @@ export function withEntityRouteGuard<Params extends Record<string, string>>(
     const rawId = React.use(params)[paramKey]
     const entityKind = idKind ?? (kind as GuardableKind)
     if (!isEntityId(rawId, entityKind)) {
-      return <ResourceErrorState resource={kind} reason="notFound" onBack={() => router.push(backTo)} />
+      return (
+        <ResourceErrorState resource={kind} reason="notFound" onBack={() => router.push(backTo)} />
+      )
     }
     return <Inner params={params} />
   }

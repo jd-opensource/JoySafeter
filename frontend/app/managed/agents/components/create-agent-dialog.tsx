@@ -15,8 +15,8 @@ import {
   FieldHelp,
   SkillVersionSelect,
 } from '@/components/managed/shared'
-import { CompatibleSecretPicker } from '@/components/managed/llm/compatible-secret-picker'
-import { LlmSecretConfigurator } from '@/components/managed/llm/llm-secret-configurator'
+import { CompatibleCredentialPicker } from '@/components/managed/llm/compatible-credential-picker'
+import { ModelConnectionConfigurator } from '@/components/managed/llm/model-connection-configurator'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -38,7 +38,7 @@ import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { getEnabledEngines } from '@/lib/managed/llm-catalog'
-import { selectInitialSecret } from '@/lib/managed/llm-selection'
+import { selectInitialModelConnection } from '@/lib/managed/model-connection-selection'
 import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
 import {
   hasManagedRequestScope,
@@ -55,14 +55,14 @@ import {
   type EnvironmentId,
   type SkillId,
 } from '@/types/entity-id'
-import type { Secret, SecretDetail } from '@/types/managed'
+import type { Credential, CredentialDetail } from '@/types/managed'
 import { eligibilityReasonView, eligibilityActionView } from '@/lib/managed/skill-eligibility'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import { validateUniqueMcpServerName } from '@/lib/utils/mcp-validation'
 import {
-  compatibleSecretsQueryPrefix,
-  useCompatibleSecrets,
-} from '@/hooks/managed/use-compatible-secrets'
+  compatibleCredentialsQueryPrefix,
+  useCompatibleCredentials,
+} from '@/hooks/managed/use-compatible-credentials'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { SearchableAgentConfigSelect } from './searchable-agent-config-select'
@@ -147,7 +147,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const systemPromptRequired = systemPromptMode === 'replace'
   const systemPromptValid = !systemPromptRequired || systemPrompt.trim().length > 0
 
-  const compatibleSecretsQuery = useCompatibleSecrets({ engineId: engineKind, enabled: open })
+  const compatibleSecretsQuery = useCompatibleCredentials({ engineId: engineKind, enabled: open })
   const secrets = compatibleSecretsQuery.data
   const enabledEngines = useMemo(
     () => (catalogQuery.data ? getEnabledEngines(catalogQuery.data) : []),
@@ -261,8 +261,8 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
       return
     }
     if (secretSelectionCleared) return
-    const initialSecret = selectInitialSecret(secrets)
-    if (initialSecret) setSecretRef(initialSecret)
+    const initialCredentialId = selectInitialModelConnection(secrets)
+    if (initialCredentialId) setSecretRef(initialCredentialId)
   }, [compatibleSecretsQuery.isSuccess, secrets, secretRef, secretSelectionCleared])
 
   const toggleTool = (tool: string) => {
@@ -355,8 +355,8 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
 
       const currentSecrets =
         queryClient
-          .getQueriesData<Secret[]>({
-            queryKey: compatibleSecretsQueryPrefix(scopeAtStart, engineKind),
+          .getQueriesData<Credential[]>({
+            queryKey: compatibleCredentialsQueryPrefix(scopeAtStart, engineKind),
           })
           .at(-1)?.[1] ?? secrets
       const currentEnvironments =
@@ -440,13 +440,13 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           <DialogHeader>
             <DialogTitle>{t('managed.llm.createConfiguration')}</DialogTitle>
           </DialogHeader>
-          <LlmSecretConfigurator
+          <ModelConnectionConfigurator
             initialEngineId={engineKind}
             onCancel={() => setDialogView('agent_form')}
-            onCreated={(created: SecretDetail) => {
-              const listItem: Secret = created
-              queryClient.setQueriesData<Secret[]>(
-                { queryKey: compatibleSecretsQueryPrefix(managedScope.key, engineKind) },
+            onCreated={(created: CredentialDetail) => {
+              const listItem: Credential = created
+              queryClient.setQueriesData<Credential[]>(
+                { queryKey: compatibleCredentialsQueryPrefix(managedScope.key, engineKind) },
                 (current) => [
                   ...(current ?? []).filter((secret) => secret.id !== listItem.id),
                   listItem,
@@ -544,7 +544,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
               </Select>
             </div>
 
-            {/* Secret / API Key */}
+            {/* Model Connection */}
             <div>
               <FormFieldLabel
                 optional={t('managed.agents.formOptionalWithDefault')}
@@ -552,7 +552,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
               >
                 {t('managed.agents.edit.secretRef')}
               </FormFieldLabel>
-              <CompatibleSecretPicker
+              <CompatibleCredentialPicker
                 engineId={engineKind}
                 value={secretRef}
                 allowNone

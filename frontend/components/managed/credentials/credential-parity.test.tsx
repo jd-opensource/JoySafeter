@@ -13,8 +13,7 @@
  *    (routerMock). The shell and CredentialDetail have router-dependent effects;
  *    an unstable router = infinite render loop = OOM.
  *  - ALL credential/vault fixtures are full strict-parser-valid objects built
- *    from a single `secretBase()` / `vaultBase()` helper (parseSecretResponse /
- *    parseSecretDetailResponse / parseVaultResponse use `.strict()` zod).
+ *    from a single credential/group fixture helper and strict boundary parsers.
  *  - Heavy deps (useLlmCatalog, api-client, request-scope, ui/* primitives,
  *    PageHeader, DataTable, dialogs) are mocked rather than pulling real graphs.
  */
@@ -282,15 +281,16 @@ vi.mock('@/components/ui/tabs', () => ({
 vi.mock('./credential-kind-chooser', () => ({
   CredentialKindChooser: ({ open }: { open: boolean }) => (open ? <div>chooser-open</div> : null),
 }))
-vi.mock('@/app/managed/secrets/components/create-secret-dialog', () => ({
-  CreateSecretDialog: ({ open }: { open: boolean }) => (open ? <div>secret-dialog</div> : null),
+vi.mock('./create-standalone-credential-dialog', () => ({
+  CreateStandaloneCredentialDialog: ({ open }: { open: boolean }) =>
+    open ? <div>secret-dialog</div> : null,
 }))
-vi.mock('@/app/managed/vaults/components/create-vault-dialog', () => ({
+vi.mock('./create-credential-group-dialog', () => ({
   CreateCredentialGroupDialog: ({ open }: { open: boolean }) =>
     open ? <div>vault-dialog</div> : null,
 }))
-vi.mock('@/app/managed/vaults/components/create-credential-dialog', () => ({
-  CreateCredentialGroupCredentialDialog: ({ open }: { open: boolean }) =>
+vi.mock('./create-mcp-member-dialog', () => ({
+  CreateMcpMemberDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="add-credential-dialog">add-credential</div> : null,
 }))
 // NOTE: model-connection-detail / service-credential-detail are intentionally
@@ -302,8 +302,8 @@ import { managedGet } from '@/lib/api-client'
 
 import { CredentialDetail } from './credential-detail'
 import { CredentialManagementShell } from './credential-management-shell'
-import { McpCredentialGroupDetail } from './mcp-vault-detail'
-import { McpCredentialGroupList } from './mcp-vault-list'
+import { McpCredentialGroupDetail } from './mcp-credential-group-detail'
+import { McpCredentialGroupList } from './mcp-credential-group-list'
 import { ModelConnectionDetail } from './model-connection-detail'
 import { ModelConnectionList } from './model-connection-list'
 import { ServiceCredentialDetail } from './service-credential-detail'
@@ -314,8 +314,8 @@ const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 const CRED = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001'
 const GROUP = 'credgrp_018f6f42-0a51-7cc4-98c8-4f6f0ca5f040'
 
-// Full strict-parser-valid Secret fixture (guardrail #2). Every key present;
-// no extras — parseSecretResponse uses `.strict()` zod.
+// Full strict-parser-valid Credential fixture (guardrail #2). Every key present;
+// no extras — parseCredentialResponse uses `.strict()` zod.
 function secretBase(overrides: Record<string, unknown> = {}) {
   return {
     id: CRED,
@@ -347,7 +347,7 @@ function vaultBase(overrides: Record<string, unknown> = {}) {
     ...overrides,
   }
 }
-// SecretDetail passed directly to a *Detail component (already parsed shape).
+// CredentialDetail passed directly to a *Detail component (already parsed shape).
 function secretDetail(overrides: Record<string, unknown> = {}) {
   return { ...secretBase(overrides) } as never
 }
@@ -484,7 +484,7 @@ describe('model capability', () => {
     expect(getByTestId('action-managed.llm.setAsProtocolDefault')).toBeTruthy()
     expect(getByTestId('action-common.archive')).toBeTruthy()
     expect(getByTestId('action-common.delete')).toBeTruthy()
-    expect(queryByTestId('action-managed.vaults.archiveVault')).toBeNull()
+    expect(queryByTestId('action-managed.credentials.groups.archiveCredentialGroup')).toBeNull()
     // No test-connection action of any label form.
     expect(
       queryAllByTestId(/^action-/).some((n) =>
@@ -537,7 +537,7 @@ describe('service capability', () => {
     expect(getByTestId('action-common.archive')).toBeTruthy()
     expect(getByTestId('action-common.delete')).toBeTruthy()
     expect(queryByTestId('action-managed.llm.setAsProtocolDefault')).toBeNull()
-    expect(queryByTestId('action-managed.vaults.archiveVault')).toBeNull()
+    expect(queryByTestId('action-managed.credentials.groups.archiveCredentialGroup')).toBeNull()
   })
 
   it('archived service row exposes restore + delete and no archive', async () => {
@@ -564,7 +564,7 @@ describe('mcp capability', () => {
       has_more: false,
     })
     const { getByTestId } = await renderList(<McpCredentialGroupList onCreate={() => {}} />, 1)
-    expect(getByTestId('action-managed.vaults.archiveVault')).toBeTruthy()
+    expect(getByTestId('action-managed.credentials.groups.archiveCredentialGroup')).toBeTruthy()
     expect(getByTestId('action-common.delete')).toBeTruthy()
   })
 
@@ -576,9 +576,9 @@ describe('mcp capability', () => {
     const { getByTestId } = await renderList(<McpCredentialGroupList onCreate={() => {}} />, 1)
     const cacheSpy = vi.spyOn(QueryClient.prototype, 'getQueriesData').mockReturnValue([])
 
-    fireEvent.click(getByTestId('action-managed.vaults.archiveVault'))
+    fireEvent.click(getByTestId('action-managed.credentials.groups.archiveCredentialGroup'))
 
-    expect(getByTestId('dialog-managed.vaults.archiveTitle')).toBeTruthy()
+    expect(getByTestId('dialog-managed.credentials.groups.archiveTitle')).toBeTruthy()
     cacheSpy.mockRestore()
   })
 
@@ -618,9 +618,11 @@ describe('mcp capability', () => {
       </Wrap>,
     )
     // Add-Credential control (writer, active vault).
-    await waitFor(() => expect(getByText('managed.vaults.addCredential')).toBeTruthy())
+    await waitFor(() => expect(getByText('managed.credentials.groups.addCredential')).toBeTruthy())
     // Member row exposes the credential-archive action.
-    await waitFor(() => expect(getByTestId('action-managed.vaults.credArchiveTitle')).toBeTruthy())
+    await waitFor(() =>
+      expect(getByTestId('action-managed.credentials.groups.credArchiveTitle')).toBeTruthy(),
+    )
     // Show-archived toggle present.
     expect(getByTestId('show-archived-toggle')).toBeTruthy()
   })

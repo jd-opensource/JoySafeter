@@ -62,9 +62,9 @@ const fixedFiniteFamilies = {
   ),
   quickstartInput: [
     'managed.quickstart.selectEngineFirst',
-    'managed.quickstart.chooseSecret',
+    'managed.quickstart.chooseModelConnection',
     'managed.quickstart.noApiKey',
-    'managed.quickstart.noCompatibleSecret',
+    'managed.quickstart.noCompatibleModelConnection',
     'managed.quickstart.agentProcessing',
     'managed.quickstart.waitingForResponse',
     'managed.quickstart.describeAgent',
