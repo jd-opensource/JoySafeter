@@ -94,25 +94,42 @@ async fn apply_agent(
         .mcp_servers
         .iter()
         .map(|s| match s {
-            manifest::McpServerSpec::Stdio {
+            manifest::McpServerSpec::LocalStdio {
                 name,
                 command,
                 args,
                 env,
             } => {
                 serde_json::json!({
-                    "type": "stdio",
+                    "type": "local_stdio",
                     "name": name,
                     "command": command,
                     "args": args,
                     "env": env,
                 })
             }
-            manifest::McpServerSpec::Url { name, url } => {
+            manifest::McpServerSpec::StreamableHttp {
+                name,
+                url,
+                auth_requirement,
+            } => {
                 serde_json::json!({
-                    "type": "url",
+                    "type": "streamable_http",
                     "name": name,
                     "url": url,
+                    "auth_requirement": auth_requirement,
+                })
+            }
+            manifest::McpServerSpec::Sse {
+                name,
+                url,
+                auth_requirement,
+            } => {
+                serde_json::json!({
+                    "type": "sse",
+                    "name": name,
+                    "url": url,
+                    "auth_requirement": auth_requirement,
                 })
             }
         })
@@ -325,7 +342,7 @@ fn build_environment_config(spec: &manifest::EnvironmentSpec) -> serde_json::Val
 
     if let Some(ref net) = spec.networking {
         let mut networking = serde_json::Map::new();
-        if let Some(ref t) = net.net_type {
+        if let Some(ref t) = net.network_type {
             networking.insert("type".into(), serde_json::Value::String(t.clone()));
         }
         if !net.allowed_hosts.is_empty() {
@@ -335,9 +352,6 @@ fn build_environment_config(spec: &manifest::EnvironmentSpec) -> serde_json::Val
                 .map(|h| serde_json::Value::String(h.clone()))
                 .collect();
             networking.insert("allowed_hosts".into(), serde_json::Value::Array(hosts));
-        }
-        if let Some(v) = net.allow_mcp_servers {
-            networking.insert("allow_mcp_servers".into(), serde_json::Value::Bool(v));
         }
         if let Some(v) = net.allow_package_managers {
             networking.insert("allow_package_managers".into(), serde_json::Value::Bool(v));

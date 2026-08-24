@@ -28,6 +28,8 @@ class CredentialState(StrEnum):
 
 class CredentialAuthScheme(StrEnum):
     STATIC_BEARER = "static_bearer"
+    HEADER_API_KEY = "header_api_key"
+    CUSTOM_HEADER = "custom_header"
     OAUTH2_LEGACY_DISABLED = "oauth2_legacy_disabled"
 
 
@@ -98,6 +100,10 @@ def canonicalize_auth_scheme(value: str | CredentialAuthScheme) -> CredentialAut
         raise TypeError("credential auth scheme must be a string")
     if value in {"static_bearer", "bearer"}:
         return CredentialAuthScheme.STATIC_BEARER
+    if value in {"header_api_key", "api_key"}:
+        return CredentialAuthScheme.HEADER_API_KEY
+    if value == "custom_header":
+        return CredentialAuthScheme.CUSTOM_HEADER
     if value in {"oauth", "mcp_oauth"}:
         return CredentialAuthScheme.OAUTH2_LEGACY_DISABLED
     raise ValueError(f"unsupported credential auth scheme: {value!r}")

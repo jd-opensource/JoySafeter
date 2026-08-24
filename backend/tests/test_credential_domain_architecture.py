@@ -181,7 +181,10 @@ def test_pydantic_credential_schema_imports_domain_kind_and_limits() -> None:
             imported.setdefault(node.module, set()).update(alias.name for alias in node.names)
 
     assert "CredentialKind" not in defined_classes
-    assert imported["app.joysafeter_domain.credentials.types"] == {"CredentialKind"}
+    assert imported["app.joysafeter_domain.credentials.types"] == {
+        "CredentialAuthScheme",
+        "CredentialKind",
+    }
     assert imported["app.joysafeter_domain.credentials.material"] == {
         "CREDENTIAL_MATERIAL_MAX_FIELDS",
         "CREDENTIAL_MATERIAL_MAX_FIELD_NAME_LENGTH",

@@ -19,6 +19,7 @@ import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
 import { toast } from '@/hooks/use-toast'
 import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
+import { mcpServerEndpointLabel } from '@/lib/managed/mcp-config'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -916,7 +917,11 @@ function ToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: McpServe
           </div>
           <div className="flex-1">
             <div className="text-sm font-medium">{serverName}</div>
-            {server && <div className="font-mono text-xs text-muted-foreground">{server.url}</div>}
+            {server && (
+              <div className="font-mono text-xs text-muted-foreground">
+                {mcpServerEndpointLabel(server)}
+              </div>
+            )}
           </div>
         </div>
         <div className="mt-3 flex items-center justify-between">

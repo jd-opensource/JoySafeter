@@ -333,4 +333,92 @@ describe('AgentEditPage LLM compatibility', () => {
     await act(async () => {})
     expect(pushMock).not.toHaveBeenCalled()
   })
+
+  it('saves canonical remote MCP transport and explicit auth requirement', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const params = Promise.resolve({ agentId: AGENT_ID })
+    await params
+    let view!: RenderResult
+    await act(async () => {
+      view = render(
+        <QueryClientProvider client={queryClient}>
+          <AgentEditPage params={params} />
+        </QueryClientProvider>,
+      )
+    })
+
+    fireEvent.click(await waitFor(() => view.getByTitle('managed.agents.create.addMcpServer')))
+    fireEvent.change(view.getByLabelText('managed.agents.create.mcpTransport'), {
+      target: { value: 'sse' },
+    })
+    fireEvent.input(view.getByPlaceholderText('managed.agents.create.mcpNamePlaceholder'), {
+      target: { value: 'events' },
+    })
+    fireEvent.input(view.getByPlaceholderText('managed.agents.create.mcpUrlPlaceholder'), {
+      target: { value: ' https://events.example.com/sse ' },
+    })
+    fireEvent.change(view.getByLabelText('managed.agents.create.mcpAuthRequirement'), {
+      target: { value: 'optional' },
+    })
+    fireEvent.click(view.getByText('managed.agents.create.add'))
+    fireEvent.click(view.getByText('managed.agents.saveChanges'))
+
+    await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
+    expect(managedPostMock.mock.calls[0][1]).toMatchObject({
+      mcp_servers: [
+        {
+          type: 'sse',
+          name: 'events',
+          url: 'https://events.example.com/sse',
+          auth_requirement: 'optional',
+        },
+      ],
+    })
+  })
+
+  it('saves local stdio MCP command, arguments, and environment without remote fields', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const params = Promise.resolve({ agentId: AGENT_ID })
+    await params
+    let view!: RenderResult
+    await act(async () => {
+      view = render(
+        <QueryClientProvider client={queryClient}>
+          <AgentEditPage params={params} />
+        </QueryClientProvider>,
+      )
+    })
+
+    fireEvent.click(await waitFor(() => view.getByTitle('managed.agents.create.addMcpServer')))
+    fireEvent.change(view.getByLabelText('managed.agents.create.mcpTransport'), {
+      target: { value: 'local_stdio' },
+    })
+    fireEvent.input(view.getByPlaceholderText('managed.agents.create.mcpNamePlaceholder'), {
+      target: { value: 'local-tools' },
+    })
+    fireEvent.input(view.getByPlaceholderText('managed.agents.create.mcpCommandPlaceholder'), {
+      target: { value: ' node ' },
+    })
+    fireEvent.input(view.getByPlaceholderText('managed.agents.create.mcpArgsPlaceholder'), {
+      target: { value: 'server.js\n--safe' },
+    })
+    fireEvent.input(view.getByPlaceholderText('managed.agents.create.mcpEnvPlaceholder'), {
+      target: { value: 'MODE=safe\nEMPTY=' },
+    })
+    fireEvent.click(view.getByText('managed.agents.create.add'))
+    fireEvent.click(view.getByText('managed.agents.saveChanges'))
+
+    await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
+    expect(managedPostMock.mock.calls[0][1]).toMatchObject({
+      mcp_servers: [
+        {
+          type: 'local_stdio',
+          name: 'local-tools',
+          command: 'node',
+          args: ['server.js', '--safe'],
+          env: { MODE: 'safe', EMPTY: '' },
+        },
+      ],
+    })
+  })
 })

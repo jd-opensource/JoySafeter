@@ -850,7 +850,8 @@ pub struct SandboxResolver {
     session_locks: dashmap::DashMap<Uuid, Arc<tokio::sync::Mutex<()>>>,
     network_policy_ready: dashmap::DashMap<Uuid, String>,
     pool_replenish_notify: Option<Arc<tokio::sync::Notify>>,
-    xds_store: Option<Arc<dyn XdsStateStore>>,
+    xds_authority: crate::kernel::xds_authority::XdsAuthorityState,
+    network_policy_queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
     // ★ 新增
     identity_provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
 }

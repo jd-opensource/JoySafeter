@@ -24,14 +24,18 @@ def test_model_is_only_model_credential_kind(credential_contract: dict):
     assert "llm" not in credential_contract["credential_kinds"]
 
 
-def test_only_reviewed_legacy_auth_alias_exists(credential_contract: dict):
-    assert credential_contract["auth_schemes"] == ["static_bearer"]
-    assert credential_contract["auth_scheme_aliases"] == {"bearer": "static_bearer"}
+def test_mcp_auth_contract_is_canonical_only(credential_contract: dict):
+    assert credential_contract["auth_schemes"] == [
+        "static_bearer",
+        "header_api_key",
+        "custom_header",
+    ]
+    assert "auth_scheme_aliases" not in credential_contract
     assert credential_contract["disabled_auth_schemes"] == ["oauth", "mcp_oauth"]
 
 
 def test_runtime_errors_and_versioned_envelopes_are_frozen(credential_contract: dict):
-    assert credential_contract["contract_version"] == 2
+    assert credential_contract["contract_version"] == 3
     assert credential_contract["runtime_errors"] == [
         "not_bound",
         "not_found",

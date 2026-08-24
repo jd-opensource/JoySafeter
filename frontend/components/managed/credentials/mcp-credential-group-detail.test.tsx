@@ -93,6 +93,28 @@ const managedPostMock = managedPost as unknown as ReturnType<typeof vi.fn>
 const managedDeleteMock = managedDelete as unknown as ReturnType<typeof vi.fn>
 const GROUP = 'credgrp_018f6f42-0a51-7cc4-98c8-4f6f0ca5f040'
 const MEMBER = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f041'
+
+function member(overrides: Record<string, unknown> = {}) {
+  return {
+    id: MEMBER,
+    group_id: GROUP,
+    kind: 'mcp',
+    name: 'member',
+    mcp_server_url: 'https://mcp.example.com',
+    provider: null,
+    protocol: null,
+    model: null,
+    compatible_engine_ids: [],
+    is_default: false,
+    auth_scheme: 'static_bearer',
+    data: { token_value: '********' },
+    archived_at: null,
+    created_at: '2026-08-13T00:00:00Z',
+    updated_at: '2026-08-13T00:00:00Z',
+    ...overrides,
+  }
+}
+
 function Wrap({ children }: { children: ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
@@ -154,18 +176,7 @@ describe('McpCredentialGroupDetail', () => {
     managedGetMock.mockImplementation(async (url: string) =>
       (url as string).includes('/members')
         ? {
-            data: [
-              {
-                id: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f041',
-                group_id: GROUP,
-                name: 'member',
-                mcp_server_url: 'https://mcp.example.com',
-                data: { token_value: '********' },
-                archived_at: null,
-                created_at: '2026-08-13T00:00:00Z',
-                updated_at: '2026-08-13T00:00:00Z',
-              },
-            ],
+            data: [member()],
             has_more: false,
           }
         : {
@@ -223,16 +234,11 @@ describe('McpCredentialGroupDetail', () => {
       (url as string).includes('/members')
         ? {
             data: [
-              {
-                id: MEMBER,
-                group_id: GROUP,
+              member({
                 name: 'archived member',
-                mcp_server_url: 'https://mcp.example.com',
-                data: { token_value: '********' },
                 archived_at: '2026-08-14T00:00:00Z',
-                created_at: '2026-08-13T00:00:00Z',
                 updated_at: '2026-08-14T00:00:00Z',
-              },
+              }),
             ],
             has_more: false,
           }

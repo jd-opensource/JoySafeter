@@ -502,7 +502,6 @@ Environment 定义 Agent 运行时环境，包括包安装、网络策略、环�
     "networking": {
       "type": "limited",
       "allowed_hosts": ["github.com", "api.github.com"],
-      "allow_mcp_servers": true,
       "allow_package_managers": true
     },
     "env_vars": {
@@ -531,7 +530,6 @@ Environment 定义 Agent 运行时环境，包括包安装、网络策略、环�
 | `config.packages.go` | array | 否 | go install 包列表 |
 | `config.networking.type` | string | 否 | 默认 `limited` |
 | `config.networking.allowed_hosts` | array | 否 | 允许访问的域名 |
-| `config.networking.allow_mcp_servers` | bool | 否 | 是否允许 MCP server |
 | `config.networking.allow_package_managers` | bool | 否 | 是否允许包管理器联网 |
 | `config.env_vars` | object | 否 | 环境变量 |
 | `config.secret_refs` | array | 否 | 引用的 secret 名称 |
@@ -634,7 +632,6 @@ curl -sS -X POST "$BASE/environments" \
       "networking": {
         "type": "limited",
         "allowed_hosts": ["github.com", "api.github.com"],
-        "allow_mcp_servers": true,
         "allow_package_managers": true
       },
       "env_vars": {
@@ -673,7 +670,6 @@ curl -sS -X POST "$BASE/environments" \
       "networking": {
         "type": "limited",
         "allowed_hosts": ["github.com", "api.github.com"],
-        "allow_mcp_servers": true,
         "allow_package_managers": true
       },
       "env_vars": {"TZ": "Asia/Shanghai"},
@@ -754,7 +750,6 @@ curl -sS -X POST "$BASE/environments/$ENV_ID" \
       "networking": {
         "type": "limited",
         "allowed_hosts": ["github.com", "api.github.com", "registry.npmjs.org"],
-        "allow_mcp_servers": true,
         "allow_package_managers": true
       },
       "env_vars": {

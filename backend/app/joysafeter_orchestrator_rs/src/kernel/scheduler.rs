@@ -49,15 +49,15 @@ pub fn spawn_scheduler(
     provider: Arc<dyn SandboxProvider>,
     config: JoySafeterConfig,
     pool_replenish_notify: Option<Arc<tokio::sync::Notify>>,
-    xds_store: Option<Arc<dyn crate::kernel::ha::XdsStateStore>>,
+    network_policy_queue: Option<Arc<dyn crate::kernel::ha::NetworkPolicyRequestQueue>>,
     identity_provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
 ) -> JoinHandle<()> {
     let mut resolver = SandboxResolver::new(pool.clone(), provider, config.clone());
     if let Some(notify) = pool_replenish_notify {
         resolver = resolver.with_pool_replenish_notify(notify);
     }
-    if let Some(store) = xds_store {
-        resolver = resolver.with_xds_store(store);
+    if let Some(queue) = network_policy_queue {
+        resolver = resolver.with_network_policy_queue(queue);
     }
     resolver = resolver.with_identity_provider(identity_provider);
     let resolver = Arc::new(resolver);

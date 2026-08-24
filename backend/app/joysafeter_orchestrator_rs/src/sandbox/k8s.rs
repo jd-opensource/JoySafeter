@@ -14,7 +14,10 @@ use tracing::{info, warn};
 
 use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::file_injection::FileToInject;
-use super::lds_backend::{DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend, SandboxCredentials};
+use super::lds_backend::{
+    CdsBackend, DeltaXdsServer, FilesystemCds, FilesystemLds, GrpcCds, GrpcLds, LdsBackend,
+    SandboxCredentials,
+};
 use super::mounts::SandboxMount;
 use super::pod_watcher::{NodeLearnedHook, PodWatcher};
 use super::provider::{
@@ -64,13 +67,20 @@ impl K8sProvider {
         // Build Envoy manager + xDS service if enabled
         let mut xds_service: Option<Arc<DeltaXdsServer>> = None;
         let envoy_manager = if config.envoy_enabled {
-            let lds: Arc<dyn LdsBackend> = if config.envoy_xds_mode == "grpc" {
-                let server = DeltaXdsServer::new();
-                xds_service = Some(server.clone());
-                Arc::new(GrpcLds::new(server))
-            } else {
-                Arc::new(FilesystemLds::new(config.envoy_config_dir.clone()))
-            };
+            let (lds, cds): (Arc<dyn LdsBackend>, Arc<dyn CdsBackend>) =
+                if config.envoy_xds_mode == "grpc" {
+                    let server = DeltaXdsServer::new();
+                    xds_service = Some(server.clone());
+                    (
+                        Arc::new(GrpcLds::new(server.clone())),
+                        Arc::new(GrpcCds::new(server)),
+                    )
+                } else {
+                    (
+                        Arc::new(FilesystemLds::new(config.envoy_config_dir.clone())),
+                        Arc::new(FilesystemCds::new(config.envoy_config_dir.clone())),
+                    )
+                };
             Some(Arc::new(EnvoyManager::new(
                 // K8s provider doesn't need a Docker client for Envoy (DaemonSet
                 // manages its own container). EnvoyManager only uses Docker for
@@ -101,6 +111,7 @@ impl K8sProvider {
                     node_id: "k8s-envoy".to_string(),
                 },
                 lds,
+                cds,
             )))
         } else {
             None
@@ -769,46 +780,14 @@ impl SandboxProvider for K8sProvider {
 
     // ─── Envoy egress integration ───────────────────────────────────────────
 
-    async fn on_startup(&self, pool: &PgPool) -> anyhow::Result<()> {
+    async fn on_startup(&self, _pool: &PgPool) -> anyhow::Result<()> {
         if let Some(ref manager) = self.envoy_manager {
-            if let Some(ref xds) = self.xds_service {
-                xds.attach_db_pool(pool.clone()).await;
-            }
             // In K8s mode, Envoy DaemonSet manages its own bootstrap (embedded).
             // We only reset in-memory xDS state and recover listeners from DB.
             // Fail-closed: if xDS cannot reset or the live sandboxes' listeners
             // cannot be recovered, abort startup instead of serving them without
             // egress enforcement.
             manager.init_xds_only().await?;
-            manager
-                .recover_from_db(pool, &self.config.llm_egress_allowed_hosts)
-                .await?;
-
-            // Rebuild sandbox→node mappings from PodWatcher cache so that
-            // node-aware xDS filtering works immediately after restart (before
-            // any new setup_networking call). Without this, recovered listeners
-            // would be sent to all Envoys (permissive default).
-            if let Some(ref xds) = self.xds_service {
-                let active_pods = self.pod_watcher.list_active().await;
-                let mut mapped = 0usize;
-                for pod_info in &active_pods {
-                    if let Some(node) = self.pod_watcher.node_name(&pod_info.name).await {
-                        if let Some(id_str) = pod_info.labels.get("joysafeter.sandbox_id") {
-                            if let Ok(sandbox_id) = id_str.parse::<uuid::Uuid>() {
-                                xds.set_sandbox_node(SandboxId::from_uuid(sandbox_id), node);
-                                mapped += 1;
-                            }
-                        }
-                    }
-                }
-                if mapped > 0 {
-                    info!(
-                        mapped,
-                        "Rebuilt sandbox→node mappings from PodWatcher cache"
-                    );
-                }
-            }
-
             // No health monitor spawn — K8s livenessProbe on DaemonSet handles it.
             info!(
                 xds_mode = %self.config.envoy_xds_mode,
@@ -816,6 +795,44 @@ impl SandboxProvider for K8sProvider {
             );
         }
         Ok(())
+    }
+
+    async fn recover_networking(
+        &self,
+        pool: &PgPool,
+        authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
+    ) -> anyhow::Result<()> {
+        let Some(ref manager) = self.envoy_manager else {
+            return Ok(());
+        };
+        manager.init_xds_only().await?;
+
+        if let Some(ref xds) = self.xds_service {
+            let active_pods = self.pod_watcher.list_active().await;
+            for pod_info in &active_pods {
+                if let Some(node) = self.pod_watcher.node_name(&pod_info.name).await {
+                    if let Some(id_str) = pod_info.labels.get("joysafeter.sandbox_id") {
+                        if let Ok(sandbox_id) = id_str.parse::<uuid::Uuid>() {
+                            xds.set_sandbox_node(SandboxId::from_uuid(sandbox_id), node);
+                        }
+                    }
+                }
+            }
+        }
+
+        manager
+            .recover_from_db(pool, &self.config.llm_egress_allowed_hosts, authority)
+            .await
+    }
+
+    async fn prune_networking(
+        &self,
+        live_sandbox_ids: &std::collections::HashSet<SandboxId>,
+    ) -> anyhow::Result<usize> {
+        match self.envoy_manager.as_ref() {
+            Some(manager) => manager.prune_networking_except(live_sandbox_ids).await,
+            None => Ok(0),
+        }
     }
 
     async fn setup_networking(

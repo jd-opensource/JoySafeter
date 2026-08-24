@@ -515,8 +515,6 @@ pub struct McpConfig {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
-    #[prost(string, tag = "5")]
-    pub server_type: ::prost::alloc::string::String,
     #[prost(string, tag = "6")]
     pub url: ::prost::alloc::string::String,
     #[prost(map = "string, string", tag = "7")]
@@ -524,6 +522,8 @@ pub struct McpConfig {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+    #[prost(enumeration = "McpTransport", tag = "8")]
+    pub transport: i32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RepoConfig {
@@ -553,6 +553,38 @@ pub struct SendInput {
 pub struct Shutdown {
     #[prost(string, tag = "1")]
     pub reason: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum McpTransport {
+    Unspecified = 0,
+    StreamableHttp = 1,
+    Sse = 2,
+    LocalStdio = 3,
+}
+impl McpTransport {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "MCP_TRANSPORT_UNSPECIFIED",
+            Self::StreamableHttp => "MCP_TRANSPORT_STREAMABLE_HTTP",
+            Self::Sse => "MCP_TRANSPORT_SSE",
+            Self::LocalStdio => "MCP_TRANSPORT_LOCAL_STDIO",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "MCP_TRANSPORT_UNSPECIFIED" => Some(Self::Unspecified),
+            "MCP_TRANSPORT_STREAMABLE_HTTP" => Some(Self::StreamableHttp),
+            "MCP_TRANSPORT_SSE" => Some(Self::Sse),
+            "MCP_TRANSPORT_LOCAL_STDIO" => Some(Self::LocalStdio),
+            _ => None,
+        }
+    }
 }
 /// Generated server implementations.
 pub mod agent_bridge_server {

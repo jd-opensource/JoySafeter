@@ -335,16 +335,16 @@ async fn run_step_environment(
         }
         PickResult::Create => {
             let name = input_required("Environment name")?;
-            let net_types = vec!["unrestricted", "limited"];
+            let network_types = vec!["unrestricted", "limited"];
             let net_idx = Select::new()
                 .with_prompt("Networking type")
-                .items(&net_types)
+                .items(&network_types)
                 .default(0)
                 .interact()?;
-            let net_type = net_types[net_idx];
+            let network_type = network_types[net_idx];
 
             let mut allowed_hosts: Vec<String> = Vec::new();
-            if net_type == "limited" {
+            if network_type == "limited" {
                 loop {
                     let host: String = Input::new()
                         .with_prompt("Allowed host (Enter to finish)")
@@ -357,7 +357,7 @@ async fn run_step_environment(
                 }
             }
 
-            let mut networking = serde_json::json!({"type": net_type});
+            let mut networking = serde_json::json!({"type": network_type});
             if !allowed_hosts.is_empty() {
                 networking["allowed_hosts"] = serde_json::json!(allowed_hosts);
             }

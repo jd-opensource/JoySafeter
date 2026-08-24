@@ -7,22 +7,25 @@
 ## 机制先行：MCP 是 Agent 配置的一部分
 
 - **MCP 服务器定义** 通过 Agent API 的 `mcp_servers` 配置，在 **Agent 编辑器**里编辑
-  （前端表现为 `mcp_toolset` 工具项，带 `permission_policy`）。当前每条只接受
-  `type: "url"`、`name` 和 `url`。
+  （前端表现为 `mcp_toolset` 工具项，带 `permission_policy`）。远程服务器只接受
+  `streamable_http` / `sse` 与 `name`、`url`、`auth_requirement`；本地进程只接受
+  `local_stdio` 与 `name`、`command`、`args`、`env`。旧别名不会在运行时兼容。
 - **MCP 凭据** 存在 **MCP 凭据库**（`joysafeter_vaults` / `joysafeter_vault_credentials`，
-  API `/api/v1/vaults`，UI **托管智能体 → MCP 凭据库** `/managed/vaults`）：加密的 token / OAuth 配置，
-  按 MCP server URL 匹配。
+  API `/api/v1/credential-groups`，UI **托管智能体 → 凭据库**）：按 MCP server URL 匹配，支持
+  `static_bearer`、`header_api_key`、`custom_header` 三种加密头凭据。历史 MCP OAuth 仅保留为
+  不可恢复、不可激活的停用记录。
 
 **运行时如何生效**：任务调度时，orchestrator：
 1. 从 Agent 的 `mcp_servers` 取 MCP 服务器列表；
-2. 调 `VaultService.resolve_mcp_credentials(...)` 按 URL 匹配 MCP 凭据库中的凭据，注入 `Authorization: Bearer`
-   头（OAuth 临期会自动刷新）；
-3. 把结果作为 `McpConfig` 消息经 gRPC `SetupSandbox` / `StartTask` 下发给沙箱内的 runner；
-4. runner 把 MCP 配置写入沙箱内的 `.claude/settings.json`（Claude 引擎），CLI harness 据此连接 MCP
-   服务器并调用工具。
+2. 由 MCP runtime planner 按 URL 和 `auth_requirement` 解析凭据，生成 runner-safe 配置与仅供 Envoy
+   使用的凭据头；明文凭据不会进入 gRPC 或 runner；
+3. 单一 Lease-elected xDS authority 发布对应 generation，并在 Envoy ACK 且 PostgreSQL 状态变为
+   `ready` 后允许任务启动；
+4. 把不含凭据的结果作为 `McpConfig` 经 gRPC 下发给 runner；runner 再投影为 Claude/Codex harness
+   各自需要的配置格式。
 
-> “工具能不能用”取决于：**该 Agent 的 `mcp_servers` 里有没有这条
-> server + MCP 凭据库里有没有对应凭据 + 沙箱能否网络到达该 MCP 端点（Envoy 出口白名单）**。
+> “工具能不能用”取决于：**Agent 是否配置该 server、`auth_requirement` 是否满足、当前网络模式是否
+> 允许、且该 generation 是否已被 Envoy ACK 并持久化为 `ready`**。
 
 ---
 
@@ -41,12 +44,13 @@
 
 1. 进入 **托管智能体 → MCP 凭据库**（`/managed/vaults`），新建一个 MCP 凭据库，再在其下新建一条 **MCP 凭据**：
    - `mcp_server_url`：与上面 Agent 里的 MCP `url` 一致（用于运行时匹配）
-   - `credential_type`：`static_bearer`（或 OAuth 配置）
-   - `token_value`：你的 Bearer token（**加密存储**）
+   - `auth_scheme`：`static_bearer`、`header_api_key` 或 `custom_header`
+   - `data.token`：凭据值（**加密存储**）
+   - `data.header_name`：后两种方案必填；`custom_header` 还可提供 `data.value_prefix`
 2. 在会话 / Agent 上关联该 MCP 凭据库（会话的 `vault_ids`）。
 
-运行时 orchestrator 会按 `mcp_server_url` 把这条凭据的 Bearer 注入到对该 MCP 服务器的请求头，
-你无需把明文 token 写进 Agent 配置。
+运行时 orchestrator 会按 `mcp_server_url` 把凭据头只注入 Envoy 到目标 MCP 服务器的请求，
+你无需把明文凭据写进 Agent 配置，runner 也不会收到明文。
 
 ---
 
@@ -57,7 +61,7 @@ Agent 的“工具”来自三处（都在 Agent 编辑器配置，运行时经 
 | 来源 | 配置位置 | 载荷（gRPC） |
 |------|---------|-------------|
 | 内置工具 + 工具策略 | Agent 编辑器：内置工具勾选 + 每工具 `permission_policy`（`always_ask` / `always_allow`） | `allowed_tools` / `disallowed_tools` / `ask_tools` |
-| MCP 服务器 | Agent `mcp_servers` + MCP 凭据库凭据 | `McpConfig`（name/url/headers） |
+| MCP 服务器 | Agent `mcp_servers` + MCP 凭据库凭据 | `McpConfig`（typed transport；无凭据头） |
 | 自定义工具 | Agent 编辑器：自定义工具（名称 + 描述 + JSON Schema） | `CustomTool` |
 
 ---

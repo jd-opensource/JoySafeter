@@ -1766,7 +1766,7 @@ async fn session_mcp_members_prove_project_and_state_and_fail_as_one_usage() {
             group_a,
             project_a_raw.as_str(),
             "https://mcp-a.example/api",
-            "bearer",
+            "static_bearer",
             ENCRYPTED_HELLO_WORLD,
         ),
         (
@@ -1827,7 +1827,12 @@ async fn session_mcp_members_prove_project_and_state_and_fail_as_one_usage() {
     let resolved = resolve_mcp_members(&members).expect("runnable MCP auth");
     assert_eq!(resolved.len(), 1);
     assert_eq!(resolved[0].auth_scheme, "static_bearer");
-    assert_eq!(resolved[0].token, "hello-world");
+    assert_eq!(resolved[0].injection.header_name, "authorization");
+    assert_eq!(resolved[0].injection.header_value, "Bearer hello-world");
+    assert_eq!(
+        resolved[0].injection.remove_headers,
+        vec!["authorization", "x-api-key"]
+    );
     let resolved_debug = format!("{:?}", resolved[0]);
     assert!(!resolved_debug.contains("hello-world"), "{resolved_debug}");
     assert!(resolved_debug.contains("redacted"), "{resolved_debug}");

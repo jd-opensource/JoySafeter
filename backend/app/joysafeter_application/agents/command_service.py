@@ -241,7 +241,7 @@ class AgentCommandService:
     async def _create_agent(
         self, req: JoySafeterCreateAgentRequest, project_id: Optional[str] = None
     ) -> JoySafeterAgent:
-        mcp_servers = [server.model_dump() for server in req.mcp_servers]
+        mcp_servers = [server.to_persisted() for server in req.mcp_servers]
         AgentConfigurationPolicy.validate_mcp_servers(
             mcp_servers,
             require_https=self._mcp_requires_https(),
@@ -321,7 +321,7 @@ class AgentCommandService:
             )
 
         effective_mcp = (
-            [server.model_dump() for server in req.mcp_servers]
+            [server.to_persisted() for server in req.mcp_servers]
             if req.mcp_servers is not None
             else agent.mcp_servers or []
         )

@@ -125,9 +125,17 @@ describe('CreateMcpMemberDialog object lifecycle', () => {
     managedPostMock.mockResolvedValue({
       id: 'cred_00000000-0000-0000-0000-000000000003',
       group_id: 'credgrp_00000000-0000-0000-0000-000000000001',
+      kind: 'mcp',
       name: 'https://mcp-a.example.com',
       mcp_server_url: 'https://mcp-a.example.com',
+      provider: null,
+      protocol: null,
+      model: null,
+      compatible_engine_ids: [],
+      is_default: false,
+      auth_scheme: 'static_bearer',
       data: { token_value: '********' },
+      archived_at: null,
       created_at: '2026-08-10T00:00:00Z',
       updated_at: '2026-08-10T00:00:00Z',
     })
@@ -329,8 +337,15 @@ describe('CreateMcpMemberDialog object lifecycle', () => {
       return {
         id: 'cred_00000000-0000-0000-0000-000000000003',
         group_id: vaultAId,
+        kind: 'mcp',
         name: 'https://mcp-a.example.com',
         mcp_server_url: 'https://mcp-a.example.com',
+        provider: null,
+        protocol: null,
+        model: null,
+        compatible_engine_ids: [],
+        is_default: false,
+        auth_scheme: 'static_bearer',
         data: { token_value: '********' },
         archived_at: null,
         created_at: '2026-08-10T00:00:00Z',
@@ -360,10 +375,97 @@ describe('CreateMcpMemberDialog object lifecycle', () => {
     expect(wirePayload).toEqual({
       name: 'https://mcp-a.example.com',
       mcp_server_url: 'https://mcp-a.example.com',
+      auth_scheme: 'static_bearer',
       data: { token_value: 'bearer-token' },
     })
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ['credential-group-members', vaultAId],
+    })
+  })
+
+  it('submits a canonical API-key header credential and clears secret mutation state', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = render(renderDialog(vaultAId, queryClient))
+
+    fireEvent.change(view.getByLabelText('managed.credentials.groups.members.authScheme'), {
+      target: { value: 'header_api_key' },
+    })
+    fireEvent.input(view.getByPlaceholderText('https://mcp.example.com'), {
+      target: { value: ' https://mcp.example.com/api ' },
+    })
+    fireEvent.input(
+      view.getByPlaceholderText('managed.credentials.groups.members.headerNamePlaceholder'),
+      { target: { value: ' X-Corp-Key ' } },
+    )
+    fireEvent.input(
+      view.getByPlaceholderText('managed.credentials.groups.members.tokenPlaceholder'),
+      {
+        target: { value: ' api-secret ' },
+      },
+    )
+
+    await act(async () => {
+      fireEvent.click(view.getByText('managed.credentials.groups.members.add'))
+    })
+
+    await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
+    expect(managedPostMock.mock.calls[0][1]).toEqual({
+      name: 'https://mcp.example.com/api',
+      mcp_server_url: 'https://mcp.example.com/api',
+      auth_scheme: 'header_api_key',
+      data: { token_value: 'api-secret', header_name: 'X-Corp-Key' },
+    })
+    await waitFor(() => {
+      expect(
+        JSON.stringify(
+          queryClient
+            .getMutationCache()
+            .getAll()
+            .map((entry) => entry.state.variables),
+        ),
+      ).not.toContain('api-secret')
+    })
+  })
+
+  it('submits custom-header prefix only for the custom-header scheme', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = render(renderDialog(vaultAId, queryClient))
+
+    fireEvent.change(view.getByLabelText('managed.credentials.groups.members.authScheme'), {
+      target: { value: 'custom_header' },
+    })
+    fireEvent.input(view.getByPlaceholderText('https://mcp.example.com'), {
+      target: { value: 'https://mcp.example.com/custom' },
+    })
+    fireEvent.input(
+      view.getByPlaceholderText('managed.credentials.groups.members.headerNamePlaceholder'),
+      { target: { value: 'X-Service-Authorization' } },
+    )
+    fireEvent.input(
+      view.getByPlaceholderText('managed.credentials.groups.members.valuePrefixPlaceholder'),
+      { target: { value: 'Token ' } },
+    )
+    fireEvent.input(
+      view.getByPlaceholderText('managed.credentials.groups.members.tokenPlaceholder'),
+      {
+        target: { value: 'custom-secret' },
+      },
+    )
+
+    await act(async () => {
+      fireEvent.click(view.getByText('managed.credentials.groups.members.add'))
+    })
+
+    await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
+    expect(managedPostMock.mock.calls[0][1]).toEqual({
+      name: 'https://mcp.example.com/custom',
+      mcp_server_url: 'https://mcp.example.com/custom',
+      auth_scheme: 'custom_header',
+      data: {
+        token_value: 'custom-secret',
+        header_name: 'X-Service-Authorization',
+        value_prefix: 'Token ',
+      },
     })
   })
 })

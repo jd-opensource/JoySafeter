@@ -1,7 +1,7 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -22,6 +22,7 @@ import { managedRequestOptions } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { validateUrlScheme } from '@/lib/utils/url-validation'
 import type { CredentialGroupId } from '@/types/entity-id'
+import type { McpCredentialAuthScheme } from '@/types/managed'
 
 interface CreateMcpMemberDialogProps {
   open: boolean
@@ -34,14 +35,16 @@ interface CreateMcpMemberDialogProps {
 interface CreateCredentialVariables {
   credentialGroupId: CredentialGroupId
   queryKey: unknown[]
-  payload: {
-    name: string
-    mcp_server_url: string
-    data: { token_value: string }
-  }
   runId: number
   scope: string
   requestScope: ManagedRequestScope
+}
+
+interface CreateCredentialPayload {
+  name: string
+  mcp_server_url: string
+  auth_scheme: McpCredentialAuthScheme
+  data: Record<string, string>
 }
 
 export function CreateMcpMemberDialog({
@@ -54,12 +57,20 @@ export function CreateMcpMemberDialog({
   const { t } = useTranslation()
   const [name, setName] = useState('')
   const [mcpServerUrl, setMcpServerUrl] = useState('')
+  const [authScheme, setAuthScheme] = useState<McpCredentialAuthScheme>('static_bearer')
   const [tokenValue, setTokenValue] = useState('')
+  const [headerName, setHeaderName] = useState('X-Api-Key')
+  const [valuePrefix, setValuePrefix] = useState('')
+  const pendingPayloadRef = useRef<CreateCredentialPayload | null>(null)
   const queryClient = useQueryClient()
   const resetFields = useCallback(() => {
+    pendingPayloadRef.current = null
     setName('')
     setMcpServerUrl('')
+    setAuthScheme('static_bearer')
     setTokenValue('')
+    setHeaderName('X-Api-Key')
+    setValuePrefix('')
   }, [])
   const { readOnly, beginAction, isCurrentAction, scopeIsActive, bumpRun } = useScopedActions({
     onReset: () => {
@@ -71,7 +82,6 @@ export function CreateMcpMemberDialog({
   const mutation = useMutation({
     mutationFn: ({
       credentialGroupId: actionCredentialGroupId,
-      payload,
       runId,
       scope,
       requestScope,
@@ -79,6 +89,8 @@ export function CreateMcpMemberDialog({
       if (!isCurrentAction(runId, scope)) {
         throw new Error('Stale vault credential create ignored')
       }
+      const payload = pendingPayloadRef.current
+      if (!payload) throw new Error('MCP credential payload is unavailable')
       return managedPost<unknown>(
         apiResourcePath('credential-groups', actionCredentialGroupId, 'members'),
         payload,
@@ -91,11 +103,15 @@ export function CreateMcpMemberDialog({
       queryClient.invalidateQueries({ queryKey })
       resetFields()
       onOpenChange(false)
+      mutation.reset()
     },
     onError: (error, { runId, scope }) => {
       if (!isCurrentAction(runId, scope)) return
       if (canSubmit && !canSubmit()) return
       toastOperationError(t, error, 'managed.credentials.groups.members.createFailed')
+    },
+    onSettled: () => {
+      pendingPayloadRef.current = null
     },
   })
 
@@ -108,7 +124,14 @@ export function CreateMcpMemberDialog({
     e.preventDefault()
     const trimmedMcpServerUrl = mcpServerUrl.trim()
     const trimmedTokenValue = tokenValue.trim()
-    if (!trimmedMcpServerUrl || !trimmedTokenValue) return
+    const trimmedHeaderName = headerName.trim()
+    if (
+      !trimmedMcpServerUrl ||
+      !trimmedTokenValue ||
+      (authScheme !== 'static_bearer' && !trimmedHeaderName)
+    ) {
+      return
+    }
     const urlError = validateUrlScheme(trimmedMcpServerUrl)
     if (urlError) {
       alert(urlError)
@@ -120,14 +143,19 @@ export function CreateMcpMemberDialog({
       onOpenChange(false)
       return
     }
+    pendingPayloadRef.current = {
+      name: name.trim() || trimmedMcpServerUrl,
+      mcp_server_url: trimmedMcpServerUrl,
+      auth_scheme: authScheme,
+      data: {
+        token_value: trimmedTokenValue,
+        ...(authScheme === 'static_bearer' ? {} : { header_name: trimmedHeaderName }),
+        ...(authScheme === 'custom_header' && valuePrefix ? { value_prefix: valuePrefix } : {}),
+      },
+    }
     mutation.mutate({
       credentialGroupId,
       queryKey,
-      payload: {
-        name: name.trim() || trimmedMcpServerUrl,
-        mcp_server_url: trimmedMcpServerUrl,
-        data: { token_value: trimmedTokenValue },
-      },
       ...action,
     })
   }
@@ -183,6 +211,63 @@ export function CreateMcpMemberDialog({
           </div>
 
           <div className="space-y-1.5">
+            <label htmlFor="cred-auth-scheme" className="text-sm font-medium">
+              {t('managed.credentials.groups.members.authScheme')}
+            </label>
+            <select
+              id="cred-auth-scheme"
+              value={authScheme}
+              disabled={readOnly}
+              onChange={(event) => {
+                const next = event.target.value as McpCredentialAuthScheme
+                setAuthScheme(next)
+                if (next === 'header_api_key' && !headerName.trim()) setHeaderName('X-Api-Key')
+              }}
+              className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
+            >
+              <option value="static_bearer">
+                {t('managed.credentials.groups.members.authSchemeBearer')}
+              </option>
+              <option value="header_api_key">
+                {t('managed.credentials.groups.members.authSchemeApiKey')}
+              </option>
+              <option value="custom_header">
+                {t('managed.credentials.groups.members.authSchemeCustomHeader')}
+              </option>
+            </select>
+          </div>
+
+          {authScheme !== 'static_bearer' && (
+            <div className="space-y-1.5">
+              <label htmlFor="cred-header-name" className="text-sm font-medium">
+                {t('managed.credentials.groups.members.headerName')}
+              </label>
+              <Input
+                id="cred-header-name"
+                placeholder={t('managed.credentials.groups.members.headerNamePlaceholder')}
+                value={headerName}
+                disabled={readOnly}
+                onChange={(event) => setHeaderName(event.target.value)}
+              />
+            </div>
+          )}
+
+          {authScheme === 'custom_header' && (
+            <div className="space-y-1.5">
+              <label htmlFor="cred-value-prefix" className="text-sm font-medium">
+                {t('managed.credentials.groups.members.valuePrefix')}
+              </label>
+              <Input
+                id="cred-value-prefix"
+                placeholder={t('managed.credentials.groups.members.valuePrefixPlaceholder')}
+                value={valuePrefix}
+                disabled={readOnly}
+                onChange={(event) => setValuePrefix(event.target.value)}
+              />
+            </div>
+          )}
+
+          <div className="space-y-1.5">
             <label htmlFor="cred-token" className="text-sm font-medium">
               {t('managed.credentials.groups.members.token')}
             </label>
@@ -200,7 +285,11 @@ export function CreateMcpMemberDialog({
             <Button
               type="submit"
               disabled={
-                !mcpServerUrl.trim() || !tokenValue.trim() || mutation.isPending || readOnly
+                !mcpServerUrl.trim() ||
+                !tokenValue.trim() ||
+                (authScheme !== 'static_bearer' && !headerName.trim()) ||
+                mutation.isPending ||
+                readOnly
               }
             >
               {mutation.isPending

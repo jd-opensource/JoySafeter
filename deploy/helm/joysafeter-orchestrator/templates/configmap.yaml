@@ -56,6 +56,11 @@ data:
   JOYSAFETER_LEADER_LEASE_DURATION_SEC: {{ .Values.orchestrator.leader.leaseDurationSec | quote }}
   JOYSAFETER_LEADER_RENEW_INTERVAL_SEC: {{ .Values.orchestrator.leader.renewIntervalSec | quote }}
   {{- end }}
+  {{- if eq .Values.haMode "multi" }}
+  JOYSAFETER_XDS_LEADER_LEASE_NAME: {{ .Values.orchestrator.leader.xdsLeaseName | quote }}
+  JOYSAFETER_LEADER_LEASE_DURATION_SEC: {{ .Values.orchestrator.leader.leaseDurationSec | quote }}
+  JOYSAFETER_LEADER_RENEW_INTERVAL_SEC: {{ .Values.orchestrator.leader.renewIntervalSec | quote }}
+  {{- end }}
 
   # ── gRPC ──
   JOYSAFETER_GRPC_HOST: "0.0.0.0"
@@ -119,7 +124,7 @@ data:
   JOYSAFETER_ENVOY_ENABLED: "true"
   JOYSAFETER_ENVOY_XDS_MODE: {{ .Values.envoy.xdsMode | quote }}
   JOYSAFETER_ENVOY_SOCKET_HOST_DIR: {{ .Values.envoy.socketHostDir | quote }}
-  JOYSAFETER_ENVOY_GRPC_HOST: "joysafeter-orchestrator.{{ .Values.namespace }}.svc.cluster.local"
+  JOYSAFETER_ENVOY_GRPC_HOST: "joysafeter-orchestrator{{ if eq .Values.haMode "multi" }}-xds{{ end }}.{{ .Values.namespace }}.svc.cluster.local"
   JOYSAFETER_ENVOY_GRPC_PORT: {{ .Values.orchestrator.grpc.port | quote }}
   {{- end }}
 

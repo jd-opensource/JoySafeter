@@ -1,10 +1,22 @@
 from google.protobuf.internal import containers as _containers
+from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
 from collections.abc import Iterable as _Iterable, Mapping as _Mapping
 from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
+
+class McpTransport(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    MCP_TRANSPORT_UNSPECIFIED: _ClassVar[McpTransport]
+    MCP_TRANSPORT_STREAMABLE_HTTP: _ClassVar[McpTransport]
+    MCP_TRANSPORT_SSE: _ClassVar[McpTransport]
+    MCP_TRANSPORT_LOCAL_STDIO: _ClassVar[McpTransport]
+MCP_TRANSPORT_UNSPECIFIED: McpTransport
+MCP_TRANSPORT_STREAMABLE_HTTP: McpTransport
+MCP_TRANSPORT_SSE: McpTransport
+MCP_TRANSPORT_LOCAL_STDIO: McpTransport
 
 class RunnerMessage(_message.Message):
     __slots__ = ("ready", "event", "result", "heartbeat", "idle", "memory_sync", "sandbox_file_response")
@@ -40,7 +52,7 @@ class RunnerReady(_message.Message):
     active_task_id: str
     capabilities: _containers.RepeatedScalarFieldContainer[str]
     runner_token: str
-    def __init__(self, runner_version: _Optional[str] = ..., available_providers: _Optional[_Iterable[str]] = ..., sandbox_id: _Optional[str] = ..., is_reconnect: _Optional[bool] = ..., active_task_id: _Optional[str] = ..., capabilities: _Optional[_Iterable[str]] = ..., runner_token: _Optional[str] = ...) -> None: ...
+    def __init__(self, runner_version: _Optional[str] = ..., available_providers: _Optional[_Iterable[str]] = ..., sandbox_id: _Optional[str] = ..., is_reconnect: bool = ..., active_task_id: _Optional[str] = ..., capabilities: _Optional[_Iterable[str]] = ..., runner_token: _Optional[str] = ...) -> None: ...
 
 class RunnerIdle(_message.Message):
     __slots__ = ("sandbox_id", "work_dir", "session_id")
@@ -102,7 +114,7 @@ class ToolUseEvent(_message.Message):
     call_id: str
     input_json: str
     is_control_request: bool
-    def __init__(self, tool: _Optional[str] = ..., call_id: _Optional[str] = ..., input_json: _Optional[str] = ..., is_control_request: _Optional[bool] = ...) -> None: ...
+    def __init__(self, tool: _Optional[str] = ..., call_id: _Optional[str] = ..., input_json: _Optional[str] = ..., is_control_request: bool = ...) -> None: ...
 
 class ToolResultEvent(_message.Message):
     __slots__ = ("tool", "call_id", "output")
@@ -310,7 +322,7 @@ class SandboxFileResponse(_message.Message):
     filename: str
     content_type: str
     size: int
-    def __init__(self, request_id: _Optional[str] = ..., ok: _Optional[bool] = ..., code: _Optional[str] = ..., error: _Optional[str] = ..., path: _Optional[str] = ..., entries: _Optional[_Iterable[_Union[SandboxFileEntry, _Mapping]]] = ..., encoding: _Optional[str] = ..., content: _Optional[str] = ..., content_bytes: _Optional[bytes] = ..., filename: _Optional[str] = ..., content_type: _Optional[str] = ..., size: _Optional[int] = ...) -> None: ...
+    def __init__(self, request_id: _Optional[str] = ..., ok: bool = ..., code: _Optional[str] = ..., error: _Optional[str] = ..., path: _Optional[str] = ..., entries: _Optional[_Iterable[_Union[SandboxFileEntry, _Mapping]]] = ..., encoding: _Optional[str] = ..., content: _Optional[str] = ..., content_bytes: _Optional[bytes] = ..., filename: _Optional[str] = ..., content_type: _Optional[str] = ..., size: _Optional[int] = ...) -> None: ...
 
 class MemoryFileUpdate(_message.Message):
     __slots__ = ("store_mount_name", "relative_path", "content", "operation")
@@ -413,7 +425,7 @@ class MemoryFileSync(_message.Message):
     def __init__(self, store_mount_name: _Optional[str] = ..., relative_path: _Optional[str] = ..., content: _Optional[str] = ..., operation: _Optional[str] = ...) -> None: ...
 
 class StartTask(_message.Message):
-    __slots__ = ("task_id", "provider", "prompt", "system_prompt", "session_id", "model", "max_turns", "timeout_seconds", "env", "secrets", "mcp_servers", "repos", "work_dir", "skills", "allowed_tools", "disallowed_tools", "permission_mode", "setup_commands", "custom_tools", "ask_tools")
+    __slots__ = ("task_id", "provider", "prompt", "system_prompt", "session_id", "model", "max_turns", "timeout_seconds", "env", "secrets", "mcp_servers", "repos", "work_dir", "skills", "allowed_tools", "disallowed_tools", "permission_mode", "setup_commands", "custom_tools", "ask_tools", "system_prompt_mode")
     class EnvEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -448,6 +460,7 @@ class StartTask(_message.Message):
     SETUP_COMMANDS_FIELD_NUMBER: _ClassVar[int]
     CUSTOM_TOOLS_FIELD_NUMBER: _ClassVar[int]
     ASK_TOOLS_FIELD_NUMBER: _ClassVar[int]
+    SYSTEM_PROMPT_MODE_FIELD_NUMBER: _ClassVar[int]
     task_id: str
     provider: str
     prompt: str
@@ -468,7 +481,8 @@ class StartTask(_message.Message):
     setup_commands: _containers.RepeatedScalarFieldContainer[str]
     custom_tools: _containers.RepeatedCompositeFieldContainer[CustomTool]
     ask_tools: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, task_id: _Optional[str] = ..., provider: _Optional[str] = ..., prompt: _Optional[str] = ..., system_prompt: _Optional[str] = ..., session_id: _Optional[str] = ..., model: _Optional[str] = ..., max_turns: _Optional[int] = ..., timeout_seconds: _Optional[int] = ..., env: _Optional[_Mapping[str, str]] = ..., secrets: _Optional[_Mapping[str, str]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpConfig, _Mapping]]] = ..., repos: _Optional[_Iterable[_Union[RepoConfig, _Mapping]]] = ..., work_dir: _Optional[str] = ..., skills: _Optional[_Iterable[_Union[SkillArchive, _Mapping]]] = ..., allowed_tools: _Optional[_Iterable[str]] = ..., disallowed_tools: _Optional[_Iterable[str]] = ..., permission_mode: _Optional[str] = ..., setup_commands: _Optional[_Iterable[str]] = ..., custom_tools: _Optional[_Iterable[_Union[CustomTool, _Mapping]]] = ..., ask_tools: _Optional[_Iterable[str]] = ...) -> None: ...
+    system_prompt_mode: str
+    def __init__(self, task_id: _Optional[str] = ..., provider: _Optional[str] = ..., prompt: _Optional[str] = ..., system_prompt: _Optional[str] = ..., session_id: _Optional[str] = ..., model: _Optional[str] = ..., max_turns: _Optional[int] = ..., timeout_seconds: _Optional[int] = ..., env: _Optional[_Mapping[str, str]] = ..., secrets: _Optional[_Mapping[str, str]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpConfig, _Mapping]]] = ..., repos: _Optional[_Iterable[_Union[RepoConfig, _Mapping]]] = ..., work_dir: _Optional[str] = ..., skills: _Optional[_Iterable[_Union[SkillArchive, _Mapping]]] = ..., allowed_tools: _Optional[_Iterable[str]] = ..., disallowed_tools: _Optional[_Iterable[str]] = ..., permission_mode: _Optional[str] = ..., setup_commands: _Optional[_Iterable[str]] = ..., custom_tools: _Optional[_Iterable[_Union[CustomTool, _Mapping]]] = ..., ask_tools: _Optional[_Iterable[str]] = ..., system_prompt_mode: _Optional[str] = ...) -> None: ...
 
 class CustomTool(_message.Message):
     __slots__ = ("name", "description", "input_schema_json")
@@ -513,7 +527,7 @@ class FileRef(_message.Message):
     def __init__(self, path: _Optional[str] = ..., url: _Optional[str] = ..., filename: _Optional[str] = ..., size_bytes: _Optional[int] = ...) -> None: ...
 
 class McpConfig(_message.Message):
-    __slots__ = ("name", "command", "args", "env", "server_type", "url", "headers")
+    __slots__ = ("name", "command", "args", "env", "url", "headers", "transport")
     class EnvEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -532,17 +546,17 @@ class McpConfig(_message.Message):
     COMMAND_FIELD_NUMBER: _ClassVar[int]
     ARGS_FIELD_NUMBER: _ClassVar[int]
     ENV_FIELD_NUMBER: _ClassVar[int]
-    SERVER_TYPE_FIELD_NUMBER: _ClassVar[int]
     URL_FIELD_NUMBER: _ClassVar[int]
     HEADERS_FIELD_NUMBER: _ClassVar[int]
+    TRANSPORT_FIELD_NUMBER: _ClassVar[int]
     name: str
     command: str
     args: _containers.RepeatedScalarFieldContainer[str]
     env: _containers.ScalarMap[str, str]
-    server_type: str
     url: str
     headers: _containers.ScalarMap[str, str]
-    def __init__(self, name: _Optional[str] = ..., command: _Optional[str] = ..., args: _Optional[_Iterable[str]] = ..., env: _Optional[_Mapping[str, str]] = ..., server_type: _Optional[str] = ..., url: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ...) -> None: ...
+    transport: McpTransport
+    def __init__(self, name: _Optional[str] = ..., command: _Optional[str] = ..., args: _Optional[_Iterable[str]] = ..., env: _Optional[_Mapping[str, str]] = ..., url: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., transport: _Optional[_Union[McpTransport, str]] = ...) -> None: ...
 
 class RepoConfig(_message.Message):
     __slots__ = ("url", "branch", "path", "authorization_token", "mount_name")

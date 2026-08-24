@@ -16,7 +16,7 @@ use super::model::{
     model_material_fields, resolve_model_credential, validate_model_credential_metadata,
     ResolvedModelCredential,
 };
-use super::record::{CredentialKind, ProjectId};
+use super::record::{CredentialKind, McpCredentialMetadataRecord, ProjectId};
 use super::service::{
     resolve_service_credential, validate_service_credential_metadata, ResolvedServiceCredential,
     ServiceUsage,
@@ -389,8 +389,7 @@ impl CredentialMaterialAccessService {
         context: &CredentialAccessContext,
     ) -> anyhow::Result<Vec<ResolvedMcpCredential>> {
         let metadata = self
-            .store
-            .load_session_mcp_member_metadata(project_id, session_id)
+            .load_mcp_member_metadata(project_id, session_id)
             .await?;
         if let Err(error) = resolve_mcp_member_urls(&metadata) {
             for member in &metadata {
@@ -411,58 +410,81 @@ impl CredentialMaterialAccessService {
 
         let mut resolved = Vec::with_capacity(metadata.len());
         for member in metadata {
-            let record = match self
-                .store
-                .get_active_mcp_member(project_id, member.id, member.group_id)
-                .await
-            {
-                Ok(record) => record,
-                Err(error) => {
-                    self.append_failure(
-                        project_id,
-                        member.id,
-                        CredentialKind::Mcp,
-                        CredentialAccessUsage::McpEgress,
-                        context,
-                        member.material_fields,
-                        classify_runtime_error(error),
-                        error,
-                    )
-                    .await?;
-                    return Err(error.into());
-                }
-            };
-            let credential = match resolve_mcp_members(std::slice::from_ref(&record)) {
-                Ok(mut credentials) => credentials
-                    .pop()
-                    .ok_or(CredentialRuntimeError::CorruptRecord)?,
-                Err(error) => {
-                    self.append_failure(
-                        project_id,
-                        member.id,
-                        CredentialKind::Mcp,
-                        CredentialAccessUsage::McpEgress,
-                        context,
-                        member.material_fields,
-                        CredentialAccessFailure::Failed,
-                        error,
-                    )
-                    .await?;
-                    return Err(error.into());
-                }
-            };
-            self.append_success(
-                project_id,
-                member.id,
-                CredentialKind::Mcp,
-                CredentialAccessUsage::McpEgress,
-                context,
-                member.material_fields,
-            )
-            .await?;
-            resolved.push(credential);
+            resolved.push(
+                self.resolve_mcp_member(project_id, &member, context)
+                    .await?,
+            );
         }
         Ok(resolved)
+    }
+
+    pub async fn load_mcp_member_metadata(
+        &self,
+        project_id: &ProjectId,
+        session_id: SessionId,
+    ) -> anyhow::Result<Vec<McpCredentialMetadataRecord>> {
+        self.store
+            .load_session_mcp_member_metadata(project_id, session_id)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn resolve_mcp_member(
+        &self,
+        project_id: &ProjectId,
+        member: &McpCredentialMetadataRecord,
+        context: &CredentialAccessContext,
+    ) -> anyhow::Result<ResolvedMcpCredential> {
+        let record = match self
+            .store
+            .get_active_mcp_member(project_id, member.id, member.group_id)
+            .await
+        {
+            Ok(record) => record,
+            Err(error) => {
+                self.append_failure(
+                    project_id,
+                    member.id,
+                    CredentialKind::Mcp,
+                    CredentialAccessUsage::McpEgress,
+                    context,
+                    member.material_fields.clone(),
+                    classify_runtime_error(error),
+                    error,
+                )
+                .await?;
+                return Err(error.into());
+            }
+        };
+        let credential = match resolve_mcp_members(std::slice::from_ref(&record)) {
+            Ok(mut credentials) => credentials
+                .pop()
+                .ok_or(CredentialRuntimeError::CorruptRecord)?,
+            Err(error) => {
+                self.append_failure(
+                    project_id,
+                    member.id,
+                    CredentialKind::Mcp,
+                    CredentialAccessUsage::McpEgress,
+                    context,
+                    member.material_fields.clone(),
+                    CredentialAccessFailure::Failed,
+                    error,
+                )
+                .await?;
+                return Err(error.into());
+            }
+        };
+        self.append_success(
+            project_id,
+            member.id,
+            CredentialKind::Mcp,
+            CredentialAccessUsage::McpEgress,
+            context,
+            member.material_fields.clone(),
+        )
+        .await?;
+        Ok(credential)
     }
 
     async fn append_success(

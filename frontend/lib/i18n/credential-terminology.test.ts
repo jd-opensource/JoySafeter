@@ -183,8 +183,8 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   [
     'MCP credential groups',
     'managed.credentials.groups.addCredential',
-    'Add MCP Bearer Credential',
-    '添加 MCP Bearer 凭据',
+    'Add MCP Credential',
+    '添加 MCP 凭据',
   ],
   [
     'MCP credential groups',
@@ -835,31 +835,31 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
     'MCP 凭据组已配置！这个项目级 MCP 凭据组为当前项目中的会话安全存储 MCP 服务器凭据。',
   ],
   [
-    'Vault static Bearer',
+    'MCP credential schemes',
     'managed.credentials.groups.members.createTitle',
-    'Add MCP Bearer Credential',
-    '添加 MCP Bearer 凭据',
+    'Add MCP Credential',
+    '添加 MCP 凭据',
   ],
   [
-    'Vault static Bearer',
+    'MCP credential schemes',
     'managed.credentials.groups.members.createDescription',
-    'Store a Bearer token for one MCP server in this credential group.',
-    '在当前 MCP 凭据组中保存一个 MCP Server 的 Bearer Token。',
+    'Store one server-scoped MCP credential. The secret is injected only by the controlled egress proxy.',
+    '保存服务器级 MCP 凭据；密钥仅由受控出网代理注入。',
   ],
+  ['MCP credential schemes', 'managed.credentials.groups.members.token', 'Secret value', '密钥值'],
   [
-    'Vault static Bearer',
-    'managed.credentials.groups.members.token',
-    'Bearer Token',
-    'Bearer Token',
-  ],
-  [
-    'Vault static Bearer',
+    'MCP credential schemes',
     'managed.credentials.groups.members.tokenPlaceholder',
-    'Enter Bearer token',
-    '输入 Bearer Token',
+    'Enter secret value',
+    '输入密钥值',
   ],
-  ['Vault static Bearer', 'managed.credentials.groups.members.adding', 'Adding…', '添加中…'],
-  ['Vault static Bearer', 'managed.credentials.groups.members.add', 'Add Credential', '添加凭据'],
+  ['MCP credential schemes', 'managed.credentials.groups.members.adding', 'Adding…', '添加中…'],
+  [
+    'MCP credential schemes',
+    'managed.credentials.groups.members.add',
+    'Add Credential',
+    '添加凭据',
+  ],
   [
     'MCP credentials',
     'managed.credentials.groups.credArchiveTitle',
@@ -1231,7 +1231,7 @@ describe('credential domain terminology', () => {
   it('inventories direct, template, and finite active translation leaves', () => {
     const inventory = getActiveTranslationInventory()
 
-    expect(inventory.sourceFileCount).toBe(287)
+    expect(inventory.sourceFileCount).toBe(288)
     expect(inventory.sourceFiles).toContain('lib/managed/errors.ts')
     expect(inventory.sourceFiles).not.toContain('lib/i18n/locales/en.ts')
     expect(inventory.sourceFiles).not.toContain(
@@ -1248,8 +1248,8 @@ describe('credential domain terminology', () => {
       0,
     )
 
-    expect(inventory.counts).toEqual({ direct: 1506, dynamic: 471, total: 1977 })
-    expect(templateAdditions).toBe(444)
+    expect(inventory.counts).toEqual({ direct: 1521, dynamic: 477, total: 1998 })
+    expect(templateAdditions).toBe(450)
     expect(finiteAdditions).toBe(27)
     expect(inventory.templateDynamicLeaves).toContain(
       'managed.skills.aiAuthor.scan.status.not_scanned',

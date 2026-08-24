@@ -357,13 +357,16 @@ kubectl scale deployment joysafeter-orchestrator -n joysafeter-prod --replicas=5
 ```
 Orchestrator Deployment (N replicas)
   ├── K8s Service (ClusterIP) ← Runner/Envoy 连接入口
-  ├── Redis 协调 (bridge/inbox/xds:notify)
-  └── 节点感知 xDS 过滤
+  ├── Redis 协调 (bridge/inbox + network-policy generation 唤醒)
+  └── 单一 Lease authority 发布节点感知 xDS
 
 Envoy DaemonSet (每节点一个)
-  ├── ADS → Orchestrator Service
+  ├── ADS → 当前 authority Service
   ├── node.id = NODE_NAME (节点感知)
   └── hostPath UDS ← Sandbox Pod egress
+
+PostgreSQL
+  └── 网络策略 generation/status 持久化真相；Redis 不保存 xDS 状态
 
 NetworkPolicy
   ├── Sandbox: deny-all, 只允许 Orchestrator + DNS

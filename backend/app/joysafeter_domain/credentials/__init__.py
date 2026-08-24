@@ -39,8 +39,10 @@ from .policies import (
     CredentialGroupRestoreContext,
     CredentialPolicyError,
     CredentialPolicyErrorCode,
+    canonicalize_mcp_auth_scheme,
     validate_credential_binding,
     validate_group_restore,
+    validate_mcp_credential_material,
     validate_mcp_group_binding,
 )
 from .references import CredentialReference, CredentialReferenceKind
@@ -119,10 +121,12 @@ __all__ = [
     "WebhookAuthBinding",
     "WebhookAuthMethod",
     "canonicalize_auth_scheme",
+    "canonicalize_mcp_auth_scheme",
     "decide_credential_lifecycle",
     "decide_group_lifecycle",
     "make_project_id",
     "validate_credential_binding",
     "validate_group_restore",
     "validate_mcp_group_binding",
+    "validate_mcp_credential_material",
 ]

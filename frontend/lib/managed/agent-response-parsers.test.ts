@@ -58,4 +58,88 @@ describe('agent response parsers', () => {
       /Invalid agent model/,
     )
   })
+
+  it('accepts canonical MCP transports at the response boundary', () => {
+    const agent = parseAgentResponse({
+      ...rawAgent(),
+      mcp_servers: [
+        {
+          type: 'streamable_http',
+          name: 'docs',
+          url: 'https://docs.example.com/mcp',
+          auth_requirement: 'required',
+        },
+        {
+          type: 'sse',
+          name: 'events',
+          url: 'https://events.example.com/sse',
+          auth_requirement: 'optional',
+        },
+        {
+          type: 'local_stdio',
+          name: 'local',
+          command: 'node',
+          args: ['server.js'],
+          env: { MODE: 'safe' },
+        },
+      ],
+    })
+
+    expect(agent.mcp_servers).toEqual([
+      {
+        type: 'streamable_http',
+        name: 'docs',
+        url: 'https://docs.example.com/mcp',
+        auth_requirement: 'required',
+      },
+      {
+        type: 'sse',
+        name: 'events',
+        url: 'https://events.example.com/sse',
+        auth_requirement: 'optional',
+      },
+      {
+        type: 'local_stdio',
+        name: 'local',
+        command: 'node',
+        args: ['server.js'],
+        env: { MODE: 'safe' },
+      },
+    ])
+  })
+
+  it('rejects removed MCP transport aliases at the response boundary', () => {
+    for (const type of ['url', 'http', 'streamable-http', 'stdio']) {
+      expect(() =>
+        parseAgentResponse({
+          ...rawAgent(),
+          mcp_servers: [{ type, name: 'legacy', url: 'https://legacy.example.com/mcp' }],
+        }),
+      ).toThrow(/MCP/)
+    }
+  })
+
+  it('rejects remote MCP responses without an explicit auth requirement', () => {
+    expect(() =>
+      parseAgentResponse({
+        ...rawAgent(),
+        mcp_servers: [
+          {
+            type: 'streamable_http',
+            name: 'docs',
+            url: 'https://docs.example.com/mcp',
+          },
+        ],
+      }),
+    ).toThrow(/auth requirement/)
+  })
+
+  it('rejects malformed MCP response shapes instead of leaking them into forms', () => {
+    expect(() =>
+      parseAgentResponse({
+        ...rawAgent(),
+        mcp_servers: [{ type: 'local_stdio', name: 'broken', url: 'https://example.com' }],
+      }),
+    ).toThrow(/MCP/)
+  })
 })

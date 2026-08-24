@@ -16,8 +16,8 @@ from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafe
 from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterCreateAgentRequest,
     JoySafeterUpdateAgentRequest,
-    McpServerConfig,
     McpToolsetTool,
+    RemoteMcpServerConfig,
 )
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_infrastructure.agents import SqlAlchemyAgentRepository
@@ -454,7 +454,7 @@ def test_mcp_server_validation_allows_http_urls_by_default(monkeypatch):
         "HTTP://example.com/mcp",
     ):
         AgentConfigurationPolicy.validate_mcp_servers(
-            [{"type": "url", "name": "tools", "url": url}],
+            [{"type": "streamable_http", "name": "tools", "url": url, "auth_requirement": "optional"}],
             require_https=False,
         )
 
@@ -467,7 +467,7 @@ async def test_mcp_server_validation_can_require_https_for_non_local_http_urls(m
 
     with pytest.raises(AppError) as exc_info:
         AgentConfigurationPolicy.validate_mcp_servers(
-            [{"type": "url", "name": "tools", "url": url}],
+            [{"type": "streamable_http", "name": "tools", "url": url, "auth_requirement": "optional"}],
             require_https=True,
         )
 
@@ -480,7 +480,14 @@ async def test_mcp_server_validation_can_require_https_for_non_local_http_urls(m
         "user_action": "fix_input",
     }
     AgentConfigurationPolicy.validate_mcp_servers(
-        [{"type": "url", "name": "tools", "url": "http://localhost:8080/mcp"}],
+        [
+            {
+                "type": "streamable_http",
+                "name": "tools",
+                "url": "http://localhost:8080/mcp",
+                "auth_requirement": "optional",
+            }
+        ],
         require_https=True,
     )
 
@@ -491,8 +498,8 @@ async def test_create_agent_rejects_duplicate_mcp_server_name_with_structured_er
         name=f"duplicate-mcp-agent-{uuid.uuid4()}",
         engine_kind="claude",
         mcp_servers=[
-            McpServerConfig(name="tools", url="https://example.com/a"),
-            McpServerConfig(name="tools", url="https://example.com/b"),
+            RemoteMcpServerConfig(type="streamable_http", name="tools", url="https://example.com/a"),
+            RemoteMcpServerConfig(type="streamable_http", name="tools", url="https://example.com/b"),
         ],
     )
 
@@ -514,7 +521,7 @@ async def test_create_agent_rejects_undeclared_mcp_tool_server_with_structured_e
     req = JoySafeterCreateAgentRequest(
         name=f"undeclared-mcp-agent-{uuid.uuid4()}",
         engine_kind="claude",
-        mcp_servers=[McpServerConfig(name="declared", url="https://example.com/mcp")],
+        mcp_servers=[RemoteMcpServerConfig(type="streamable_http", name="declared", url="https://example.com/mcp")],
         tools=[McpToolsetTool(mcp_server_name="missing")],
     )
 

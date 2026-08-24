@@ -180,8 +180,12 @@ def test_domain_enums_match_the_shared_machine_contract() -> None:
     contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
 
     assert [kind.value for kind in CredentialKind] == contract["credential_kinds"]
-    assert [CredentialAuthScheme.STATIC_BEARER.value] == contract["auth_schemes"]
-    assert contract["auth_scheme_aliases"] == {"bearer": "static_bearer"}
+    assert [
+        CredentialAuthScheme.STATIC_BEARER.value,
+        CredentialAuthScheme.HEADER_API_KEY.value,
+        CredentialAuthScheme.CUSTOM_HEADER.value,
+    ] == contract["auth_schemes"]
+    assert "auth_scheme_aliases" not in contract
     assert contract["disabled_auth_schemes"] == ["oauth", "mcp_oauth"]
     assert {state.value for state in CredentialState} == {"active", "archived", "deleted"}
     assert {usage.value for usage in CredentialUsage} == {
@@ -206,8 +210,8 @@ def test_auth_scheme_aliases_canonicalize_and_unknown_values_fail_closed() -> No
 
     for scheme in contract["auth_schemes"]:
         assert canonicalize_auth_scheme(scheme).value == scheme
-    for alias, canonical in contract["auth_scheme_aliases"].items():
-        assert canonicalize_auth_scheme(alias).value == canonical
+    assert canonicalize_auth_scheme("api_key") is CredentialAuthScheme.HEADER_API_KEY
+    assert canonicalize_auth_scheme("bearer") is CredentialAuthScheme.STATIC_BEARER
     for disabled in contract["disabled_auth_schemes"]:
         assert canonicalize_auth_scheme(disabled) is CredentialAuthScheme.OAUTH2_LEGACY_DISABLED
 
@@ -217,7 +221,8 @@ def test_auth_scheme_aliases_canonicalize_and_unknown_values_fail_closed() -> No
     )
     listed_values = {
         *contract["auth_schemes"],
-        *contract["auth_scheme_aliases"],
+        "api_key",
+        "bearer",
         *contract["disabled_auth_schemes"],
     }
     invalid_values = {

@@ -191,6 +191,7 @@ orchestrator:
   # ── Leader 模式 (仅 haMode=leader 时) ──
   leader:
     leaseName: joysafeter-orchestrator-leader
+    xdsLeaseName: joysafeter-orchestrator-xds-leader
     leaseDurationSec: 10
     renewIntervalSec: 3
 

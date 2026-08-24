@@ -93,14 +93,14 @@ pub async fn run(
                     let rows: Vec<Vec<String>> = envs
                         .iter()
                         .map(|e| {
-                            let net_type = e["config"]["networking"]["type"]
+                            let network_type = e["config"]["networking"]["type"]
                                 .as_str()
                                 .unwrap_or("unrestricted")
                                 .to_string();
                             vec![
                                 e["name"].as_str().unwrap_or("-").to_string(),
                                 e["id"].as_str().unwrap_or("-").to_string(),
-                                net_type,
+                                network_type,
                                 e["created_at"]
                                     .as_str()
                                     .unwrap_or("-")
@@ -128,10 +128,10 @@ pub async fn run(
                         "Description: {}",
                         env["description"].as_str().unwrap_or("-")
                     );
-                    let net_type = env["config"]["networking"]["type"]
+                    let network_type = env["config"]["networking"]["type"]
                         .as_str()
                         .unwrap_or("unrestricted");
-                    println!("Networking:  {}", net_type);
+                    println!("Networking:  {}", network_type);
                     if let Some(hosts) = env["config"]["networking"]["allowed_hosts"].as_array() {
                         let hosts_str: Vec<&str> =
                             hosts.iter().filter_map(|h| h.as_str()).collect();

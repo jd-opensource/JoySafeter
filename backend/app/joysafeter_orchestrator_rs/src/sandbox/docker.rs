@@ -15,7 +15,10 @@ use tracing::{info, warn};
 
 use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::file_injection::{FileToInject, InjectionStrategy};
-use super::lds_backend::{DeltaXdsServer, FilesystemLds, GrpcLds, LdsBackend, SandboxCredentials};
+use super::lds_backend::{
+    CdsBackend, DeltaXdsServer, FilesystemCds, FilesystemLds, GrpcCds, GrpcLds, LdsBackend,
+    SandboxCredentials,
+};
 use super::mounts::SandboxMount;
 use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
@@ -141,13 +144,20 @@ impl DockerProvider {
         // Build Envoy manager + xDS service if Envoy is enabled
         let mut xds_service: Option<Arc<DeltaXdsServer>> = None;
         let envoy_manager = if config.envoy_enabled {
-            let lds: Arc<dyn LdsBackend> = if config.envoy_xds_mode == "grpc" {
-                let server = DeltaXdsServer::new();
-                xds_service = Some(server.clone());
-                Arc::new(GrpcLds::new(server))
-            } else {
-                Arc::new(FilesystemLds::new(config.envoy_config_dir.clone()))
-            };
+            let (lds, cds): (Arc<dyn LdsBackend>, Arc<dyn CdsBackend>) =
+                if config.envoy_xds_mode == "grpc" {
+                    let server = DeltaXdsServer::new();
+                    xds_service = Some(server.clone());
+                    (
+                        Arc::new(GrpcLds::new(server.clone())),
+                        Arc::new(GrpcCds::new(server)),
+                    )
+                } else {
+                    (
+                        Arc::new(FilesystemLds::new(config.envoy_config_dir.clone())),
+                        Arc::new(FilesystemCds::new(config.envoy_config_dir.clone())),
+                    )
+                };
             Some(Arc::new(EnvoyManager::new(
                 Some(docker.clone()),
                 EnvoyConfig {
@@ -168,6 +178,7 @@ impl DockerProvider {
                     node_id: "joysafeter-envoy".to_string(),
                 },
                 lds,
+                cds,
             )))
         } else {
             None
@@ -900,21 +911,12 @@ impl SandboxProvider for DockerProvider {
     // New execution-plane trait methods
     // =================================================================
 
-    async fn on_startup(&self, pool: &PgPool) -> anyhow::Result<()> {
+    async fn on_startup(&self, _pool: &PgPool) -> anyhow::Result<()> {
         if let Some(ref manager) = self.envoy_manager {
-            if let Some(ref xds) = self.xds_service {
-                xds.attach_db_pool(pool.clone()).await;
-            }
             // Fail-closed: Envoy fronts every limited-networking sandbox's egress
             // allowlist. If it cannot initialize or recover the live sandboxes'
             // listeners, abort startup instead of serving them without enforcement.
             manager.init().await?;
-            manager
-                .recover_from_db(pool, &self.config.llm_egress_allowed_hosts)
-                .await?;
-            manager
-                .clone()
-                .spawn_health_monitor(pool.clone(), self.config.llm_egress_allowed_hosts.clone());
             info!(
                 xds_mode = %self.config.envoy_xds_mode,
                 "EnvoyManager initialized"
@@ -923,6 +925,34 @@ impl SandboxProvider for DockerProvider {
             info!("Envoy network isolation disabled");
         }
         Ok(())
+    }
+
+    async fn recover_networking(
+        &self,
+        pool: &PgPool,
+        authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
+    ) -> anyhow::Result<()> {
+        if let Some(ref manager) = self.envoy_manager {
+            manager
+                .recover_from_db(pool, &self.config.llm_egress_allowed_hosts, authority)
+                .await?;
+            manager.clone().spawn_health_monitor(
+                pool.clone(),
+                self.config.llm_egress_allowed_hosts.clone(),
+                authority.clone(),
+            );
+        }
+        Ok(())
+    }
+
+    async fn prune_networking(
+        &self,
+        live_sandbox_ids: &std::collections::HashSet<SandboxId>,
+    ) -> anyhow::Result<usize> {
+        match self.envoy_manager.as_ref() {
+            Some(manager) => manager.prune_networking_except(live_sandbox_ids).await,
+            None => Ok(0),
+        }
     }
 
     async fn setup_networking(

@@ -26,7 +26,6 @@ pub struct CredentialContract {
     contract_version: u8,
     credential_kinds: Vec<String>,
     auth_schemes: Vec<String>,
-    auth_scheme_aliases: HashMap<String, String>,
     disabled_auth_schemes: Vec<String>,
     runtime_errors: Vec<String>,
     #[allow(dead_code)]
@@ -74,9 +73,6 @@ impl CredentialContract {
             .iter()
             .find(|scheme| scheme.as_str() == raw)
         {
-            return Ok(scheme);
-        }
-        if let Some(scheme) = self.auth_scheme_aliases.get(raw) {
             return Ok(scheme);
         }
         if self
@@ -239,7 +235,10 @@ mod tests {
     #[test]
     fn canonical_auth_scheme_uses_the_embedded_contract() {
         assert_eq!(canonical_auth_scheme("static_bearer"), Ok("static_bearer"));
-        assert_eq!(canonical_auth_scheme("bearer"), Ok("static_bearer"));
+        assert_eq!(
+            canonical_auth_scheme("bearer"),
+            Err(CredentialRuntimeError::CorruptRecord)
+        );
         assert_eq!(
             canonical_auth_scheme("oauth"),
             Err(CredentialRuntimeError::UnsupportedScheme)

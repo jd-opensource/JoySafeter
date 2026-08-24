@@ -26,9 +26,12 @@ use tracing::info;
 
 use crate::config::JoySafeterConfig;
 
-pub use local::{LocalBridgeStore, LocalTaskDispatcher, LocalXdsStateStore};
-pub use redis_impl::{RedisBridgeStore, RedisTaskDispatcher, RedisXdsStateStore};
-pub use traits::{BridgeStore, DispatchCommand, TaskDispatcher, XdsAction, XdsStateStore};
+pub use local::{LocalBridgeStore, LocalTaskDispatcher};
+pub use redis_impl::{RedisBridgeStore, RedisNetworkPolicyRequestQueue, RedisTaskDispatcher};
+pub use traits::{
+    BridgeStore, DispatchCommand, NetworkPolicyAction, NetworkPolicyRequest,
+    NetworkPolicyRequestQueue, TaskDispatcher,
+};
 
 // ---------------------------------------------------------------------------
 // HaMode
@@ -82,8 +85,8 @@ pub struct HaComponents {
     pub mode: HaMode,
     pub bridge_store: Arc<dyn BridgeStore>,
     pub task_dispatcher: Arc<dyn TaskDispatcher>,
-    pub xds_store: Arc<dyn XdsStateStore>,
-    /// Background task handles for multi mode (inbox consumer, heartbeat, xDS notify).
+    pub network_policy_queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
+    /// Background task handles for multi mode (inbox, heartbeat, authority requests).
     /// Empty for standalone/leader.
     pub background_handles: Vec<JoinHandle<()>>,
 }
@@ -95,8 +98,6 @@ pub struct HaComponents {
 pub fn build_ha_components(
     config: &JoySafeterConfig,
     redis_client: Option<&redis::Client>,
-    pool: Option<sqlx::PgPool>,
-    provider: Option<Arc<dyn crate::sandbox::provider::SandboxProvider>>,
 ) -> HaComponents {
     let mode = HaMode::from_config(config);
 
@@ -105,15 +106,13 @@ pub fn build_ha_components(
             let bridge_store: Arc<dyn BridgeStore> = Arc::new(LocalBridgeStore::new());
             let task_dispatcher: Arc<dyn TaskDispatcher> =
                 Arc::new(LocalTaskDispatcher::new(bridge_store.clone()));
-            let xds_store: Arc<dyn XdsStateStore> = Arc::new(LocalXdsStateStore::new());
-
             info!(mode = mode.as_str(), "HA components initialized (local)");
 
             HaComponents {
                 mode,
                 bridge_store,
                 task_dispatcher,
-                xds_store,
+                network_policy_queue: None,
                 background_handles: Vec::new(),
             }
         }
@@ -130,8 +129,9 @@ pub fn build_ha_components(
                 client.clone(),
                 &instance_id,
             ));
-            let xds_store: Arc<dyn XdsStateStore> =
-                Arc::new(RedisXdsStateStore::new(client.clone(), &instance_id));
+            let network_policy_queue: Arc<dyn NetworkPolicyRequestQueue> = Arc::new(
+                RedisNetworkPolicyRequestQueue::new(client.clone(), &instance_id),
+            );
 
             // Spawn background loops
             let mut handles = Vec::new();
@@ -149,16 +149,6 @@ pub fn build_ha_components(
                 tokio::spawn(redis_impl::bridge_heartbeat_loop(bridge_store.clone()));
             handles.push(heartbeat_handle);
 
-            // xDS notify consumer — receives listener change notifications
-            let xds_handle = tokio::spawn(redis_impl::xds_notify_consumer_loop(
-                client.clone(),
-                instance_id.clone(),
-                pool.expect("PgPool required for multi mode xDS notify"),
-                provider.expect("SandboxProvider required for multi mode xDS notify"),
-                config.llm_egress_allowed_hosts.clone(),
-            ));
-            handles.push(xds_handle);
-
             info!(
                 mode = mode.as_str(),
                 instance_id = %instance_id,
@@ -170,7 +160,7 @@ pub fn build_ha_components(
                 mode,
                 bridge_store,
                 task_dispatcher,
-                xds_store,
+                network_policy_queue: Some(network_policy_queue),
                 background_handles: handles,
             }
         }

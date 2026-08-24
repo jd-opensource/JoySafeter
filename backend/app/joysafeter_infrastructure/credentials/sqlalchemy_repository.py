@@ -37,7 +37,13 @@ from app.joysafeter_domain.credentials.lifecycle import (
     decide_credential_lifecycle,
     decide_group_lifecycle,
 )
-from app.joysafeter_domain.credentials.policies import CredentialGroupRestoreContext
+from app.joysafeter_domain.credentials.policies import (
+    CredentialGroupRestoreContext,
+    CredentialPolicyError,
+    CredentialPolicyErrorCode,
+    canonicalize_mcp_auth_scheme,
+    validate_mcp_credential_material,
+)
 from app.joysafeter_domain.credentials.resource import (
     CredentialGroupResource,
     CredentialMaterialDescriptor,
@@ -110,6 +116,46 @@ _DISPLAY_SAFE_SUFFIXES = (
     "_API_VERSION",
     "_VERSION",
 )
+
+
+def _mcp_policy_request_error(error: CredentialPolicyError) -> InvalidRequestError:
+    code = {
+        CredentialPolicyErrorCode.UNSUPPORTED_SCHEME: "CREDENTIAL_AUTH_SCHEME_DISABLED",
+        CredentialPolicyErrorCode.FIELD_MISSING: "CREDENTIAL_FIELD_MISSING",
+        CredentialPolicyErrorCode.FIELD_INVALID: "CREDENTIAL_FIELD_INVALID",
+    }.get(error.code, "CREDENTIAL_FIELD_INVALID")
+    return InvalidRequestError(
+        code=code,
+        message=str(error),
+        data=error.data,
+        user_action="fix_input",
+    )
+
+
+def _canonicalize_mcp_auth_scheme_for_request(
+    value: str | CredentialAuthScheme | None,
+) -> CredentialAuthScheme:
+    try:
+        return canonicalize_mcp_auth_scheme(value)
+    except CredentialPolicyError as error:
+        raise _mcp_policy_request_error(error) from error
+    except (TypeError, ValueError) as error:
+        raise InvalidRequestError(
+            code="CREDENTIAL_FIELD_INVALID",
+            message=str(error),
+            data={"field": "auth_scheme"},
+            user_action="fix_input",
+        ) from error
+
+
+def _validate_mcp_credential_material_for_request(
+    auth_scheme: CredentialAuthScheme,
+    data: dict[str, str],
+) -> dict[str, str]:
+    try:
+        return validate_mcp_credential_material(auth_scheme, data)
+    except CredentialPolicyError as error:
+        raise _mcp_policy_request_error(error) from error
 
 
 def _is_display_safe_key(key: str) -> bool:
@@ -378,18 +424,6 @@ class SqlAlchemyCredentialRepository:
             clean[key] = value
         return clean
 
-    @staticmethod
-    def _validate_mcp_static_bearer_data(data: dict[str, str]) -> dict[str, str]:
-        token_value = data.get("token_value", "").strip()
-        if not token_value:
-            raise InvalidRequestError(
-                code="CREDENTIAL_FIELD_MISSING",
-                message="MCP static bearer credentials require data.token_value",
-                data={"field": "data.token_value"},
-                user_action="fix_input",
-            )
-        return {**data, "token_value": token_value}
-
     def encrypt_data_for_storage(self, data: dict[str, str] | None) -> dict[str, str]:
         return self._material.protect_values(data)
 
@@ -565,8 +599,10 @@ class SqlAlchemyCredentialRepository:
     async def create(self, req: CreateCredentialRequest, project_id: str) -> JoySafeterCredential:
         self._validate_kind_identity_create(req)
         plaintext = self._validate_data_contract(req.data)
+        mcp_auth_scheme = None
         if req.kind is CredentialKind.MCP:
-            plaintext = self._validate_mcp_static_bearer_data(plaintext)
+            mcp_auth_scheme = _canonicalize_mcp_auth_scheme_for_request(req.auth_scheme)
+            plaintext = _validate_mcp_credential_material_for_request(mcp_auth_scheme, plaintext)
 
         normalized_url = None
         if req.kind is CredentialKind.MCP:
@@ -595,7 +631,7 @@ class SqlAlchemyCredentialRepository:
             is_default=req.is_default,
             mcp_server_url=req.mcp_server_url,
             normalized_mcp_server_url=normalized_url,
-            credential_type="static_bearer" if req.kind is CredentialKind.MCP else None,
+            credential_type=mcp_auth_scheme.value if mcp_auth_scheme is not None else None,
             group_id=req.group_id,
         )
         self.db.add(cred)
@@ -921,14 +957,38 @@ class SqlAlchemyCredentialRepository:
             cred.name = req.name
             changed = True
 
-        if req.data is not None:
+        current_mcp_scheme = None
+        target_mcp_scheme = None
+        mcp_scheme_changed = False
+        if cred.kind == CredentialKind.MCP.value:
+            current_mcp_scheme = _canonicalize_mcp_auth_scheme_for_request(cred.credential_type)
+            target_mcp_scheme = (
+                current_mcp_scheme
+                if req.auth_scheme is None
+                else _canonicalize_mcp_auth_scheme_for_request(req.auth_scheme)
+            )
+            mcp_scheme_changed = target_mcp_scheme is not current_mcp_scheme
+
+        if req.data is not None or mcp_scheme_changed:
             current_plaintext = self.decrypt_data(cred.data)
-            merged = self.merge_update_plaintext(cred.data, req.data)
+            if mcp_scheme_changed:
+                merged = dict(req.data) if req.data is not None else {"token_value": current_plaintext["token_value"]}
+            else:
+                merged = self.merge_update_plaintext(cred.data, req.data)
             merged = self._validate_data_contract(merged)
             if cred.kind == CredentialKind.MCP.value:
-                merged = self._validate_mcp_static_bearer_data(merged)
+                assert target_mcp_scheme is not None
+                merged = _validate_mcp_credential_material_for_request(
+                    target_mcp_scheme,
+                    merged,
+                )
             if merged != current_plaintext:
                 cred.data = self.encrypt_data_for_storage(merged)
+                changed = True
+                runtime_material_changed = True
+            if mcp_scheme_changed:
+                assert target_mcp_scheme is not None
+                cred.credential_type = target_mcp_scheme.value
                 changed = True
                 runtime_material_changed = True
 
@@ -1588,6 +1648,7 @@ class SqlAlchemyCredentialRepository:
                 mcp_server_url=request.mcp_server_url,
                 group_id=group_id,
                 data=request.data,
+                auth_scheme=request.auth_scheme,
             ),
             project_id,
         )

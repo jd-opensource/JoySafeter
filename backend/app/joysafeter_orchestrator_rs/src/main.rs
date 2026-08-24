@@ -259,6 +259,10 @@ async fn main() -> anyhow::Result<()> {
         })?;
         xds_leader_handle = Some(kernel::xds_leader::spawn(
             kube_client,
+            xds_service
+                .as_ref()
+                .expect("multi+k8s xDS leader requires an xDS service")
+                .clone(),
             config.k8s_namespace.clone(),
             pod_name,
             config.xds_leader_lease_name.clone(),
@@ -266,6 +270,20 @@ async fn main() -> anyhow::Result<()> {
             std::time::Duration::from_secs(config.leader_lease_duration_sec),
             std::time::Duration::from_secs(config.leader_renew_interval_sec),
         ));
+    }
+    let xds_authority = if config.ha_mode == "multi" {
+        xds_leader_handle
+            .as_ref()
+            .map(kernel::xds_leader::XdsLeaderHandle::authority)
+            .unwrap_or_else(kernel::xds_authority::XdsAuthorityState::managed)
+    } else {
+        kernel::xds_authority::XdsAuthorityState::standalone()
+    };
+    if config.ha_mode == "multi"
+        && sandbox_provider.capabilities().has_egress_management
+        && xds_leader_handle.is_none()
+    {
+        anyhow::bail!("multi-replica managed egress requires the K8s leader-only xDS authority");
     }
 
     // Health server — expose readiness/liveness for K8s probes.
@@ -278,14 +296,17 @@ async fn main() -> anyhow::Result<()> {
     // Fail-closed: if egress control cannot initialize or recover, abort startup
     // rather than becoming ready and serving sandboxes without enforcement.
     sandbox_provider.on_startup(&db_pool).await?;
+    if config.ha_mode != "multi" && sandbox_provider.capabilities().has_egress_management {
+        let authority = xds_authority
+            .ready_guard()
+            .expect("standalone xDS authority must be ready");
+        sandbox_provider
+            .recover_networking(&db_pool, &authority)
+            .await?;
+    }
 
-    // Initialize HA components (bridge store, task dispatcher, xDS store)
-    let ha = kernel::ha::build_ha_components(
-        &config,
-        redis_client.as_ref(),
-        Some(db_pool.clone()),
-        Some(sandbox_provider.clone()),
-    );
+    // Initialize HA components (bridge store, task dispatcher, network-policy wakeup queue)
+    let mut ha = kernel::ha::build_ha_components(&config, redis_client.as_ref());
     let bridge_store = ha.bridge_store.clone();
     info!(ha_mode = %ha.mode.as_str(), "HA components initialized");
 
@@ -311,8 +332,8 @@ async fn main() -> anyhow::Result<()> {
     info!("Startup recovery complete");
 
     // Orphaned sandbox cleanup
-    let sandbox_controller_for_cleanup =
-        Arc::new(kernel::sandbox_controller::SandboxController::new(
+    let sandbox_controller_for_cleanup = Arc::new(
+        kernel::sandbox_controller::SandboxController::new(
             db_pool.clone(),
             queue.clone(),
             bridge_store.clone(),
@@ -320,7 +341,9 @@ async fn main() -> anyhow::Result<()> {
             redis_coordinator.clone(),
             config.clone(),
             runtime_config.clone(),
-        ));
+        )
+        .with_network_policy_control(xds_authority.clone(), ha.network_policy_queue.clone()),
+    );
     match sandbox_controller_for_cleanup.cleanup_orphaned().await {
         Ok(n) if n > 0 => info!("Cleaned up {n} orphaned sandboxes"),
         Ok(_) => {}
@@ -344,20 +367,37 @@ async fn main() -> anyhow::Result<()> {
     .await?;
     info!(addr = %config.grpc_addr(), "gRPC server started");
 
+    if ha.mode == kernel::ha::HaMode::Multi {
+        let xds_authority_handle = tokio::spawn(kernel::ha::redis_impl::xds_authority_loop(
+            redis_client
+                .as_ref()
+                .expect("Redis is required for multi mode")
+                .clone(),
+            db_pool.clone(),
+            sandbox_provider.clone(),
+            config.llm_egress_allowed_hosts.clone(),
+            xds_authority.clone(),
+        ));
+        ha.background_handles.push(xds_authority_handle);
+    }
+
     // Start task controller (periodic checks)
     let task_ctrl_handle = task_controller.spawn();
     info!("Task controller started");
 
     // Start sandbox controller
-    let sandbox_controller = Arc::new(kernel::sandbox_controller::SandboxController::new(
-        db_pool.clone(),
-        queue.clone(),
-        bridge_store.clone(),
-        sandbox_provider.clone(),
-        redis_coordinator.clone(),
-        config.clone(),
-        runtime_config.clone(),
-    ));
+    let sandbox_controller = Arc::new(
+        kernel::sandbox_controller::SandboxController::new(
+            db_pool.clone(),
+            queue.clone(),
+            bridge_store.clone(),
+            sandbox_provider.clone(),
+            redis_coordinator.clone(),
+            config.clone(),
+            runtime_config.clone(),
+        )
+        .with_network_policy_control(xds_authority.clone(), ha.network_policy_queue.clone()),
+    );
     let sandbox_ctrl_handles = sandbox_controller.clone().spawn();
     info!(
         "Sandbox controller started ({} loops)",
@@ -373,7 +413,7 @@ async fn main() -> anyhow::Result<()> {
         sandbox_provider.clone(),
         config.clone(),
         Some(sandbox_controller.pool_replenish_notify.clone()),
-        Some(ha.xds_store.clone()),
+        ha.network_policy_queue.clone(),
         identity_provider.clone(),
     );
     info!("Task scheduler started");
@@ -425,7 +465,8 @@ async fn main() -> anyhow::Result<()> {
             None, // image_builder
             redis_coordinator.clone(),
             memory_subscribers.clone(),
-        );
+        )
+        .with_network_policy_control(xds_authority.clone(), ha.network_policy_queue.clone());
         Some(listener.spawn())
     } else {
         None
@@ -543,7 +584,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(h) = cmd_listener_handle {
         h.abort();
     }
-    // Stop HA background loops (inbox consumer, heartbeat, xDS notify)
+    // Stop HA background loops (inbox, heartbeat, network-policy authority requests)
     for h in ha.background_handles {
         h.abort();
     }

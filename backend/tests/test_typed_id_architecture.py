@@ -225,7 +225,7 @@ REVIEWED_ENTITY_UUID_ADAPTERS = {
     ),
     "rust:app/joysafeter_orchestrator_rs/src/kernel/sandbox_resolver.rs::as_uuid": (
         ("physical_resource_naming", "third_party_uuid_contracts"),
-        23,
+        27,
     ),
     "rust:app/joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs::as_uuid": (
         ("redis_queue_channel_payloads",),
@@ -246,7 +246,7 @@ REVIEWED_ENTITY_UUID_ADAPTERS = {
     ),
     "rust:app/joysafeter_orchestrator_rs/src/sandbox/envoy.rs::as_uuid": (
         ("physical_resource_naming",),
-        4,
+        6,
     ),
     "rust:app/joysafeter_orchestrator_rs/src/sandbox/k8s.rs::as_uuid": (
         ("physical_resource_naming",),

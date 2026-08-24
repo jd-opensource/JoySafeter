@@ -4,6 +4,7 @@ use crate::proto::{self, RunnerHarnessResult, RunnerMessage};
 use crate::stream::harness_event_to_proto;
 
 use joysafeter_runtime::AdapterRegistry;
+use joysafeter_types::agent::McpServerConfig;
 use joysafeter_types::harness::HarnessInput;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -111,11 +112,13 @@ pub async fn handle_task(
         .await
         .map_err(|e| format!("clone task repos to {}: {e}", work_dir.display()))?;
 
+    let mcp_configs = project_mcp_configs(&task.mcp_servers)?;
+
     // Write MCP servers and custom tools to .claude/settings.json (Claude Code only)
     write_settings_json(
         &work_dir,
         provider,
-        &task.mcp_servers,
+        &mcp_configs,
         &task.custom_tools,
         &task.allowed_tools,
         &task.ask_tools,
@@ -159,19 +162,7 @@ pub async fn handle_task(
         timeout: Duration::from_secs(task.timeout_seconds),
         env,
         secrets,
-        // Forward MCP servers from the orchestrator-built proto into the
-        // engine adapter. Adapters that target HTTP MCP (e.g. codex) write
-        // these into their CLI's config; adapters that already write their
-        // own config via task.mcp_servers (claude) simply ignore this.
-        mcp_configs: task
-            .mcp_servers
-            .iter()
-            .filter(|s| !s.url.is_empty())
-            .map(|s| joysafeter_types::agent::McpServerConfig::Url {
-                name: s.name.clone(),
-                url: s.url.clone(),
-            })
-            .collect(),
+        mcp_configs,
         permission_mode,
         allowed_tools: task.allowed_tools.clone(),
         ask_tools: task.ask_tools.clone(),
@@ -435,10 +426,12 @@ pub async fn handle_setup(
     crate::repos::clone_repos(&work_dir, &setup.repos)
         .await
         .map_err(|e| format!("clone setup repos to {}: {e}", work_dir.display()))?;
+    let mcp_configs =
+        project_mcp_configs(&setup.mcp_servers).map_err(|e| format!("project MCP configs: {e}"))?;
     write_settings_json(
         &work_dir,
         &setup.provider,
-        &setup.mcp_servers,
+        &mcp_configs,
         &setup.custom_tools,
         &setup.allowed_tools,
         &setup.ask_tools,
@@ -776,7 +769,7 @@ async fn write_initial_memory_files(
 async fn write_settings_json(
     work_dir: &Path,
     provider: &str,
-    mcp_servers: &[proto::McpConfig],
+    mcp_servers: &[McpServerConfig],
     custom_tools: &[proto::CustomTool],
     allowed_tools: &[String],
     ask_tools: &[String],
@@ -876,12 +869,12 @@ async fn write_settings_json(
 /// discovers them as project-scoped servers.
 ///
 /// Structure: `{ "mcpServers": { "<name>": { ... } } }`.
-/// Remote servers (url present) use `type: "http"` (Claude Code accepts
-/// `streamable-http` as an alias; `sse` is honored when explicitly requested).
+/// Canonical `streamable_http` servers project to Claude's downstream `http`
+/// representation; canonical `sse` remains `sse`.
 /// Local servers use `command` / `args` / `env`.
 async fn write_mcp_json(
     work_dir: &Path,
-    mcp_servers: &[proto::McpConfig],
+    mcp_servers: &[McpServerConfig],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mcp_json_path = work_dir.join(".mcp.json");
 
@@ -905,29 +898,27 @@ async fn write_mcp_json(
         .unwrap_or_default();
 
     for server in mcp_servers {
-        let is_remote = !server.url.is_empty();
-        let entry = if is_remote {
-            // `server_type` may arrive as "sse", "url", "streamable-http", or
-            // empty. Only "sse" needs the distinct transport; everything else
-            // (including the legacy "url") maps to Claude Code's "http".
-            let transport = if server.server_type == "sse" {
-                "sse"
-            } else {
-                "http"
-            };
-            let mut e = serde_json::json!({"type": transport, "url": server.url});
-            if !server.headers.is_empty() {
-                e["headers"] = serde_json::json!(server.headers);
+        let (name, entry) = match server {
+            McpServerConfig::StreamableHttp { name, url } => {
+                (name, serde_json::json!({"type": "http", "url": url}))
             }
-            e
-        } else {
-            let mut e = serde_json::json!({"command": server.command, "args": server.args});
-            if !server.env.is_empty() {
-                e["env"] = serde_json::json!(server.env);
+            McpServerConfig::Sse { name, url } => {
+                (name, serde_json::json!({"type": "sse", "url": url}))
             }
-            e
+            McpServerConfig::LocalStdio {
+                name,
+                command,
+                args,
+                env,
+            } => {
+                let mut entry = serde_json::json!({"command": command, "args": args});
+                if !env.is_empty() {
+                    entry["env"] = serde_json::json!(env);
+                }
+                (name, entry)
+            }
         };
-        mcp_obj.insert(server.name.clone(), entry);
+        mcp_obj.insert(name.clone(), entry);
     }
 
     root["mcpServers"] = serde_json::Value::Object(mcp_obj);
@@ -939,6 +930,68 @@ async fn write_mcp_json(
         "Wrote .mcp.json with project-scoped MCP servers"
     );
     Ok(())
+}
+
+fn project_mcp_configs(mcp_servers: &[proto::McpConfig]) -> Result<Vec<McpServerConfig>, String> {
+    mcp_servers
+        .iter()
+        .map(|server| {
+            let name = server.name.trim();
+            if name.is_empty() {
+                return Err("MCP server name must not be empty".to_string());
+            }
+
+            let transport = match proto::McpTransport::try_from(server.transport) {
+                Ok(proto::McpTransport::Unspecified) => {
+                    return Err(format!("MCP transport is required for server {name:?}"));
+                }
+                Ok(transport) => transport,
+                Err(_) => {
+                    return Err(format!(
+                        "unsupported MCP transport enum {} for server {name:?}",
+                        server.transport
+                    ));
+                }
+            };
+
+            match transport {
+                proto::McpTransport::StreamableHttp => {
+                    if server.url.is_empty() {
+                        return Err(format!(
+                            "MCP server {name:?} requires a URL for streamable_http"
+                        ));
+                    }
+                    Ok(McpServerConfig::StreamableHttp {
+                        name: name.to_string(),
+                        url: server.url.clone(),
+                    })
+                }
+                proto::McpTransport::Sse => {
+                    if server.url.is_empty() {
+                        return Err(format!("MCP server {name:?} requires a URL for sse"));
+                    }
+                    Ok(McpServerConfig::Sse {
+                        name: name.to_string(),
+                        url: server.url.clone(),
+                    })
+                }
+                proto::McpTransport::LocalStdio => {
+                    if server.command.is_empty() {
+                        return Err(format!(
+                            "MCP server {name:?} requires a command for local_stdio"
+                        ));
+                    }
+                    Ok(McpServerConfig::LocalStdio {
+                        name: name.to_string(),
+                        command: server.command.clone(),
+                        args: server.args.clone(),
+                        env: server.env.clone(),
+                    })
+                }
+                proto::McpTransport::Unspecified => unreachable!(),
+            }
+        })
+        .collect()
 }
 
 /// Handle a MemoryFileUpdate from the orchestrator (cross-session sync).
@@ -980,7 +1033,116 @@ pub async fn handle_memory_update(update: proto::MemoryFileUpdate, config: &Sess
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
+
+    #[test]
+    fn project_mcp_configs_preserves_all_supported_transports() {
+        let configs = project_mcp_configs(&[
+            proto::McpConfig {
+                name: "http".to_string(),
+                transport: proto::McpTransport::StreamableHttp as i32,
+                url: "http://mcp-egress.internal/r/http/?tenant=one".to_string(),
+                ..Default::default()
+            },
+            proto::McpConfig {
+                name: "events".to_string(),
+                transport: proto::McpTransport::Sse as i32,
+                url: "http://mcp-egress.internal/r/events/?tenant=two".to_string(),
+                ..Default::default()
+            },
+            proto::McpConfig {
+                name: "local".to_string(),
+                transport: proto::McpTransport::LocalStdio as i32,
+                command: "node".to_string(),
+                args: vec!["server.js".to_string(), "--safe".to_string()],
+                env: HashMap::from([("MODE".to_string(), "safe".to_string())]),
+                ..Default::default()
+            },
+        ])
+        .unwrap();
+
+        assert_eq!(
+            configs,
+            vec![
+                McpServerConfig::StreamableHttp {
+                    name: "http".to_string(),
+                    url: "http://mcp-egress.internal/r/http/?tenant=one".to_string(),
+                },
+                McpServerConfig::Sse {
+                    name: "events".to_string(),
+                    url: "http://mcp-egress.internal/r/events/?tenant=two".to_string(),
+                },
+                McpServerConfig::LocalStdio {
+                    name: "local".to_string(),
+                    command: "node".to_string(),
+                    args: vec!["server.js".to_string(), "--safe".to_string()],
+                    env: HashMap::from([("MODE".to_string(), "safe".to_string())]),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn project_mcp_configs_rejects_unknown_transport_enum() {
+        let err = project_mcp_configs(&[proto::McpConfig {
+            name: "unsafe".to_string(),
+            transport: 99,
+            url: "https://upstream.example/mcp".to_string(),
+            ..Default::default()
+        }])
+        .unwrap_err();
+
+        assert!(err.contains("unsupported MCP transport"));
+        assert!(!err.contains("upstream.example"));
+    }
+
+    #[test]
+    fn project_mcp_configs_rejects_unspecified_transport() {
+        let err = project_mcp_configs(&[proto::McpConfig {
+            name: "events".to_string(),
+            url: "http://mcp-egress.internal/r/events/".to_string(),
+            ..Default::default()
+        }])
+        .unwrap_err();
+
+        assert!(err.contains("transport is required"));
+    }
+
+    #[tokio::test]
+    async fn write_mcp_json_serializes_typed_secret_free_projection() {
+        let dir = tempfile::tempdir().unwrap();
+        let configs = vec![
+            McpServerConfig::StreamableHttp {
+                name: "http".to_string(),
+                url: "http://mcp-egress.internal/r/http/?tenant=one".to_string(),
+            },
+            McpServerConfig::Sse {
+                name: "events".to_string(),
+                url: "http://mcp-egress.internal/r/events/?tenant=two".to_string(),
+            },
+            McpServerConfig::LocalStdio {
+                name: "local".to_string(),
+                command: "node".to_string(),
+                args: vec!["server.js".to_string()],
+                env: HashMap::from([("MODE".to_string(), "safe".to_string())]),
+            },
+        ];
+
+        write_mcp_json(dir.path(), &configs).await.unwrap();
+
+        let body = tokio::fs::read_to_string(dir.path().join(".mcp.json"))
+            .await
+            .unwrap();
+        assert!(body.contains("\"type\": \"http\""));
+        assert!(body.contains("\"type\": \"sse\""));
+        assert!(body.contains("\"command\": \"node\""));
+        assert!(body.contains("tenant=one"));
+        assert!(!body.contains("headers"));
+        assert!(!body.contains("Authorization"));
+        assert!(!body.contains("upstream.example"));
+    }
 
     #[test]
     fn skill_base_dir_pi_uses_dot_pi() {
@@ -1253,11 +1415,9 @@ mod tests {
             let _ = tokio::fs::remove_dir_all(&dir).await;
             tokio::fs::create_dir_all(&dir).await.unwrap();
 
-            let mcp = vec![proto::McpConfig {
+            let mcp = vec![McpServerConfig::StreamableHttp {
                 name: "github".into(),
                 url: "https://mcp.example.com".into(),
-                server_type: "url".into(),
-                ..Default::default()
             }];
             let allowed = vec!["Bash".to_string(), "Read".to_string()];
             let ask = vec!["mcp__github__*".to_string()];

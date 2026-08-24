@@ -227,45 +227,78 @@ pub struct InjectConfig {
     pub tar_gz_b64: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum McpServerConfig {
-    #[serde(rename = "url")]
-    Url { name: String, url: String },
-}
-
-impl<'de> Deserialize<'de> for McpServerConfig {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let v = serde_json::Value::deserialize(deserializer)?;
-        let obj = v
-            .as_object()
-            .ok_or_else(|| serde::de::Error::custom("expected object"))?;
-        let typ = obj.get("type").and_then(|t| t.as_str()).unwrap_or("");
-        match typ {
-            "url" => {
-                let name = obj
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let url = obj
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                Ok(McpServerConfig::Url { name, url })
-            }
-            _ => Err(serde::de::Error::custom(
-                "mcp_servers[].type must be 'url' in strict managed-agents mode",
-            )),
-        }
-    }
+    #[serde(rename = "streamable_http")]
+    StreamableHttp { name: String, url: String },
+    #[serde(rename = "sse")]
+    Sse { name: String, url: String },
+    #[serde(rename = "local_stdio")]
+    LocalStdio {
+        name: String,
+        command: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        args: Vec<String>,
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        env: HashMap<String, String>,
+    },
 }
 
 impl McpServerConfig {
     pub fn name(&self) -> &str {
         match self {
-            Self::Url { name, .. } => name,
+            Self::StreamableHttp { name, .. }
+            | Self::Sse { name, .. }
+            | Self::LocalStdio { name, .. } => name,
+        }
+    }
+}
+
+#[cfg(test)]
+mod mcp_server_config_tests {
+    use std::collections::HashMap;
+
+    use super::McpServerConfig;
+
+    #[test]
+    fn accepts_only_canonical_mcp_transports() {
+        let parsed: McpServerConfig = serde_json::from_value(serde_json::json!({
+            "type": "streamable_http",
+            "name": "remote",
+            "url": "https://example.com/mcp"
+        }))
+        .unwrap();
+        assert!(matches!(parsed, McpServerConfig::StreamableHttp { .. }));
+        let sse: McpServerConfig = serde_json::from_value(serde_json::json!({
+            "type": "sse", "name": "events", "url": "https://example.com/sse"
+        }))
+        .unwrap();
+        assert!(matches!(sse, McpServerConfig::Sse { .. }));
+        let local: McpServerConfig = serde_json::from_value(serde_json::json!({
+            "type": "local_stdio", "name": "local", "command": "node",
+            "args": ["server.js"], "env": {"MODE": "safe"}
+        }))
+        .unwrap();
+        assert_eq!(
+            local,
+            McpServerConfig::LocalStdio {
+                name: "local".to_string(),
+                command: "node".to_string(),
+                args: vec!["server.js".to_string()],
+                env: HashMap::from([("MODE".to_string(), "safe".to_string())]),
+            }
+        );
+
+        for transport in ["url", "http", "streamable-http", "stdio"] {
+            assert!(
+                serde_json::from_value::<McpServerConfig>(serde_json::json!({
+                    "type": transport,
+                    "name": "legacy",
+                    "url": "https://example.com/mcp"
+                }))
+                .is_err()
+            );
         }
     }
 }

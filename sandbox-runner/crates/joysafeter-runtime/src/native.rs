@@ -1085,7 +1085,7 @@ mod tests {
             ask_tools: vec![],
         };
         let input2 = HarnessInput {
-            mcp_configs: vec![joysafeter_types::agent::McpServerConfig::Url {
+            mcp_configs: vec![joysafeter_types::agent::McpServerConfig::StreamableHttp {
                 name: "legal-knowledge".into(),
                 url: "https://ai-legal-test.jd.com/legal-mcp/mcp".into(),
             }],

@@ -262,14 +262,23 @@ message FileRef {
   int64 size_bytes = 4;
 }
 
+enum McpTransport {
+  MCP_TRANSPORT_UNSPECIFIED = 0;
+  MCP_TRANSPORT_STREAMABLE_HTTP = 1;
+  MCP_TRANSPORT_SSE = 2;
+  MCP_TRANSPORT_LOCAL_STDIO = 3;
+}
+
 message McpConfig {
+  reserved 5;
+  reserved "server_type";
   string name = 1;
   string command = 2;
   repeated string args = 3;
   map<string, string> env = 4;
-  string server_type = 5;
   string url = 6;
   map<string, string> headers = 7;
+  McpTransport transport = 8;
 }
 
 message RepoConfig {

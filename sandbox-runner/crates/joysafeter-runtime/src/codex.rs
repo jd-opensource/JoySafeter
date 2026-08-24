@@ -1781,8 +1781,8 @@ async fn signal_turn_done(current_turn: &Arc<Mutex<Option<TurnState>>>, aborted:
 /// the entries described by ``HarnessInput.mcp_configs`` without touching the
 /// rest of the file (so the entrypoint's [model_providers.*] etc. survive).
 ///
-/// Currently we only handle URL servers — that's the only shape JoySafeter's
-/// public schema accepts. URL servers translate to:
+/// Remote servers translate to `url`; local stdio servers translate to
+/// `command`, `args`, and `env`.
 ///
 /// ```toml
 /// [mcp_servers.echo-test]
@@ -1838,13 +1838,46 @@ async fn merge_codex_mcp_servers(
     block.push('\n');
     for server in servers {
         match server {
-            McpServerConfig::Url { name, url } => {
+            McpServerConfig::StreamableHttp { name, url } | McpServerConfig::Sse { name, url } => {
                 if name.is_empty() || url.is_empty() {
                     continue;
                 }
                 // TOML keys with hyphens / non-bare-key chars must be quoted.
                 block.push_str(&format!("[mcp_servers.\"{}\"]\n", toml_escape(name)));
                 block.push_str(&format!("url = \"{}\"\n", toml_escape(url)));
+                block.push('\n');
+            }
+            McpServerConfig::LocalStdio {
+                name,
+                command,
+                args,
+                env,
+            } => {
+                if name.is_empty() || command.is_empty() {
+                    continue;
+                }
+                block.push_str(&format!("[mcp_servers.\"{}\"]\n", toml_escape(name)));
+                block.push_str(&format!("command = \"{}\"\n", toml_escape(command)));
+                if !args.is_empty() {
+                    let args = args
+                        .iter()
+                        .map(|arg| format!("\"{}\"", toml_escape(arg)))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    block.push_str(&format!("args = [{args}]\n"));
+                }
+                if !env.is_empty() {
+                    block.push_str(&format!("[mcp_servers.\"{}\".env]\n", toml_escape(name)));
+                    let mut entries = env.iter().collect::<Vec<_>>();
+                    entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+                    for (key, value) in entries {
+                        block.push_str(&format!(
+                            "\"{}\" = \"{}\"\n",
+                            toml_escape(key),
+                            toml_escape(value)
+                        ));
+                    }
+                }
                 block.push('\n');
             }
         }
@@ -2042,7 +2075,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
         std::env::set_var("HOME", &tmp);
 
-        let servers = vec![McpServerConfig::Url {
+        let servers = vec![McpServerConfig::StreamableHttp {
             name: "echo-test".to_string(),
             url: "http://host.docker.internal:8765/".to_string(),
         }];
@@ -2082,7 +2115,7 @@ mod tests {
         .unwrap();
 
         std::env::set_var("HOME", &tmp);
-        let servers = vec![McpServerConfig::Url {
+        let servers = vec![McpServerConfig::StreamableHttp {
             name: "echo".to_string(),
             url: "http://x:1/".to_string(),
         }];
@@ -2092,6 +2125,46 @@ mod tests {
         assert!(body.contains("model = \"gpt-5\""));
         assert!(body.contains("[model_providers.codex]"));
         assert!(body.contains("[mcp_servers.\"echo\"]"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[tokio::test]
+    async fn merge_codex_mcp_servers_writes_sse_and_local_stdio() {
+        use std::collections::HashMap;
+
+        use joysafeter_types::agent::McpServerConfig;
+
+        let _guard = TEST_HOME_LOCK.lock().await;
+        let tmp = std::env::temp_dir().join(format!("codex_mcp_transports_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::set_var("HOME", &tmp);
+
+        let servers = vec![
+            McpServerConfig::Sse {
+                name: "events".to_string(),
+                url: "http://mcp-egress.internal/r/events/?tenant=two".to_string(),
+            },
+            McpServerConfig::LocalStdio {
+                name: "local".to_string(),
+                command: "node".to_string(),
+                args: vec!["server.js".to_string(), "--safe".to_string()],
+                env: HashMap::from([
+                    ("MODE".to_string(), "safe".to_string()),
+                    ("ZONE".to_string(), "test".to_string()),
+                ]),
+            },
+        ];
+
+        super::merge_codex_mcp_servers(&servers).await.unwrap();
+
+        let body = std::fs::read_to_string(tmp.join(".codex/config.toml")).unwrap();
+        assert!(body.contains("url = \"http://mcp-egress.internal/r/events/?tenant=two\""));
+        assert!(body.contains("command = \"node\""));
+        assert!(body.contains("args = [\"server.js\", \"--safe\"]"));
+        assert!(body.contains("[mcp_servers.\"local\".env]"));
+        assert!(body.contains("\"MODE\" = \"safe\""));
+        assert!(body.contains("\"ZONE\" = \"test\""));
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

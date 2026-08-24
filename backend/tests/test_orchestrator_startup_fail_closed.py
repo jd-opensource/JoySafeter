@@ -19,7 +19,11 @@ def test_provider_startup_failure_aborts_orchestrator_readiness() -> None:
 
     assert "sandbox_provider.on_startup(&db_pool).await?;" in main_source
     assert "manager.init().await?;" in docker_source
-    assert ".recover_from_db(pool, &self.config.llm_egress_allowed_hosts)\n                .await?;" in docker_source
+    assert (
+        ".recover_from_db(pool, &self.config.llm_egress_allowed_hosts, authority)\n                .await?;"
+        in docker_source
+    )
+    assert ".recover_networking(&db_pool, &authority)" in main_source
 
 
 def test_multi_k8s_xds_coordination_failure_aborts_startup() -> None:
@@ -36,8 +40,11 @@ def test_xds_shutdown_stops_reacquisition_and_reconciles_stale_labels() -> None:
 
     assert "self.coordinator_task.abort();" in source
     assert "self.election_task.abort();" in source
-    assert "let desired_leader = coordinator_election.is_leader();" in source
+    assert "let lease_held = coordinator_election.is_leader();" in source
+    assert "coordinator_xds_service.set_serving(false);" in source
+    assert "coordinator_authority.revoke();" in source
+    assert "let desired_serving = should_serve_xds(lease_held, coordinator_authority.is_ready());" in source
     assert "&coordinator_client," in source
     assert "&coordinator_namespace," in source
     assert "&coordinator_pod_name," in source
-    assert "desired_leader," in source
+    assert "desired_serving," in source

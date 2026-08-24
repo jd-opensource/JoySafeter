@@ -22,7 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.joysafeter_api.api.v1.audit import credential_audit_actor
 from app.joysafeter_application.credentials.application_service import CredentialService
 from app.joysafeter_application.credentials.ports import CredentialAuditActor
-from app.joysafeter_domain.llm.anthropic_auth import normalize_anthropic_auth
+from app.joysafeter_domain.credentials.types import canonicalize_auth_scheme
+from app.joysafeter_domain.llm.anthropic_auth import AUTH_SCHEME_AUTO, normalize_anthropic_auth
 from app.joysafeter_domain.llm.catalog import LlmCatalogError, get_llm_catalog
 from app.joysafeter_domain.llm.compatibility import (
     LlmCompatibilityError,
@@ -88,6 +89,11 @@ def _credential_response(cred: JoySafeterCredential, svc: CredentialService) -> 
         is_default=cred.is_default,
         mcp_server_url=cred.mcp_server_url,
         group_id=cred.group_id,
+        auth_scheme=(
+            canonicalize_auth_scheme(cred.credential_type)
+            if cred.kind == CredentialKind.MCP.value and cred.credential_type
+            else None
+        ),
         archived_at=cred.archived_at,
         created_at=cred.created_at,
         updated_at=cred.updated_at,
@@ -190,10 +196,10 @@ def _extract_upstream_error_detail(response: httpx.Response) -> str | None:
     return text[:CREDENTIAL_TEST_ERROR_DETAIL_LIMIT] if text else None
 
 
-def _apply_anthropic_auth(provider: str | None, data: dict[str, str], auth_scheme: str) -> dict[str, str]:
+def _apply_anthropic_auth(provider: str | None, data: dict[str, str], auth_scheme: str | None) -> dict[str, str]:
     if provider != "anthropic":
         return data
-    return normalize_anthropic_auth(data, auth_scheme)
+    return normalize_anthropic_auth(data, auth_scheme or AUTH_SCHEME_AUTO)
 
 
 async def _test_credential_connectivity(req: TestCredentialRequest) -> CredentialTestResponse:

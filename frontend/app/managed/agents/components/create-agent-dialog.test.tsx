@@ -274,6 +274,7 @@ function llmSecret(name: string, isDefault = true, compatibleEngineIds = ['claud
     compatible_engine_ids: compatibleEngineIds,
     is_default: isDefault,
     data: { ANTHROPIC_API_KEY: 'secret' },
+    auth_scheme: null,
     archived_at: null,
     created_at: '2026-08-07T00:00:00Z',
     updated_at: '2026-08-07T00:00:00Z',
@@ -917,5 +918,51 @@ describe('CreateAgentDialog managed object lifecycle', () => {
 
     expect(onOpenChange).not.toHaveBeenCalled()
     expect(onCreated).not.toHaveBeenCalled()
+  })
+
+  it('creates agents with the shared canonical MCP transport contract', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === compatibleSecretsPath()) return secretPage([])
+      if (path === '/skills' || path === '/environments') return { data: [] }
+      return { data: [] }
+    })
+    managedPostMock.mockResolvedValueOnce({ id: CREATED_AGENT_ID })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <CreateAgentDialog open onOpenChange={() => {}} onCreated={() => {}} />
+      </QueryClientProvider>,
+    )
+
+    fireEvent.input(view.getByPlaceholderText('managed.agents.create.namePlaceholder'), {
+      target: { value: 'SSE Agent' },
+    })
+    fireEvent.click(view.getByTitle('managed.agents.create.addMcpServer'))
+    fireEvent.change(view.getByLabelText('managed.agents.create.mcpTransport'), {
+      target: { value: 'sse' },
+    })
+    fireEvent.input(view.getByPlaceholderText('managed.agents.create.mcpNamePlaceholder'), {
+      target: { value: 'events' },
+    })
+    fireEvent.input(view.getByPlaceholderText('managed.agents.create.mcpUrlPlaceholder'), {
+      target: { value: 'https://events.example.com/sse' },
+    })
+    fireEvent.change(view.getByLabelText('managed.agents.create.mcpAuthRequirement'), {
+      target: { value: 'none' },
+    })
+    fireEvent.click(view.getByText('managed.agents.create.add'))
+    fireEvent.click(view.getByText('managed.agents.create.submit'))
+
+    await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
+    expect(managedPostMock.mock.calls[0][1]).toMatchObject({
+      mcp_servers: [
+        {
+          type: 'sse',
+          name: 'events',
+          url: 'https://events.example.com/sse',
+          auth_requirement: 'none',
+        },
+      ],
+    })
   })
 })

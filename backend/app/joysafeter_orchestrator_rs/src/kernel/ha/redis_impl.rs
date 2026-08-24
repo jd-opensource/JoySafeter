@@ -3,8 +3,8 @@
 //! Provides:
 //! - [`RedisBridgeStore`]: local DashMap cache + Redis key registration with TTL
 //! - [`RedisTaskDispatcher`]: local-first dispatch, cross-instance via Redis Streams
-//! - [`RedisXdsStateStore`]: xDS change notification via Redis Stream
-//! - Background loops: inbox consumer, bridge heartbeat, xDS notify consumer
+//! - [`RedisNetworkPolicyRequestQueue`]: wakeups for the elected xDS authority
+//! - Background loops: inbox consumer, bridge heartbeat, authority request consumer
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,7 +22,10 @@ use crate::kernel::sandbox_bridge::{BridgeRegistry, SandboxBridge};
 
 use super::dispatch::dispatch_to_bridge;
 use super::stream::StreamConsumer;
-use super::traits::{BridgeStore, DispatchCommand, TaskDispatcher, XdsAction, XdsStateStore};
+use super::traits::{
+    BridgeStore, DispatchCommand, NetworkPolicyAction, NetworkPolicyRequest,
+    NetworkPolicyRequestQueue, TaskDispatcher,
+};
 
 // ---------------------------------------------------------------------------
 // Redis key constants
@@ -32,15 +35,18 @@ use super::traits::{BridgeStore, DispatchCommand, TaskDispatcher, XdsAction, Xds
 const BRIDGE_KEY_PREFIX: &str = "joysafeter:bridge:";
 /// Per-instance inbox stream for cross-instance command relay.
 const INBOX_KEY_PREFIX: &str = "joysafeter:inbox:";
-/// xDS change notification stream (shared across all instances).
-const XDS_NOTIFY_KEY: &str = "joysafeter:xds:notify";
+/// Network-policy request stream (shared across all instances).
+const NETWORK_POLICY_REQUEST_KEY: &str = "joysafeter:network-policy:requests";
 
 /// Bridge key TTL in seconds. Refreshed by heartbeat every 30s.
 const BRIDGE_TTL_SECS: u64 = 60;
 /// Inbox stream max length (approximate trim).
 const INBOX_MAXLEN: usize = 1000;
-/// xDS notify stream max length (approximate trim).
-const XDS_NOTIFY_MAXLEN: usize = 1000;
+/// Network-policy request stream max length (approximate trim).
+const NETWORK_POLICY_REQUEST_MAXLEN: usize = 1000;
+/// Periodic PostgreSQL-to-xDS inventory reconciliation bounds how long a
+/// dropped remove wakeup can leave a stale listener behind.
+const XDS_AUTHORITY_INVENTORY_RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 
 // ---------------------------------------------------------------------------
 // RedisBridgeStore
@@ -333,19 +339,16 @@ impl TaskDispatcher for RedisTaskDispatcher {
 }
 
 // ---------------------------------------------------------------------------
-// RedisXdsStateStore
+// RedisNetworkPolicyRequestQueue
 // ---------------------------------------------------------------------------
 
-/// xDS state notification via Redis Stream.
-///
-/// Notifies other instances when a listener is added/removed so they can update
-/// their local Envoy DaemonSet connections.
-pub struct RedisXdsStateStore {
+/// Durable wakeups for the elected xDS authority.
+pub struct RedisNetworkPolicyRequestQueue {
     redis_client: redis::Client,
     instance_id: String,
 }
 
-impl RedisXdsStateStore {
+impl RedisNetworkPolicyRequestQueue {
     pub fn new(redis_client: redis::Client, instance_id: &str) -> Self {
         Self {
             redis_client,
@@ -355,38 +358,52 @@ impl RedisXdsStateStore {
 }
 
 #[async_trait]
-impl XdsStateStore for RedisXdsStateStore {
-    async fn notify_change(&self, sandbox_id: SandboxId, action: XdsAction) -> anyhow::Result<()> {
+impl NetworkPolicyRequestQueue for RedisNetworkPolicyRequestQueue {
+    async fn publish(&self, request: NetworkPolicyRequest) -> anyhow::Result<()> {
         let mut conn = self
             .redis_client
             .get_multiplexed_async_connection()
             .await
-            .map_err(|e| anyhow!("Redis connection failed for xDS notify: {e}"))?;
+            .map_err(|e| anyhow!("Redis connection failed for network-policy request: {e}"))?;
 
-        let action_str = match action {
-            XdsAction::Upsert => "upsert",
-            XdsAction::Remove => "remove",
+        let action_str = match request.action {
+            NetworkPolicyAction::Reconcile => "reconcile",
+            NetworkPolicyAction::Remove => "remove",
         };
+        let policy_hash = request
+            .generation
+            .as_ref()
+            .map(|generation| generation.policy_hash.as_str())
+            .unwrap_or("");
+        let policy_version = request
+            .generation
+            .as_ref()
+            .map(|generation| generation.policy_version)
+            .unwrap_or_default();
 
         redis::cmd("XADD")
-            .arg(XDS_NOTIFY_KEY)
+            .arg(NETWORK_POLICY_REQUEST_KEY)
             .arg("MAXLEN")
             .arg("~")
-            .arg(XDS_NOTIFY_MAXLEN)
+            .arg(NETWORK_POLICY_REQUEST_MAXLEN)
             .arg("*")
             .arg("sandbox_id")
-            .arg(sandbox_id.as_uuid().to_string())
+            .arg(request.sandbox_id.as_uuid().to_string())
             .arg("action")
             .arg(action_str)
             .arg("instance")
             .arg(&self.instance_id)
+            .arg("policy_hash")
+            .arg(policy_hash)
+            .arg("policy_version")
+            .arg(policy_version)
             .query_async::<String>(&mut conn)
             .await?;
 
         debug!(
-            sandbox_id = %sandbox_id,
+            sandbox_id = %request.sandbox_id,
             action = action_str,
-            "Published xDS notify"
+            "Published network-policy authority request"
         );
         Ok(())
     }
@@ -512,97 +529,379 @@ pub async fn bridge_heartbeat_loop(bridge_store: Arc<dyn BridgeStore>) {
     }
 }
 
-/// xDS notify consumer loop: reads change notifications and triggers local
-/// Envoy xDS updates for sandboxes managed by other instances.
-///
-/// When a peer instance pushes a new listener, this loop immediately reconciles
-/// the sandbox's networking on the local Envoy — no 15s wait for the reconcile
-/// tick. This eliminates the 503 window for sandboxes on other nodes.
-pub async fn xds_notify_consumer_loop(
+fn parse_network_policy_request(
+    fields: &[(String, String)],
+) -> anyhow::Result<NetworkPolicyRequest> {
+    let field = |name: &str| {
+        fields
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.as_str())
+    };
+    let sandbox_id = field("sandbox_id")
+        .ok_or_else(|| anyhow!("network policy request missing sandbox_id"))?
+        .parse::<Uuid>()
+        .map(SandboxId::from_uuid)
+        .map_err(|error| anyhow!("invalid sandbox_id in network policy request: {error}"))?;
+    match field("action") {
+        Some("reconcile") => {
+            let policy_hash = field("policy_hash")
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| anyhow!("network policy request missing policy_hash"))?;
+            let policy_version = field("policy_version")
+                .ok_or_else(|| anyhow!("network policy request missing policy_version"))?
+                .parse::<i64>()
+                .map_err(|error| anyhow!("invalid network policy version: {error}"))?;
+            Ok(NetworkPolicyRequest::reconcile(
+                sandbox_id,
+                crate::db::queries::NetworkPolicyGeneration {
+                    policy_hash: policy_hash.to_string(),
+                    policy_version,
+                },
+            ))
+        }
+        Some("remove") => Ok(NetworkPolicyRequest::remove(sandbox_id)),
+        Some(action) => anyhow::bail!("unsupported network policy action: {action}"),
+        None => anyhow::bail!("network policy request missing action"),
+    }
+}
+
+/// Single consumer for the elected xDS authority. All replicas observe the
+/// wakeup stream, but only the replica with a recovered, advertised authority
+/// epoch is allowed to touch provider-local xDS state or persist ACKs.
+pub async fn xds_authority_loop(
     redis_client: redis::Client,
-    instance_id: String,
     pool: sqlx::PgPool,
     provider: Arc<dyn crate::sandbox::provider::SandboxProvider>,
     llm_egress_allowed_hosts: Vec<String>,
+    authority: crate::kernel::xds_authority::XdsAuthorityState,
 ) {
-    let mut consumer = StreamConsumer::new(redis_client, XDS_NOTIFY_KEY.to_string());
+    let mut consumer = StreamConsumer::new(redis_client, NETWORK_POLICY_REQUEST_KEY.to_string());
+    let mut recovered_epoch = None;
+    let mut last_inventory_reconcile = None;
 
-    info!("xDS notify consumer loop started");
+    info!("xDS authority reconcile loop started");
 
     loop {
+        if let Some(guard) = authority.advertised_guard() {
+            if recovered_epoch != Some(guard.epoch()) {
+                let _application_lock = authority.lock_application().await;
+                match provider.recover_networking(&pool, &guard).await {
+                    Ok(()) if authority.mark_ready(&guard) => {
+                        recovered_epoch = Some(guard.epoch());
+                        last_inventory_reconcile = Some(tokio::time::Instant::now());
+                        info!(epoch = guard.epoch(), "xDS authority recovery completed");
+                    }
+                    Ok(()) => {
+                        recovered_epoch = None;
+                        warn!(
+                            epoch = guard.epoch(),
+                            "xDS authority changed during recovery"
+                        );
+                    }
+                    Err(error) => {
+                        recovered_epoch = None;
+                        error!(epoch = guard.epoch(), error = %error, "xDS authority recovery failed; will retry");
+                    }
+                }
+            }
+        } else {
+            recovered_epoch = None;
+            last_inventory_reconcile = None;
+        }
+
+        if let Some(guard) = authority.ready_guard() {
+            let elapsed = last_inventory_reconcile
+                .map(|last| last.elapsed())
+                .unwrap_or(XDS_AUTHORITY_INVENTORY_RECONCILE_INTERVAL);
+            if should_reconcile_authority_inventory(recovered_epoch, guard.epoch(), elapsed) {
+                match reconcile_authority_inventory(&pool, provider.as_ref(), &authority, &guard)
+                    .await
+                {
+                    Ok(removed) => {
+                        last_inventory_reconcile = Some(tokio::time::Instant::now());
+                        if removed > 0 {
+                            info!(removed, "Pruned stale xDS sandbox networking");
+                        }
+                    }
+                    Err(error) => {
+                        warn!(epoch = guard.epoch(), error = %error, "xDS authority inventory reconcile failed; will retry");
+                    }
+                }
+            }
+        }
+
         let Some(entries) = consumer.next_batch().await else {
             continue;
         };
 
         for (_entry_id, fields) in entries {
-            let mut source_instance = "";
-            let mut sandbox_id_str = "";
-            let mut action = "";
-
-            for (key, value) in &fields {
-                match key.as_str() {
-                    "instance" => source_instance = value,
-                    "sandbox_id" => sandbox_id_str = value,
-                    "action" => action = value,
-                    _ => {}
-                }
-            }
-
-            // Skip our own notifications
-            if source_instance == instance_id {
+            let Some(guard) = authority.ready_guard() else {
                 continue;
-            }
-
-            let sandbox_id: SandboxId = match sandbox_id_str.parse::<Uuid>() {
-                Ok(id) => SandboxId::from_uuid(id),
-                Err(_) => continue,
             };
+            let request = match parse_network_policy_request(&fields) {
+                Ok(request) => request,
+                Err(error) => {
+                    warn!(error = %error, "Ignoring invalid xDS authority request");
+                    continue;
+                }
+            };
+            let sandbox_id = request.sandbox_id;
+            let source_instance = fields
+                .iter()
+                .find(|(key, _)| key == "instance")
+                .map(|(_, value)| value.as_str())
+                .unwrap_or("unknown");
 
             debug!(
                 sandbox_id = %sandbox_id,
-                action = action,
+                action = ?request.action,
                 source = source_instance,
-                "xDS notify received from peer — triggering local reconcile"
+                "xDS authority request received"
             );
 
-            match action {
-                "upsert" => {
-                    let pool = pool.clone();
-                    let provider = provider.clone();
-                    let hosts = llm_egress_allowed_hosts.clone();
-                    tokio::spawn(async move {
-                        if let Ok(Some(sandbox)) =
-                            crate::db::queries::get_sandbox(&pool, sandbox_id).await
-                        {
-                            match crate::kernel::sandbox_resolver::reconcile_sandbox_networking(
-                                &pool,
-                                provider.as_ref(),
-                                &sandbox,
-                                &hosts,
-                                None,
-                            )
-                            .await
-                            {
-                                Ok(_) => {
-                                    debug!(sandbox_id = %sandbox_id, "xDS notify: reconcile succeeded");
-                                }
-                                Err(e) => {
-                                    debug!(sandbox_id = %sandbox_id, "xDS notify: reconcile failed (will retry): {e}");
-                                }
-                            }
-                        }
-                    });
+            let pool = pool.clone();
+            let provider = provider.clone();
+            let hosts = llm_egress_allowed_hosts.clone();
+            let authority = authority.clone();
+            tokio::spawn(async move {
+                match apply_network_policy_request_as_authority(
+                    &pool,
+                    provider.as_ref(),
+                    request,
+                    &hosts,
+                    &authority,
+                    &guard,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        debug!(sandbox_id = %sandbox_id, "xDS authority request succeeded");
+                    }
+                    Err(error) => {
+                        debug!(sandbox_id = %sandbox_id, error = %error, "xDS authority request skipped or failed");
+                    }
                 }
-                "remove" => {
-                    let provider = provider.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = provider.teardown_networking(sandbox_id).await {
-                            debug!(sandbox_id = %sandbox_id, "xDS notify: teardown failed: {e}");
-                        }
-                    });
-                }
-                _ => {}
-            }
+            });
         }
+    }
+}
+
+fn should_reconcile_authority_inventory(
+    recovered_epoch: Option<u64>,
+    current_epoch: u64,
+    elapsed: Duration,
+) -> bool {
+    recovered_epoch == Some(current_epoch) && elapsed >= XDS_AUTHORITY_INVENTORY_RECONCILE_INTERVAL
+}
+
+async fn reconcile_authority_inventory(
+    pool: &sqlx::PgPool,
+    provider: &dyn crate::sandbox::provider::SandboxProvider,
+    authority: &crate::kernel::xds_authority::XdsAuthorityState,
+    guard: &crate::kernel::xds_authority::XdsAuthorityGuard,
+) -> anyhow::Result<usize> {
+    let _application_lock = authority.lock_application().await;
+    if !guard.is_current() {
+        anyhow::bail!("xDS authority changed before inventory reconciliation");
+    }
+    let live_sandbox_ids = crate::db::queries::list_live_sandboxes_for_recovery(pool)
+        .await?
+        .into_iter()
+        .filter(|sandbox| {
+            sandbox
+                .config
+                .as_ref()
+                .and_then(|config| config.get("fingerprint"))
+                .and_then(|fingerprint| fingerprint.get("networking"))
+                .and_then(|networking| networking.get("type"))
+                .and_then(|kind| kind.as_str())
+                == Some("limited")
+        })
+        .map(|sandbox| sandbox.id)
+        .collect();
+    if !guard.is_current() {
+        anyhow::bail!("xDS authority changed before inventory pruning");
+    }
+    provider.prune_networking(&live_sandbox_ids).await
+}
+
+async fn apply_network_policy_request_as_authority(
+    pool: &sqlx::PgPool,
+    provider: &dyn crate::sandbox::provider::SandboxProvider,
+    request: NetworkPolicyRequest,
+    llm_egress_allowed_hosts: &[String],
+    authority: &crate::kernel::xds_authority::XdsAuthorityState,
+    guard: &crate::kernel::xds_authority::XdsAuthorityGuard,
+) -> anyhow::Result<()> {
+    let _application_lock = authority.lock_application().await;
+    if !guard.is_current() {
+        anyhow::bail!("xDS authority changed before request application");
+    }
+    match request.action {
+        NetworkPolicyAction::Reconcile => {
+            let generation = request
+                .generation
+                .ok_or_else(|| anyhow!("reconcile request is missing generation"))?;
+            crate::kernel::sandbox_resolver::apply_sandbox_networking_generation_as_authority(
+                pool,
+                provider,
+                request.sandbox_id,
+                &generation,
+                llm_egress_allowed_hosts,
+                guard,
+            )
+            .await?;
+        }
+        NetworkPolicyAction::Remove => {
+            if !crate::db::queries::network_policy_removal_is_current(pool, request.sandbox_id)
+                .await?
+            {
+                anyhow::bail!(
+                    "stale xDS remove request for live limited-networking sandbox {}",
+                    request.sandbox_id
+                );
+            }
+            if !guard.is_current() {
+                anyhow::bail!("xDS authority changed before networking removal");
+            }
+            provider.teardown_networking(request.sandbox_id).await?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod network_policy_request_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use async_trait::async_trait;
+    use sqlx::postgres::PgPoolOptions;
+
+    use super::{
+        apply_network_policy_request_as_authority, parse_network_policy_request,
+        should_reconcile_authority_inventory,
+    };
+    use crate::kernel::ha::{NetworkPolicyAction, NetworkPolicyRequest};
+    use crate::kernel::xds_authority::XdsAuthorityState;
+    use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
+
+    struct TeardownRecordingProvider {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl SandboxProvider for TeardownRecordingProvider {
+        async fn create(&self, _config: &SandboxCreateConfig) -> anyhow::Result<String> {
+            Ok("unused".to_string())
+        }
+
+        async fn start(&self, _external_id: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn stop(&self, _external_id: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn destroy(&self, _external_id: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn status(&self, _external_id: &str) -> anyhow::Result<SandboxStatus> {
+            Ok(SandboxStatus::Running)
+        }
+
+        async fn exec(&self, _external_id: &str, _cmd: &[&str]) -> anyhow::Result<String> {
+            Ok(String::new())
+        }
+
+        fn provider_name(&self) -> &'static str {
+            "teardown-recording"
+        }
+
+        async fn teardown_networking(
+            &self,
+            _sandbox_id: crate::ids::SandboxId,
+        ) -> anyhow::Result<()> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn parses_exact_generation_reconcile_request() {
+        let fields = vec![
+            ("sandbox_id".to_string(), uuid::Uuid::now_v7().to_string()),
+            ("action".to_string(), "reconcile".to_string()),
+            ("policy_hash".to_string(), "hash-7".to_string()),
+            ("policy_version".to_string(), "7".to_string()),
+        ];
+
+        let request = parse_network_policy_request(&fields).expect("valid request");
+
+        assert_eq!(request.action, NetworkPolicyAction::Reconcile);
+        let generation = request.generation.expect("generation");
+        assert_eq!(generation.policy_hash, "hash-7");
+        assert_eq!(generation.policy_version, 7);
+    }
+
+    #[test]
+    fn rejects_legacy_upsert_without_generation() {
+        let fields = vec![
+            ("sandbox_id".to_string(), uuid::Uuid::now_v7().to_string()),
+            ("action".to_string(), "upsert".to_string()),
+        ];
+
+        assert!(parse_network_policy_request(&fields).is_err());
+    }
+
+    #[test]
+    fn authority_inventory_reconcile_runs_periodically_after_recovery() {
+        assert!(!should_reconcile_authority_inventory(
+            Some(7),
+            7,
+            Duration::from_secs(29)
+        ));
+        assert!(should_reconcile_authority_inventory(
+            Some(7),
+            7,
+            Duration::from_secs(30)
+        ));
+        assert!(!should_reconcile_authority_inventory(
+            Some(6),
+            7,
+            Duration::from_secs(30)
+        ));
+    }
+
+    #[tokio::test]
+    async fn revoked_authority_cannot_remove_networking() {
+        let authority = XdsAuthorityState::managed();
+        let guard = authority.advertise();
+        assert!(authority.mark_ready(&guard));
+        authority.revoke();
+        let provider = Arc::new(TeardownRecordingProvider {
+            calls: AtomicUsize::new(0),
+        });
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+            .expect("lazy pool");
+
+        let error = apply_network_policy_request_as_authority(
+            &pool,
+            provider.as_ref(),
+            NetworkPolicyRequest::remove(crate::ids::SandboxId::from_uuid(uuid::Uuid::now_v7())),
+            &[],
+            &authority,
+            &guard,
+        )
+        .await
+        .expect_err("revoked authority must be fenced");
+
+        assert!(error.to_string().contains("authority changed"));
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
     }
 }

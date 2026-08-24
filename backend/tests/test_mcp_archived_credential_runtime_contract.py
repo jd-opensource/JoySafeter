@@ -4,6 +4,7 @@ from re import DOTALL, findall
 KERNEL_ROOT = Path(__file__).parents[1] / "app" / "joysafeter_orchestrator_rs" / "src" / "kernel"
 RUNTIME_CONSUMERS = ("harness_input_builder.rs", "sandbox_resolver.rs")
 CREDENTIAL_STORE = KERNEL_ROOT / "credentials" / "store.rs"
+MCP_RUNTIME_PLAN = KERNEL_ROOT / "mcp_runtime_plan.rs"
 
 
 def _select_statements(source: str) -> list[str]:
@@ -26,9 +27,12 @@ def test_runtime_consumers_delegate_credential_reads_to_the_central_store() -> N
         assert "CredentialMaterialAccessService" in source, relative_path
 
     assert ".resolve_model_runtime_config(" in harness_source
-    assert ".load_session_mcp_member_metadata(" in harness_source
+    assert "resolve_mcp_runtime_plan_from_metadata(" in harness_source
+    runtime_plan_source = MCP_RUNTIME_PLAN.read_text()
+    assert ".load_mcp_member_metadata(" in runtime_plan_source
+    assert ".resolve_mcp_member(" in runtime_plan_source
     assert ".resolve_model(" in sandbox_source
-    assert ".resolve_mcp_members(" in sandbox_source
+    assert "resolve_mcp_runtime_plan_with_access(" in sandbox_source
     assert ".resolve_http_egress_field(" in sandbox_source
 
 

@@ -576,6 +576,33 @@ async def test_create_mcp_sets_normalized_url(db_session, project_id):
 
 
 @pytest.mark.asyncio
+async def test_create_mcp_persists_header_api_key_scheme_and_material(db_session, project_id):
+    group = JoySafeterCredentialGroup(project_id=project_id, name=f"grp-{uuid.uuid4()}")
+    db_session.add(group)
+    await db_session.commit()
+    await db_session.refresh(group)
+
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
+    cred = await svc.create(
+        CreateCredentialRequest(
+            kind="mcp",
+            name="mcp-api-key",
+            auth_scheme="header_api_key",
+            mcp_server_url="https://example.com/mcp",
+            group_id=group.id,
+            data={"token_value": "secret", "header_name": "X-Corp-Key"},
+        ),
+        project_id=project_id,
+    )
+
+    assert cred.credential_type == "header_api_key"
+    assert svc.get_credential_data(cred) == {
+        "token_value": "secret",
+        "header_name": "X-Corp-Key",
+    }
+
+
+@pytest.mark.asyncio
 async def test_update_mcp_rejects_clearing_static_bearer_token(db_session, project_id):
     group = JoySafeterCredentialGroup(project_id=project_id, name=f"grp-{uuid.uuid4()}")
     db_session.add(group)
@@ -602,3 +629,72 @@ async def test_update_mcp_rejects_clearing_static_bearer_token(db_session, proje
         )
 
     assert exc.value.code == "CREDENTIAL_FIELD_MISSING"
+
+
+@pytest.mark.asyncio
+async def test_update_mcp_rejects_explicit_auto_auth_scheme(db_session, project_id):
+    group = JoySafeterCredentialGroup(project_id=project_id, name=f"grp-{uuid.uuid4()}")
+    db_session.add(group)
+    await db_session.commit()
+    await db_session.refresh(group)
+
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
+    cred = await svc.create(
+        CreateCredentialRequest(
+            kind="mcp",
+            name="mcp-auto",
+            mcp_server_url="https://example.com/mcp",
+            group_id=group.id,
+            data={"token_value": "secret"},
+        ),
+        project_id=project_id,
+    )
+
+    with pytest.raises(AppError) as exc:
+        await svc.update(
+            cred.id,
+            UpdateCredentialRequest(auth_scheme="auto"),
+            project_id=project_id,
+        )
+
+    assert exc.value.code == "CREDENTIAL_FIELD_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_update_mcp_changes_auth_scheme_and_material_atomically(db_session, project_id):
+    group = JoySafeterCredentialGroup(project_id=project_id, name=f"grp-{uuid.uuid4()}")
+    db_session.add(group)
+    await db_session.commit()
+    await db_session.refresh(group)
+
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
+    cred = await svc.create(
+        CreateCredentialRequest(
+            kind="mcp",
+            name="mcp-switch-auth",
+            mcp_server_url="https://example.com/mcp",
+            group_id=group.id,
+            data={"token_value": "old-secret"},
+        ),
+        project_id=project_id,
+    )
+
+    updated = await svc.update(
+        cred.id,
+        UpdateCredentialRequest(
+            auth_scheme="custom_header",
+            data={
+                "token_value": "new-secret",
+                "header_name": "X-Service-Authorization",
+                "value_prefix": "Token ",
+            },
+        ),
+        project_id=project_id,
+    )
+
+    assert updated.credential_type == "custom_header"
+    assert svc.get_credential_data(updated) == {
+        "token_value": "new-secret",
+        "header_name": "X-Service-Authorization",
+        "value_prefix": "Token ",
+    }

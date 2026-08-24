@@ -109,11 +109,9 @@ impl Packages {
 #[derive(Debug, Clone, Serialize)]
 pub struct Networking {
     #[serde(rename = "type", default = "default_networking_type")]
-    pub net_type: String,
+    pub network_type: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_hosts: Vec<String>,
-    #[serde(default, skip_serializing_if = "skip_networking_bool")]
-    pub allow_mcp_servers: bool,
     #[serde(default, skip_serializing_if = "skip_networking_bool")]
     pub allow_package_managers: bool,
 }
@@ -125,9 +123,8 @@ fn skip_networking_bool(v: &bool) -> bool {
 impl Default for Networking {
     fn default() -> Self {
         Self {
-            net_type: default_networking_type(),
+            network_type: default_networking_type(),
             allowed_hosts: Vec::new(),
-            allow_mcp_servers: false,
             allow_package_managers: false,
         }
     }
@@ -135,9 +132,8 @@ impl Default for Networking {
 
 impl Networking {
     pub fn is_default(&self) -> bool {
-        self.net_type == "unrestricted"
+        self.network_type == "unrestricted"
             && self.allowed_hosts.is_empty()
-            && !self.allow_mcp_servers
             && !self.allow_package_managers
     }
 }
@@ -151,17 +147,16 @@ impl<'de> Deserialize<'de> for Networking {
         #[derive(Deserialize)]
         struct RawNetworking {
             #[serde(rename = "type", default = "default_networking_type")]
-            net_type: String,
+            network_type: String,
             #[serde(default)]
             allowed_hosts: Vec<String>,
-            #[serde(default)]
-            allow_mcp_servers: bool,
             #[serde(default)]
             allow_package_managers: bool,
         }
 
         let mut raw = RawNetworking::deserialize(deserializer)?;
-        raw.net_type = normalize_network_type(&raw.net_type).map_err(serde::de::Error::custom)?;
+        raw.network_type =
+            normalize_network_type(&raw.network_type).map_err(serde::de::Error::custom)?;
         raw.allowed_hosts = raw
             .allowed_hosts
             .into_iter()
@@ -170,9 +165,8 @@ impl<'de> Deserialize<'de> for Networking {
             .map_err(serde::de::Error::custom)?;
 
         Ok(Networking {
-            net_type: raw.net_type,
+            network_type: raw.network_type,
             allowed_hosts: raw.allowed_hosts,
-            allow_mcp_servers: raw.allow_mcp_servers,
             allow_package_managers: raw.allow_package_managers,
         })
     }
@@ -216,7 +210,7 @@ impl fmt::Display for Networking {
         write!(
             f,
             "Networking(type={}, allowed_hosts={})",
-            self.net_type,
+            self.network_type,
             self.allowed_hosts.join(",")
         )
     }

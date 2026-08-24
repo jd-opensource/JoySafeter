@@ -20,6 +20,7 @@ from app.joysafeter_application.credentials.application_service import (
     CredentialService,
 )
 from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_domain.credentials.types import canonicalize_auth_scheme
 from app.joysafeter_domain.models.joysafeter_credential import (
     JoySafeterCredential,
     JoySafeterCredentialGroup,
@@ -66,6 +67,7 @@ def _member_response(cred: JoySafeterCredential, svc: CredentialService) -> Cred
         is_default=cred.is_default,
         mcp_server_url=cred.mcp_server_url,
         group_id=cred.group_id,
+        auth_scheme=canonicalize_auth_scheme(cred.credential_type or "static_bearer"),
         archived_at=cred.archived_at,
         created_at=cred.created_at,
         updated_at=cred.updated_at,

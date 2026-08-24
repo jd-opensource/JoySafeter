@@ -124,69 +124,36 @@ pub struct InjectSpec {
     pub path: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "type")]
 pub enum McpServerSpec {
-    Stdio {
-        name: String,
-        command: String,
-        args: Vec<String>,
-        env: HashMap<String, String>,
-    },
-    Url {
+    #[serde(rename = "streamable_http")]
+    StreamableHttp {
         name: String,
         url: String,
+        #[serde(default = "default_mcp_auth_requirement")]
+        auth_requirement: String,
+    },
+    #[serde(rename = "sse")]
+    Sse {
+        name: String,
+        url: String,
+        #[serde(default = "default_mcp_auth_requirement")]
+        auth_requirement: String,
+    },
+    #[serde(rename = "local_stdio")]
+    LocalStdio {
+        name: String,
+        command: String,
+        #[serde(default)]
+        args: Vec<String>,
+        #[serde(default)]
+        env: HashMap<String, String>,
     },
 }
 
-impl<'de> Deserialize<'de> for McpServerSpec {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let v = serde_json::Value::deserialize(deserializer).map_err(serde::de::Error::custom)?;
-        let obj = v
-            .as_object()
-            .ok_or_else(|| serde::de::Error::custom("expected object"))?;
-        let typ = obj.get("type").and_then(|t| t.as_str()).unwrap_or("stdio");
-        match typ {
-            "url" => {
-                let name = obj
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let url = obj
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                Ok(McpServerSpec::Url { name, url })
-            }
-            _ => {
-                let name = obj
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let command = obj
-                    .get("command")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let args = obj
-                    .get("args")
-                    .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
-                    .unwrap_or_default();
-                let env = obj
-                    .get("env")
-                    .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok())
-                    .unwrap_or_default();
-                Ok(McpServerSpec::Stdio {
-                    name,
-                    command,
-                    args,
-                    env,
-                })
-            }
-        }
-    }
+fn default_mcp_auth_requirement() -> String {
+    "required".to_string()
 }
 
 #[derive(Debug, Deserialize)]
@@ -240,11 +207,9 @@ pub struct PackagesSpec {
 #[serde(rename_all = "camelCase")]
 pub struct NetworkingSpec {
     #[serde(rename = "type", default)]
-    pub net_type: Option<String>,
+    pub network_type: Option<String>,
     #[serde(default)]
     pub allowed_hosts: Vec<String>,
-    #[serde(default)]
-    pub allow_mcp_servers: Option<bool>,
     #[serde(default)]
     pub allow_package_managers: Option<bool>,
 }
@@ -444,7 +409,8 @@ spec:
   env:
     KEY: value
   mcpServers:
-    - name: fs
+    - type: local_stdio
+      name: fs
       command: npx
       args: ["-y", "@anthropic/mcp-filesystem"]
 "#;

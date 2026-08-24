@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -26,8 +27,30 @@ from .types import (
     CredentialState,
     NormalizedMcpUrl,
     ProjectId,
+    canonicalize_auth_scheme,
     require_project_id,
 )
+
+_HEADER_NAME_PATTERN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+_RESERVED_HEADER_NAMES = frozenset(
+    {
+        "connection",
+        "content-length",
+        "host",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    }
+)
+_MCP_AUTH_SCHEME_FIELDS = {
+    CredentialAuthScheme.STATIC_BEARER: frozenset({"token_value"}),
+    CredentialAuthScheme.HEADER_API_KEY: frozenset({"token_value", "header_name"}),
+    CredentialAuthScheme.CUSTOM_HEADER: frozenset({"token_value", "header_name", "value_prefix"}),
+}
 
 
 class CredentialPolicyErrorCode(StrEnum):
@@ -37,6 +60,7 @@ class CredentialPolicyErrorCode(StrEnum):
     DELETED = "deleted"
     KIND_MISMATCH = "kind_mismatch"
     FIELD_MISSING = "field_missing"
+    FIELD_INVALID = "field_invalid"
     UNSUPPORTED_SCHEME = "unsupported_scheme"
     GROUP_MISMATCH = "group_mismatch"
     URL_CONFLICT = "url_conflict"
@@ -44,9 +68,112 @@ class CredentialPolicyErrorCode(StrEnum):
 
 
 class CredentialPolicyError(ValueError):
-    def __init__(self, code: CredentialPolicyErrorCode, message: str) -> None:
+    def __init__(
+        self,
+        code: CredentialPolicyErrorCode,
+        message: str,
+        *,
+        data: dict[str, object] | None = None,
+    ) -> None:
         self.code = code
+        self.data = dict(data) if data is not None else None
         super().__init__(message)
+
+
+def canonicalize_mcp_auth_scheme(
+    value: str | CredentialAuthScheme | None,
+) -> CredentialAuthScheme:
+    if value is None:
+        return CredentialAuthScheme.STATIC_BEARER
+    if isinstance(value, str) and value not in {
+        CredentialAuthScheme.STATIC_BEARER.value,
+        CredentialAuthScheme.HEADER_API_KEY.value,
+        CredentialAuthScheme.CUSTOM_HEADER.value,
+        "oauth",
+        "mcp_oauth",
+    }:
+        raise ValueError(f"unsupported credential auth scheme: {value!r}")
+    scheme = canonicalize_auth_scheme(value)
+    if scheme is CredentialAuthScheme.OAUTH2_LEGACY_DISABLED:
+        raise CredentialPolicyError(
+            CredentialPolicyErrorCode.UNSUPPORTED_SCHEME,
+            "Legacy MCP OAuth credentials are disabled",
+            data={"auth_scheme": str(value)},
+        )
+    return scheme
+
+
+def validate_mcp_credential_material(
+    auth_scheme: CredentialAuthScheme,
+    data: dict[str, str],
+) -> dict[str, str]:
+    if auth_scheme not in _MCP_AUTH_SCHEME_FIELDS:
+        raise CredentialPolicyError(
+            CredentialPolicyErrorCode.UNSUPPORTED_SCHEME,
+            "MCP credential authentication scheme is disabled",
+            data={"auth_scheme": auth_scheme.value},
+        )
+    allowed_fields = _MCP_AUTH_SCHEME_FIELDS[auth_scheme]
+    unexpected_fields = sorted(set(data) - allowed_fields)
+    if unexpected_fields:
+        raise CredentialPolicyError(
+            CredentialPolicyErrorCode.FIELD_INVALID,
+            "MCP credential data contains fields not supported by the selected auth scheme",
+            data={"fields": unexpected_fields},
+        )
+
+    token_value = data.get("token_value", "").strip()
+    if not token_value:
+        raise CredentialPolicyError(
+            CredentialPolicyErrorCode.FIELD_MISSING,
+            "MCP credentials require data.token_value",
+            data={"field": "data.token_value"},
+        )
+    _reject_mcp_control_characters("token_value", token_value)
+
+    normalized: dict[str, str] = {"token_value": token_value}
+    if auth_scheme is CredentialAuthScheme.HEADER_API_KEY:
+        normalized["header_name"] = _normalize_mcp_header_name(data.get("header_name", "X-Api-Key"))
+    elif auth_scheme is CredentialAuthScheme.CUSTOM_HEADER:
+        normalized["header_name"] = _normalize_mcp_header_name(data.get("header_name", ""))
+        value_prefix = data.get("value_prefix", "")
+        _reject_mcp_control_characters("value_prefix", value_prefix)
+        if value_prefix:
+            normalized["value_prefix"] = value_prefix
+    return normalized
+
+
+def _reject_mcp_control_characters(field: str, value: str) -> None:
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
+        raise CredentialPolicyError(
+            CredentialPolicyErrorCode.FIELD_INVALID,
+            f"MCP credential {field} must not contain control characters",
+            data={"field": f"data.{field}"},
+        )
+
+
+def _normalize_mcp_header_name(value: str) -> str:
+    header_name = value.strip()
+    if not header_name:
+        raise CredentialPolicyError(
+            CredentialPolicyErrorCode.FIELD_MISSING,
+            "MCP custom header credentials require data.header_name",
+            data={"field": "data.header_name"},
+        )
+    if not _HEADER_NAME_PATTERN.fullmatch(header_name):
+        raise CredentialPolicyError(
+            CredentialPolicyErrorCode.FIELD_INVALID,
+            "MCP credential header_name must be a valid HTTP field name",
+            data={"field": "data.header_name"},
+        )
+    normalized = header_name.lower()
+    if normalized in _RESERVED_HEADER_NAMES or normalized.startswith("x-envoy-"):
+        raise CredentialPolicyError(
+            CredentialPolicyErrorCode.FIELD_INVALID,
+            "MCP credential header_name is reserved",
+            data={"field": "data.header_name"},
+        )
+    return header_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,7 +312,7 @@ def _require_runnable_scheme(auth_scheme: CredentialAuthScheme) -> None:
             CredentialPolicyErrorCode.UNSUPPORTED_SCHEME,
             "credential auth scheme OAUTH2_LEGACY_DISABLED cannot be used",
         )
-    if auth_scheme is not CredentialAuthScheme.STATIC_BEARER:
+    if auth_scheme not in _MCP_AUTH_SCHEME_FIELDS:
         raise CredentialPolicyError(
             CredentialPolicyErrorCode.UNSUPPORTED_SCHEME,
             "credential auth scheme is unsupported",

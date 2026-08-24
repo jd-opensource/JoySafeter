@@ -328,6 +328,7 @@ function secretBase(overrides: Record<string, unknown> = {}) {
     is_default: false,
     mcp_server_url: null,
     group_id: null,
+    auth_scheme: null,
     archived_at: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
@@ -597,16 +598,13 @@ describe('mcp capability', () => {
       url.includes('/members')
         ? {
             data: [
-              {
-                id: CRED,
+              secretBase({
+                kind: 'mcp',
                 group_id: GROUP,
                 name: 'm1',
                 mcp_server_url: 'https://x',
-                data: {},
-                archived_at: null,
-                created_at: '2026-01-01T00:00:00Z',
-                updated_at: '2026-01-01T00:00:00Z',
-              },
+                auth_scheme: 'static_bearer',
+              }),
             ],
             has_more: false,
           }

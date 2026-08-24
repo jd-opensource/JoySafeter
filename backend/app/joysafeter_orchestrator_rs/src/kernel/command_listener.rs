@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::db::queries;
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage};
 use crate::ids::{MemoryStoreId, SandboxId};
-use crate::kernel::ha::{BridgeStore, DispatchCommand, TaskDispatcher};
+use crate::kernel::ha::{BridgeStore, DispatchCommand, NetworkPolicyRequestQueue, TaskDispatcher};
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::redis_coordinator::RedisCoordinator;
 use crate::sandbox::envoy::EnvoyManager;
@@ -39,6 +39,8 @@ pub struct CommandListener {
     image_builder: Option<Arc<ImageBuilder>>,
     redis_coordinator: Option<Arc<RedisCoordinator>>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
+    xds_authority: crate::kernel::xds_authority::XdsAuthorityState,
+    network_policy_queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
 }
 
 impl CommandListener {
@@ -67,7 +69,19 @@ impl CommandListener {
             image_builder,
             redis_coordinator,
             memory_subscribers,
+            xds_authority: crate::kernel::xds_authority::XdsAuthorityState::standalone(),
+            network_policy_queue: None,
         }
+    }
+
+    pub fn with_network_policy_control(
+        mut self,
+        authority: crate::kernel::xds_authority::XdsAuthorityState,
+        queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
+    ) -> Self {
+        self.xds_authority = authority;
+        self.network_policy_queue = queue;
+        self
     }
 
     /// Spawn the listener as a background task.
@@ -312,12 +326,13 @@ impl CommandListener {
             .await?
             .ok_or_else(|| anyhow::anyhow!("sandbox not found: {sandbox_id}"))?;
 
-        match crate::kernel::sandbox_resolver::reconcile_sandbox_networking(
+        match crate::kernel::sandbox_resolver::request_sandbox_networking_reconcile(
             &self.pool,
             self.provider.as_ref(),
             &sandbox,
             &self.llm_egress_allowed_hosts,
-            None, // xds_store: command-triggered refresh, caller can broadcast separately
+            self.network_policy_queue.as_deref(),
+            &self.xds_authority,
         )
         .await?
         {
@@ -325,6 +340,9 @@ impl CommandListener {
                 Ok(serde_json::json!({"ok": true, "refreshed": false, "reason": "not_limited"}))
             }
             crate::kernel::sandbox_resolver::NetworkingReconcileOutcome::Refreshed {
+                policy_hash,
+            }
+            | crate::kernel::sandbox_resolver::NetworkingReconcileOutcome::AlreadyReady {
                 policy_hash,
             } => {
                 info!(sandbox_id = %sandbox_id, policy_hash = %policy_hash, "Refreshed sandbox network policy");

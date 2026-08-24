@@ -18,7 +18,7 @@ from app.joysafeter_domain.credentials.material import (
     CREDENTIAL_MATERIAL_MAX_FIELDS,
     CREDENTIAL_MATERIAL_MAX_VALUE_LENGTH,
 )
-from app.joysafeter_domain.credentials.types import CredentialKind
+from app.joysafeter_domain.credentials.types import CredentialAuthScheme, CredentialKind
 from app.joysafeter_domain.llm.anthropic_auth import AUTH_SCHEME_AUTO
 from app.joysafeter_shared.ids import CredentialGroupId, CredentialId
 
@@ -46,7 +46,7 @@ class CreateCredentialRequest(BaseModel):
     data: dict[str, str] = Field(default_factory=dict)
     # anthropic auth-scheme intent; resolved by normalize_anthropic_auth on the
     # server when provider=="anthropic" (ignored for other providers).
-    auth_scheme: str = AUTH_SCHEME_AUTO
+    auth_scheme: Optional[str] = None
     # kind=model
     provider: Optional[str] = None
     protocol: Optional[str] = None
@@ -77,7 +77,7 @@ class UpdateCredentialRequest(BaseModel):
     # boundary. Only name/data/is_default may change (is_default only for model).
     name: Optional[str] = None
     data: Optional[dict[str, str]] = None
-    auth_scheme: str = AUTH_SCHEME_AUTO
+    auth_scheme: Optional[str] = None
     is_default: Optional[bool] = None
 
     @field_validator("name")
@@ -99,6 +99,7 @@ class CreateCredentialGroupInitialMemberRequest(BaseModel):
     name: str
     mcp_server_url: str
     data: dict[str, str] = Field(default_factory=dict)
+    auth_scheme: str = CredentialAuthScheme.STATIC_BEARER
 
     @field_validator("name")
     @classmethod
@@ -172,6 +173,7 @@ class CredentialResponse(BaseModel):
     is_default: bool = False
     mcp_server_url: Optional[str] = None
     group_id: Optional[CredentialGroupId] = None
+    auth_scheme: Optional[CredentialAuthScheme] = None
     archived_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
@@ -223,6 +225,7 @@ class AddGroupCredentialRequest(BaseModel):
     name: str
     mcp_server_url: str
     data: dict[str, str] = Field(default_factory=dict)
+    auth_scheme: str = CredentialAuthScheme.STATIC_BEARER
 
     @field_validator("name")
     @classmethod

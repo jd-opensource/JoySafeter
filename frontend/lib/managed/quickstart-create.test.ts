@@ -15,7 +15,14 @@ describe('buildQuickstartAgentCreateBody', () => {
         system: 'You research carefully.',
         model: { id: 'claude-sonnet-4', speed: 'standard' },
         tools: [{ type: 'agent_toolset_20260401' }],
-        mcp_servers: [{ type: 'url', name: 'docs', url: 'https://docs.example.com/mcp' }],
+        mcp_servers: [
+          {
+            type: 'streamable_http',
+            name: 'docs',
+            url: 'https://docs.example.com/mcp',
+            auth_requirement: 'required',
+          },
+        ],
         skills: [{ type: 'custom', skill_id: SKILL_ID, version: 'latest' }],
         env: { FEATURE_FLAG: '1' },
         multiagent: { enabled: true },
@@ -36,12 +43,31 @@ describe('buildQuickstartAgentCreateBody', () => {
       model: { id: 'claude-sonnet-4', speed: 'standard' },
       model_credential_id: CRED_ID,
       tools: [{ type: 'agent_toolset_20260401' }],
-      mcp_servers: [{ type: 'url', name: 'docs', url: 'https://docs.example.com/mcp' }],
+      mcp_servers: [
+        {
+          type: 'streamable_http',
+          name: 'docs',
+          url: 'https://docs.example.com/mcp',
+          auth_requirement: 'required',
+        },
+      ],
       skills: [{ type: 'custom', skill_id: SKILL_ID, version: 'latest' }],
       env: { FEATURE_FLAG: '1' },
       multiagent: { enabled: true },
       metadata: { topic: 'security' },
     })
+  })
+
+  it('rejects legacy MCP transport before creating an agent', () => {
+    expect(() =>
+      buildQuickstartAgentCreateBody(
+        {
+          name: 'Legacy MCP Agent',
+          mcp_servers: [{ type: 'url', name: 'docs', url: 'https://docs.example.com/mcp' }],
+        },
+        { engineKind: 'claude', secretRef: CRED_ID, suffix: '' },
+      ),
+    ).toThrow('Invalid MCP transport')
   })
 
   it('filters generated Skill references against the real available catalog', () => {

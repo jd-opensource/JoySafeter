@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { parseCredentialGroupId, parseCredentialId, parseNullableId } from '@/types/entity-id'
 import type { Credential, CredentialDetail, ModelConnectionSummary } from '@/types/managed'
 
+const mcpCredentialAuthSchemeSchema = z.enum(['static_bearer', 'header_api_key', 'custom_header'])
+
 const credentialBaseSchema = z
   .object({
     id: z.string(),
@@ -15,6 +17,7 @@ const credentialBaseSchema = z
     is_default: z.boolean(),
     mcp_server_url: z.string().nullable().optional(),
     group_id: z.string().nullable().optional(),
+    auth_scheme: mcpCredentialAuthSchemeSchema.nullable().optional().default(null),
     archived_at: z.string().nullable(),
     created_at: z.string(),
     updated_at: z.string(),

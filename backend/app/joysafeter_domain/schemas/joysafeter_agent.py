@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Annotated, Any, Dict, Literal, Optional, Union
 
 from pydantic import (
     BaseModel,
@@ -81,21 +81,94 @@ class CustomTool(BaseModel):
 AgentTool = Union[AgentToolsetTool, McpToolsetTool, CustomTool]
 
 
-class McpServerConfig(BaseModel):
-    type: Literal["url"] = "url"
+class McpTransport(str, Enum):
+    STREAMABLE_HTTP = "streamable_http"
+    SSE = "sse"
+    LOCAL_STDIO = "local_stdio"
+
+
+class McpAuthRequirement(str, Enum):
+    REQUIRED = "required"
+    OPTIONAL = "optional"
+    NONE = "none"
+
+
+class McpServerBase(BaseModel):
     name: str
-    url: str
 
     model_config = ConfigDict(extra="forbid")
 
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("MCP server name must not be blank")
+        return normalized
+
+
+class RemoteMcpServerBase(McpServerBase):
+    type: Literal[McpTransport.STREAMABLE_HTTP, McpTransport.SSE]
+    url: str
+
     @field_validator("url")
     @classmethod
-    def _validate_url(cls, v: str) -> str:
+    def _validate_url(cls, value: str) -> str:
         from app.joysafeter_shared.security.ssrf_guard import validate_url_scheme
 
-        validated = validate_url_scheme(v)
-        assert validated is not None  # v is a non-None str, so result is non-None
+        validated = validate_url_scheme(value)
+        assert validated is not None
         return validated
+
+
+class RemoteMcpServerConfig(RemoteMcpServerBase):
+    auth_requirement: McpAuthRequirement = McpAuthRequirement.REQUIRED
+
+    def to_persisted(self) -> dict[str, Any]:
+        return {
+            "type": self.type.value,
+            "name": self.name,
+            "url": self.url,
+            "auth_requirement": self.auth_requirement.value,
+        }
+
+
+class PersistedRemoteMcpServerConfig(RemoteMcpServerBase):
+    auth_requirement: McpAuthRequirement
+
+
+class LocalMcpServerConfig(McpServerBase):
+    type: Literal[McpTransport.LOCAL_STDIO]
+    command: str
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("command")
+    @classmethod
+    def _validate_command(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("local_stdio MCP servers require command")
+        return normalized
+
+    def to_persisted(self) -> dict[str, Any]:
+        return {
+            "type": McpTransport.LOCAL_STDIO.value,
+            "name": self.name,
+            "command": self.command,
+            "args": list(self.args),
+            "env": dict(self.env),
+        }
+
+
+McpServerConfig = Annotated[
+    Union[RemoteMcpServerConfig, LocalMcpServerConfig],
+    Field(discriminator="type"),
+]
+McpServerResponseConfig = Annotated[
+    Union[PersistedRemoteMcpServerConfig, LocalMcpServerConfig],
+    Field(discriminator="type"),
+]
 
 
 class PackedItem(BaseModel):
@@ -208,7 +281,7 @@ class JoySafeterAgentResponse(BaseModel):
     description: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     env: dict[str, str] = Field(default_factory=dict)
-    mcp_servers: list[McpServerConfig] = Field(default_factory=list)
+    mcp_servers: list[McpServerResponseConfig] = Field(default_factory=list)
     skills: list[SkillRef] = Field(default_factory=list)
     agents: list[PackedItem] = Field(default_factory=list)
     commands: list[PackedItem] = Field(default_factory=list)

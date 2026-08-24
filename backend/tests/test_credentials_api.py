@@ -969,6 +969,29 @@ def test_group_add_member_duplicate_url_conflicts_409(client) -> None:
     assert resp.status_code == 409, resp.text
 
 
+def test_group_add_member_returns_canonical_mcp_auth_scheme_without_secret(client) -> None:
+    api, _project_id, _factory = client
+    response = api.post("/credential-groups", json={"name": "g-api-key"})
+    assert response.status_code == 201, response.text
+    group_id = response.json()["id"]
+
+    response = api.post(
+        f"/credential-groups/{group_id}/members",
+        json={
+            "name": "header-auth",
+            "mcp_server_url": "https://example.com/mcp",
+            "auth_scheme": "header_api_key",
+            "data": {"token_value": "super-secret", "header_name": "X-Corp-Key"},
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    member = response.json()
+    assert member["auth_scheme"] == "header_api_key"
+    assert member["data"]["token_value"].startswith("********")
+    assert "super-secret" not in response.text
+
+
 def test_group_add_member_rejects_non_http_url(client) -> None:
     api, _project_id, _factory = client
     response = api.post("/credential-groups", json={"name": "g-url-scheme"})

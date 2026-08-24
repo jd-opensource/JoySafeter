@@ -12,7 +12,7 @@ use crate::ids::SandboxId;
 use crate::kernel::sandbox_bridge::{BridgeRegistry, SandboxBridge};
 
 use super::dispatch::dispatch_to_bridge;
-use super::traits::{BridgeStore, DispatchCommand, TaskDispatcher, XdsAction, XdsStateStore};
+use super::traits::{BridgeStore, DispatchCommand, TaskDispatcher};
 
 // ---------------------------------------------------------------------------
 // LocalBridgeStore
@@ -104,33 +104,5 @@ impl TaskDispatcher for LocalTaskDispatcher {
             .ok_or_else(|| anyhow!("no local bridge for sandbox {sandbox_id}"))?;
 
         dispatch_to_bridge(&bridge, sandbox_id, &command).await
-    }
-}
-
-// ---------------------------------------------------------------------------
-// LocalXdsStateStore
-// ---------------------------------------------------------------------------
-
-/// No-op xDS state store for `standalone` and `leader` modes.
-///
-/// In these modes, xDS state is managed entirely in-memory by the existing
-/// `DeltaXdsServer` / `EnvoyManager`. Cross-instance notification is not
-/// needed because only one instance runs at a time.
-pub struct LocalXdsStateStore;
-
-impl LocalXdsStateStore {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-#[async_trait]
-impl XdsStateStore for LocalXdsStateStore {
-    async fn notify_change(
-        &self,
-        _sandbox_id: SandboxId,
-        _action: XdsAction,
-    ) -> anyhow::Result<()> {
-        Ok(())
     }
 }

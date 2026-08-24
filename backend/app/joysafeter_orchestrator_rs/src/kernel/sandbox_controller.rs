@@ -10,8 +10,8 @@ use uuid::Uuid;
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
-use crate::ids::{AgentId, SandboxId, SessionId, TaskId};
-use crate::kernel::ha::BridgeStore;
+use crate::ids::{SandboxId, TaskId};
+use crate::kernel::ha::{BridgeStore, NetworkPolicyRequest, NetworkPolicyRequestQueue};
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_resolver::SandboxResolver;
 use crate::runtime_config::RuntimeConfig;
@@ -34,6 +34,8 @@ pub struct SandboxController {
     redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
     config: JoySafeterConfig,
     runtime_config: Arc<RuntimeConfig>,
+    xds_authority: crate::kernel::xds_authority::XdsAuthorityState,
+    network_policy_queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
     /// Wakes the pool manager immediately when a sandbox is claimed from the pool.
     pub pool_replenish_notify: Arc<tokio::sync::Notify>,
 }
@@ -56,8 +58,20 @@ impl SandboxController {
             redis_coordinator,
             config,
             runtime_config,
+            xds_authority: crate::kernel::xds_authority::XdsAuthorityState::standalone(),
+            network_policy_queue: None,
             pool_replenish_notify: Arc::new(tokio::sync::Notify::new()),
         }
+    }
+
+    pub fn with_network_policy_control(
+        mut self,
+        authority: crate::kernel::xds_authority::XdsAuthorityState,
+        queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
+    ) -> Self {
+        self.xds_authority = authority;
+        self.network_policy_queue = queue;
+        self
     }
 
     /// Notify the pool manager that a sandbox was just claimed from the pool.
@@ -188,6 +202,9 @@ impl SandboxController {
     /// Returns the number of degraded sandboxes found this tick (0 = all
     /// healthy), so the caller can adapt its polling cadence.
     async fn reconcile_degraded_networking(&self, limit: i64) -> anyhow::Result<usize> {
+        let Some(authority) = self.xds_authority.ready_guard() else {
+            return Ok(0);
+        };
         let degraded = queries::list_degraded_limited_sandboxes(&self.pool, limit).await?;
         if degraded.is_empty() {
             return Ok(0);
@@ -199,12 +216,13 @@ impl SandboxController {
         );
 
         for sandbox in &degraded {
-            match crate::kernel::sandbox_resolver::reconcile_sandbox_networking(
+            let _application_lock = self.xds_authority.lock_application().await;
+            match crate::kernel::sandbox_resolver::reconcile_sandbox_networking_as_authority(
                 &self.pool,
                 self.provider.as_ref(),
                 sandbox,
                 &self.config.llm_egress_allowed_hosts,
-                None, // xds_store: reconcile loop runs locally, no cross-instance notify needed
+                &authority,
             )
             .await
             {
@@ -1337,7 +1355,13 @@ impl SandboxController {
     }
 
     async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-        self.provider.teardown_networking(sandbox_id).await
+        if let Some(queue) = self.network_policy_queue.as_ref() {
+            queue
+                .publish(NetworkPolicyRequest::remove(sandbox_id))
+                .await
+        } else {
+            self.provider.teardown_networking(sandbox_id).await
+        }
     }
 
     async fn destroy_observed_sandbox(
@@ -1350,6 +1374,7 @@ impl SandboxController {
         crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
             &self.pool,
             &self.provider,
+            self.network_policy_queue.as_deref(),
             sandbox_id,
             observed_status,
             external_id,
@@ -1451,6 +1476,7 @@ mod tests {
     use sqlx::postgres::PgPoolOptions;
 
     use super::*;
+    use crate::ids::{AgentId, SessionId};
     use crate::kernel::sandbox_bridge::BridgeRegistry;
 
     fn database_url() -> Option<String> {
@@ -2369,6 +2395,28 @@ mod tests {
             config,
             runtime_config,
         )
+    }
+
+    #[tokio::test]
+    async fn non_authority_skips_networking_reconcile_before_database_access() {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+            .expect("lazy pool");
+        let controller = missing_runtime_controller(pool, "unused".to_string())
+            .with_network_policy_control(
+                crate::kernel::xds_authority::XdsAuthorityState::managed(),
+                None,
+            );
+
+        let result = tokio::time::timeout(
+            Duration::from_millis(100),
+            controller.reconcile_degraded_networking(20),
+        )
+        .await
+        .expect("non-authority reconcile must not wait on PostgreSQL")
+        .expect("non-authority reconcile must be a no-op");
+
+        assert_eq!(result, 0);
     }
 
     #[tokio::test]

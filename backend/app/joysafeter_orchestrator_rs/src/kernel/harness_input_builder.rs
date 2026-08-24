@@ -24,10 +24,12 @@ use crate::kernel::credentials::access::{
     CredentialAccessContext, CredentialMaterialAccessService,
 };
 use crate::kernel::credentials::error::{require_bound_credential_id, CredentialRuntimeError};
-use crate::kernel::credentials::mcp::resolve_mcp_member_urls;
 use crate::kernel::credentials::record::ProjectId;
-use crate::kernel::credentials::store::CredentialStore;
 use crate::kernel::environment_binding::{self, EnvironmentBinding};
+use crate::kernel::mcp_runtime_plan::{
+    effective_network_mode, resolve_mcp_runtime_plan_from_metadata,
+};
+#[cfg(test)]
 use crate::kernel::mcp_url;
 use crate::kernel::repository_access::material::RepositoryAccessMaterialAdapter;
 use crate::kernel::run_spec::{
@@ -246,7 +248,36 @@ impl HarnessInputBuilder {
         };
 
         if let Some(ref agent) = agent {
-            input.mcp_servers = parse_mcp_servers(agent.mcp_servers.as_ref());
+            let networking = snapshot_environment
+                .as_ref()
+                .map(|environment| &environment.config)
+                .or_else(|| {
+                    live_environment
+                        .as_ref()
+                        .map(|environment| &environment.config)
+                })
+                .and_then(|config| config.get("networking"));
+            let network_mode = effective_network_mode(networking, self.envoy_enabled)?;
+            let mcp_metadata = match (session.as_ref(), agent.project_id.as_deref()) {
+                (Some(session), Some(project_id)) => {
+                    let project_id = ProjectId::parse(project_id)?;
+                    credential_access
+                        .load_mcp_member_metadata(&project_id, session.id)
+                        .await?
+                }
+                _ => Vec::new(),
+            };
+            input.mcp_servers = resolve_mcp_runtime_plan_from_metadata(
+                agent.id,
+                session
+                    .as_ref()
+                    .map(|session| session.runtime_config_generation)
+                    .unwrap_or(0),
+                network_mode,
+                agent.mcp_servers.as_ref(),
+                &mcp_metadata,
+            )?
+            .runner_servers();
             input.custom_tools = parse_custom_tools(agent.tools.as_ref());
             let (allowed, ask) = parse_tool_permission_rules(agent.tools.as_ref());
             input.allowed_tools = allowed;
@@ -300,15 +331,6 @@ impl HarnessInputBuilder {
         }
 
         if let Some(ref session) = session {
-            self.resolve_mcp_group_credentials(
-                session.id,
-                session
-                    .project_id
-                    .as_deref()
-                    .or_else(|| agent.as_ref().and_then(|agent| agent.project_id.as_deref())),
-                &mut input.mcp_servers,
-            )
-            .await?;
             self.load_memory_stores(session.id, &mut input).await?;
             self.load_session_files(session.id, &mut input).await?;
             self.load_session_repos(session.id, &mut input).await?;
@@ -339,20 +361,6 @@ impl HarnessInputBuilder {
                 let history = self.build_conversation_history(sid, task.id).await;
                 if !history.is_empty() {
                     input.prompt = format!("{history}\n\n{}", input.prompt);
-                }
-            }
-        }
-
-        // When Envoy-limited networking is active, downgrade ALL MCP server URLs
-        // from https:// to http://. The sandbox has no trusted CA store and cannot
-        // do end-to-end TLS; Envoy does TLS origination to the upstream instead.
-        // The credential-bound path (resolve_vault_credentials) already does this
-        // for servers with credentials; here we catch the rest so uncredentialed
-        // MCP servers (e.g. internal services with no auth) also work.
-        if self.envoy_enabled {
-            for mcp in &mut input.mcp_servers {
-                if mcp.url.starts_with("https://") {
-                    mcp.url = mcp.url.replace("https://", "http://");
                 }
             }
         }
@@ -799,35 +807,6 @@ impl HarnessInputBuilder {
         .fetch_all(&self.pool)
         .await
         .map_err(Into::into)
-    }
-
-    async fn resolve_mcp_group_credentials(
-        &self,
-        session_id: SessionId,
-        project_id: Option<&str>,
-        mcp_servers: &mut Vec<proto::McpConfig>,
-    ) -> anyhow::Result<()> {
-        let project_id =
-            ProjectId::parse(project_id.ok_or(CredentialRuntimeError::ProjectMismatch)?)?;
-        let members = CredentialStore::new(self.pool.clone())
-            .load_session_mcp_member_metadata(&project_id, session_id)
-            .await?;
-        let credential_urls = resolve_mcp_member_urls(&members)?;
-
-        for mcp in mcp_servers {
-            let normalized = mcp_url::normalize(&mcp.url);
-            if credential_urls.contains(&normalized) {
-                // Downgrade the URL to plaintext http:// so the sandbox sends a
-                // normal HTTP proxy request (not a CONNECT tunnel). This lets Envoy
-                // see the request headers and inject the credential. Envoy then
-                // does TLS origination to the real upstream via the shared
-                // dynamic_forward_proxy_tls cluster. The real host is preserved so
-                // the DFP filter can resolve DNS directly.
-                mcp.url = mcp.url.replace("https://", "http://");
-                mcp.headers.clear();
-            }
-        }
-        Ok(())
     }
 
     async fn load_memory_stores(
@@ -2132,7 +2111,7 @@ mod tests {
                 .await
                 .expect("load task")
                 .expect("task exists");
-            let input = HarnessInputBuilder::new(pool.clone(), false)
+            let input = HarnessInputBuilder::new(pool.clone(), true)
                 .build(&task, "sandbox-ext", sandbox_id)
                 .await
                 .expect("build harness input");
@@ -2552,17 +2531,17 @@ mod tests {
                 .await
                 .expect("load task")
                 .expect("task exists");
-            let input = HarnessInputBuilder::new(pool.clone(), false)
+            let input = HarnessInputBuilder::new(pool.clone(), true)
                 .build(&task, "sandbox-ext", sandbox_id)
                 .await
                 .expect("build harness input");
 
             assert_eq!(input.mcp_servers.len(), 1);
             assert_eq!(input.mcp_servers[0].name, "secure-mcp");
-            assert_eq!(
-                input.mcp_servers[0].url,
-                "http://mcp.vault-alias.example/api"
-            );
+            assert!(input.mcp_servers[0]
+                .url
+                .starts_with("http://mcp-egress.internal/r/"));
+            assert!(!input.mcp_servers[0].url.contains("secure-mcp"));
             assert!(input.mcp_servers[0].headers.is_empty());
             let audit_count: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM joysafeter_credential_access_audits WHERE credential_id = $1",
@@ -2774,15 +2753,14 @@ mod tests {
                 .await
                 .expect("load task")
                 .expect("task exists");
-            let input = HarnessInputBuilder::new(pool.clone(), false)
+            let input = HarnessInputBuilder::new(pool.clone(), true)
                 .build(&task, "sandbox-ext", sandbox_id)
                 .await
                 .expect("MCP metadata must not reveal token material");
             assert_eq!(input.mcp_servers.len(), 1);
-            assert_eq!(
-                input.mcp_servers[0].url,
-                mcp_url.replace("https://", "http://")
-            );
+            assert!(input.mcp_servers[0]
+                .url
+                .starts_with("http://mcp-egress.internal/r/"));
             let access_count: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM joysafeter_credential_access_audits WHERE credential_id = $1",
             )
@@ -2847,25 +2825,6 @@ fn json_object_to_string_map(value: Option<&serde_json::Value>) -> HashMap<Strin
                         .map(ToOwned::to_owned)
                         .unwrap_or_else(|| v.to_string());
                     (k.clone(), value)
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn parse_mcp_servers(value: Option<&serde_json::Value>) -> Vec<proto::McpConfig> {
-    value
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .map(|item| proto::McpConfig {
-                    name: item["name"].as_str().unwrap_or("").to_string(),
-                    command: String::new(),
-                    args: Vec::new(),
-                    env: HashMap::new(),
-                    server_type: item["type"].as_str().unwrap_or("url").to_string(),
-                    url: item["url"].as_str().unwrap_or("").to_string(),
-                    headers: HashMap::new(),
                 })
                 .collect()
         })

@@ -3,11 +3,11 @@
 # =============================================================================
 #
 # 多副本模式 (JOYSAFETER_HA_MODE=multi):
-#   - Orchestrator: Deployment (N replicas), 无 leader election
+#   - Orchestrator: Deployment (N replicas), task scheduling 无 leader election
 #   - Envoy: DaemonSet (每个 sandbox 节点一个)
 #   - Runner 通过 K8s Service 连任意 Orchestrator 副本
-#   - Envoy 通过 K8s Service 连任意 Orchestrator 的 ADS
-#   - 副本间通过 Redis Streams 协调 (task dispatch, xDS notify, inbox)
+#   - Envoy 只通过 leader-only Service 连接唯一 elected xDS authority
+#   - 副本间通过 Redis Streams 协调 (task dispatch, network-policy wakeup, inbox)
 #
 # 部署命令:
 #   kubectl create namespace joysafeter
@@ -56,7 +56,7 @@ rules:
 # Sandbox pod lifecycle
 - apiGroups: [""]
   resources: ["pods", "pods/exec", "pods/log", "pods/attach"]
-  verbs: ["get", "list", "watch", "create", "delete"]
+  verbs: ["get", "list", "watch", "create", "delete", "patch"]
 # PVC for workspace volumes
 - apiGroups: [""]
   resources: ["persistentvolumeclaims"]
@@ -65,6 +65,10 @@ rules:
 - apiGroups: ["networking.k8s.io"]
   resources: ["networkpolicies"]
   verbs: ["get", "list", "create", "delete"]
+# Dedicated xDS authority election. Task scheduling remains leaderless.
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "create", "update"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -83,9 +87,9 @@ roleRef:
 
 ---
 # ═══════════════════════════════════════════════════════════════════════════════
-# Service: gRPC (9090) + Health (9091)
-# Runner 和 Envoy 通过此 Service 连接任意 Orchestrator 副本
-# multi 模式: 所有副本都 ready → 流量均匀分发
+# Service: runner gRPC (9090) + Health (9091)
+# Runner 通过此 Service 连接任意 Orchestrator 副本。
+# Envoy ADS 不使用此 Service，避免连接到非 authority 副本。
 # ═══════════════════════════════════════════════════════════════════════════════
 
 apiVersion: v1
@@ -105,6 +109,22 @@ spec:
     name: health
 
 ---
+# Envoy ADS 专用 Service：仅选择当前 xDS authority。
+apiVersion: v1
+kind: Service
+metadata:
+  name: joysafeter-orchestrator-xds
+  namespace: joysafeter
+spec:
+  selector:
+    app: joysafeter-orchestrator
+    joysafeter-xds-leader: "true"
+  ports:
+  - port: 9090
+    targetPort: grpc
+    name: grpc
+
+---
 # ═══════════════════════════════════════════════════════════════════════════════
 # PodDisruptionBudget
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -122,8 +142,8 @@ spec:
 
 ---
 # ═══════════════════════════════════════════════════════════════════════════════
-# Orchestrator Deployment (Multi-Replica, 无 Leader Election)
-# 所有副本均活跃,通过 Redis 协调
+# Orchestrator Deployment (Multi-Replica)
+# 所有副本参与任务调度；仅 xDS 使用独立 Lease 选举单一 authority。
 # ═══════════════════════════════════════════════════════════════════════════════
 
 apiVersion: apps/v1
@@ -183,13 +203,15 @@ spec:
             fieldRef:
               fieldPath: metadata.name
 
-        # ── HA 模式: multi (无 leader election, 所有副本活跃) ──
+        # ── HA 模式: multi (任务调度 leaderless，xDS 单 authority) ──
         - name: JOYSAFETER_HA_MODE
           value: "multi"
         - name: JOYSAFETER_HEARTBEAT_INTERVAL
           value: "15"
         - name: JOYSAFETER_HEARTBEAT_TTL
           value: "30"
+        - name: JOYSAFETER_XDS_LEADER_LEASE_NAME
+          value: "joysafeter-orchestrator-xds-leader"
 
         # ── gRPC ──
         - name: JOYSAFETER_GRPC_HOST
@@ -233,7 +255,7 @@ spec:
         - name: JOYSAFETER_ENVOY_SOCKET_HOST_DIR
           value: "/data/joysafeter/envoy-sockets"
         - name: JOYSAFETER_ENVOY_GRPC_HOST
-          value: "joysafeter-orchestrator"
+          value: "joysafeter-orchestrator-xds"
         - name: JOYSAFETER_ENVOY_GRPC_PORT
           value: "9090"
 
@@ -417,7 +439,7 @@ spec:
                         "endpoint": {
                           "address": {
                             "socket_address": {
-                              "address": "joysafeter-orchestrator",
+                              "address": "joysafeter-orchestrator-xds",
                               "port_value": 9090
                             }
                           }

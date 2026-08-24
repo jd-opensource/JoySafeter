@@ -28,16 +28,20 @@ use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 use super::leader_election::LeaderElection;
+use super::xds_authority::XdsAuthorityState;
+use crate::sandbox::lds_backend::DeltaXdsServer;
 
 /// Pod label that the leader-only xDS Service selects on.
 pub const XDS_LEADER_LABEL: &str = "joysafeter-xds-leader";
 
 /// Handle to proactively hand off xDS leadership on graceful shutdown.
-/// Removing the label immediately drops this pod from the leader-only Service
-/// endpoint, and releasing the Lease lets a peer take over within seconds
-/// instead of waiting for the ~lease-duration expiry.
+/// Revoking the authority and disabling ADS actively closes established xDS
+/// streams; removing the label stops new Service routing, and releasing the
+/// Lease lets a peer take over without waiting for lease expiry.
 pub struct XdsLeaderHandle {
     election: Arc<LeaderElection>,
+    authority: XdsAuthorityState,
+    xds_service: Arc<DeltaXdsServer>,
     client: Client,
     namespace: String,
     pod_name: String,
@@ -46,10 +50,16 @@ pub struct XdsLeaderHandle {
 }
 
 impl XdsLeaderHandle {
-    /// Best-effort graceful hand-off: drop the pod label so the xDS Service
-    /// stops routing to us, then release the Lease so a peer wins immediately.
+    pub fn authority(&self) -> XdsAuthorityState {
+        self.authority.clone()
+    }
+
+    /// Best-effort graceful hand-off: fence mutations, close ADS streams,
+    /// remove the Service endpoint, then release the Lease.
     pub async fn shutdown(&self) {
         self.coordinator_task.abort();
+        self.authority.revoke();
+        self.xds_service.set_serving(false);
         self.election_task.abort();
         set_leader_label(&self.client, &self.namespace, &self.pod_name, false).await;
         self.election.release().await;
@@ -63,6 +73,7 @@ impl XdsLeaderHandle {
 /// their last config (already-established egress is unaffected).
 pub fn spawn(
     client: Client,
+    xds_service: Arc<DeltaXdsServer>,
     namespace: String,
     pod_name: String,
     lease_name: String,
@@ -70,6 +81,8 @@ pub fn spawn(
     lease_duration: Duration,
     renew_interval: Duration,
 ) -> XdsLeaderHandle {
+    let authority = XdsAuthorityState::managed();
+    xds_service.set_serving(false);
     let election = Arc::new(LeaderElection::new(
         client.clone(),
         &namespace,
@@ -83,37 +96,82 @@ pub fn spawn(
     let coordinator_client = client.clone();
     let coordinator_namespace = namespace.clone();
     let coordinator_pod_name = pod_name.clone();
+    let coordinator_authority = authority.clone();
+    let coordinator_xds_service = xds_service.clone();
     let coordinator_task = tokio::spawn(async move {
         info!(
             identity = %identity,
             lease = %lease_name,
             "xDS leader coordinator started (K8s multi mode)"
         );
-        let mut advertised_leader = None;
+        let mut authority_epoch = None;
+        let mut labeled_for_xds = None;
         let mut last_successful_reconcile = tokio::time::Instant::now()
             .checked_sub(Duration::from_secs(10))
             .unwrap_or_else(tokio::time::Instant::now);
         loop {
-            let desired_leader = coordinator_election.is_leader();
+            let lease_held = coordinator_election.is_leader();
+            if lease_held {
+                if authority_epoch.is_none() {
+                    let guard = coordinator_authority.advertise();
+                    authority_epoch = Some(guard.epoch());
+                    info!(
+                        pod = %coordinator_pod_name,
+                        epoch = guard.epoch(),
+                        "Acquired xDS Lease; recovering authority state before advertising"
+                    );
+                }
+            } else if authority_epoch.take().is_some() {
+                coordinator_authority.revoke();
+                coordinator_xds_service.set_serving(false);
+            }
+            let desired_serving = should_serve_xds(lease_held, coordinator_authority.is_ready());
+            if !desired_serving {
+                coordinator_xds_service.set_serving(false);
+            }
             let periodic_reconcile = last_successful_reconcile.elapsed() >= Duration::from_secs(10);
-            if advertised_leader != Some(desired_leader) || periodic_reconcile {
+            if labeled_for_xds != Some(desired_serving) || periodic_reconcile {
+                if desired_serving {
+                    coordinator_xds_service.set_serving(true);
+                }
                 if set_leader_label(
                     &coordinator_client,
                     &coordinator_namespace,
                     &coordinator_pod_name,
-                    desired_leader,
+                    desired_serving,
                 )
                 .await
                 {
-                    if advertised_leader != Some(desired_leader) {
-                        if desired_leader {
-                            info!(pod = %coordinator_pod_name, "Became xDS leader — labeled pod for leader-only Service");
+                    if desired_serving
+                        && (!coordinator_election.is_leader() || !coordinator_authority.is_ready())
+                    {
+                        coordinator_xds_service.set_serving(false);
+                        coordinator_authority.revoke();
+                        authority_epoch = None;
+                        let removed = set_leader_label(
+                            &coordinator_client,
+                            &coordinator_namespace,
+                            &coordinator_pod_name,
+                            false,
+                        )
+                        .await;
+                        labeled_for_xds = removed.then_some(false);
+                        warn!(pod = %coordinator_pod_name, "xDS authority changed while publishing leader endpoint");
+                    } else {
+                        if labeled_for_xds != Some(desired_serving) {
+                            if desired_serving {
+                                info!(pod = %coordinator_pod_name, "xDS authority recovered — labeled pod for leader-only Service");
+                            } else {
+                                warn!(pod = %coordinator_pod_name, "Not xDS authority — removed stale leader label");
+                            }
                         } else {
-                            warn!(pod = %coordinator_pod_name, "Not xDS leader — removed stale leader label");
+                            debug_assert_eq!(coordinator_xds_service.is_serving(), desired_serving);
                         }
+                        labeled_for_xds = Some(desired_serving);
+                        last_successful_reconcile = tokio::time::Instant::now();
                     }
-                    advertised_leader = Some(desired_leader);
-                    last_successful_reconcile = tokio::time::Instant::now();
+                } else if desired_serving {
+                    coordinator_xds_service.set_serving(false);
                 }
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
@@ -122,12 +180,18 @@ pub fn spawn(
 
     XdsLeaderHandle {
         election,
+        authority,
+        xds_service,
         client,
         namespace,
         pod_name,
         election_task,
         coordinator_task,
     }
+}
+
+fn should_serve_xds(lease_held: bool, authority_ready: bool) -> bool {
+    lease_held && authority_ready
 }
 
 /// Patch the pod's `joysafeter-xds-leader` label. `true` sets it to "true";
@@ -153,4 +217,17 @@ async fn set_leader_label(client: &Client, namespace: &str, pod_name: &str, lead
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_serve_xds;
+
+    #[test]
+    fn xds_service_requires_lease_and_recovered_authority() {
+        assert!(!should_serve_xds(false, false));
+        assert!(!should_serve_xds(false, true));
+        assert!(!should_serve_xds(true, false));
+        assert!(should_serve_xds(true, true));
+    }
 }

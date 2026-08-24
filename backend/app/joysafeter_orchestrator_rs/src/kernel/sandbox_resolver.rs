@@ -13,9 +13,7 @@ use uuid::Uuid;
 use crate::config::JoySafeterConfig;
 use crate::db::models::{JoySafeterAgent, JoySafeterSandbox};
 use crate::db::queries;
-use crate::ids::{
-    AgentId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId, SessionResourceId, TaskId,
-};
+use crate::ids::{AgentId, CredentialId, EnvironmentId, SandboxId, SessionId, TaskId};
 use crate::kernel::credentials::access::{
     CredentialAccessContext, CredentialMaterialAccessService,
 };
@@ -24,8 +22,12 @@ use crate::kernel::credentials::record::ProjectId;
 use crate::kernel::credentials::reference::decode_environment;
 use crate::kernel::credentials::service::ResolvedServiceCredential;
 use crate::kernel::environment_binding;
-use crate::kernel::ha::{XdsAction, XdsStateStore};
+use crate::kernel::ha::{NetworkPolicyRequest, NetworkPolicyRequestQueue};
 use crate::kernel::llm_catalog::RuntimeCredentialBinding;
+use crate::kernel::mcp_runtime_plan::{
+    effective_network_mode, resolve_mcp_runtime_plan_with_access, EffectiveNetworkMode,
+};
+#[cfg(test)]
 use crate::kernel::mcp_url;
 use crate::kernel::repository_access::material::RepositoryAccessMaterialAdapter;
 use crate::kernel::run_spec::{
@@ -35,9 +37,11 @@ use crate::kernel::runtime_freshness::RuntimeFreshnessError;
 use crate::kernel::task_identity::material::{
     TaskIdentityMaterialAdapter, TaskIdentityMaterialError,
 };
+#[cfg(test)]
+use crate::sandbox::lds_backend::MCP_EGRESS_HOST;
 use crate::sandbox::lds_backend::{
-    normalize_prefix, normalize_rewrite_base_prefix, EgressCredentialRoute, EgressExposure,
-    EgressKind, SandboxCredentials, UpstreamTarget, GIT_EGRESS_HOST, MCP_EGRESS_HOST,
+    normalize_rewrite_base_prefix, EgressCredentialRoute, EgressExposure, EgressKind,
+    SandboxCredentials, UpstreamTarget, GIT_EGRESS_HOST,
 };
 use crate::sandbox::mounts::{resolve_mount_resources, SandboxMount, SandboxMountFingerprint};
 use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
@@ -222,13 +226,9 @@ pub struct SandboxResolver {
     network_policy_ready: dashmap::DashMap<SandboxId, String>,
     /// Optional notify to trigger immediate pool replenishment after a claim.
     pool_replenish_notify: Option<Arc<tokio::sync::Notify>>,
-    /// Optional xDS state store. In multi mode, the initial setup_networking on
-    /// the sandbox-start path pushes the LDS listener into THIS replica's local
-    /// xDS server only; peers must be told to reconcile so the Envoy that lands
-    /// on their ADS stream (Service load-balanced) also receives the listener.
-    /// Without this broadcast the sandbox's egress socket is never created on
-    /// nodes whose Envoy happens to be connected to a different replica.
-    xds_store: Option<Arc<dyn XdsStateStore>>,
+    /// Multi-replica requests are submitted to the elected xDS authority.
+    /// `None` means this process is the single local authority.
+    network_policy_queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
     /// Pluggable agent identity provider for outbound credential injection.
     identity_provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
     identity_allowed_hosts: Vec<String>,
@@ -244,7 +244,7 @@ impl SandboxResolver {
             session_locks: dashmap::DashMap::new(),
             network_policy_ready: dashmap::DashMap::new(),
             pool_replenish_notify: None,
-            xds_store: None,
+            network_policy_queue: None,
             identity_provider: Arc::new(
                 crate::kernel::agent_identity_provider::NoopAgentIdentityProvider,
             ),
@@ -283,12 +283,78 @@ impl SandboxResolver {
         self
     }
 
-    /// Set the xDS state store so the initial networking push broadcasts a
-    /// cross-replica reconcile notification (multi mode). No-op store in
-    /// standalone/leader modes, so this is safe to always wire up.
-    pub fn with_xds_store(mut self, xds_store: Arc<dyn XdsStateStore>) -> Self {
-        self.xds_store = Some(xds_store);
+    /// Route networking changes through the elected xDS authority in multi mode.
+    pub fn with_network_policy_queue(mut self, queue: Arc<dyn NetworkPolicyRequestQueue>) -> Self {
+        self.network_policy_queue = Some(queue);
         self
+    }
+
+    async fn apply_prepared_network_policy(
+        &self,
+        sandbox_id: SandboxId,
+        external_id: &str,
+        context: &ResolveContext,
+        generation: &queries::NetworkPolicyGeneration,
+        task_id: Option<TaskId>,
+        proxy_auth_token: Option<String>,
+    ) -> anyhow::Result<()> {
+        if let Some(queue) = self.network_policy_queue.as_ref() {
+            queue
+                .publish(NetworkPolicyRequest::reconcile(
+                    sandbox_id,
+                    generation.clone(),
+                ))
+                .await
+                .context("failed to request xDS authority reconciliation")?;
+            crate::kernel::xds_authority::wait_for_network_policy_ready(
+                &self.pool,
+                sandbox_id,
+                generation,
+                SETUP_NETWORKING_TIMEOUT,
+            )
+            .await?;
+        } else {
+            let refresh_result = tokio::time::timeout(
+                SETUP_NETWORKING_TIMEOUT,
+                self.provider.refresh_networking(
+                    sandbox_id,
+                    external_id,
+                    context.networking.as_ref(),
+                    context
+                        .credentials
+                        .clone()
+                        .with_proxy_auth_token(proxy_auth_token),
+                ),
+            )
+            .await
+            .unwrap_or_else(|_| {
+                Err(anyhow::anyhow!(
+                    "refresh_networking exceeded {SETUP_NETWORKING_TIMEOUT:?}"
+                ))
+            });
+            if let Err(error) = refresh_result {
+                self.network_policy_ready.remove(&sandbox_id);
+                let _ = self
+                    .persist_network_policy_failure(
+                        sandbox_id, task_id, generation, context, &error,
+                    )
+                    .await;
+                return Err(error);
+            }
+            if !queries::mark_sandbox_network_policy_acked(&self.pool, sandbox_id, generation)
+                .await
+                .context("failed to persist acknowledged sandbox network policy")?
+            {
+                self.network_policy_ready.remove(&sandbox_id);
+                anyhow::bail!(
+                    "sandbox {sandbox_id} network policy generation changed before ACK persistence"
+                );
+            }
+        }
+
+        self.network_policy_ready
+            .insert(sandbox_id, generation.policy_hash.clone());
+        Ok(())
     }
 
     /// Signal that a pool sandbox was claimed — triggers immediate replenishment.
@@ -904,14 +970,8 @@ impl SandboxResolver {
             .map_err(anyhow::Error::new)
         };
         if let Err(e) = create_result {
-            if let Err(cleanup_error) = self.provider.destroy(&external_id).await {
-                let _ = self.teardown_networking(sandbox_db_id).await;
-                return Err(RuntimeFreshnessError::CleanupFailed(format!(
-                    "failed to destroy rejected new sandbox {external_id}: {cleanup_error}"
-                ))
-                .into());
-            }
-            let _ = self.teardown_networking(sandbox_db_id).await;
+            self.cleanup_rejected_new_sandbox(sandbox_db_id, &external_id)
+                .await?;
             return Err(e);
         }
 
@@ -927,10 +987,8 @@ impl SandboxResolver {
         // already started inside `create()` via start_immediately.)
         if !create_config.start_immediately {
             if let Err(e) = self.provider.start(&external_id).await {
-                self.network_policy_ready.remove(&sandbox_db_id);
-                let _ = self.provider.destroy(&external_id).await;
-                let _ = self.teardown_networking(sandbox_db_id).await;
-                let _ = queries::destroy_sandbox(&self.pool, sandbox_db_id).await;
+                self.cleanup_rejected_new_sandbox(sandbox_db_id, &external_id)
+                    .await?;
                 return Err(e.context("failed to start sandbox after control-plane setup"));
             }
             info!(
@@ -942,8 +1000,8 @@ impl SandboxResolver {
 
         if limited_networking {
             if !self.provider.capabilities().has_egress_management {
-                let _ = self.provider.destroy(&external_id).await;
-                let _ = queries::destroy_sandbox(&self.pool, sandbox_db_id).await;
+                self.cleanup_rejected_new_sandbox(sandbox_db_id, &external_id)
+                    .await?;
                 anyhow::bail!(
                     "limited sandbox networking requires egress management, but provider does not support it"
                 );
@@ -954,86 +1012,49 @@ impl SandboxResolver {
                 policy_hash = %context.expected.egress_policy_hash,
                 "Preparing Envoy networking (sandbox already started)"
             );
-            if let Err(e) = queries::prepare_sandbox_network_policy_push(
+            let policy_generation = match queries::prepare_sandbox_network_policy_push(
                 &self.pool,
                 sandbox_db_id,
                 &context.expected.egress_policy_hash,
             )
             .await
             {
-                let _ = self.provider.destroy(&external_id).await;
-                let _ = queries::destroy_sandbox(&self.pool, sandbox_db_id).await;
-                return Err(anyhow::anyhow!(
-                    "failed to mark sandbox network policy pending: {e}"
-                ));
-            }
+                Ok(generation) => generation,
+                Err(e) => {
+                    self.cleanup_rejected_new_sandbox(sandbox_db_id, &external_id)
+                        .await?;
+                    return Err(anyhow::anyhow!(
+                        "failed to mark sandbox network policy pending: {e}"
+                    ));
+                }
+            };
             info!(
                 sandbox_id = %sandbox_db_id,
                 external_id = %external_id,
                 "Pushing Envoy networking (off the sandbox-start critical path)"
             );
-            let setup_result = tokio::time::timeout(
-                SETUP_NETWORKING_TIMEOUT,
-                self.provider.setup_networking(
+            if let Err(error) = self
+                .apply_prepared_network_policy(
                     sandbox_db_id,
                     &external_id,
-                    context.networking.as_ref(),
-                    context
-                        .credentials
-                        .clone()
-                        .with_proxy_auth_token(Some(runner_token.clone())),
-                ),
-            )
-            .await
-            .unwrap_or_else(|_| {
-                Err(anyhow::anyhow!(
-                    "setup_networking exceeded {SETUP_NETWORKING_TIMEOUT:?}"
-                ))
-            });
-            if let Err(e) = setup_result {
-                self.network_policy_ready.remove(&sandbox_db_id);
-                warn!(
-                    sandbox_id = %sandbox_db_id,
-                    external_id = %external_id,
-                    error = %e,
-                    "Envoy egress networking setup failed; sandbox already started with degraded egress (runner control gRPC uses direct UDS). The networking reconcile loop will retry."
-                );
-                let _ = queries::update_sandbox_networking_status(
-                    &self.pool,
-                    sandbox_db_id,
-                    "failed",
-                    Some(&context.expected.egress_policy_hash),
-                    None,
-                    Some(&e.to_string()),
+                    &context,
+                    &policy_generation,
+                    Some(task_id),
+                    Some(runner_token.clone()),
                 )
-                .await;
-                let _ = self
-                    .persist_network_policy_failure(sandbox_db_id, Some(task_id), &context, &e)
-                    .await;
-            } else {
-                info!(
-                    sandbox_id = %sandbox_db_id,
-                    external_id = %external_id,
-                    "Envoy networking ready"
-                );
-                self.network_policy_ready
-                    .insert(sandbox_db_id, context.expected.egress_policy_hash.clone());
-                if self.config.envoy_xds_mode != "grpc" {
-                    let _ =
-                        queries::mark_sandbox_network_policy_acked(&self.pool, sandbox_db_id).await;
-                }
-                // Multi mode: tell peer replicas to reconcile so the Envoy landing
-                // on their ADS stream also gets this sandbox's listener. The
-                // initial push above only populated THIS replica's local xDS.
-                if let Some(ref store) = self.xds_store {
-                    if let Err(e) = store.notify_change(sandbox_db_id, XdsAction::Upsert).await {
-                        warn!(
-                            sandbox_id = %sandbox_db_id,
-                            "Failed to broadcast xDS upsert to peers: {e}"
-                        );
-                    }
-                }
+                .await
+            {
+                self.cleanup_rejected_new_sandbox(sandbox_db_id, &external_id)
+                    .await?;
+                return Err(error.context("failed to setup Envoy networking for new sandbox"));
             }
+
+            info!(
+                sandbox_id = %sandbox_db_id,
+                external_id = %external_id,
+                policy_version = policy_generation.policy_version,
+                "Envoy networking ready"
+            );
         }
 
         let transitioned =
@@ -1143,13 +1164,34 @@ impl SandboxResolver {
         let networking = effective_networking_config(
             configured_networking,
             self.config.envoy_enabled,
-            agent.as_ref(),
             environment.as_ref(),
         )?;
-        let network = if networking_type(networking.as_ref()) == Some("limited") {
-            Some("none".to_string())
-        } else {
-            None
+        let network_mode = effective_network_mode(networking.as_ref(), self.config.envoy_enabled)?;
+        let network = match network_mode {
+            EffectiveNetworkMode::Limited | EffectiveNetworkMode::Disabled => {
+                Some("none".to_string())
+            }
+            EffectiveNetworkMode::Unrestricted => None,
+        };
+        let runtime_generation = session
+            .as_ref()
+            .map(|session| session.runtime_config_generation)
+            .unwrap_or(0);
+        let mcp_plan = match agent.as_ref() {
+            Some(agent) => Some(
+                resolve_mcp_runtime_plan_with_access(
+                    &credential_access,
+                    &access_context,
+                    project_id.as_deref(),
+                    session_id,
+                    agent.id,
+                    runtime_generation,
+                    network_mode,
+                    agent.mcp_servers.as_ref(),
+                )
+                .await?,
+            ),
+            None => None,
         };
 
         // Egress credential injection only applies to limited-networking sandboxes
@@ -1158,7 +1200,7 @@ impl SandboxResolver {
         // real key never enters the sandbox. Unrestricted sandboxes keep the
         // key in their environment because they do not route through Envoy.
         let mut credentials = SandboxCredentials::default();
-        if network.as_deref() == Some("none") {
+        if network_mode == EffectiveNetworkMode::Limited {
             let mut routes = Vec::new();
             routes.extend(Self::extract_llm_egress(
                 &mut env,
@@ -1166,13 +1208,10 @@ impl SandboxResolver {
                 &self.config.llm_egress_allowed_hosts,
             ));
             routes.extend(
-                Self::build_mcp_egress(
-                    &credential_access,
-                    &access_context,
-                    session_id,
-                    agent.as_ref(),
-                )
-                .await?,
+                mcp_plan
+                    .as_ref()
+                    .map(|plan| plan.egress_routes())
+                    .unwrap_or_default(),
             );
             routes.extend(Self::build_git_egress(&self.pool, session_id).await?);
             routes.extend(
@@ -1229,10 +1268,7 @@ impl SandboxResolver {
         Ok(ResolveContext {
             session_id,
             project_id,
-            runtime_config_generation: session
-                .as_ref()
-                .map(|session| session.runtime_config_generation)
-                .unwrap_or(0),
+            runtime_config_generation: runtime_generation,
             networking: networking.clone(),
             network,
             expected: ExpectedFingerprint {
@@ -1271,49 +1307,22 @@ impl SandboxResolver {
             return Ok(());
         }
 
-        let _ = queries::prepare_sandbox_network_policy_push(
+        let policy_generation = queries::prepare_sandbox_network_policy_push(
             &self.pool,
             sandbox.id,
             &context.expected.egress_policy_hash,
         )
         .await?;
-        let refresh_result = tokio::time::timeout(
-            SETUP_NETWORKING_TIMEOUT,
-            self.provider.refresh_networking(
-                sandbox.id,
-                external_id,
-                context.networking.as_ref(),
-                context
-                    .credentials
-                    .clone()
-                    .with_proxy_auth_token(sandbox_runner_token(sandbox)),
-            ),
+        self.apply_prepared_network_policy(
+            sandbox.id,
+            external_id,
+            context,
+            &policy_generation,
+            None,
+            sandbox_runner_token(sandbox),
         )
         .await
-        .unwrap_or_else(|_| {
-            Err(anyhow::anyhow!(
-                "refresh_networking exceeded {SETUP_NETWORKING_TIMEOUT:?}"
-            ))
-        })
-        .with_context(|| format!("failed to refresh Envoy policy for sandbox {}", sandbox.id));
-        if let Err(e) = refresh_result {
-            self.network_policy_ready.remove(&sandbox.id);
-            let _ = self
-                .persist_network_policy_failure(sandbox.id, None, context, &e)
-                .await;
-            warn!(
-                sandbox_id = %sandbox.id,
-                error = %e,
-                "Envoy policy refresh failed for reused sandbox; continuing with degraded networking"
-            );
-            return Ok(());
-        }
-
-        self.network_policy_ready
-            .insert(sandbox.id, context.expected.egress_policy_hash.clone());
-        if self.config.envoy_xds_mode != "grpc" {
-            let _ = queries::mark_sandbox_network_policy_acked(&self.pool, sandbox.id).await;
-        }
+        .with_context(|| format!("failed to refresh Envoy policy for sandbox {}", sandbox.id))?;
 
         queries::merge_sandbox_config(
             &self.pool,
@@ -1340,54 +1349,25 @@ impl SandboxResolver {
         external_id: &str,
         context: &ResolveContext,
     ) -> anyhow::Result<()> {
-        let _ = queries::prepare_sandbox_network_policy_push(
+        let policy_generation = queries::prepare_sandbox_network_policy_push(
             &self.pool,
             sandbox_id,
             &context.expected.egress_policy_hash,
         )
         .await?;
 
-        let setup_result = tokio::time::timeout(
-            SETUP_NETWORKING_TIMEOUT,
-            self.provider.setup_networking(
-                sandbox_id,
-                external_id,
-                context.networking.as_ref(),
-                context.credentials.clone().with_proxy_auth_token(None), // token injected after runner re-auths
-            ),
+        self.apply_prepared_network_policy(
+            sandbox_id,
+            external_id,
+            context,
+            &policy_generation,
+            None,
+            None,
         )
         .await
-        .unwrap_or_else(|_| {
-            Err(anyhow::anyhow!(
-                "setup_networking exceeded {SETUP_NETWORKING_TIMEOUT:?}"
-            ))
-        });
-
-        if let Err(e) = setup_result {
-            self.network_policy_ready.remove(&sandbox_id);
-            let _ = self
-                .persist_network_policy_failure(sandbox_id, None, context, &e)
-                .await;
-            return Err(e.context(format!(
-                "failed to setup Envoy policy for pool-claimed sandbox {sandbox_id}"
-            )));
-        }
-
-        self.network_policy_ready
-            .insert(sandbox_id, context.expected.egress_policy_hash.clone());
-        if self.config.envoy_xds_mode != "grpc" {
-            let _ = queries::mark_sandbox_network_policy_acked(&self.pool, sandbox_id).await;
-        }
-        // Multi mode: broadcast so peer replicas reconcile this sandbox's
-        // listener into their local xDS (see with_xds_store docs).
-        if let Some(ref store) = self.xds_store {
-            if let Err(e) = store.notify_change(sandbox_id, XdsAction::Upsert).await {
-                warn!(
-                    sandbox_id = %sandbox_id,
-                    "Failed to broadcast xDS upsert to peers (pool claim): {e}"
-                );
-            }
-        }
+        .with_context(|| {
+            format!("failed to setup Envoy policy for pool-claimed sandbox {sandbox_id}")
+        })?;
         info!(
             sandbox_id = %sandbox_id,
             policy_hash = %context.expected.egress_policy_hash,
@@ -1400,6 +1380,7 @@ impl SandboxResolver {
         &self,
         sandbox_id: SandboxId,
         task_id: Option<TaskId>,
+        generation: &queries::NetworkPolicyGeneration,
         context: &ResolveContext,
         error: &anyhow::Error,
     ) -> anyhow::Result<()> {
@@ -1414,14 +1395,14 @@ impl SandboxResolver {
         );
         let rendered_summary =
             crate::sandbox::lds_backend::egress_policy_summary(&sandbox_id, &rendered_policy);
-        let reason = error.to_string();
+        let reason = format!("{error:#}");
         queries::record_network_policy_failure_detail(
             &self.pool,
             queries::UpsertNetworkPolicy {
                 sandbox_id,
                 session_id: context.session_id,
                 task_id,
-                policy_hash: &context.expected.egress_policy_hash,
+                generation,
                 desired_policy_json: &desired_policy,
                 rendered_summary_json: &rendered_summary,
             },
@@ -1745,91 +1726,10 @@ impl SandboxResolver {
             upstream_prefix: normalize_rewrite_base_prefix(&upstream_prefix),
             upstream_tls,
             cluster_name: String::new(),
+            vetted_addresses: vec![],
             inject_headers: vec![(credential_key.header_name.to_string(), header_value)],
             remove_headers: vec![],
         }]
-    }
-
-    /// Build MCP egress credentials for a sandbox: for each remote MCP server the
-    /// agent references, match a credential (from the session's bound credential
-    /// groups) by canonical normalized URL, decrypt its static-bearer token, and
-    /// produce an [`EgressCredentialRoute`] keyed by the server name. The
-    /// `.mcp.json` written
-    /// into the sandbox points at `mcp-egress.internal/mcp/<name>/` with no token;
-    /// Envoy injects the real `Authorization` here.
-    async fn build_mcp_egress(
-        credential_access: &CredentialMaterialAccessService,
-        access_context: &CredentialAccessContext,
-        session_id: Option<SessionId>,
-        agent: Option<&JoySafeterAgent>,
-    ) -> anyhow::Result<Vec<EgressCredentialRoute>> {
-        let Some(agent) = agent else {
-            return Ok(vec![]);
-        };
-        let Some(session_id) = session_id else {
-            return Ok(vec![]);
-        };
-        // Remote MCP servers (url present) declared by the agent.
-        let mcp_servers: Vec<(String, String)> = agent
-            .mcp_servers
-            .as_ref()
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|item| {
-                        let name = item.get("name").and_then(|v| v.as_str())?;
-                        let url = item.get("url").and_then(|v| v.as_str())?;
-                        if url.is_empty() {
-                            None
-                        } else {
-                            Some((name.to_string(), url.to_string()))
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        if mcp_servers.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let project_id = ProjectId::parse(
-            agent
-                .project_id
-                .as_deref()
-                .ok_or(CredentialRuntimeError::ProjectMismatch)?,
-        )?;
-        let credentials = credential_access
-            .resolve_mcp_members(&project_id, session_id, access_context)
-            .await?;
-        let token_by_url = credentials
-            .into_iter()
-            .map(|credential| (credential.normalized_server_url, credential.token))
-            .collect::<HashMap<_, _>>();
-
-        let mut egress = Vec::new();
-        for (name, url) in mcp_servers {
-            let Some(token) = token_by_url.get(&mcp_url::normalize(&url)) else {
-                continue;
-            };
-            let upstream = UpstreamTarget::from_url(&url)
-                .map_err(|_| CredentialRuntimeError::CorruptRecord)?;
-            egress.push(EgressCredentialRoute {
-                id: format!("mcp:{name}"),
-                kind: EgressKind::Mcp,
-                exposure: EgressExposure::Placeholder,
-                match_host: MCP_EGRESS_HOST.to_string(),
-                match_prefix: format!("/mcp/{name}/"),
-                exact_path: false,
-                upstream_host: upstream.host,
-                upstream_port: upstream.port,
-                upstream_prefix: normalize_prefix(&upstream.prefix),
-                upstream_tls: upstream.tls,
-                cluster_name: String::new(),
-                inject_headers: vec![("authorization".to_string(), format!("Bearer {token}"))],
-                remove_headers: vec!["authorization".to_string()],
-            });
-        }
-        Ok(egress)
     }
 
     /// Build git egress credentials: decrypt each session repo's clone token and
@@ -1897,6 +1797,7 @@ impl SandboxResolver {
                 upstream_prefix: prefix,
                 upstream_tls: upstream.tls,
                 cluster_name: String::new(),
+                vetted_addresses: vec![],
                 inject_headers: vec![("authorization".to_string(), format!("Basic {basic}"))],
                 remove_headers: vec![],
             });
@@ -1988,6 +1889,7 @@ impl SandboxResolver {
                     upstream_prefix: upstream_prefix.clone(),
                     upstream_tls: tls,
                     cluster_name: String::new(),
+                    vetted_addresses: vec![],
                     inject_headers: headers.clone(),
                     remove_headers: remove_headers.clone(),
                 });
@@ -2007,6 +1909,7 @@ impl SandboxResolver {
                         upstream_prefix: full_path,
                         upstream_tls: tls,
                         cluster_name: String::new(),
+                        vetted_addresses: vec![],
                         inject_headers: headers.clone(),
                         remove_headers: remove_headers.clone(),
                     });
@@ -2377,7 +2280,36 @@ impl SandboxResolver {
     }
 
     async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-        self.provider.teardown_networking(sandbox_id).await
+        if let Some(queue) = self.network_policy_queue.as_ref() {
+            queue
+                .publish(NetworkPolicyRequest::remove(sandbox_id))
+                .await
+        } else {
+            self.provider.teardown_networking(sandbox_id).await
+        }
+    }
+
+    async fn cleanup_rejected_new_sandbox(
+        &self,
+        sandbox_id: SandboxId,
+        external_id: &str,
+    ) -> anyhow::Result<()> {
+        self.network_policy_ready.remove(&sandbox_id);
+        let mut failures = Vec::new();
+        if let Err(error) = self.teardown_networking(sandbox_id).await {
+            failures.push(format!("network teardown: {error:#}"));
+        }
+        if let Err(error) = self.provider.destroy(external_id).await {
+            failures.push(format!("provider destroy: {error:#}"));
+        }
+        if let Err(error) = queries::destroy_sandbox(&self.pool, sandbox_id).await {
+            failures.push(format!("database finalize: {error}"));
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(RuntimeFreshnessError::CleanupFailed(failures.join("; ")).into())
+        }
     }
 
     async fn destroy_observed_sandbox(
@@ -2388,6 +2320,7 @@ impl SandboxResolver {
         crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
             &self.pool,
             &self.provider,
+            self.network_policy_queue.as_deref(),
             sandbox.id,
             &sandbox.status,
             sandbox.external_id.as_deref(),
@@ -2419,6 +2352,7 @@ impl SandboxResolver {
         crate::kernel::sandbox_lifecycle::finalize_claimed_sandbox_destroy(
             &self.pool,
             &self.provider,
+            self.network_policy_queue.as_deref(),
             sandbox.id,
             sandbox.external_id.as_deref(),
             &previous_status,
@@ -2849,6 +2783,11 @@ pub(crate) async fn rebuild_sandbox_credentials(
     let session = queries::get_session(pool, session_id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("sandbox recovery session {session_id} was not found"))?;
+    let networking = sandbox
+        .config
+        .as_ref()
+        .and_then(|config| config.get("fingerprint"))
+        .and_then(|fingerprint| fingerprint.get("networking"));
     let live_agent = match session.agent_id {
         Some(aid) => queries::get_agent(pool, aid).await?,
         None => None,
@@ -2908,17 +2847,23 @@ pub(crate) async fn rebuild_sandbox_credentials(
             )
             .await?,
         );
-    }
-
-    routes.extend(
-        SandboxResolver::build_mcp_egress(
+        let network_mode = effective_network_mode(networking, false)?;
+        let mcp_plan = resolve_mcp_runtime_plan_with_access(
             &credential_access,
             &access_context,
+            session
+                .project_id
+                .as_deref()
+                .or(agent_ref.project_id.as_deref()),
             Some(session_id),
-            agent.as_ref(),
+            agent_ref.id,
+            session.runtime_config_generation,
+            network_mode,
+            agent_ref.mcp_servers.as_ref(),
         )
-        .await?,
-    );
+        .await?;
+        routes.extend(mcp_plan.egress_routes());
+    }
     match SandboxResolver::build_git_egress(pool, Some(session_id)).await {
         Ok(git) => routes.extend(git),
         Err(e) => warn!(
@@ -2938,36 +2883,83 @@ pub(crate) async fn rebuild_sandbox_credentials(
 pub(crate) enum NetworkingReconcileOutcome {
     /// Sandbox is not limited-networking; nothing to do.
     NotLimited,
+    /// The exact requested generation was already applied.
+    AlreadyReady { policy_hash: String },
     /// Policy was (re)pushed and marked ready.
     Refreshed { policy_hash: String },
 }
 
-/// Rebuild a sandbox's egress policy from current DB state and (re)push it to
-/// the provider's Envoy, marking it ready on success. This is the single shared
-/// implementation behind both the API-triggered `network_policy_refresh` command
-/// and the background networking-reconcile loop, so credential rotation and
-/// self-healing follow identical, tested logic.
-///
-/// On provider failure the sandbox's networking status is recorded as `failed`
-/// (fail-closed: it keeps `network=none` and simply has no egress) and the error
-/// is returned so the caller can log/retry. The reconcile loop will pick it up
-/// again on its next tick.
-pub(crate) async fn reconcile_sandbox_networking(
+/// Submit a policy refresh through the deployment's single ownership path.
+/// Multi mode publishes an exact-generation request and waits on PostgreSQL;
+/// local modes apply immediately under their always-current authority guard.
+pub(crate) async fn request_sandbox_networking_reconcile(
     pool: &PgPool,
     provider: &dyn SandboxProvider,
     sandbox: &JoySafeterSandbox,
     llm_egress_allowed_hosts: &[String],
-    xds_store: Option<&dyn XdsStateStore>,
+    queue: Option<&dyn NetworkPolicyRequestQueue>,
+    authority: &crate::kernel::xds_authority::XdsAuthorityState,
+) -> anyhow::Result<NetworkingReconcileOutcome> {
+    let networking = sandbox
+        .config
+        .as_ref()
+        .and_then(|config| config.get("fingerprint"))
+        .and_then(|fingerprint| fingerprint.get("networking"));
+    if networking
+        .and_then(|value| value.get("type"))
+        .and_then(|value| value.as_str())
+        != Some("limited")
+    {
+        return Ok(NetworkingReconcileOutcome::NotLimited);
+    }
+    let credentials = rebuild_sandbox_credentials(pool, sandbox, llm_egress_allowed_hosts).await?;
+    let policy = credentials.to_policy(&sandbox.id, allowed_hosts_from_networking(networking));
+    crate::sandbox::lds_backend::validate_egress_policy(&sandbox.id, &policy)?;
+    let summary = crate::sandbox::lds_backend::egress_policy_summary(&sandbox.id, &policy);
+    let policy_hash = network_policy_hash(networking, &summary);
+    let generation =
+        queries::prepare_sandbox_network_policy_push(pool, sandbox.id, &policy_hash).await?;
+
+    if let Some(queue) = queue {
+        queue
+            .publish(NetworkPolicyRequest::reconcile(
+                sandbox.id,
+                generation.clone(),
+            ))
+            .await?;
+        crate::kernel::xds_authority::wait_for_network_policy_ready(
+            pool,
+            sandbox.id,
+            &generation,
+            SETUP_NETWORKING_TIMEOUT,
+        )
+        .await?;
+        return Ok(NetworkingReconcileOutcome::Refreshed { policy_hash });
+    }
+
+    let guard = authority
+        .ready_guard()
+        .ok_or_else(|| anyhow::anyhow!("local xDS authority is not ready"))?;
+    apply_sandbox_networking_generation_as_authority(
+        pool,
+        provider,
+        sandbox.id,
+        &generation,
+        llm_egress_allowed_hosts,
+        &guard,
+    )
+    .await
+}
+
+/// Rebuild the latest desired policy and apply it as the current xDS authority.
+pub(crate) async fn reconcile_sandbox_networking_as_authority(
+    pool: &PgPool,
+    provider: &dyn SandboxProvider,
+    sandbox: &JoySafeterSandbox,
+    llm_egress_allowed_hosts: &[String],
+    authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
 ) -> anyhow::Result<NetworkingReconcileOutcome> {
     let sandbox_id = sandbox.id;
-    let Some(external_id) = sandbox
-        .external_id
-        .as_deref()
-        .filter(|value| !value.is_empty())
-    else {
-        anyhow::bail!("sandbox {sandbox_id} has no external_id");
-    };
-
     let networking = sandbox
         .config
         .as_ref()
@@ -2987,7 +2979,85 @@ pub(crate) async fn reconcile_sandbox_networking(
     let summary = crate::sandbox::lds_backend::egress_policy_summary(&sandbox_id, &policy);
     let policy_hash = network_policy_hash(networking, &summary);
 
-    queries::prepare_sandbox_network_policy_push(pool, sandbox_id, &policy_hash).await?;
+    let policy_generation =
+        queries::prepare_sandbox_network_policy_push(pool, sandbox_id, &policy_hash).await?;
+    apply_sandbox_networking_generation_as_authority(
+        pool,
+        provider,
+        sandbox_id,
+        &policy_generation,
+        llm_egress_allowed_hosts,
+        authority,
+    )
+    .await
+}
+
+/// Apply one exact durable generation. Duplicate requests for an already-ready
+/// generation are no-ops and stale requests never mutate the current row.
+pub(crate) async fn apply_sandbox_networking_generation_as_authority(
+    pool: &PgPool,
+    provider: &dyn SandboxProvider,
+    sandbox_id: SandboxId,
+    policy_generation: &queries::NetworkPolicyGeneration,
+    llm_egress_allowed_hosts: &[String],
+    authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
+) -> anyhow::Result<NetworkingReconcileOutcome> {
+    if !authority.is_current() {
+        anyhow::bail!("xDS authority changed before policy application");
+    }
+    let sandbox = queries::get_sandbox(pool, sandbox_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("sandbox {sandbox_id} was not found"))?;
+    if !matches!(
+        sandbox.status.as_str(),
+        "creating" | "provisioning" | "idle" | "running"
+    ) {
+        anyhow::bail!(
+            "sandbox {sandbox_id} is not live for xDS reconciliation (status={})",
+            sandbox.status
+        );
+    }
+    if sandbox.networking_policy_hash.as_deref() != Some(&policy_generation.policy_hash)
+        || sandbox.networking_policy_version != policy_generation.policy_version
+    {
+        anyhow::bail!(
+            "stale xDS reconcile request for sandbox {sandbox_id} generation {}",
+            policy_generation.policy_version
+        );
+    }
+    if sandbox.networking_status == "ready" {
+        return Ok(NetworkingReconcileOutcome::AlreadyReady {
+            policy_hash: policy_generation.policy_hash.clone(),
+        });
+    }
+    let Some(external_id) = sandbox
+        .external_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    else {
+        anyhow::bail!("sandbox {sandbox_id} has no external_id");
+    };
+    let networking = sandbox
+        .config
+        .as_ref()
+        .and_then(|config| config.get("fingerprint"))
+        .and_then(|fingerprint| fingerprint.get("networking"));
+    if networking
+        .and_then(|value| value.get("type"))
+        .and_then(|value| value.as_str())
+        != Some("limited")
+    {
+        return Ok(NetworkingReconcileOutcome::NotLimited);
+    }
+    let credentials = rebuild_sandbox_credentials(pool, &sandbox, llm_egress_allowed_hosts).await?;
+    let policy = credentials.to_policy(&sandbox_id, allowed_hosts_from_networking(networking));
+    crate::sandbox::lds_backend::validate_egress_policy(&sandbox_id, &policy)?;
+    let summary = crate::sandbox::lds_backend::egress_policy_summary(&sandbox_id, &policy);
+    let policy_hash = network_policy_hash(networking, &summary);
+    if policy_hash != policy_generation.policy_hash {
+        anyhow::bail!("sandbox {sandbox_id} desired policy changed before authority application");
+    }
+
     let refresh_result = tokio::time::timeout(
         SETUP_NETWORKING_TIMEOUT,
         provider.refresh_networking(sandbox_id, external_id, networking, credentials),
@@ -2999,40 +3069,39 @@ pub(crate) async fn reconcile_sandbox_networking(
         ))
     });
     if let Err(e) = refresh_result {
-        // Fail-closed: record the failure; the sandbox keeps network=none and
-        // will be retried by the reconcile loop.
-        let _ = queries::update_sandbox_networking_status(
+        let desired_policy = serde_json::json!({
+            "fingerprint": sandbox
+                .config
+                .as_ref()
+                .and_then(|config| config.get("fingerprint"))
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({})),
+            "networking": networking.cloned().unwrap_or_else(|| serde_json::json!({})),
+            "recorded_on": "failure",
+        });
+        let reason = format!("{e:#}");
+        let _ = queries::record_network_policy_failure_detail(
             pool,
-            sandbox_id,
-            "failed",
-            Some(&policy_hash),
-            None,
-            Some(&e.to_string()),
+            queries::UpsertNetworkPolicy {
+                sandbox_id,
+                session_id: sandbox.chat_session_id,
+                task_id: None,
+                generation: &policy_generation,
+                desired_policy_json: &desired_policy,
+                rendered_summary_json: &summary,
+            },
+            &reason,
         )
         .await;
         return Err(e);
     }
-    // In grpc (Delta xDS) mode the real Envoy ACK/NACK arrives asynchronously
-    // and is persisted by persist_ack/persist_nack — do NOT optimistically mark
-    // ready here, or the reconcile loop's query stops selecting a sandbox whose
-    // push actually NACK'd (e.g. socket dir not yet created), leaving it stuck
-    // with no listener. Only the filesystem backend applies synchronously, so we
-    // mark ready immediately there.
-    let is_grpc_xds = std::env::var("JOYSAFETER_ENVOY_XDS_MODE")
-        .map(|m| m == "grpc")
-        .unwrap_or(false);
-    if !is_grpc_xds {
-        queries::mark_sandbox_network_policy_acked(pool, sandbox_id).await?;
+    if !authority.is_current() {
+        anyhow::bail!("xDS authority changed before policy ACK persistence");
     }
-
-    // Notify other instances so their Envoy DaemonSets pick up the change
-    if let Some(store) = xds_store {
-        if let Err(e) = store.notify_change(sandbox_id, XdsAction::Upsert).await {
-            tracing::warn!(
-                sandbox_id = %sandbox_id,
-                "Failed to broadcast xDS change notification: {e}"
-            );
-        }
+    if !queries::mark_sandbox_network_policy_acked(pool, sandbox_id, policy_generation).await? {
+        anyhow::bail!(
+            "sandbox {sandbox_id} network policy generation changed before ACK persistence"
+        );
     }
 
     Ok(NetworkingReconcileOutcome::Refreshed { policy_hash })
@@ -3325,14 +3394,13 @@ fn generate_runner_token() -> String {
 fn effective_networking_config(
     networking: Option<serde_json::Value>,
     envoy_enabled: bool,
-    agent: Option<&JoySafeterAgent>,
     environment: Option<&EnvironmentRow>,
 ) -> anyhow::Result<Option<serde_json::Value>> {
     match networking_type(networking.as_ref()) {
         Some("limited") => networking
-            .map(|networking| merge_mcp_hosts(networking, agent, environment))
+            .map(|networking| sanitize_limited_networking(networking, environment))
             .transpose(),
-        Some("unrestricted") => Ok(networking),
+        Some("unrestricted" | "disabled") => Ok(networking),
         Some(other) => anyhow::bail!("unsupported sandbox networking.type: {other}"),
         None if envoy_enabled => {
             let mut effective = networking.unwrap_or_else(|| serde_json::json!({}));
@@ -3345,19 +3413,14 @@ fn effective_networking_config(
                 "type".to_string(),
                 serde_json::Value::String("limited".to_string()),
             );
-            merge_mcp_hosts(effective, agent, environment).map(Some)
+            sanitize_limited_networking(effective, environment).map(Some)
         }
         None => Ok(networking),
     }
 }
 
 fn networking_type(networking: Option<&serde_json::Value>) -> Option<&str> {
-    networking.and_then(|value| {
-        value
-            .get("type")
-            .or_else(|| value.get("net_type"))
-            .and_then(|value| value.as_str())
-    })
+    networking.and_then(|value| value.get("type").and_then(|value| value.as_str()))
 }
 
 pub(crate) fn allowed_hosts_from_networking(networking: Option<&serde_json::Value>) -> Vec<String> {
@@ -3373,9 +3436,8 @@ pub(crate) fn allowed_hosts_from_networking(networking: Option<&serde_json::Valu
         .unwrap_or_default()
 }
 
-fn merge_mcp_hosts(
+fn sanitize_limited_networking(
     mut networking: serde_json::Value,
-    agent: Option<&JoySafeterAgent>,
     environment: Option<&EnvironmentRow>,
 ) -> anyhow::Result<serde_json::Value> {
     if networking_type(Some(&networking)) != Some("limited") {
@@ -3392,23 +3454,6 @@ fn merge_mcp_hosts(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-
-    // Add MCP server hosts to allowlist.
-    if let Some(mcp_servers) = agent
-        .and_then(|a| a.mcp_servers.as_ref())
-        .and_then(|value| value.as_array())
-    {
-        for config in mcp_servers {
-            let Some(url) = config.get("url").and_then(|value| value.as_str()) else {
-                continue;
-            };
-            if let Some(host) = extract_host(url) {
-                if !allowed_hosts.iter().any(|existing| existing == &host) {
-                    allowed_hosts.push(host);
-                }
-            }
-        }
-    }
 
     // Remove external egress service hosts from allowlist. Each external service
     // emits a transparent credential vhost keyed on its real host. If the same
@@ -3709,7 +3754,7 @@ fn build_external_inject_headers(
 #[cfg(test)]
 mod egress_tests {
     use super::*;
-    use crate::ids::CredentialGroupId;
+    use crate::ids::{CredentialGroupId, FileId, SessionResourceId};
     use async_trait::async_trait;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
@@ -3725,6 +3770,19 @@ mod egress_tests {
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
         25, 26, 27, 28, 29, 30, 31,
     ];
+
+    struct StaticMcpAddressResolver;
+
+    #[async_trait]
+    impl crate::kernel::mcp_network_policy::McpAddressResolver for StaticMcpAddressResolver {
+        async fn resolve(
+            &self,
+            _host: &str,
+            _port: u16,
+        ) -> Result<Vec<IpAddr>, crate::kernel::mcp_network_policy::McpNetworkPolicyError> {
+            Ok(vec!["93.184.216.34".parse().expect("valid public IP")])
+        }
+    }
 
     fn env(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs
@@ -3847,6 +3905,7 @@ mod egress_tests {
             upstream_prefix: "/api".to_string(),
             upstream_tls: true,
             cluster_name: String::new(),
+            vetted_addresses: vec![],
             inject_headers: vec![("authorization".to_string(), "Bearer mcp".to_string())],
             remove_headers: vec!["authorization".to_string()],
         }];
@@ -4004,6 +4063,7 @@ mod egress_tests {
                 upstream_prefix: "/".to_string(),
                 upstream_tls: true,
                 cluster_name: "external_svc".to_string(),
+                vetted_addresses: vec![],
                 exact_path: false,
                 inject_headers: vec![("authorization".to_string(), "Bearer first".to_string())],
                 remove_headers: vec![],
@@ -4397,6 +4457,8 @@ mod egress_tests {
         created: Mutex<Vec<SandboxCreateConfig>>,
         create_advances_generation: Mutex<Option<(PgPool, SessionId)>>,
         networking: Mutex<Vec<(SandboxId, Option<serde_json::Value>)>>,
+        networking_error: Mutex<Option<String>>,
+        networking_teardowns: Mutex<Vec<SandboxId>>,
         start_status_probe: Mutex<Option<(PgPool, SandboxId)>>,
         start_observed_statuses: Mutex<Vec<String>>,
         start_marks_error: Mutex<Option<(PgPool, SandboxId)>>,
@@ -4526,6 +4588,14 @@ mod egress_tests {
                 .lock()
                 .await
                 .push((sandbox_id, networking.cloned()));
+            if let Some(message) = self.networking_error.lock().await.clone() {
+                anyhow::bail!(message);
+            }
+            Ok(())
+        }
+
+        async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
+            self.networking_teardowns.lock().await.push(sandbox_id);
             Ok(())
         }
 
@@ -4540,6 +4610,201 @@ mod egress_tests {
                 network_isolation: crate::sandbox::provider::NetworkIsolation::Envoy,
             }
         }
+    }
+
+    struct AckingNetworkPolicyQueue {
+        pool: PgPool,
+        requests: Mutex<Vec<NetworkPolicyRequest>>,
+    }
+
+    #[async_trait]
+    impl NetworkPolicyRequestQueue for AckingNetworkPolicyQueue {
+        async fn publish(&self, request: NetworkPolicyRequest) -> anyhow::Result<()> {
+            if let Some(generation) = request.generation.as_ref() {
+                assert!(
+                    queries::mark_sandbox_network_policy_acked(
+                        &self.pool,
+                        request.sandbox_id,
+                        generation,
+                    )
+                    .await?
+                );
+            }
+            self.requests.lock().await.push(request);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn multi_replica_networking_requests_authority_without_local_provider_push() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let networking = serde_json::json!({
+            "type": "limited",
+            "allowed_hosts": ["api.example.com"]
+        });
+        let context = ResolveContext {
+            session_id: None,
+            project_id: None,
+            runtime_config_generation: 0,
+            networking: Some(networking.clone()),
+            network: Some("none".to_string()),
+            expected: ExpectedFingerprint {
+                image: "authority-test:latest".to_string(),
+                engine_kind: "claude".to_string(),
+                networking: Some(networking),
+                env: HashMap::new(),
+                mounts: vec![],
+                egress_policy_hash: "authority-policy".to_string(),
+            },
+            memory_mounts: vec![],
+            mounts: vec![],
+            credentials: SandboxCredentials::default(),
+        };
+        queries::create_sandbox(
+            &pool,
+            sandbox_id,
+            "external-authority-test",
+            "recording",
+            "authority-test:latest",
+            None,
+            None,
+            None,
+            Some(&provisioning_config(
+                "networking",
+                80,
+                "Awaiting authority",
+                false,
+                &context.expected,
+                Some("runner-token"),
+            )),
+        )
+        .await
+        .expect("create authority test sandbox");
+        let generation = queries::prepare_sandbox_network_policy_push(
+            &pool,
+            sandbox_id,
+            &context.expected.egress_policy_hash,
+        )
+        .await
+        .expect("prepare authority generation");
+        let provider = Arc::new(RecordingProvider::default());
+        let request_queue = Arc::new(AckingNetworkPolicyQueue {
+            pool: pool.clone(),
+            requests: Mutex::new(Vec::new()),
+        });
+        let mut config = JoySafeterConfig::from_env();
+        config.sandbox_provider = "recording".to_string();
+        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config)
+            .with_network_policy_queue(request_queue.clone());
+
+        resolver
+            .apply_prepared_network_policy(
+                sandbox_id,
+                "external-authority-test",
+                &context,
+                &generation,
+                None,
+                Some("runner-token".to_string()),
+            )
+            .await
+            .expect("authority request should become ready");
+
+        assert!(provider.networking.lock().await.is_empty());
+        assert_eq!(
+            request_queue.requests.lock().await.as_slice(),
+            &[NetworkPolicyRequest::reconcile(sandbox_id, generation)]
+        );
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn duplicate_authority_request_keeps_ready_generation_without_provider_push() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let networking = serde_json::json!({"type": "limited", "allowed_hosts": []});
+        let expected = ExpectedFingerprint {
+            image: "authority-duplicate:latest".to_string(),
+            engine_kind: "claude".to_string(),
+            networking: Some(networking),
+            env: HashMap::new(),
+            mounts: vec![],
+            egress_policy_hash: "authority-duplicate-policy".to_string(),
+        };
+        queries::create_sandbox(
+            &pool,
+            sandbox_id,
+            "external-authority-duplicate",
+            "recording",
+            "authority-duplicate:latest",
+            None,
+            None,
+            None,
+            Some(&provisioning_config(
+                "networking",
+                100,
+                "Ready",
+                true,
+                &expected,
+                Some("runner-token"),
+            )),
+        )
+        .await
+        .expect("create duplicate authority test sandbox");
+        let generation = queries::prepare_sandbox_network_policy_push(
+            &pool,
+            sandbox_id,
+            &expected.egress_policy_hash,
+        )
+        .await
+        .expect("prepare duplicate generation");
+        assert!(
+            queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &generation)
+                .await
+                .expect("mark duplicate generation ready")
+        );
+        let provider = RecordingProvider::default();
+        let authority = crate::kernel::xds_authority::XdsAuthorityState::standalone();
+        let guard = authority.ready_guard().expect("authority guard");
+
+        let outcome = apply_sandbox_networking_generation_as_authority(
+            &pool,
+            &provider,
+            sandbox_id,
+            &generation,
+            &[],
+            &guard,
+        )
+        .await
+        .expect("duplicate request should be idempotent");
+
+        assert_eq!(
+            outcome,
+            NetworkingReconcileOutcome::AlreadyReady {
+                policy_hash: generation.policy_hash.clone()
+            }
+        );
+        assert!(provider.networking.lock().await.is_empty());
+        let state: String =
+            sqlx::query_scalar("SELECT networking_status FROM joysafeter_sandboxes WHERE id = $1")
+                .bind(sandbox_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load duplicate request state");
+        assert_eq!(state, "ready");
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
     }
 
     #[derive(Debug, Default)]
@@ -6279,21 +6544,30 @@ mod egress_tests {
                 ),
             );
             let context = CredentialAccessContext::runtime(Some(session_id), None, Some(0));
-            let egress = SandboxResolver::build_mcp_egress(
-                &access,
-                &context,
-                Some(session_id),
-                Some(&agent),
-            )
-            .await
-            .expect("build mcp egress");
+            let egress =
+                crate::kernel::mcp_runtime_plan::resolve_mcp_runtime_plan_with_access_and_resolver(
+                    &access,
+                    &context,
+                    Some(&project_id),
+                    Some(session_id),
+                    agent.id,
+                    0,
+                    EffectiveNetworkMode::Limited,
+                    agent.mcp_servers.as_ref(),
+                    &StaticMcpAddressResolver,
+                    &crate::kernel::mcp_network_policy::McpNetworkPolicy::default(),
+                )
+                .await
+                .expect("build MCP runtime plan")
+                .egress_routes();
 
             assert_eq!(egress.len(), 1);
-            assert_eq!(egress[0].id, "mcp:secure-mcp");
-            assert_eq!(egress[0].match_prefix, "/mcp/secure-mcp/");
+            assert!(egress[0].id.starts_with("mcp:"));
+            assert!(egress[0].match_prefix.starts_with("/r/"));
+            assert!(!egress[0].match_prefix.contains("secure-mcp"));
             assert_eq!(egress[0].upstream_host, "mcp.vault-alias.example");
             assert_eq!(egress[0].upstream_port, 443);
-            assert_eq!(egress[0].upstream_prefix, "/api");
+            assert_eq!(egress[0].upstream_prefix, "/api/");
             assert!(egress[0].upstream_tls);
             assert_eq!(
                 egress[0].inject_headers,
@@ -6328,11 +6602,15 @@ mod egress_tests {
                 .await
                 .expect("corrupt MCP credential envelope");
             let failure_context = CredentialAccessContext::runtime(Some(session_id), None, Some(1));
-            let error = SandboxResolver::build_mcp_egress(
+            let error = resolve_mcp_runtime_plan_with_access(
                 &access,
                 &failure_context,
+                Some(&project_id),
                 Some(session_id),
-                Some(&agent),
+                agent.id,
+                1,
+                EffectiveNetworkMode::Limited,
+                agent.mcp_servers.as_ref(),
             )
             .await
             .expect_err("invalid MCP ciphertext must fail closed");
@@ -7235,6 +7513,395 @@ mod egress_tests {
             .await;
         let _ = sqlx::query("DELETE FROM joysafeter_environments WHERE id = $1")
             .bind(environment_id)
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn new_limited_sandbox_networking_failure_is_destroyed_and_not_returned() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
+        let environment_ref = environment_id.to_string();
+        let snapshot = serde_json::json!({
+            "schema": "joysafeter.agent_execution_snapshot.v1",
+            "id": agent_id.to_string(),
+            "version": 1,
+            "name": format!("network-failure-agent-{unique}"),
+            "engine_kind": "claude",
+            "model": {"id": "claude-sonnet"},
+            "env": {},
+            "mcp_servers": [],
+            "tools": [],
+            "skills": [],
+            "agents": [],
+            "commands": [],
+            "permission_mode": "bypassPermissions",
+            "environment_ref": environment_ref,
+            "environment": {
+                "ref": environment_ref,
+                "id": environment_id.to_string(),
+                "name": format!("network-failure-env-{unique}"),
+                "image_tag": "network-failure:latest",
+                "image_version": 1,
+                "config": {"networking": {"type": "limited", "allowed_hosts": []}}
+            }
+        });
+
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_agents (
+                id, name, engine_kind, model, system_prompt, env, mcp_servers,
+                skills, tools, agents, commands, permission_mode, metadata, version
+            )
+            VALUES (
+                $1, $2, 'claude', $3, '', '{}'::jsonb, '[]'::jsonb,
+                '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                'bypassPermissions', '{}'::jsonb, 1
+            )
+            "#,
+        )
+        .bind(agent_id)
+        .bind(format!("network-failure-agent-{unique}"))
+        .bind(serde_json::json!({"id": "claude-sonnet"}))
+        .execute(&pool)
+        .await
+        .expect("insert agent");
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_sessions (id, agent_id, status, agent_version, agent_snapshot)
+            VALUES ($1, $2, 'idle', 1, $3)
+            "#,
+        )
+        .bind(session_id)
+        .bind(agent_id)
+        .bind(&snapshot)
+        .execute(&pool)
+        .await
+        .expect("insert session");
+
+        let provider = Arc::new(RecordingProvider {
+            networking_error: Mutex::new(Some("synthetic Envoy rejection".to_string())),
+            ..Default::default()
+        });
+        let mut config = JoySafeterConfig::from_env();
+        config.sandbox_provider = "recording".to_string();
+        config.sandbox_pool_enabled = false;
+        config.sandbox_workspace_root = None;
+        config.envoy_enabled = true;
+        config.image_claude = "network-failure:latest".to_string();
+        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+
+        let error = resolver
+            .resolve(
+                TaskId::from_uuid(Uuid::now_v7()),
+                Some(session_id),
+                Some(agent_id),
+                None,
+            )
+            .await
+            .expect_err("networking failure must reject new sandbox resolution");
+        assert!(error
+            .to_string()
+            .contains("failed to setup Envoy networking"));
+        assert_eq!(provider.destroyed.lock().await.len(), 1);
+
+        let active_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM joysafeter_sandboxes WHERE chat_session_id = $1 AND destroyed_at IS NULL",
+        )
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count active sandboxes");
+        assert_eq!(active_count, 0);
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE chat_session_id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn new_sandbox_ack_persistence_error_runs_complete_compensation() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
+        let environment_ref = environment_id.to_string();
+        let function_name = format!("fail_network_ready_{unique}");
+        let trigger_name = format!("trg_fail_network_ready_{unique}");
+        let snapshot = serde_json::json!({
+            "schema": "joysafeter.agent_execution_snapshot.v1",
+            "id": agent_id.to_string(),
+            "version": 1,
+            "name": format!("ack-failure-agent-{unique}"),
+            "engine_kind": "claude",
+            "model": {"id": "claude-sonnet"},
+            "env": {},
+            "mcp_servers": [],
+            "tools": [],
+            "skills": [],
+            "agents": [],
+            "commands": [],
+            "permission_mode": "bypassPermissions",
+            "environment_ref": environment_ref,
+            "environment": {
+                "ref": environment_ref,
+                "id": environment_id.to_string(),
+                "name": format!("ack-failure-env-{unique}"),
+                "image_tag": "ack-failure:latest",
+                "image_version": 1,
+                "config": {"networking": {"type": "limited", "allowed_hosts": []}}
+            }
+        });
+
+        sqlx::query(
+            r#"INSERT INTO joysafeter_agents (
+                id, name, engine_kind, model, system_prompt, env, mcp_servers,
+                skills, tools, agents, commands, permission_mode, metadata, version
+            ) VALUES ($1, $2, 'claude', $3, '', '{}'::jsonb, '[]'::jsonb,
+                '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                'bypassPermissions', '{}'::jsonb, 1)"#,
+        )
+        .bind(agent_id)
+        .bind(format!("ack-failure-agent-{unique}"))
+        .bind(serde_json::json!({"id": "claude-sonnet"}))
+        .execute(&pool)
+        .await
+        .expect("insert ack failure agent");
+        sqlx::query(
+            "INSERT INTO joysafeter_sessions (id, agent_id, status, agent_version, agent_snapshot) VALUES ($1, $2, 'idle', 1, $3)",
+        )
+        .bind(session_id)
+        .bind(agent_id)
+        .bind(&snapshot)
+        .execute(&pool)
+        .await
+        .expect("insert ack failure session");
+        sqlx::query(&format!(
+            r#"CREATE FUNCTION {function_name}() RETURNS trigger AS $$
+            BEGIN
+                IF NEW.chat_session_id = '{session_uuid}'::uuid AND NEW.networking_status = 'ready' THEN
+                    RAISE EXCEPTION 'synthetic ACK persistence failure';
+                END IF;
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql"#
+        , session_uuid = session_id.as_uuid()))
+        .execute(&pool)
+        .await
+        .expect("create ACK failure trigger function");
+        sqlx::query(&format!(
+            "CREATE TRIGGER {trigger_name} BEFORE UPDATE OF networking_status ON joysafeter_sandboxes FOR EACH ROW EXECUTE FUNCTION {function_name}()"
+        ))
+        .execute(&pool)
+        .await
+        .expect("create ACK failure trigger");
+
+        let provider = Arc::new(RecordingProvider::default());
+        let mut config = JoySafeterConfig::from_env();
+        config.sandbox_provider = "recording".to_string();
+        config.sandbox_pool_enabled = false;
+        config.sandbox_workspace_root = None;
+        config.envoy_enabled = true;
+        config.image_claude = "ack-failure:latest".to_string();
+        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+
+        let error = resolver
+            .resolve(
+                TaskId::from_uuid(Uuid::now_v7()),
+                Some(session_id),
+                Some(agent_id),
+                None,
+            )
+            .await
+            .expect_err("ACK persistence failure must reject the new sandbox");
+        assert!(
+            format!("{error:#}").contains("failed to setup Envoy networking"),
+            "unexpected error chain: {error:#}"
+        );
+        assert_eq!(provider.destroyed.lock().await.len(), 1);
+        assert_eq!(provider.networking_teardowns.lock().await.len(), 1);
+        let active_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM joysafeter_sandboxes WHERE chat_session_id = $1 AND destroyed_at IS NULL",
+        )
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count active sandboxes after ACK failure");
+        assert_eq!(active_count, 0);
+
+        let _ = sqlx::query(&format!(
+            "DROP TRIGGER IF EXISTS {trigger_name} ON joysafeter_sandboxes"
+        ))
+        .execute(&pool)
+        .await;
+        let _ = sqlx::query(&format!("DROP FUNCTION IF EXISTS {function_name}()"))
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE chat_session_id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn reused_limited_sandbox_networking_failure_is_not_returned() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let agent_id = AgentId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
+        let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
+        let unique = agent_id.as_uuid().simple().to_string();
+        let environment_ref = environment_id.to_string();
+        let snapshot = serde_json::json!({
+            "schema": "joysafeter.agent_execution_snapshot.v1",
+            "id": agent_id.to_string(),
+            "version": 1,
+            "name": format!("reuse-network-failure-agent-{unique}"),
+            "engine_kind": "claude",
+            "model": {"id": "claude-sonnet"},
+            "env": {},
+            "mcp_servers": [],
+            "tools": [],
+            "skills": [],
+            "agents": [],
+            "commands": [],
+            "permission_mode": "bypassPermissions",
+            "environment_ref": environment_ref,
+            "environment": {
+                "ref": environment_ref,
+                "id": environment_id.to_string(),
+                "name": format!("reuse-network-failure-env-{unique}"),
+                "image_tag": "reuse-network-failure:latest",
+                "image_version": 1,
+                "config": {"networking": {"type": "limited", "allowed_hosts": []}}
+            }
+        });
+
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_agents (
+                id, name, engine_kind, model, system_prompt, env, mcp_servers,
+                skills, tools, agents, commands, permission_mode, metadata, version
+            )
+            VALUES (
+                $1, $2, 'claude', $3, '', '{}'::jsonb, '[]'::jsonb,
+                '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                'bypassPermissions', '{}'::jsonb, 1
+            )
+            "#,
+        )
+        .bind(agent_id)
+        .bind(format!("reuse-network-failure-agent-{unique}"))
+        .bind(serde_json::json!({"id": "claude-sonnet"}))
+        .execute(&pool)
+        .await
+        .expect("insert agent");
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_sessions (id, agent_id, status, agent_version, agent_snapshot)
+            VALUES ($1, $2, 'idle', 1, $3)
+            "#,
+        )
+        .bind(session_id)
+        .bind(agent_id)
+        .bind(&snapshot)
+        .execute(&pool)
+        .await
+        .expect("insert session");
+
+        let provider = Arc::new(RecordingProvider::default());
+        let mut config = JoySafeterConfig::from_env();
+        config.sandbox_provider = "recording".to_string();
+        config.sandbox_pool_enabled = false;
+        config.sandbox_workspace_root = None;
+        config.envoy_enabled = true;
+        config.image_claude = "reuse-network-failure:latest".to_string();
+        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+
+        let resolved = resolver
+            .resolve(
+                TaskId::from_uuid(Uuid::now_v7()),
+                Some(session_id),
+                Some(agent_id),
+                None,
+            )
+            .await
+            .expect("create initial limited sandbox");
+        assert!(queries::transition_sandbox_cas(
+            &pool,
+            resolved.sandbox_id,
+            "provisioning",
+            "idle",
+        )
+        .await
+        .expect("mark initial sandbox idle"));
+        resolver.network_policy_ready.remove(&resolved.sandbox_id);
+        *provider.networking_error.lock().await =
+            Some("synthetic Envoy refresh rejection".to_string());
+
+        let error = resolver
+            .resolve(
+                TaskId::from_uuid(Uuid::now_v7()),
+                Some(session_id),
+                Some(agent_id),
+                None,
+            )
+            .await
+            .expect_err("networking refresh failure must reject sandbox reuse");
+        assert!(error.to_string().contains("failed to refresh Envoy policy"));
+        assert!(provider.destroyed.lock().await.is_empty());
+
+        let networking_state: (String, Option<String>) = sqlx::query_as(
+            "SELECT networking_status, networking_last_error FROM joysafeter_sandboxes WHERE id = $1",
+        )
+        .bind(resolved.sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load failed reused sandbox networking state");
+        assert_eq!(networking_state.0, "nacked");
+        assert!(networking_state
+            .1
+            .as_deref()
+            .is_some_and(|reason| reason.contains("synthetic Envoy refresh rejection")));
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE chat_session_id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
             .execute(&pool)
             .await;
     }

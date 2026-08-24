@@ -1,3 +1,4 @@
+import { normalizeMcpServerConfigs } from '@/lib/managed/mcp-config'
 import { quickstartBlueprintMetadata } from '@/lib/managed/quickstart-agent-blueprint'
 import { filterQuickstartSkillReferences } from '@/lib/managed/quickstart-capabilities'
 import { objectValue } from '@/lib/managed/quickstart-value-coercion'
@@ -83,7 +84,7 @@ export function buildQuickstartAgentCreateBody(
   if (Object.keys(metadata).length > 0) body.metadata = metadata
 
   const mcpServers = arrayValue(agentConfig.mcp_servers)
-  if (mcpServers) body.mcp_servers = mcpServers
+  if (mcpServers) body.mcp_servers = normalizeMcpServerConfigs(mcpServers)
 
   const skills = options.allowedSkillIds
     ? filterQuickstartSkillReferences(agentConfig.skills, options.allowedSkillIds)

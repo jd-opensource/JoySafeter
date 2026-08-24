@@ -136,7 +136,7 @@ def test_credential_access_audit_migration_is_append_only_and_runtime_idempotent
     with _connect(migration_database) as connection:
         assert connection.execute("SELECT to_regclass('joysafeter_credential_access_audits')").fetchone()[0] is None
 
-    result = _upgrade_head(migration_database)
+    result = _upgrade_to(migration_database, "20260822_000001")
     assert result.returncode == 0, result.stderr
 
     credential_id = uuid4()
@@ -356,11 +356,11 @@ def _seed_vault_credential(
     )
 
 
-def test_migration_renames_mcp_configs_without_changing_values(
+def test_migration_renames_and_canonicalizes_mcp_configs(
     migration_database: MigrationDatabase,
 ) -> None:
     agent_id = uuid4()
-    mcp_configs = [{"name": "github", "url": "https://mcp.example.test", "enabled": True}]
+    mcp_configs = [{"type": "url", "name": "github", "url": "https://mcp.example.test"}]
     with _connect(migration_database) as connection:
         _seed_project(connection)
         _seed_agent(connection, agent_id=agent_id, name="mcp-agent", mcp_configs=mcp_configs)
@@ -387,7 +387,14 @@ def test_migration_renames_mcp_configs_without_changing_values(
 
     assert "mcp_servers" in columns
     assert "mcp_configs" not in columns
-    assert stored_value == mcp_configs
+    assert stored_value == [
+        {
+            "type": "streamable_http",
+            "name": "github",
+            "url": "https://mcp.example.test",
+            "auth_requirement": "optional",
+        }
+    ]
 
 
 def test_migration_adds_sandbox_runtime_config_freshness_columns(
@@ -2173,6 +2180,264 @@ def test_migration_rejects_skill_usage_without_a_concrete_version(
     assert result.returncode != 0
     assert "skill_version" in output
     assert str(usage_id) in output
+
+
+def test_mcp_contract_cutover_canonicalizes_every_persisted_surface(
+    migration_database: MigrationDatabase,
+) -> None:
+    previous_revision = "20260823_000005"
+    result = _upgrade_to(migration_database, previous_revision)
+    assert result.returncode == 0, result.stderr
+
+    agent_id = uuid4()
+    environment_id = uuid4()
+    agent_version_id = uuid4()
+    session_id = uuid4()
+    group_id = uuid4()
+    bearer_credential_id = uuid4()
+    oauth_credential_id = uuid4()
+
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        connection.execute(
+            """
+            INSERT INTO joysafeter_agents
+                (id, project_id, name, engine_kind, env, mcp_servers, skills, tools,
+                 agents, commands, permission_mode, metadata, version)
+            VALUES
+                (%s, %s, 'mcp-cutover-agent', 'codex', '{}'::jsonb, %s,
+                 '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                 'default', '{}'::jsonb, 1)
+            """,
+            (
+                agent_id,
+                PROJECT_ID,
+                Jsonb(
+                    [
+                        {
+                            "type": "url",
+                            "name": "remote",
+                            "url": "https://mcp.example.test/rpc",
+                        },
+                        {
+                            "type": "stdio",
+                            "name": "local",
+                            "command": "node",
+                        },
+                    ]
+                ),
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_environments
+                (id, project_id, name, description, image_version, config)
+            VALUES (%s, %s, 'mcp-cutover-environment', '', 0, %s)
+            """,
+            (
+                environment_id,
+                PROJECT_ID,
+                Jsonb(
+                    {
+                        "networking": {
+                            "net_type": "limited",
+                            "allowed_hosts": ["mcp.example.test"],
+                            "allow_mcp_servers": True,
+                        }
+                    }
+                ),
+            ),
+        )
+        snapshot = {
+            "mcp_servers": [
+                {
+                    "type": "streamable-http",
+                    "name": "snapshot-remote",
+                    "url": "https://snapshot.example.test/mcp",
+                }
+            ],
+            "environment": {
+                "config": {
+                    "networking": {
+                        "net_type": "unrestricted",
+                        "allow_mcp_servers": False,
+                    }
+                }
+            },
+        }
+        connection.execute(
+            """
+            INSERT INTO joysafeter_agent_versions (id, agent_id, version, snapshot)
+            VALUES (%s, %s, 1, %s)
+            """,
+            (agent_version_id, agent_id, Jsonb(snapshot)),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_sessions
+                (id, project_id, agent_id, status, agent_snapshot)
+            VALUES (%s, %s, %s, 'idle', %s)
+            """,
+            (
+                session_id,
+                PROJECT_ID,
+                agent_id,
+                Jsonb(
+                    {
+                        "mcp_servers": [
+                            {
+                                "type": "http",
+                                "name": "session-remote",
+                                "url": "https://session.example.test/mcp",
+                            }
+                        ]
+                    }
+                ),
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_credential_groups (id, project_id, name)
+            VALUES (%s, %s, 'mcp-cutover-group')
+            """,
+            (group_id, PROJECT_ID),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_credentials
+                (id, project_id, kind, name, data, provider, protocol, is_default,
+                 mcp_server_url, normalized_mcp_server_url, credential_type, group_id)
+            VALUES
+                (%s, %s, 'mcp', 'legacy-bearer', '{}'::jsonb, NULL, NULL, false,
+                 'https://mcp.example.test/rpc', 'https://mcp.example.test/rpc',
+                 'bearer', %s),
+                (%s, %s, 'mcp', 'disabled-oauth', '{}'::jsonb, NULL, NULL, false,
+                 'https://oauth.example.test/mcp', 'https://oauth.example.test/mcp',
+                 'oauth', %s)
+            """,
+            (
+                bearer_credential_id,
+                PROJECT_ID,
+                group_id,
+                oauth_credential_id,
+                PROJECT_ID,
+                group_id,
+            ),
+        )
+        connection.commit()
+
+    result = _upgrade_head(migration_database)
+    assert result.returncode == 0, result.stderr
+
+    with _connect(migration_database) as connection:
+        agent_servers = connection.execute(
+            "SELECT mcp_servers FROM joysafeter_agents WHERE id = %s",
+            (agent_id,),
+        ).fetchone()[0]
+        environment_config = connection.execute(
+            "SELECT config FROM joysafeter_environments WHERE id = %s",
+            (environment_id,),
+        ).fetchone()[0]
+        version_snapshot = connection.execute(
+            "SELECT snapshot FROM joysafeter_agent_versions WHERE id = %s",
+            (agent_version_id,),
+        ).fetchone()[0]
+        session_snapshot = connection.execute(
+            "SELECT agent_snapshot FROM joysafeter_sessions WHERE id = %s",
+            (session_id,),
+        ).fetchone()[0]
+        credential_types = dict(
+            connection.execute(
+                """
+                SELECT id, credential_type
+                FROM joysafeter_credentials
+                WHERE id IN (%s, %s)
+                """,
+                (bearer_credential_id, oauth_credential_id),
+            ).fetchall()
+        )
+
+    assert agent_servers == [
+        {
+            "type": "streamable_http",
+            "name": "remote",
+            "url": "https://mcp.example.test/rpc",
+            "auth_requirement": "optional",
+        },
+        {"type": "local_stdio", "name": "local", "command": "node"},
+    ]
+    assert environment_config == {
+        "networking": {
+            "type": "limited",
+            "allowed_hosts": ["mcp.example.test"],
+        }
+    }
+    assert version_snapshot["mcp_servers"][0]["type"] == "streamable_http"
+    assert version_snapshot["mcp_servers"][0]["auth_requirement"] == "optional"
+    assert version_snapshot["environment"]["config"] == {"networking": {"type": "unrestricted"}}
+    assert session_snapshot["mcp_servers"][0]["type"] == "streamable_http"
+    assert session_snapshot["mcp_servers"][0]["auth_requirement"] == "optional"
+    assert credential_types == {
+        bearer_credential_id: "static_bearer",
+        oauth_credential_id: "oauth",
+    }
+
+
+def test_mcp_contract_cutover_rejects_unknown_transport_atomically(
+    migration_database: MigrationDatabase,
+) -> None:
+    previous_revision = "20260823_000005"
+    result = _upgrade_to(migration_database, previous_revision)
+    assert result.returncode == 0, result.stderr
+
+    valid_agent_id = UUID(int=1)
+    invalid_agent_id = UUID(int=2)
+    with _connect(migration_database) as connection:
+        _seed_project(connection)
+        for agent_id, name, transport in (
+            (valid_agent_id, "valid-before-invalid", "url"),
+            (invalid_agent_id, "invalid-transport", "websocket"),
+        ):
+            connection.execute(
+                """
+                INSERT INTO joysafeter_agents
+                    (id, project_id, name, engine_kind, env, mcp_servers, skills, tools,
+                     agents, commands, permission_mode, metadata, version)
+                VALUES
+                    (%s, %s, %s, 'codex', '{}'::jsonb, %s, '[]'::jsonb,
+                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'default', '{}'::jsonb, 1)
+                """,
+                (
+                    agent_id,
+                    PROJECT_ID,
+                    name,
+                    Jsonb(
+                        [
+                            {
+                                "type": transport,
+                                "name": name,
+                                "url": "https://mcp.example.test/rpc",
+                            }
+                        ]
+                    ),
+                ),
+            )
+        connection.commit()
+
+    result = _upgrade_head(migration_database)
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "unsupported MCP transport: 'websocket'" in output
+
+    with _connect(migration_database) as connection:
+        revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        valid_servers = connection.execute(
+            "SELECT mcp_servers FROM joysafeter_agents WHERE id = %s",
+            (valid_agent_id,),
+        ).fetchone()[0]
+
+    assert revision == previous_revision
+    assert valid_servers[0]["type"] == "url"
 
 
 def test_migrated_schema_matches_application_owned_metadata(

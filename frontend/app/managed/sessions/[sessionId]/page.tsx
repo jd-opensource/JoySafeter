@@ -42,6 +42,7 @@ import {
 import { apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { shortEntityId } from '@/lib/managed/id'
+import { mcpServerEndpointLabel } from '@/lib/managed/mcp-config'
 import { generateUUID } from '@/lib/utils/uuid'
 import {
   hasManagedRequestScope,
@@ -1912,7 +1913,11 @@ function DrawerToolCard({ tool, mcpServers }: { tool: AgentTool; mcpServers?: Mc
           </div>
           <div>
             <div className="text-sm font-medium">{tool.mcp_server_name}</div>
-            {server && <div className="font-mono text-xs text-muted-foreground">{server.url}</div>}
+            {server && (
+              <div className="font-mono text-xs text-muted-foreground">
+                {mcpServerEndpointLabel(server)}
+              </div>
+            )}
           </div>
         </div>
         {(configs.length > 0 || defaultPolicy) && (
@@ -2125,16 +2130,6 @@ function EnvDrawer({
                   {t('managed.sessions.type')}
                 </span>
                 <span className="capitalize text-foreground">{networking?.type || 'limited'}</span>
-              </div>
-              <div className="flex items-center text-sm">
-                <span className="w-28 shrink-0 text-muted-foreground">
-                  {t('managed.sessions.mcpAccess')}
-                </span>
-                <span className="text-foreground">
-                  {networking?.allow_mcp_servers
-                    ? t('managed.sessions.enabled')
-                    : t('managed.sessions.disabled')}
-                </span>
               </div>
               {networking?.allowed_hosts && networking.allowed_hosts.length > 0 && (
                 <div className="flex items-start text-sm">

@@ -131,7 +131,7 @@ pub trait SandboxProvider: Send + Sync {
         _sandbox_id: uuid::Uuid,
         networking: &Networking,
     ) -> Result<(), SandboxError> {
-        if networking.net_type == "limited" {
+        if networking.network_type == "limited" {
             return Err(SandboxError::Provider(format!(
                 "Provider '{}' does not support limited networking",
                 self.provider_name()

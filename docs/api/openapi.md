@@ -55,7 +55,7 @@ All paths are under `/api/v1`.
 | **Environments** | `/environments` | Sandbox image/config CRUD |
 | **LLM Catalog** | `/llm/catalog` | Engine capabilities, Protocol definitions, Provider bindings, Credential Profiles |
 | **Secrets** | `/secrets` | LLM model configurations and generic secrets, AES-256-GCM encrypted |
-| **Vaults** | `/vaults` | MCP-server credentials + OAuth config |
+| **Credential groups** | `/credential-groups` | MCP server credential groups and closed header-auth schemes |
 | **Skills** | `/skills` | CRUD, `import-zip`, files, versions, security-scans, lifecycle transitions, admin `rescan-all` |
 | **Skills AI authoring** | `/skills/ai-authoring` | **SSE** `/chat` (LLM authoring turn), `/save-draft` |
 | **Sandboxes** | `/sandboxes` | list, get, stop |

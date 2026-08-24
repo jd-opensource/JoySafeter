@@ -529,7 +529,14 @@ async def test_group_member_mutation_cannot_cross_session_snapshot_boundary(
     agent = await _agent(
         db_session,
         project_id,
-        mcp_servers=[{"type": "url", "name": "linearized", "url": server_url}],
+        mcp_servers=[
+            {
+                "type": "streamable_http",
+                "name": "linearized",
+                "url": server_url,
+                "auth_requirement": "optional",
+            }
+        ],
     )
     group = await _group(db_session, project_id)
     engine = create_async_engine(postgres_url, poolclass=NullPool)

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ids::SandboxId;
 use crate::sandbox::file_injection::{FileToInject, InjectionStrategy};
@@ -6,6 +6,8 @@ use crate::sandbox::lds_backend::SandboxCredentials;
 use crate::sandbox::mounts::SandboxMount;
 use async_trait::async_trait;
 use sqlx::PgPool;
+
+use crate::kernel::xds_authority::XdsAuthorityGuard;
 
 /// Status of a sandbox container.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,6 +143,26 @@ pub trait SandboxProvider: Send + Sync + 'static {
     /// Daytona/E2B: no-op or platform health check.
     async fn on_startup(&self, _pool: &PgPool) -> anyhow::Result<()> {
         Ok(())
+    }
+
+    /// Rebuild provider-local networking state from PostgreSQL after this
+    /// replica becomes the active xDS authority.
+    async fn recover_networking(
+        &self,
+        _pool: &PgPool,
+        _authority: &XdsAuthorityGuard,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Remove provider-local networking state for sandboxes that are no longer
+    /// live according to PostgreSQL. Implementations must not republish or
+    /// otherwise disturb entries present in `live_sandbox_ids`.
+    async fn prune_networking(
+        &self,
+        _live_sandbox_ids: &HashSet<SandboxId>,
+    ) -> anyhow::Result<usize> {
+        Ok(0)
     }
 
     /// Called on graceful orchestrator shutdown.

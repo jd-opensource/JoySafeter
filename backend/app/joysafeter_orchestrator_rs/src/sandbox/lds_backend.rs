@@ -19,7 +19,7 @@
 //! of the Listener config differs. Runner gRPC control-plane traffic bypasses
 //! Envoy and connects directly to the orchestrator's Unix socket.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,7 +30,6 @@ use futures::Stream;
 use prost::Message;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
 use tokio::sync::{watch, Mutex};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
@@ -223,6 +222,9 @@ pub struct EgressCredentialRoute {
     pub upstream_tls: bool,
     /// Name of the per-upstream STRICT_DNS cluster to route to.
     pub cluster_name: String,
+    /// Activation-time DNS results. Non-empty values force a static cluster so
+    /// Envoy cannot independently re-resolve a different destination.
+    pub vetted_addresses: Vec<String>,
     /// Headers to inject (real secret). Overwrites any client-provided value.
     pub inject_headers: Vec<(String, String)>,
     /// Headers to remove before injection. This prevents sandbox-supplied auth
@@ -249,6 +251,7 @@ impl std::fmt::Debug for EgressCredentialRoute {
             .field("upstream_prefix", &self.upstream_prefix)
             .field("upstream_tls", &self.upstream_tls)
             .field("cluster_name", &self.cluster_name)
+            .field("vetted_addresses", &self.vetted_addresses)
             .field("inject_header_names", &inject_header_names)
             .field("inject_header_values", &"<redacted>")
             .field("remove_headers", &self.remove_headers)
@@ -256,9 +259,9 @@ impl std::fmt::Debug for EgressCredentialRoute {
     }
 }
 
-/// A per-upstream STRICT_DNS cluster spec, delivered via CDS. One per unique
-/// real upstream host so credential routes can `host_rewrite` + forward with the
-/// correct TLS SNI. The sandbox never sees this — it only knows the placeholder.
+/// A per-upstream cluster spec delivered via CDS. MCP routes carry vetted IPs
+/// and render as STATIC clusters; legacy callers without pinned addresses keep
+/// using the existing DNS behavior.
 #[derive(Debug, Clone)]
 pub struct ClusterSpec {
     /// Cluster name referenced by [`EgressCredentialRoute::cluster_name`].
@@ -269,6 +272,9 @@ pub struct ClusterSpec {
     pub upstream_port: u16,
     /// Whether to TLS-originate to the upstream.
     pub upstream_tls: bool,
+    /// Activation-time DNS answers. Non-empty means Envoy must use STATIC
+    /// endpoints and must not resolve `upstream_host` itself.
+    pub vetted_addresses: Vec<String>,
 }
 
 /// Placeholder host the sandbox uses for LLM API calls.
@@ -309,6 +315,7 @@ pub fn upstream_cluster_name(
     sandbox_id: &SandboxId,
     upstream_host: &str,
     upstream_port: u16,
+    upstream_tls: bool,
 ) -> String {
     // Envoy cluster names must be simple; sanitise host to alnum/_/-.
     let safe: String = upstream_host
@@ -321,7 +328,11 @@ pub fn upstream_cluster_name(
             }
         })
         .collect();
-    format!("up_{}_{safe}_{upstream_port}", sandbox_id.as_uuid())
+    let scheme = if upstream_tls { "tls" } else { "plain" };
+    format!(
+        "up_{}_{safe}_{upstream_port}_{scheme}",
+        sandbox_id.as_uuid()
+    )
 }
 
 /// Unified egress policy for one sandbox. This is the Envoy-facing abstraction:
@@ -355,20 +366,36 @@ impl SandboxEgressPolicy {
     }
 
     pub fn clusters(&self, _sandbox_id: &SandboxId) -> Vec<ClusterSpec> {
-        // No per-sandbox clusters needed — all credential-injection routes point
-        // to the shared dynamic_forward_proxy / dynamic_forward_proxy_tls clusters.
-        Vec::new()
+        let mut clusters = std::collections::BTreeMap::new();
+        for route in &self.credential_routes {
+            if route.vetted_addresses.is_empty() {
+                continue;
+            }
+            clusters
+                .entry(route.cluster_name.clone())
+                .or_insert_with(|| ClusterSpec {
+                    name: route.cluster_name.clone(),
+                    upstream_host: route.upstream_host.clone(),
+                    upstream_port: route.upstream_port,
+                    upstream_tls: route.upstream_tls,
+                    vetted_addresses: route.vetted_addresses.clone(),
+                });
+        }
+        clusters.into_values().collect()
     }
 }
 
 pub fn validate_egress_policy(
-    _sandbox_id: &SandboxId,
+    sandbox_id: &SandboxId,
     policy: &SandboxEgressPolicy,
 ) -> anyhow::Result<()> {
     let mut route_ids = std::collections::HashSet::new();
-    // All credential-injection routes use the shared dynamic_forward_proxy
-    // clusters (TLS or plain); no per-sandbox clusters to validate against.
     const SHARED_CLUSTERS: &[&str] = &["dynamic_forward_proxy", "dynamic_forward_proxy_tls"];
+    let pinned_clusters = policy
+        .clusters(sandbox_id)
+        .into_iter()
+        .map(|cluster| cluster.name)
+        .collect::<std::collections::HashSet<_>>();
 
     for host in &policy.allowlist_hosts {
         validate_route_host(host)
@@ -393,13 +420,20 @@ pub fn validate_egress_policy(
                 route.upstream_prefix
             )
         })?;
-        if route.cluster_name.is_empty() || !SHARED_CLUSTERS.contains(&route.cluster_name.as_str())
+        if route.cluster_name.is_empty()
+            || (!SHARED_CLUSTERS.contains(&route.cluster_name.as_str())
+                && !pinned_clusters.contains(&route.cluster_name))
         {
             anyhow::bail!(
                 "egress route {} references unknown cluster {}",
                 route.id,
                 route.cluster_name
             );
+        }
+        for address in &route.vetted_addresses {
+            address.parse::<std::net::IpAddr>().map_err(|_| {
+                anyhow::anyhow!("invalid vetted address {address} on route {}", route.id)
+            })?;
         }
         for (header, _) in &route.inject_headers {
             validate_header_name(header).map_err(|e| {
@@ -479,6 +513,7 @@ pub fn egress_policy_summary(sandbox_id: &SandboxId, policy: &SandboxEgressPolic
                 "upstream_prefix": route.upstream_prefix,
                 "upstream_tls": route.upstream_tls,
                 "cluster_name": route.cluster_name,
+                "vetted_addresses": route.vetted_addresses,
                 "inject_headers": inject_headers,
                 "remove_headers": route.remove_headers,
             })
@@ -493,6 +528,7 @@ pub fn egress_policy_summary(sandbox_id: &SandboxId, policy: &SandboxEgressPolic
                 "upstream_host": cluster.upstream_host,
                 "upstream_port": cluster.upstream_port,
                 "upstream_tls": cluster.upstream_tls,
+                "vetted_addresses": cluster.vetted_addresses,
             })
         })
         .collect();
@@ -551,17 +587,23 @@ impl SandboxCredentials {
         }
     }
 
-    /// Flatten into credential routes, filling each route's `cluster_name` to
-    /// point at the shared dynamic_forward_proxy cluster (TLS or plain) based on
-    /// the route's `upstream_tls`. No per-sandbox clusters are created; the DFP
-    /// cluster resolves DNS on-demand from the `host_rewrite_literal` target.
-    pub fn to_routes(&self, _sandbox_id: &SandboxId) -> Vec<EgressCredentialRoute> {
+    /// Flatten into credential routes. Routes with activation-vetted addresses
+    /// receive a sandbox-scoped static cluster; other credential families keep
+    /// the shared dynamic-forward-proxy clusters.
+    pub fn to_routes(&self, sandbox_id: &SandboxId) -> Vec<EgressCredentialRoute> {
         self.routes
             .iter()
             .map(|r| {
                 let mut route = r.clone();
                 if route.cluster_name.is_empty() {
-                    route.cluster_name = if route.upstream_tls {
+                    route.cluster_name = if !route.vetted_addresses.is_empty() {
+                        upstream_cluster_name(
+                            sandbox_id,
+                            &route.upstream_host,
+                            route.upstream_port,
+                            route.upstream_tls,
+                        )
+                    } else if route.upstream_tls {
                         "dynamic_forward_proxy_tls".to_string()
                     } else {
                         "dynamic_forward_proxy".to_string()
@@ -647,6 +689,14 @@ fn route_prefix_rewrite(r: &EgressCredentialRoute) -> String {
     }
 }
 
+fn upstream_authority(host: &str, port: u16, tls: bool) -> String {
+    if (tls && port == 443) || (!tls && port == 80) {
+        host.to_string()
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
 fn auth_headers_to_remove(inject_headers: &[(String, String)]) -> Vec<String> {
     CREDENTIAL_AUTH_HEADERS
         .iter()
@@ -691,6 +741,8 @@ pub trait LdsBackend: Send + Sync {
     async fn remove(&self, names: Vec<String>) -> anyhow::Result<()>;
     /// Replace the entire set (used for init and gRPC re-sync on reconnect).
     async fn replace_all(&self, specs: Vec<ListenerSpec>) -> anyhow::Result<()>;
+    /// Return the sandbox IDs currently represented in this backend.
+    async fn configured_sandbox_ids(&self) -> HashSet<SandboxId>;
     /// Wait until Envoy accepts the sandbox's listener resources.
     /// Filesystem LDS has no ACK channel, so its default is successful after write.
     async fn wait_for_sandbox_ack(
@@ -784,6 +836,15 @@ impl LdsBackend for FilesystemLds {
         }
         self.write_lds(&listeners).await
     }
+
+    async fn configured_sandbox_ids(&self) -> HashSet<SandboxId> {
+        self.listeners
+            .lock()
+            .await
+            .keys()
+            .filter_map(|name| sandbox_id_from_xds_resource(name))
+            .collect()
+    }
 }
 
 // ===========================================================================
@@ -873,44 +934,52 @@ impl CdsBackend for FilesystemCds {
     }
 }
 
-/// Render a [`ClusterSpec`] to canonical Envoy Cluster JSON: a LOGICAL_DNS
-/// cluster with one endpoint at the real upstream host:port, plus a TLS
-/// transport socket (auto-SNI + system CA trust) when the upstream is HTTPS.
-///
-/// LOGICAL_DNS (vs STRICT_DNS) is chosen because each credential-injection
-/// upstream has exactly one endpoint. LOGICAL_DNS only resolves on new
-/// connections and retains the last-good IP on transient DNS failures, which
-/// eliminates the "no healthy upstream" 503 window that STRICT_DNS produces
-/// when DNS briefly fails (it clears the endpoint list entirely).
+/// Render a [`ClusterSpec`] to canonical Envoy Cluster JSON. Vetted addresses
+/// use a STATIC cluster; an empty address list retains the legacy LOGICAL_DNS
+/// behavior for non-MCP callers.
 fn render_cluster_json(spec: &ClusterSpec) -> Value {
+    let endpoint_hosts = if spec.vetted_addresses.is_empty() {
+        vec![spec.upstream_host.clone()]
+    } else {
+        spec.vetted_addresses.clone()
+    };
+    let lb_endpoints = endpoint_hosts
+        .into_iter()
+        .map(|address| {
+            json!({
+                "endpoint": {
+                    "address": {
+                        "socket_address": {
+                            "address": address,
+                            "port_value": spec.upstream_port
+                        }
+                    }
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let static_cluster = !spec.vetted_addresses.is_empty();
     let mut cluster = json!({
         "@type": CLUSTER_TYPE_URL,
         "name": spec.name,
         "connect_timeout": "10s",
-        "type": "LOGICAL_DNS",
+        "type": if static_cluster { "STATIC" } else { "LOGICAL_DNS" },
         "lb_policy": "ROUND_ROBIN",
-        "dns_lookup_family": "V4_ONLY",
-        "dns_refresh_rate": "2s",
-        "dns_failure_refresh_rate": {
-            "base_interval": "0.5s",
-            "max_interval": "2s"
-        },
         "load_assignment": {
             "cluster_name": spec.name,
             "endpoints": [{
-                "lb_endpoints": [{
-                    "endpoint": {
-                        "address": {
-                            "socket_address": {
-                                "address": spec.upstream_host,
-                                "port_value": spec.upstream_port
-                            }
-                        }
-                    }
-                }]
+                "lb_endpoints": lb_endpoints
             }]
         }
     });
+    if !static_cluster {
+        cluster["dns_lookup_family"] = json!("V4_ONLY");
+        cluster["dns_refresh_rate"] = json!("2s");
+        cluster["dns_failure_refresh_rate"] = json!({
+            "base_interval": "0.5s",
+            "max_interval": "2s"
+        });
+    }
     if spec.upstream_tls {
         cluster["transport_socket"] = json!({
             "name": "envoy.transport_sockets.tls",
@@ -1088,7 +1157,11 @@ fn build_virtual_hosts_json(
                 } else if r.exact_path {
                     json!({
                         "cluster": r.cluster_name,
-                        "host_rewrite_literal": r.upstream_host,
+                        "host_rewrite_literal": upstream_authority(
+                            &r.upstream_host,
+                            r.upstream_port,
+                            r.upstream_tls,
+                        ),
                         "timeout": "0s",
                         "retry_policy": {
                             "retry_on": "5xx,reset,connect-failure",
@@ -1098,7 +1171,11 @@ fn build_virtual_hosts_json(
                 } else {
                     json!({
                         "cluster": r.cluster_name,
-                        "host_rewrite_literal": r.upstream_host,
+                        "host_rewrite_literal": upstream_authority(
+                            &r.upstream_host,
+                            r.upstream_port,
+                            r.upstream_tls,
+                        ),
                         "prefix_rewrite": prefix_rewrite,
                         "timeout": "0s",
                         "retry_policy": {
@@ -1482,9 +1559,9 @@ pub struct DeltaXdsServer {
     state: Arc<Mutex<XdsState>>,
     /// Bumped on every state change to wake the active Delta stream.
     notify: watch::Sender<u64>,
-    /// Optional DB handle attached on orchestrator startup for ACK/NACK status
-    /// persistence. Kept optional so unit tests and filesystem mode do not need a DB.
-    db_pool: Arc<Mutex<Option<PgPool>>>,
+    /// Whether this process may serve ADS. Standalone starts enabled; K8s
+    /// multi-replica coordination disables it until authority recovery finishes.
+    serving: watch::Sender<bool>,
     apply_status: Arc<Mutex<HashMap<SandboxId, XdsApplyStatus>>>,
     status_notify: watch::Sender<u64>,
     /// Node-aware filtering: maps sandbox_id → node_name. Used by stream tasks
@@ -1502,11 +1579,12 @@ pub struct DeltaXdsServer {
 impl DeltaXdsServer {
     pub fn new() -> Arc<Self> {
         let (notify, _rx) = watch::channel(0u64);
+        let (serving, _serving_rx) = watch::channel(true);
         let (status_notify, _status_rx) = watch::channel(0u64);
         Arc::new(Self {
             state: Arc::new(Mutex::new(XdsState::new())),
             notify,
-            db_pool: Arc::new(Mutex::new(None)),
+            serving,
             apply_status: Arc::new(Mutex::new(HashMap::new())),
             status_notify,
             sandbox_nodes: Arc::new(dashmap::DashMap::new()),
@@ -1514,8 +1592,15 @@ impl DeltaXdsServer {
         })
     }
 
-    pub async fn attach_db_pool(&self, pool: PgPool) {
-        *self.db_pool.lock().await = Some(pool);
+    /// Enable or disable ADS serving. Disabling wakes every active stream so a
+    /// former authority cannot retain long-lived Envoy connections after its
+    /// leader-only Service endpoint is removed.
+    pub fn set_serving(&self, serving: bool) {
+        self.serving.send_replace(serving);
+    }
+
+    pub fn is_serving(&self) -> bool {
+        *self.serving.borrow()
     }
 
     /// Register which K8s node a sandbox is running on. Stream tasks use this
@@ -1534,7 +1619,7 @@ impl DeltaXdsServer {
         // cache lag) must trigger delivery to the correct node's Envoy now.
         if changed {
             let next = *self.notify.borrow() + 1;
-            let _ = self.notify.send(next);
+            self.notify.send_replace(next);
         }
     }
 
@@ -1634,7 +1719,6 @@ impl DeltaXdsServer {
             let remove_count = st.change_log.len() - XDS_CHANGE_LOG_LIMIT;
             st.change_log.drain(..remove_count);
         }
-        drop(st);
         if !pending_sandboxes.is_empty() {
             let mut statuses = self.apply_status.lock().await;
             for sandbox_id in pending_sandboxes {
@@ -1651,9 +1735,14 @@ impl DeltaXdsServer {
             let next_status_version = *self.status_notify.borrow() + 1;
             let _ = self.status_notify.send(next_status_version);
         }
-        // Ignore send error: no receiver means no Envoy connected yet; the
-        // change is already recorded and delivered as initial state on connect.
-        let _ = self.notify.send(version);
+        // Keep the resource-state lock until pending status is recorded. A new
+        // ADS stream can otherwise snapshot and ACK this version in between the
+        // two writes, causing the ACK to be ignored before Pending is installed.
+        drop(st);
+        // Retain the latest version even with no connected Envoy. A reconnecting
+        // stream uses this watch value to version its initial snapshots, so
+        // `send` would lose the version when the last receiver disconnects.
+        self.notify.send_replace(version);
         version
     }
 }
@@ -1708,6 +1797,17 @@ impl LdsBackend for GrpcLds {
             .apply(LISTENER_TYPE_URL, changes, pending_sandboxes)
             .await;
         Ok(())
+    }
+
+    async fn configured_sandbox_ids(&self) -> HashSet<SandboxId> {
+        self.server
+            .state
+            .lock()
+            .await
+            .snapshot_type(LISTENER_TYPE_URL)
+            .keys()
+            .filter_map(|name| sandbox_id_from_xds_resource(name))
+            .collect()
     }
 
     async fn wait_for_sandbox_ack(
@@ -1924,6 +2024,10 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
         &self,
         request: Request<Streaming<DeltaDiscoveryRequest>>,
     ) -> Result<Response<Self::DeltaAggregatedResourcesStream>, Status> {
+        let mut serving_rx = self.serving.subscribe();
+        if !*serving_rx.borrow_and_update() {
+            return Err(Status::unavailable("xDS authority is not ready"));
+        }
         // NOTE: this is a `&self` method, but the response stream must outlive
         // the call. The service is registered via `from_arc`, and we snapshot the
         // shared state through a cloned `Arc<Mutex<..>>` handle so the spawned
@@ -1962,6 +2066,13 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
 
             loop {
                 tokio::select! {
+                    biased;
+                    changed = serving_rx.changed() => {
+                        if changed.is_err() || !*serving_rx.borrow_and_update() {
+                            debug!("xDS authority revoked; closing ADS stream");
+                            break;
+                        }
+                    }
                     // Drain ACK/NACK and subscription messages. For Delta ADS we
                     // only send a resource type after Envoy subscribes to it.
                     msg = inbound.message() => {
@@ -1982,9 +2093,9 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                                         .unwrap_or_default();
                                     if let Some(err) = &req.error_detail {
                                         warn!(code = err.code, message = %err.message, nonce = %req.response_nonce, "Envoy NACK'd xDS update");
-                                        xds_status_handle.persist_nack(resources, acked_version, err.message.clone()).await;
+                                        xds_status_handle.record_nack(resources, acked_version, err.message.clone()).await;
                                     } else if acked_type_url == LISTENER_TYPE_URL {
-                                        xds_status_handle.persist_ack(resources, acked_version).await;
+                                        xds_status_handle.record_ack(resources, acked_version).await;
                                     }
                                 }
                                 if TYPES.contains(&req.type_url.as_str()) && subscribed.insert(req.type_url.clone()) {
@@ -2118,17 +2229,16 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
 }
 
 struct XdsStatusHandle {
-    db_pool: Arc<Mutex<Option<PgPool>>>,
     apply_status: Arc<Mutex<HashMap<SandboxId, XdsApplyStatus>>>,
     status_notify: watch::Sender<u64>,
 }
 
 impl XdsStatusHandle {
-    async fn persist_ack(&self, resources: Vec<String>, acked_version: u64) {
+    async fn record_ack(&self, resources: Vec<String>, acked_version: u64) {
         let sandbox_ids = sandbox_ids_from_xds_resources(&resources);
-        let mut acked_sandboxes = Vec::new();
         if !sandbox_ids.is_empty() {
             let mut statuses = self.apply_status.lock().await;
+            let mut changed = false;
             for sandbox_id in &sandbox_ids {
                 let should_ack = match statuses.get(sandbox_id) {
                     Some(XdsApplyStatus::Pending { min_version }) => acked_version >= *min_version,
@@ -2137,31 +2247,21 @@ impl XdsStatusHandle {
                 };
                 if should_ack {
                     statuses.insert(*sandbox_id, XdsApplyStatus::Acked);
-                    acked_sandboxes.push(*sandbox_id);
+                    changed = true;
                 }
             }
-            if !acked_sandboxes.is_empty() {
+            if changed {
                 let next_status_version = *self.status_notify.borrow() + 1;
                 let _ = self.status_notify.send(next_status_version);
             }
         }
-        let Some(pool) = self.db_pool.lock().await.clone() else {
-            return;
-        };
-        for sandbox_id in acked_sandboxes {
-            if let Err(e) =
-                crate::db::queries::mark_sandbox_network_policy_acked(&pool, sandbox_id).await
-            {
-                warn!(sandbox_id = %sandbox_id, error = %e, "Failed to persist xDS ACK status");
-            }
-        }
     }
 
-    async fn persist_nack(&self, resources: Vec<String>, nacked_version: u64, reason: String) {
+    async fn record_nack(&self, resources: Vec<String>, nacked_version: u64, reason: String) {
         let sandbox_ids = sandbox_ids_from_xds_resources(&resources);
-        let mut nacked_sandboxes = Vec::new();
         if !sandbox_ids.is_empty() {
             let mut statuses = self.apply_status.lock().await;
+            let mut changed = false;
             for sandbox_id in &sandbox_ids {
                 let should_nack = match statuses.get(sandbox_id) {
                     Some(XdsApplyStatus::Pending { min_version }) => nacked_version >= *min_version,
@@ -2169,22 +2269,12 @@ impl XdsStatusHandle {
                 };
                 if should_nack {
                     statuses.insert(*sandbox_id, XdsApplyStatus::Nacked(reason.clone()));
-                    nacked_sandboxes.push(*sandbox_id);
+                    changed = true;
                 }
             }
-            if !nacked_sandboxes.is_empty() {
+            if changed {
                 let next_status_version = *self.status_notify.borrow() + 1;
                 let _ = self.status_notify.send(next_status_version);
-            }
-        }
-        let Some(pool) = self.db_pool.lock().await.clone() else {
-            return;
-        };
-        for sandbox_id in nacked_sandboxes {
-            if let Err(e) =
-                crate::db::queries::record_network_policy_failure(&pool, sandbox_id, &reason).await
-            {
-                warn!(sandbox_id = %sandbox_id, error = %e, "Failed to persist xDS NACK status");
             }
         }
     }
@@ -2308,7 +2398,6 @@ impl DeltaXdsServer {
 
     fn status_handle(&self) -> XdsStatusHandle {
         XdsStatusHandle {
-            db_pool: self.db_pool.clone(),
             apply_status: self.apply_status.clone(),
             status_notify: self.status_notify.clone(),
         }
@@ -2364,7 +2453,7 @@ fn encode_listener_any(spec: &ListenerSpec) -> anyhow::Result<Any> {
 }
 
 /// Encode a [`ClusterSpec`] into a `google.protobuf.Any` wrapping a typed Envoy
-/// STRICT_DNS Cluster (with optional upstream TLS), for Delta CDS delivery.
+/// Cluster, preserving the same STATIC-vs-LOGICAL_DNS decision as JSON mode.
 fn encode_cluster_any(spec: &ClusterSpec) -> anyhow::Result<Any> {
     use envoy_types::pb::envoy::config::cluster::v3::{cluster, Cluster};
     use envoy_types::pb::envoy::config::core::v3::{
@@ -2374,21 +2463,30 @@ fn encode_cluster_any(spec: &ClusterSpec) -> anyhow::Result<Any> {
         lb_endpoint, ClusterLoadAssignment, Endpoint, LbEndpoint, LocalityLbEndpoints,
     };
 
-    let endpoint = LbEndpoint {
-        host_identifier: Some(lb_endpoint::HostIdentifier::Endpoint(Endpoint {
-            address: Some(Address {
-                address: Some(address::Address::SocketAddress(SocketAddress {
-                    address: spec.upstream_host.clone(),
-                    port_specifier: Some(socket_address::PortSpecifier::PortValue(
-                        spec.upstream_port as u32,
-                    )),
-                    ..Default::default()
-                })),
-            }),
-            ..Default::default()
-        })),
-        ..Default::default()
+    let endpoint_hosts = if spec.vetted_addresses.is_empty() {
+        vec![spec.upstream_host.clone()]
+    } else {
+        spec.vetted_addresses.clone()
     };
+    let endpoints = endpoint_hosts
+        .into_iter()
+        .map(|address_value| LbEndpoint {
+            host_identifier: Some(lb_endpoint::HostIdentifier::Endpoint(Endpoint {
+                address: Some(Address {
+                    address: Some(address::Address::SocketAddress(SocketAddress {
+                        address: address_value,
+                        port_specifier: Some(socket_address::PortSpecifier::PortValue(
+                            spec.upstream_port as u32,
+                        )),
+                        ..Default::default()
+                    })),
+                }),
+                ..Default::default()
+            })),
+            ..Default::default()
+        })
+        .collect();
+    let static_cluster = !spec.vetted_addresses.is_empty();
 
     let mut cl = Cluster {
         name: spec.name.clone(),
@@ -2396,21 +2494,21 @@ fn encode_cluster_any(spec: &ClusterSpec) -> anyhow::Result<Any> {
             seconds: 10,
             nanos: 0,
         }),
-        cluster_discovery_type: Some(cluster::ClusterDiscoveryType::Type(
-            cluster::DiscoveryType::LogicalDns as i32,
-        )),
-        // Accelerate DNS refresh so a freshly-created cluster resolves within
-        // ~0.5-2s (vs the default ~5.3s). dns_failure_refresh_rate specifically
-        // handles the case where the first DNS lookup fails — without it,
-        // LOGICAL_DNS would wait a full dns_refresh_rate cycle before retrying.
-        dns_refresh_rate: Some(envoy_types::pb::google::protobuf::Duration {
-            seconds: 2,
-            nanos: 0,
-        }),
-        dns_failure_refresh_rate: Some(cluster::RefreshRate {
+        cluster_discovery_type: Some(cluster::ClusterDiscoveryType::Type(if static_cluster {
+            cluster::DiscoveryType::Static as i32
+        } else {
+            cluster::DiscoveryType::LogicalDns as i32
+        })),
+        dns_refresh_rate: (!static_cluster).then_some(
+            envoy_types::pb::google::protobuf::Duration {
+                seconds: 2,
+                nanos: 0,
+            },
+        ),
+        dns_failure_refresh_rate: (!static_cluster).then_some(cluster::RefreshRate {
             base_interval: Some(envoy_types::pb::google::protobuf::Duration {
                 seconds: 0,
-                nanos: 500_000_000, // 0.5s
+                nanos: 500_000_000,
             }),
             max_interval: Some(envoy_types::pb::google::protobuf::Duration {
                 seconds: 2,
@@ -2420,7 +2518,7 @@ fn encode_cluster_any(spec: &ClusterSpec) -> anyhow::Result<Any> {
         load_assignment: Some(ClusterLoadAssignment {
             cluster_name: spec.name.clone(),
             endpoints: vec![LocalityLbEndpoints {
-                lb_endpoints: vec![endpoint],
+                lb_endpoints: endpoints,
                 ..Default::default()
             }],
             ..Default::default()
@@ -2667,7 +2765,7 @@ fn build_virtual_hosts_proto(
                     None
                 } else {
                     Some(route_action::HostRewriteSpecifier::HostRewriteLiteral(
-                        r.upstream_host.clone(),
+                        upstream_authority(&r.upstream_host, r.upstream_port, r.upstream_tls),
                     ))
                 };
                 Route {
@@ -2867,7 +2965,70 @@ async fn write_config_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use envoy_types::pb::envoy::service::discovery::v3::{
+        aggregated_discovery_service_client::AggregatedDiscoveryServiceClient,
+        aggregated_discovery_service_server::AggregatedDiscoveryServiceServer,
+    };
     use prost::Message;
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+    use tokio_stream::wrappers::{ReceiverStream, TcpListenerStream};
+    use tonic::transport::Server;
+
+    #[tokio::test]
+    async fn standby_rejects_new_ads_and_revocation_closes_existing_streams() {
+        let server = DeltaXdsServer::new();
+        server.set_serving(false);
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind xDS test listener");
+        let address = listener.local_addr().expect("read xDS test address");
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let service = server.clone();
+        let server_task = tokio::spawn(async move {
+            Server::builder()
+                .add_service(AggregatedDiscoveryServiceServer::from_arc(service))
+                .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+        });
+
+        let channel = tonic::transport::Endpoint::from_shared(format!("http://{address}"))
+            .expect("build xDS test endpoint")
+            .connect()
+            .await
+            .expect("connect xDS test client");
+        let mut client = AggregatedDiscoveryServiceClient::new(channel);
+        let (_standby_tx, standby_rx) = tokio::sync::mpsc::channel(1);
+        let error = client
+            .delta_aggregated_resources(ReceiverStream::new(standby_rx))
+            .await
+            .expect_err("standby xDS server must reject new ADS streams");
+        assert_eq!(error.code(), tonic::Code::Unavailable);
+
+        server.set_serving(true);
+        let (_active_tx, active_rx) = tokio::sync::mpsc::channel(1);
+        let mut stream = client
+            .delta_aggregated_resources(ReceiverStream::new(active_rx))
+            .await
+            .expect("active xDS server must accept ADS streams")
+            .into_inner();
+
+        server.set_serving(false);
+        let closed = tokio::time::timeout(Duration::from_secs(1), stream.message())
+            .await
+            .expect("revoked ADS stream must close promptly")
+            .expect("revoked ADS stream must close without transport error");
+        assert!(closed.is_none());
+
+        let _ = shutdown_tx.send(());
+        server_task
+            .await
+            .expect("join xDS test server")
+            .expect("stop xDS test server");
+    }
 
     /// Regression: `DeltaXdsServer::apply` must not self-deadlock when it records
     /// pending sandbox status. It previously called
@@ -2907,6 +3068,105 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn stale_ack_is_ignored_until_current_version_is_acked() {
+        let server = DeltaXdsServer::new();
+        let lds = GrpcLds::new(server.clone());
+        let sandbox = SandboxId::from_uuid(Uuid::from_u128(2));
+        let mut listener = spec(ListenerKind::Http, &["example.com"]);
+        listener.sandbox_id = sandbox;
+
+        lds.upsert(vec![listener]).await.unwrap();
+        let min_version = match server.apply_status.lock().await.get(&sandbox).cloned() {
+            Some(XdsApplyStatus::Pending { min_version }) => min_version,
+            other => panic!("expected pending xDS status, got {other:?}"),
+        };
+        let resource = format!("{}_http", sandbox.as_uuid());
+        server
+            .status_handle()
+            .record_ack(vec![resource.clone()], min_version.saturating_sub(1))
+            .await;
+        assert!(matches!(
+            server.apply_status.lock().await.get(&sandbox),
+            Some(XdsApplyStatus::Pending { .. })
+        ));
+
+        server
+            .status_handle()
+            .record_ack(vec![resource], min_version)
+            .await;
+        server
+            .wait_for_sandbox_ack(sandbox, Duration::from_millis(50))
+            .await
+            .expect("current xDS version ACK must release waiter");
+    }
+
+    #[tokio::test]
+    async fn current_nack_is_returned_to_waiter() {
+        let server = DeltaXdsServer::new();
+        let lds = GrpcLds::new(server.clone());
+        let sandbox = SandboxId::from_uuid(Uuid::from_u128(3));
+        let mut listener = spec(ListenerKind::Http, &["example.com"]);
+        listener.sandbox_id = sandbox;
+
+        lds.upsert(vec![listener]).await.unwrap();
+        let min_version = match server.apply_status.lock().await.get(&sandbox).cloned() {
+            Some(XdsApplyStatus::Pending { min_version }) => min_version,
+            other => panic!("expected pending xDS status, got {other:?}"),
+        };
+        server
+            .status_handle()
+            .record_nack(
+                vec![format!("{}_http", sandbox.as_uuid())],
+                min_version,
+                "invalid listener".to_string(),
+            )
+            .await;
+
+        let error = server
+            .wait_for_sandbox_ack(sandbox, Duration::from_millis(50))
+            .await
+            .expect_err("current NACK must reject publication");
+        assert!(error.to_string().contains("invalid listener"));
+    }
+
+    #[tokio::test]
+    async fn pending_xds_generation_times_out_without_ack() {
+        let server = DeltaXdsServer::new();
+        let lds = GrpcLds::new(server.clone());
+        let sandbox = SandboxId::from_uuid(Uuid::from_u128(4));
+        let mut listener = spec(ListenerKind::Http, &["example.com"]);
+        listener.sandbox_id = sandbox;
+
+        lds.upsert(vec![listener]).await.unwrap();
+        let error = server
+            .wait_for_sandbox_ack(sandbox, Duration::from_millis(10))
+            .await
+            .expect_err("missing ACK must time out");
+        assert!(error
+            .to_string()
+            .contains("timed out waiting for Envoy xDS ACK"));
+    }
+
+    #[tokio::test]
+    async fn update_without_connected_stream_retains_version_for_reconnect_snapshot() {
+        let server = DeltaXdsServer::new();
+        let lds = GrpcLds::new(server.clone());
+        let sandbox = SandboxId::from_uuid(Uuid::from_u128(5));
+        let mut listener = spec(ListenerKind::Http, &["example.com"]);
+        listener.sandbox_id = sandbox;
+
+        lds.upsert(vec![listener]).await.unwrap();
+
+        let state_version = server.state.lock().await.version;
+        assert_eq!(state_version, 1);
+        assert_eq!(
+            *server.notify.borrow(),
+            state_version,
+            "a reconnecting stream must snapshot the latest resource version"
+        );
+    }
+
     /// `forget_sandbox` must drop retained ACK/NACK bookkeeping so `apply_status`
     /// stays bounded across a sandbox's lifecycle (create → teardown).
     #[tokio::test]
@@ -2924,6 +3184,27 @@ mod tests {
         assert!(
             !server.apply_status.lock().await.contains_key(&sandbox),
             "apply_status must be cleared on teardown"
+        );
+    }
+
+    #[tokio::test]
+    async fn grpc_lds_reports_configured_sandbox_ids() {
+        let server = DeltaXdsServer::new();
+        let lds = GrpcLds::new(server);
+        let first = SandboxId::from_uuid(Uuid::from_u128(8));
+        let second = SandboxId::from_uuid(Uuid::from_u128(9));
+        let mut first_listener = spec(ListenerKind::Http, &["first.example.com"]);
+        first_listener.sandbox_id = first;
+        let mut second_listener = spec(ListenerKind::Http, &["second.example.com"]);
+        second_listener.sandbox_id = second;
+
+        lds.upsert(vec![first_listener, second_listener])
+            .await
+            .expect("listener upsert");
+
+        assert_eq!(
+            lds.configured_sandbox_ids().await,
+            std::collections::HashSet::from([first, second])
         );
     }
 
@@ -2965,6 +3246,7 @@ mod tests {
                         upstream_host: "old.example.com".to_string(),
                         upstream_port: 443,
                         upstream_tls: true,
+                        vetted_addresses: vec![],
                     })
                     .unwrap(),
                 )],
@@ -2978,6 +3260,7 @@ mod tests {
             upstream_host: "new.example.com".to_string(),
             upstream_port: 443,
             upstream_tls: true,
+            vetted_addresses: vec![],
         }];
         let mut listener = spec(ListenerKind::Http, &["example.com"]);
         listener.sandbox_id = sandbox;
@@ -3046,6 +3329,7 @@ mod tests {
             upstream_prefix: "/v1".to_string(),
             upstream_tls: true,
             cluster_name: "dynamic_forward_proxy_tls".to_string(),
+            vetted_addresses: vec![],
             inject_headers: vec![("authorization".to_string(), "Bearer sk-secret".to_string())],
             remove_headers: vec![],
         }
@@ -3064,6 +3348,7 @@ mod tests {
             upstream_prefix: "/sse".to_string(),
             upstream_tls: true,
             cluster_name: "dynamic_forward_proxy_tls".to_string(),
+            vetted_addresses: vec![],
             inject_headers: vec![("authorization".to_string(), "Bearer tok".to_string())],
             remove_headers: vec![],
         }
@@ -3163,6 +3448,7 @@ mod tests {
                     upstream_prefix: "/v1/".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
+                    vetted_addresses: vec![],
                     inject_headers: vec![("authorization".to_string(), "Bearer sk".to_string())],
                     remove_headers: vec![],
                 },
@@ -3178,6 +3464,7 @@ mod tests {
                     upstream_prefix: "/sse".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
+                    vetted_addresses: vec![],
                     inject_headers: vec![("authorization".to_string(), "Bearer t".to_string())],
                     remove_headers: vec![],
                 },
@@ -3245,6 +3532,7 @@ mod tests {
                     upstream_prefix: "/api/".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
+                    vetted_addresses: vec![],
                     inject_headers: vec![("cookie".to_string(), "SESSION=abc".to_string())],
                     remove_headers: vec!["cookie".to_string()],
                 },
@@ -3260,6 +3548,7 @@ mod tests {
                     upstream_prefix: "/api/".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
+                    vetted_addresses: vec![],
                     inject_headers: vec![("cookie".to_string(), "SESSION=abc".to_string())],
                     remove_headers: vec!["cookie".to_string()],
                 },
@@ -3313,6 +3602,62 @@ mod tests {
     }
 
     #[test]
+    fn pinned_mcp_addresses_produce_static_cluster_with_original_sni() {
+        let sid = SandboxId::from_uuid(Uuid::nil());
+        let mut route = mcp_route("pinned");
+        route.cluster_name.clear();
+        route.vetted_addresses = vec!["203.0.113.10".to_string(), "2001:db8::10".to_string()];
+        let credentials = SandboxCredentials {
+            routes: vec![route],
+            proxy_auth_token: None,
+        };
+
+        let routes = credentials.to_routes(&sid);
+        let clusters = credentials.to_clusters(&sid);
+        let policy = credentials.to_policy(&sid, vec![]);
+
+        assert_eq!(clusters.len(), 1);
+        validate_egress_policy(&sid, &policy).unwrap();
+        assert_eq!(routes[0].cluster_name, clusters[0].name);
+        assert_eq!(clusters[0].upstream_host, "mcp.example.com");
+        assert_eq!(
+            clusters[0].vetted_addresses,
+            vec!["203.0.113.10".to_string(), "2001:db8::10".to_string()]
+        );
+
+        let json = render_cluster_json(&clusters[0]);
+        assert_eq!(json["type"], "STATIC");
+        assert_eq!(
+            json["transport_socket"]["typed_config"]["sni"],
+            "mcp.example.com"
+        );
+        let endpoints = json["load_assignment"]["endpoints"][0]["lb_endpoints"]
+            .as_array()
+            .unwrap();
+        assert_eq!(endpoints.len(), 2);
+        assert_eq!(
+            endpoints[0]["endpoint"]["address"]["socket_address"]["address"],
+            "203.0.113.10"
+        );
+        assert_eq!(
+            endpoints[1]["endpoint"]["address"]["socket_address"]["address"],
+            "2001:db8::10"
+        );
+
+        use envoy_types::pb::envoy::config::cluster::v3::{cluster, Cluster};
+        let encoded = encode_cluster_any(&clusters[0]).unwrap();
+        let decoded = Cluster::decode(encoded.value.as_slice()).unwrap();
+        assert_eq!(
+            decoded.cluster_discovery_type,
+            Some(cluster::ClusterDiscoveryType::Type(
+                cluster::DiscoveryType::Static as i32
+            ))
+        );
+        let proto_endpoints = &decoded.load_assignment.unwrap().endpoints[0].lb_endpoints;
+        assert_eq!(proto_endpoints.len(), 2);
+    }
+
+    #[test]
     fn same_host_multiple_base_paths_share_one_vhost() {
         // Two external services on the same host but different base paths
         // (e.g. crm.example.com/api/ and crm.example.com/auth/). Their
@@ -3331,6 +3676,7 @@ mod tests {
             upstream_prefix: prefix.to_string(),
             upstream_tls: true,
             cluster_name: String::new(),
+            vetted_addresses: vec![],
             inject_headers: vec![("cookie".to_string(), "SESSION=abc".to_string())],
             remove_headers: vec!["cookie".to_string()],
         };
@@ -3390,6 +3736,7 @@ mod tests {
             upstream_prefix: "/api/warning/getWarningDetailById".to_string(),
             upstream_tls: true,
             cluster_name: "dynamic_forward_proxy_tls".to_string(),
+            vetted_addresses: vec![],
             inject_headers: vec![("cookie".to_string(), "SESSION=abc".to_string())],
             remove_headers: vec!["cookie".to_string()],
         };
@@ -3488,6 +3835,39 @@ mod tests {
             .unwrap()
             .starts_with("/mcp/"));
         assert_eq!(mcp_routes[0]["route"]["prefix_rewrite"], "/sse");
+    }
+
+    #[test]
+    fn placeholder_routes_rewrite_the_full_upstream_authority() {
+        use envoy_types::pb::envoy::config::route::v3::{route, route_action};
+
+        for (port, tls, expected) in [
+            (80, false, "mcp.example.com"),
+            (443, true, "mcp.example.com"),
+            (8765, false, "mcp.example.com:8765"),
+            (8443, true, "mcp.example.com:8443"),
+        ] {
+            let mut credential = mcp_route("authority");
+            credential.upstream_port = port;
+            credential.upstream_tls = tls;
+
+            let json_vhosts = build_virtual_hosts_json(&[], &[credential.clone()], None);
+            assert_eq!(
+                json_vhosts[0]["routes"][0]["route"]["host_rewrite_literal"], expected,
+                "JSON authority for port {port}, tls={tls}"
+            );
+
+            let proto_vhosts = build_virtual_hosts_proto(&[], &[credential], None);
+            let action = match proto_vhosts[0].routes[0].action.as_ref() {
+                Some(route::Action::Route(action)) => action,
+                _ => panic!("expected route action"),
+            };
+            assert!(matches!(
+                action.host_rewrite_specifier.as_ref(),
+                Some(route_action::HostRewriteSpecifier::HostRewriteLiteral(authority))
+                    if authority == expected
+            ));
+        }
     }
 
     #[test]
@@ -3623,6 +4003,7 @@ mod tests {
             upstream_prefix: "/v1/".to_string(),
             upstream_tls: true,
             cluster_name: "dynamic_forward_proxy_tls".to_string(),
+            vetted_addresses: vec![],
             exact_path: false,
             inject_headers: vec![("cookie".to_string(), "session=abc%7Cdef%3Dxyz".to_string())],
             remove_headers: vec![],

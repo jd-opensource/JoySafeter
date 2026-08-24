@@ -151,14 +151,16 @@ def validate_url_or_none(
 
 
 def _is_metadata_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Check if an IP is a cloud metadata or link-local address (always dangerous)."""
+    """Check if an IP is always prohibited for outbound requests."""
     if str(ip) in _METADATA_IPS:
         return True
-    # Link-local (169.254.x.x) — metadata range, always block
+    if ip.is_unspecified:
+        return True
     if ip.is_link_local:
         return True
-    # Multicast — no reason to allow outbound requests to multicast
     if ip.is_multicast:
+        return True
+    if isinstance(ip, ipaddress.IPv4Address) and ip == ipaddress.IPv4Address("255.255.255.255"):
         return True
     return False
 
@@ -190,8 +192,20 @@ def validate_url_scheme(url: str | None) -> str | None:
         raise ValueError(f"URL must use http:// or https:// scheme, got '{parsed.scheme}://'")
     if not parsed.hostname:
         raise ValueError("URL must have a valid hostname")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("URL must not contain user information")
+    if parsed.fragment:
+        raise ValueError("URL must not contain a fragment")
+    if parsed.hostname.lower() in _BLOCKED_HOSTNAMES:
+        raise ValueError(f"Blocked hostname: {parsed.hostname}")
     try:
         parsed.port
     except ValueError as exc:
         raise ValueError("URL must have a valid port") from exc
+    try:
+        literal_ip = ipaddress.ip_address(parsed.hostname)
+    except ValueError:
+        literal_ip = None
+    if literal_ip is not None and _is_metadata_ip(literal_ip):
+        raise ValueError(f"URL points to blocked address: {literal_ip}")
     return url

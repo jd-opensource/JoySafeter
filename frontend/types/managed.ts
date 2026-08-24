@@ -79,11 +79,27 @@ export type AgentTool =
       input_schema: unknown
     }
 
-export interface McpServer {
-  type: 'url'
+export type McpRemoteTransport = 'streamable_http' | 'sse'
+export type McpAuthRequirement = 'required' | 'optional' | 'none'
+
+export interface RemoteMcpServer {
+  type: McpRemoteTransport
   name: string
   url: string
+  auth_requirement: McpAuthRequirement
 }
+
+export interface LocalMcpServer {
+  type: 'local_stdio'
+  name: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+}
+
+export type McpServer = RemoteMcpServer | LocalMcpServer
+
+export type McpCredentialAuthScheme = 'static_bearer' | 'header_api_key' | 'custom_header'
 
 export interface Session {
   id: SessionId
@@ -235,7 +251,6 @@ export interface SessionSkillUsage {
 export interface EnvironmentNetworking {
   type: string
   allowed_hosts?: string[]
-  allow_mcp_servers?: boolean
   allow_package_managers?: boolean
 }
 
@@ -391,6 +406,7 @@ export interface CredentialGroupCredential {
   group_id: CredentialGroupId
   name: string
   mcp_server_url: string
+  auth_scheme: McpCredentialAuthScheme
   data?: Record<string, string>
   created_at: string
   updated_at: string
@@ -635,6 +651,7 @@ export interface Credential {
   data?: Record<string, string>
   mcp_server_url?: string | null
   group_id?: import('./entity-id').CredentialGroupId | null
+  auth_scheme: McpCredentialAuthScheme | null
   archived_at: string | null
   created_at: string
   updated_at: string

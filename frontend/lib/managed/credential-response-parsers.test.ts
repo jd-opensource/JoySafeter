@@ -19,6 +19,7 @@ const rawCredential = () => ({
   compatible_engine_ids: ['codex', 'native', 'pi'],
   is_default: true,
   data: { OPENAI_API_KEY: '********', OPENAI_MODEL: 'gpt-5' },
+  auth_scheme: null,
   archived_at: null,
   created_at: '2026-08-06T00:00:00Z',
   updated_at: '2026-08-06T00:00:00Z',
@@ -48,6 +49,30 @@ describe('credential response parsers', () => {
       archived_at: null,
     })
     expect(() => parseCredentialResponse({ ...rawCredential(), kind: 'engine' })).toThrow()
+  })
+
+  it('accepts only canonical MCP authentication schemes', () => {
+    expect(
+      parseCredentialResponse({
+        ...rawCredential(),
+        kind: 'mcp',
+        provider: null,
+        protocol: null,
+        model: null,
+        compatible_engine_ids: [],
+        is_default: false,
+        mcp_server_url: 'https://example.com/mcp',
+        group_id: 'credgrp_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021',
+        auth_scheme: 'custom_header',
+      }).auth_scheme,
+    ).toBe('custom_header')
+    expect(() =>
+      parseCredentialResponse({
+        ...rawCredential(),
+        kind: 'mcp',
+        auth_scheme: 'bearer',
+      }),
+    ).toThrow()
   })
 
   it('exposes field names via data and omits blank keys without renaming nonblank fields', () => {

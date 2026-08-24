@@ -1,0 +1,16 @@
+[
+  {"address": "0.0.0.0", "default_allowed": false, "reason": "unspecified"},
+  {"address": "169.254.1.1", "default_allowed": false, "reason": "link_local"},
+  {"address": "169.254.169.254", "default_allowed": false, "reason": "metadata"},
+  {"address": "100.100.100.200", "default_allowed": false, "reason": "metadata"},
+  {"address": "224.0.0.1", "default_allowed": false, "reason": "multicast"},
+  {"address": "255.255.255.255", "default_allowed": false, "reason": "broadcast"},
+  {"address": "::", "default_allowed": false, "reason": "unspecified"},
+  {"address": "fe80::1", "default_allowed": false, "reason": "link_local"},
+  {"address": "ff02::1", "default_allowed": false, "reason": "multicast"},
+  {"address": "fd00:ec2::254", "default_allowed": false, "reason": "metadata"},
+  {"address": "127.0.0.1", "default_allowed": true, "reason": "loopback_policy_controlled"},
+  {"address": "10.0.0.1", "default_allowed": true, "reason": "private_policy_controlled"},
+  {"address": "192.0.2.10", "default_allowed": true, "reason": "public_test_range"},
+  {"address": "2001:db8::10", "default_allowed": true, "reason": "public_test_range"}
+]

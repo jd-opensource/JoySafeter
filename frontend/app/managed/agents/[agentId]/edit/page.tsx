@@ -1,15 +1,19 @@
 'use client'
 
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { CircleHelp } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+
+import { McpServerEditor } from '@/components/managed/agent/mcp-server-editor'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
 import { useTranslation } from '@/lib/i18n'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { getEnabledEngines } from '@/lib/managed/llm-catalog'
+import { serializeMcpServerEntries, type McpServerEntry } from '@/lib/managed/mcp-config'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -17,8 +21,6 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
-import { validateUrlScheme } from '@/lib/utils/url-validation'
-import { validateUniqueMcpServerName } from '@/lib/utils/mcp-validation'
 import type { Agent, Credential } from '@/types/managed'
 import { parseAgentId, parseCredentialId, type AgentId, type SkillId } from '@/types/entity-id'
 import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
@@ -43,7 +45,6 @@ import {
   SkillVersionSelect,
   withEntityRouteGuard,
 } from '@/components/managed/shared'
-import { CircleHelp, Plus, Trash2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
@@ -64,13 +65,6 @@ const PERMISSION_MODES = [
   { value: 'bypassPermissions', labelKey: 'agents.edit.permBypass' },
   { value: 'default', labelKey: 'agents.edit.permAsk' },
 ]
-
-interface McpServerEntry {
-  name: string
-  url: string
-  /** Permission policy for this server's tools. Defaults to always_ask. */
-  policy?: 'always_allow' | 'always_ask'
-}
 
 interface ManagedListResponse<T> {
   data: T[]
@@ -169,9 +163,6 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
 
   // ── MCP servers state ──
   const [mcpServers, setMcpServers] = useState<McpServerEntry[]>([])
-  const [showMcpForm, setShowMcpForm] = useState(false)
-  const [mcpName, setMcpName] = useState('')
-  const [mcpUrl, setMcpUrl] = useState('')
 
   // ── Tools state ──
   const [enabledTools, setEnabledTools] = useState<Set<string>>(new Set(BUILTIN_TOOLS))
@@ -285,8 +276,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
     }
     setMcpServers(
       (agent.mcp_servers || []).map((m) => ({
-        name: m.name,
-        url: m.url,
+        ...m,
         policy: policyByServer.get(m.name) || 'always_ask',
       })),
     )
@@ -344,37 +334,9 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
     })
   }
 
-  // ── MCP server helpers ──
-  const addMcpServer = () => {
-    const trimmedName = mcpName.trim()
-    const trimmedUrl = mcpUrl.trim()
-    if (!trimmedName || !trimmedUrl) return
-    const nameError = validateUniqueMcpServerName(trimmedName, mcpServers)
-    if (nameError) {
-      toastOperationError(t, new Error(nameError), 'common.error')
-      return
-    }
-    // URL scheme validation
-    const urlError = validateUrlScheme(trimmedUrl)
-    if (urlError) {
-      toastOperationError(t, new Error(urlError), 'common.error')
-      return
-    }
-    setMcpServers((prev) => [...prev, { name: trimmedName, url: trimmedUrl, policy: 'always_ask' }])
+  const updateMcpServers = (next: McpServerEntry[]) => {
     markDirty()
-    setMcpName('')
-    setMcpUrl('')
-    setShowMcpForm(false)
-  }
-
-  const setMcpPolicy = (index: number, policy: 'always_allow' | 'always_ask') => {
-    markDirty()
-    setMcpServers((prev) => prev.map((m, i) => (i === index ? { ...m, policy } : m)))
-  }
-
-  const removeMcpServer = (idx: number) => {
-    markDirty()
-    setMcpServers((prev) => prev.filter((_, i) => i !== idx))
+    setMcpServers(next)
   }
 
   // ── Skill toggle ──
@@ -454,9 +416,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
       description: description || null,
       engine_kind: engineKind,
       system: systemPrompt || null,
-      mcp_servers: mcpServers
-        .filter((s) => s.name && s.url)
-        .map((m) => ({ type: 'url', name: m.name, url: m.url })),
+      mcp_servers: serializeMcpServerEntries(mcpServers),
       env: currentAgent?.env || {},
       tools: buildToolsPayload(),
       skills: currentSelectedSkillIds.map((id) => ({
@@ -799,90 +759,11 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
             title={t('managed.agents.create.advancedOptions', '高级选项')}
             summary={t('managed.agents.edit.advancedSummary', 'MCP、工具、Skills')}
           >
-            {/* ───────── MCP Servers ───────── */}
-            <section className="space-y-3">
-              <div className="flex items-center justify-between border-b border-border pb-2">
-                <h3 className="text-sm font-semibold text-foreground">
-                  {t('agents.edit.mcpServers')}
-                  <span className="ml-1 text-xs font-normal text-muted-foreground">
-                    {t('managed.agents.formOptional')}
-                  </span>
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setShowMcpForm(true)}
-                  className="flex h-6 w-6 items-center justify-center rounded border border-border transition-colors hover:bg-accent"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-              </div>
-
-              {mcpServers.length === 0 && !showMcpForm && (
-                <p className="py-2 text-center text-sm text-muted-foreground">
-                  {t('managed.agents.create.noMcpServers')}
-                </p>
-              )}
-
-              {mcpServers.map((m, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm">
-                  <span className="font-medium">{m.name}</span>
-                  <span className="flex-1 truncate text-muted-foreground">{m.url}</span>
-                  <select
-                    value={m.policy || 'always_ask'}
-                    onChange={(e) =>
-                      setMcpPolicy(i, e.target.value as 'always_allow' | 'always_ask')
-                    }
-                    className="h-7 rounded border border-border bg-background px-1.5 text-xs"
-                    title={t('managed.agents.create.mcpPolicyHint')}
-                  >
-                    <option value="always_ask">{t('managed.policy.alwaysAsk')}</option>
-                    <option value="always_allow">{t('managed.policy.alwaysAllow')}</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => removeMcpServer(i)}
-                    className="text-muted-foreground hover:text-destructive"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-
-              {showMcpForm && (
-                <div className="flex items-end gap-2">
-                  <div className="flex-1">
-                    <Input
-                      placeholder={t('managed.agents.create.mcpNamePlaceholder')}
-                      value={mcpName}
-                      onChange={(e) => setMcpName(e.target.value)}
-                      className="text-sm"
-                    />
-                  </div>
-                  <div className="flex-[2]">
-                    <Input
-                      placeholder={t('managed.agents.create.mcpUrlPlaceholder')}
-                      value={mcpUrl}
-                      onChange={(e) => setMcpUrl(e.target.value)}
-                      className="text-sm"
-                    />
-                  </div>
-                  <Button size="sm" variant="outline" onClick={addMcpServer}>
-                    {t('managed.agents.create.add')}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setShowMcpForm(false)
-                      setMcpName('')
-                      setMcpUrl('')
-                    }}
-                  >
-                    {t('common.cancel')}
-                  </Button>
-                </div>
-              )}
-            </section>
+            <McpServerEditor
+              value={mcpServers}
+              onChange={updateMcpServers}
+              disabled={projectReadOnly}
+            />
 
             {/* ───────── Tools ───────── */}
             <section className="space-y-3">

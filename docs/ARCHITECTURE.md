@@ -117,12 +117,12 @@ contracts instead of recreating older in-process shortcuts.
 |---|---|---|---|---|
 | Frontend | Product UI state, auth redirects, SSE subscriptions | REST responses, SSE events, notification WS | User commands through REST | Talk to Redis, Postgres, orchestrator gRPC, or sandbox containers directly |
 | API | Auth/RBAC, REST validation, CRUD, task creation, SSE replay/live bridge, skill write-time scan calls | Browser requests, DB state, Redis Pub/Sub for live events | DB rows, Redis task wakeup, Redis command relay | Run agent harnesses, create sandboxes, consume durable event streams |
-| Rust orchestrator | Scheduling, task leases, sandbox lifecycle, runner gRPC, control ACKs, event emission | Pending DB tasks, Redis wakeups/commands, runner gRPC streams | Task/sandbox/session state, Redis Stream events, Redis Pub/Sub broadcasts | Serve product REST APIs, own browser auth, batch-persist event logs as the primary path |
+| Rust orchestrator | Scheduling, task leases, sandbox lifecycle, runner gRPC, the elected xDS authority, control ACKs, event emission | Pending DB tasks, Redis wakeups/commands, runner gRPC streams, Envoy ACK/NACK | Task/sandbox/session state, Redis Stream events, Redis Pub/Sub broadcasts, leader-owned xDS resources | Serve product REST APIs, own browser auth, batch-persist event logs as the primary path, or let non-authority replicas mutate provider-local xDS state |
 | Sandbox runner | In-container harness execution, tool/MCP invocation, memory/file sync from inside the sandbox | `SetupSandbox` and `StartTask` over gRPC, injected env/secrets/files | Runner events/results over gRPC, memory sync messages | Reach the host network directly, mutate platform DB/Redis, bypass Envoy egress policy |
 | Worker | Durable event persistence, `seq` assignment, Redis Stream recovery/redelivery | Redis Stream consumer group | `joysafeter_session_events`, replay Pub/Sub after DB write | Schedule tasks, create sandboxes, expose user-facing APIs |
 | SkillSpector | Static skill security scanning service | Skill content sent by API/domain service | Advisory verdicts and optional publish-time enforcement | Decide runtime packaging or invalidate already-published versions |
 | PostgreSQL | Source of truth for domain state, task/session/sandbox FSMs, event log | Writes from API/orchestrator/worker/db-init | Durable rows | Act as a queue or live fan-out bus |
-| Redis | Wakeups, Streams, Pub/Sub, command relay, ownership/heartbeat coordination | API/orchestrator/worker pub/sub/list/stream traffic | Ephemeral and durable-stream messages | Be treated as scheduling truth; pending task rows in Postgres are authoritative |
+| Redis | Wakeups, Streams, Pub/Sub, command relay, ownership/heartbeat coordination | API/orchestrator/worker pub/sub/list/stream traffic | Ephemeral and durable-stream messages | Be treated as scheduling or network-policy truth; PostgreSQL rows are authoritative |
 
 ### Failure ownership
 
@@ -252,6 +252,7 @@ Runtime communication uses several purpose-built channels. This table is the def
 | **Durable event bus** | Redis **Streams** `joysafeter:orchestrator:events` + consumer group | Orchestrator `XADD` → Worker `XREADGROUP` → DB persist | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`, `joysafeter_worker/events/stream_consumer.py` |
 | **Live event fan-out** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | Cross-instance SSE delivery via `SessionBroadcaster` | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`, `joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
 | Control/cancel relay | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | Route cancel/input/shutdown to the instance owning the sandbox | `joysafeter_shared/orchestrator_bridge/runtime_commands.py`, `joysafeter_orchestrator_rs/src/kernel/command_listener.rs` |
+| Network-policy wakeup | Redis **Stream** `joysafeter:network-policy:requests` | Wake the elected xDS authority for an exact PostgreSQL policy generation or teardown | `joysafeter_orchestrator_rs/src/kernel/ha/redis_impl.rs`, `joysafeter_orchestrator_rs/src/kernel/xds_authority.rs` |
 | Orchestrator ↔ runner | **gRPC** `AgentBridge` (bidi stream, :9090) | The agent execution protocol | `proto/joysafeter.proto`, `joysafeter_orchestrator_rs/src/grpc/server.rs` |
 | Runner egress | Envoy proxy (unix socket) | Per-sandbox domain allowlist, deny-all default | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
 | Skill scan | HTTP → skillspector `:8010` | Informational scans on writes; optional fresh fail-closed scan only when publishing | `joysafeter_skill_security.py` |
@@ -296,15 +297,16 @@ over gRPC.
 | Sandbox controller | `src/kernel/sandbox_controller.rs` | Idle sweep, provisioning poll, warm-pool, orphan cleanup |
 | Sandbox resolver | `src/kernel/sandbox_resolver.rs` | 3-stage resolve: reuse session sandbox → claim from pool → create new; injects runner env |
 | Sandbox bridge | `src/kernel/sandbox_bridge.rs` | Per-sandbox in-memory state: runner stream, status, subscribers, control queue |
+| xDS authority | `src/kernel/xds_authority.rs`, `src/kernel/xds_leader.rs` | Epoch-fenced ownership, readiness after PostgreSQL recovery, and serialized networking mutations |
 | Redis coordinator | `src/kernel/redis_coordinator.rs` | Cross-instance HA: owner mapping, heartbeats, queues, event publishing |
 | Command listener | `src/kernel/command_listener.rs` | Redis command relay for cancel/input/shutdown/memory updates with ACKs |
 | Event bus | `src/events/bus.rs` | In-process event bus feeding stream persistence and realtime fan-out |
 | Session broadcaster | `src/kernel/session_broadcaster.rs` | Live SSE fan-out via Redis Pub/Sub |
 
-Startup order (`src/main.rs`): config + database + Redis coordinator → queue/scheduler/controller →
-bridge registry → sandbox provider/controller/resolver → session broadcaster → memory subscribers →
-Envoy/image builder as configured → event bus + stream/realtime subscribers → command listener →
-gRPC server on `:9090` → task recovery and background loops.
+Startup order (`src/main.rs`): config + database + Redis coordinator → provider-local xDS
+initialization → HA components and controllers → gRPC/ADS server on `:9090` → elected-authority
+PostgreSQL recovery → task and lifecycle background loops. Multi mode fails closed when managed
+egress is enabled without the Kubernetes leader-only xDS authority.
 
 ### 4.3 Worker service (`app/joysafeter_worker/`)
 
@@ -415,9 +417,64 @@ Selected by `JOYSAFETER_SANDBOX_PROVIDER` (default `docker`). SPI: `SandboxProvi
 | **E2B** | E2B REST (Firecracker VMs) | Requires `E2B_API_KEY` + `E2B_TEMPLATE_ID` |
 | **Daytona** | Daytona REST | Requires `DAYTONA_API_URL` + `DAYTONA_API_KEY` |
 
-**Envoy** (`sandbox/envoy_manager.py`) gives each sandbox its own network namespace with no
-direct egress: the runner reaches the orchestrator through a unix-socket gRPC pipe, and all
-outbound HTTP goes through an Envoy listener with a **deny-all-by-default domain allowlist**.
+**Envoy** (`src/sandbox/envoy.rs`, `src/sandbox/lds_backend.rs`) gives each limited-networking
+sandbox no direct egress. The runner reaches the orchestrator through its control channel, and
+outbound HTTP goes through a per-sandbox Envoy listener with a deny-all-by-default policy.
+
+### 6.4 MCP runtime plan and xDS authority
+
+The Rust orchestrator resolves each agent's MCP configuration into one immutable runtime plan.
+The plan is the common source for the runner-safe projection and the secret-bearing Envoy
+projection; callers must not independently reinterpret MCP transport, endpoint, authentication,
+or network mode.
+
+- Remote MCP transports are `streamable_http` and `sse`; local processes use `local_stdio`.
+- Limited-networking sandboxes receive only opaque `mcp-egress.internal/r/<route-key>/` URLs.
+  Real upstream authorities and authentication material remain at the Envoy boundary.
+- MCP credentials support the closed runtime schemes `static_bearer`, `header_api_key`, and
+  `custom_header`. Reserved or unsafe headers, userinfo, malformed URLs, and disallowed resolved
+  addresses fail before listener publication.
+- `runtime_config_generation` and sandbox `networking_policy_hash/version/status` in PostgreSQL
+  are durable truth. A sandbox is executable only when the captured runtime generation still
+  matches and the exact network-policy generation is `ready`.
+
+Multi-replica xDS follows one topology only:
+
+```text
+PostgreSQL desired generation/status
+        ↓
+Redis network-policy wakeup (not state)
+        ↓
+single Kubernetes Lease-elected xDS authority
+        ↓
+Envoy ACK/NACK
+        ↓
+PostgreSQL generation CAS
+```
+
+All orchestrator replicas may schedule tasks, own runner bridges, and publish exact-generation
+wakeups. Only the authority replica may recover, apply, remove, or prune provider-local xDS
+resources. Envoy DaemonSet pods connect to `joysafeter-orchestrator-xds`, whose selector contains
+`joysafeter-xds-leader=true`; runner traffic continues through the ordinary load-balanced
+orchestrator Service.
+
+Authority activation is ordered and fenced: the pod acquires the dedicated Lease, advertises a new
+authority epoch internally, recovers the complete live limited-networking inventory from
+PostgreSQL, waits for Envoy ACKs, marks that epoch ready, enables ADS serving, and only then
+publishes the leader label. Standby ADS calls fail closed. Losing the Lease or shutting down
+revokes the epoch, disables ADS, actively closes existing ADS streams, and removes the label; the
+design does not rely on Kubernetes endpoint removal to terminate established HTTP/2 connections.
+Every mutation is serialized by one authority application lock and carries an epoch guard. ACK and
+NACK persistence are terminal compare-and-set transitions from `pending`, so a late failure cannot
+overwrite an acknowledged generation. Teardown requests are revalidated against the sandbox's
+current PostgreSQL lifecycle/network mode before touching provider-local xDS state. NACK, timeout,
+generation drift, or persistence failure leaves the sandbox non-ready.
+
+Redis delivery is deliberately non-authoritative. Missed reconcile messages are repaired by the
+leader-only degraded-policy loop using PostgreSQL. Missed teardown messages are bounded by the
+authority's periodic prune, which removes only xDS resources absent from the live PostgreSQL
+inventory without republishing healthy generations. A new leader always rebuilds from PostgreSQL
+and never depends on replaying Redis history.
 
 ---
 

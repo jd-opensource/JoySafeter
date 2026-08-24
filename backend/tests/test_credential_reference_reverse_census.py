@@ -92,7 +92,7 @@ AGGREGATE_INTERNAL_CLASSIFICATIONS = {
     "typed_id:alembic:20260814_000001_unify_credentials:joysafeter_credentials.project_id->joysafeter_credential_groups.project_id",
 }
 EXPECTED_PRODUCTION_RAW_KEY_SURFACES = {
-    "raw_key:backend/app/joysafeter_api/api/v1/credentials.py:<module>.get_credential:L363C1-L363C31:/{credential_id}:cb1cb666ca53",
+    "raw_key:backend/app/joysafeter_api/api/v1/credentials.py:<module>.get_credential:L369C1-L369C31:/{credential_id}:cb1cb666ca53",
     "raw_key:backend/app/joysafeter_domain/services/credential_binding_errors.py:<module>.raise_public_credential_error:L21C8-L21C63:credential_id:9c4f2e9cd651",
     "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L163C20-L163C56:webhook_auth_credential_id:58260fff0370",
     "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L164C23-L164C61:webhook_auth_credential_id:3367698b1fc3",

@@ -268,7 +268,13 @@ async def test_create_session_rejects_declared_and_live_group_url_conflict(db_se
     group_id = await _make_group(db_session, project_id)
     await _add_mcp_member(db_session, group_id, project_id, "https://mcp.example.com/sse")
     agent = await _make_agent(db_session, project_id)
-    agent.mcp_servers = [{"type": "url", "url": "HTTPS://MCP.example.com:443/sse/"}]
+    agent.mcp_servers = [
+        {
+            "type": "streamable_http",
+            "url": "HTTPS://MCP.example.com:443/sse/",
+            "auth_requirement": "optional",
+        }
+    ]
     await db_session.commit()
 
     with pytest.raises(AppError) as exc:
@@ -281,7 +287,7 @@ async def test_create_session_rejects_declared_and_live_group_url_conflict(db_se
 async def test_create_session_maps_malformed_declared_mcp_url_to_conflict(db_session, project_id):
     group_id = await _make_group(db_session, project_id)
     agent = await _make_agent(db_session, project_id)
-    agent.mcp_servers = [{"type": "url", "url": "not-a-url"}]
+    agent.mcp_servers = [{"type": "streamable_http", "url": "not-a-url", "auth_requirement": "optional"}]
     await db_session.commit()
 
     with pytest.raises(AppError) as exc:
@@ -294,7 +300,7 @@ async def test_create_session_maps_malformed_declared_mcp_url_to_conflict(db_ses
 async def test_create_session_maps_non_string_declared_mcp_url_to_conflict(db_session, project_id):
     group_id = await _make_group(db_session, project_id)
     agent = await _make_agent(db_session, project_id)
-    agent.mcp_servers = [{"type": "url", "url": 123}]
+    agent.mcp_servers = [{"type": "streamable_http", "url": 123, "auth_requirement": "optional"}]
     await db_session.commit()
 
     with pytest.raises(AppError) as exc:

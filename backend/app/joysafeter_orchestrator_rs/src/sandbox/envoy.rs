@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::ids::SandboxId;
+use anyhow::Context;
 use bollard::container::{
     Config, CreateContainerOptions, RemoveContainerOptions, RestartContainerOptions,
     StartContainerOptions, WaitContainerOptions,
@@ -15,7 +16,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use super::lds_backend::{
-    validate_egress_policy, LdsBackend, ListenerKind, ListenerSpec, SandboxCredentials,
+    validate_egress_policy, CdsBackend, LdsBackend, ListenerKind, ListenerSpec, SandboxCredentials,
     SandboxEgressPolicy,
 };
 
@@ -36,6 +37,7 @@ pub struct EnvoyManager {
     docker: Option<Arc<Docker>>,
     config: EnvoyConfig,
     lds: Arc<dyn LdsBackend>,
+    cds: Arc<dyn CdsBackend>,
     sandbox_apply_locks: Mutex<HashMap<SandboxId, Arc<Mutex<()>>>>,
 }
 
@@ -72,11 +74,17 @@ impl EnvoyConfig {
 }
 
 impl EnvoyManager {
-    pub fn new(docker: Option<Arc<Docker>>, config: EnvoyConfig, lds: Arc<dyn LdsBackend>) -> Self {
+    pub fn new(
+        docker: Option<Arc<Docker>>,
+        config: EnvoyConfig,
+        lds: Arc<dyn LdsBackend>,
+        cds: Arc<dyn CdsBackend>,
+    ) -> Self {
         Self {
             docker,
             config,
             lds,
+            cds,
             sandbox_apply_locks: Mutex::new(HashMap::new()),
         }
     }
@@ -203,28 +211,6 @@ impl EnvoyManager {
         Ok(())
     }
 
-    /// Socket file permissions are set by Envoy at bind time via the listener
-    /// pipe `mode` (0666 in both the JSON and protobuf renderers), so the sandbox
-    /// (uid 1000) can connect without any post-hoc chmod. We still defensively
-    /// re-apply 0666 on the host in case a restrictive umask altered the created
-    /// socket file. No `docker exec`.
-    async fn secure_socket_files(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-        if let Some(socket_dir) = self.host_socket_dir(sandbox_id) {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                for name in ["http.sock"] {
-                    let path = socket_dir.join(name);
-                    if tokio::fs::metadata(&path).await.is_ok() {
-                        tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666))
-                            .await?;
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
     fn host_socket_dir(&self, sandbox_id: SandboxId) -> Option<PathBuf> {
         self.config
             .socket_host_dir
@@ -236,6 +222,7 @@ impl EnvoyManager {
         self: Arc<Self>,
         pool: sqlx::PgPool,
         llm_egress_allowed_hosts: Vec<String>,
+        authority: crate::kernel::xds_authority::XdsAuthorityGuard,
     ) {
         if self.config.health_check_interval_sec == 0 {
             return;
@@ -264,7 +251,7 @@ impl EnvoyManager {
                         if failures >= threshold {
                             failures = 0;
                             if let Err(recover_err) = self
-                                .restart_and_recover(&pool, &llm_egress_allowed_hosts)
+                                .restart_and_recover(&pool, &llm_egress_allowed_hosts, &authority)
                                 .await
                             {
                                 warn!(error = %recover_err, "Envoy restart/recovery failed");
@@ -298,6 +285,7 @@ impl EnvoyManager {
         &self,
         pool: &sqlx::PgPool,
         llm_egress_allowed_hosts: &[String],
+        authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
     ) -> anyhow::Result<()> {
         warn!("Restarting Envoy container after failed health checks");
         self.docker()?
@@ -309,7 +297,8 @@ impl EnvoyManager {
         self.wait_until_ready(std::time::Duration::from_secs(15))
             .await?;
         self.init().await?;
-        self.recover_from_db(pool, llm_egress_allowed_hosts).await
+        self.recover_from_db(pool, llm_egress_allowed_hosts, authority)
+            .await
     }
 
     async fn wait_until_ready(&self, timeout: std::time::Duration) -> anyhow::Result<()> {
@@ -334,7 +323,8 @@ impl EnvoyManager {
         // Write bootstrap config (mode-aware)
         self.write_bootstrap_config().await?;
 
-        // Reset LDS to empty initial state.
+        // Reset xDS state to an empty initial state.
+        self.cds.replace_all(vec![]).await?;
         self.lds.replace_all(vec![]).await?;
         info!(
             xds_mode = %self.config.xds_mode,
@@ -348,6 +338,7 @@ impl EnvoyManager {
     /// Used in K8s mode where the Envoy DaemonSet manages its own bootstrap
     /// and the orchestrator only needs to reset in-memory LDS state.
     pub async fn init_xds_only(&self) -> anyhow::Result<()> {
+        self.cds.replace_all(vec![]).await?;
         self.lds.replace_all(vec![]).await?;
         info!(
             xds_mode = %self.config.xds_mode,
@@ -370,10 +361,16 @@ impl EnvoyManager {
         &self,
         pool: &sqlx::PgPool,
         llm_egress_allowed_hosts: &[String],
+        authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
     ) -> anyhow::Result<()> {
+        if !authority.is_current() {
+            anyhow::bail!("xDS authority changed before networking recovery started");
+        }
         let sandboxes = crate::db::queries::list_live_sandboxes_for_recovery(pool).await?;
 
-        let mut specs = Vec::with_capacity(sandboxes.len() * 2);
+        let mut specs = Vec::with_capacity(sandboxes.len());
+        let mut clusters = Vec::new();
+        let mut generations = Vec::new();
         let mut recovered = 0usize;
         for sb in &sandboxes {
             // Only sandboxes provisioned with limited networking have Envoy
@@ -410,7 +407,6 @@ impl EnvoyManager {
             .await?;
             let policy = creds.to_policy(&sb.id, allowed_hosts);
             if let Err(e) = validate_egress_policy(&sb.id, &policy) {
-                warn!(sandbox_id = %sb.id, error = %e, "Skipping invalid recovered egress policy");
                 let _ = crate::db::queries::update_sandbox_networking_status(
                     pool,
                     sb.id,
@@ -420,7 +416,10 @@ impl EnvoyManager {
                     Some(&e.to_string()),
                 )
                 .await;
-                continue;
+                return Err(e.context(format!(
+                    "invalid recovered egress policy for sandbox {}",
+                    sb.id
+                )));
             }
 
             let policy_hash = sb
@@ -435,10 +434,11 @@ impl EnvoyManager {
                         .map(ToOwned::to_owned)
                 })
                 .unwrap_or_else(|| "recovered-unknown".to_string());
-            let _ =
+            let generation =
                 crate::db::queries::prepare_sandbox_network_policy_push(pool, sb.id, &policy_hash)
-                    .await;
+                    .await?;
 
+            clusters.extend(policy.clusters(&sb.id));
             specs.push(ListenerSpec {
                 sandbox_id: sb.id,
                 kind: ListenerKind::Http,
@@ -446,11 +446,38 @@ impl EnvoyManager {
                 credentials: policy.credential_routes,
                 proxy_auth_token: policy.proxy_auth_token,
             });
+            generations.push((sb.id, generation));
             recovered += 1;
         }
 
-        // Only LDS needed — clusters are shared via bootstrap.
+        if !authority.is_current() {
+            anyhow::bail!("xDS authority changed before recovered policy publication");
+        }
+        self.cds.replace_all(clusters).await?;
         self.lds.replace_all(specs).await?;
+        for (sandbox_id, generation) in generations {
+            self.lds
+                .wait_for_sandbox_ack(
+                    sandbox_id,
+                    std::time::Duration::from_millis(
+                        self.config.socket_ready_timeout_ms.max(1_000),
+                    ),
+                )
+                .await
+                .with_context(|| {
+                    format!("recovered Envoy policy was not ACKed for sandbox {sandbox_id}")
+                })?;
+            if !authority.is_current() {
+                anyhow::bail!("xDS authority changed before recovered policy ACK persistence");
+            }
+            if !crate::db::queries::mark_sandbox_network_policy_acked(pool, sandbox_id, &generation)
+                .await?
+            {
+                anyhow::bail!(
+                    "sandbox {sandbox_id} network policy generation changed during recovery"
+                );
+            }
+        }
         info!(
             recovered_sandboxes = recovered,
             total_live = sandboxes.len(),
@@ -508,47 +535,36 @@ impl EnvoyManager {
                 credentials: policy.credential_routes.clone(),
                 proxy_auth_token: policy.proxy_auth_token.clone(),
             };
+            let clusters = policy.clusters(&sandbox_id);
+            let cluster_prefix = format!("up_{}_", sandbox_id.as_uuid());
 
-            // Only push the per-sandbox LDS listener. No CDS needed: all
-            // credential-injection routes point to the global shared
-            // dynamic_forward_proxy / dynamic_forward_proxy_tls clusters
-            // (pre-created in bootstrap, always healthy, zero warming).
-            tokio::time::timeout(
+            let applied_as_batch = tokio::time::timeout(
                 std::time::Duration::from_secs(10),
-                self.lds.upsert(vec![listener]),
+                self.lds.apply_sandbox_batch(
+                    clusters.clone(),
+                    vec![listener.clone()],
+                    cluster_prefix.clone(),
+                ),
             )
             .await
-            .map_err(|_| anyhow::anyhow!("timed out applying Envoy LDS update"))??;
+            .map_err(|_| anyhow::anyhow!("timed out applying Envoy xDS update"))??;
+            if !applied_as_batch {
+                self.cds
+                    .replace_by_prefix(&cluster_prefix, clusters)
+                    .await?;
+                self.lds.upsert(vec![listener]).await?;
+            }
             drop(_guard);
             self.cleanup_sandbox_apply_lock(sandbox_id, &sandbox_lock)
                 .await;
         }
 
-        // Runner control traffic no longer depends on Envoy: runner gRPC uses
-        // the orchestrator-owned control Unix socket directly. Envoy is only the
-        // sandbox egress gateway, and the runner's local HTTP proxy bridge
-        // already waits/retries for the egress socket in the background. Do not
-        // block sandbox start on Envoy listener ACK/socket materialisation here:
-        // in filesystem mode especially, Envoy may need a short reload window,
-        // and blocking here strands the container in Created state even though
-        // the control plane is ready.
-        let lds = self.lds.clone();
-        let config = self.config.clone();
-        tokio::spawn(async move {
-            let ack_timeout = if config.is_grpc_mode() {
-                std::time::Duration::from_millis(500)
-            } else {
-                std::time::Duration::from_secs(2)
-            };
-            if let Err(e) = lds.wait_for_sandbox_ack(sandbox_id, ack_timeout).await {
-                let message = e.to_string();
-                if message.contains("NACK") {
-                    warn!(sandbox_id = %sandbox_id, error = %message, "Envoy rejected sandbox listener config");
-                } else {
-                    debug!(sandbox_id = %sandbox_id, error = %message, "Envoy ACK was not observed after config push");
-                }
-            }
-        });
+        self.lds
+            .wait_for_sandbox_ack(
+                sandbox_id,
+                std::time::Duration::from_millis(self.config.socket_ready_timeout_ms.max(1_000)),
+            )
+            .await?;
 
         info!(
             sandbox_id = %sandbox_id,
@@ -558,66 +574,12 @@ impl EnvoyManager {
         Ok(())
     }
 
-    async fn wait_for_socket_readiness(
-        &self,
-        sandbox_id: SandboxId,
-        _socket_dir: &str,
-    ) -> anyhow::Result<bool> {
-        let timeout =
-            std::time::Duration::from_millis(self.config.socket_ready_timeout_ms.max(1_000));
-        let deadline = std::time::Instant::now() + timeout;
-        let mut attempt = 0u32;
-        loop {
-            attempt += 1;
-            // Host bind-mount mode: stat the sockets directly on the host FS.
-            let ready = match self.host_socket_dir(sandbox_id) {
-                Some(dir) => tokio::fs::metadata(dir.join("http.sock")).await.is_ok(),
-                None => {
-                    anyhow::bail!(
-                        "JOYSAFETER_ENVOY_SOCKET_HOST_DIR is required for Envoy socket readiness checks"
-                    )
-                }
-            };
-            if ready {
-                info!(sandbox_id = %sandbox_id, attempt, "Envoy sockets are ready");
-                return Ok(true);
-            }
-            if std::time::Instant::now() >= deadline {
-                break;
-            }
-            debug!(sandbox_id = %sandbox_id, attempt, "Envoy sockets not ready yet");
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        }
-        Ok(false)
-    }
-
-    async fn socket_dir_state(&self, sandbox_id: SandboxId) -> String {
-        let Some(host_socket_dir) = self.host_socket_dir(sandbox_id) else {
-            return "JOYSAFETER_ENVOY_SOCKET_HOST_DIR is not configured".to_string();
-        };
-        match tokio::fs::read_dir(&host_socket_dir).await {
-            Ok(mut entries) => {
-                let mut names = Vec::new();
-                while let Ok(Some(entry)) = entries.next_entry().await {
-                    names.push(entry.file_name().to_string_lossy().into_owned());
-                }
-                names.sort();
-                format!("host dir {} entries={names:?}", host_socket_dir.display())
-            }
-            Err(e) => {
-                format!(
-                    "failed to inspect host dir {}: {e}",
-                    host_socket_dir.display()
-                )
-            }
-        }
-    }
-
     /// Remove a sandbox from Envoy config.
     async fn remove_sandbox_unlocked(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-        // No per-sandbox clusters to remove: all routes point to the shared
-        // dynamic_forward_proxy clusters.
         let sandbox_uuid = sandbox_id.as_uuid();
+        self.cds
+            .remove_by_prefix(&format!("up_{sandbox_uuid}_"))
+            .await?;
         self.lds
             .remove(vec![format!("{sandbox_uuid}_http")])
             .await?;
@@ -651,6 +613,25 @@ impl EnvoyManager {
         self.cleanup_sandbox_apply_lock(sandbox_id, &sandbox_lock)
             .await;
         result
+    }
+
+    /// Remove provider-local xDS resources that no longer have a live
+    /// PostgreSQL sandbox. This is intentionally a prune-only operation: live
+    /// listeners are not re-published and their ready generations are not
+    /// disturbed.
+    pub async fn prune_networking_except(
+        &self,
+        live_sandbox_ids: &HashSet<SandboxId>,
+    ) -> anyhow::Result<usize> {
+        let configured = self.lds.configured_sandbox_ids().await;
+        let mut stale: Vec<_> = configured.difference(live_sandbox_ids).copied().collect();
+        stale.sort_by_key(|sandbox_id| sandbox_id.as_uuid());
+
+        for sandbox_id in &stale {
+            self.remove_sandbox(*sandbox_id).await?;
+        }
+
+        Ok(stale.len())
     }
 
     /// Write Envoy bootstrap config as JSON, matching the active xDS mode.
@@ -844,4 +825,68 @@ fn extract_allowed_hosts(networking_config: Option<&serde_json::Value>) -> Vec<S
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::*;
+    use crate::sandbox::lds_backend::{DeltaXdsServer, GrpcCds, GrpcLds};
+    use uuid::Uuid;
+
+    fn test_config() -> EnvoyConfig {
+        EnvoyConfig {
+            envoy_image: "unused".to_string(),
+            socket_volume: "unused".to_string(),
+            socket_host_dir: None,
+            config_dir: "/tmp/joysafeter-envoy-test".to_string(),
+            envoy_network: "unused".to_string(),
+            grpc_target_host: "127.0.0.1".to_string(),
+            grpc_target_port: 9090,
+            container_name: "unused".to_string(),
+            xds_mode: "grpc".to_string(),
+            write_debug_entries: false,
+            socket_ready_timeout_ms: 1_000,
+            health_check_interval_sec: 0,
+            health_failure_threshold: 1,
+            skip_socket_dir_prep: true,
+            node_id: "test-node".to_string(),
+        }
+    }
+
+    fn listener(sandbox_id: SandboxId) -> ListenerSpec {
+        ListenerSpec {
+            sandbox_id,
+            kind: ListenerKind::Http,
+            allowed_hosts: vec![],
+            credentials: vec![],
+            proxy_auth_token: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn authoritative_prune_removes_only_stale_sandbox_networking() {
+        let server = DeltaXdsServer::new();
+        let lds = Arc::new(GrpcLds::new(server.clone()));
+        let manager = EnvoyManager::new(
+            None,
+            test_config(),
+            lds.clone(),
+            Arc::new(GrpcCds::new(server)),
+        );
+        let live = SandboxId::from_uuid(Uuid::from_u128(10));
+        let stale = SandboxId::from_uuid(Uuid::from_u128(11));
+        lds.upsert(vec![listener(live), listener(stale)])
+            .await
+            .expect("seed listeners");
+
+        let removed = manager
+            .prune_networking_except(&HashSet::from([live]))
+            .await
+            .expect("prune stale networking");
+
+        assert_eq!(removed, 1);
+        assert_eq!(lds.configured_sandbox_ids().await, HashSet::from([live]));
+    }
 }

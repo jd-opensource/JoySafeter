@@ -10,4 +10,3 @@ pub mod secret;
 pub mod session;
 pub mod task;
 pub mod token_usage;
-pub mod vault;

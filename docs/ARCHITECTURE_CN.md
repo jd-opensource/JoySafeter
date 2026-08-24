@@ -112,12 +112,12 @@ flowchart TB
 |---|---|---|---|---|
 | 前端 | 产品 UI 状态、鉴权跳转、SSE 订阅 | REST 响应、SSE 事件、通知 WS | 通过 REST 发起用户命令 | 直接访问 Redis、Postgres、orchestrator gRPC 或沙箱容器 |
 | API | Auth/RBAC、REST 校验、CRUD、任务创建、SSE 回放/实时桥接、Skill 写入时扫描调用 | 浏览器请求、DB 状态、Redis Pub/Sub 实时事件 | DB 行、Redis 任务唤醒、Redis 命令中继 | 运行 agent harness、创建沙箱、消费可靠事件 Stream |
-| Rust orchestrator | 调度、任务租约、沙箱生命周期、runner gRPC、控制命令 ACK、事件发射 | DB pending 任务、Redis 唤醒/命令、runner gRPC 流 | task/sandbox/session 状态、Redis Stream 事件、Redis Pub/Sub 广播 | 承载产品 REST API、拥有浏览器鉴权、作为主路径批量持久化事件日志 |
-| 沙箱 runner | 容器内 harness 执行、工具/MCP 调用、沙箱内 memory/file sync | gRPC `SetupSandbox` / `StartTask`、注入的 env/secrets/files | gRPC runner 事件/结果、memory sync 消息 | 直连宿主网络、修改平台 DB/Redis、绕过 Envoy 出站策略 |
+| Rust orchestrator | 调度、任务租约、沙箱生命周期、runner gRPC、单一 elected xDS authority、控制命令 ACK、事件发射 | DB pending 任务、Redis 唤醒/命令、runner gRPC 流、Envoy ACK/NACK | task/sandbox/session 状态、网络策略 generation/status、Redis Stream 事件、Redis Pub/Sub 广播、authority 拥有的 xDS 资源 | 承载产品 REST API、拥有浏览器鉴权、作为主路径批量持久化事件日志，或让非 authority 副本修改 xDS |
+| 沙箱 runner | 容器内 harness 执行、工具/MCP 调用、沙箱内 memory/file sync | gRPC `SetupSandbox` / `StartTask`、无 MCP 明文凭据的 runner-safe 配置、注入的普通 env/secrets/files | gRPC runner 事件/结果、memory sync 消息 | 接收远程 MCP 认证头、直连宿主网络、修改平台 DB/Redis、绕过 Envoy 出站策略 |
 | Worker | 可靠事件持久化、`seq` 分配、Redis Stream 恢复/重投 | Redis Stream 消费组 | `joysafeter_session_events`、DB 写入后再发布 Pub/Sub | 调度任务、创建沙箱、暴露用户 API |
 | SkillSpector | 静态 Skill 安全扫描服务 | API/domain service 发送的 Skill 内容 | 风险提示与可选发布时强制 verdict | 决定运行时打包或使已发布版本失效 |
-| PostgreSQL | 领域状态、task/session/sandbox FSM、事件日志的权威存储 | API/orchestrator/worker/db-init 写入 | 持久化行 | 充当队列或实时扇出总线 |
-| Redis | 唤醒、Streams、Pub/Sub、命令中继、ownership/heartbeat 协调 | API/orchestrator/worker 的 list/stream/pubsub 流量 | 临时消息与可靠 Stream 消息 | 被当作调度权威；pending task 行仍以 Postgres 为准 |
+| PostgreSQL | 领域状态、task/session/sandbox FSM、MCP runtime generation、网络策略状态、事件日志的权威存储 | API/orchestrator/worker/db-init 写入 | 持久化行 | 充当队列或实时扇出总线 |
+| Redis | 唤醒、Streams、Pub/Sub、命令中继、ownership/heartbeat 协调 | API/orchestrator/worker 的 list/stream/pubsub 流量 | 临时消息与可靠 Stream 消息 | 被当作调度或 xDS 状态权威；两者都以 Postgres 为准 |
 
 ### 故障归属
 
@@ -129,7 +129,7 @@ flowchart TB
 | Agent 在跑但浏览器收不到实时事件 | API SSE bridge + Redis Pub/Sub | API `SessionBroadcaster`、Redis Pub/Sub、浏览器 `?after_seq` 回放 |
 | 实时能看到事件但刷新后消失 | Worker | Redis Stream pending、worker 日志、Postgres 插入错误、advisory lock 竞争 |
 | Skill 运行时不可用 | Skill domain | 引用版本是否存在、版本文件是否完整 |
-| 沙箱无法访问模型/MCP/目标 | Envoy + orchestrator 沙箱配置 | allowlist、Envoy 配置文件、`JOYSAFETER_GRPC_PUBLIC_URL`、目标 DNS/网络策略 |
+| 沙箱无法访问模型/MCP/目标 | elected xDS authority + Envoy | PostgreSQL generation/status、authority Lease/epoch、Envoy ACK/NACK、目标 DNS 与网络模式 |
 
 ---
 
@@ -207,6 +207,7 @@ sequenceDiagram
 | **可靠事件总线** | Redis **Streams** `joysafeter:orchestrator:events` + 消费组 | orchestrator `XADD` → Worker `XREADGROUP` → 落库 | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`、`joysafeter_worker/events/stream_consumer.py` |
 | **实时事件扇出** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | 跨实例 SSE 投递（`SessionBroadcaster`） | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`、`joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
 | 控制/取消中继 | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | 把 cancel/input/shutdown 路由到拥有该沙箱的实例 | `joysafeter_shared/orchestrator_bridge/runtime_commands.py`、`joysafeter_orchestrator_rs/src/kernel/command_listener.rs` |
+| 网络策略唤醒 | Redis **Stream** `joysafeter:network-policy:requests` | 唤醒 elected xDS authority 处理精确 PostgreSQL generation 或 teardown；不保存 xDS 状态 | `joysafeter_orchestrator_rs/src/kernel/ha/redis_impl.rs`、`joysafeter_orchestrator_rs/src/kernel/xds_authority.rs` |
 | orchestrator ↔ runner | **gRPC** `AgentBridge`（双向流，:9090） | Agent 执行协议 | `proto/joysafeter.proto`、`joysafeter_orchestrator_rs/src/grpc/server.rs` |
 | runner 出口 | Envoy 代理（unix socket） | 每沙箱域名白名单，默认全拒 | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
 | 技能扫描 | HTTP → skillspector `:8010` | 写入时信息扫描；可选仅在发布时执行新的 fail-closed 扫描 | `joysafeter_skill_security.py` |
@@ -248,14 +249,16 @@ Cookie/session 回退（首次登录自动开通默认 org+project）。所有 p
 | 沙箱控制器 | `src/kernel/sandbox_controller.rs` | 空闲清扫、provisioning 轮询、预热池、孤儿清理 |
 | 沙箱解析器 | `src/kernel/sandbox_resolver.rs` | 三段式解析：复用会话沙箱 → 从池认领 → 新建；注入 runner env |
 | 沙箱 bridge | `src/kernel/sandbox_bridge.rs` | 每沙箱的进程内状态：runner 流、状态、订阅者、控制队列 |
+| xDS authority | `src/kernel/xds_authority.rs`、`src/kernel/xds_leader.rs` | Lease/epoch fencing、PostgreSQL 恢复、Envoy ACK 后 ready、串行化网络策略变更 |
 | Redis 协调器 | `src/kernel/redis_coordinator.rs` | 跨实例 HA：owner 映射、心跳、队列、事件发布 |
 | 命令监听器 | `src/kernel/command_listener.rs` | Redis cancel/input/shutdown/memory_update 中继与 ACK |
 | 事件总线 | `src/events/bus.rs` | 进程内事件总线，驱动 stream 持久化和实时扇出 |
 | 会话广播器 | `src/kernel/session_broadcaster.rs` | 实时 SSE 扇出：Redis Pub/Sub |
 
-启动顺序（`src/main.rs`）：配置 + 数据库 + Redis 协调器 → 队列/调度器/控制器 → bridge 注册表 →
-沙箱 provider/控制器/解析器 → 会话广播器 → 内存订阅者 → Envoy/镜像构建器（按配置）→
-事件总线 + stream/realtime 订阅者 → 命令监听器 → `:9090` gRPC 服务 → 任务恢复与后台循环。
+启动顺序（`src/main.rs`）：配置 + 数据库 + Redis 协调器 → provider-local xDS 初始化 → HA 组件与控制器 →
+`:9090` gRPC/ADS 服务 → elected authority 从 PostgreSQL 恢复并等待 Envoy ACK → 任务与生命周期后台循环。
+`multi` 模式下所有副本均参与调度；启用受管出口时若没有 Kubernetes Lease-elected xDS authority，
+进程会 fail closed。
 
 ### 4.3 Worker 服务（`app/joysafeter_worker/`）
 
@@ -360,8 +363,45 @@ runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`�
 | **E2B** | E2B REST（Firecracker VM） | 需 `E2B_API_KEY` + `E2B_TEMPLATE_ID` |
 | **Daytona** | Daytona REST | 需 `DAYTONA_API_URL` + `DAYTONA_API_KEY` |
 
-**Envoy**（`sandbox/envoy_manager.py`）给每个沙箱独立网络命名空间、无直接出口：runner 经 unix-socket gRPC
+**Envoy**（`joysafeter_orchestrator_rs/src/sandbox/envoy.rs`）给每个沙箱独立网络命名空间、无直接出口：runner 经 unix-socket gRPC
 管道触达 orchestrator，所有出站 HTTP 都过一个带**默认全拒域名白名单**的 Envoy listener。
+
+### 6.4 MCP runtime plan 与 xDS authority
+
+Rust orchestrator 把 Agent MCP 配置解析为唯一、不可变的 `ResolvedMcpRuntimePlan`。Runner-safe 配置、
+Envoy 凭据路由、DNS 固定结果和网络策略 readiness 都只能从该计划投影，调用方不得各自重新解释 transport、
+endpoint、认证或网络模式。
+
+- 远程 transport 仅为 `streamable_http`、`sse`；本地进程仅为 `local_stdio`。旧别名只在不可逆迁移中改写，
+  API、前端、CLI、protobuf、runner 和 orchestrator runtime 均不保留兼容分支。
+- limited 网络沙箱只收到 `mcp-egress.internal/r/<route-key>/` 形式的不透明 URL；真实 authority 与认证头只存在于
+  Envoy 边界。MCP 凭据运行时方案封闭为 `static_bearer`、`header_api_key`、`custom_header`。
+- PostgreSQL 的 `runtime_config_generation` 与网络策略 hash/version/status 是持久化真相；只有捕获 generation
+  仍匹配且精确网络策略 generation 已 `ready`，任务才可执行。
+
+多副本 xDS 只允许一种拓扑：
+
+```text
+PostgreSQL desired generation/status
+        ↓
+Redis network-policy 精确 generation 唤醒（非状态）
+        ↓
+单一 Kubernetes Lease-elected xDS authority
+        ↓
+Envoy ACK/NACK
+        ↓
+PostgreSQL terminal generation CAS
+```
+
+所有 orchestrator 副本都可调度、拥有 runner bridge 并发送唤醒；只有 authority 可 recover/apply/remove/prune
+provider-local xDS。Envoy DaemonSet 连接带 `joysafeter-xds-leader=true` selector 的专用 Service，runner 流量
+继续走普通负载均衡 Service。authority 激活顺序为 Lease → 新 epoch → PostgreSQL 全量恢复 → Envoy ACK →
+ready → 开放 ADS → 发布 leader label；失去 Lease 会 fence epoch、关闭 ADS 与已有流、移除 label。
+
+所有变更由 authority application lock 串行化并携带 epoch guard。ACK/NACK 只能从精确 `pending` generation
+终结，因此迟到失败不能覆盖已 ACK 状态；teardown 在删除前必须重新核对 PostgreSQL 当前生命周期与网络模式。
+Redis 消息丢失由 PostgreSQL 驱动的 degraded-policy reconcile 和周期 prune 修复，新 leader 永远从 PostgreSQL
+重建，而不是依赖 Redis 历史回放。
 
 ---
 

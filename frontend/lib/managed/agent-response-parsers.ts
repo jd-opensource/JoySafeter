@@ -7,6 +7,7 @@ import type {
 } from '@/types/managed'
 
 import { parseModelConnectionSummaryResponse } from './credential-response-parsers'
+import { parseMcpServerResponseConfigs } from './mcp-config'
 
 type RawAgentSkillRef = Omit<AgentSkillRef, 'skill_id'> & { skill_id: string }
 
@@ -50,6 +51,7 @@ export function parseAgentResponse(response: unknown): Agent {
     model_connection: raw.model_connection
       ? parseModelConnectionSummaryResponse(raw.model_connection)
       : null,
+    mcp_servers: parseMcpServerResponseConfigs(raw.mcp_servers),
     skills: raw.skills?.map((skill) => ({ ...skill, skill_id: parseSkillId(skill.skill_id) })),
   }
 }

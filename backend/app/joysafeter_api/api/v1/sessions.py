@@ -173,28 +173,6 @@ def _validate_sandbox_file_path(path: str | None) -> str:
     return value if value.startswith("/") else f"/workspace/{value}"
 
 
-def _extract_host(url: str) -> str | None:
-    try:
-        from urllib.parse import urlparse
-
-        return urlparse(url).hostname
-    except Exception:
-        return None
-
-
-def _networking_with_agent_mcp_hosts(networking: dict, mcp_servers: list[dict] | None) -> dict:
-    if networking.get("type") != "limited":
-        return networking
-
-    allowed = list(networking.get("allowed_hosts", []))
-    for mcp in mcp_servers or []:
-        if isinstance(mcp, dict) and mcp.get("url"):
-            host = _extract_host(str(mcp["url"]))
-            if host and host not in allowed:
-                allowed.append(host)
-    return {**networking, "allowed_hosts": allowed}
-
-
 async def _load_session_repos(db: AsyncSession, session_id: SessionId, project_id: Optional[str]) -> list:
     """Load a session's repo resources (without decrypting tokens)."""
     return await SessionResourceService(db).list_repo_records(session_id, project_id=project_id)

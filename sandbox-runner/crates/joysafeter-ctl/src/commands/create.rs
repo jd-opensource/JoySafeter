@@ -140,16 +140,16 @@ async fn create_environment(client: &JoysafeterClient) -> anyhow::Result<()> {
 
     let name = input_required("Environment name")?;
 
-    let net_types = vec!["unrestricted", "limited"];
+    let network_types = vec!["unrestricted", "limited"];
     let net_idx = Select::new()
         .with_prompt("Networking type")
-        .items(&net_types)
+        .items(&network_types)
         .default(0)
         .interact()?;
-    let net_type = net_types[net_idx];
+    let network_type = network_types[net_idx];
 
     let mut allowed_hosts: Vec<String> = Vec::new();
-    if net_type == "limited" {
+    if network_type == "limited" {
         while let Some(host) = input_optional("Allowed host (Enter to finish)")? {
             allowed_hosts.push(host);
         }
@@ -157,7 +157,7 @@ async fn create_environment(client: &JoysafeterClient) -> anyhow::Result<()> {
 
     println!("\n── Summary ──");
     println!("  Name:       {}", name);
-    println!("  Networking: {}", net_type);
+    println!("  Networking: {}", network_type);
     if !allowed_hosts.is_empty() {
         println!("  Hosts:      {}", allowed_hosts.join(", "));
     }
@@ -171,7 +171,7 @@ async fn create_environment(client: &JoysafeterClient) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let mut networking = serde_json::json!({"type": net_type});
+    let mut networking = serde_json::json!({"type": network_type});
     if !allowed_hosts.is_empty() {
         networking["allowed_hosts"] = serde_json::json!(allowed_hosts);
     }
@@ -665,7 +665,11 @@ pub fn collect_mcp_servers() -> anyhow::Result<Vec<serde_json::Value>> {
 
     let mut servers = Vec::new();
     loop {
-        let types = vec!["url (remote HTTP endpoint)", "stdio (local command)"];
+        let types = vec![
+            "streamable_http (remote HTTP endpoint)",
+            "sse (remote event stream)",
+            "local_stdio (local command)",
+        ];
         let idx = Select::new()
             .with_prompt("MCP server type")
             .items(&types)
@@ -678,13 +682,18 @@ pub fn collect_mcp_servers() -> anyhow::Result<Vec<serde_json::Value>> {
             bail!("Server name cannot be empty");
         }
 
-        let server = if idx == 0 {
+        let server = if idx <= 1 {
             let url: String = Input::new().with_prompt("Server URL").interact_text()?;
             let url = url.trim().to_string();
             if url.is_empty() {
                 bail!("Server URL cannot be empty");
             }
-            serde_json::json!({"type": "url", "name": name, "url": url})
+            serde_json::json!({
+                "type": if idx == 0 { "streamable_http" } else { "sse" },
+                "name": name,
+                "url": url,
+                "auth_requirement": "required"
+            })
         } else {
             let command: String = Input::new().with_prompt("Command").interact_text()?;
             let command = command.trim().to_string();
@@ -700,10 +709,10 @@ pub fn collect_mcp_servers() -> anyhow::Result<Vec<serde_json::Value>> {
                 .map(|a| a.trim().to_string())
                 .filter(|a| !a.is_empty())
                 .collect();
-            serde_json::json!({"type": "stdio", "name": name, "command": command, "args": args})
+            serde_json::json!({"type": "local_stdio", "name": name, "command": command, "args": args})
         };
 
-        let type_label = if idx == 0 { "url" } else { "stdio" };
+        let type_label = ["streamable_http", "sse", "local_stdio"][idx];
         println!(
             "  \x1b[0;32m✓\x1b[0m Added MCP server: {} ({})",
             name, type_label
