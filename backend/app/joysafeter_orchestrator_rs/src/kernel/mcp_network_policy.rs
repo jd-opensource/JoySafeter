@@ -70,15 +70,18 @@ impl McpAddressResolver for SystemMcpAddressResolver {
     }
 }
 
+fn is_blocked_hostname(host: &str) -> bool {
+    BLOCKED_HOSTNAMES
+        .iter()
+        .any(|blocked| host.eq_ignore_ascii_case(blocked))
+}
+
 pub fn validate_resolved_addresses(
     host: &str,
     addresses: impl IntoIterator<Item = IpAddr>,
     policy: &McpNetworkPolicy,
 ) -> Result<Vec<IpAddr>, McpNetworkPolicyError> {
-    if BLOCKED_HOSTNAMES
-        .iter()
-        .any(|blocked| host.eq_ignore_ascii_case(blocked))
-    {
+    if is_blocked_hostname(host) {
         return Err(McpNetworkPolicyError::BlockedHostname {
             host: host.to_string(),
         });
@@ -116,10 +119,8 @@ pub async fn resolve_vetted_addresses_with(
     port: u16,
     policy: &McpNetworkPolicy,
 ) -> Result<Vec<IpAddr>, McpNetworkPolicyError> {
-    if BLOCKED_HOSTNAMES
-        .iter()
-        .any(|blocked| host.eq_ignore_ascii_case(blocked))
-    {
+    // Fail fast on blocked hostnames before issuing a DNS lookup for them.
+    if is_blocked_hostname(host) {
         return Err(McpNetworkPolicyError::BlockedHostname {
             host: host.to_string(),
         });

@@ -539,16 +539,11 @@ fn resolve_mcp_runtime_plan_from_bindings(
     };
     let mut credentials_by_url: HashMap<&str, Vec<&McpCredentialBinding>> = HashMap::new();
     for credential in credentials {
-        if credentials_by_url
+        let bucket = credentials_by_url
             .entry(credential.normalized_server_url.as_str())
-            .or_default()
-            .iter()
-            .all(|existing| existing.id != credential.id)
-        {
-            credentials_by_url
-                .entry(credential.normalized_server_url.as_str())
-                .or_default()
-                .push(credential);
+            .or_default();
+        if bucket.iter().all(|existing| existing.id != credential.id) {
+            bucket.push(credential);
         }
     }
 

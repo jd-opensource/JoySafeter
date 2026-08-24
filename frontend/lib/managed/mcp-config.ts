@@ -1,4 +1,5 @@
 import type { McpAuthRequirement, McpRemoteTransport, McpServer } from '@/types/managed'
+import { isRecord } from '@/lib/managed/quickstart-value-coercion'
 
 export type McpPermissionPolicy = 'always_allow' | 'always_ask'
 export type McpServerEntry = McpServer & { policy: McpPermissionPolicy }
@@ -10,10 +11,10 @@ const REMOTE_TRANSPORTS = new Set<McpRemoteTransport>(['streamable_http', 'sse']
 const AUTH_REQUIREMENTS = new Set<McpAuthRequirement>(['required', 'optional', 'none'])
 
 function recordValue(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new Error(`Invalid MCP ${label}`)
   }
-  return value as Record<string, unknown>
+  return value
 }
 
 function requiredText(value: unknown, label: string): string {
