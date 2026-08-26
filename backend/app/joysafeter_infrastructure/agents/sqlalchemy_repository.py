@@ -18,7 +18,15 @@ from app.joysafeter_domain.models.joysafeter_task import JOYSAFETER_TERMINAL_STA
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.repositories.joysafeter_skill_version import SkillVersionRepository
-from app.joysafeter_shared.ids import AgentId, EnvironmentId, SessionId, SkillId, registered_entity_id_prefix
+from app.joysafeter_shared.ids import (
+    AgentId,
+    AgentVersionId,
+    EnvironmentId,
+    OrganizationId,
+    ProjectId,
+    SessionId,
+    SkillId,
+)
 
 _TERMINAL_TASK_STATUSES = [status.value for status in JOYSAFETER_TERMINAL_STATUSES]
 
@@ -50,17 +58,17 @@ class SqlAlchemyAgentRepository:
     async def refresh(self, instance: Any) -> None:
         await self.db.refresh(instance)
 
-    def _conditions(self, agent_id: AgentId, project_id: Optional[str]) -> list[Any]:
+    def _conditions(self, agent_id: AgentId, project_id: ProjectId | None) -> list[Any]:
         conditions = [JoySafeterAgent.id == agent_id, JoySafeterAgent.deleted_at.is_(None)]
         if project_id is not None:
             conditions.append(JoySafeterAgent.project_id == project_id)
         return conditions
 
-    async def get(self, agent_id: AgentId, project_id: Optional[str] = None) -> Optional[JoySafeterAgent]:
+    async def get(self, agent_id: AgentId, project_id: ProjectId | None = None) -> Optional[JoySafeterAgent]:
         result = await self.db.execute(select(JoySafeterAgent).where(and_(*self._conditions(agent_id, project_id))))
         return result.scalar_one_or_none()
 
-    async def lock(self, agent_id: AgentId, project_id: Optional[str] = None) -> Optional[JoySafeterAgent]:
+    async def lock(self, agent_id: AgentId, project_id: ProjectId | None = None) -> Optional[JoySafeterAgent]:
         result = await self.db.execute(
             select(JoySafeterAgent)
             .where(and_(*self._conditions(agent_id, project_id)))
@@ -69,7 +77,7 @@ class SqlAlchemyAgentRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_name(self, name: str, project_id: Optional[str] = None) -> Optional[JoySafeterAgent]:
+    async def get_by_name(self, name: str, project_id: ProjectId | None = None) -> Optional[JoySafeterAgent]:
         conditions = [JoySafeterAgent.name == name, JoySafeterAgent.deleted_at.is_(None)]
         if project_id is not None:
             conditions.append(JoySafeterAgent.project_id == project_id)
@@ -81,7 +89,7 @@ class SqlAlchemyAgentRepository:
         limit: int = 20,
         after_id: Optional[AgentId] = None,
         include_archived: bool = False,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> tuple[list[JoySafeterAgent], bool]:
         query = select(JoySafeterAgent).where(JoySafeterAgent.deleted_at.is_(None))
         if not include_archived:
@@ -93,28 +101,13 @@ class SqlAlchemyAgentRepository:
         agents = list(result.scalars().all())
         return agents[:limit], len(agents) > limit
 
-    async def lock_environment_by_ref(
-        self, ref: str, project_id: Optional[str] = None
+    async def lock_environment(
+        self, environment_id: EnvironmentId, project_id: ProjectId | None = None
     ) -> Optional[JoySafeterEnvironment]:
-        normalized = ref.strip()
-        if not normalized:
-            return None
-        prefix = registered_entity_id_prefix(normalized)
-        conditions: list[Any] = [JoySafeterEnvironment.deleted_at.is_(None)]
-        if prefix is not None:
-            if prefix != EnvironmentId.prefix:
-                return None
-            try:
-                conditions.append(JoySafeterEnvironment.id == EnvironmentId.from_public(normalized))
-            except (TypeError, ValueError):
-                return None
-        else:
-            try:
-                EnvironmentId.from_public(f"{EnvironmentId.prefix}{normalized}")
-            except (TypeError, ValueError):
-                conditions.append(JoySafeterEnvironment.name == normalized)
-            else:
-                return None
+        conditions: list[Any] = [
+            JoySafeterEnvironment.id == environment_id,
+            JoySafeterEnvironment.deleted_at.is_(None),
+        ]
         if project_id is not None:
             conditions.append(JoySafeterEnvironment.project_id == project_id)
         result = await self.db.execute(
@@ -129,7 +122,7 @@ class SqlAlchemyAgentRepository:
         result = await self.db.execute(select(JoySafeterSkill).where(JoySafeterSkill.id.in_(skill_ids)))
         return {skill.id: skill for skill in result.scalars().all()}
 
-    async def project_org_ids(self, project_ids: Sequence[str]) -> dict[str, str]:
+    async def project_org_ids(self, project_ids: Sequence[ProjectId]) -> dict[ProjectId, OrganizationId]:
         result = await self.db.execute(select(Project.id, Project.org_id).where(Project.id.in_(project_ids)))
         return {row.id: row.org_id for row in result.all()}
 
@@ -142,11 +135,23 @@ class SqlAlchemyAgentRepository:
     async def get_skill_version(self, skill_id: SkillId, version: str) -> Any | None:
         return await SkillVersionRepository(self.db).get_by_version(skill_id, version)
 
-    async def save_version(self, agent: JoySafeterAgent, snapshot: dict[str, Any]) -> None:
-        self.db.add(JoySafeterAgentVersion(agent_id=agent.id, version=agent.version, snapshot=snapshot))
+    async def save_version(
+        self,
+        version_id: AgentVersionId,
+        agent: JoySafeterAgent,
+        snapshot: dict[str, Any],
+    ) -> None:
+        self.db.add(
+            JoySafeterAgentVersion(
+                id=version_id,
+                agent_id=agent.id,
+                version=agent.version,
+                snapshot=snapshot,
+            )
+        )
         await self.db.flush()
 
-    async def count_active_tasks(self, agent_id: AgentId, project_id: Optional[str] = None) -> int:
+    async def count_active_tasks(self, agent_id: AgentId, project_id: ProjectId | None = None) -> int:
         if project_id is not None and not await self.get(agent_id, project_id=project_id):
             return 0
         result = await self.db.execute(
@@ -161,7 +166,7 @@ class SqlAlchemyAgentRepository:
         )
         return cast(int, result.scalar() or 0)
 
-    async def list_active_tasks(self, agent_id: AgentId, project_id: Optional[str] = None) -> list[JoySafeterTask]:
+    async def list_active_tasks(self, agent_id: AgentId, project_id: ProjectId | None = None) -> list[JoySafeterTask]:
         if project_id is not None and not await self.get(agent_id, project_id=project_id):
             return []
         result = await self.db.execute(
@@ -233,7 +238,7 @@ class SqlAlchemyAgentRepository:
         agent_id: AgentId,
         limit: int = 20,
         before_version: Optional[int] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> tuple[list[JoySafeterAgentVersion], bool]:
         if project_id is not None and not await self.get(agent_id, project_id=project_id):
             return [], False
@@ -246,7 +251,7 @@ class SqlAlchemyAgentRepository:
         return versions[:limit], len(versions) > limit
 
     async def get_version_snapshot(
-        self, agent_id: AgentId, version: int, project_id: Optional[str] = None
+        self, agent_id: AgentId, version: int, project_id: ProjectId | None = None
     ) -> Optional[dict]:
         if project_id is not None and not await self.get(agent_id, project_id=project_id):
             return None
@@ -259,7 +264,7 @@ class SqlAlchemyAgentRepository:
         return None if row is None else row.snapshot
 
     async def count_delete_preview(
-        self, agent_id: AgentId, project_id: Optional[str] = None
+        self, agent_id: AgentId, project_id: ProjectId | None = None
     ) -> Optional[tuple[int, int, int, int]]:
         if not await self.get(agent_id, project_id=project_id):
             return None

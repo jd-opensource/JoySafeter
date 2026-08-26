@@ -23,26 +23,26 @@ from app.joysafeter_domain.services.joysafeter_environment_service import Enviro
 from app.joysafeter_infrastructure.agents import SqlAlchemyAgentRepository
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import CredentialId
+from app.joysafeter_shared.ids import AgentId, CredentialId, EnvironmentId, OrganizationId, TaskId, UserId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
-        project_id=None,  # type: ignore[arg-type]
+        user_id=UserId.new(),
+        org_id=OrganizationId.new(),
+        project_id=None,
         role=JoySafeterRole.MEMBER,
     )
 
 
 @pytest.mark.asyncio
-async def test_create_agent_rejects_missing_environment_ref(db_session):
-    missing_ref = f"missing-env-{uuid.uuid4()}"
+async def test_create_agent_rejects_missing_environment_id(db_session):
+    missing_environment_id = EnvironmentId.new()
     req = JoySafeterCreateAgentRequest(
         name=f"env-ref-agent-{uuid.uuid4()}",
         engine_kind="claude",
-        environment_ref=missing_ref,
+        environment_id=missing_environment_id,
     )
 
     with pytest.raises(AppError) as exc_info:
@@ -50,8 +50,8 @@ async def test_create_agent_rejects_missing_environment_ref(db_session):
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "AGENT_ENVIRONMENT_NOT_FOUND",
-        "message": f"Environment not found: {missing_ref}",
-        "data": {"environment_ref": missing_ref},
+        "message": f"Environment not found: {missing_environment_id}",
+        "data": {"environment_id": str(missing_environment_id)},
         "source": "api",
         "retryable": False,
         "user_action": "fix_input",
@@ -63,8 +63,9 @@ async def test_create_agent_rejects_missing_environment_ref(db_session):
 
 
 @pytest.mark.asyncio
-async def test_create_agent_rejects_archived_environment_ref(db_session):
+async def test_create_agent_rejects_archived_environment_id(db_session):
     env = JoySafeterEnvironment(
+        id=EnvironmentId.new(),
         name=f"archived-env-{uuid.uuid4()}",
         description="",
         archived_at=utc_now(),
@@ -76,7 +77,7 @@ async def test_create_agent_rejects_archived_environment_ref(db_session):
     req = JoySafeterCreateAgentRequest(
         name=f"archived-env-agent-{uuid.uuid4()}",
         engine_kind="claude",
-        environment_ref=str(environment_id),
+        environment_id=environment_id,
     )
 
     with pytest.raises(AppError) as exc_info:
@@ -85,7 +86,7 @@ async def test_create_agent_rejects_archived_environment_ref(db_session):
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "ENVIRONMENT_ARCHIVED",
         "message": f"Environment is archived: {environment_id}",
-        "data": {"environment_ref": str(environment_id), "environment_id": str(environment_id)},
+        "data": {"environment_id": str(environment_id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -97,22 +98,22 @@ async def test_create_agent_rejects_archived_environment_ref(db_session):
 
 
 @pytest.mark.asyncio
-async def test_update_agent_rejects_missing_environment_ref_without_partial_update(db_session):
-    agent = JoySafeterAgent(name=f"update-env-agent-{uuid.uuid4()}", version=1)
+async def test_update_agent_rejects_missing_environment_id_without_partial_update(db_session):
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"update-env-agent-{uuid.uuid4()}", version=1)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
     agent_id = agent.id
-    missing_ref = f"missing-env-{uuid.uuid4()}"
-    req = JoySafeterUpdateAgentRequest(version=1, environment_ref=missing_ref)
+    missing_environment_id = EnvironmentId.new()
+    req = JoySafeterUpdateAgentRequest(version=1, environment_id=missing_environment_id)
 
     with pytest.raises(AppError) as exc_info:
         await update_agent(req, agent.id, db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "AGENT_ENVIRONMENT_NOT_FOUND",
-        "message": f"Environment not found: {missing_ref}",
-        "data": {"environment_ref": missing_ref},
+        "message": f"Environment not found: {missing_environment_id}",
+        "data": {"environment_id": str(missing_environment_id)},
         "source": "api",
         "retryable": False,
         "user_action": "fix_input",
@@ -120,20 +121,21 @@ async def test_update_agent_rejects_missing_environment_ref_without_partial_upda
 
     db_session.expire_all()
     row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
-    assert row.environment_ref is None
+    assert row.environment_id is None
     assert row.version == 1
 
 
 @pytest.mark.asyncio
-async def test_update_agent_rejects_environment_ref_change_with_active_task(db_session):
-    env = JoySafeterEnvironment(name=f"active-update-env-{uuid.uuid4()}", description="")
-    agent = JoySafeterAgent(name=f"active-env-agent-{uuid.uuid4()}", version=1)
+async def test_update_agent_rejects_environment_id_change_with_active_task(db_session):
+    env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"active-update-env-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"active-env-agent-{uuid.uuid4()}", version=1)
     db_session.add_all([env, agent])
     await db_session.commit()
     await db_session.refresh(env)
     await db_session.refresh(agent)
     agent_id = agent.id
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent_id,
         prompt="scan target",
         status=JoySafeterTaskStatus.PENDING.value,
@@ -141,14 +143,14 @@ async def test_update_agent_rejects_environment_ref_change_with_active_task(db_s
     db_session.add(task)
     await db_session.commit()
     task_id = task.id
-    req = JoySafeterUpdateAgentRequest(version=1, environment_ref=str(env.id))
+    req = JoySafeterUpdateAgentRequest(version=1, environment_id=env.id)
 
     with pytest.raises(AppError) as exc_info:
         await update_agent(req, agent_id, db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "AGENT_ACTIVE_TASKS",
-        "message": "Agent has active tasks. Stop or wait for them before changing model_credential_id or environment_ref.",
+        "message": "Agent has active tasks. Stop or wait for them before changing model_credential_id or environment_id.",
         "data": {"agent_id": str(agent_id), "active_task_ids": [str(task_id)]},
         "source": "api",
         "retryable": True,
@@ -157,13 +159,13 @@ async def test_update_agent_rejects_environment_ref_change_with_active_task(db_s
 
     db_session.expire_all()
     row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
-    assert row.environment_ref is None
+    assert row.environment_id is None
     assert row.version == 1
 
 
 @pytest.mark.asyncio
 async def test_update_agent_rejects_archived_agent_with_structured_error(db_session):
-    agent = JoySafeterAgent(name=f"archived-agent-{uuid.uuid4()}", version=1, archived_at=utc_now())
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"archived-agent-{uuid.uuid4()}", version=1, archived_at=utc_now())
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -191,7 +193,7 @@ async def test_update_agent_rejects_archived_agent_with_structured_error(db_sess
 
 @pytest.mark.asyncio
 async def test_update_agent_rejects_version_conflict_with_structured_error(db_session):
-    agent = JoySafeterAgent(name=f"version-agent-{uuid.uuid4()}", version=2)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"version-agent-{uuid.uuid4()}", version=2)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -287,7 +289,7 @@ async def test_noop_update_does_not_increment_version_or_add_snapshot(db_session
 
 @pytest.mark.asyncio
 async def test_noop_update_releases_agent_lock_before_return(db_session, postgres_url):
-    agent = JoySafeterAgent(name=f"noop-lock-agent-{uuid.uuid4()}", version=1)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"noop-lock-agent-{uuid.uuid4()}", version=1)
     db_session.add(agent)
     await db_session.commit()
     agent_id = agent.id
@@ -312,11 +314,11 @@ async def test_noop_update_releases_agent_lock_before_return(db_session, postgre
 
 @pytest.mark.asyncio
 async def test_environment_archive_serializes_with_agent_create(db_session, postgres_url, monkeypatch):
-    environment = JoySafeterEnvironment(name=f"locked-env-{uuid.uuid4()}", description="")
+    environment = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"locked-env-{uuid.uuid4()}", description="")
     db_session.add(environment)
     await db_session.commit()
     environment_id = environment.id
-    environment_ref = str(environment.id)
+    environment_id = environment.id
     engine = create_async_engine(postgres_url, poolclass=NullPool)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     environment_locked = asyncio.Event()
@@ -336,7 +338,7 @@ async def test_environment_archive_serializes_with_agent_create(db_session, post
                     JoySafeterCreateAgentRequest(
                         name=f"environment-lock-agent-{uuid.uuid4()}",
                         engine_kind="claude",
-                        environment_ref=environment_ref,
+                        environment_id=environment_id,
                     ),
                     create_db,
                     _auth_ctx(),
@@ -363,12 +365,14 @@ async def test_environment_archive_serializes_with_agent_create(db_session, post
 
 @pytest.mark.asyncio
 async def test_environment_archive_serializes_with_agent_update(db_session, postgres_url, monkeypatch):
-    environment = JoySafeterEnvironment(name=f"update-locked-env-{uuid.uuid4()}", description="")
-    agent = JoySafeterAgent(name=f"environment-update-agent-{uuid.uuid4()}", version=1)
+    environment = JoySafeterEnvironment(
+        id=EnvironmentId.new(), name=f"update-locked-env-{uuid.uuid4()}", description=""
+    )
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"environment-update-agent-{uuid.uuid4()}", version=1)
     db_session.add_all([environment, agent])
     await db_session.commit()
     environment_id = environment.id
-    environment_ref = str(environment.id)
+    environment_id = environment.id
     agent_id = agent.id
     engine = create_async_engine(postgres_url, poolclass=NullPool)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -387,7 +391,7 @@ async def test_environment_archive_serializes_with_agent_update(db_session, post
             monkeypatch.setattr(SqlAlchemyAgentRepository, "list_active_tasks", pause_after_environment_lock)
             update_future = asyncio.create_task(
                 update_agent(
-                    JoySafeterUpdateAgentRequest(version=1, environment_ref=environment_ref),
+                    JoySafeterUpdateAgentRequest(version=1, environment_id=environment_id),
                     agent_id,
                     update_db,
                     _auth_ctx(),
@@ -414,7 +418,9 @@ async def test_environment_archive_serializes_with_agent_update(db_session, post
 
 @pytest.mark.asyncio
 async def test_failed_agent_create_releases_environment_lock(db_session, postgres_url):
-    environment = JoySafeterEnvironment(name=f"failed-create-env-{uuid.uuid4()}", description="")
+    environment = JoySafeterEnvironment(
+        id=EnvironmentId.new(), name=f"failed-create-env-{uuid.uuid4()}", description=""
+    )
     db_session.add(environment)
     await db_session.commit()
     environment_id = environment.id
@@ -427,7 +433,7 @@ async def test_failed_agent_create_releases_environment_lock(db_session, postgre
                     JoySafeterCreateAgentRequest(
                         name=f"failed-create-agent-{uuid.uuid4()}",
                         engine_kind="claude",
-                        environment_ref=str(environment_id),
+                        environment_id=environment_id,
                         model_credential_id=CredentialId.new(),
                     ),
                     create_db,
@@ -457,6 +463,37 @@ def test_mcp_server_validation_allows_http_urls_by_default(monkeypatch):
             [{"type": "streamable_http", "name": "tools", "url": url, "auth_requirement": "optional"}],
             require_https=False,
         )
+
+
+@pytest.mark.no_db
+@pytest.mark.asyncio
+@pytest.mark.parametrize("auth_requirement", ["required", "optional"])
+async def test_mcp_server_validation_rejects_managed_auth_for_sse(auth_requirement):
+    with pytest.raises(AppError) as exc_info:
+        AgentConfigurationPolicy.validate_mcp_servers(
+            [
+                {
+                    "type": "sse",
+                    "name": "events",
+                    "url": "https://example.com/sse",
+                    "auth_requirement": auth_requirement,
+                }
+            ],
+            require_https=False,
+        )
+
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "AGENT_MCP_AUTH_REQUIREMENT_UNSUPPORTED",
+        "message": "SSE MCP servers do not support managed credential injection",
+        "data": {
+            "mcp_server_name": "events",
+            "transport": "sse",
+            "auth_requirement": auth_requirement,
+        },
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
 
 
 @pytest.mark.no_db

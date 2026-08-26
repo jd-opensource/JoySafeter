@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
-from app.joysafeter_shared.ids import SandboxId
+from app.joysafeter_shared.ids import ProjectId, SandboxId
 from app.joysafeter_shared.orchestrator_bridge.runtime_commands import publish_to_sandbox_owner_via_redis
 
 logger = logging.getLogger(__name__)
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 async def mark_live_sandboxes_pending(
     db: AsyncSession,
     *,
-    project_id: Optional[str],
+    project_id: ProjectId | None,
     source_type: str,
     source_id: str,
 ) -> list[SandboxId]:
@@ -41,7 +40,7 @@ async def mark_live_sandboxes_pending(
 async def nudge_sandbox_network_policy_refreshes(
     sandbox_ids: list[SandboxId],
     *,
-    project_id: Optional[str],
+    project_id: ProjectId | None,
     reason: str,
     source_type: str,
     source_id: str,
@@ -67,7 +66,7 @@ async def nudge_sandbox_network_policy_refreshes(
                     failure_code="NETWORK_POLICY_REFRESH_RELAY_FAILED",
                     failure_message="Failed to relay network policy refresh command",
                     data={
-                        "project_id": project_id,
+                        "project_id": str(project_id) if project_id is not None else None,
                         "source_type": source_type,
                         "source_id": source_id,
                     },

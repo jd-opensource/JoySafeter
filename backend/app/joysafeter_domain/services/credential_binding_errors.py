@@ -6,12 +6,13 @@ from app.joysafeter_domain.llm.model_inference_policy import (
     ModelInferencePolicyErrorCode,
 )
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
+from app.joysafeter_shared.ids import CredentialId
 
 
 def raise_public_credential_error(
     exc: Exception,
     *,
-    credential_id: object | None = None,
+    credential_id: CredentialId | None = None,
     data: dict[str, object] | None = None,
     constructor_error: str = "corrupt",
     not_found_user_action: str | None = None,

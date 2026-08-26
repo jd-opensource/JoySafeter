@@ -23,7 +23,17 @@ from app.joysafeter_domain.models.joysafeter_task import (
 )
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.services.joysafeter_task_state_machine import JoySafeterTaskStateMachine
-from app.joysafeter_shared.ids import AgentId, SandboxId, SessionId, TaskId, TriggerId, as_uuid
+from app.joysafeter_shared.ids import (
+    AgentId,
+    OrganizationId,
+    ProjectId,
+    SandboxId,
+    SessionId,
+    TaskId,
+    TriggerId,
+    UserId,
+    as_uuid,
+)
 
 
 class JoySafeterTaskService:
@@ -32,8 +42,8 @@ class JoySafeterTaskService:
         self.state_machine = JoySafeterTaskStateMachine(db)
 
     @staticmethod
-    def scoped_idempotency_key(idempotency_key: str, project_id: Optional[str]) -> str:
-        project_scope = project_id if project_id is not None else "__no_project__"
+    def scoped_idempotency_key(idempotency_key: str, project_id: ProjectId | None) -> str:
+        project_scope = str(project_id) if project_id is not None else "__no_project__"
         return f"project:{project_scope}:{idempotency_key}"
 
     async def create_task(
@@ -44,10 +54,10 @@ class JoySafeterTaskService:
         chat_session_id: Optional[SessionId] = None,
         timeout_sec: int = 7200,
         max_retries: int = 2,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         idempotency_key: Optional[str] = None,
-        user_id: Optional[str] = None,
-        org_id: Optional[str] = None,
+        user_id: UserId | None = None,
+        org_id: OrganizationId | None = None,
         trigger_id: Optional[TriggerId] = None,
     ) -> JoySafeterTask:
         values: dict[str, Any] = dict(
@@ -69,7 +79,7 @@ class JoySafeterTaskService:
             values["trigger_id"] = trigger_id
 
         if idempotency_key is None:
-            task = JoySafeterTask(**values)
+            task = JoySafeterTask(id=TaskId.new(), **values)
             self.db.add(task)
             await self.db.commit()
             await self.db.refresh(task)
@@ -80,6 +90,7 @@ class JoySafeterTaskService:
         # retries from HA API replicas. INSERT ... ON CONFLICT DO NOTHING makes
         # the unique constraint the arbiter; on conflict we return the existing task.
         stored_idempotency_key = self.scoped_idempotency_key(idempotency_key, project_id)
+        values["id"] = TaskId.new()
         values["idempotency_key"] = stored_idempotency_key
         stmt = (
             pg_insert(JoySafeterTask)
@@ -105,7 +116,7 @@ class JoySafeterTaskService:
         return fetched
 
     async def get_by_idempotency_key(
-        self, idempotency_key: str, project_id: Optional[str] = None
+        self, idempotency_key: str, project_id: ProjectId | None = None
     ) -> Optional[JoySafeterTask]:
         """Return the task previously created with this idempotency key, if any.
 
@@ -121,7 +132,7 @@ class JoySafeterTaskService:
         result = await self.db.execute(select(JoySafeterTask).where(and_(*conditions)))
         return result.scalar_one_or_none()
 
-    async def get_task(self, task_id: TaskId, project_id: Optional[str] = None) -> Optional[JoySafeterTask]:
+    async def get_task(self, task_id: TaskId, project_id: ProjectId | None = None) -> Optional[JoySafeterTask]:
         conditions = [JoySafeterTask.id == task_id]
         if project_id is not None:
             conditions.append(JoySafeterTask.project_id == project_id)
@@ -133,7 +144,7 @@ class JoySafeterTaskService:
         agent_id: AgentId,
         limit: int = 20,
         after_id: Optional[TaskId] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> tuple[list[JoySafeterTask], bool]:
         conditions = [JoySafeterTask.agent_id == agent_id]
         if project_id is not None:
@@ -152,7 +163,7 @@ class JoySafeterTaskService:
         agent_id: Optional[AgentId] = None,
         session_id: Optional[SessionId] = None,
         status: Optional[str] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> tuple[list[JoySafeterTask], bool]:
         q = select(JoySafeterTask)
         conditions = []
@@ -261,7 +272,7 @@ class JoySafeterTaskService:
     async def list_active_tasks_by_session(
         self,
         session_id: SessionId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> list[JoySafeterTask]:
         terminal_values = [s.value for s in TERMINAL_STATUSES]
         conditions = [
@@ -301,7 +312,7 @@ class JoySafeterTaskService:
     async def increment_retry(self, task_id: TaskId, expected_epoch: Optional[int] = None) -> bool:
         return await self.state_machine.retry(task_id, expected_epoch=expected_epoch)
 
-    async def agent_has_active_tasks(self, agent_id: AgentId, project_id: Optional[str] = None) -> bool:
+    async def agent_has_active_tasks(self, agent_id: AgentId, project_id: ProjectId | None = None) -> bool:
         terminal_values = [s.value for s in TERMINAL_STATUSES]
         conditions = [
             JoySafeterTask.agent_id == agent_id,
@@ -312,7 +323,7 @@ class JoySafeterTaskService:
         result = await self.db.execute(select(func.count()).select_from(JoySafeterTask).where(and_(*conditions)))
         return cast(int, result.scalar()) > 0
 
-    async def count_active_tasks_for_project(self, project_id: str) -> int:
+    async def count_active_tasks_for_project(self, project_id: ProjectId) -> int:
         """Count the project's non-terminal tasks (pending/scheduling/running).
 
         This is the quantity admission control is gated on: a single tenant
@@ -332,7 +343,7 @@ class JoySafeterTaskService:
         )
         return cast(int, result.scalar())
 
-    async def count_active_tasks_for_user(self, user_id: str) -> int:
+    async def count_active_tasks_for_user(self, user_id: UserId) -> int:
         """Count a user's non-terminal tasks (pending/scheduling/running).
 
         Backs per-user admission control: one user cannot occupy the whole
@@ -351,7 +362,7 @@ class JoySafeterTaskService:
         )
         return cast(int, result.scalar())
 
-    async def resolve_project_task_limit(self, project_id: str, default_limit: int) -> int:
+    async def resolve_project_task_limit(self, project_id: ProjectId, default_limit: int) -> int:
         """The effective concurrent-task limit for a project.
 
         A project may carry a per-project override (``max_concurrent_tasks``);

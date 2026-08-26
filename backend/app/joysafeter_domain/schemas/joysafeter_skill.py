@@ -5,6 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.joysafeter_shared.ids import (
     AgentId,
+    AgentVersionId,
+    ProjectId,
     SessionId,
     SkillFileId,
     SkillId,
@@ -12,6 +14,9 @@ from app.joysafeter_shared.ids import (
     SkillUsageId,
     SkillVersionFileId,
     SkillVersionId,
+    TaskId,
+    TriggerId,
+    UserId,
 )
 
 
@@ -86,6 +91,7 @@ class SkillSecurityScanSummary(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class SkillReferenceSummary(BaseModel):
     agents: int = 0
     agent_versions: int = 0
@@ -96,7 +102,7 @@ class SkillReferenceSummary(BaseModel):
 
 class SkillReferenceItem(BaseModel):
     type: str
-    id: str
+    id: AgentId | AgentVersionId | TriggerId | TaskId
     name: str
     version: Optional[str] = None
     status: Optional[str] = None
@@ -120,18 +126,19 @@ class SkillUsageResponse(BaseModel):
     artifact_hash: Optional[str] = None
     session_id: Optional[SessionId] = None
     agent_id: Optional[AgentId] = None
-    project_id: Optional[str] = None
-    user_id: Optional[str] = None
+    project_id: Optional[ProjectId] = None
+    user_id: Optional[UserId] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class SkillSecurityScanResponse(BaseModel):
     id: SkillSecurityScanId
     skill_id: Optional[SkillId] = None
-    project_id: Optional[str] = None
-    owner_id: Optional[str] = None
-    created_by_id: str
+    project_id: Optional[ProjectId] = None
+    owner_id: Optional[UserId] = None
+    created_by_id: UserId
     trigger: str
     target_name: Optional[str] = None
     target_hash: str
@@ -152,6 +159,7 @@ class SkillSecurityScanResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class SkillResponse(BaseModel):
     id: SkillId
@@ -182,6 +190,7 @@ class SkillResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
 
 class CreateSkillFileRequest(BaseModel):
     path: str
@@ -239,6 +248,7 @@ class SkillFileResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class CreateSkillVersionRequest(BaseModel):
     version: Optional[str] = None
     release_notes: str = ""
@@ -258,6 +268,7 @@ class SkillLifecycleTransitionResponse(BaseModel):
     to_status: str
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class SkillVersionResponse(BaseModel):
     id: SkillVersionId
@@ -281,6 +292,7 @@ class SkillVersionResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class SkillVersionFileResponse(BaseModel):
     id: SkillVersionFileId

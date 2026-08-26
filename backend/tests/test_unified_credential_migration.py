@@ -21,8 +21,12 @@ pytestmark = pytest.mark.no_db
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 ALEMBIC = Path(sys.executable).with_name("alembic")
 PRE_UNIFIED_REVISION = "20260803_000001"
-PROJECT_ID = "proj-migration"
-ORG_ID = "org-migration"
+PROJECT_UUID = UUID("018f6f42-0a51-7cc4-98c8-4f6f0ca5f010")
+ORGANIZATION_UUID = UUID("018f6f42-0a51-7cc4-98c8-4f6f0ca5f011")
+USER_UUID = UUID("018f6f42-0a51-7cc4-98c8-4f6f0ca5f012")
+PROJECT_ID = f"proj_{PROJECT_UUID}"
+ORG_ID = f"org_{ORGANIZATION_UUID}"
+USER_ID = f"user_{USER_UUID}"
 VAULT_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 
@@ -1352,7 +1356,7 @@ def test_migration_keeps_latest_live_duplicate_name_canonical(
             FROM joysafeter_credentials
             WHERE project_id = %s AND kind = 'model' AND name = 'duplicate'
             """,
-            (PROJECT_ID,),
+            (PROJECT_UUID,),
         ).fetchone()[0]
         referenced_id = connection.execute(
             "SELECT model_credential_id FROM joysafeter_agents WHERE id = %s",
@@ -1397,7 +1401,7 @@ def test_migration_uses_id_tiebreaker_for_duplicate_canonical_selection(
             FROM joysafeter_credentials
             WHERE project_id = %s AND kind = 'model' AND name = 'tied'
             """,
-            (PROJECT_ID,),
+            (PROJECT_UUID,),
         ).fetchone()[0]
         referenced_id = connection.execute(
             "SELECT model_credential_id FROM joysafeter_agents WHERE id = %s",
@@ -1555,10 +1559,10 @@ def test_envelope_normalization_covers_all_persisted_credential_stores(
                 (task_id, project_id, user_id, user_name, credential_kind,
                  credential_fingerprint, encrypted_credential, captured_at, expires_at)
             VALUES
-                (%s, %s, 'user-1', 'user@example.com', 'identity_token',
+                (%s, %s, %s, 'user@example.com', 'identity_token',
                  NULL, %s, NOW(), NOW() + INTERVAL '5 minutes')
             """,
-            (task_id, PROJECT_ID, legacy_identity),
+            (task_id, PROJECT_ID, USER_ID, legacy_identity),
         )
         connection.commit()
 
@@ -1748,14 +1752,19 @@ def test_head_normalizes_all_persisted_credential_references_to_public_ids(
 
     model_public_id = f"cred_{model_credential_id}"
     service_public_id = f"cred_{service_credential_id}"
-    assert environment_config["secret_refs"] == [service_public_id]
-    assert environment_config["egress_services"][0]["service_credential_id"] == service_public_id
-    assert "credential_ref" not in environment_config["egress_services"][0]
+    assert environment_config["environment_credential_ids"] == [service_public_id]
+    assert "secret_refs" not in environment_config
+    assert environment_config["egress_services"][0]["credential_ref"] == service_public_id
+    assert "service_credential_id" not in environment_config["egress_services"][0]
+    assert session_snapshot["schema"] == "joysafeter.agent_execution_snapshot.v2"
     assert session_snapshot["model_credential_id"] == model_public_id
     assert "secret_ref" not in session_snapshot
     frozen_config = session_snapshot["environment"]["config"]
-    assert frozen_config["secret_refs"] == [service_public_id]
-    assert frozen_config["egress_services"][0]["service_credential_id"] == service_public_id
+    assert frozen_config["environment_credential_ids"] == [service_public_id]
+    assert "secret_refs" not in frozen_config
+    assert frozen_config["egress_services"][0]["credential_ref"] == service_public_id
+    assert "service_credential_id" not in frozen_config["egress_services"][0]
+    assert version_snapshot["schema"] == "joysafeter.agent_execution_snapshot.v2"
     assert version_snapshot["model_credential_id"] == model_public_id
     assert "secret_ref" not in version_snapshot
 
@@ -1914,8 +1923,9 @@ def test_public_id_normalization_preserves_deleted_service_identity_in_inactive_
         ).fetchone()[0]
 
     service = snapshot["environment"]["config"]["egress_services"][0]
-    assert service["service_credential_id"] == f"cred_{service_credential_id}"
-    assert "credential_ref" not in service
+    assert snapshot["schema"] == "joysafeter.agent_execution_snapshot.v2"
+    assert service["credential_ref"] == f"cred_{service_credential_id}"
+    assert "service_credential_id" not in service
 
 
 def test_public_id_normalization_rejects_deleted_service_in_active_session_snapshot(
@@ -2084,8 +2094,15 @@ def test_public_id_normalization_preserves_non_live_uuid_references_in_inactive_
             ).fetchall()
         )
 
-    assert snapshots[deleted_session_id]["environment"]["config"]["secret_refs"] == [f"cred_{deleted_credential_id}"]
-    assert snapshots[archived_session_id]["environment"]["config"]["secret_refs"] == [f"cred_{archived_credential_id}"]
+    assert snapshots[deleted_session_id]["schema"] == "joysafeter.agent_execution_snapshot.v2"
+    deleted_config = snapshots[deleted_session_id]["environment"]["config"]
+    assert deleted_config["environment_credential_ids"] == [f"cred_{deleted_credential_id}"]
+    assert "secret_refs" not in deleted_config
+
+    assert snapshots[archived_session_id]["schema"] == "joysafeter.agent_execution_snapshot.v2"
+    archived_config = snapshots[archived_session_id]["environment"]["config"]
+    assert archived_config["environment_credential_ids"] == [f"cred_{archived_credential_id}"]
+    assert "secret_refs" not in archived_config
 
 
 def test_public_id_normalization_rejects_ambiguous_historical_name_in_inactive_session(

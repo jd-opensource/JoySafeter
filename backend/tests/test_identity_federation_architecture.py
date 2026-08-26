@@ -80,6 +80,36 @@ def test_auth_service_dependency_is_limited_to_session_gateway() -> None:
     assert _find_auth_service_imports(federation_directory) == {Path("infrastructure/session_gateway.py")}
 
 
+def test_federation_user_ids_remain_typed_across_application_boundaries() -> None:
+    federation_directory = Path(__file__).resolve().parents[1] / "app" / "joysafeter_identity_federation"
+    paths = (
+        federation_directory / "domain/models.py",
+        federation_directory / "domain/ports.py",
+        federation_directory / "application/accounts.py",
+        federation_directory / "infrastructure/account_gateway.py",
+        federation_directory / "infrastructure/session_gateway.py",
+    )
+
+    for path in paths:
+        assert "user_id: str" not in path.read_text(), path
+
+
+def test_federation_tests_do_not_reintroduce_string_user_or_account_ids() -> None:
+    tests_directory = Path(__file__).resolve().parent
+    paths = (
+        tests_directory / "test_identity_federation_account_gateway.py",
+        tests_directory / "test_identity_federation_api.py",
+        tests_directory / "test_identity_federation_complete_login.py",
+        tests_directory / "test_identity_federation_session_gateway.py",
+    )
+
+    for path in paths:
+        source = path.read_text()
+        assert "user_id: str" not in source, path
+        assert 'user_id="user-' not in source, path
+        assert "id=str(uuid.uuid4())" not in source, path
+
+
 def _find_auth_service_imports(federation_directory: Path) -> set[Path]:
     auth_service_module = "app.joysafeter_domain.services.joysafeter_auth_service"
     import_paths: set[Path] = set()

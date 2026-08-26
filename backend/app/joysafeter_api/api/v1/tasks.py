@@ -6,6 +6,7 @@ import time
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Header, Query, Request, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import credential_audit_actor
@@ -35,11 +36,26 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 )
 from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import AgentId, ProjectId, SessionId, TaskId, as_uuid
+from app.joysafeter_shared.ids import (
+    AgentId,
+    EnvironmentId,
+    OrganizationId,
+    ProjectId,
+    SessionId,
+    TaskId,
+    UserId,
+    as_uuid,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["joysafeter-tasks"])
+
+
+class TaskCancelResponse(BaseModel):
+    id: TaskId
+    status: str
+
 
 # When a client omits Idempotency-Key we still derive a fallback key, scoped to a
 # short time window, so that an accidental double-submit (double-click, proxy or
@@ -70,7 +86,7 @@ def _derive_auto_idempotency_key(req: CreateTaskRequest, auth_ctx: JoySafeterAut
             req.prompt or "",
             req.system or "",
             str(req.chat_session_id or ""),
-            str(req.environment_ref or ""),
+            str(req.environment_id or ""),
             str(_auto_idempotency_window_bucket()),
         ]
     )
@@ -211,22 +227,22 @@ def _validate_idempotent_task_replay(req: CreateTaskRequest, existing) -> None:
 
 async def _load_task_environment_or_raise(
     db: AsyncSession,
-    environment_ref: str,
-    project_id: ProjectId | None,
+    environment_id: EnvironmentId,
+    project_id: Optional[ProjectId],
 ) -> Any:
-    env = await EnvironmentService(db).get_environment_by_ref(environment_ref, project_id=project_id)
+    env = await EnvironmentService(db).get_environment(environment_id, project_id=project_id)
     if not env:
         raise RequestValidationAppError(
             code="TASK_ENVIRONMENT_NOT_FOUND",
-            message=f"Environment not found: {environment_ref}",
-            data={"environment_ref": environment_ref},
+            message=f"Environment not found: {environment_id}",
+            data={"environment_id": str(environment_id)},
             user_action="fix_input",
         )
     if getattr(env, "archived_at", None) is not None:
         raise ResourceConflictError(
             code="ENVIRONMENT_ARCHIVED",
-            message=f"Environment is archived: {environment_ref}",
-            data={"environment_ref": environment_ref, "environment_id": str(env.id)},
+            message=f"Environment is archived: {environment_id}",
+            data={"environment_id": str(env.id)},
             user_action="refresh",
         )
     return env
@@ -236,48 +252,28 @@ async def _validate_task_environment_matches_existing_session(
     *,
     db: AsyncSession,
     session,
-    agent,
-    requested_environment_ref: str,
+    requested_environment_id: EnvironmentId,
     requested_environment,
-    project_id: ProjectId | None,
+    project_id: Optional[ProjectId],
 ) -> None:
-    effective_ref = session.environment_ref or getattr(agent, "environment_ref", None)
-    if effective_ref:
-        effective_environment = await EnvironmentService(db).get_environment_by_ref(
-            effective_ref, project_id=project_id
+    effective_environment_id = session.environment_id
+    if effective_environment_id is not None:
+        effective_environment = await EnvironmentService(db).get_environment(
+            effective_environment_id, project_id=project_id
         )
         if effective_environment and effective_environment.id == requested_environment.id:
             return
 
     raise ResourceConflictError(
         code="TASK_SESSION_ENVIRONMENT_MISMATCH",
-        message="Task environment_ref does not match the existing session environment",
+        message="Task environment_id does not match the existing session environment",
         data={
             "session_id": str(session.id),
-            "requested_environment_ref": requested_environment_ref,
-            "session_environment_ref": effective_ref,
+            "requested_environment_id": str(requested_environment_id),
+            "session_environment_id": str(effective_environment_id) if effective_environment_id else None,
         },
         user_action="fix_input",
     )
-
-
-async def _task_environment_refs_match_for_replay(
-    db: AsyncSession,
-    requested_environment_ref: str,
-    effective_environment_ref: str | None,
-    project_id: ProjectId | None,
-) -> bool:
-    if not effective_environment_ref:
-        return False
-    requested = requested_environment_ref.strip()
-    effective = effective_environment_ref.strip()
-    if requested == effective:
-        return True
-
-    env_svc = EnvironmentService(db)
-    requested_env = await env_svc.get_environment_by_ref(requested, project_id=project_id)
-    effective_env = await env_svc.get_environment_by_ref(effective, project_id=project_id)
-    return bool(requested_env and effective_env and requested_env.id == effective_env.id)
 
 
 async def _validate_idempotent_task_environment_replay(
@@ -285,31 +281,31 @@ async def _validate_idempotent_task_environment_replay(
     db: AsyncSession,
     req: CreateTaskRequest,
     existing,
-    project_id: ProjectId | None,
+    project_id: Optional[ProjectId],
 ) -> None:
-    if not req.environment_ref:
+    if req.environment_id is None:
         return
 
-    effective_ref = None
+    effective_environment_id = None
     if existing.chat_session_id is not None:
         session = await SessionService(db).get_session(existing.chat_session_id, project_id=project_id)
         if session is not None:
-            effective_ref = session.environment_ref
-    if not effective_ref:
+            effective_environment_id = session.environment_id
+    if effective_environment_id is None:
         agent = await compose_agent_application(db).queries.get_agent(
             existing.agent_id,
             project_id=project_id,
         )
-        effective_ref = getattr(agent, "environment_ref", None) if agent is not None else None
-    if await _task_environment_refs_match_for_replay(db, req.environment_ref, effective_ref, project_id):
+        effective_environment_id = agent.environment_id if agent is not None else None
+    if req.environment_id == effective_environment_id:
         return
 
     raise _task_idempotency_conflict_error(
         existing=existing,
-        field="environment_ref",
+        field="environment_id",
         message="Idempotency-Key was already used for a different environment",
-        requested_value=req.environment_ref,
-        existing_value=effective_ref,
+        requested_value=req.environment_id,
+        existing_value=effective_environment_id,
     )
 
 
@@ -373,17 +369,17 @@ async def create_task(
         )
 
     requested_environment = None
-    if req.environment_ref:
-        requested_environment = await _load_task_environment_or_raise(db, req.environment_ref, auth_ctx.project_id)
+    if req.environment_id is not None:
+        requested_environment = await _load_task_environment_or_raise(db, req.environment_id, auth_ctx.project_id)
 
     # Auto-create a ChatSession for the task if none provided
     chat_session_id = req.chat_session_id
     auto_created_session_id: SessionId | None = None
     session_svc = None
     if not chat_session_id:
-        environment_ref = req.environment_ref or getattr(agent, "environment_ref", None)
-        if environment_ref and requested_environment is None:
-            await _load_task_environment_or_raise(db, environment_ref, auth_ctx.project_id)
+        environment_id = req.environment_id or agent.environment_id
+        if environment_id is not None and requested_environment is None:
+            await _load_task_environment_or_raise(db, environment_id, auth_ctx.project_id)
         session_svc = SessionService(db)
         session = await SessionCreationService(
             db,
@@ -392,7 +388,7 @@ async def create_task(
             CreateCredentialAwareSession(
                 project_id=auth_ctx.project_id,
                 agent_id=agent.id,
-                environment_ref=environment_ref,
+                environment_id=environment_id,
                 title=f"Task: {req.prompt[:80]}",
                 caller="task",
             )
@@ -420,20 +416,18 @@ async def create_task(
                 },
                 user_action="fix_input",
             )
-        if req.environment_ref:
+        if req.environment_id is not None:
             assert requested_environment is not None
             await _validate_task_environment_matches_existing_session(
                 db=db,
                 session=existing_session,
-                agent=agent,
-                requested_environment_ref=req.environment_ref,
+                requested_environment_id=req.environment_id,
                 requested_environment=requested_environment,
                 project_id=auth_ctx.project_id,
             )
         else:
-            effective_environment_ref = existing_session.environment_ref or getattr(agent, "environment_ref", None)
-            if effective_environment_ref:
-                await _load_task_environment_or_raise(db, effective_environment_ref, auth_ctx.project_id)
+            if existing_session.environment_id is not None:
+                await _load_task_environment_or_raise(db, existing_session.environment_id, auth_ctx.project_id)
         if existing_session.archived_at:
             raise ResourceConflictError(
                 code="SESSION_ARCHIVED",
@@ -565,7 +559,7 @@ async def cancel_task(
     task_id: TaskId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-) -> dict:
+) -> TaskCancelResponse:
     svc = TaskService(db)
 
     # Fetch task first (we need chat_session_id for post-cancel work)
@@ -585,11 +579,15 @@ async def cancel_task(
     except ValueError as e:
         raise _task_cancel_conflict_error(task_id, e) from e
 
-    return {"id": str(task_id), "status": "cancelled"}
+    return TaskCancelResponse(id=task_id, status="cancelled")
 
 
 async def _authorize_task_stream(
-    db: AsyncSession, *, user_id: str, org_id: str, project_id: str
+    db: AsyncSession,
+    *,
+    user_id: UserId,
+    org_id: OrganizationId,
+    project_id: ProjectId,
 ) -> tuple[int, str] | None:
     """Authorize a task-stream subscription's principal against the project.
 
@@ -652,9 +650,9 @@ async def task_stream(websocket: WebSocket, task_id: TaskId):
     async with AsyncSessionLocal() as auth_db:
         rejection = await _authorize_task_stream(
             auth_db,
-            user_id=str(payload.sub),
-            org_id=str(payload.org_id),
-            project_id=str(payload.project_id),
+            user_id=payload.sub,
+            org_id=payload.org_id,
+            project_id=payload.project_id,
         )
         if rejection is not None:
             code, reason = rejection

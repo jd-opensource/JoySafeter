@@ -19,8 +19,6 @@ class JsonBoundaryTypeError(TypeError):
 
 
 def normalize_json_value(value: object, *, path: str = "$") -> JsonValue:
-    if isinstance(value, Enum):
-        return normalize_json_value(value.value, path=path)
     if value is None or isinstance(value, (bool, int, str)):
         return value
     if isinstance(value, float):
@@ -31,6 +29,8 @@ def normalize_json_value(value: object, *, path: str = "$") -> JsonValue:
         return str(value)
     if isinstance(value, (datetime, date)):
         return value.isoformat()
+    if isinstance(value, Enum):
+        return normalize_json_value(value.value, path=path)
     if isinstance(value, Mapping):
         normalized: dict[str, JsonValue] = {}
         for key, item in value.items():

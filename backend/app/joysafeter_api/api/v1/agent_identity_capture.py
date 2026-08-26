@@ -25,6 +25,7 @@ from app.joysafeter_identity.service import (
     validate_provider_configuration,
 )
 from app.joysafeter_infrastructure.task_identity.material_adapter import TaskIdentityMaterialConfigurationError
+from app.joysafeter_shared.common.joysafeter_auth.context import JoySafeterAuthContext
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def _context_ttl() -> timedelta:
 async def prepare_agent_identity_capture(
     db: AsyncSession,
     request: Request | Any | None,
-    auth_ctx: Any,
+    auth_ctx: JoySafeterAuthContext,
     agent: Any,
     identity_auth_code: str | None = None,
 ) -> IdentityCaptureHook | None:
@@ -103,13 +104,13 @@ async def prepare_agent_identity_capture(
     )
     captured_at = datetime.now(timezone.utc)
     expires_at = captured_at + _context_ttl()
-    project_id = getattr(auth_ctx, "project_id", None)
-    user_id = str(auth_ctx.user_id)
-    user_name = user_id
+    project_id = auth_ctx.project_id
+    user_id = auth_ctx.user_id
+    user_name = str(user_id)
 
     from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 
-    result = await db.execute(select(AuthUser.email).where(AuthUser.id == auth_ctx.user_id).limit(1))
+    result = await db.execute(select(AuthUser.email).where(AuthUser.id == user_id).limit(1))
     email = result.scalar_one_or_none()
     if email:
         user_name = email

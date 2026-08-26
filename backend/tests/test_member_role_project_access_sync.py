@@ -9,12 +9,15 @@ from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMemb
 from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
 from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_shared.common.joysafeter_auth.context import JoySafeterRole
+from app.joysafeter_shared.ids import OrganizationId, OrganizationMemberId, ProjectId, ProjectMemberId, UserId
+
+OWNER_USER_ID = UserId.new()
 
 
 async def _org_with_default_project(db_session) -> tuple[Organization, Project]:
-    org = Organization(id=f"org-{uuid.uuid4()}", name="Org", slug=f"org-{uuid.uuid4()}")
+    org = Organization(id=OrganizationId.new(), name="Org", slug=f"org-{uuid.uuid4()}")
     default_project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Default",
         slug="default",
@@ -25,11 +28,11 @@ async def _org_with_default_project(db_session) -> tuple[Organization, Project]:
     return org, default_project
 
 
-async def _member(db_session, *, org_id: str, role: str) -> AuthUser:
-    user = AuthUser(id=f"user-{uuid.uuid4()}", name="U", email=f"{uuid.uuid4()}@example.com")
+async def _member(db_session, *, org_id: OrganizationId, role: str) -> AuthUser:
+    user = AuthUser(id=UserId.new(), name="U", email=f"{uuid.uuid4()}@example.com")
     db_session.add(user)
     await db_session.flush()
-    db_session.add(Member(user_id=user.id, organization_id=org_id, role=role))
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org_id, role=role))
     return user
 
 
@@ -43,7 +46,7 @@ async def test_demoting_admin_to_member_uses_implicit_default_project_access(db_
     await svc.update_member_role_by_user_id(
         organization_id=org.id,
         user_id=target.id,
-        actor_user_id="owner-user",
+        actor_user_id=OWNER_USER_ID,
         actor_role=JoySafeterRole.OWNER,
         role="member",
     )
@@ -71,7 +74,7 @@ async def test_demoting_admin_to_member_uses_implicit_default_project_access(db_
 async def test_demotion_clears_existing_non_default_project_grants(db_session):
     org, default_project = await _org_with_default_project(db_session)
     non_default = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Second",
         slug=f"second-{uuid.uuid4()}",
@@ -79,13 +82,13 @@ async def test_demotion_clears_existing_non_default_project_grants(db_session):
     db_session.add(non_default)
     target = await _member(db_session, org_id=org.id, role="admin")
     # Direct grants are cleared so a later demotion cannot reactivate hidden access.
-    db_session.add(ProjectMember(project_id=non_default.id, user_id=target.id, role="editor"))
+    db_session.add(ProjectMember(id=ProjectMemberId.new(), project_id=non_default.id, user_id=target.id, role="editor"))
     await db_session.commit()
 
     await OrganizationMemberService(db_session).update_member_role_by_user_id(
         organization_id=org.id,
         user_id=target.id,
-        actor_user_id="owner-user",
+        actor_user_id=OWNER_USER_ID,
         actor_role=JoySafeterRole.OWNER,
         role="member",
     )
@@ -113,7 +116,7 @@ async def test_demotion_clears_existing_non_default_project_grants(db_session):
 async def test_promotion_to_admin_grants_org_wide_access_without_row(db_session):
     org, default_project = await _org_with_default_project(db_session)
     non_default = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Second",
         slug=f"second-{uuid.uuid4()}",
@@ -125,7 +128,7 @@ async def test_promotion_to_admin_grants_org_wide_access_without_row(db_session)
     await OrganizationMemberService(db_session).update_member_role_by_user_id(
         organization_id=org.id,
         user_id=target.id,
-        actor_user_id="owner-user",
+        actor_user_id=OWNER_USER_ID,
         actor_role=JoySafeterRole.OWNER,
         role="admin",
     )
@@ -144,20 +147,20 @@ async def test_promotion_to_admin_grants_org_wide_access_without_row(db_session)
 async def test_reapplying_member_role_preserves_explicit_project_grants(db_session):
     org, _default_project = await _org_with_default_project(db_session)
     project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Assigned",
         slug=f"assigned-{uuid.uuid4()}",
     )
     db_session.add(project)
     target = await _member(db_session, org_id=org.id, role="developer")
-    db_session.add(ProjectMember(project_id=project.id, user_id=target.id, role="editor"))
+    db_session.add(ProjectMember(id=ProjectMemberId.new(), project_id=project.id, user_id=target.id, role="editor"))
     await db_session.commit()
 
     await OrganizationMemberService(db_session).update_member_role_by_user_id(
         organization_id=org.id,
         user_id=target.id,
-        actor_user_id="owner-user",
+        actor_user_id=OWNER_USER_ID,
         actor_role=JoySafeterRole.OWNER,
         role="member",
     )
@@ -184,8 +187,8 @@ async def test_transfer_ownership_clears_hidden_project_grants(db_session):
     successor = await _member(db_session, org_id=org.id, role="member")
     db_session.add_all(
         [
-            ProjectMember(project_id=default_project.id, user_id=owner.id, role="viewer"),
-            ProjectMember(project_id=default_project.id, user_id=successor.id, role="editor"),
+            ProjectMember(id=ProjectMemberId.new(), project_id=default_project.id, user_id=owner.id, role="viewer"),
+            ProjectMember(id=ProjectMemberId.new(), project_id=default_project.id, user_id=successor.id, role="editor"),
         ]
     )
     await db_session.commit()

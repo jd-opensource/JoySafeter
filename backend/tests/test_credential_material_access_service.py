@@ -32,6 +32,7 @@ from app.joysafeter_domain.credentials.policies import (
     CredentialPolicyError,
     CredentialPolicyErrorCode,
 )
+from app.joysafeter_shared.ids import CredentialAccessAuditId
 from app.joysafeter_shared.security.credential_cipher import CredentialCiphertextError
 
 
@@ -92,8 +93,8 @@ def _context() -> CredentialAccessContext:
 def _webhook_binding() -> tuple[WebhookAuthBinding, ValidatedCredentialBinding, CredentialFieldName]:
     field = CredentialFieldName("WEBHOOK_SECRET")
     binding = WebhookAuthBinding(
-        project_id=ProjectId("project-1"),
-        credential_id=CredentialId("cred_00000000-0000-0000-0000-000000000001"),
+        project_id=ProjectId.from_public("proj_00000000-0000-0000-0000-000000000001"),
+        credential_id=CredentialId.from_public("cred_00000000-0000-0000-0000-000000000001"),
         credential_field=field,
         methods=frozenset({WebhookAuthMethod.HMAC}),
     )
@@ -188,8 +189,8 @@ async def test_material_access_fails_closed_when_success_audit_cannot_persist() 
 async def test_model_material_access_returns_resolution_and_audits_model_usage() -> None:
     field = CredentialFieldName("OPENAI_API_KEY")
     binding = ModelInferenceBinding(
-        project_id=ProjectId("project-1"),
-        credential_id=CredentialId("cred_00000000-0000-0000-0000-000000000002"),
+        project_id=ProjectId.from_public("proj_00000000-0000-0000-0000-000000000001"),
+        credential_id=CredentialId.from_public("cred_00000000-0000-0000-0000-000000000002"),
         engine_kind=EngineKind.CODEX,
         model_id="gpt-5",
     )
@@ -244,6 +245,7 @@ def test_access_audit_entry_rejects_inconsistent_result_and_error_code(result, e
 
     with pytest.raises(ValueError, match="error code"):
         CredentialAccessAuditEntry(
+            id=CredentialAccessAuditId.new(),
             project_id=binding.project_id,
             credential_id=binding.credential_id,
             credential_kind="service",

@@ -31,17 +31,18 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, UserId
 
 
-async def _make_project(session_factory: async_sessionmaker) -> str:
+async def _make_project(session_factory: async_sessionmaker) -> tuple[ProjectId, OrganizationId]:
     async with session_factory() as session:
-        org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+        org = Organization(id=OrganizationId.new(), name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
         session.add(org)
         await session.flush()
-        project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+        project = Project(id=ProjectId.new(), org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
         session.add(project)
         await session.commit()
-        return project.id
+        return project.id, org.id
 
 
 @pytest.fixture
@@ -50,7 +51,8 @@ def api(postgres_url: str) -> Iterator[TestClient]:
     overridden (same wiring style as tests/test_credentials_api.py)."""
     engine = create_async_engine(postgres_url, poolclass=NullPool)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    project_id = asyncio.get_event_loop().run_until_complete(_make_project(session_factory))
+    project_id, organization_id = asyncio.get_event_loop().run_until_complete(_make_project(session_factory))
+    user_id = UserId.new()
 
     app = FastAPI()
     register_exception_handlers(app)
@@ -62,8 +64,8 @@ def api(postgres_url: str) -> Iterator[TestClient]:
 
     def _override_auth() -> JoySafeterAuthContext:
         return JoySafeterAuthContext(
-            user_id="test-user",
-            org_id="test-org",
+            user_id=user_id,
+            org_id=organization_id,
             project_id=project_id,
             role=JoySafeterRole.ADMIN,
         )

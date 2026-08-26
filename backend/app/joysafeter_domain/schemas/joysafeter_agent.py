@@ -4,7 +4,6 @@ Pydantic schemas for the JoySafeter Agent API.
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Annotated, Any, Dict, Literal, Optional, Union
@@ -18,7 +17,7 @@ from pydantic import (
 )
 
 from app.joysafeter_domain.schemas.joysafeter_credential import ModelCredentialSummary
-from app.joysafeter_shared.ids import AgentId, CredentialId, SkillId
+from app.joysafeter_shared.ids import AgentId, AgentVersionId, CredentialId, EnvironmentId, SkillId
 
 
 class JoySafeterEngineKind(str, Enum):
@@ -210,12 +209,12 @@ class JoySafeterCreateAgentRequest(BaseModel):
     commands: list[PackedItem] = Field(default_factory=list)
     tools: list[AgentTool] = Field(default_factory=list)
     multiagent: Optional[Dict[str, Any]] = None
-    environment_ref: Optional[str] = None
+    environment_id: Optional[EnvironmentId] = None
     model_credential_id: Optional[CredentialId] = None
 
     model_config = ConfigDict(extra="forbid")
 
-    @field_validator("name", "description", "environment_ref")
+    @field_validator("name", "description")
     @classmethod
     def trim_config_value(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
@@ -248,12 +247,12 @@ class JoySafeterUpdateAgentRequest(BaseModel):
     commands: Optional[list[PackedItem]] = None
     tools: Optional[list[AgentTool]] = None
     multiagent: Optional[Dict[str, Any]] = None
-    environment_ref: Optional[str] = None
+    environment_id: Optional[EnvironmentId] = None
     model_credential_id: Optional[CredentialId] = None
 
     model_config = ConfigDict(extra="forbid")
 
-    @field_validator("name", "description", "environment_ref")
+    @field_validator("name", "description")
     @classmethod
     def trim_config_value(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
@@ -288,7 +287,7 @@ class JoySafeterAgentResponse(BaseModel):
     tools: list[AgentTool] = Field(default_factory=list)
     multiagent: Optional[Dict[str, Any]] = None
     version: int
-    environment_ref: Optional[str] = None
+    environment_id: Optional[EnvironmentId] = None
     model_credential_id: Optional[CredentialId] = None
     model_connection: Optional[ModelCredentialSummary] = None
     created_at: datetime
@@ -299,7 +298,7 @@ class JoySafeterAgentResponse(BaseModel):
 
 
 class AgentVersionResponse(BaseModel):
-    id: uuid.UUID
+    id: AgentVersionId
     agent_id: AgentId
     version: int
     snapshot: Dict[str, Any]

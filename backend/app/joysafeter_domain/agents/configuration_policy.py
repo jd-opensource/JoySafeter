@@ -26,6 +26,16 @@ class AgentConfigurationPolicy:
         for config in mcp_servers:
             if not isinstance(config, dict):
                 continue
+            if config.get("type") == "sse" and config.get("auth_requirement") != "none":
+                raise _configuration_error(
+                    code="AGENT_MCP_AUTH_REQUIREMENT_UNSUPPORTED",
+                    message="SSE MCP servers do not support managed credential injection",
+                    data={
+                        "mcp_server_name": config.get("name", ""),
+                        "transport": "sse",
+                        "auth_requirement": config.get("auth_requirement"),
+                    },
+                )
             url = config.get("url", "")
             if url.lower().startswith("http://") and require_https:
                 host = (urlparse(url).hostname or "").lower()

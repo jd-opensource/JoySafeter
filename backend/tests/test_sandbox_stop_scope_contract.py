@@ -1,11 +1,14 @@
-import uuid
 from types import SimpleNamespace
 
 import pytest
 
 from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxService
+from app.joysafeter_shared.ids import ProjectId, SandboxId
 
 pytestmark = pytest.mark.no_db
+
+PROJECT_ID = ProjectId.new()
+OTHER_PROJECT_ID = ProjectId.new()
 
 
 def _svc(*, sandbox, cas_result):
@@ -30,10 +33,10 @@ async def test_scoped_stop_reports_cas_failure_for_non_idle_sandbox():
     # A sandbox that exists and is owned but is NOT idle: the idle->stopping CAS
     # returns False. stop_sandbox must surface that False (the DELETE route then
     # 404s) rather than claiming success on a sandbox it did not actually stop.
-    sandbox_id = uuid.uuid4()
+    sandbox_id = SandboxId.new()
     svc, calls = _svc(sandbox=SimpleNamespace(id=sandbox_id, status="running"), cas_result=False)
 
-    result = await svc.stop_sandbox(sandbox_id, project_id="project-a")
+    result = await svc.stop_sandbox(sandbox_id, project_id=PROJECT_ID)
 
     assert result is False
     assert calls["cas"] == (sandbox_id, "idle", "stopping")
@@ -41,20 +44,20 @@ async def test_scoped_stop_reports_cas_failure_for_non_idle_sandbox():
 
 @pytest.mark.asyncio
 async def test_scoped_stop_reports_success_when_cas_succeeds():
-    sandbox_id = uuid.uuid4()
+    sandbox_id = SandboxId.new()
     svc, _ = _svc(sandbox=SimpleNamespace(id=sandbox_id, status="idle"), cas_result=True)
 
-    result = await svc.stop_sandbox(sandbox_id, project_id="project-a")
+    result = await svc.stop_sandbox(sandbox_id, project_id=PROJECT_ID)
 
     assert result is True
 
 
 @pytest.mark.asyncio
 async def test_scoped_stop_returns_false_and_skips_cas_when_not_owned():
-    sandbox_id = uuid.uuid4()
+    sandbox_id = SandboxId.new()
     svc, calls = _svc(sandbox=None, cas_result=True)
 
-    result = await svc.stop_sandbox(sandbox_id, project_id="other-project")
+    result = await svc.stop_sandbox(sandbox_id, project_id=OTHER_PROJECT_ID)
 
     assert result is False
     assert "cas" not in calls

@@ -22,8 +22,7 @@ from app.joysafeter_shared.common.app_errors import (
     RequestValidationAppError,
     ResourceConflictError,
 )
-from app.joysafeter_shared.ids import CredentialGroupId as SqlCredentialGroupId
-from app.joysafeter_shared.ids import EnvironmentId
+from app.joysafeter_shared.ids import EnvironmentId, ProjectId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -90,19 +89,27 @@ class SqlAlchemyCredentialSnapshotSourceAdapter:
             snapshot = build_agent_execution_snapshot(agent)
             agent_version = agent.version
 
-        environment_ref = command.environment_ref or snapshot.get("environment_ref") or agent.environment_ref or None
+        snapshot_environment_id = snapshot.get("environment_id")
+        if snapshot_environment_id is not None:
+            try:
+                snapshot_environment_id = EnvironmentId.from_public(snapshot_environment_id)
+            except (TypeError, ValueError) as exc:
+                raise RequestValidationAppError(
+                    code="SESSION_SNAPSHOT_CORRUPT",
+                    message="Agent snapshot contains an invalid environment_id",
+                    data={"environment_id": str(snapshot_environment_id)},
+                    user_action="refresh",
+                ) from exc
+        environment_id = command.environment_id or snapshot_environment_id or agent.environment_id
         environment = await self._load_environment(
-            environment_ref,
+            environment_id,
             project_id=command.project_id,
             caller=command.caller,
             for_update=for_update,
         )
-        environment_ref = str(environment.id) if environment is not None else None
-        snapshot["environment_ref"] = environment_ref
-        environment_snapshot = build_environment_execution_snapshot(
-            environment,
-            environment_ref=environment_ref,
-        )
+        environment_id = environment.id if environment is not None else None
+        snapshot["environment_id"] = str(environment_id) if environment_id is not None else None
+        environment_snapshot = build_environment_execution_snapshot(environment)
         if environment_snapshot is not None:
             snapshot["environment"] = environment_snapshot
 
@@ -124,32 +131,25 @@ class SqlAlchemyCredentialSnapshotSourceAdapter:
             agent_name=str(snapshot.get("name") or agent.name),
             agent_version=agent_version,
             snapshot=snapshot,
-            environment_ref=environment_ref,
             source_version_id=version_row.id if version_row is not None else None,
-            environment_id=environment.id if environment is not None else None,
+            environment_id=environment_id,
         )
 
     async def _load_environment(
         self,
-        environment_ref: str | None,
+        environment_id: EnvironmentId | None,
         *,
-        project_id: str | None,
+        project_id: ProjectId | None,
         caller: str,
         for_update: bool,
     ) -> JoySafeterEnvironment | None:
-        normalized = (environment_ref or "").strip()
-        if not normalized:
+        if environment_id is None:
             return None
         conditions = [
+            JoySafeterEnvironment.id == environment_id,
             JoySafeterEnvironment.project_id == project_id,
             JoySafeterEnvironment.deleted_at.is_(None),
         ]
-        try:
-            environment_id = EnvironmentId.from_public(normalized)
-        except (TypeError, ValueError):
-            conditions.append(JoySafeterEnvironment.name == normalized)
-        else:
-            conditions.append(JoySafeterEnvironment.id == environment_id)
         query = select(JoySafeterEnvironment).where(and_(*conditions)).execution_options(populate_existing=True)
         if for_update:
             query = query.with_for_update()
@@ -158,15 +158,15 @@ class SqlAlchemyCredentialSnapshotSourceAdapter:
             code = "TASK_ENVIRONMENT_NOT_FOUND" if caller == "task" else "SESSION_ENVIRONMENT_NOT_FOUND"
             raise RequestValidationAppError(
                 code=code,
-                message=f"Environment not found: {normalized}",
-                data={"environment_ref": normalized},
+                message=f"Environment not found: {environment_id}",
+                data={"environment_id": str(environment_id)},
                 user_action="fix_input",
             )
         if environment.archived_at is not None:
             raise ResourceConflictError(
                 code="ENVIRONMENT_ARCHIVED",
-                message=f"Environment is archived: {normalized}",
-                data={"environment_ref": normalized, "environment_id": str(environment.id)},
+                message=f"Environment is archived: {environment_id}",
+                data={"environment_id": str(environment.id)},
                 user_action="refresh",
             )
         return environment
@@ -178,12 +178,13 @@ class SqlAlchemyCredentialSessionRepository:
 
     async def create(self, request: CredentialSnapshotSession) -> JoySafeterSession:
         session = JoySafeterSession(
+            id=request.id,
             agent_id=request.agent_id,
             project_id=request.project_id,
             title=request.title,
             status=SessionStatus.IDLE.value,
             metadata_=dict(request.metadata),
-            environment_ref=request.environment_ref,
+            environment_id=request.environment_id,
             agent_version=request.agent_version,
             agent_snapshot=dict(request.agent_snapshot),
             updated_at=utc_now(),
@@ -194,7 +195,7 @@ class SqlAlchemyCredentialSessionRepository:
             self._db.add(
                 JoySafeterSessionCredentialGroup(
                     session_id=session.id,
-                    credential_group_id=SqlCredentialGroupId.from_public(str(group_id)),
+                    credential_group_id=group_id,
                 )
             )
         await self._db.flush()

@@ -7,7 +7,7 @@ from typing import Any, Optional
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger, TriggerConcurrencyPolicy
 from app.joysafeter_domain.triggers import get_provider, supported_kinds
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
-from app.joysafeter_shared.ids import CredentialId, SessionId
+from app.joysafeter_shared.ids import CredentialId, EnvironmentId, SessionId
 from app.joysafeter_shared.utils.cron import validate_cron, validate_timezone
 
 _SUPPORTED_TRIGGER_TYPES = frozenset(supported_kinds())
@@ -19,7 +19,7 @@ _SUPPORTED_WEBHOOK_AUTH_METHODS = frozenset({"hmac", "bearer", "token"})
 @dataclass(frozen=True)
 class TriggerUpdatePlan:
     fields: dict[str, Any]
-    next_environment_ref: Optional[str]
+    next_environment_id: Optional[EnvironmentId]
     should_resolve_target: bool
     webhook_auth_credential_id_to_verify: Optional[CredentialId]
     webhook_auth_field_to_verify: Optional[str]
@@ -176,8 +176,8 @@ class TriggerConfigPolicy:
         effective_field = fields.get("webhook_auth_field", trigger.webhook_auth_field)
         return TriggerUpdatePlan(
             fields=dict(fields),
-            next_environment_ref=fields["environment_ref"] if "environment_ref" in fields else trigger.environment_ref,
-            should_resolve_target="environment_ref" in fields or fields.get("enabled") is True,
+            next_environment_id=fields["environment_id"] if "environment_id" in fields else trigger.environment_id,
+            should_resolve_target="environment_id" in fields or fields.get("enabled") is True,
             webhook_auth_credential_id_to_verify=effective_credential_id if verify_secret else None,
             webhook_auth_field_to_verify=effective_field if verify_secret else None,
             recompute_next_run=trigger.type == "cron"

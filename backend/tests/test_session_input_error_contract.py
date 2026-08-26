@@ -9,23 +9,24 @@ from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.schemas.joysafeter_session import SendEventRequest, SingleEventRequest
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import AgentId, OrganizationId, SessionId, UserId
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=UserId.new(),
+        org_id=OrganizationId.new(),
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
 
 
 async def _session(db_session) -> JoySafeterSession:
-    agent = JoySafeterAgent(name=f"session-input-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"session-input-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)

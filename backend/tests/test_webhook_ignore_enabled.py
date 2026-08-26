@@ -16,21 +16,23 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId, TriggerId, UserId
 
 
 async def _seed_disabled_webhook(db_session):
-    org = Organization(name=f"wh-org-{uuid.uuid4()}", slug=f"wh-org-{uuid.uuid4()}")
+    org = Organization(id=OrganizationId.new(), name=f"wh-org-{uuid.uuid4()}", slug=f"wh-org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name="P", slug=f"wh-p-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org.id, name="P", slug=f"wh-p-{uuid.uuid4()}")
     db_session.add(project)
     await db_session.flush()
-    agent = JoySafeterAgent(name=f"wh-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"wh-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
     await db_session.refresh(project)
     trigger = JoySafeterTrigger(
+        id=TriggerId.new(),
         name="hook",
         type="webhook",
         agent_id=agent.id,
@@ -40,7 +42,7 @@ async def _seed_disabled_webhook(db_session):
         config={},
         last_payload={},
         project_id=project.id,
-        user_id="owner",
+        user_id=UserId.new(),
         org_id=org.id,
     )
     db_session.add(trigger)

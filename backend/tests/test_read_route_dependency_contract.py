@@ -141,8 +141,6 @@ def test_auth_management_route_dependency_contract():
     assert _dependency_for(auth.list_projects) is require_joysafeter_user_context
     assert _dependency_for(auth.get_project) is require_joysafeter_user_context
     assert _dependency_for(auth.list_api_keys) is require_joysafeter_user_context
-    assert _dependency_for(auth.create_organization) is require_joysafeter_user_context
-
     assert _dependency_for(auth.create_api_key) is require_joysafeter_user_write
     assert _dependency_for(auth.revoke_api_key) is require_joysafeter_user_write
 

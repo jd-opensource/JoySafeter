@@ -32,50 +32,64 @@ from app.joysafeter_domain.schemas.joysafeter_memory import CreateMemoryRequest,
 from app.joysafeter_domain.services.joysafeter_memory_service import MemoryService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import SessionId, as_uuid
+from app.joysafeter_shared.ids import (
+    AgentId,
+    MemoryStoreId,
+    OrganizationId,
+    ProjectId,
+    SessionId,
+    SessionResourceId,
+    UserId,
+    as_uuid,
+)
 from app.joysafeter_shared.utils.datetime import utc_now
+
+TEST_USER_ID = UserId.new()
+TEST_ORG_ID = OrganizationId.new()
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
-        project_id=None,  # type: ignore[arg-type]
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORG_ID,
+        project_id=None,
         role=JoySafeterRole.MEMBER,
     )
 
 
-def _project_auth_ctx(project_id: str) -> JoySafeterAuthContext:
+def _project_auth_ctx(project_id: ProjectId) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORG_ID,
         project_id=project_id,
         role=JoySafeterRole.MEMBER,
     )
 
 
-async def _ensure_project(db_session, project_id: str) -> None:
+async def _ensure_project(db_session, project_id: ProjectId) -> None:
     if await db_session.get(Project, project_id):
         return
-    org = await db_session.get(Organization, "test-org")
+    org = await db_session.get(Organization, TEST_ORG_ID)
     if not org:
-        org = Organization(id="test-org", name="Test Org", slug="test-org")
+        org = Organization(id=TEST_ORG_ID, name="Test Org", slug=f"test-org-{uuid.uuid4()}")
         db_session.add(org)
     db_session.add(
         Project(
             id=project_id,
-            org_id="test-org",
-            name=project_id,
-            slug=project_id,
+            org_id=TEST_ORG_ID,
+            name=str(project_id),
+            slug=f"project-{uuid.uuid4()}",
             is_default=False,
         )
     )
     await db_session.commit()
 
 
-async def _project_store(db_session, project_id: str) -> JoySafeterMemoryStore:
+async def _project_store(db_session, project_id: ProjectId) -> JoySafeterMemoryStore:
     await _ensure_project(db_session, project_id)
-    store = JoySafeterMemoryStore(name=f"project-store-{uuid.uuid4()}", description="", project_id=project_id)
+    store = JoySafeterMemoryStore(
+        id=MemoryStoreId.new(), name=f"project-store-{uuid.uuid4()}", description="", project_id=project_id
+    )
     db_session.add(store)
     await db_session.commit()
     await db_session.refresh(store)
@@ -96,19 +110,20 @@ class _FakeRedis:
 
 
 async def _mounted_store(db_session):
-    store = JoySafeterMemoryStore(name=f"store-{uuid.uuid4()}", description="")
-    agent = JoySafeterAgent(name=f"memory-agent-{uuid.uuid4()}")
+    store = JoySafeterMemoryStore(id=MemoryStoreId.new(), name=f"store-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"memory-agent-{uuid.uuid4()}")
     db_session.add_all([store, agent])
     await db_session.commit()
     await db_session.refresh(store)
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
 
     mount = JoySafeterSessionMemoryStore(
+        id=SessionResourceId.new(),
         session_id=session.id,
         store_id=store.id,
         access="read_write",
@@ -120,8 +135,8 @@ async def _mounted_store(db_session):
 
 
 async def _mounted_store_with_active_sandboxes(db_session):
-    store = JoySafeterMemoryStore(name=f"store-{uuid.uuid4()}", description="")
-    agent = JoySafeterAgent(name=f"memory-agent-{uuid.uuid4()}")
+    store = JoySafeterMemoryStore(id=MemoryStoreId.new(), name=f"store-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"memory-agent-{uuid.uuid4()}")
     db_session.add_all([store, agent])
     await db_session.commit()
     await db_session.refresh(store)
@@ -129,18 +144,19 @@ async def _mounted_store_with_active_sandboxes(db_session):
 
     sandbox_a = uuid.uuid4()
     sandbox_b = uuid.uuid4()
-    session_a = JoySafeterSession(agent_id=agent.id, status="running", last_sandbox_id=sandbox_a)
+    session_a = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running", last_sandbox_id=sandbox_a)
     db_session.add(session_a)
     await db_session.commit()
     await db_session.refresh(session_a)
 
-    session_b = JoySafeterSession(agent_id=agent.id, status="running", last_sandbox_id=sandbox_b)
+    session_b = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running", last_sandbox_id=sandbox_b)
     db_session.add(session_b)
     await db_session.commit()
     await db_session.refresh(session_b)
 
     db_session.add(
         JoySafeterSessionMemoryStore(
+            id=SessionResourceId.new(),
             session_id=session_a.id,
             store_id=store.id,
             access="read_write",
@@ -151,6 +167,7 @@ async def _mounted_store_with_active_sandboxes(db_session):
 
     db_session.add(
         JoySafeterSessionMemoryStore(
+            id=SessionResourceId.new(),
             session_id=session_b.id,
             store_id=store.id,
             access="read_write",
@@ -162,7 +179,7 @@ async def _mounted_store_with_active_sandboxes(db_session):
 
 
 async def _memory_store(db_session):
-    store = JoySafeterMemoryStore(name=f"memory-entry-store-{uuid.uuid4()}", description="")
+    store = JoySafeterMemoryStore(id=MemoryStoreId.new(), name=f"memory-entry-store-{uuid.uuid4()}", description="")
     db_session.add(store)
     await db_session.commit()
     await db_session.refresh(store)
@@ -290,13 +307,15 @@ async def test_create_memory_rejects_archived_store_without_creating_row(db_sess
 
 @pytest.mark.asyncio
 async def test_create_memory_rejects_cross_project_at_service_boundary(db_session):
-    store = await _project_store(db_session, "project-b")
+    project_a_id = ProjectId.new()
+    project_b_id = ProjectId.new()
+    store = await _project_store(db_session, project_b_id)
 
     created = await MemoryService(db_session).create_memory(
         store.id,
         "/cross-project.md",
         "blocked",
-        project_id="project-a",
+        project_id=project_a_id,
     )
 
     assert created is None
@@ -313,17 +332,19 @@ async def test_create_memory_rejects_cross_project_at_service_boundary(db_sessio
 
 @pytest.mark.asyncio
 async def test_get_memory_route_rejects_cross_project_store(db_session):
-    store = await _project_store(db_session, "project-b")
+    project_a_id = ProjectId.new()
+    project_b_id = ProjectId.new()
+    store = await _project_store(db_session, project_b_id)
     memory = await MemoryService(db_session).create_memory(
         store.id,
         "/private.md",
         "project-b",
-        project_id="project-b",
+        project_id=project_b_id,
     )
     assert memory is not None
 
     with pytest.raises(AppError) as exc_info:
-        await get_memory(store.id, memory.id, view=None, db=db_session, auth_ctx=_project_auth_ctx("project-a"))
+        await get_memory(store.id, memory.id, view=None, db=db_session, auth_ctx=_project_auth_ctx(project_a_id))
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "MEMORY_STORE_NOT_FOUND",
@@ -377,12 +398,14 @@ async def test_update_memory_rejects_archived_store_without_mutating_content(db_
 
 @pytest.mark.asyncio
 async def test_update_and_delete_memory_reject_cross_project_at_service_boundary(db_session):
-    store = await _project_store(db_session, "project-b")
+    project_a_id = ProjectId.new()
+    project_b_id = ProjectId.new()
+    store = await _project_store(db_session, project_b_id)
     memory = await MemoryService(db_session).create_memory(
         store.id,
         "/notes.txt",
         "original",
-        project_id="project-b",
+        project_id=project_b_id,
     )
     assert memory is not None
     memory_id = memory.id
@@ -391,9 +414,9 @@ async def test_update_and_delete_memory_reject_cross_project_at_service_boundary
         store.id,
         memory_id,
         "changed",
-        project_id="project-a",
+        project_id=project_a_id,
     )
-    deleted = await MemoryService(db_session).delete_memory(store.id, memory_id, project_id="project-a")
+    deleted = await MemoryService(db_session).delete_memory(store.id, memory_id, project_id=project_a_id)
 
     assert updated is None
     assert deleted is False
@@ -404,7 +427,8 @@ async def test_update_and_delete_memory_reject_cross_project_at_service_boundary
 
 @pytest.mark.asyncio
 async def test_memory_version_records_typed_session_identity(db_session):
-    store = await _project_store(db_session, "project-a")
+    project_id = ProjectId.new()
+    store = await _project_store(db_session, project_id)
     session_id = SessionId.new()
 
     memory = await MemoryService(db_session).create_memory(
@@ -412,16 +436,14 @@ async def test_memory_version_records_typed_session_identity(db_session):
         "/session-owned.txt",
         "first",
         session_id=session_id,
-        project_id="project-a",
+        project_id=project_id,
     )
 
     assert memory is not None
     assert memory.current_version_id is not None
     version = (
         await db_session.execute(
-            select(JoySafeterMemoryVersion).where(
-                JoySafeterMemoryVersion.id == memory.current_version_id
-            )
+            select(JoySafeterMemoryVersion).where(JoySafeterMemoryVersion.id == memory.current_version_id)
         )
     ).scalar_one()
     assert version.session_id == session_id
@@ -429,21 +451,23 @@ async def test_memory_version_records_typed_session_identity(db_session):
 
 @pytest.mark.asyncio
 async def test_memory_versions_reject_cross_project_at_service_boundary(db_session):
-    store = await _project_store(db_session, "project-b")
+    project_a_id = ProjectId.new()
+    project_b_id = ProjectId.new()
+    store = await _project_store(db_session, project_b_id)
     memory = await MemoryService(db_session).create_memory(
         store.id,
         "/history.txt",
         "first",
-        project_id="project-b",
+        project_id=project_b_id,
     )
     assert memory is not None
     assert memory.current_version_id is not None
     version_id = memory.current_version_id
 
-    versions, has_more = await MemoryService(db_session).list_versions(store.id, project_id="project-a")
-    version = await MemoryService(db_session).get_version(store.id, version_id, project_id="project-a")
-    is_live = await MemoryService(db_session).is_live_version(store.id, version_id, project_id="project-a")
-    redacted = await MemoryService(db_session).redact_version(store.id, version_id, project_id="project-a")
+    versions, has_more = await MemoryService(db_session).list_versions(store.id, project_id=project_a_id)
+    version = await MemoryService(db_session).get_version(store.id, version_id, project_id=project_a_id)
+    is_live = await MemoryService(db_session).is_live_version(store.id, version_id, project_id=project_a_id)
+    redacted = await MemoryService(db_session).redact_version(store.id, version_id, project_id=project_a_id)
 
     assert versions == []
     assert has_more is False
@@ -475,14 +499,14 @@ async def test_memory_update_broadcast_targets_store_id_not_session_local_mount_
     assert payloads == [
         {
             "type": "memory_update",
-                "store_id": str(as_uuid(store_id)),
+            "store_id": str(as_uuid(store_id)),
             "relative_path": "/notes.txt",
             "content": "updated",
             "operation": "modified",
         },
         {
             "type": "memory_update",
-                "store_id": str(as_uuid(store_id)),
+            "store_id": str(as_uuid(store_id)),
             "relative_path": "/notes.txt",
             "content": "updated",
             "operation": "modified",

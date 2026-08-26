@@ -25,10 +25,12 @@ from app.joysafeter_identity_federation.domain.models import (
 from app.joysafeter_shared.common import dependencies
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.config.settings import Settings, settings
+from app.joysafeter_shared.ids import OAuthAccountId, UserId
 
 pytestmark = pytest.mark.no_db
 
 _NOW = datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc)
+_USER_ID = UserId.from_public("user_00000000-0000-0000-0000-000000000001")
 
 
 class _Coordinator:
@@ -72,14 +74,14 @@ class _AccountService:
     unlink_result: bool = False
 
     def __post_init__(self) -> None:
-        self.listed_user_ids: list[str] = []
-        self.unlink_calls: list[tuple[str, ProviderId]] = []
+        self.listed_user_ids: list[UserId] = []
+        self.unlink_calls: list[tuple[UserId, ProviderId]] = []
 
-    async def list_accounts(self, user_id: str) -> tuple[FederatedAccountView, ...]:
+    async def list_accounts(self, user_id: UserId) -> tuple[FederatedAccountView, ...]:
         self.listed_user_ids.append(user_id)
         return self.accounts
 
-    async def unlink(self, user_id: str, provider_id: ProviderId) -> bool:
+    async def unlink(self, user_id: UserId, provider_id: ProviderId) -> bool:
         self.unlink_calls.append((user_id, provider_id))
         return self.unlink_result
 
@@ -92,7 +94,7 @@ def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     app.dependency_overrides[oauth_api.get_db] = lambda: object()
 
     async def current_user(*_args, **_kwargs):
-        return SimpleNamespace(id="user-1")
+        return SimpleNamespace(id=_USER_ID)
 
     monkeypatch.setattr(dependencies, "get_current_user", current_user)
     monkeypatch.setattr(oauth_api, "get_current_user", current_user, raising=False)
@@ -334,9 +336,7 @@ def test_callback_malformed_application_path_fails_closed_without_auth_cookies(
     response = client.get("/api/v1/auth/oauth/github/callback?code=upstream-code&state=attempt-1")
 
     assert response.status_code == 302
-    assert response.headers["location"] == (
-        "https://app.example/signin?error_code=FEDERATION_CALLBACK_FAILED"
-    )
+    assert response.headers["location"] == ("https://app.example/signin?error_code=FEDERATION_CALLBACK_FAILED")
     cookies = response.headers.get_list("set-cookie")
     assert len(cookies) == 1
     assert cookies[0].startswith("joysafeter_federation_attempt=")
@@ -416,9 +416,7 @@ def test_callback_unexpected_error_uses_stable_generic_code_without_leak(
     response = client.get("/api/v1/auth/oauth/github/callback?code=secret-code")
 
     assert response.status_code == 302
-    assert response.headers["location"] == (
-        "https://app.example/signin?error_code=FEDERATION_UPSTREAM_UNAVAILABLE"
-    )
+    assert response.headers["location"] == ("https://app.example/signin?error_code=FEDERATION_UPSTREAM_UNAVAILABLE")
     assert "secret" not in response.headers["location"]
     assert "Max-Age=0" in response.headers.get_list("set-cookie")[0]
 
@@ -437,9 +435,7 @@ def test_callback_factory_failure_uses_stable_redirect_and_clears_cookie(
     response = client.get("/api/v1/auth/oauth/github/callback?code=secret-code")
 
     assert response.status_code == 302
-    assert response.headers["location"] == (
-        "https://app.example/signin?error_code=FEDERATION_UPSTREAM_UNAVAILABLE"
-    )
+    assert response.headers["location"] == ("https://app.example/signin?error_code=FEDERATION_UPSTREAM_UNAVAILABLE")
     assert "secret" not in response.headers["location"]
     assert "Max-Age=0" in response.headers.get_list("set-cookie")[0]
 
@@ -608,7 +604,7 @@ def test_account_list_and_unlink_use_federated_account_service(
     service = _AccountService(
         accounts=(
             FederatedAccountView(
-                id="account-1",
+                id=OAuthAccountId.from_public("oauthacct_00000000-0000-0000-0000-000000000001"),
                 provider_id=ProviderId("github"),
                 subject="github-user-1",
                 email="User@Example.com",
@@ -626,7 +622,7 @@ def test_account_list_and_unlink_use_federated_account_service(
     assert listed.json() == {
         "accounts": [
             {
-                "id": "account-1",
+                "id": "oauthacct_00000000-0000-0000-0000-000000000001",
                 "provider": "github",
                 "provider_account_id": "github-user-1",
                 "email": "user@example.com",
@@ -636,5 +632,5 @@ def test_account_list_and_unlink_use_federated_account_service(
     }
     assert unlinked.status_code == 200
     assert unlinked.json() == {"success": True, "provider": "github"}
-    assert service.listed_user_ids == ["user-1"]
-    assert service.unlink_calls == [("user-1", ProviderId("github"))]
+    assert service.listed_user_ids == [_USER_ID]
+    assert service.unlink_calls == [(_USER_ID, ProviderId("github"))]

@@ -15,7 +15,16 @@ from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_config_policy import TriggerConfigPolicy
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
-from app.joysafeter_shared.ids import AgentId, CredentialId, SessionId, TriggerId
+from app.joysafeter_shared.ids import (
+    AgentId,
+    CredentialId,
+    EnvironmentId,
+    OrganizationId,
+    ProjectId,
+    SessionId,
+    TriggerId,
+    UserId,
+)
 
 
 class TriggerApplicationService(JoySafeterTriggerService):
@@ -100,7 +109,7 @@ class TriggerApplicationService(JoySafeterTriggerService):
         agent_id: AgentId,
         prompt_template: str,
         type: str = "webhook",
-        environment_ref: Optional[str] = None,
+        environment_id: Optional[EnvironmentId] = None,
         description: Optional[str] = None,
         enabled: bool = True,
         session_mode: str = "fresh",
@@ -117,9 +126,9 @@ class TriggerApplicationService(JoySafeterTriggerService):
         webhook_auth_field: Optional[str] = "WEBHOOK_SECRET",
         auth_methods: Optional[list[str]] = None,
         dedupe_header: Optional[str] = "x-joysafeter-delivery",
-        project_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        org_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
+        user_id: UserId | None = None,
+        org_id: OrganizationId | None = None,
     ) -> JoySafeterTrigger:
         TriggerConfigPolicy.validate_create_fields(
             type=type,
@@ -144,7 +153,7 @@ class TriggerApplicationService(JoySafeterTriggerService):
         await self.resolve_runnable_target(
             agent_id=agent_id,
             project_id=project_id,
-            environment_ref=environment_ref,
+            environment_id=environment_id,
         )
         if type == "webhook" and webhook_auth_credential_id and webhook_auth_field:
             application = compose_credential_application(
@@ -167,11 +176,12 @@ class TriggerApplicationService(JoySafeterTriggerService):
             )
         next_run_at = None
         trigger = JoySafeterTrigger(
+            id=TriggerId.new(),
             name=name,
             type=type,
             agent_id=agent_id,
             prompt_template=prompt_template,
-            environment_ref=environment_ref,
+            environment_id=environment_id,
             description=description,
             enabled=enabled,
             session_mode=session_mode,
@@ -214,7 +224,7 @@ class TriggerApplicationService(JoySafeterTriggerService):
     async def update(
         self,
         trigger_id: TriggerId,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
         **fields: Any,
     ) -> Optional[JoySafeterTrigger]:
         TriggerConfigPolicy.validate_update_fields_before_lookup(fields)
@@ -230,7 +240,7 @@ class TriggerApplicationService(JoySafeterTriggerService):
             await self.resolve_runnable_target(
                 agent_id=trigger.agent_id,
                 project_id=trigger.project_id,
-                environment_ref=plan.next_environment_ref,
+                environment_id=plan.next_environment_id,
             )
         if plan.webhook_auth_credential_id_to_verify is not None and plan.webhook_auth_field_to_verify is not None:
             application = compose_credential_application(

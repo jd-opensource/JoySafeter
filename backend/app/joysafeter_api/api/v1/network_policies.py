@@ -16,7 +16,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_platform_admin,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import SandboxId, SessionId, TaskId
+from app.joysafeter_shared.ids import ProjectId, SandboxId, SessionId, TaskId
 
 router = APIRouter(tags=["joysafeter-network-policies"])
 
@@ -25,7 +25,7 @@ class NetworkPolicyStatusResponse(BaseModel):
     sandbox_id: SandboxId
     session_id: Optional[SessionId] = None
     task_id: Optional[TaskId] = None
-    project_id: Optional[str] = None
+    project_id: ProjectId | None = None
     session_title: Optional[str] = None
     agent_name: Optional[str] = None
     sandbox_status: str
@@ -90,7 +90,7 @@ def _latest_policy_subquery():
     ).subquery()
 
 
-def _base_status_query(project_id: Optional[str] = None):
+def _base_status_query(project_id: ProjectId | None = None):
     latest_policy = _latest_policy_subquery()
     columns = [
         JoySafeterSandbox.id.label("sandbox_id"),

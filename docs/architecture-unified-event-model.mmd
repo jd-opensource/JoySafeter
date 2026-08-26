@@ -150,11 +150,7 @@ graph TB
         subgraph TRACING["Tracing"]
             direction LR
             TRACE_MW["TracingMiddleware\nW3C traceparent · x-trace-id\nloguru trace_id 关联"]
-            OTEL_PROC["PersistenceProcessor\n+ BroadcastProcessor\n按 execution.id 分桶"]
-        end
-        subgraph METRICS["Metrics on spans"]
-            direction LR
-            TOKEN_METER["llm.usage.* / llm.cost.*\n→ Trace 聚合"]
+            TRACER_PROVIDER["全局 TracerProvider\n请求链路追踪"]
         end
         OTLP["OTLP Export（可选）"]
     end
@@ -164,7 +160,7 @@ graph TB
     %% ═══════════════════════════════════════════════════════════════
     subgraph L6["L6 · Storage Layer — 持久化"]
         direction LR
-        PG["PostgreSQL\njoysafeter_session_events\nagents/tasks/sessions/skills\ntraces/observations"]
+        PG["PostgreSQL\njoysafeter_session_events\nagents/tasks/sessions/skills\ncredentials/storage"]
         REDIS["Redis\nStreams · Pub/Sub · List\n协调 · 分布式锁"]
         OBJ["Object Store\nlocal / S3 / OSS\n上传文件 · 产物"]
     end
@@ -229,11 +225,9 @@ graph TB
     R_PUBSUB -->|"SessionBroadcaster"| API_SVC
 
     %% 观测
-    GRPC_SRV -.->|"spans"| OTEL_PROC
     API_SVC --> TRACE_MW
-    OTEL_PROC --> TOKEN_METER
-    OTEL_PROC --> PG
-    OTEL_PROC -.-> OTLP
+    TRACE_MW --> TRACER_PROVIDER
+    TRACER_PROVIDER -.-> OTLP
 
     %% 存储
     API_SVC --> PG

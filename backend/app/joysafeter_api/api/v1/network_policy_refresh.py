@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_infrastructure.network_policy.refresh import (
     mark_live_sandboxes_pending,
     nudge_sandbox_network_policy_refreshes,
 )
+from app.joysafeter_shared.ids import ProjectId
 
 __all__ = [
     "mark_live_sandboxes_pending",
@@ -21,7 +20,7 @@ __all__ = [
 async def refresh_live_limited_sandbox_network_policies(
     db: AsyncSession,
     *,
-    project_id: Optional[str],
+    project_id: ProjectId | None,
     reason: str,
     source_type: str,
     source_id: str,

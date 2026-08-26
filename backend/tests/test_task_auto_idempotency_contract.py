@@ -19,6 +19,10 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRequest
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import AgentId, OrganizationId, UserId
+
+TEST_USER_ID = UserId.new()
+TEST_ORGANIZATION_ID = OrganizationId.new()
 
 
 class _FakeRedis:
@@ -31,15 +35,15 @@ class _FakeRedis:
 
 def _auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
 
 
 async def _make_agent(db_session) -> JoySafeterAgent:
-    agent = JoySafeterAgent(name=f"auto-idem-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"auto-idem-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)

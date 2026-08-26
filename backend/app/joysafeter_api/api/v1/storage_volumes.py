@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -26,7 +26,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_user_admin,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import StorageMountAuditId, StorageVolumeId
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, StorageMountAuditId, StorageVolumeId
 
 router = APIRouter(tags=["joysafeter-storage-volumes"])
 
@@ -38,13 +38,25 @@ class PaginatedStorageMountAuditResponse(BaseModel):
     last_id: Optional[StorageMountAuditId] = None
 
 
+class StorageCatalogResponse(BaseModel):
+    data: list[StorageCatalogItem]
+
+
+class StorageVolumeListResponse(BaseModel):
+    data: list[StorageVolumeResponse]
+
+
+class StorageDeleteResponse(BaseModel):
+    ok: Literal[True]
+
+
 @router.get("/catalog")
 async def list_storage_catalog(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> dict[str, list[StorageCatalogItem]]:
+) -> StorageCatalogResponse:
     items = await StorageMountService(db).catalog_for_project(auth_ctx.project_id)
-    return {"data": [StorageCatalogItem(**item) for item in items]}
+    return StorageCatalogResponse(data=[StorageCatalogItem(**item) for item in items])
 
 
 @router.get("")
@@ -53,7 +65,7 @@ async def list_storage_volumes(
     scope: str = Query("auto"),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
-) -> dict[str, list[StorageVolumeResponse]]:
+) -> StorageVolumeListResponse:
     svc = StorageMountService(db)
     org_scope = scope.strip().lower() in {"org", "organization"}
     volumes = (
@@ -70,7 +82,7 @@ async def list_storage_volumes(
             else await svc.list_project_grants_for_org(volume.id, auth_ctx.org_id)
         )
         data.append(volume_to_response(volume, grants, org_grants, include_runtime_specs=auth_ctx.is_super_user))
-    return {"data": data}
+    return StorageVolumeListResponse(data=data)
 
 
 @router.post("", status_code=201)
@@ -160,11 +172,11 @@ async def delete_storage_volume(
     volume_id: StorageVolumeId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
-) -> dict[str, bool]:
+) -> StorageDeleteResponse:
     deleted = await StorageMountService(db).delete_volume(volume_id, actor_user_id=auth_ctx.user_id)
     if not deleted:
         raise NotFoundError(code="STORAGE_VOLUME_NOT_FOUND", message="Storage volume not found")
-    return {"ok": True}
+    return StorageDeleteResponse(ok=True)
 
 
 @router.post("/{volume_id}/grants", status_code=201)
@@ -186,10 +198,10 @@ async def upsert_storage_volume_grant(
 @router.delete("/{volume_id}/grants/{project_id}")
 async def delete_storage_volume_grant(
     volume_id: StorageVolumeId,
-    project_id: str,
+    project_id: ProjectId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
-) -> dict[str, bool]:
+) -> StorageDeleteResponse:
     deleted = await StorageMountService(db).delete_grant(
         volume_id,
         project_id,
@@ -198,7 +210,7 @@ async def delete_storage_volume_grant(
     )
     if not deleted:
         raise NotFoundError(code="STORAGE_GRANT_NOT_FOUND", message="Storage grant not found")
-    return {"ok": True}
+    return StorageDeleteResponse(ok=True)
 
 
 @router.post("/{volume_id}/organization-grants", status_code=201)
@@ -215,11 +227,11 @@ async def upsert_storage_volume_organization_grant(
 @router.delete("/{volume_id}/organization-grants/{org_id}")
 async def delete_storage_volume_organization_grant(
     volume_id: StorageVolumeId,
-    org_id: str,
+    org_id: OrganizationId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
-) -> dict[str, bool]:
+) -> StorageDeleteResponse:
     deleted = await StorageMountService(db).delete_organization_grant(volume_id, org_id, actor_user_id=auth_ctx.user_id)
     if not deleted:
         raise NotFoundError(code="STORAGE_ORGANIZATION_GRANT_NOT_FOUND", message="Storage organization grant not found")
-    return {"ok": True}
+    return StorageDeleteResponse(ok=True)

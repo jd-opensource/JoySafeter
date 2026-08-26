@@ -5,7 +5,8 @@ from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, TypeVar
 
-from app.joysafeter_domain.credentials.types import CredentialId
+from app.joysafeter_domain.credentials.types import CredentialId, ProjectId
+from app.joysafeter_shared.ids import SecurityAuditId
 
 from .ports import (
     CredentialAuditEntry,
@@ -71,7 +72,7 @@ class CredentialResourceService:
         operation: Callable[[], Awaitable[T]],
         *,
         action: str,
-        project_id: str,
+        project_id: ProjectId,
         target_id: str | None = None,
         target_type: str = "credential",
         details: Mapping[str, object] | None = None,
@@ -87,6 +88,7 @@ class CredentialResourceService:
             resolved_target_id = target_id or str(getattr(result, "id", "")) or None
             await self._uow.audit.append(
                 CredentialAuditEntry(
+                    id=SecurityAuditId.new(),
                     action=action,
                     project_id=project_id,
                     target_type=target_type,
@@ -119,14 +121,16 @@ class CredentialResourceService:
             await self._nudge_after_commit()
         return result
 
-    async def create(self, request: Any, project_id: str) -> Any:
+    async def create(self, request: Any, project_id: ProjectId) -> Any:
+        credential_id = CredentialId.new()
         return await self._mutate(
-            lambda: self._uow.credentials.create(request, project_id),
+            lambda: self._uow.credentials.create(credential_id, request, project_id),
             action="credential.created",
             project_id=project_id,
+            target_id=str(credential_id),
         )
 
-    async def update(self, credential_id: CredentialId, request: Any, project_id: str) -> Any:
+    async def update(self, credential_id: CredentialId, request: Any, project_id: ProjectId) -> Any:
         return await self._mutate(
             lambda: self._uow.credentials.update(credential_id, request, project_id),
             action="credential.updated",
@@ -134,7 +138,7 @@ class CredentialResourceService:
             target_id=str(credential_id),
         )
 
-    async def set_default(self, credential_id: CredentialId, project_id: str) -> Any:
+    async def set_default(self, credential_id: CredentialId, project_id: ProjectId) -> Any:
         return await self._mutate(
             lambda: self._uow.credentials.set_default(credential_id, project_id),
             action="credential.default_set",
@@ -142,7 +146,7 @@ class CredentialResourceService:
             target_id=str(credential_id),
         )
 
-    async def clear_default(self, credential_id: CredentialId, project_id: str) -> Any:
+    async def clear_default(self, credential_id: CredentialId, project_id: ProjectId) -> Any:
         return await self._mutate(
             lambda: self._uow.credentials.clear_default(credential_id, project_id),
             action="credential.default_cleared",
@@ -150,7 +154,7 @@ class CredentialResourceService:
             target_id=str(credential_id),
         )
 
-    async def archive(self, credential_id: CredentialId, project_id: str) -> Any:
+    async def archive(self, credential_id: CredentialId, project_id: ProjectId) -> Any:
         return await self._mutate(
             lambda: self._uow.credentials.archive(credential_id, project_id),
             action="credential.archived",
@@ -158,7 +162,7 @@ class CredentialResourceService:
             target_id=str(credential_id),
         )
 
-    async def restore(self, credential_id: CredentialId, project_id: str) -> Any:
+    async def restore(self, credential_id: CredentialId, project_id: ProjectId) -> Any:
         return await self._mutate(
             lambda: self._uow.credentials.restore(credential_id, project_id),
             action="credential.restored",
@@ -166,7 +170,7 @@ class CredentialResourceService:
             target_id=str(credential_id),
         )
 
-    async def soft_delete(self, credential_id: CredentialId, project_id: str) -> Any:
+    async def soft_delete(self, credential_id: CredentialId, project_id: ProjectId) -> Any:
         return await self._mutate(
             lambda: self._uow.credentials.soft_delete(credential_id, project_id),
             action="credential.deleted",
@@ -174,16 +178,16 @@ class CredentialResourceService:
             target_id=str(credential_id),
         )
 
-    async def get(self, credential_id: CredentialId, project_id: str) -> Any | None:
+    async def get(self, credential_id: CredentialId, project_id: ProjectId) -> Any | None:
         return await self._uow.credentials.get(credential_id, project_id)
 
-    async def get_or_raise(self, credential_id: CredentialId, project_id: str) -> Any:
+    async def get_or_raise(self, credential_id: CredentialId, project_id: ProjectId) -> Any:
         return await self._uow.credentials._get_or_raise(credential_id, project_id)
 
     async def list(self, *args: Any, **kwargs: Any) -> Any:
         return await self._uow.credentials.list(*args, **kwargs)
 
-    async def dependencies(self, credential_id: CredentialId, project_id: str) -> Any:
+    async def dependencies(self, credential_id: CredentialId, project_id: ProjectId) -> Any:
         return await self._uow.credentials.dependencies(credential_id, project_id)
 
     def get_credential_data(self, credential: Any | None) -> dict[str, str]:

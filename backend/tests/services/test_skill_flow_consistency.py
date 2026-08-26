@@ -21,17 +21,33 @@ from app.joysafeter_shared.common.app_errors import (
     NotFoundError,
     ResourceConflictError,
 )
-from app.joysafeter_shared.ids import SkillId
+from app.joysafeter_shared.ids import (
+    AgentId,
+    AgentVersionId,
+    OrganizationId,
+    OrganizationMemberId,
+    ProjectId,
+    ProjectMemberId,
+    SessionId,
+    SkillId,
+    SkillVersionId,
+    TaskId,
+    UserId,
+)
 
 pytestmark = pytest.mark.asyncio
 
 
 async def _seed_org_project(db, *, suffix: str) -> tuple[Organization, Project]:
-    org = Organization(id=f"org-{suffix}-{uuid.uuid4()}", name=f"Org {suffix}", slug=f"org-{suffix}-{uuid.uuid4()}")
+    org = Organization(
+        id=OrganizationId.new(),
+        name=f"Org {suffix}",
+        slug=f"org-{suffix}-{uuid.uuid4()}",
+    )
     db.add(org)
     await db.flush()
     project = Project(
-        id=f"proj-{suffix}-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name=f"Project {suffix}",
         slug=f"project-{suffix}-{uuid.uuid4()}",
@@ -42,7 +58,7 @@ async def _seed_org_project(db, *, suffix: str) -> tuple[Organization, Project]:
 
 
 async def _seed_user(db) -> AuthUser:
-    user = AuthUser(name="Skill owner", email=f"{uuid.uuid4()}@example.com")
+    user = AuthUser(id=UserId.new(), name="Skill owner", email=f"{uuid.uuid4()}@example.com")
     db.add(user)
     await db.flush()
     return user
@@ -50,6 +66,7 @@ async def _seed_user(db) -> AuthUser:
 
 async def _seed_skill_with_versions(db, *, project: Project, owner: AuthUser):
     skill = JoySafeterSkill(
+        id=SkillId.new(),
         name=f"skill-{uuid.uuid4()}",
         description="Skill",
         content="# Skill",
@@ -66,6 +83,7 @@ async def _seed_skill_with_versions(db, *, project: Project, owner: AuthUser):
     versions = {}
     for version in ("0.9.0", "1.0.0", "2.0.0"):
         row = JoySafeterSkillVersion(
+            id=SkillVersionId.new(),
             skill_id=skill.id,
             version=version,
             skill_name=skill.name,
@@ -92,7 +110,7 @@ async def _seed_skill_with_versions(db, *, project: Project, owner: AuthUser):
 async def test_agent_skill_ref_same_org_latest_resolves_only_promoted_versions(db_session):
     source_org, source_project = await _seed_org_project(db_session, suffix="source")
     consumer_project = Project(
-        id=f"proj-consumer-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=source_org.id,
         name="Consumer",
         slug=f"consumer-{uuid.uuid4()}",
@@ -127,7 +145,7 @@ async def test_agent_skill_ref_cross_org_latest_resolves_public_pointer(db_sessi
 async def test_agent_skill_ref_cross_project_rejects_unpromoted_explicit_version(db_session):
     source_org, source_project = await _seed_org_project(db_session, suffix="source")
     consumer_project = Project(
-        id=f"proj-consumer-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=source_org.id,
         name="Consumer",
         slug=f"consumer-{uuid.uuid4()}",
@@ -152,7 +170,7 @@ async def test_agent_skill_ref_cross_project_rejects_unpromoted_explicit_version
 async def test_cross_project_skill_list_and_detail_hide_unpromoted_latest(db_session):
     source_org, source_project = await _seed_org_project(db_session, suffix="source")
     consumer_project = Project(
-        id=f"proj-consumer-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=source_org.id,
         name="Consumer",
         slug=f"consumer-{uuid.uuid4()}",
@@ -162,7 +180,7 @@ async def test_cross_project_skill_list_and_detail_hide_unpromoted_latest(db_ses
     owner = await _seed_user(db_session)
     db_session.add(
         Member(
-            id=f"member-{uuid.uuid4()}",
+            id=OrganizationMemberId.new(),
             organization_id=source_org.id,
             user_id=caller.id,
             role="member",
@@ -170,7 +188,7 @@ async def test_cross_project_skill_list_and_detail_hide_unpromoted_latest(db_ses
     )
     db_session.add(
         ProjectMember(
-            id=f"project-member-{uuid.uuid4()}",
+            id=ProjectMemberId.new(),
             project_id=consumer_project.id,
             user_id=caller.id,
             role="viewer",
@@ -253,11 +271,12 @@ async def test_delete_promoted_version_requires_force_and_reports_runtime_breaka
 async def test_skill_reference_gate_includes_frozen_agent_version(db_session):
     org, project = await _seed_org_project(db_session, suffix="refs")
     skill_id = SkillId.new()
-    agent = JoySafeterAgent(name="Agent", engine_kind="claude", project_id=project.id, skills=[])
+    agent = JoySafeterAgent(id=AgentId.new(), name="Agent", engine_kind="claude", project_id=project.id, skills=[])
     db_session.add(agent)
     await db_session.flush()
     db_session.add(
         JoySafeterAgentVersion(
+            id=AgentVersionId.new(),
             agent_id=agent.id,
             version=1,
             snapshot={"skills": [{"skill_id": str(skill_id), "version": "1.0.0"}]},
@@ -277,10 +296,11 @@ async def test_skill_reference_gate_includes_frozen_agent_version(db_session):
 async def test_skill_reference_gate_includes_active_session_snapshot(db_session):
     org, project = await _seed_org_project(db_session, suffix="task")
     skill_id = SkillId.new()
-    agent = JoySafeterAgent(name="Agent", engine_kind="claude", project_id=project.id, skills=[])
+    agent = JoySafeterAgent(id=AgentId.new(), name="Agent", engine_kind="claude", project_id=project.id, skills=[])
     db_session.add(agent)
     await db_session.flush()
     session = JoySafeterSession(
+        id=SessionId.new(),
         agent_id=agent.id,
         project_id=project.id,
         agent_snapshot={"skills": [{"skill_id": str(skill_id), "version": "1.0.0"}]},
@@ -289,6 +309,7 @@ async def test_skill_reference_gate_includes_active_session_snapshot(db_session)
     await db_session.flush()
     db_session.add(
         JoySafeterTask(
+            id=TaskId.new(),
             agent_id=agent.id,
             chat_session_id=session.id,
             project_id=project.id,

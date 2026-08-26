@@ -63,7 +63,20 @@ from app.joysafeter_shared.common.joysafeter_auth.context import (
     ProjectCapability,
 )
 from app.joysafeter_shared.common.skill_permissions import check_skill_access, resolve_skill_org_id
-from app.joysafeter_shared.ids import SkillFileId, SkillId, SkillSecurityScanId, SkillVersionId
+from app.joysafeter_shared.ids import (
+    AgentId,
+    AgentVersionId,
+    OrganizationId,
+    ProjectId,
+    SkillFileId,
+    SkillId,
+    SkillSecurityScanId,
+    SkillVersionFileId,
+    SkillVersionId,
+    TaskId,
+    TriggerId,
+    UserId,
+)
 
 # Edges that ``transition()`` accepts. Anything not in this set is a
 # rejected transition; the empty target set on a state means "this is a
@@ -100,7 +113,7 @@ class SkillLifecycleService:
         self,
         db: AsyncSession,
         *,
-        active_org_id: str,
+        active_org_id: OrganizationId,
         caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
     ):
         if not active_org_id:
@@ -113,7 +126,7 @@ class SkillLifecycleService:
         # capability. ``MEMBER`` is the safe default for internal callers.
         self._caller_org_role = caller_org_role
 
-    async def submit_for_review(self, skill_id: SkillId, current_user_id: str) -> LifecycleTransition:
+    async def submit_for_review(self, skill_id: SkillId, current_user_id: UserId) -> LifecycleTransition:
         """draft -> pending_review (owner action)."""
         return await self._transition(
             skill_id=skill_id,
@@ -121,7 +134,7 @@ class SkillLifecycleService:
             to_status=JoySafeterSkillLifecycleStatus.PENDING_REVIEW.value,
         )
 
-    async def approve(self, skill_id: SkillId, current_user_id: str) -> LifecycleTransition:
+    async def approve(self, skill_id: SkillId, current_user_id: UserId) -> LifecycleTransition:
         """pending_review -> approved (self-review in P1, admin review in P2)."""
         return await self._transition(
             skill_id=skill_id,
@@ -129,7 +142,7 @@ class SkillLifecycleService:
             to_status=JoySafeterSkillLifecycleStatus.APPROVED.value,
         )
 
-    async def reject(self, skill_id: SkillId, current_user_id: str) -> LifecycleTransition:
+    async def reject(self, skill_id: SkillId, current_user_id: UserId) -> LifecycleTransition:
         """pending_review -> rejected (reviewer denies)."""
         return await self._transition(
             skill_id=skill_id,
@@ -137,7 +150,7 @@ class SkillLifecycleService:
             to_status=JoySafeterSkillLifecycleStatus.REJECTED.value,
         )
 
-    async def archive(self, skill_id: SkillId, current_user_id: str) -> LifecycleTransition:
+    async def archive(self, skill_id: SkillId, current_user_id: UserId) -> LifecycleTransition:
         """approved -> archived (owner retires)."""
         return await self._transition(
             skill_id=skill_id,
@@ -145,7 +158,7 @@ class SkillLifecycleService:
             to_status=JoySafeterSkillLifecycleStatus.ARCHIVED.value,
         )
 
-    async def unarchive(self, skill_id: SkillId, current_user_id: str) -> LifecycleTransition:
+    async def unarchive(self, skill_id: SkillId, current_user_id: UserId) -> LifecycleTransition:
         """archived -> approved (owner brings it back online)."""
         return await self._transition(
             skill_id=skill_id,
@@ -153,7 +166,7 @@ class SkillLifecycleService:
             to_status=JoySafeterSkillLifecycleStatus.APPROVED.value,
         )
 
-    async def reopen(self, skill_id: SkillId, current_user_id: str) -> LifecycleTransition:
+    async def reopen(self, skill_id: SkillId, current_user_id: UserId) -> LifecycleTransition:
         """rejected -> draft (owner fixes issues and reopens)."""
         return await self._transition(
             skill_id=skill_id,
@@ -165,7 +178,7 @@ class SkillLifecycleService:
         self,
         *,
         skill_id: SkillId,
-        current_user_id: str,
+        current_user_id: UserId,
         to_status: str,
     ) -> LifecycleTransition:
         skill = await self.skill_repo.get_with_files(skill_id)
@@ -249,7 +262,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         self,
         db,
         *,
-        active_org_id: str,
+        active_org_id: OrganizationId,
         caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
     ):
         if not active_org_id:
@@ -265,10 +278,9 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
     async def publish_version(
         self,
         skill_id: SkillId,
-        current_user_id: str,
+        current_user_id: UserId,
         version_str: str,
         release_notes: Optional[str] = None,
-        is_superuser: bool = False,
     ) -> JoySafeterSkillVersion:
         skill = await self._get_skill_with_files_or_404(skill_id)
         await check_skill_access(
@@ -398,6 +410,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
                 )
 
         sv = JoySafeterSkillVersion(
+            id=SkillVersionId.new(),
             skill_id=skill_id,
             version=version_str,
             release_notes=release_notes,
@@ -421,6 +434,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         # Copy the same frozen file set that was scanned above.
         for sf in skill_files:
             vf = JoySafeterSkillVersionFile(
+                id=SkillVersionFileId.new(),
                 version_id=sv.id,
                 path=sf.path,
                 file_name=sf.file_name,
@@ -439,10 +453,9 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
     async def list_versions(
         self,
         skill_id: SkillId,
-        current_user_id: str,
-        is_superuser: bool = False,
+        current_user_id: UserId,
         *,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         limit: Optional[int] = None,
         after_id: Optional[SkillVersionId] = None,
     ) -> tuple[List[JoySafeterSkillVersion], bool]:
@@ -477,9 +490,8 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         self,
         skill_id: SkillId,
         version_str: str,
-        current_user_id: str,
-        is_superuser: bool = False,
-        project_id: Optional[str] = None,
+        current_user_id: UserId,
+        project_id: ProjectId | None = None,
     ) -> JoySafeterSkillVersion:
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
@@ -504,7 +516,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         self,
         skill_id: SkillId,
         version_str: str,
-        current_user_id: str,
+        current_user_id: UserId,
     ) -> JoySafeterSkillVersion:
         skill = await self._get_skill_or_404(skill_id)
         await check_skill_access(
@@ -527,7 +539,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
     async def _allowed_version_ids(
         self,
         skill: JoySafeterSkill,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
     ) -> Optional[List[SkillVersionId]]:
         if project_id is not None and project_id == skill.project_id:
             return None
@@ -543,8 +555,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         self,
         skill_id: SkillId,
         version_str: str,
-        current_user_id: str,
-        is_superuser: bool = False,
+        current_user_id: UserId,
         force: bool = False,
     ) -> None:
         skill = await self._get_skill_or_404(skill_id)
@@ -692,8 +703,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         self,
         skill_id: SkillId,
         version_str: str,
-        current_user_id: str,
-        is_superuser: bool = False,
+        current_user_id: UserId,
     ) -> JoySafeterSkill:
         skill = await self._get_skill_with_files_or_404(skill_id)
         await check_skill_access(
@@ -728,6 +738,7 @@ class SkillVersionService(BaseService[JoySafeterSkillVersion]):
         version_files = await self.file_repo.list_by_version(sv.id)
         for vf in version_files:
             sf = JoySafeterSkillFile(
+                id=SkillFileId.new(),
                 skill_id=skill_id,
                 path=vf.path,
                 file_name=vf.file_name,
@@ -818,7 +829,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         self,
         db,
         *,
-        active_org_id: str,
+        active_org_id: OrganizationId,
         caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
     ):
         if not active_org_id:
@@ -857,9 +868,9 @@ class SkillService(BaseService[JoySafeterSkill]):
         self,
         *,
         trigger: str,
-        created_by_id: str,
-        owner_id: Optional[str],
-        project_id: Optional[str],
+        created_by_id: UserId,
+        owner_id: UserId | None,
+        project_id: ProjectId | None,
         skill_id: Optional[SkillId],
         name: str,
         description: str,
@@ -1001,20 +1012,6 @@ class SkillService(BaseService[JoySafeterSkill]):
         skill.tags = fields["tags"]
         skill.license = fields["license"]
 
-    def _agent_skill_item_refs(self, item: Any, skill_id: SkillId) -> bool:
-        if not isinstance(item, dict):
-            return False
-        value = item.get("skill_id")
-        if not value:
-            return False
-        try:
-            return SkillId.from_public(str(value)) == skill_id
-        except ValueError:
-            return False
-
-    def _agent_refs_skill(self, skills: Any, skill_id: SkillId) -> bool:
-        return isinstance(skills, list) and any(self._agent_skill_item_refs(item, skill_id) for item in skills)
-
     async def _has_skill_references(self, skill: JoySafeterSkill) -> bool:
         impact = await self._collect_skill_reference_impact(skill.id, sample_limit=0)
         setattr(skill, "_reference_impact_cache", impact)
@@ -1070,12 +1067,18 @@ class SkillService(BaseService[JoySafeterSkill]):
         }
 
         counts: dict[str, int] = {}
-        references: list[dict[str, str]] = []
+        references: list[dict[str, Any]] = []
         type_names = {
             "agents": "agent",
             "agent_versions": "agent_version",
             "triggers": "trigger",
             "active_tasks": "active_task",
+        }
+        id_types = {
+            "agents": AgentId,
+            "agent_versions": AgentVersionId,
+            "triggers": TriggerId,
+            "active_tasks": TaskId,
         }
         for key, query in queries.items():
             count_result = await self.db.execute(
@@ -1094,7 +1097,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             for row in sample_result.mappings():
                 reference = {
                     "type": type_names[key],
-                    "id": str(row["id"]),
+                    "id": id_types[key].from_uuid(row["id"]),
                     "name": row["name"],
                 }
                 if row["version"] is not None:
@@ -1107,10 +1110,10 @@ class SkillService(BaseService[JoySafeterSkill]):
 
     async def list_skills(
         self,
-        current_user_id: str,
+        current_user_id: UserId,
         include_public: bool = True,
         tags: Optional[List[str]] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         limit: int = 20,
         after_id: Optional[SkillId] = None,
     ) -> tuple[List[JoySafeterSkill], bool]:
@@ -1201,8 +1204,8 @@ class SkillService(BaseService[JoySafeterSkill]):
     async def get_skill(
         self,
         skill_id: SkillId,
-        current_user_id: str,
-        project_id: Optional[str] = None,
+        current_user_id: UserId,
+        project_id: ProjectId | None = None,
     ) -> JoySafeterSkill:
         """Get Skill details"""
         skill = await self.repo.get_with_files(skill_id)
@@ -1327,17 +1330,17 @@ class SkillService(BaseService[JoySafeterSkill]):
 
     async def create_skill(
         self,
-        created_by_id: str,
+        created_by_id: UserId,
         name: str,
         description: str,
         content: str,
         tags: Optional[List[str]] = None,
         source_type: str = "local",
         source_url: Optional[str] = None,
-        owner_id: Optional[str] = None,
+        owner_id: UserId | None = None,
         license: Optional[str] = None,
         files: Optional[List[Dict[str, Any]]] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> JoySafeterSkill:
         """Create Skill
 
@@ -1471,6 +1474,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         visibility_value = JoySafeterSkillVisibility.PROJECT.value
 
         skill = JoySafeterSkill(
+            id=SkillId.new(),
             name=name,
             description=description,
             content=content,
@@ -1523,6 +1527,7 @@ class SkillService(BaseService[JoySafeterSkill]):
                         # file_content_val can be None, but SkillFile.content might require str
                 file_content: str = file_content_val if file_content_val is not None else ""
                 file_obj = JoySafeterSkillFile(
+                    id=SkillFileId.new(),
                     skill_id=skill.id,
                     path=file_path,
                     file_name=file_name,
@@ -1546,7 +1551,7 @@ class SkillService(BaseService[JoySafeterSkill]):
     async def update_skill(
         self,
         skill_id: SkillId,
-        current_user_id: str,
+        current_user_id: UserId,
         *,
         name: Optional[str] = None,
         description: Optional[str] = None,
@@ -1554,7 +1559,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         tags: Optional[List[str]] = None,
         source_type: Optional[str] = None,
         source_url: Optional[str] = None,
-        owner_id: Optional[str] = None,
+        owner_id: UserId | None = None,
         license: Optional[str] = None,
         compatibility: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -1792,6 +1797,7 @@ class SkillService(BaseService[JoySafeterSkill]):
                         continue
 
                 file_obj = JoySafeterSkillFile(
+                    id=SkillFileId.new(),
                     skill_id=skill_id,
                     path=file_path,
                     file_name=file_name,
@@ -1818,7 +1824,7 @@ class SkillService(BaseService[JoySafeterSkill]):
     async def delete_skill(
         self,
         skill_id: SkillId,
-        current_user_id: str,
+        current_user_id: UserId,
     ) -> None:
         """Delete Skill"""
         skill = await self.repo.get_with_files(skill_id)
@@ -1858,7 +1864,7 @@ class SkillService(BaseService[JoySafeterSkill]):
     async def add_file(
         self,
         skill_id: SkillId,
-        current_user_id: str,
+        current_user_id: UserId,
         path: str,
         file_name: str,
         file_type: str,
@@ -1957,6 +1963,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             )
 
         file_obj = JoySafeterSkillFile(
+            id=SkillFileId.new(),
             skill_id=skill_id,
             path=path,
             file_name=file_name,
@@ -1979,7 +1986,7 @@ class SkillService(BaseService[JoySafeterSkill]):
     async def delete_file(
         self,
         file_id: SkillFileId,
-        current_user_id: str,
+        current_user_id: UserId,
         expected_skill_id: Optional[SkillId] = None,
     ) -> None:
         """Delete file"""
@@ -2056,7 +2063,7 @@ class SkillService(BaseService[JoySafeterSkill]):
     async def update_file(
         self,
         file_id: SkillFileId,
-        current_user_id: str,
+        current_user_id: UserId,
         content: Optional[str] = None,
         path: Optional[str] = None,
         file_name: Optional[str] = None,
@@ -2196,8 +2203,8 @@ class SkillService(BaseService[JoySafeterSkill]):
     async def list_security_scans(
         self,
         skill_id: SkillId,
-        current_user_id: str,
-        project_id: Optional[str] = None,
+        current_user_id: UserId,
+        project_id: ProjectId | None = None,
         limit: int = 20,
         after_id: Optional[SkillSecurityScanId] = None,
     ):
@@ -2213,8 +2220,8 @@ class SkillService(BaseService[JoySafeterSkill]):
     async def get_latest_security_scan(
         self,
         skill_id: SkillId,
-        current_user_id: str,
-        project_id: Optional[str] = None,
+        current_user_id: UserId,
+        project_id: ProjectId | None = None,
     ):
         """Get latest security scan for a skill."""
         return await self.security_service.get_latest_scan(skill_id, current_user_id, project_id=project_id)
@@ -2222,13 +2229,13 @@ class SkillService(BaseService[JoySafeterSkill]):
     async def get_security_scan(
         self,
         scan_id: SkillSecurityScanId,
-        current_user_id: str,
-        project_id: Optional[str] = None,
+        current_user_id: UserId,
+        project_id: ProjectId | None = None,
     ):
         """Get a security scan by id."""
         return await self.security_service.get_scan(scan_id, current_user_id, project_id=project_id)
 
-    async def rescan_skill_async(self, skill_id: SkillId, current_user_id: str):
+    async def rescan_skill_async(self, skill_id: SkillId, current_user_id: UserId):
         """Dispatch a manual rescan as a background task and return immediately.
 
         Manual rescans always defer (unlike write-path scans that defer only
@@ -2294,6 +2301,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillSecurityStatus
 
         placeholder = JoySafeterSkillSecurityScan(
+            id=SkillSecurityScanId.new(),
             skill_id=skill.id,
             project_id=skill.project_id,
             owner_id=skill.owner_id,
@@ -2368,7 +2376,7 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
         self,
         db,
         *,
-        active_org_id: str,
+        active_org_id: OrganizationId,
         caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
     ):
         if not active_org_id:
@@ -2435,7 +2443,7 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
         self,
         *,
         target_tier: str,
-        current_user_id: str,
+        current_user_id: UserId,
         version_id: Optional[SkillVersionId] = None,
         skill_id: Optional[SkillId] = None,
     ) -> JoySafeterSkillVersion:
@@ -2518,7 +2526,7 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
     async def approve_promotion(
         self,
         version_id: SkillVersionId,
-        current_user_id: str,
+        current_user_id: UserId,
     ) -> JoySafeterSkillVersion:
         """Approve a pending promotion. Org owner or admin, four-eyes enforced."""
         self._require_org_approver()
@@ -2572,7 +2580,7 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
     async def reject_promotion(
         self,
         version_id: SkillVersionId,
-        current_user_id: str,
+        current_user_id: UserId,
         reason: Optional[str] = None,
     ) -> JoySafeterSkillVersion:
         """Reject a pending promotion. Org owner or admin. Pointer untouched."""
@@ -2600,7 +2608,7 @@ class SkillPromotionService(BaseService[JoySafeterSkill]):
         self,
         skill_id: SkillId,
         tier: str,
-        current_user_id: str,
+        current_user_id: UserId,
     ) -> JoySafeterSkill:
         """Pull a skill down from a tier. Org owner or admin.
 

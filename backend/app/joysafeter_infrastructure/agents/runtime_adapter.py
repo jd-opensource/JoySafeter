@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
@@ -9,7 +7,7 @@ from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxSer
 from app.joysafeter_domain.services.task_cancellation_service import TaskCancellationService
 from app.joysafeter_identity.service import cleanup_agent_identity
 from app.joysafeter_shared.common.app_errors import ServiceUnavailableError
-from app.joysafeter_shared.ids import AgentId
+from app.joysafeter_shared.ids import AgentId, ProjectId
 from app.joysafeter_shared.orchestrator_bridge.runtime_commands import relay_sandbox_destroy_via_redis
 
 
@@ -25,7 +23,7 @@ class AgentRuntimeAdapter:
         agent_id: AgentId,
         *,
         reason: str,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> None:
         sandbox_service = SandboxService(self._db)
         sandboxes = await sandbox_service.list_active_for_agent(agent_id, project_id=project_id)

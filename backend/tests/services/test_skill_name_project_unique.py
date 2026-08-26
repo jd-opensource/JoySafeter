@@ -25,32 +25,33 @@ from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, SkillId, UserId
 
 pytestmark = pytest.mark.asyncio
 
 
 async def _user(db, *, name: str = "U") -> AuthUser:
-    user = AuthUser(id=f"user-{uuid.uuid4()}", name=name, email=f"{uuid.uuid4()}@example.com")
+    user = AuthUser(id=UserId.new(), name=name, email=f"{uuid.uuid4()}@example.com")
     db.add(user)
     await db.flush()
     return user
 
 
 async def _org(db) -> Organization:
-    org = Organization(id=f"org-{uuid.uuid4()}", name="Org", slug=f"org-{uuid.uuid4()}")
+    org = Organization(id=OrganizationId.new(), name="Org", slug=f"org-{uuid.uuid4()}")
     db.add(org)
     await db.flush()
     return org
 
 
-async def _project(db, *, org_id: str) -> Project:
-    proj = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="P", slug=f"p-{uuid.uuid4()}")
+async def _project(db, *, org_id: OrganizationId) -> Project:
+    proj = Project(id=ProjectId.new(), org_id=org_id, name="P", slug=f"p-{uuid.uuid4()}")
     db.add(proj)
     await db.flush()
     return proj
 
 
-def _svc(db, *, org_id: str) -> SkillService:
+def _svc(db, *, org_id: OrganizationId) -> SkillService:
     """A SkillService whose security scan is stubbed out — creation is gated at
     the API layer, so the scan is orthogonal to the uniqueness contract."""
     svc = SkillService(db, active_org_id=org_id, caller_org_role=JoySafeterRole.MEMBER)
@@ -124,6 +125,7 @@ async def test_db_constraint_backstops_duplicate_in_project(db_session):
 
     db_session.add(
         JoySafeterSkill(
+            id=SkillId.new(),
             name="dup",
             description="a",
             content="x",
@@ -137,6 +139,7 @@ async def test_db_constraint_backstops_duplicate_in_project(db_session):
 
     db_session.add(
         JoySafeterSkill(
+            id=SkillId.new(),
             name="dup",
             description="b",
             content="x",

@@ -19,9 +19,10 @@ from app.joysafeter_shared.common.joysafeter_auth.context import (
     ProjectCapability,
     effective_project_capability,
 )
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, UserId
 
 
-async def resolve_skill_org_id(db: AsyncSession, skill: JoySafeterSkill) -> Optional[str]:
+async def resolve_skill_org_id(db: AsyncSession, skill: JoySafeterSkill) -> OrganizationId | None:
     """Return the org id that owns the skill, via its project. ``None``
     when the skill has no project binding — falls back to "not org-scoped"
     which the org-tier check then treats as a miss.
@@ -32,7 +33,7 @@ async def resolve_skill_org_id(db: AsyncSession, skill: JoySafeterSkill) -> Opti
     return result.scalar_one_or_none()
 
 
-async def _is_org_member(db: AsyncSession, user_id: str, org_id: str) -> bool:
+async def _is_org_member(db: AsyncSession, user_id: UserId, org_id: OrganizationId) -> bool:
     """Single-row lookup against the org-member table. Covers the
     ``organization`` visibility tier — "anyone in this org can see it"."""
     result = await db.execute(
@@ -50,8 +51,8 @@ async def _is_org_member(db: AsyncSession, user_id: str, org_id: str) -> bool:
 
 async def _project_member_role(
     db: AsyncSession,
-    user_id: str,
-    project_id: str,
+    user_id: UserId,
+    project_id: ProjectId,
 ) -> Optional[str]:
     """Return the caller's ``ProjectMember.role`` on ``project_id``.
 
@@ -81,11 +82,11 @@ def _effective_visibility(skill: JoySafeterSkill) -> str:
 async def check_skill_access(
     db: AsyncSession,
     skill: JoySafeterSkill,
-    user_id: str,
+    user_id: UserId,
     required: ProjectCapability,
     *,
     caller_org_role: JoySafeterRole,
-    active_org_id: Optional[str] = None,
+    active_org_id: OrganizationId | None = None,
 ) -> None:
     """Single-axis skill permission gate.
 
@@ -145,7 +146,7 @@ async def check_skill_access(
         code="SKILL_ACCESS_DENIED",
         data={
             "skill_id": str(skill.id),
-            "user_id": user_id,
+            "user_id": str(user_id),
             "required": int(required),
         },
     )

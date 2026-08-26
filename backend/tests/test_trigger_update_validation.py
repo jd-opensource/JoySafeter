@@ -10,16 +10,20 @@ from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_config_policy import TriggerConfigPolicy
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
-from app.joysafeter_shared.ids import AgentId, CredentialId
+from app.joysafeter_shared.ids import AgentId, CredentialId, EnvironmentId, OrganizationId, ProjectId, TriggerId, UserId
 
 pytestmark = pytest.mark.no_db
 
 _WEBHOOK_CRED_ID = CredentialId.new()
+_PROJECT_ID = ProjectId.new()
+_USER_ID = UserId.new()
+_ORG_ID = OrganizationId.new()
 _WEBHOOK_CRED_ID_2 = CredentialId.new()
 
 
 def _trigger(**overrides) -> JoySafeterTrigger:
     data = {
+        "id": TriggerId.new(),
         "name": f"trigger-{uuid.uuid4()}",
         "type": "cron",
         "agent_id": AgentId.new(),
@@ -33,12 +37,12 @@ def _trigger(**overrides) -> JoySafeterTrigger:
         "filter": {},
         "config": {},
         "last_payload": {},
-        "project_id": "proj-test",
-        "user_id": "owner",
-        "org_id": "org-test",
+        "project_id": _PROJECT_ID,
+        "user_id": _USER_ID,
+        "org_id": _ORG_ID,
     }
     data.update(overrides)
-    return JoySafeterTrigger(**data)
+    return JoySafeterTrigger(id=data.pop("id"), **data)
 
 
 def _assert_invalid(trigger: JoySafeterTrigger, fields: dict, code: str) -> None:
@@ -172,30 +176,32 @@ def test_sync_config_preserves_explicit_empty_webhook_auth_methods():
 
 
 def test_update_plan_captures_runtime_and_secret_dependency_checks():
+    old_environment_id = EnvironmentId.new()
+    new_environment_id = EnvironmentId.new()
     trigger = _trigger(
         type="webhook",
         webhook_auth_credential_id=_WEBHOOK_CRED_ID,
         webhook_auth_field="WEBHOOK_SECRET",
-        environment_ref="old-env",
+        environment_id=old_environment_id,
         config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
     )
 
     plan = TriggerConfigPolicy.plan_update(
         trigger,
         {
-            "environment_ref": "new-env",
+            "environment_id": new_environment_id,
             "webhook_auth_credential_id": _WEBHOOK_CRED_ID_2,
             "auth_methods": ["bearer"],
         },
     )
 
     assert plan.should_resolve_target is True
-    assert plan.next_environment_ref == "new-env"
+    assert plan.next_environment_id == new_environment_id
     assert plan.webhook_auth_credential_id_to_verify == _WEBHOOK_CRED_ID_2
     assert plan.webhook_auth_field_to_verify == "WEBHOOK_SECRET"
     assert plan.recompute_next_run is False
     plan.apply_to(trigger)
-    assert trigger.environment_ref == "new-env"
+    assert trigger.environment_id == new_environment_id
     assert trigger.webhook_auth_credential_id == _WEBHOOK_CRED_ID_2
     assert trigger.config["auth_methods"] == ["bearer"]
 

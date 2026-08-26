@@ -20,7 +20,7 @@ from app.joysafeter_domain.services.joysafeter_trigger_config_policy import Trig
 from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import TriggerRuntimeGate
 from app.joysafeter_domain.services.joysafeter_trigger_scheduler_state_service import TriggerSchedulerStateService
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
-from app.joysafeter_shared.ids import AgentId, SessionId, TaskId, TriggerId
+from app.joysafeter_shared.ids import AgentId, EnvironmentId, ProjectId, SessionId, TaskId, TriggerId
 
 _NON_TERMINAL_STATUSES = [s.value for s in JoySafeterTaskStatus if s not in JOYSAFETER_TERMINAL_STATUSES]
 
@@ -55,18 +55,18 @@ class JoySafeterTriggerService:
         self,
         *,
         agent_id: AgentId,
-        project_id: Optional[str],
-        environment_ref: Optional[str] = None,
-    ) -> tuple[JoySafeterAgent, Optional[str]]:
+        project_id: ProjectId | None,
+        environment_id: Optional[EnvironmentId] = None,
+    ) -> tuple[JoySafeterAgent, Optional[EnvironmentId]]:
         """Resolve the agent (and effective environment) a trigger will run.
 
         Raises if the agent is missing/archived or the environment is
-        missing/archived. Returns ``(agent, effective_environment_ref)``.
+        missing/archived. Returns ``(agent, effective_environment_id)``.
         """
         return await TriggerRuntimeGate(self.db).resolve_runnable_target(
             agent_id=agent_id,
             project_id=project_id,
-            environment_ref=environment_ref,
+            environment_id=environment_id,
         )
 
     def _config_for(self, *, type: str, **fields: Any) -> dict[str, Any]:
@@ -119,7 +119,7 @@ class JoySafeterTriggerService:
     async def get(
         self,
         trigger_id: TriggerId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         *,
         include_deleted: bool = False,
     ) -> Optional[JoySafeterTrigger]:
@@ -132,7 +132,7 @@ class JoySafeterTriggerService:
         return result.scalar_one_or_none()
 
     async def _get_for_update(
-        self, trigger_id: TriggerId, project_id: Optional[str] = None
+        self, trigger_id: TriggerId, project_id: ProjectId | None = None
     ) -> Optional[JoySafeterTrigger]:
         result = await self.db.execute(TriggerRuntimeGate.lock_stmt(trigger_id, project_id))
         return result.scalar_one_or_none()
@@ -151,7 +151,7 @@ class JoySafeterTriggerService:
     async def get_by_name(
         self,
         name: str,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
         *,
         type: Optional[str] = None,
     ) -> Optional[JoySafeterTrigger]:
@@ -168,7 +168,7 @@ class JoySafeterTriggerService:
     async def list(
         self,
         *,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
         enabled: Optional[bool] = None,
         type: Optional[str] = None,
         limit: int = 100,
@@ -190,7 +190,7 @@ class JoySafeterTriggerService:
         )
         return result.scalars().all()
 
-    async def delete(self, trigger_id: TriggerId, project_id: Optional[str]) -> bool:
+    async def delete(self, trigger_id: TriggerId, project_id: ProjectId | None) -> bool:
         trigger = await self._get_for_update(trigger_id, project_id=project_id)
         if trigger is None:
             return False
@@ -218,9 +218,6 @@ class JoySafeterTriggerService:
 
     def _live_agent_filter(self):
         return TriggerRuntimeGate.live_agent_filter()
-
-    def _effective_environment_ref_expr(self):
-        return TriggerRuntimeGate.effective_environment_ref_expr()
 
     def _live_environment_filter(self):
         return TriggerRuntimeGate.live_environment_filter()
@@ -255,11 +252,11 @@ class JoySafeterTriggerService:
         """
         return await self._scheduler_state().earliest_next_run(lock_grace_sec=lock_grace_sec)
 
-    async def project_triggers_paused(self, project_id: Optional[str]) -> bool:
+    async def project_triggers_paused(self, project_id: ProjectId | None) -> bool:
         """True when the project's server-side trigger kill-switch is enabled."""
         return await TriggerRuntimeGate(self.db).project_triggers_paused(project_id)
 
-    async def project_trigger_block_reason(self, project_id: Optional[str]) -> Optional[str]:
+    async def project_trigger_block_reason(self, project_id: ProjectId | None) -> Optional[str]:
         """Human-readable reason a project should not fire triggers right now."""
         return await TriggerRuntimeGate(self.db).project_trigger_block_reason(project_id)
 
@@ -269,7 +266,7 @@ class JoySafeterTriggerService:
 
     # --- Project / agent lifecycle (cron triggers only) ---
 
-    async def pause_for_project_archive(self, project_id: str) -> None:
+    async def pause_for_project_archive(self, project_id: ProjectId) -> None:
         """Pause a project's cron triggers without changing the user's intent.
 
         The caller owns the transaction. Clears due slots and stale locks so an
@@ -277,7 +274,7 @@ class JoySafeterTriggerService:
         """
         await self.pause_for_project_triggers(project_id)
 
-    async def pause_for_project_triggers(self, project_id: str) -> None:
+    async def pause_for_project_triggers(self, project_id: ProjectId) -> None:
         """Clear cron due slots for the project-level trigger kill-switch."""
         result = await self.db.execute(
             select(JoySafeterTrigger).where(
@@ -298,7 +295,7 @@ class JoySafeterTriggerService:
         self,
         agent_id: AgentId,
         *,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> builtins.list[JoySafeterTrigger]:
         """Lock every Trigger row before an Agent lifecycle transaction locks Agent.
 
@@ -331,16 +328,16 @@ class JoySafeterTriggerService:
             trigger.slot_attempts = 0
             self._sync_config(trigger)
 
-    async def pause_for_agent_archive(self, agent_id: AgentId, *, project_id: Optional[str] = None) -> None:
+    async def pause_for_agent_archive(self, agent_id: AgentId, *, project_id: ProjectId | None = None) -> None:
         """Pause cron triggers targeting an archived agent without deleting audit state."""
         await self.pause_for_agent_triggers(agent_id, project_id=project_id)
 
-    async def pause_for_agent_triggers(self, agent_id: AgentId, *, project_id: Optional[str] = None) -> None:
+    async def pause_for_agent_triggers(self, agent_id: AgentId, *, project_id: ProjectId | None = None) -> None:
         """Clear cron due slots for an agent that cannot run triggers."""
         triggers = await self.lock_for_agent_lifecycle(agent_id, project_id=project_id)
         self.pause_locked_agent_triggers(triggers)
 
-    async def resume_after_project_restore(self, project_id: str) -> None:
+    async def resume_after_project_restore(self, project_id: ProjectId) -> None:
         """Recompute cron trigger fire slots after a project is restored.
 
         The caller owns the transaction. Enabled cron triggers resume from the
@@ -348,7 +345,7 @@ class JoySafeterTriggerService:
         """
         await self.resume_after_project_triggers_unpaused(project_id)
 
-    async def resume_after_project_triggers_unpaused(self, project_id: str) -> None:
+    async def resume_after_project_triggers_unpaused(self, project_id: ProjectId) -> None:
         """Recompute cron slots only when the project is live and unpaused."""
         project_state = await self.db.execute(
             select(Project.archived_at, Project.triggers_paused).where(Project.id == project_id)
@@ -387,7 +384,7 @@ class JoySafeterTriggerService:
         self,
         agent_id: AgentId,
         *,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> None:
         """Recompute cron trigger fire slots after an agent is restored from archive.
 
@@ -413,7 +410,7 @@ class JoySafeterTriggerService:
         self,
         trigger_id: TriggerId,
         *,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
         limit: int = 50,
         offset: int = 0,
     ) -> Optional[Sequence[JoySafeterTask]]:
@@ -433,7 +430,7 @@ class JoySafeterTriggerService:
         self,
         trigger_id: TriggerId,
         *,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
         limit: int = 50,
         after_id: Optional[TaskId] = None,
     ) -> Optional[tuple[builtins.list[JoySafeterTask], bool]]:

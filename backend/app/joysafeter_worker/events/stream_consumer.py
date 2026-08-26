@@ -316,12 +316,11 @@ class EventStreamWorker:
 
     def _decode_event(self, fields: dict[str, Any]) -> BufferedEvent:
         session_id = SessionId.from_uuid(uuid.UUID(str(fields["session_id"])))
-        event_id_raw = str(fields.get("event_id") or "")
+        event_id_raw = fields.get("event_id")
+        if event_id_raw is None or not str(event_id_raw).strip():
+            raise ValueError("event_id is required")
         payload_raw = fields.get("payload") or "{}"
-        # F1 fix: always assign an event_id so the batch writer's dedup check
-        # (which skips events with e.id is None) can prevent duplicates on
-        # crash-recovery re-delivery via XAUTOCLAIM.
-        event_id = EventId.from_uuid(uuid.UUID(event_id_raw) if event_id_raw else uuid.uuid4())
+        event_id = EventId.from_uuid(uuid.UUID(str(event_id_raw)))
         return BufferedEvent(
             session_id=session_id,
             event_type=str(fields["event_type"]),

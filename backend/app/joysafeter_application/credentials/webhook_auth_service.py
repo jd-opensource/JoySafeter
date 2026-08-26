@@ -9,11 +9,10 @@ from typing import Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.credentials.bindings import WebhookAuthBinding, WebhookAuthMethod
-from app.joysafeter_domain.credentials.types import CredentialFieldName, ProjectId
-from app.joysafeter_domain.credentials.types import CredentialId as DomainCredentialId
+from app.joysafeter_domain.credentials.types import CredentialFieldName
 from app.joysafeter_domain.services.credential_binding_errors import raise_public_credential_error
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
-from app.joysafeter_shared.ids import CredentialId, TriggerId
+from app.joysafeter_shared.ids import CredentialId, ProjectId, TriggerId
 
 from .composition import compose_credential_application
 from .ports import CredentialAccessContext, CredentialAuditActor
@@ -90,7 +89,7 @@ class WebhookAuthService:
         *,
         webhook_auth_credential_id: CredentialId,
         webhook_auth_field: str,
-        project_id: Optional[str],
+        project_id: Optional[ProjectId],
         trigger_id: Optional[TriggerId] = None,
         auth_methods: object | None = None,
     ) -> str:
@@ -122,8 +121,8 @@ class WebhookAuthService:
             )
         try:
             binding = WebhookAuthBinding(
-                project_id=ProjectId(project_id),
-                credential_id=DomainCredentialId(str(webhook_auth_credential_id)),
+                project_id=project_id,
+                credential_id=webhook_auth_credential_id,
                 credential_field=credential_field,
                 methods=normalized_methods,
             )

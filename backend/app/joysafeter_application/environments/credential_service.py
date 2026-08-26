@@ -12,6 +12,7 @@ from app.joysafeter_application.credentials.ports import (
     combine_credential_impacts,
 )
 from app.joysafeter_domain.credentials.bindings import (
+    CredentialBindingFingerprint,
     EgressInjectKind,
     EgressInjectPolicy,
     EnvironmentInjectionBinding,
@@ -23,9 +24,7 @@ from app.joysafeter_domain.credentials.types import (
     CredentialFieldName,
     CredentialUsage,
     NormalizedEndpoint,
-    ProjectId,
 )
-from app.joysafeter_domain.credentials.types import CredentialId as DomainCredentialId
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.schemas.joysafeter_environment import (
     EnvironmentConfig,
@@ -33,25 +32,27 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
 )
 from app.joysafeter_domain.services.credential_binding_errors import raise_public_credential_error
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError
+from app.joysafeter_shared.ids import ProjectId, SecurityAuditId
 
 logger = logging.getLogger(__name__)
 
-_IMPACT_SURFACE_PROJECT_ID = ProjectId("environment-impact-surface")
 _REFERENCE_CODEC = CredentialReferenceCodec()
 
 
-def _credential_binding_surfaces(config: dict[str, Any] | None) -> dict[CredentialUsage, frozenset[object]]:
+def _credential_binding_surfaces(
+    config: dict[str, Any] | None,
+) -> dict[CredentialUsage, frozenset[CredentialBindingFingerprint]]:
     decoded = _REFERENCE_CODEC.decode_environment(config or {})
     direct = frozenset(
-        EnvironmentInjectionBinding(
-            project_id=_IMPACT_SURFACE_PROJECT_ID,
-            credential_id=DomainCredentialId(str(credential_id)),
+        CredentialBindingFingerprint(
+            usage=CredentialUsage.ENVIRONMENT_INJECTION,
+            credential_id=credential_id,
         )
         for credential_id in decoded.direct_credential_ids
     )
     egress_bindings = {
-        HttpEgressBinding(
-            project_id=_IMPACT_SURFACE_PROJECT_ID,
+        CredentialBindingFingerprint(
+            usage=CredentialUsage.HTTP_EGRESS,
             credential_id=reference.credential_id,
             endpoint=NormalizedEndpoint(reference.endpoint),
             inject=EgressInjectPolicy(
@@ -92,7 +93,7 @@ class EnvironmentCredentialService:
     async def validate_references(
         self,
         config: EnvironmentConfig,
-        project_id: str | None,
+        project_id: ProjectId | None,
     ) -> None:
         references = extract_environment_credential_references(config)
         if not references:
@@ -123,8 +124,8 @@ class EnvironmentCredentialService:
             if reference.source == "environment_credential_ids":
                 try:
                     binding = EnvironmentInjectionBinding(
-                        ProjectId(project_id),
-                        DomainCredentialId(str(reference.credential_id)),
+                        project_id,
+                        reference.credential_id,
                     )
                 except (TypeError, ValueError) as exc:
                     raise_public_credential_error(
@@ -153,8 +154,8 @@ class EnvironmentCredentialService:
                     )
                 try:
                     binding = HttpEgressBinding(
-                        ProjectId(project_id),
-                        DomainCredentialId(str(reference.credential_id)),
+                        project_id,
+                        reference.credential_id,
                         NormalizedEndpoint(service.base_url),
                         EgressInjectPolicy(
                             EgressInjectKind(inject.type),
@@ -182,7 +183,7 @@ class EnvironmentCredentialService:
         self,
         env: JoySafeterEnvironment,
         *,
-        project_id: str,
+        project_id: ProjectId,
         old_config: dict[str, Any] | None,
         new_config: dict[str, Any] | None,
     ) -> None:
@@ -192,6 +193,7 @@ class EnvironmentCredentialService:
         if changed_usages:
             await self._application.uow.audit.append(
                 CredentialAuditEntry(
+                    id=SecurityAuditId.new(),
                     action="environment.credentials.updated",
                     project_id=project_id,
                     target_type="environment",
@@ -209,7 +211,7 @@ class EnvironmentCredentialService:
                     source="environment",
                     source_id=str(env.id),
                     reason="environment.updated",
-                    project_id=ProjectId(project_id),
+                    project_id=project_id,
                     affected_sandbox_ids=frozenset(),
                     affected_session_ids=frozenset(),
                     dispositions=runtime_impact_dispositions(usage),

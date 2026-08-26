@@ -53,21 +53,28 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
 from app.joysafeter_infrastructure.credentials.sqlalchemy_repository import (
     SqlAlchemyCredentialRepository,
 )
+from app.joysafeter_shared.ids import AgentId, EnvironmentId, OrganizationId, ProjectId, SandboxId, SessionId
 
 
-async def _make_project(db_session) -> str:
-    org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+async def _make_project(db_session) -> ProjectId:
+    org = Organization(id=OrganizationId.new(), name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+    project = Project(
+        id=ProjectId.new(),
+        org_id=org.id,
+        name=f"proj-{uuid.uuid4()}",
+        slug=f"proj-{uuid.uuid4()}",
+    )
     db_session.add(project)
     await db_session.commit()
     return project.id
 
 
-def _limited_sandbox(project_id: str, status: str = "running") -> JoySafeterSandbox:
+def _limited_sandbox(project_id: ProjectId, status: str = "running") -> JoySafeterSandbox:
     """A live limited-networking sandbox (the refresh target shape)."""
     return JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         image="test-image:latest",
         status=status,
@@ -77,12 +84,12 @@ def _limited_sandbox(project_id: str, status: str = "running") -> JoySafeterSand
 
 
 @pytest_asyncio.fixture
-async def project_id(db_session) -> str:
+async def project_id(db_session) -> ProjectId:
     return await _make_project(db_session)
 
 
 @pytest_asyncio.fixture
-async def other_project_id(db_session) -> str:
+async def other_project_id(db_session) -> ProjectId:
     return await _make_project(db_session)
 
 
@@ -204,6 +211,7 @@ async def test_late_commit_failure_rolls_back_written_mutation_audit_and_pending
     credential_id = credential.id
     db_session.add(
         JoySafeterEnvironment(
+            id=EnvironmentId.new(),
             project_id=project_id,
             name=f"env-{uuid.uuid4()}",
             config={
@@ -211,8 +219,8 @@ async def test_late_commit_failure_rolls_back_written_mutation_audit_and_pending
                     {
                         "name": "api",
                         "base_url": "https://api.example.com",
-                        "service_credential_id": str(credential_id),
-                        "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                        "credential_ref": str(credential_id),
+                        "inject": {"type": "bearer", "credential_field": "TOKEN"},
                     }
                 ]
             },
@@ -292,27 +300,30 @@ async def test_direct_rotation_rolls_back_mutation_audit_and_restart_required_on
         project_id=project_id,
     )
     environment = JoySafeterEnvironment(
+        id=EnvironmentId.new(),
         project_id=project_id,
         name=f"env-{uuid.uuid4()}",
-        config={"secret_refs": [str(credential.id)]},
+        config={"environment_credential_ids": [str(credential.id)]},
     )
-    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), project_id=project_id, name=f"agent-{uuid.uuid4()}")
     db_session.add_all([environment, agent])
     await db_session.flush()
     session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="running",
-        environment_ref=str(environment.id),
+        environment_id=environment.id,
         runtime_config_generation=5,
         agent_snapshot={
-            "schema": "joysafeter.agent_execution_snapshot.v1",
-            "environment": {"config": {"secret_refs": [str(credential.id)]}},
+            "schema": "joysafeter.agent_execution_snapshot.v2",
+            "environment": {"config": {"environment_credential_ids": [str(credential.id)]}},
         },
     )
     db_session.add(session)
     await db_session.flush()
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         chat_session_id=session.id,
         image="test-image:latest",
@@ -484,33 +495,36 @@ async def test_service_credential_restore_recomputes_direct_and_egress_impacts_o
     )
     credential.archived_at = datetime.now(timezone.utc)
     environment = JoySafeterEnvironment(
+        id=EnvironmentId.new(),
         project_id=project_id,
         name=f"env-{uuid.uuid4()}",
         config={
-            "secret_refs": [str(credential.id)],
+            "environment_credential_ids": [str(credential.id)],
             "egress_services": [
                 {
                     "name": "api",
                     "base_url": "https://api.example.com",
-                    "service_credential_id": str(credential.id),
-                    "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                    "credential_ref": str(credential.id),
+                    "inject": {"type": "bearer", "credential_field": "TOKEN"},
                 }
             ],
         },
     )
-    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), project_id=project_id, name=f"agent-{uuid.uuid4()}")
     db_session.add_all([environment, agent])
     await db_session.flush()
     session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="running",
-        environment_ref=str(environment.id),
+        environment_id=environment.id,
         runtime_config_generation=3,
     )
     db_session.add(session)
     await db_session.flush()
     attached = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         chat_session_id=session.id,
         image="test-image:latest",
@@ -601,7 +615,7 @@ async def test_group_and_member_auto_commit_false_respect_outer_rollback(db_sess
                 await fresh.execute(
                     select(SecurityAuditLog.id).where(
                         SecurityAuditLog.event_type.in_(["credential_group.updated", "credential_group.member_added"]),
-                        SecurityAuditLog.details["project_id"].astext == project_id,
+                        SecurityAuditLog.details["project_id"].astext == str(project_id),
                     )
                 )
             )
@@ -873,19 +887,21 @@ async def test_concurrent_direct_rotations_lock_sessions_in_id_order_and_seriali
         project_id=project_id,
     )
     environment = JoySafeterEnvironment(
+        id=EnvironmentId.new(),
         project_id=project_id,
         name=f"env-{uuid.uuid4()}",
-        config={"secret_refs": [str(first_credential.id), str(second_credential.id)]},
+        config={"environment_credential_ids": [str(first_credential.id), str(second_credential.id)]},
     )
-    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), project_id=project_id, name=f"agent-{uuid.uuid4()}")
     db_session.add_all([environment, agent])
     await db_session.flush()
     sessions = [
         JoySafeterSession(
+            id=SessionId.new(),
             project_id=project_id,
             agent_id=agent.id,
             status="running",
-            environment_ref=str(environment.id),
+            environment_id=environment.id,
             runtime_config_generation=40 + index,
         )
         for index in range(2)
@@ -980,10 +996,11 @@ async def test_mcp_member_lifecycle_with_active_group_session_marks_network_pend
         ),
         project_id=project_id,
     )
-    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), project_id=project_id, name=f"agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
     session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="running",
@@ -1070,10 +1087,11 @@ async def test_mcp_member_lifecycle_without_active_group_session_emits_no_impact
         project_id=project_id,
     )
     if inactive_binding != "none":
-        agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+        agent = JoySafeterAgent(id=AgentId.new(), project_id=project_id, name=f"agent-{uuid.uuid4()}")
         db_session.add(agent)
         await db_session.flush()
         session = JoySafeterSession(
+            id=SessionId.new(),
             project_id=project_id,
             agent_id=agent.id,
             status="terminated" if inactive_binding == "terminated" else "running",
@@ -1155,10 +1173,11 @@ async def test_mcp_member_lifecycle_rolls_back_state_audit_and_pending_on_commit
         ),
         project_id=project_id,
     )
-    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), project_id=project_id, name=f"agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
     session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="running",
@@ -1249,6 +1268,7 @@ async def test_refresh_wrapper_marks_and_returns_count(db_session, project_id):
     b = _limited_sandbox(project_id)
     # A non-limited sandbox must be ignored.
     c = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         image="test-image:latest",
         status="running",

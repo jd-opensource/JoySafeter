@@ -5,6 +5,7 @@ import uuid
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Body, Depends, Header, Query, Request
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import credential_audit_actor
@@ -26,10 +27,17 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import TaskId, TriggerId
+from app.joysafeter_shared.ids import ProjectId, TaskId, TriggerId
 from app.joysafeter_shared.rate_limit import get_client_ip, rate_limit
 
 router = APIRouter(tags=["joysafeter-triggers"])
+
+
+class WebhookSampleResponse(BaseModel):
+    url: str
+    signature_header: str
+    sample_body: dict[str, Any]
+    curl: str
 
 
 def _webhook_url(request: Request, trigger_id: TriggerId) -> str:
@@ -105,7 +113,7 @@ async def create_trigger(
         type=body.type,
         agent_id=body.agent_id,
         prompt_template=body.prompt_template,
-        environment_ref=body.environment_ref,
+        environment_id=body.environment_id,
         description=body.description,
         enabled=body.enabled,
         session_mode=body.session_mode,
@@ -145,7 +153,7 @@ async def list_triggers(
     return [_response(trigger, request) for trigger in triggers]
 
 
-async def _get_or_404(db: AsyncSession, trigger_id: TriggerId, project_id: Optional[str]):
+async def _get_or_404(db: AsyncSession, trigger_id: TriggerId, project_id: ProjectId | None):
     trigger = await JoySafeterTriggerService(db).get(trigger_id, project_id=project_id)
     if trigger is None:
         raise NotFoundError(
@@ -285,7 +293,7 @@ async def fire_webhook_trigger(
             principal_id="anonymous",
             ip_address=get_client_ip(request),
             user_agent=request.headers.get("user-agent"),
-            org_id=str(trigger.org_id) if trigger.org_id is not None else None,
+            org_id=trigger.org_id,
         ),
     )
     raw_body = await request.body()
@@ -394,7 +402,7 @@ async def webhook_sample(
     trigger_id: TriggerId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-) -> dict[str, Any]:
+) -> WebhookSampleResponse:
     """A copy-paste, correctly-signed ``curl`` for delivering to this webhook."""
     trigger = await _get_or_404(db, trigger_id, auth_ctx.project_id)
     if trigger.type != "webhook":
@@ -410,9 +418,9 @@ async def webhook_sample(
         db,
         credential_audit_actor=credential_audit_actor(request, auth_ctx),
     ).build_webhook_curl(trigger, url=url, sample_body=sample_body)
-    return {
-        "url": url,
-        "signature_header": "X-JoySafeter-Signature",
-        "sample_body": sample_body,
-        "curl": curl,
-    }
+    return WebhookSampleResponse(
+        url=url,
+        signature_header="X-JoySafeter-Signature",
+        sample_body=sample_body,
+        curl=curl,
+    )

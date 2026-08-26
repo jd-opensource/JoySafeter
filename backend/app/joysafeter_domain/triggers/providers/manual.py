@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from app.joysafeter_shared.ids import UserId
+
 from .base import cron_block, register, stable_external_idempotency_component
 
 # When no explicit Idempotency-Key header is supplied, collapse rapid repeat
@@ -25,7 +27,9 @@ class ManualTriggerProvider:
         if idempotency_header:
             header_component = stable_external_idempotency_component(idempotency_header)
             return f"trigger:{trigger.id}:manual:{header_component}"
-        user_id: Optional[str] = context.get("user_id")
+        user_id = context.get("user_id")
+        if user_id is not None and not isinstance(user_id, UserId):
+            raise TypeError("manual trigger user_id must be UserId")
         moment = context.get("now") or datetime.now(timezone.utc)
         bucket = int(moment.timestamp()) // _MANUAL_DEDUPE_WINDOW_SEC
         return f"trigger:{trigger.id}:manual:{user_id or 'anon'}:{bucket}"

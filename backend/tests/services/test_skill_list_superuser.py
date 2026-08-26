@@ -20,38 +20,40 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillService
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
+from app.joysafeter_shared.ids import OrganizationId, OrganizationMemberId, ProjectId, SkillId, UserId
 
 pytestmark = pytest.mark.asyncio
 
 
 async def _user(db, *, name: str = "U") -> AuthUser:
-    user = AuthUser(id=f"user-{uuid.uuid4()}", name=name, email=f"{uuid.uuid4()}@example.com")
+    user = AuthUser(id=UserId.new(), name=name, email=f"{uuid.uuid4()}@example.com")
     db.add(user)
     await db.flush()
     return user
 
 
 async def _org(db) -> Organization:
-    org = Organization(id=f"org-{uuid.uuid4()}", name="Org", slug=f"org-{uuid.uuid4()}")
+    org = Organization(id=OrganizationId.new(), name="Org", slug=f"org-{uuid.uuid4()}")
     db.add(org)
     await db.flush()
     return org
 
 
-async def _project(db, *, org_id: str) -> Project:
-    proj = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="P", slug=f"p-{uuid.uuid4()}")
+async def _project(db, *, org_id: OrganizationId) -> Project:
+    proj = Project(id=ProjectId.new(), org_id=org_id, name="P", slug=f"p-{uuid.uuid4()}")
     db.add(proj)
     await db.flush()
     return proj
 
 
-async def _org_member(db, *, org_id: str, user_id: str, role: str) -> None:
-    db.add(Member(id=f"mem-{uuid.uuid4()}", organization_id=org_id, user_id=user_id, role=role))
+async def _org_member(db, *, org_id: OrganizationId, user_id: UserId, role: str) -> None:
+    db.add(Member(id=OrganizationMemberId.new(), organization_id=org_id, user_id=user_id, role=role))
     await db.flush()
 
 
-async def _skill(db, *, owner_id: str, project_id: str, visibility: str = "project") -> JoySafeterSkill:
+async def _skill(db, *, owner_id: UserId, project_id: ProjectId, visibility: str = "project") -> JoySafeterSkill:
     skill = JoySafeterSkill(
+        id=SkillId.new(),
         name=f"skill-{uuid.uuid4()}",
         description="test",
         content="# Skill\nbody",

@@ -200,8 +200,8 @@ Agent 是 JoySafeter 中可执行的智能体配置，包含模型、系统提�
     }
   ],
   "multiagent": null,
-  "environment_ref": "ubuntu24-dev",
-  "secret_ref": "claude-secret"
+  "environment_id": "env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f030",
+  "model_credential_id": "cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020"
 }
 ```
 
@@ -216,19 +216,19 @@ Agent 是 JoySafeter 中可执行的智能体配置，包含模型、系统提�
 | `description` | string | 否 | 描述 |
 | `metadata` | object | 否 | 自定义元数据 |
 | `env` | object | 否 | 注入到运行环境的环境变量 |
-| `mcp_servers` | array | 否 | MCP server 配置 |
+| `mcp_servers` | array | 否 | Agent 的 MCP 连接声明。`streamable_http` 支持 `required` / `optional` / `none`；`sse` 仅支持 `none`；`local_stdio` 不使用凭据组 |
 | `skills` | array | 否 | Skill 引用或内联包 |
 | `agents` | array | 否 | 子 Agent 包 |
 | `commands` | array | 否 | 自定义命令包 |
 | `tools` | array | 否 | 工具配置 |
 | `multiagent` | object/null | 否 | 多 Agent 配置 |
-| `environment_ref` | string | 否 | 绑定的 Environment 名称或 ID |
-| `secret_ref` | string | 否 | LLM 密钥引用 |
+| `environment_id` | string | 否 | 绑定的 canonical `env_<uuid>` Environment ID；名称与裸 UUID 均不接受 |
+| `model_credential_id` | string | 否 | canonical `cred_<uuid>` 模型连接 ID |
 
-`engine_kind` 和 `secret_ref` 要兼容：
+`engine_kind` 和 `model_credential_id` 要兼容：
 
-- `claude`：需要 Anthropic/Claude 类 secret
-- `codex`：需要 OpenAI/Codex 类 secret
+- `claude`：需要兼容 Anthropic Messages 的模型连接
+- `codex`：需要兼容 OpenAI Responses 的模型连接
 - `native`：按 native runtime 配置
 
 ---
@@ -251,8 +251,8 @@ curl -sS -X POST "$BASE/agents" \
     "model": "claude-sonnet-4-20250514",
     "system_prompt": "你是一个专业的代码分析助手，回答要简洁准确。",
     "description": "代码分析 Agent",
-    "environment_ref": "ubuntu24-dev",
-    "secret_ref": "claude-secret",
+    "environment_id": "env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f030",
+    "model_credential_id": "cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020",
     "tools": [
       {
         "type": "agent_toolset_20260401",
@@ -293,8 +293,8 @@ curl -sS -X POST "$BASE/agents" \
     "tools": [],
     "multiagent": null,
     "version": 1,
-    "environment_ref": "ubuntu24-dev",
-    "secret_ref": "claude-secret",
+    "environment_id": "env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f030",
+    "model_credential_id": "cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020",
     "created_at": "2026-08-11T10:00:00Z",
     "updated_at": "2026-08-11T10:00:00Z",
     "archived_at": null
@@ -307,7 +307,7 @@ curl -sS -X POST "$BASE/agents" \
 ### 1.3 查询 Agent 列表
 
 ```http
-GET /api/v1/agents?limit=20&after_id=<uuid>&include_archived=false
+GET /api/v1/agents?limit=20&after_id=agent_<uuid>&include_archived=false
 ```
 
 参数：
@@ -315,7 +315,7 @@ GET /api/v1/agents?limit=20&after_id=<uuid>&include_archived=false
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---:|---|
 | `limit` | int | 20 | 每页数量，1-100 |
-| `after_id` | uuid | - | 游标分页，从该 ID 后继续 |
+| `after_id` | string | - | canonical `agent_<uuid>` 游标，从该 ID 后继续 |
 | `include_archived` | bool | false | 是否包含已归档 Agent |
 
 示例：
@@ -476,7 +476,7 @@ curl -sS "$BASE/agents/$AGENT_ID/versions?limit=20" \
 
 ## 2. Environment 接口
 
-Environment 定义 Agent 运行时环境，包括包安装、网络策略、环境变量、Secret、外部 egress service、存储挂载等。
+Environment 定义 Agent 运行时环境，包括包安装、网络策略、环境变量、Credential、外部 egress service、存储挂载等。
 
 ### 2.1 Environment 数据结构
 
@@ -507,7 +507,7 @@ Environment 定义 Agent 运行时环境，包括包安装、网络策略、环�
     "env_vars": {
       "TZ": "Asia/Shanghai"
     },
-    "secret_refs": ["claude-secret"],
+    "environment_credential_ids": ["cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020"],
     "egress_services": [],
     "mount_resources": []
   }
@@ -532,7 +532,7 @@ Environment 定义 Agent 运行时环境，包括包安装、网络策略、环�
 | `config.networking.allowed_hosts` | array | 否 | 允许访问的域名 |
 | `config.networking.allow_package_managers` | bool | 否 | 是否允许包管理器联网 |
 | `config.env_vars` | object | 否 | 环境变量 |
-| `config.secret_refs` | array | 否 | 引用的 secret 名称 |
+| `config.environment_credential_ids` | array | 否 | canonical `cred_<uuid>` 环境凭据 ID |
 | `config.egress_services` | array | 否 | 外部服务凭证注入配置 |
 | `config.mount_resources` | array | 否 | 存储挂载配置 |
 
@@ -637,7 +637,7 @@ curl -sS -X POST "$BASE/environments" \
       "env_vars": {
         "TZ": "Asia/Shanghai"
       },
-      "secret_refs": ["claude-secret"],
+      "environment_credential_ids": ["cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020"],
       "egress_services": [],
       "mount_resources": []
     }
@@ -673,7 +673,7 @@ curl -sS -X POST "$BASE/environments" \
         "allow_package_managers": true
       },
       "env_vars": {"TZ": "Asia/Shanghai"},
-      "secret_refs": ["claude-secret"],
+      "environment_credential_ids": ["cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020"],
       "egress_services": [],
       "mount_resources": []
     },
@@ -694,7 +694,7 @@ curl -sS -X POST "$BASE/environments" \
 ### 2.4 查询 Environment 列表
 
 ```http
-GET /api/v1/environments?limit=20&after_id=<uuid>&include_archived=false
+GET /api/v1/environments?limit=20&after_id=env_<uuid>&include_archived=false
 ```
 
 示例：
@@ -755,7 +755,7 @@ curl -sS -X POST "$BASE/environments/$ENV_ID" \
       "env_vars": {
         "TZ": "Asia/Shanghai"
       },
-      "secret_refs": ["claude-secret"],
+      "environment_credential_ids": ["cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020"],
       "egress_services": [],
       "mount_resources": []
     }
@@ -822,8 +822,8 @@ Session 是一次或多轮 Agent 对话/执行上下文。一个 Session 绑定�
   "metadata": {
     "source": "api"
   },
-  "vault_ids": [],
-  "environment_id": "ubuntu24-dev",
+  "credential_group_ids": [],
+  "environment_id": "env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f030",
   "resources": [],
   "file_resources": [],
   "repo_resources": [
@@ -873,12 +873,12 @@ Agent 指定方式任选一种，其中第三方系统推荐只用 `agent` 字�
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---:|---|
 | `agent` | string/object | 条件必填 | Agent 引用，第三方系统推荐使用；可指定版本 |
-| `agent_id` | uuid | 条件必填 | Agent UUID，和 `agent` / `agent_name` 三选一 |
+| `agent_id` | string | 条件必填 | canonical `agent_<uuid>`，和 `agent` / `agent_name` 三选一 |
 | `agent_name` | string | 条件必填 | Agent 名称，和 `agent` / `agent_id` 三选一 |
 | `title` | string | 否 | Session 标题 |
 | `metadata` | object | 否 | 元数据 |
-| `vault_ids` | array | 否 | 挂载 vault |
-| `environment_id` | string | 否 | 覆盖 Agent 默认 environment |
+| `credential_group_ids` | array | 否 | 本次 Session 授权使用的 canonical `credgrp_<uuid>` MCP Credential Group；按 Agent MCP URL 规范化匹配，不会永久绑定到 Agent |
+| `environment_id` | string | 否 | canonical `env_<uuid>`；覆盖 Agent 默认 environment |
 | `resources` | array | 否 | memory store 资源 |
 | `file_resources` | array | 否 | 文件资源 |
 | `repo_resources` | array | 否 | Git 仓库资源 |
@@ -916,7 +916,7 @@ echo "$SESSION_ID"
 
 ```json
 {
-  "environment_id": "env_xxx 或 environment-name",
+  "environment_id": "env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f030",
   "repo_resources": [
     {
       "type": "github_repository",
@@ -956,12 +956,12 @@ Agent 其它兼容写法：
       "name": "claude-code",
       "engine_kind": "claude"
     },
-    "environment_id": "ubuntu24-dev",
+    "environment_id": "env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f030",
     "status": "idle",
     "stop_reason": null,
     "title": "API 调用测试",
     "metadata": {"source": "api"},
-    "vault_ids": [],
+    "credential_group_ids": [],
     "resources": [],
     "repo_resources": [],
     "storage_mounts": [],
@@ -988,7 +988,7 @@ Agent 其它兼容写法：
 ### 3.3 查询 Session 列表
 
 ```http
-GET /api/v1/sessions?limit=20&after_id=<uuid>&agent_id=<uuid>&include_archived=false
+GET /api/v1/sessions?limit=20&after_id=sess_<uuid>&agent_id=agent_<uuid>&include_archived=false
 ```
 
 参数：
@@ -996,8 +996,8 @@ GET /api/v1/sessions?limit=20&after_id=<uuid>&agent_id=<uuid>&include_archived=f
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---:|---|
 | `limit` | int | 20 | 每页数量，1-100 |
-| `after_id` | uuid | - | 游标分页 |
-| `agent_id` | uuid | - | 只查某个 Agent 的 sessions |
+| `after_id` | string | - | canonical `sess_<uuid>` 游标 |
+| `agent_id` | string | - | canonical `agent_<uuid>`，只查该 Agent 的 sessions |
 | `include_archived` | bool | false | 是否包含归档 session |
 
 示例：

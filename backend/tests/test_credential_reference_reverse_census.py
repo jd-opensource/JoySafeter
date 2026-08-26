@@ -11,9 +11,8 @@ from typing import Iterable
 import pytest
 from sqlalchemy import Column, ForeignKey, MetaData, Table
 
-from app.joysafeter_application.credentials.composition import compose_credential_application
-from app.joysafeter_application.credentials.ports import CredentialAuditActor
-from app.joysafeter_domain.models import *  # noqa: F403
+import app.joysafeter_domain.models  # noqa: F401 — register ORM metadata
+from app.joysafeter_domain.credentials.dependencies import CREDENTIAL_REFERENCE_SURFACES
 from app.joysafeter_shared.database import Base
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -58,16 +57,16 @@ REGISTERED_CLASSIFICATIONS = {
     "typed_id:alembic:20260814_000001_unify_credentials:joysafeter_session_credential_groups.credential_group_id->joysafeter_credential_groups.id": {
         "session_credential_group_association"
     },
-    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L163C20-L163C56:webhook_auth_credential_id:58260fff0370": {
+    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:webhook_auth_credential_id:58260fff0370": {
         "trigger_webhook_auth_binding"
     },
-    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L164C23-L164C61:webhook_auth_credential_id:3367698b1fc3": {
+    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:webhook_auth_credential_id:3367698b1fc3": {
         "trigger_webhook_auth_binding"
     },
-    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L175C34-L175C110:webhook_auth_credential_id:62ee839db546": {
+    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:webhook_auth_credential_id:62ee839db546": {
         "trigger_webhook_auth_binding"
     },
-    "raw_key:backend/app/joysafeter_domain/triggers/providers/webhook.py:<module>.WebhookTriggerProvider.build_config:L16C44-L16C84:webhook_auth_credential_id:9c088451c7c5": {
+    "raw_key:backend/app/joysafeter_domain/triggers/providers/webhook.py:<module>.WebhookTriggerProvider.build_config:webhook_auth_credential_id:9c088451c7c5": {
         "trigger_webhook_auth_binding"
     },
 }
@@ -92,12 +91,12 @@ AGGREGATE_INTERNAL_CLASSIFICATIONS = {
     "typed_id:alembic:20260814_000001_unify_credentials:joysafeter_credentials.project_id->joysafeter_credential_groups.project_id",
 }
 EXPECTED_PRODUCTION_RAW_KEY_SURFACES = {
-    "raw_key:backend/app/joysafeter_api/api/v1/credentials.py:<module>.get_credential:L369C1-L369C31:/{credential_id}:cb1cb666ca53",
-    "raw_key:backend/app/joysafeter_domain/services/credential_binding_errors.py:<module>.raise_public_credential_error:L21C8-L21C63:credential_id:9c4f2e9cd651",
-    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L163C20-L163C56:webhook_auth_credential_id:58260fff0370",
-    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L164C23-L164C61:webhook_auth_credential_id:3367698b1fc3",
-    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:L175C34-L175C110:webhook_auth_credential_id:62ee839db546",
-    "raw_key:backend/app/joysafeter_domain/triggers/providers/webhook.py:<module>.WebhookTriggerProvider.build_config:L16C44-L16C84:webhook_auth_credential_id:9c088451c7c5",
+    "raw_key:backend/app/joysafeter_api/api/v1/credentials.py:<module>.get_credential:/{credential_id}:cb1cb666ca53",
+    "raw_key:backend/app/joysafeter_domain/services/credential_binding_errors.py:<module>.raise_public_credential_error:credential_id:9c4f2e9cd651",
+    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:webhook_auth_credential_id:58260fff0370",
+    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:webhook_auth_credential_id:3367698b1fc3",
+    "raw_key:backend/app/joysafeter_domain/services/joysafeter_trigger_config_policy.py:<module>.TriggerConfigPolicy.plan_update:webhook_auth_credential_id:62ee839db546",
+    "raw_key:backend/app/joysafeter_domain/triggers/providers/webhook.py:<module>.WebhookTriggerProvider.build_config:webhook_auth_credential_id:9c088451c7c5",
 }
 
 
@@ -336,9 +335,7 @@ def discover_python_raw_sql(paths: Iterable[Path]) -> set[CensusFinding]:
                 if table in normalized:
                     findings.add(
                         CensusFinding(
-                            "raw_sql:python:"
-                            f"{relative_path}:{callsite.scope}:{_span(callsite.node)}:"
-                            f"{table}:{_fingerprint(normalized)}",
+                            f"raw_sql:python:{relative_path}:{callsite.scope}:{table}:{_fingerprint(normalized)}",
                             "raw_sql",
                         )
                     )
@@ -1067,8 +1064,10 @@ def _rust_position(source: str, position: int) -> str:
     return f"L{line}C{position - line_start}"
 
 
-def _rust_span(source: str, start: int, end: int) -> str:
-    return f"{_rust_position(source, start)}-{_rust_position(source, end)}"
+def _rust_line_text(source: str, position: int) -> str:
+    line_start = source.rfind("\n", 0, position) + 1
+    line_end = source.find("\n", position)
+    return source[line_start:] if line_end < 0 else source[line_start:line_end]
 
 
 def discover_rust_raw_sql(paths: Iterable[Path]) -> set[CensusFinding]:
@@ -1085,7 +1084,6 @@ def discover_rust_raw_sql(paths: Iterable[Path]) -> set[CensusFinding]:
                         CensusFinding(
                             "raw_sql:rust:"
                             f"{relative_path}:{_rust_scope(production.functions, literal.start)}:"
-                            f"{_rust_span(production.source, literal.start, literal.end)}:"
                             f"{table}:{_fingerprint(normalized)}",
                             "raw_sql",
                         )
@@ -1110,8 +1108,8 @@ def discover_python_sensitive_calls(paths: Iterable[Path]) -> set[CensusFinding]
                 findings.add(
                     CensusFinding(
                         "material_call:python:"
-                        f"{relative_path}:{callsite.scope}:{_span(node)}:"
-                        f"{call_name}:{_fingerprint(ast.dump(node, include_attributes=False))}",
+                        f"{relative_path}:{callsite.scope}:{call_name}:"
+                        f"{_fingerprint(ast.dump(node, include_attributes=False))}",
                         "material_call",
                     )
                 )
@@ -1129,8 +1127,7 @@ def discover_rust_sensitive_calls(paths: Iterable[Path]) -> set[CensusFinding]:
                 CensusFinding(
                     "material_call:rust:"
                     f"{relative_path}:{_rust_scope(production.functions, match.start())}:"
-                    f"{_rust_span(production.source, match.start(), match.end())}:"
-                    f"{call_name}:{_fingerprint(production.code[match.start() : match.end()])}",
+                    f"{call_name}:{_fingerprint(_rust_line_text(production.source, match.start()))}",
                     "material_call",
                 )
             )
@@ -1232,9 +1229,7 @@ def discover_raw_key_paths(source: str, *, origin: str) -> set[CensusFinding]:
         if _looks_like_reference_key(key):
             findings.add(
                 CensusFinding(
-                    "raw_key:"
-                    f"{origin}:{callsite.scope}:{_span(node)}:{key}:"
-                    f"{_fingerprint(ast.dump(node, include_attributes=False))}",
+                    f"raw_key:{origin}:{callsite.scope}:{key}:{_fingerprint(ast.dump(node, include_attributes=False))}",
                     "raw_key",
                 )
             )
@@ -1384,13 +1379,9 @@ def _production_findings() -> set[CensusFinding]:
     )
 
 
-def test_reverse_census_independently_closes_every_production_finding(db_session) -> None:
-    application = compose_credential_application(
-        db_session,
-        audit_actor=CredentialAuditActor.system("test"),
-        auto_commit=False,
-    )
-    registered_surface_ids = {str(descriptor.surface_id) for descriptor in application.snapshot_service.descriptors}
+@pytest.mark.no_db
+def test_reverse_census_independently_closes_every_production_finding() -> None:
+    registered_surface_ids = {str(descriptor.surface_id) for descriptor in CREDENTIAL_REFERENCE_SURFACES}
     findings = _production_findings()
 
     assert {finding.category for finding in findings} >= {
@@ -1490,6 +1481,7 @@ def test_registered_json_reference_reads_are_codec_owned_across_python_rust_and_
     assert findings == [], "registered reference JSON reads outside Codec: " + repr(sorted(findings))
 
 
+@pytest.mark.no_db
 def test_reviewed_exception_contract_has_no_stale_or_malformed_entries() -> None:
     findings = {finding.surface for finding in _production_findings()}
     exceptions = _load_reviewed_exceptions(EXCEPTIONS_PATH)
@@ -1498,6 +1490,7 @@ def test_reviewed_exception_contract_has_no_stale_or_malformed_entries() -> None
     assert set(exceptions) <= findings
 
 
+@pytest.mark.no_db
 def test_deliberate_unregistered_typed_credential_id_fails_closed() -> None:
     metadata = MetaData()
     Table("joysafeter_credentials", metadata, Column("id", primary_key=True))
@@ -1545,6 +1538,7 @@ def test_alembic_census_discovers_fk_constraints_and_typed_ids_with_arbitrary_na
     }
 
 
+@pytest.mark.no_db
 def test_deliberate_unregistered_raw_key_path_fails_closed() -> None:
     findings = discover_raw_key_paths(
         'payload.get("rogue_credential_ref")',
@@ -1618,6 +1612,62 @@ def test_raw_key_census_has_no_implicit_broad_exclusions() -> None:
     assert RAW_KEY_EXCLUDED_SCOPES == set()
 
 
+@pytest.mark.no_db
+def test_python_census_surface_ids_ignore_line_shifts(tmp_path) -> None:
+    fixture = tmp_path / "stable.py"
+    source = """
+def load(payload, material):
+    query = "SELECT id FROM joysafeter_credentials"
+    credential_id = payload["credential_id"]
+    return query, credential_id, material.reveal()
+"""
+    fixture.write_text(source)
+    before = set().union(
+        discover_python_raw_sql((fixture,)),
+        discover_python_sensitive_calls((fixture,)),
+        discover_raw_key_paths(source, origin="fixture.py"),
+    )
+
+    shifted = "\n\n" + source
+    fixture.write_text(shifted)
+    after = set().union(
+        discover_python_raw_sql((fixture,)),
+        discover_python_sensitive_calls((fixture,)),
+        discover_raw_key_paths(shifted, origin="fixture.py"),
+    )
+
+    assert after == before
+
+
+@pytest.mark.no_db
+def test_rust_census_surface_ids_ignore_line_shifts(tmp_path) -> None:
+    fixture = tmp_path / "stable.rs"
+    source = """
+fn load(material: Material) {
+    let query = "SELECT id FROM joysafeter_credentials";
+    material.reveal();
+}
+"""
+    fixture.write_text(source)
+    before = discover_rust_raw_sql((fixture,)) | discover_rust_sensitive_calls((fixture,))
+
+    fixture.write_text("\n\n" + source)
+    after = discover_rust_raw_sql((fixture,)) | discover_rust_sensitive_calls((fixture,))
+
+    assert after == before
+
+
+@pytest.mark.no_db
+def test_rust_sensitive_surface_ids_distinguish_calls_in_one_scope(tmp_path) -> None:
+    fixture = tmp_path / "same_scope.rs"
+    fixture.write_text(
+        "fn load(primary: Material, fallback: Material) {\n    primary.reveal();\n    fallback.reveal();\n}\n"
+    )
+
+    assert len(discover_rust_sensitive_calls((fixture,))) == 2
+
+
+@pytest.mark.no_db
 def test_deliberate_unregistered_sql_query_fails_closed(tmp_path) -> None:
     fixture = tmp_path / "rogue.py"
     fixture.write_text('QUERY = "SELECT id FROM joysafeter_credentials"')
@@ -1639,6 +1689,7 @@ def test_deliberate_unregistered_sql_query_fails_closed(tmp_path) -> None:
         )
 
 
+@pytest.mark.no_db
 def test_deliberate_unregistered_reveal_callsite_fails_closed(tmp_path) -> None:
     fixture = tmp_path / "rogue.py"
     fixture.write_text("material.reveal()")

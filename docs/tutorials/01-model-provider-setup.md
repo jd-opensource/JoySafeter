@@ -4,14 +4,14 @@ JoySafeter 把大模型接入拆成四个明确概念：
 
 ```text
 Engine --supports--> Protocol <--implements-- Provider
-Secret = kind + Provider + Protocol + credentials
-Agent = Engine + secret_ref
+Model Credential = kind + Provider + Protocol + encrypted fields
+Agent = Engine + model_credential_id
 ```
 
 - **Engine（引擎）**：运行 Agent 的执行器，例如 Claude Code、Codex、Native、Pi。
 - **Protocol（协议）**：请求与流式响应契约，例如 Anthropic Messages、OpenAI Responses、Chat Completions。
 - **Provider（模型供应商）**：实现某个协议的服务商，例如 Anthropic、OpenAI、DeepSeek 或自定义兼容服务。
-- **模型配置（LLM Secret）**：保存 `kind=llm`、`provider`、`protocol` 和对应 Credential Profile 的加密字段。
+- **模型连接（Model Credential）**：保存 `kind=model`、`provider`、`protocol` 和对应 Credential Profile 的加密字段。
 
 引擎在开发时通过 Catalog 明确声明支持哪些协议；供应商通过 Catalog 声明实现哪些协议。前后端和运行时都使用同一份 Catalog，不从 Provider 名称或密钥键名猜测兼容性。
 
@@ -30,27 +30,27 @@ Agent = Engine + secret_ref
 
 Catalog 是系统契约。新增引擎适配器、协议适配器或供应商绑定时，应先更新 Catalog，再实现对应运行时路由。
 
-## 2. 在界面创建模型配置
+## 2. 在界面创建模型连接
 
-进入 **资源 → 密钥**（`/managed/secrets`），点击创建：
+进入 **资源 → 凭据**（`/managed/credentials?tab=models`），点击创建：
 
-1. 选择 **模型配置**，而不是通用密钥。
+1. 选择 **模型连接**，而不是服务凭据。
 2. 可选择“计划用于哪个引擎”；该选择只筛选兼容项，不会把配置绑定到单个引擎。
 3. 选择模型供应商。
 4. 当供应商与引擎交集只有一个协议时，系统自动选择；有多个协议时显式选择。
 5. 填写 Catalog Credential Profile 展示的字段。
 6. 测试连接并创建。
 
-`provider` 和 `protocol` 共同定义连接身份，创建后不可修改。若要切换身份，请创建新的模型配置，再修改 Agent 的 `secret_ref`。
+`provider` 和 `protocol` 共同定义连接身份，创建后不可修改。若要切换身份，请创建新的模型连接，再修改 Agent 的 `model_credential_id`。
 
 ## 3. 创建 Anthropic 配置
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/secrets \
+curl -X POST http://localhost:8000/api/v1/credentials \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <platform-token>" \
   -d '{
-    "kind": "llm",
+    "kind": "model",
     "name": "anthropic-production",
     "provider": "anthropic",
     "protocol": "anthropic_messages",
@@ -69,11 +69,11 @@ curl -X POST http://localhost:8000/api/v1/secrets \
 OpenAI Responses：
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/secrets \
+curl -X POST http://localhost:8000/api/v1/credentials \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <platform-token>" \
   -d '{
-    "kind": "llm",
+    "kind": "model",
     "name": "openai-production",
     "provider": "openai",
     "protocol": "openai_responses",
@@ -88,11 +88,11 @@ curl -X POST http://localhost:8000/api/v1/secrets \
 DeepSeek Chat Completions：
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/secrets \
+curl -X POST http://localhost:8000/api/v1/credentials \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <platform-token>" \
   -d '{
-    "kind": "llm",
+    "kind": "model",
     "name": "deepseek-chat",
     "provider": "deepseek",
     "protocol": "chat_completions",
@@ -105,14 +105,14 @@ curl -X POST http://localhost:8000/api/v1/secrets \
 
 默认配置按 **Protocol** 隔离：一个 `anthropic_messages` 默认配置和一个 `openai_responses` 默认配置可以同时存在。
 
-协议默认仅用于界面推荐和首次自动选择。Agent 的 `secret_ref` 为空时不会在运行时自动套用默认配置，也不会从密钥模块注入模型凭据。
+协议默认仅用于界面推荐和首次自动选择。Agent 的 `model_credential_id` 为空时不会在运行时自动套用默认连接，也不会注入模型凭据。
 
 ## 5. 查询某个引擎可用的模型配置
 
-Agent 与 Quickstart 不拉取全部 Secret 后在浏览器猜测，而是调用服务端过滤：
+Agent 与 Quickstart 不拉取全部 Credential 后在浏览器猜测，而是调用服务端过滤：
 
 ```bash
-curl 'http://localhost:8000/api/v1/secrets?kind=llm&compatible_engine=codex&limit=100' \
+curl 'http://localhost:8000/api/v1/credentials?kind=model&compatible_engine=codex&limit=100' \
   -H "Authorization: Bearer <platform-token>"
 ```
 
@@ -128,26 +128,26 @@ curl 'http://localhost:8000/api/v1/secrets?kind=llm&compatible_engine=codex&limi
 
 编辑 Agent 时若切换引擎导致当前配置不兼容，页面会保留原配置名称和元数据，要求用户“重新选择模型配置”或“恢复原引擎”，解决前不能保存。
 
-## 6. 通用密钥
+## 6. 服务凭据
 
 非大模型凭据使用：
 
 ```json
 {
-  "kind": "generic",
+  "kind": "service",
   "name": "github-token",
   "data": { "GITHUB_TOKEN": "<secret>" }
 }
 ```
 
-通用密钥没有 `provider`、`protocol` 或协议默认状态，也不能作为 Agent 的模型配置。
+服务凭据没有 `provider`、`protocol` 或协议默认状态，也不能作为 Agent 的模型连接。
 
 ## 7. 运行时行为
 
 运行前会再次校验：
 
-1. Secret 必须是 `kind=llm`。
-2. Provider 必须实现 Secret 的 Protocol。
+1. Credential 必须是 `kind=model`。
+2. Provider 必须实现 Credential 的 Protocol。
 3. Agent Engine 必须支持该 Protocol。
 4. Credential Profile 必填字段必须完整。
 5. 模型名只从 Credential Profile 的 `model_key` 读取。

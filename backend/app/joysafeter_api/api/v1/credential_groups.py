@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import credential_audit_actor
@@ -25,6 +26,7 @@ from app.joysafeter_domain.models.joysafeter_credential import (
     JoySafeterCredential,
     JoySafeterCredentialGroup,
 )
+from app.joysafeter_domain.schemas.base import CursorPaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_credential import (
     AddGroupCredentialRequest,
     CreateCredentialGroupRequest,
@@ -42,6 +44,10 @@ from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.ids import CredentialGroupId, CredentialId
 
 router = APIRouter(tags=["joysafeter-credential-groups"])
+
+
+class CredentialGroupMembersResponse(BaseModel):
+    data: list[CredentialResponse]
 
 
 def _group_response(group: JoySafeterCredentialGroup) -> CredentialGroupResponse:
@@ -96,7 +102,7 @@ async def list_credential_groups(
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-):
+) -> CursorPaginatedResponse[CredentialGroupResponse, CredentialGroupId]:
     svc = CredentialGroupService(db, audit_actor=CredentialAuditActor.system("credential_group_query"))
     groups, has_more = await svc.list(
         project_id=auth_ctx.project_id,
@@ -105,12 +111,12 @@ async def list_credential_groups(
         include_archived=include_archived,
     )
     items = [_group_response(g) for g in groups]
-    return {
-        "data": [item.model_dump(mode="json") for item in items],
-        "has_more": has_more,
-        "first_id": str(groups[0].id) if groups else None,
-        "last_id": str(groups[-1].id) if groups else None,
-    }
+    return CursorPaginatedResponse[CredentialGroupResponse, CredentialGroupId](
+        data=items,
+        has_more=has_more,
+        first_id=groups[0].id if groups else None,
+        last_id=groups[-1].id if groups else None,
+    )
 
 
 @router.get("/{group_id}")
@@ -188,7 +194,7 @@ async def list_credential_group_members(
     include_archived: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-):
+) -> CredentialGroupMembersResponse:
     svc = CredentialGroupService(db, audit_actor=CredentialAuditActor.system("credential_group_query"))
     # Confirm the group exists / is visible in this project before listing.
     await svc.get_or_raise(group_id, project_id=auth_ctx.project_id)
@@ -199,7 +205,7 @@ async def list_credential_group_members(
     )
     cred_svc = CredentialService(db, audit_actor=CredentialAuditActor.system("credential_query"))
     items = [_member_response(m, cred_svc) for m in members]
-    return {"data": [item.model_dump(mode="json") for item in items]}
+    return CredentialGroupMembersResponse(data=items)
 
 
 @router.post("/{group_id}/members", status_code=201)

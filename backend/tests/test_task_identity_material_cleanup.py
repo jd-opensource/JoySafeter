@@ -9,17 +9,19 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.models.joysafeter_task_identity import JoySafeterTaskIdentityContext
+from app.joysafeter_shared.ids import AgentId, TaskId, UserId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
 @pytest.mark.asyncio
 async def test_expired_task_identity_cleanup_is_bounded_and_preserves_future_material(db_session):
-    user = AuthUser(name="Cleanup User", email=f"cleanup-{uuid.uuid4()}@example.com")
-    agent = JoySafeterAgent(name=f"cleanup-agent-{uuid.uuid4()}")
+    user = AuthUser(id=UserId.new(), name="Cleanup User", email=f"cleanup-{uuid.uuid4()}@example.com")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"cleanup-agent-{uuid.uuid4()}")
     db_session.add_all([user, agent])
     await db_session.flush()
     tasks = [
-        JoySafeterTask(agent_id=agent.id, prompt=str(index), status="pending", user_id=user.id) for index in range(3)
+        JoySafeterTask(id=TaskId.new(), agent_id=agent.id, prompt=str(index), status="pending", user_id=user.id)
+        for index in range(3)
     ]
     db_session.add_all(tasks)
     await db_session.flush()

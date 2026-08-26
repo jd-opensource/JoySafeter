@@ -14,6 +14,7 @@ async def test_skill_usage_search_route_is_reachable_via_asgi(monkeypatch):
     from app.joysafeter_shared.common.exceptions import register_exception_handlers
     from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
     from app.joysafeter_shared.database import get_db
+    from app.joysafeter_shared.ids import OrganizationId, ProjectId, UserId
 
     class _ScalarResult:
         def all(self):
@@ -38,9 +39,9 @@ async def test_skill_usage_search_route_is_reachable_via_asgi(monkeypatch):
     app.include_router(skills_api.router, prefix="/skills")
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[skills_api.get_joysafeter_auth_context] = lambda: JoySafeterAuthContext(
-        user_id="user-a",
-        org_id="org-a",
-        project_id="proj-a",
+        user_id=UserId.from_public("user_00000000-0000-0000-0000-000000000001"),
+        org_id=OrganizationId.from_public("org_00000000-0000-0000-0000-000000000001"),
+        project_id=ProjectId.from_public("proj_00000000-0000-0000-0000-000000000001"),
         role=JoySafeterRole.MEMBER,
     )
 

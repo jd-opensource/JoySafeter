@@ -7,7 +7,6 @@ workflow is allowed to treat the mutable Skill row's scan status as a gate.
 
 from __future__ import annotations
 
-import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -15,8 +14,13 @@ import pytest
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillVersionService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
 from app.joysafeter_shared.config import settings as app_settings
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, SkillId, SkillSecurityScanId, UserId
 
 pytestmark = pytest.mark.no_db
+
+USER_ID = UserId.new()
+ORGANIZATION_ID = OrganizationId.new()
+PROJECT_ID = ProjectId.new()
 
 
 class _ReachedVersionValidation(Exception):
@@ -60,7 +64,7 @@ def _make_service(skill, *, monkeypatch, stop_after_gate=True):
     svc.db = _FakeDB()
     svc.repo = _StopAfterPublishGateRepo() if stop_after_gate else _EmptyVersionRepo()
     svc.skill_file_repo = _EmptySkillFileRepo()
-    svc._active_org_id = "org-test"
+    svc._active_org_id = ORGANIZATION_ID
 
     async def _get_skill(_skill_id):
         return skill
@@ -78,9 +82,9 @@ def _make_service(skill, *, monkeypatch, stop_after_gate=True):
 
 def _skill(*, lifecycle_status="approved", security_status="blocked"):
     return SimpleNamespace(
-        id=uuid.uuid4(),
-        owner_id="user-1",
-        project_id="project-1",
+        id=SkillId.new(),
+        owner_id=USER_ID,
+        project_id=PROJECT_ID,
         lifecycle_status=lifecycle_status,
         name="skill-a",
         description="description",
@@ -108,7 +112,7 @@ def _skill(*, lifecycle_status="approved", security_status="blocked"):
 
 def _scan(status: str, *, error_message: str | None = None):
     return SimpleNamespace(
-        id=uuid.uuid4(),
+        id=SkillSecurityScanId.new(),
         created_at=None,
         status=status,
         score=9 if status == "blocked" else None,
@@ -136,7 +140,7 @@ async def test_blocked_scan_does_not_gate_publish_when_enforcement_disabled(monk
     svc = _make_service(skill, monkeypatch=monkeypatch)
 
     with pytest.raises(_ReachedVersionValidation):
-        await svc.publish_version(skill.id, "user-1", "1.0.0")
+        await svc.publish_version(skill.id, USER_ID, "1.0.0")
 
 
 async def test_publish_requires_approved_skill_even_without_scan_enforcement(monkeypatch):
@@ -146,7 +150,7 @@ async def test_publish_requires_approved_skill_even_without_scan_enforcement(mon
     svc = _make_service(skill, monkeypatch=monkeypatch, stop_after_gate=False)
 
     with pytest.raises(InvalidRequestError) as exc:
-        await svc.publish_version(skill.id, "user-1", "1.0.0")
+        await svc.publish_version(skill.id, USER_ID, "1.0.0")
 
     assert exc.value.code == "SKILL_VERSION_NOT_APPROVED"
     assert exc.value.data["reason"] == "skill_not_approved"
@@ -169,7 +173,7 @@ async def test_enforced_publish_runs_fresh_fail_closed_scan(monkeypatch):
     )
 
     with pytest.raises(InvalidRequestError) as exc:
-        await svc.publish_version(skill.id, "user-1", "1.0.0")
+        await svc.publish_version(skill.id, USER_ID, "1.0.0")
 
     assert exc.value.code == "SKILL_SECURITY_SCAN_REJECTED"
     assert calls[0]["trigger"] == "publish"
@@ -194,7 +198,7 @@ async def test_enforced_publish_records_scanner_failure_before_rejecting(monkeyp
     )
 
     with pytest.raises(InvalidRequestError) as exc:
-        await svc.publish_version(skill.id, "user-1", "1.0.0")
+        await svc.publish_version(skill.id, USER_ID, "1.0.0")
 
     assert exc.value.code == "SKILL_SECURITY_SCAN_FAILED"
     assert exc.value.data["error_message"] == "scanner unreachable"
@@ -209,7 +213,7 @@ async def test_enforced_publish_fails_when_scanner_is_disabled(monkeypatch):
     svc = _make_service(skill, monkeypatch=monkeypatch, stop_after_gate=False)
 
     with pytest.raises(InvalidRequestError) as exc:
-        await svc.publish_version(skill.id, "user-1", "1.0.0")
+        await svc.publish_version(skill.id, USER_ID, "1.0.0")
 
     assert exc.value.code == "SKILL_SECURITY_SCAN_FAILED"
     assert exc.value.data["reason"] == "scanner_disabled"

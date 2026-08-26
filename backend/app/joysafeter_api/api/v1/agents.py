@@ -1,11 +1,11 @@
 from typing import Any, Optional, cast
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.model_connection_summary import (
     load_model_connection_summaries,
-    maybe_credential_id,
     normalize_agent_model,
 )
 from app.joysafeter_application.agents import compose_agent_application
@@ -39,9 +39,26 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import AgentId, AgentVersionId, SessionId
+from app.joysafeter_shared.ids import AgentId, AgentVersionId, ProjectId, SessionId
+from app.joysafeter_shared.json_boundary import normalize_json_value
 
 router = APIRouter(tags=["joysafeter-agents"])
+
+
+class AgentDeletePreviewResponse(BaseModel):
+    sessions: int
+    tasks: int
+    versions: int
+    triggers: int
+
+
+class AgentArchiveResponse(BaseModel):
+    status: str
+    archived_sessions: int
+
+
+class AgentUnarchiveResponse(BaseModel):
+    status: str
 
 
 def _agent_not_found_error(agent_id: AgentId) -> AppError:
@@ -71,7 +88,7 @@ def _agent_to_response(agent, *, model_connection: ModelCredentialSummary | None
         tools=agent.tools,
         multiagent=agent.multiagent,
         version=agent.version,
-        environment_ref=agent.environment_ref,
+        environment_id=agent.environment_id,
         model_credential_id=agent.model_credential_id,
         model_connection=model_connection,
         created_at=agent.created_at,
@@ -84,7 +101,7 @@ async def _agent_model_connection(
     db: AsyncSession,
     agent,
     *,
-    project_id: str | None,
+    project_id: ProjectId | None,
 ) -> ModelCredentialSummary | None:
     if not agent.model_credential_id:
         return None
@@ -178,7 +195,7 @@ async def delete_agent_preview(
     agent_id: AgentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> dict[str, int]:
+) -> AgentDeletePreviewResponse:
     """Counts of data that will be removed when the agent is deleted.
 
     Powers the frontend delete-confirmation dialog. Returns exact counts of
@@ -191,7 +208,7 @@ async def delete_agent_preview(
     if counts is None:
         raise _agent_not_found_error(agent_id)
     sessions, tasks, versions, triggers = counts
-    return {"sessions": sessions, "tasks": tasks, "versions": versions, "triggers": triggers}
+    return AgentDeletePreviewResponse(sessions=sessions, tasks=tasks, versions=versions, triggers=triggers)
 
 
 @router.delete("/{agent_id}", status_code=204)
@@ -215,7 +232,7 @@ async def archive_agent(
     agent_id: AgentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-) -> dict:
+) -> AgentArchiveResponse:
     application = compose_agent_application(db)
     agent = await application.queries.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
@@ -235,10 +252,7 @@ async def archive_agent(
         ) from e
     if not archived:
         raise _agent_not_found_error(agent_id)
-    return {
-        "status": "archived",
-        "archived_sessions": len(archived_session_ids),
-    }
+    return AgentArchiveResponse(status="archived", archived_sessions=len(archived_session_ids))
 
 
 @router.post("/{agent_id}/unarchive", status_code=200)
@@ -246,14 +260,14 @@ async def unarchive_agent(
     agent_id: AgentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-) -> dict:
+) -> AgentUnarchiveResponse:
     restored = await compose_agent_application(db).lifecycle.restore_agent(
         agent_id,
         project_id=auth_ctx.project_id,
     )
     if not restored:
         raise _agent_not_found_error(agent_id)
-    return {"status": "active"}
+    return AgentUnarchiveResponse(status="active")
 
 
 @router.get("/{agent_id}/tasks")
@@ -332,22 +346,18 @@ async def list_agent_versions(
     )
     model_connections = await load_model_connection_summaries(
         db,
-        (
-            maybe_credential_id(snapshot_model_credential_id(v.snapshot))
-            for v in versions
-            if isinstance(v.snapshot, dict)
-        ),
+        (snapshot_model_credential_id(v.snapshot) for v in versions if isinstance(v.snapshot, dict)),
         project_id=auth_ctx.project_id,
     )
     data = []
     for version in versions:
         item = AgentVersionResponse.model_validate(version)
         snapshot = dict(item.snapshot)
-        credential_id = maybe_credential_id(snapshot_model_credential_id(snapshot))
+        credential_id = snapshot_model_credential_id(snapshot)
         snapshot["model"] = normalize_agent_model(snapshot.get("model"))
         model_connection = model_connections.get(credential_id)
         if model_connection is not None:
-            snapshot["model_connection"] = model_connection.model_dump(mode="json")
+            snapshot["model_connection"] = normalize_json_value(model_connection.model_dump())
         item.snapshot = snapshot
         data.append(item)
     return PaginatedResponse[AgentVersionResponse, AgentVersionId](

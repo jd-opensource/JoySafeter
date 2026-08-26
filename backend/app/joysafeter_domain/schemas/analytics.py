@@ -4,7 +4,7 @@ Pydantic response schemas for the analytics API.
 
 from typing import Optional
 
-from pydantic import BaseModel, field_serializer
+from pydantic import BaseModel
 
 from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
 
@@ -94,53 +94,11 @@ class CallRecord(BaseModel):
     retry_count: int = 0
     queue_wait_ms: int = 0
 
-    @field_serializer("id", "trace_id")
-    def serialize_task_id(self, value: TaskId) -> str:
-        # ``model_dump()`` (Python mode) is part of this schema's contract, but the
-        # typed-id core serializer only fires in JSON mode; mirror the sibling id
-        # fields so the canonical prefix is emitted in both modes.
-        return str(value)
-
-    @field_serializer("session_id")
-    def serialize_session_id(self, value: Optional[SessionId]) -> Optional[str]:
-        # ``model_dump()`` (Python mode) is part of this schema's contract, but the
-        # typed-id core serializer only fires in JSON mode; mirror the sibling id
-        # fields so the canonical prefix is emitted in both modes.
-        return str(value) if value is not None else None
-
-    @field_serializer("agent_id")
-    def serialize_agent_id(self, value: Optional[AgentId]) -> Optional[str]:
-        # ``model_dump()`` (Python mode) is part of this schema's contract, but the
-        # typed-id core serializer only fires in JSON mode; mirror the sibling id
-        # fields so the canonical prefix is emitted in both modes.
-        return str(value) if value is not None else None
-
 
 class CallsListResponse(BaseModel):
     data: list[CallRecord]
     has_more: bool
     total: int
-
-
-# --- Observations (Waterfall) ---
-
-
-class ObservationNodeResponse(BaseModel):
-    id: str
-    parent_id: Optional[str] = None
-    type: str
-    level: str
-    name: Optional[str] = None
-    model: Optional[str] = None
-    start_time: Optional[str] = None
-    end_time: Optional[str] = None
-    completion_start_time: Optional[str] = None
-    duration_ms: int = 0
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cost: float = 0.0
-    tool_calls: Optional[list] = None
-    children: list["ObservationNodeResponse"] = []
 
 
 # --- Agent Comparison ---
@@ -159,10 +117,6 @@ class AgentMetricsResponse(BaseModel):
     total_tokens: int = 0
     avg_agent_steps: float = 0.0
 
-    @field_serializer("agent_id")
-    def serialize_agent_id(self, value: AgentId) -> str:
-        return str(value)
-
 
 # --- Health Check ---
 
@@ -177,10 +131,6 @@ class AlertItem(BaseModel):
     agent_id: Optional[AgentId] = None
     params: dict[str, float] = {}
 
-    @field_serializer("agent_id")
-    def serialize_agent_id(self, value: Optional[AgentId]) -> Optional[str]:
-        return str(value) if value is not None else None
-
 
 class AgentRankingItem(BaseModel):
     agent_id: AgentId
@@ -194,9 +144,12 @@ class AgentRankingItem(BaseModel):
     last_task_at: Optional[str] = None
     activity_status: str
 
-    @field_serializer("agent_id")
-    def serialize_agent_id(self, value: AgentId) -> str:
-        return str(value)
+
+class TimeHeatmapItem(BaseModel):
+    day: int
+    hour: int
+    count: int
+    error_count: int
 
 
 class TokenSummary(BaseModel):

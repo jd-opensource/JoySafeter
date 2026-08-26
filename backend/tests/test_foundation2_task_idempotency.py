@@ -19,11 +19,12 @@ from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId
 
 
 @pytest_asyncio.fixture
-async def agent_id(db_session) -> uuid.UUID:
-    agent = JoySafeterAgent(name=f"test-agent-{uuid.uuid4()}")
+async def agent_id(db_session) -> AgentId:
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"test-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -93,15 +94,19 @@ async def test_get_by_idempotency_key_hit_and_miss(db_session, agent_id):
 
 @pytest.mark.asyncio
 async def test_same_client_idempotency_key_is_scoped_by_project(db_session):
-    org = Organization(name=f"idem-org-{uuid.uuid4()}", slug=f"idem-org-{uuid.uuid4()}")
+    org = Organization(
+        id=OrganizationId.new(),
+        name=f"idem-org-{uuid.uuid4()}",
+        slug=f"idem-org-{uuid.uuid4()}",
+    )
     db_session.add(org)
     await db_session.flush()
-    project_a = Project(org_id=org.id, name="Project A", slug=f"idem-a-{uuid.uuid4()}")
-    project_b = Project(org_id=org.id, name="Project B", slug=f"idem-b-{uuid.uuid4()}")
+    project_a = Project(id=ProjectId.new(), org_id=org.id, name="Project A", slug=f"idem-a-{uuid.uuid4()}")
+    project_b = Project(id=ProjectId.new(), org_id=org.id, name="Project B", slug=f"idem-b-{uuid.uuid4()}")
     db_session.add_all([project_a, project_b])
     await db_session.flush()
-    agent_a = JoySafeterAgent(name=f"idem-agent-a-{uuid.uuid4()}", project_id=project_a.id)
-    agent_b = JoySafeterAgent(name=f"idem-agent-b-{uuid.uuid4()}", project_id=project_b.id)
+    agent_a = JoySafeterAgent(id=AgentId.new(), name=f"idem-agent-a-{uuid.uuid4()}", project_id=project_a.id)
+    agent_b = JoySafeterAgent(id=AgentId.new(), name=f"idem-agent-b-{uuid.uuid4()}", project_id=project_b.id)
     db_session.add(agent_a)
     await db_session.flush()
     db_session.add(agent_b)

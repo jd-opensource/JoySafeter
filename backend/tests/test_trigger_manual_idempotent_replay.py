@@ -25,6 +25,9 @@ from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId, TriggerId, UserId
+
+OWNER_ID = UserId.new()
 
 
 class _FakeRedis:
@@ -33,24 +36,29 @@ class _FakeRedis:
 
 
 async def _seed(db):
-    org = Organization(name=f"idem-org-{uuid.uuid4()}", slug=f"idem-org-{uuid.uuid4()}")
+    org = Organization(
+        id=OrganizationId.new(),
+        name=f"idem-org-{uuid.uuid4()}",
+        slug=f"idem-org-{uuid.uuid4()}",
+    )
     db.add(org)
     await db.flush()
-    project = Project(org_id=org.id, name="P", slug=f"idem-p-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org.id, name="P", slug=f"idem-p-{uuid.uuid4()}")
     db.add(project)
     await db.flush()
-    agent = JoySafeterAgent(name=f"idem-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"idem-agent-{uuid.uuid4()}", project_id=project.id)
     db.add(agent)
     await db.commit()
     await db.refresh(agent)
     await db.refresh(project)
     trigger = JoySafeterTrigger(
+        id=TriggerId.new(),
         name="idem",
         type="webhook",
         agent_id=agent.id,
         prompt_template="p",
         project_id=project.id,
-        user_id="owner",
+        user_id=OWNER_ID,
         org_id=org.id,
         filter={},
         config={},
@@ -68,11 +76,11 @@ def _config(agent, project, org, key):
         name="idem",
         source="trigger:manual:test",
         prompt="do it",
-        environment_ref=None,
+        environment_id=None,
         timeout_sec=7200,
         max_retries=2,
         project_id=project.id,
-        user_id="owner",
+        user_id=OWNER_ID,
         org_id=org.id,
         idempotency_key=key,
         session_mode="fresh",
@@ -91,11 +99,11 @@ async def test_idempotent_replay_returns_live_session_no_fk_violation(db_session
         name="idem",
         source="trigger:manual:test",
         prompt="do it",
-        environment_ref=None,
+        environment_id=None,
         timeout_sec=7200,
         max_retries=2,
         project_id=project.id,
-        user_id="owner",
+        user_id=OWNER_ID,
         org_id=org.id,
         idempotency_key=key,
         session_mode="fresh",

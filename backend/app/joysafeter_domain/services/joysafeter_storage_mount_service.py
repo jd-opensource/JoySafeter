@@ -26,9 +26,14 @@ from app.joysafeter_domain.schemas.joysafeter_storage_mount import (
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
 from app.joysafeter_shared.ids import (
     EnvironmentId,
+    OrganizationId,
+    ProjectId,
     SessionId,
+    SessionResourceId,
+    StorageGrantId,
     StorageMountAuditId,
     StorageVolumeId,
+    UserId,
 )
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -84,6 +89,34 @@ class StorageMountService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    def attach_session_mount(
+        self,
+        *,
+        session_id: SessionId,
+        volume: JoySafeterStorageVolume,
+        project_id: ProjectId,
+        name: str,
+        sub_path: str,
+        mount_path: str,
+        access: str,
+        required: bool,
+        catalog: dict[str, Any],
+    ) -> JoySafeterSessionStorageMount:
+        record = JoySafeterSessionStorageMount(
+            id=SessionResourceId.new(),
+            session_id=session_id,
+            volume_id=volume.id,
+            project_id=project_id,
+            name=name,
+            sub_path=sub_path,
+            mount_path=mount_path,
+            access=access,
+            required=required,
+            config={"volume_ref": volume.volume_ref, "catalog": catalog},
+        )
+        self.db.add(record)
+        return record
+
     async def list_volumes(self, *, include_disabled: bool = False) -> list[JoySafeterStorageVolume]:
         query = select(JoySafeterStorageVolume).where(JoySafeterStorageVolume.deleted_at.is_(None))
         if not include_disabled:
@@ -93,7 +126,7 @@ class StorageMountService:
         return list(result.scalars().all())
 
     async def list_volumes_for_project(
-        self, project_id: Optional[str], *, include_disabled: bool = False
+        self, project_id: ProjectId | None, *, include_disabled: bool = False
     ) -> list[JoySafeterStorageVolume]:
         if not project_id:
             return []
@@ -133,7 +166,7 @@ class StorageMountService:
         return result.scalar_one_or_none()
 
     async def get_project_volume(
-        self, volume_id: StorageVolumeId, project_id: Optional[str]
+        self, volume_id: StorageVolumeId, project_id: ProjectId | None
     ) -> Optional[JoySafeterStorageVolume]:
         if not project_id:
             return None
@@ -156,7 +189,7 @@ class StorageMountService:
         )
         return result.scalars().unique().one_or_none()
 
-    async def ensure_project_volume_access(self, volume_id: StorageVolumeId, project_id: Optional[str]) -> None:
+    async def ensure_project_volume_access(self, volume_id: StorageVolumeId, project_id: ProjectId | None) -> None:
         if not project_id:
             raise InvalidRequestError(
                 code="PROJECT_SCOPE_REQUIRED",
@@ -182,7 +215,7 @@ class StorageMountService:
         return result.scalar_one_or_none()
 
     async def create_volume(
-        self, req: CreateStorageVolumeRequest, *, actor_user_id: Optional[str] = None
+        self, req: CreateStorageVolumeRequest, *, actor_user_id: UserId | None = None
     ) -> JoySafeterStorageVolume:
         existing = await self.get_volume_by_ref(req.volume_ref)
         if existing:
@@ -192,6 +225,7 @@ class StorageMountService:
                 data={"volume_ref": req.volume_ref},
             )
         volume = JoySafeterStorageVolume(
+            id=StorageVolumeId.new(),
             volume_ref=req.volume_ref,
             backend_type=req.backend_type,
             display_name=req.display_name,
@@ -218,6 +252,7 @@ class StorageMountService:
             self.db.add(self._grant_model(volume.id, project_grant))
         self.db.add(
             JoySafeterStorageMountAudit(
+                id=StorageMountAuditId.new(),
                 volume_id=volume.id,
                 user_id=actor_user_id,
                 action="volume.create",
@@ -234,7 +269,7 @@ class StorageMountService:
         volume_id: StorageVolumeId,
         req: UpdateStorageVolumeRequest,
         *,
-        actor_user_id: Optional[str] = None,
+        actor_user_id: UserId | None = None,
     ) -> JoySafeterStorageVolume:
         volume = await self.get_volume(volume_id)
         if not volume:
@@ -247,6 +282,7 @@ class StorageMountService:
         volume.updated_at = utc_now()
         self.db.add(
             JoySafeterStorageMountAudit(
+                id=StorageMountAuditId.new(),
                 volume_id=volume.id,
                 user_id=actor_user_id,
                 action="volume.update",
@@ -258,7 +294,7 @@ class StorageMountService:
         await self.db.refresh(volume)
         return volume
 
-    async def delete_volume(self, volume_id: StorageVolumeId, *, actor_user_id: Optional[str] = None) -> bool:
+    async def delete_volume(self, volume_id: StorageVolumeId, *, actor_user_id: UserId | None = None) -> bool:
         volume = await self.get_volume(volume_id)
         if not volume:
             return False
@@ -279,6 +315,7 @@ class StorageMountService:
         volume.deleted_at = utc_now()
         self.db.add(
             JoySafeterStorageMountAudit(
+                id=StorageMountAuditId.new(),
                 volume_id=volume.id,
                 user_id=actor_user_id,
                 action="volume.delete",
@@ -305,7 +342,7 @@ class StorageMountService:
         return list(result.scalars().all())
 
     async def list_project_grants_for_org(
-        self, volume_id: StorageVolumeId, org_id: str
+        self, volume_id: StorageVolumeId, org_id: OrganizationId
     ) -> list[JoySafeterStorageProjectGrant]:
         result = await self.db.execute(
             select(JoySafeterStorageProjectGrant)
@@ -319,7 +356,7 @@ class StorageMountService:
         return list(result.scalars().all())
 
     async def list_organization_volumes(
-        self, org_id: str, *, include_disabled: bool = False
+        self, org_id: OrganizationId, *, include_disabled: bool = False
     ) -> list[JoySafeterStorageVolume]:
         query = (
             select(JoySafeterStorageVolume)
@@ -342,7 +379,7 @@ class StorageMountService:
         return list(result.scalars().unique().all())
 
     async def get_organization_volume(
-        self, volume_id: StorageVolumeId, org_id: str
+        self, volume_id: StorageVolumeId, org_id: OrganizationId
     ) -> Optional[JoySafeterStorageVolume]:
         result = await self.db.execute(
             select(JoySafeterStorageVolume)
@@ -359,7 +396,7 @@ class StorageMountService:
         return result.scalars().unique().one_or_none()
 
     async def get_organization_grant(
-        self, volume_id: StorageVolumeId, org_id: str
+        self, volume_id: StorageVolumeId, org_id: OrganizationId
     ) -> Optional[JoySafeterStorageOrganizationGrant]:
         result = await self.db.execute(
             select(JoySafeterStorageOrganizationGrant).where(
@@ -374,7 +411,7 @@ class StorageMountService:
         volume_id: StorageVolumeId,
         grant: StorageOrganizationGrantInput,
         *,
-        actor_user_id: Optional[str] = None,
+        actor_user_id: UserId | None = None,
     ) -> JoySafeterStorageOrganizationGrant:
         volume = await self.get_volume(volume_id)
         if not volume:
@@ -393,11 +430,12 @@ class StorageMountService:
             self.db.add(row)
         self.db.add(
             JoySafeterStorageMountAudit(
+                id=StorageMountAuditId.new(),
                 volume_id=volume_id,
                 user_id=actor_user_id,
                 action="org_grant.upsert",
                 volume_ref=volume.volume_ref,
-                detail={"org_id": grant.org_id, "max_access": grant.max_access, "enabled": grant.enabled},
+                detail={"org_id": str(grant.org_id), "max_access": grant.max_access, "enabled": grant.enabled},
             )
         )
         await self.db.commit()
@@ -405,7 +443,7 @@ class StorageMountService:
         return row
 
     async def delete_organization_grant(
-        self, volume_id: StorageVolumeId, org_id: str, *, actor_user_id: Optional[str] = None
+        self, volume_id: StorageVolumeId, org_id: OrganizationId, *, actor_user_id: UserId | None = None
     ) -> bool:
         volume = await self.get_volume(volume_id)
         if not volume:
@@ -422,11 +460,12 @@ class StorageMountService:
         await self.db.delete(grant)
         self.db.add(
             JoySafeterStorageMountAudit(
+                id=StorageMountAuditId.new(),
                 volume_id=volume_id,
                 user_id=actor_user_id,
                 action="org_grant.delete",
                 volume_ref=volume.volume_ref,
-                detail={"org_id": org_id, "project_grants_deleted": True},
+                detail={"org_id": str(org_id), "project_grants_deleted": True},
             )
         )
         await self.db.commit()
@@ -437,7 +476,7 @@ class StorageMountService:
         volume_id: StorageVolumeId,
         grant: StorageProjectGrantInput,
         *,
-        actor_user_id: Optional[str] = None,
+        actor_user_id: UserId | None = None,
         org_id_scope: Optional[str] = None,
     ) -> JoySafeterStorageProjectGrant:
         volume = await self.get_volume(volume_id)
@@ -463,6 +502,7 @@ class StorageMountService:
             self.db.add(row)
         self.db.add(
             JoySafeterStorageMountAudit(
+                id=StorageMountAuditId.new(),
                 volume_id=volume_id,
                 project_id=grant.project_id,
                 user_id=actor_user_id,
@@ -478,9 +518,9 @@ class StorageMountService:
     async def delete_grant(
         self,
         volume_id: StorageVolumeId,
-        project_id: str,
+        project_id: ProjectId,
         *,
-        actor_user_id: Optional[str] = None,
+        actor_user_id: UserId | None = None,
         org_id_scope: Optional[str] = None,
     ) -> bool:
         volume = await self.get_volume(volume_id)
@@ -492,7 +532,7 @@ class StorageMountService:
                 raise InvalidRequestError(
                     code="PROJECT_SCOPE_REQUIRED",
                     message="Project must belong to current organization",
-                    data={"project_id": project_id},
+                    data={"project_id": str(project_id)},
                     user_action="switch_project",
                 )
         result = await self.db.execute(
@@ -507,6 +547,7 @@ class StorageMountService:
         await self.db.delete(grant)
         self.db.add(
             JoySafeterStorageMountAudit(
+                id=StorageMountAuditId.new(),
                 volume_id=volume_id,
                 project_id=project_id,
                 user_id=actor_user_id,
@@ -517,13 +558,13 @@ class StorageMountService:
         await self.db.commit()
         return True
 
-    async def catalog_for_project(self, project_id: Optional[str]) -> list[dict[str, Any]]:
+    async def catalog_for_project(self, project_id: ProjectId | None) -> list[dict[str, Any]]:
         if not project_id:
             return []
         volumes = await self._authorized_volumes(project_id)
         return [self._catalog_item(volume, org_grant, grant) for volume, org_grant, grant in volumes]
 
-    async def validate_mount_resources(self, resources: list[Any], project_id: Optional[str]) -> None:
+    async def validate_mount_resources(self, resources: list[Any], project_id: ProjectId | None) -> None:
         if not resources:
             return
         if not project_id:
@@ -571,10 +612,10 @@ class StorageMountService:
         action: str,
         volume_ref: Optional[str] = None,
         volume_id: Optional[StorageVolumeId] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         session_id: Optional[SessionId] = None,
         environment_id: Optional[EnvironmentId] = None,
-        user_id: Optional[str] = None,
+        user_id: UserId | None = None,
         mount_path: Optional[str] = None,
         sub_path: Optional[str] = None,
         access: Optional[str] = None,
@@ -584,6 +625,7 @@ class StorageMountService:
     ) -> None:
         self.db.add(
             JoySafeterStorageMountAudit(
+                id=StorageMountAuditId.new(),
                 volume_id=volume_id,
                 project_id=project_id,
                 session_id=session_id,
@@ -604,8 +646,8 @@ class StorageMountService:
     async def list_audit(
         self,
         *,
-        project_id: Optional[str] = None,
-        org_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
+        org_id: OrganizationId | None = None,
         volume_id: Optional[StorageVolumeId] = None,
         limit: int = 100,
     ) -> list[JoySafeterStorageMountAudit]:
@@ -620,8 +662,8 @@ class StorageMountService:
     async def list_audit_page(
         self,
         *,
-        project_id: Optional[str] = None,
-        org_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
+        org_id: OrganizationId | None = None,
         volume_id: Optional[StorageVolumeId] = None,
         limit: int = 100,
         after_id: Optional[StorageMountAuditId] = None,
@@ -662,6 +704,7 @@ class StorageMountService:
         self, volume_id: StorageVolumeId, grant: StorageProjectGrantInput
     ) -> JoySafeterStorageProjectGrant:
         return JoySafeterStorageProjectGrant(
+            id=StorageGrantId.new(),
             volume_id=volume_id,
             project_id=grant.project_id,
             max_access=grant.max_access,
@@ -674,6 +717,7 @@ class StorageMountService:
         self, volume_id: StorageVolumeId, grant: StorageOrganizationGrantInput
     ) -> JoySafeterStorageOrganizationGrant:
         return JoySafeterStorageOrganizationGrant(
+            id=StorageGrantId.new(),
             volume_id=volume_id,
             org_id=grant.org_id,
             max_access=grant.max_access,
@@ -682,14 +726,14 @@ class StorageMountService:
             enabled=grant.enabled,
         )
 
-    async def _get_project(self, project_id: str) -> Project:
+    async def _get_project(self, project_id: ProjectId) -> Project:
         result = await self.db.execute(select(Project).where(Project.id == project_id, Project.archived_at.is_(None)))
         project = result.scalar_one_or_none()
         if not project:
             raise InvalidRequestError(
                 code="PROJECT_NOT_FOUND",
                 message="Project not found",
-                data={"project_id": project_id},
+                data={"project_id": str(project_id)},
                 user_action="fix_input",
             )
         return project
@@ -735,7 +779,7 @@ class StorageMountService:
             raise InvalidRequestError(
                 code="PROJECT_SCOPE_REQUIRED",
                 message="Project must belong to current organization",
-                data={"project_id": grant.project_id},
+                data={"project_id": str(grant.project_id)},
                 user_action="switch_project",
             )
         org_grant = await self.get_organization_grant(volume.id, project.org_id)
@@ -743,7 +787,7 @@ class StorageMountService:
             raise InvalidRequestError(
                 code="STORAGE_ORG_GRANT_REQUIRED",
                 message="Storage volume must be granted to the organization before granting it to a project",
-                data={"volume_ref": volume.volume_ref, "org_id": project.org_id},
+                data={"volume_ref": volume.volume_ref, "org_id": str(project.org_id)},
                 user_action="fix_input",
             )
         effective_org_access = _access_min(volume.max_access, org_grant.max_access)
@@ -761,7 +805,7 @@ class StorageMountService:
             raise InvalidRequestError(
                 code="STORAGE_PREFIX_DENIED",
                 message="Project grant allowed_prefixes exceed organization grant prefixes",
-                data={"volume_ref": volume.volume_ref, "org_id": project.org_id},
+                data={"volume_ref": volume.volume_ref, "org_id": str(project.org_id)},
                 user_action="fix_input",
             )
         effective_org_quota = _quota_min(volume.quota_bytes, org_grant.quota_bytes)
@@ -779,7 +823,7 @@ class StorageMountService:
 
     async def _authorized_volumes(
         self,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
     ) -> list[
         tuple[
             JoySafeterStorageVolume,

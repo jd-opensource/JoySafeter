@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 
 import pytest
@@ -8,9 +7,23 @@ import pytest
 from app.joysafeter_api.api.v1 import sessions as session_api
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLog
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import AgentId, SessionId
+from app.joysafeter_shared.ids import (
+    AgentId,
+    OrganizationId,
+    ProjectId,
+    SessionId,
+    SkillId,
+    SkillSecurityScanId,
+    SkillUsageId,
+    SkillVersionId,
+    UserId,
+)
 
 pytestmark = pytest.mark.no_db
+
+USER_ID = UserId.from_public("user_00000000-0000-0000-0000-000000000001")
+ORG_ID = OrganizationId.from_public("org_00000000-0000-0000-0000-000000000001")
+PROJECT_ID = ProjectId.from_public("proj_00000000-0000-0000-0000-000000000001")
 
 
 class _ScalarResult:
@@ -43,31 +56,31 @@ class _Session:
     pass
 
 
-def _ctx(project_id: str | None = "proj-a") -> JoySafeterAuthContext:
+def _ctx(project_id: ProjectId | None = PROJECT_ID) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="user-a",
-        org_id="org-a",
+        user_id=USER_ID,
+        org_id=ORG_ID,
         project_id=project_id,
         role=JoySafeterRole.MEMBER,
     )
 
 
-def _usage_row(session_id: SessionId, project_id: str = "proj-a") -> JoySafeterSkillUsageLog:
+def _usage_row(session_id: SessionId, project_id: ProjectId = PROJECT_ID) -> JoySafeterSkillUsageLog:
     row = JoySafeterSkillUsageLog(
-        id=uuid.uuid4(),
-        skill_id=uuid.uuid4(),
+        id=SkillUsageId.new(),
+        skill_id=SkillId.new(),
         skill_name="runtime-audit-skill",
         skill_source_type="manual",
         skill_version="1.2.3",
-        skill_version_id=uuid.uuid4(),
+        skill_version_id=SkillVersionId.new(),
         target="/skills/runtime-audit-skill",
-        security_scan_id=uuid.uuid4(),
+        security_scan_id=SkillSecurityScanId.new(),
         target_hash="a" * 64,
         artifact_hash="b" * 64,
-        session_id=str(session_id),
-        agent_id=str(AgentId.new()),
+        session_id=session_id,
+        agent_id=AgentId.new(),
         project_id=project_id,
-        user_id="user-a",
+        user_id=USER_ID,
     )
     row.created_at = datetime(2026, 7, 20, tzinfo=timezone.utc)
     return row
@@ -75,8 +88,8 @@ def _usage_row(session_id: SessionId, project_id: str = "proj-a") -> JoySafeterS
 
 @pytest.mark.asyncio
 async def test_session_skill_usage_api_serializes_runtime_audit(monkeypatch):
-    session_uuid = uuid.uuid4()
-    session_id = SessionId(session_uuid)
+    session_id = SessionId.new()
+    session_id_under_test = session_id
     row = _usage_row(session_id)
     db = _Db([row])
 
@@ -85,8 +98,8 @@ async def test_session_skill_usage_api_serializes_runtime_audit(monkeypatch):
             self.db = db
 
         async def get_session(self, session_id, project_id=None):
-            assert session_id == SessionId(session_uuid)
-            assert project_id == "proj-a"
+            assert session_id == session_id_under_test
+            assert project_id == PROJECT_ID
             return _Session()
 
     monkeypatch.setattr(session_api, "SessionService", _Svc)
@@ -115,5 +128,5 @@ async def test_session_skill_usage_api_serializes_runtime_audit(monkeypatch):
     # column list) and binds the given typed SessionId. EntityIdType unwraps it to
     # the bare uuid at execution, so there is no as_uuid()/f"sess_{...}" round-trip.
     assert "joysafeter_skill_usage_log.session_id =" in str(compiled)
-    assert SessionId(session_uuid) in compiled.params.values()
-    assert "proj-a" in compiled.params.values()
+    assert session_id in compiled.params.values()
+    assert PROJECT_ID in compiled.params.values()

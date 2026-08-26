@@ -7,6 +7,7 @@ import pytest
 
 from app.joysafeter_domain.triggers import get_provider, supported_kinds
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
+from app.joysafeter_shared.ids import CredentialId, UserId
 
 pytestmark = pytest.mark.no_db
 
@@ -43,10 +44,10 @@ def test_cron_build_config_shape():
 
 
 def test_webhook_build_config_requires_explicit_auth_methods():
-    cred_id = "01J000000000000000000CRED0"
+    cred_id = CredentialId.new()
     cfg = get_provider("webhook").build_config(webhook_auth_credential_id=cred_id)
     assert cfg == {
-        "webhook_auth_credential_id": cred_id,
+        "webhook_auth_credential_id": str(cred_id),
         "webhook_auth_field": "WEBHOOK_SECRET",
         "auth_methods": None,
         "dedupe_header": "x-joysafeter-delivery",
@@ -54,10 +55,13 @@ def test_webhook_build_config_requires_explicit_auth_methods():
 
 
 def test_webhook_build_config_preserves_explicit_empty_auth_methods():
-    cfg = get_provider("webhook").build_config(
-        webhook_auth_credential_id="01J000000000000000000CRED0", auth_methods=[]
-    )
+    cfg = get_provider("webhook").build_config(webhook_auth_credential_id=CredentialId.new(), auth_methods=[])
     assert cfg["auth_methods"] == []
+
+
+def test_webhook_build_config_rejects_non_typed_credential_id():
+    with pytest.raises(TypeError, match="webhook auth credential ID must be CredentialId"):
+        get_provider("webhook").build_config(webhook_auth_credential_id="credential-not-typed")
 
 
 def test_manual_build_config_empty():
@@ -91,7 +95,7 @@ def test_manual_idempotency_key_hashes_oversized_external_header():
     key = get_provider("manual").idempotency_key(
         _trigger(),
         idempotency_header="x" * 10_000,
-        user_id="owner",
+        user_id=UserId.new(),
         now=datetime(2026, 7, 27, 12, 0, tzinfo=timezone.utc),
     )
     assert key.startswith("trigger:TID:manual:sha256:")

@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -21,7 +22,17 @@ from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
-
+from app.joysafeter_shared.ids import (
+    AgentId,
+    AgentVersionId,
+    CredentialGroupId,
+    CredentialId,
+    EnvironmentId,
+    OrganizationId,
+    ProjectId,
+    SessionId,
+    TriggerId,
+)
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "credential_p0_5_preflight.py"
 _SPEC = importlib.util.spec_from_file_location("credential_p0_5_preflight", _SCRIPT)
@@ -33,6 +44,38 @@ _SPEC.loader.exec_module(credential_p0_5_preflight)
 collect_credential_preflight = credential_p0_5_preflight.collect_credential_preflight
 serialize_report = credential_p0_5_preflight.serialize_report
 validate_report = credential_p0_5_preflight.validate_report
+
+
+def _new_organization(**values: Any) -> Organization:
+    return Organization(id=OrganizationId.new(), **values)
+
+
+def _new_project(**values: Any) -> Project:
+    return Project(id=ProjectId.new(), **values)
+
+
+def _new_credential(**values: Any) -> JoySafeterCredential:
+    return JoySafeterCredential(id=CredentialId.new(), **values)
+
+
+def _new_credential_group(**values: Any) -> JoySafeterCredentialGroup:
+    return JoySafeterCredentialGroup(id=CredentialGroupId.new(), **values)
+
+
+def _new_agent(**values: Any) -> JoySafeterAgent:
+    return JoySafeterAgent(id=AgentId.new(), **values)
+
+
+def _new_session(**values: Any) -> JoySafeterSession:
+    return JoySafeterSession(id=SessionId.new(), **values)
+
+
+def _new_trigger(**values: Any) -> JoySafeterTrigger:
+    return JoySafeterTrigger(id=TriggerId.new(), **values)
+
+
+def _new_environment(**values: Any) -> JoySafeterEnvironment:
+    return JoySafeterEnvironment(id=EnvironmentId.new(), **values)
 
 
 @pytest.mark.no_db
@@ -50,18 +93,18 @@ def test_cli_bootstraps_without_operator_secret_key():
     assert result.returncode == 0, result.stderr
 
 
-async def _project(db_session, label: str) -> str:
-    organization = Organization(name=f"organization-{label}", slug=f"organization-{label}")
+async def _project(db_session, label: str) -> ProjectId:
+    organization = _new_organization(name=f"organization-{label}", slug=f"organization-{label}")
     db_session.add(organization)
     await db_session.flush()
-    project = Project(org_id=organization.id, name=f"project-{label}", slug=f"project-{label}")
+    project = _new_project(org_id=organization.id, name=f"project-{label}", slug=f"project-{label}")
     db_session.add(project)
     await db_session.flush()
     return project.id
 
 
-async def _credential(db_session, project_id: str, label: str) -> JoySafeterCredential:
-    credential = JoySafeterCredential(
+async def _credential(db_session, project_id: ProjectId, label: str) -> JoySafeterCredential:
+    credential = _new_credential(
         project_id=project_id,
         kind="model",
         name=f"credential-{label}",
@@ -76,10 +119,10 @@ async def _credential(db_session, project_id: str, label: str) -> JoySafeterCred
 
 
 async def seed_session_with_unknown_snapshot_and_credential_ref(db_session) -> JoySafeterSession:
-    agent = JoySafeterAgent(name="unscoped-agent", project_id=None)
+    agent = _new_agent(name="unscoped-agent", project_id=None)
     db_session.add(agent)
     await db_session.flush()
-    session = JoySafeterSession(
+    session = _new_session(
         agent_id=agent.id,
         project_id=None,
         title="unscoped-session",
@@ -107,17 +150,18 @@ async def test_preflight_reports_unknown_snapshot_and_null_project_reference(db_
 @pytest.mark.asyncio
 async def test_unknown_agent_version_schema_is_inventory_only_and_session_schema_is_explicit_blocker(db_session):
     project_id = await _project(db_session, "snapshot-schemas")
-    agent = JoySafeterAgent(name="snapshot-agent", project_id=project_id)
+    agent = _new_agent(name="snapshot-agent", project_id=project_id)
     db_session.add(agent)
     await db_session.flush()
     db_session.add(
         JoySafeterAgentVersion(
+            id=AgentVersionId.new(),
             agent_id=agent.id,
             version=1,
             snapshot={"schema": "joysafeter.agent_execution_snapshot.future"},
         )
     )
-    session = JoySafeterSession(
+    session = _new_session(
         agent_id=agent.id,
         project_id=project_id,
         title="unknown-session-snapshot",
@@ -144,11 +188,11 @@ async def test_preflight_reports_trigger_reference_with_persisted_field_path(db_
     project_a = await _project(db_session, "trigger-a")
     project_b = await _project(db_session, "trigger-b")
     credential_b = await _credential(db_session, project_b, "trigger-b")
-    agent = JoySafeterAgent(name="trigger-agent", project_id=project_a)
+    agent = _new_agent(name="trigger-agent", project_id=project_a)
     db_session.add(agent)
     await db_session.flush()
     db_session.add(
-        JoySafeterTrigger(
+        _new_trigger(
             name="credential-trigger",
             agent_id=agent.id,
             prompt_template="handle trigger",
@@ -194,10 +238,10 @@ def test_cli_writes_clean_report_from_disposable_database(postgres_url, tmp_path
 async def test_cli_reports_active_session_schema_blocker_without_sensitive_values(db_session, postgres_url, tmp_path):
     project_id = await _project(db_session, "cli-blocker")
     credential = await _credential(db_session, project_id, "cli-blocker")
-    agent = JoySafeterAgent(name="cli-blocker-agent", project_id=project_id)
+    agent = _new_agent(name="cli-blocker-agent", project_id=project_id)
     db_session.add(agent)
     await db_session.flush()
-    session = JoySafeterSession(
+    session = _new_session(
         agent_id=agent.id,
         project_id=project_id,
         title="cli-blocker-session",
@@ -237,13 +281,13 @@ async def test_preflight_inventory_is_deterministic_and_redacts_material(db_sess
     credential_a = await _credential(db_session, project_a, "a")
     credential_b = await _credential(db_session, project_b, "b")
 
-    group_a = JoySafeterCredentialGroup(project_id=project_a, name="group-a")
-    group_b = JoySafeterCredentialGroup(project_id=project_a, name="group-b")
+    group_a = _new_credential_group(project_id=project_a, name="group-a")
+    group_b = _new_credential_group(project_id=project_a, name="group-b")
     db_session.add_all([group_a, group_b])
     await db_session.flush()
     db_session.add_all(
         [
-            JoySafeterCredential(
+            _new_credential(
                 project_id=project_a,
                 kind="mcp",
                 name="mcp-a",
@@ -253,7 +297,7 @@ async def test_preflight_inventory_is_deterministic_and_redacts_material(db_sess
                 credential_type="bearer",
                 group_id=group_a.id,
             ),
-            JoySafeterCredential(
+            _new_credential(
                 project_id=project_a,
                 kind="mcp",
                 name="mcp-b",
@@ -265,11 +309,12 @@ async def test_preflight_inventory_is_deterministic_and_redacts_material(db_sess
             ),
         ]
     )
-    agent = JoySafeterAgent(name="agent-a", project_id=project_a)
+    agent = _new_agent(name="agent-a", project_id=project_a)
     db_session.add(agent)
     await db_session.flush()
     db_session.add(
         JoySafeterAgentVersion(
+            id=AgentVersionId.new(),
             agent_id=agent.id,
             version=1,
             snapshot={
@@ -280,7 +325,7 @@ async def test_preflight_inventory_is_deterministic_and_redacts_material(db_sess
         )
     )
     db_session.add(
-        JoySafeterEnvironment(
+        _new_environment(
             project_id=project_a,
             name="environment-a",
             config={

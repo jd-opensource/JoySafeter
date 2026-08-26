@@ -4,7 +4,6 @@ import posixpath
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +23,7 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
 from app.joysafeter_domain.services.joysafeter_file_service import FileService
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
-from app.joysafeter_shared.ids import FileId, SessionId, SessionResourceId
+from app.joysafeter_shared.ids import FileId, ProjectId, SessionId, SessionResourceId
 from app.joysafeter_shared.storage import get_storage
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -185,7 +184,7 @@ class SessionResourceService:
     async def get_project_session_or_raise(
         self,
         session_id: SessionId,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
     ) -> JoySafeterSession:
         session = await self._session_svc.get_session(session_id, project_id=project_id)
         if not session or session.project_id != project_id:
@@ -233,7 +232,7 @@ class SessionResourceService:
     async def ensure_visible_parent_mutable(
         self,
         session_id: SessionId,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
     ) -> None:
         session = await self._session_svc.get_session(session_id, project_id=project_id)
         if not session:
@@ -244,7 +243,7 @@ class SessionResourceService:
         self,
         resources: list[SessionFileResourceRequest],
         *,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
         session_id: SessionId | None = None,
         existing_mount_paths: set[str] | None = None,
         existing_reserved_mount_paths: set[str] | None = None,
@@ -367,6 +366,7 @@ class SessionResourceService:
         for resource in files:
             self.db.add(
                 JoySafeterSessionFile(
+                    id=SessionResourceId.new(),
                     session_id=session_id,
                     file_id=resource.file_id,
                     mount_path=resource.mount_path,
@@ -376,6 +376,7 @@ class SessionResourceService:
         for repo in repos:
             self.db.add(
                 JoySafeterSessionRepo(
+                    id=SessionResourceId.new(),
                     session_id=session_id,
                     url=repo.url,
                     branch=repo.branch,
@@ -389,7 +390,7 @@ class SessionResourceService:
         if files or repos:
             await self.db.commit()
 
-    def _session_project_exists_condition(self, session_id: SessionId, project_id: Optional[str]):
+    def _session_project_exists_condition(self, session_id: SessionId, project_id: ProjectId | None):
         if project_id is None:
             return None
         return (
@@ -404,7 +405,7 @@ class SessionResourceService:
     async def list_file_records(
         self,
         session_id: SessionId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> list[JoySafeterSessionFile]:
         conditions = [JoySafeterSessionFile.session_id == session_id]
         project_condition = self._session_project_exists_condition(session_id, project_id)
@@ -418,7 +419,7 @@ class SessionResourceService:
     async def list_repo_records(
         self,
         session_id: SessionId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> list[JoySafeterSessionRepo]:
         conditions = [JoySafeterSessionRepo.session_id == session_id]
         project_condition = self._session_project_exists_condition(session_id, project_id)
@@ -429,13 +430,17 @@ class SessionResourceService:
         )
         return list(result.scalars().all())
 
-    async def list_resource_payloads(self, session_id: SessionId, project_id: Optional[str] = None) -> list[dict]:
+    async def list_resources(
+        self,
+        session_id: SessionId,
+        project_id: ProjectId | None = None,
+    ) -> list[SessionFileResourceResponse | SessionRepoResourceResponse]:
         files = [
-            SessionFileResourceResponse.model_validate(row).model_dump(mode="json")
+            SessionFileResourceResponse.model_validate(row)
             for row in await self.list_file_records(session_id, project_id=project_id)
         ]
         repos = [
-            SessionRepoResourceResponse.model_validate(row).model_dump(mode="json")
+            SessionRepoResourceResponse.model_validate(row)
             for row in await self.list_repo_records(session_id, project_id=project_id)
         ]
         return [*files, *repos]
@@ -445,7 +450,7 @@ class SessionResourceService:
         session_id: SessionId,
         req: SessionFileResourceRequest,
         *,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
     ) -> SessionFileResourceResponse:
         session = await self.get_project_session_or_raise(session_id, project_id)
         self.ensure_mutable(session, session_id)
@@ -462,6 +467,7 @@ class SessionResourceService:
         )
         resource = prepared[0]
         row = JoySafeterSessionFile(
+            id=SessionResourceId.new(),
             session_id=session_id,
             file_id=resource.file_id,
             mount_path=resource.mount_path,
@@ -477,7 +483,7 @@ class SessionResourceService:
         session_id: SessionId,
         req: SessionRepoResourceRequest,
         *,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> SessionRepoResourceResponse:
         session = await self.get_project_session_or_raise(session_id, project_id)
         self.ensure_mutable(session, session_id)
@@ -496,6 +502,7 @@ class SessionResourceService:
         )
         resource = prepared[0]
         row = JoySafeterSessionRepo(
+            id=SessionResourceId.new(),
             session_id=session_id,
             url=resource.url,
             branch=resource.branch,
@@ -514,8 +521,8 @@ class SessionResourceService:
         self,
         session_id: SessionId,
         resource_id: SessionResourceId,
-        project_id: Optional[str] = None,
-    ) -> dict:
+        project_id: ProjectId | None = None,
+    ) -> SessionResourceId:
         await self.ensure_visible_parent_mutable(session_id, project_id)
         row = await self._get_file_or_repo(session_id, resource_id, project_id=project_id)
         if row is None:
@@ -527,7 +534,7 @@ class SessionResourceService:
             )
         await self.db.delete(row)
         await self.db.commit()
-        return {"id": resource_id, "deleted": True}
+        return resource_id
 
     async def rotate_repo_token(
         self,
@@ -535,7 +542,7 @@ class SessionResourceService:
         resource_id: SessionResourceId,
         authorization_token: str,
         *,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         token_expires_at: datetime | None = None,
     ) -> SessionRepoResourceResponse:
         await self.ensure_visible_parent_mutable(session_id, project_id)
@@ -594,7 +601,7 @@ class SessionResourceService:
         self,
         session_id: SessionId,
         resource_id: SessionResourceId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> JoySafeterSessionFile | JoySafeterSessionRepo | None:
         project_condition = self._session_project_exists_condition(session_id, project_id)
         file_conditions = [

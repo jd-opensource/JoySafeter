@@ -429,6 +429,13 @@ projection; callers must not independently reinterpret MCP transport, endpoint, 
 or network mode.
 
 - Remote MCP transports are `streamable_http` and `sse`; local processes use `local_stdio`.
+- Agents own every MCP server declaration. Project-scoped credential groups own encrypted HTTP
+  authentication material, and Sessions own the `credential_group_ids` authorized for that run.
+- The planner matches selected active credentials to Agent endpoints by canonical normalized URL:
+  `required` needs exactly one match, `optional` accepts zero or one, and `none` ignores matches.
+  Duplicate credentials are errors only when they match an Agent endpoint eligible for injection.
+- Managed credential injection is supported only for `streamable_http`. `sse` must use
+  `auth_requirement: none`; `local_stdio.env` is ordinary Agent configuration and must not contain secrets.
 - Limited-networking sandboxes receive only opaque `mcp-egress.internal/r/<route-key>/` URLs.
   Real upstream authorities and authentication material remain at the Envoy boundary.
 - MCP credentials support the closed runtime schemes `static_bearer`, `header_api_key`, and
@@ -539,7 +546,8 @@ This is the authoritative UUID-backed entity inventory:
 
 | Entity type | Public prefix | Entity type | Public prefix |
 |---|---|---|---|
-| `AgentId` | `agent_` | `SessionId` | `sess_` |
+| `AgentId` | `agent_` | `AgentVersionId` | `agentver_` |
+| `ApiKeyId` | `apikey_` | `SessionId` | `sess_` |
 | `TaskId` | `task_` | `TriggerId` | `trig_` |
 | `EnvironmentId` | `env_` | `CredentialId` | `cred_` |
 | `CredentialGroupId` | `credgrp_` | `SandboxId` | `sbx_` |
@@ -572,16 +580,21 @@ non-identity derivations such as advisory hashes or jitter seeds. Their allowlis
 stable file/function or file/count keys and any new occurrence fails architecture tests until classified.
 
 Rust ID newtypes do not implement `Deref<Uuid>`; a physical adapter must call `.as_uuid()` explicitly.
-`environment_ref` is an intentional polymorphic public boundary: it accepts an environment name or a
-canonical `env_<uuid>`, never a bare Environment UUID. Current contracts use `model_credential_id`,
-`environment_credential_ids`, `service_credential_id`, and `credential_group_ids`. The legacy JSON keys
-`secret_ref` and `secret_refs` remain read aliases only for persisted v1 snapshots, and their values are
-canonical `CredentialId` strings. `vault_ids`, `SecretId`, and `VaultId` are not active runtime contracts.
+Agent, Session, Trigger, and execution-snapshot environment bindings use `environment_id` exclusively.
+Public and persisted JSON require canonical `env_<uuid>` values, while PostgreSQL stores the native UUID
+behind a foreign key to the Environment lifecycle owner. Environment names are display and lookup metadata,
+not identity inputs. Current contracts use `model_credential_id`,
+`environment_credential_ids`, `credential_ref`, `credential_field`, and `credential_group_ids`.
+Persisted snapshots use `joysafeter.agent_execution_snapshot.v2`. Earlier aliases and snapshot schemas
+must be rewritten by migration before deployment; runtime readers reject them rather than bridging them.
 
 Memory synchronization, Session events, Skills, Files, Session resources, and storage resources follow
 the same rule: API paths, schemas, JSON, logs, and frontend state retain their canonical prefix, while
 only a listed physical adapter may unwrap to a UUID. Draft Skill authoring files remain identity-free
 until persisted and must not use empty or fabricated `SkillFileId` values.
+Session memory-store attachments are public Session resources: their rows and responses use
+`SessionResourceId` / `sesrsc_` and `type=session_memory_store`; the referenced store remains a
+separate `MemoryStoreId` / `memstore_` identity.
 
 | Group | Prefix | Highlights |
 |---|---|---|
@@ -645,15 +658,13 @@ version rather than the mutable parent Skill draft.
 
 ### 9.3 Observability — full-chain tracing
 
-`joysafeter_shared/observation/` is a genuine OTel implementation:
+`joysafeter_shared/telemetry/` owns the application-level OTel provider:
 
-- A global `TracerProvider` (optional OTLP export) + **two custom span processors**:
-  `PersistenceProcessor` (buckets spans by `execution.id`, batch-drains to the `traces` /
-  `observations` tables, aggregates token/cost) and `BroadcastProcessor` (live span streaming).
+- A global `TracerProvider` initializes request tracing and optionally exports spans through OTLP.
 - `TracingMiddleware` extracts W3C `traceparent` on ingress and echoes `x-trace-id`; loguru
   injects the live `trace_id` into every log line for correlation.
-- Token/cost metering is recorded on span attributes (`llm.usage.*`, `llm.cost.*`), which
-  aggregate into `Trace` totals.
+- Product analytics are computed from durable sessions, tasks, and session events. The removed
+  `Trace` / `Observation` persistence prototype is not a runtime or database contract.
 
 ### 9.4 Security posture
 
@@ -723,7 +734,7 @@ backend/app/
 └── joysafeter_shared/         # Cross-service foundation
     ├── llm/                   #   OpenAI-compatible SSE helper
     ├── skill/                 #   SKILL.md parse + validate
-    ├── observation/           #   OTel provider + processors + trace/observation models
+    ├── telemetry/             #   OTel tracer-provider lifecycle
     ├── security/ security.py  #   JWT, passwords, SSRF guard, credential-key setting
     ├── storage/               #   pluggable file backend (local / s3 / oss)
     ├── cache/                 #   pooled Redis client + distributed lock

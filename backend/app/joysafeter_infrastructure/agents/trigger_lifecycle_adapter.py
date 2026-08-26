@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from typing import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
-from app.joysafeter_shared.ids import AgentId
+from app.joysafeter_shared.ids import AgentId, ProjectId
 
 
 class AgentTriggerLifecycleAdapter:
@@ -17,7 +17,7 @@ class AgentTriggerLifecycleAdapter:
         self,
         agent_id: AgentId,
         *,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Sequence[JoySafeterTrigger]:
         return await self._service.lock_for_agent_lifecycle(agent_id, project_id=project_id)
 

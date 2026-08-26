@@ -176,17 +176,99 @@ def _check_normative_document_links(repo_root: Path) -> list[Violation]:
 
 
 # Positive markers that must remain present so the normative docs keep describing
-# the current unified-credential model. This is intentionally an allow-list of
-# required substrings rather than a forbidden-term list: the docs legitimately
-# retain "secret"/"vault" in the JOYSAFETER_VAULT_ENCRYPTION_KEY env var, the
-# SecretId/VaultId typed-ID inventory, and deploy-compatibility contracts, so a
-# blanket ban would false-positive. If a document is reverted to the pre-unified
-# model these markers disappear and the check fails.
+# the current unified-credential model.
 REQUIRED_DOCUMENT_CONTENT: dict[Path, tuple[str, ...]] = {
     Path("docs/ARCHITECTURE.md"): (
         "JoySafeterCredential",
         "/credentials",
         "/credential-groups",
+        "credential_ref",
+        "joysafeter.agent_execution_snapshot.v2",
+        "AgentVersionId",
+        "agentver_",
+        "ApiKeyId",
+        "apikey_",
+        "SessionResourceId",
+        "session_memory_store",
+    ),
+    Path("docs/ARCHITECTURE_CN.md"): (
+        "AgentVersionId",
+        "agentver_",
+        "ApiKeyId",
+        "apikey_",
+        "SessionResourceId",
+    ),
+    Path("docs/api/openapi.md"): (
+        "agentver_<uuid>",
+        "apikey_<uuid>",
+        "session_memory_store",
+    ),
+    Path("docs/joysafeter-agent-environment-session-api.md"): (
+        "model_credential_id",
+        "environment_credential_ids",
+        "cred_<uuid>",
+    ),
+    Path("docs/tutorials/01-model-provider-setup.md"): (
+        "/api/v1/credentials",
+        "kind=model",
+        "model_credential_id",
+    ),
+    Path("docs/tutorials/04-agent-build-and-run.md"): (
+        "model_credential_id",
+        "cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020",
+    ),
+}
+
+FORBIDDEN_DOCUMENT_CONTENT: dict[Path, tuple[str, ...]] = {
+    Path("docs/ARCHITECTURE.md"): (
+        "SecretId",
+        "VaultId",
+        "secret_ref",
+        "secret_refs",
+        "vault_ids",
+        "service_credential_id",
+    ),
+    Path("docs/ARCHITECTURE_CN.md"): (
+        "SecretId",
+        "VaultId",
+        "secret_ref",
+        "secret_refs",
+        "vault_ids",
+        "service_credential_id",
+    ),
+    Path("docs/api/openapi.md"): (
+        "/secrets",
+        "/vaults",
+        "SecretId",
+        "VaultId",
+        "secret_ref",
+        "secret_refs",
+        "vault_ids",
+        "service_credential_id",
+    ),
+    Path("docs/joysafeter-agent-environment-session-api.md"): (
+        "secret_ref",
+        "secret_refs",
+        "vault_ids",
+        "service_credential_id",
+    ),
+    Path("docs/tutorials/00-getting-started.md"): (
+        "/managed/secrets",
+        "/managed/vaults",
+    ),
+    Path("docs/tutorials/01-model-provider-setup.md"): (
+        "/managed/secrets",
+        "/api/v1/secrets",
+        "secret_ref",
+        "kind=llm",
+        '"kind": "llm"',
+    ),
+    Path("docs/tutorials/04-agent-build-and-run.md"): ("secret_ref", "LLM Secret"),
+    Path("docs/tutorials/06-environments.md"): ("/managed/secrets",),
+    Path("docs/tutorials/README.md"): ("/managed/secrets", "/managed/vaults"),
+    Path("docs/user-journey-quickstart.drawio"): (
+        "/managed/secrets",
+        "/managed/vaults",
     ),
 }
 
@@ -223,7 +305,40 @@ def _check_required_document_content(repo_root: Path) -> list[Violation]:
     return check_required_document_content(repo_root)
 
 
+def check_forbidden_document_content(
+    repo_root: Path,
+    forbidden: Mapping[Path, Sequence[str]] = FORBIDDEN_DOCUMENT_CONTENT,
+) -> list[Violation]:
+    """Report obsolete public-contract markers in normative documents."""
+    resolved_root = repo_root.resolve()
+    violations: list[Violation] = []
+    for document, markers in forbidden.items():
+        source_path = document if document.is_absolute() else resolved_root / document
+        relative_document = _relative_path(resolved_root, source_path)
+        if not source_path.is_file():
+            violations.append(
+                Violation("DOC-CONTENT", relative_document, "Document does not exist.")
+            )
+            continue
+        content = source_path.read_text(encoding="utf-8")
+        for marker in markers:
+            if marker in content:
+                violations.append(
+                    Violation(
+                        "DOC-CONTENT",
+                        relative_document,
+                        f"Forbidden obsolete marker is present: {marker!r}",
+                    )
+                )
+    return violations
+
+
+def _check_forbidden_document_content(repo_root: Path) -> list[Violation]:
+    return check_forbidden_document_content(repo_root)
+
+
 CHECKS: dict[str, Callable[[Path], list[Violation]]] = {
+    "forbidden-content": _check_forbidden_document_content,
     "links": _check_normative_document_links,
     "content": _check_required_document_content,
 }

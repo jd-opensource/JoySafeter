@@ -8,7 +8,16 @@ from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnviro
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
-from app.joysafeter_shared.ids import AgentId, CredentialId, SessionId, SkillId
+from app.joysafeter_shared.ids import (
+    AgentId,
+    AgentVersionId,
+    CredentialId,
+    EnvironmentId,
+    OrganizationId,
+    ProjectId,
+    SessionId,
+    SkillId,
+)
 
 
 class AgentNameConflictError(Exception):
@@ -22,27 +31,27 @@ class AgentRepositoryPort(Protocol):
 
     async def refresh(self, instance: Any) -> None: ...
 
-    async def get(self, agent_id: AgentId, project_id: Optional[str] = None) -> Optional[JoySafeterAgent]: ...
+    async def get(self, agent_id: AgentId, project_id: ProjectId | None = None) -> Optional[JoySafeterAgent]: ...
 
-    async def lock(self, agent_id: AgentId, project_id: Optional[str] = None) -> Optional[JoySafeterAgent]: ...
+    async def lock(self, agent_id: AgentId, project_id: ProjectId | None = None) -> Optional[JoySafeterAgent]: ...
 
-    async def get_by_name(self, name: str, project_id: Optional[str] = None) -> Optional[JoySafeterAgent]: ...
+    async def get_by_name(self, name: str, project_id: ProjectId | None = None) -> Optional[JoySafeterAgent]: ...
 
     async def list(
         self,
         limit: int = 20,
         after_id: Optional[AgentId] = None,
         include_archived: bool = False,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> tuple[list[JoySafeterAgent], bool]: ...
 
-    async def lock_environment_by_ref(
-        self, ref: str, project_id: Optional[str] = None
+    async def lock_environment(
+        self, environment_id: EnvironmentId, project_id: ProjectId | None = None
     ) -> Optional[JoySafeterEnvironment]: ...
 
     async def skills_by_ids(self, skill_ids: Sequence[SkillId]) -> dict[SkillId, JoySafeterSkill]: ...
 
-    async def project_org_ids(self, project_ids: Sequence[str]) -> dict[str, str]: ...
+    async def project_org_ids(self, project_ids: Sequence[ProjectId]) -> dict[ProjectId, OrganizationId]: ...
 
     async def skill_version_strings_by_ids(self, version_ids: Sequence[Any]) -> dict[Any, str]: ...
 
@@ -50,11 +59,18 @@ class AgentRepositoryPort(Protocol):
 
     async def get_skill_version(self, skill_id: SkillId, version: str) -> Any | None: ...
 
-    async def save_version(self, agent: JoySafeterAgent, snapshot: dict[str, Any]) -> None: ...
+    async def save_version(
+        self,
+        version_id: AgentVersionId,
+        agent: JoySafeterAgent,
+        snapshot: dict[str, Any],
+    ) -> None: ...
 
-    async def count_active_tasks(self, agent_id: AgentId, project_id: Optional[str] = None) -> int: ...
+    async def count_active_tasks(self, agent_id: AgentId, project_id: ProjectId | None = None) -> int: ...
 
-    async def list_active_tasks(self, agent_id: AgentId, project_id: Optional[str] = None) -> list[JoySafeterTask]: ...
+    async def list_active_tasks(
+        self, agent_id: AgentId, project_id: ProjectId | None = None
+    ) -> list[JoySafeterTask]: ...
 
     async def list_non_archived_session_ids(self, agent_id: AgentId) -> list[SessionId]: ...
 
@@ -69,15 +85,15 @@ class AgentRepositoryPort(Protocol):
         agent_id: AgentId,
         limit: int = 20,
         before_version: Optional[int] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> tuple[list[JoySafeterAgentVersion], bool]: ...
 
     async def get_version_snapshot(
-        self, agent_id: AgentId, version: int, project_id: Optional[str] = None
+        self, agent_id: AgentId, version: int, project_id: ProjectId | None = None
     ) -> Optional[dict]: ...
 
     async def count_delete_preview(
-        self, agent_id: AgentId, project_id: Optional[str] = None
+        self, agent_id: AgentId, project_id: ProjectId | None = None
     ) -> Optional[tuple[int, int, int, int]]: ...
 
 
@@ -90,13 +106,13 @@ class AgentUnitOfWork(Protocol):
 
 
 class AgentCredentialBindingPort(Protocol):
-    async def lock_credentials(self, credential_ids: Sequence[CredentialId], *, project_id: str) -> None: ...
+    async def lock_credentials(self, credential_ids: Sequence[CredentialId], *, project_id: ProjectId) -> None: ...
 
     async def validate_model_reference(
         self,
         credential_id: CredentialId,
         *,
-        project_id: str,
+        project_id: ProjectId,
         engine_kind: str,
         model_id: Optional[str],
     ) -> None: ...
@@ -110,7 +126,7 @@ class AgentRuntimePort(Protocol):
         agent_id: AgentId,
         *,
         reason: str,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> None: ...
 
     async def cleanup_identity(self, agent_id: AgentId) -> None: ...
@@ -121,7 +137,7 @@ class AgentTriggerLifecyclePort(Protocol):
         self,
         agent_id: AgentId,
         *,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Sequence[JoySafeterTrigger]: ...
 
     def pause_locked_agent_triggers(self, triggers: Sequence[JoySafeterTrigger]) -> None: ...

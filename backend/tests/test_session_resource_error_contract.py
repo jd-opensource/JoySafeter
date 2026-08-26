@@ -35,22 +35,37 @@ from app.joysafeter_domain.services.joysafeter_session_service import SessionSer
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.config.settings import joysafeter_config
-from app.joysafeter_shared.ids import FileId, MemoryStoreId, SessionResourceId, as_uuid
+from app.joysafeter_shared.ids import (
+    AgentId,
+    AgentVersionId,
+    EnvironmentId,
+    FileId,
+    MemoryStoreId,
+    OrganizationId,
+    ProjectId,
+    SessionId,
+    SessionResourceId,
+    UserId,
+    as_uuid,
+)
 from app.joysafeter_shared.utils.datetime import utc_now
+
+TEST_USER_ID = UserId.new()
+TEST_ORG_ID = OrganizationId.new()
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
-        project_id=None,  # type: ignore[arg-type]
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORG_ID,
+        project_id=None,
         role=JoySafeterRole.MEMBER,
     )
 
 
-def _project_auth_ctx(project_id: str, org_id: str = "test-org") -> JoySafeterAuthContext:
+def _project_auth_ctx(project_id: ProjectId, org_id: OrganizationId = TEST_ORG_ID) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
+        user_id=TEST_USER_ID,
         org_id=org_id,
         project_id=project_id,
         role=JoySafeterRole.MEMBER,
@@ -58,7 +73,7 @@ def _project_auth_ctx(project_id: str, org_id: str = "test-org") -> JoySafeterAu
 
 
 async def _create_agent(db_session) -> JoySafeterAgent:
-    agent = JoySafeterAgent(name=f"resource-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"resource-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -67,19 +82,19 @@ async def _create_agent(db_session) -> JoySafeterAgent:
 
 async def _create_project_agent(db_session, name: str) -> tuple[Project, JoySafeterAgent]:
     org = Organization(
-        id=f"org-{uuid.uuid4()}",
+        id=OrganizationId.new(),
         name=f"{name} Org",
         slug=f"{name.lower()}-org-{uuid.uuid4()}",
     )
     project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name=name,
         slug=f"{name.lower()}-{uuid.uuid4()}",
     )
     db_session.add_all([org, project])
     await db_session.commit()
-    agent = JoySafeterAgent(name=f"{name.lower()}-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"{name.lower()}-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(project)
@@ -89,15 +104,16 @@ async def _create_project_agent(db_session, name: str) -> tuple[Project, JoySafe
 
 async def _create_session(db_session) -> JoySafeterSession:
     agent = await _create_agent(db_session)
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
     return session
 
 
-async def _create_file(db_session, project_id: str, filename: str) -> JoySafeterFile:
+async def _create_file(db_session, project_id: ProjectId, filename: str) -> JoySafeterFile:
     file = JoySafeterFile(
+        id=FileId.new(),
         project_id=project_id,
         filename=filename,
         purpose="user_upload",
@@ -115,22 +131,22 @@ async def _create_file(db_session, project_id: str, filename: str) -> JoySafeter
 
 async def _create_project_session(db_session, name: str) -> tuple[Project, JoySafeterSession]:
     org = Organization(
-        id=f"org-{uuid.uuid4()}",
+        id=OrganizationId.new(),
         name=f"{name} Org",
         slug=f"{name.lower()}-org-{uuid.uuid4()}",
     )
     project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name=name,
         slug=f"{name.lower()}-{uuid.uuid4()}",
     )
     db_session.add_all([org, project])
     await db_session.commit()
-    agent = JoySafeterAgent(name=f"{name.lower()}-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"{name.lower()}-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.flush()
-    session = JoySafeterSession(agent_id=agent.id, project_id=project.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, project_id=project.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(project)
@@ -168,7 +184,7 @@ async def test_create_session_missing_memory_store_returns_structured_error_with
 @pytest.mark.asyncio
 async def test_create_session_duplicate_memory_store_returns_structured_error_without_creating_session(db_session):
     agent = await _create_agent(db_session)
-    store = JoySafeterMemoryStore(name=f"duplicate-memory-{uuid.uuid4()}", description="")
+    store = JoySafeterMemoryStore(id=MemoryStoreId.new(), name=f"duplicate-memory-{uuid.uuid4()}", description="")
     db_session.add(store)
     await db_session.commit()
     await db_session.refresh(store)
@@ -199,7 +215,7 @@ async def test_create_session_duplicate_memory_store_returns_structured_error_wi
 async def test_session_service_rejects_direct_memory_attach_for_running_session(db_session):
     session = await _create_session(db_session)
     session.status = "running"
-    store = JoySafeterMemoryStore(name=f"running-memory-{uuid.uuid4()}", description="")
+    store = JoySafeterMemoryStore(id=MemoryStoreId.new(), name=f"running-memory-{uuid.uuid4()}", description="")
     db_session.add(store)
     await db_session.commit()
     await db_session.refresh(store)
@@ -234,6 +250,7 @@ async def test_session_service_rejects_direct_memory_attach_for_running_session(
 async def test_session_service_rejects_direct_archived_memory_store_attach(db_session):
     session = await _create_session(db_session)
     store = JoySafeterMemoryStore(
+        id=MemoryStoreId.new(),
         name=f"archived-memory-{uuid.uuid4()}",
         description="",
         archived_at=utc_now(),
@@ -272,6 +289,7 @@ async def test_session_service_rejects_direct_archived_memory_store_attach(db_se
 async def test_session_service_rejects_batch_memory_attach_atomically_when_later_store_archived(db_session):
     session = await _create_session(db_session)
     active_store = JoySafeterMemoryStore(
+        id=MemoryStoreId.new(),
         name=f"active-memory-{uuid.uuid4()}",
         description="",
     )
@@ -280,6 +298,7 @@ async def test_session_service_rejects_batch_memory_attach_atomically_when_later
     await db_session.refresh(active_store)
 
     archived_store = JoySafeterMemoryStore(
+        id=MemoryStoreId.new(),
         name=f"archived-memory-{uuid.uuid4()}",
         description="",
         archived_at=utc_now(),
@@ -320,7 +339,7 @@ async def test_session_service_rejects_batch_memory_attach_atomically_when_later
 @pytest.mark.asyncio
 async def test_session_service_rejects_duplicate_memory_attach_before_unique_constraint(db_session):
     session = await _create_session(db_session)
-    store = JoySafeterMemoryStore(name=f"duplicate-memory-{uuid.uuid4()}", description="")
+    store = JoySafeterMemoryStore(id=MemoryStoreId.new(), name=f"duplicate-memory-{uuid.uuid4()}", description="")
     db_session.add(store)
     await db_session.commit()
     await db_session.refresh(store)
@@ -533,6 +552,7 @@ async def test_session_repo_resources_keep_token_encrypted_and_never_echoed(db_s
 async def test_repository_token_is_erased_when_session_becomes_terminal(db_session):
     session = await _create_session(db_session)
     repo = JoySafeterSessionRepo(
+        id=SessionResourceId.new(),
         session_id=session.id,
         url="https://github.com/example/private-repo.git",
         branch="main",
@@ -566,6 +586,7 @@ async def test_repository_token_is_erased_when_session_becomes_terminal(db_sessi
 async def test_repository_token_rotation_records_expiry_and_rotation_metadata(db_session):
     session = await _create_session(db_session)
     repo = JoySafeterSessionRepo(
+        id=SessionResourceId.new(),
         session_id=session.id,
         url="https://github.com/example/private-repo.git",
         branch="main",
@@ -611,6 +632,7 @@ async def test_session_resource_service_keeps_parent_project_boundary_for_repo_c
     project_id = project.id
     other_project_id = other_project.id
     row = JoySafeterSessionRepo(
+        id=SessionResourceId.new(),
         session_id=session.id,
         url="https://github.com/acme/private",
         branch="main",
@@ -626,7 +648,7 @@ async def test_session_resource_service_keeps_parent_project_boundary_for_repo_c
     raw_row_id = row.id
     svc = SessionResourceService(db_session)
 
-    assert await svc.list_resource_payloads(session_id, project_id=other_project_id) == []
+    assert await svc.list_resources(session_id, project_id=other_project_id) == []
 
     with pytest.raises(AppError) as exc_info:
         await svc.rotate_repo_token(
@@ -667,7 +689,7 @@ async def test_session_resource_service_keeps_parent_project_boundary_for_repo_c
 @pytest.mark.asyncio
 async def test_create_session_missing_environment_returns_structured_error_without_creating_session(db_session):
     agent = await _create_agent(db_session)
-    environment_id = f"env_{uuid.uuid4()}"
+    environment_id = EnvironmentId.new()
     req = CreateSessionRequest(agent_id=agent.id, environment_id=environment_id)
 
     with pytest.raises(AppError) as exc_info:
@@ -676,7 +698,7 @@ async def test_create_session_missing_environment_returns_structured_error_witho
     assert await handled_app_error_payload(exc_info.value, status_code=422) == {
         "code": "SESSION_ENVIRONMENT_NOT_FOUND",
         "message": f"Environment not found: {environment_id}",
-        "data": {"environment_ref": environment_id},
+        "data": {"environment_id": str(environment_id)},
         "source": "validation",
         "retryable": False,
         "user_action": "fix_input",
@@ -688,6 +710,7 @@ async def test_create_session_missing_environment_returns_structured_error_witho
 async def test_create_session_archived_environment_returns_structured_error_without_creating_session(db_session):
     agent = await _create_agent(db_session)
     env = JoySafeterEnvironment(
+        id=EnvironmentId.new(),
         name=f"archived-session-env-{uuid.uuid4()}",
         description="",
         archived_at=utc_now(),
@@ -696,26 +719,27 @@ async def test_create_session_archived_environment_returns_structured_error_with
     await db_session.commit()
     await db_session.refresh(env)
 
-    environment_id = str(env.id)
+    environment_id = env.id
     req = CreateSessionRequest(agent_id=agent.id, environment_id=environment_id)
 
     with pytest.raises(AppError) as exc_info:
         await create_session(req, db_session, _auth_ctx())
 
-        assert await handled_app_error_payload(exc_info.value, status_code=409) == {
-            "code": "ENVIRONMENT_ARCHIVED",
-            "message": f"Environment is archived: {environment_id}",
-            "data": {"environment_ref": environment_id, "environment_id": environment_id},
-            "source": "api",
-            "retryable": False,
-            "user_action": "refresh",
-        }
+    assert await handled_app_error_payload(exc_info.value, status_code=409) == {
+        "code": "ENVIRONMENT_ARCHIVED",
+        "message": f"Environment is archived: {environment_id}",
+        "data": {"environment_id": str(environment_id)},
+        "source": "api",
+        "retryable": False,
+        "user_action": "refresh",
+    }
     assert await _session_count(db_session) == 0
 
 
 @pytest.mark.asyncio
 async def test_create_session_pinned_agent_version_uses_snapshot_environment(db_session):
     pinned_env = JoySafeterEnvironment(
+        id=EnvironmentId.new(),
         name=f"pinned-env-{uuid.uuid4()}",
         description="",
         config={"env_vars": {"PINNED": "1"}},
@@ -723,6 +747,7 @@ async def test_create_session_pinned_agent_version_uses_snapshot_environment(db_
         image_version=1,
     )
     live_env = JoySafeterEnvironment(
+        id=EnvironmentId.new(),
         name=f"live-env-{uuid.uuid4()}",
         description="",
         config={"env_vars": {"LIVE": "1"}},
@@ -737,19 +762,21 @@ async def test_create_session_pinned_agent_version_uses_snapshot_environment(db_
     await db_session.refresh(live_env)
 
     agent = JoySafeterAgent(
+        id=AgentId.new(),
         name=f"pinned-session-agent-{uuid.uuid4()}",
         version=2,
-        environment_ref=str(live_env.id),
+        environment_id=live_env.id,
     )
     db_session.add(agent)
     await db_session.flush()
     pinned_ref = str(pinned_env.id)
     db_session.add(
         JoySafeterAgentVersion(
+            id=AgentVersionId.new(),
             agent_id=agent.id,
             version=1,
             snapshot={
-                "schema": "joysafeter.agent_execution_snapshot.v1",
+                "schema": "joysafeter.agent_execution_snapshot.v2",
                 "id": str(agent.id),
                 "version": 1,
                 "name": agent.name,
@@ -760,7 +787,7 @@ async def test_create_session_pinned_agent_version_uses_snapshot_environment(db_
                 "commands": [],
                 "tools": [],
                 "mcp_servers": [],
-                "environment_ref": pinned_ref,
+                "environment_id": pinned_ref,
             },
         )
     )
@@ -775,15 +802,15 @@ async def test_create_session_pinned_agent_version_uses_snapshot_environment(db_
 
     row = (await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == response.id))).scalar_one()
     assert row.agent_version == 1
-    assert row.environment_ref == pinned_ref
-    assert row.agent_snapshot["environment_ref"] == pinned_ref
+    assert row.environment_id == pinned_env.id
+    assert row.agent_snapshot["environment_id"] == pinned_ref
     assert row.agent_snapshot["environment"]["image_tag"] == "pinned-image:1"
     assert row.agent_snapshot["environment"]["config"]["env_vars"] == {"PINNED": "1"}
 
 
 @pytest.mark.asyncio
 async def test_create_session_archived_agent_returns_structured_error_without_creating_session(db_session):
-    agent = JoySafeterAgent(name=f"archived-session-agent-{uuid.uuid4()}", archived_at=utc_now())
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"archived-session-agent-{uuid.uuid4()}", archived_at=utc_now())
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -886,7 +913,7 @@ async def test_add_session_resource_rejects_running_session_before_resource_look
     session = await _create_session(db_session)
     session.status = "running"
     await db_session.commit()
-    missing_file_id = f"file_{uuid.uuid4()}"
+    missing_file_id = FileId.new()
 
     with pytest.raises(AppError) as exc_info:
         await add_session_resource(session.id, {"type": "file", "file_id": missing_file_id}, _auth_ctx(), db_session)
@@ -1033,6 +1060,7 @@ async def test_delete_session_resource_rejects_archived_session_before_resource_
 async def test_rotate_repo_resource_rejects_running_session_without_mutating_token(db_session):
     session = await _create_session(db_session)
     repo = JoySafeterSessionRepo(
+        id=SessionResourceId.new(),
         session_id=session.id,
         url="https://github.com/example/repo",
         branch="main",
@@ -1077,6 +1105,7 @@ async def test_rotate_repo_resource_rejects_running_session_without_mutating_tok
 async def test_session_resource_service_rejects_direct_repo_mutations_for_running_session(db_session):
     session = await _create_session(db_session)
     repo = JoySafeterSessionRepo(
+        id=SessionResourceId.new(),
         session_id=session.id,
         url="https://github.com/example/repo",
         branch="main",

@@ -21,6 +21,7 @@ from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId, TriggerId, UserId
 
 
 class _FakeRedis:
@@ -46,18 +47,20 @@ def _fake_request() -> Request:
 
 
 async def _seed(db_session):
-    org = Organization(name=f"trg-org-{uuid.uuid4()}", slug=f"trg-org-{uuid.uuid4()}")
+    owner_user_id = UserId.new()
+    org = Organization(id=OrganizationId.new(), name=f"trg-org-{uuid.uuid4()}", slug=f"trg-org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name="P", slug=f"trg-p-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org.id, name="P", slug=f"trg-p-{uuid.uuid4()}")
     db_session.add(project)
     await db_session.flush()
-    agent = JoySafeterAgent(name=f"trg-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"trg-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
     await db_session.refresh(project)
     trigger = JoySafeterTrigger(
+        id=TriggerId.new(),
         name="s",
         type="cron",
         agent_id=agent.id,
@@ -65,7 +68,7 @@ async def _seed(db_session):
         cron_expr="0 0 * * *",
         timezone="UTC",
         project_id=project.id,
-        user_id="owner-user",
+        user_id=owner_user_id,
         org_id=org.id,
         filter={},
         config={},
@@ -74,7 +77,7 @@ async def _seed(db_session):
     db_session.add(trigger)
     await db_session.commit()
     await db_session.refresh(trigger)
-    return org, project, agent, trigger
+    return org, project, agent, trigger, owner_user_id
 
 
 @pytest.mark.asyncio
@@ -85,14 +88,19 @@ async def test_trigger_manual_run_enforces_owner_user_quota(db_session, monkeypa
     monkeypatch.setattr("app.joysafeter_shared.cache.redis.RedisClient.get_client", staticmethod(lambda: redis))
     monkeypatch.setattr(settings, "max_concurrent_per_user", 1)
 
-    org, project, agent, trigger = await _seed(db_session)
+    org, project, agent, trigger, owner_user_id = await _seed(db_session)
 
     # The owner is already at their per-user concurrent-task limit.
     await JoySafeterTaskService(db_session).create_task(
-        agent_id=agent.id, prompt="busy", user_id="owner-user", org_id=org.id, project_id=project.id
+        agent_id=agent.id, prompt="busy", user_id=owner_user_id, org_id=org.id, project_id=project.id
     )
 
-    auth = JoySafeterAuthContext(user_id="clicker", org_id=org.id, project_id=project.id, role=JoySafeterRole.MEMBER)
+    auth = JoySafeterAuthContext(
+        user_id=UserId.new(),
+        org_id=org.id,
+        project_id=project.id,
+        role=JoySafeterRole.MEMBER,
+    )
     with pytest.raises(AppError) as exc_info:
         await run_trigger_now(_fake_request(), trigger.id, db_session, auth)
 

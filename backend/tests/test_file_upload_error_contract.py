@@ -16,14 +16,18 @@ from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessi
 from app.joysafeter_domain.services.joysafeter_file_service import FileService as DomainFileService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import FileId
+from app.joysafeter_shared.ids import AgentId, FileId, OrganizationId, ProjectId, SessionId, SessionResourceId, UserId
+
+TEST_USER_ID = UserId.new()
+TEST_ORG_ID = OrganizationId.new()
+TEST_PROJECT_ID = ProjectId.new()
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
-        project_id="test-project",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORG_ID,
+        project_id=TEST_PROJECT_ID,
         role=JoySafeterRole.MEMBER,
     )
 
@@ -34,22 +38,22 @@ def _upload(filename: str, data: bytes) -> UploadFile:
 
 async def _create_project_agent_session(db_session, name: str) -> tuple[Project, JoySafeterSession]:
     org = Organization(
-        id=f"org-{uuid.uuid4()}",
+        id=OrganizationId.new(),
         name=f"{name} Org",
         slug=f"{name.lower()}-org-{uuid.uuid4()}",
     )
     project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name=name,
         slug=f"{name.lower()}-{uuid.uuid4()}",
     )
-    agent = JoySafeterAgent(name=f"{name.lower()}-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"{name.lower()}-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add_all([org, project])
     await db_session.commit()
     db_session.add(agent)
     await db_session.flush()
-    session = JoySafeterSession(agent_id=agent.id, project_id=project.id)
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, project_id=project.id)
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(project)
@@ -128,6 +132,7 @@ async def test_file_service_session_filter_keeps_parent_project_boundary(db_sess
     project, session = await _create_project_agent_session(db_session, "FileScopeProject")
     other_project, other_session = await _create_project_agent_session(db_session, "FileScopeOtherProject")
     valid_file = JoySafeterFile(
+        id=FileId.new(),
         project_id=project.id,
         filename="valid.txt",
         purpose="user_upload",
@@ -138,6 +143,7 @@ async def test_file_service_session_filter_keeps_parent_project_boundary(db_sess
         session_id=session.id,
     )
     inconsistent_file = JoySafeterFile(
+        id=FileId.new(),
         project_id=project.id,
         filename="cross-session.txt",
         purpose="user_upload",
@@ -242,6 +248,7 @@ async def test_delete_file_rejects_file_attached_to_active_session_resource(db_s
 
     project, session = await _create_project_agent_session(db_session, "FileResourceDelete")
     file = JoySafeterFile(
+        id=FileId.new(),
         project_id=project.id,
         filename="input.txt",
         purpose="user_upload",
@@ -254,6 +261,7 @@ async def test_delete_file_rejects_file_attached_to_active_session_resource(db_s
     await db_session.flush()
     db_session.add(
         JoySafeterSessionFile(
+            id=SessionResourceId.new(),
             session_id=session.id,
             file_id=file.id,
             mount_path="/workspace/input.txt",
@@ -268,7 +276,7 @@ async def test_delete_file_rejects_file_attached_to_active_session_resource(db_s
         lambda: DomainFileService(StorageMustNotDelete()),
     )
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
+        user_id=TEST_USER_ID,
         org_id=project.org_id,
         project_id=project.id,
         role=JoySafeterRole.MEMBER,

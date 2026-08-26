@@ -14,8 +14,6 @@ from sqlalchemy import select, text
 from app.joysafeter_application.credentials.application_service import CredentialService
 from app.joysafeter_application.credentials.binding_service import BindingIssuanceAuthority
 from app.joysafeter_application.credentials.ports import CredentialAuditActor
-from app.joysafeter_domain.credentials.types import CredentialId as DomainCredentialId
-from app.joysafeter_domain.credentials.types import ProjectId
 from app.joysafeter_domain.models.joysafeter_credential import (
     JoySafeterCredential,
     JoySafeterCredentialGroup,
@@ -31,21 +29,27 @@ from app.joysafeter_infrastructure.credentials.sqlalchemy_repository import SqlA
 from app.joysafeter_infrastructure.sensitive_material.versioned import VersionedMaterialProtector
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.config.settings import joysafeter_config
-from app.joysafeter_shared.security.credential_cipher import CredentialCiphertextError
+from app.joysafeter_shared.ids import CredentialGroupId, CredentialId, OrganizationId, ProjectId
+from app.joysafeter_shared.security.credential_cipher import CredentialCipher, CredentialCiphertextError
 
 
-async def _make_project(db_session) -> str:
-    org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+async def _make_project(db_session) -> ProjectId:
+    org = Organization(id=OrganizationId.new(), name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+    project = Project(
+        id=ProjectId.new(),
+        org_id=org.id,
+        name=f"proj-{uuid.uuid4()}",
+        slug=f"proj-{uuid.uuid4()}",
+    )
     db_session.add(project)
     await db_session.commit()
     return project.id
 
 
 @pytest_asyncio.fixture
-async def project_id(db_session) -> str:
+async def project_id(db_session) -> ProjectId:
     return await _make_project(db_session)
 
 
@@ -76,7 +80,9 @@ async def test_create_model_ok(db_session, project_id):
     assert cred.kind == "model"
     assert cred.provider == "openai"
     # Stored value is encrypted, not plaintext.
-    assert cred.data["API_KEY"].startswith("enc:v1:")
+    write_key_id = joysafeter_config.credential_encryption_write_key_id
+    expected_prefix = f"enc:v2:{write_key_id}:" if write_key_id else "enc:v1:"
+    assert cred.data["API_KEY"].startswith(expected_prefix)
 
 
 @pytest.mark.asyncio
@@ -102,13 +108,11 @@ async def test_repository_read_paths_reject_non_object_persisted_material(db_ses
     )
     repository = SqlAlchemyCredentialRepository(db_session, material=material)
     material.bind_repository(repository)
-    credential_id = DomainCredentialId(str(stored_credential_id))
-    domain_project_id = ProjectId(project_id)
-
+    credential_id = stored_credential_id
     with pytest.raises(CredentialCiphertextError, match="data must be a JSON object"):
-        await repository.get_resource(credential_id, domain_project_id)
+        await repository.get_resource(credential_id, project_id)
     with pytest.raises(CredentialCiphertextError, match="data must be a JSON object"):
-        await repository.load_encrypted_material(credential_id, domain_project_id)
+        await repository.load_encrypted_material(credential_id, project_id)
 
     stored = await repository.get(stored_credential_id, project_id)
     assert stored is not None
@@ -180,6 +184,72 @@ async def test_update_preserves_masked_value(db_session, project_id):
     )
     plain = svc.get_credential_data(updated)
     assert plain["API_KEY"] == "sk-supersecret"
+
+
+@pytest.mark.asyncio
+async def test_update_full_plaintext_replacement_does_not_decrypt_old_material(db_session, project_id):
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
+    credential = await svc.create(
+        CreateCredentialRequest(
+            kind="model",
+            name="foreign-key-model",
+            provider="anthropic",
+            protocol="anthropic",
+            data={"ANTHROPIC_AUTH_TOKEN": "old-token"},
+        ),
+        project_id=project_id,
+    )
+    credential_id = credential.id
+    foreign_cipher = CredentialCipher(CredentialCipher.generate_key())
+    credential.data = {"ANTHROPIC_AUTH_TOKEN": foreign_cipher.encrypt("unreadable-old-token")}
+    await db_session.commit()
+
+    updated = await svc.update(
+        credential_id,
+        UpdateCredentialRequest(
+            data={
+                "ANTHROPIC_AUTH_TOKEN": "replacement-token",
+                "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+                "ANTHROPIC_MODEL": "claude-sonnet-4-20250514",
+            }
+        ),
+        project_id=project_id,
+    )
+
+    assert svc.get_credential_data(updated) == {
+        "ANTHROPIC_AUTH_TOKEN": "replacement-token",
+        "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+        "ANTHROPIC_MODEL": "claude-sonnet-4-20250514",
+    }
+
+
+@pytest.mark.asyncio
+async def test_update_masked_preservation_maps_unreadable_old_material_to_app_error(db_session, project_id):
+    svc = CredentialService(db_session, audit_actor=CredentialAuditActor.system("test"))
+    credential = await svc.create(
+        CreateCredentialRequest(
+            kind="model",
+            name="foreign-key-masked-model",
+            provider="anthropic",
+            protocol="anthropic",
+            data={"ANTHROPIC_AUTH_TOKEN": "old-token"},
+        ),
+        project_id=project_id,
+    )
+    credential_id = credential.id
+    foreign_cipher = CredentialCipher(CredentialCipher.generate_key())
+    credential.data = {"ANTHROPIC_AUTH_TOKEN": foreign_cipher.encrypt("unreadable-old-token")}
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc:
+        await svc.update(
+            credential_id,
+            UpdateCredentialRequest(data={"ANTHROPIC_AUTH_TOKEN": "********"}),
+            project_id=project_id,
+        )
+
+    assert exc.value.code == "CREDENTIAL_MATERIAL_UNREADABLE"
+    assert exc.value.user_action == "fix_input"
 
 
 @pytest.mark.asyncio
@@ -464,10 +534,11 @@ async def test_resource_lifecycle_commands_are_idempotent_and_clear_default(db_s
 
 @pytest.mark.asyncio
 async def test_legacy_disabled_mcp_oauth_cannot_restore(db_session, project_id):
-    group = JoySafeterCredentialGroup(project_id=project_id, name="legacy-oauth-group")
+    group = JoySafeterCredentialGroup(id=CredentialGroupId.new(), project_id=project_id, name="legacy-oauth-group")
     db_session.add(group)
     await db_session.flush()
     credential = JoySafeterCredential(
+        id=CredentialId.new(),
         project_id=project_id,
         kind="mcp",
         name="legacy-oauth-member",
@@ -553,7 +624,7 @@ async def test_recreate_soft_deleted_name_preserves_history(db_session, project_
 
 @pytest.mark.asyncio
 async def test_create_mcp_sets_normalized_url(db_session, project_id):
-    group = JoySafeterCredentialGroup(project_id=project_id, name=f"grp-{uuid.uuid4()}")
+    group = JoySafeterCredentialGroup(id=CredentialGroupId.new(), project_id=project_id, name=f"grp-{uuid.uuid4()}")
     db_session.add(group)
     await db_session.commit()
     await db_session.refresh(group)
@@ -577,7 +648,7 @@ async def test_create_mcp_sets_normalized_url(db_session, project_id):
 
 @pytest.mark.asyncio
 async def test_create_mcp_persists_header_api_key_scheme_and_material(db_session, project_id):
-    group = JoySafeterCredentialGroup(project_id=project_id, name=f"grp-{uuid.uuid4()}")
+    group = JoySafeterCredentialGroup(id=CredentialGroupId.new(), project_id=project_id, name=f"grp-{uuid.uuid4()}")
     db_session.add(group)
     await db_session.commit()
     await db_session.refresh(group)
@@ -604,7 +675,7 @@ async def test_create_mcp_persists_header_api_key_scheme_and_material(db_session
 
 @pytest.mark.asyncio
 async def test_update_mcp_rejects_clearing_static_bearer_token(db_session, project_id):
-    group = JoySafeterCredentialGroup(project_id=project_id, name=f"grp-{uuid.uuid4()}")
+    group = JoySafeterCredentialGroup(id=CredentialGroupId.new(), project_id=project_id, name=f"grp-{uuid.uuid4()}")
     db_session.add(group)
     await db_session.commit()
     await db_session.refresh(group)
@@ -633,7 +704,7 @@ async def test_update_mcp_rejects_clearing_static_bearer_token(db_session, proje
 
 @pytest.mark.asyncio
 async def test_update_mcp_rejects_explicit_auto_auth_scheme(db_session, project_id):
-    group = JoySafeterCredentialGroup(project_id=project_id, name=f"grp-{uuid.uuid4()}")
+    group = JoySafeterCredentialGroup(id=CredentialGroupId.new(), project_id=project_id, name=f"grp-{uuid.uuid4()}")
     db_session.add(group)
     await db_session.commit()
     await db_session.refresh(group)
@@ -662,7 +733,7 @@ async def test_update_mcp_rejects_explicit_auto_auth_scheme(db_session, project_
 
 @pytest.mark.asyncio
 async def test_update_mcp_changes_auth_scheme_and_material_atomically(db_session, project_id):
-    group = JoySafeterCredentialGroup(project_id=project_id, name=f"grp-{uuid.uuid4()}")
+    group = JoySafeterCredentialGroup(id=CredentialGroupId.new(), project_id=project_id, name=f"grp-{uuid.uuid4()}")
     db_session.add(group)
     await db_session.commit()
     await db_session.refresh(group)

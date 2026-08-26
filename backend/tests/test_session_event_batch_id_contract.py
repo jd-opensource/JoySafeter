@@ -30,24 +30,26 @@ class _RecordingDb:
 
 
 @pytest.mark.asyncio
-async def test_batch_insert_session_events_rejects_string_session_id_before_db_work() -> None:
+@pytest.mark.parametrize("invalid_session_id", [str(SessionId.new()), uuid.uuid4()])
+async def test_batch_insert_session_events_rejects_untyped_session_id_before_db_work(
+    invalid_session_id: str | uuid.UUID,
+) -> None:
     service = SessionService(_NoDbWork())  # type: ignore[arg-type]
 
-    with pytest.raises(TypeError, match="session_id must be a SessionId or UUID"):
+    with pytest.raises(TypeError, match="session_id must be a SessionId"):
         await service.batch_insert_session_events(
-            [{"session_id": str(SessionId.new()), "event_type": "user.message", "payload": {}}]  # type: ignore[list-item]
+            [{"session_id": invalid_session_id, "event_type": "user.message", "payload": {}}]  # type: ignore[list-item]
         )
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("raw_session_id", [SessionId.new(), uuid.uuid4()])
-async def test_batch_insert_session_events_keeps_typed_and_native_uuid_inputs_explicit(
-    raw_session_id: SessionId | uuid.UUID,
+async def test_batch_insert_session_events_keeps_typed_session_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db = _RecordingDb()
     service = SessionService(db)  # type: ignore[arg-type]
     locked: list[SessionId] = []
+    session_id = SessionId.new()
 
     async def lock_event_sequence(session_id: SessionId) -> None:
         locked.append(session_id)
@@ -63,13 +65,10 @@ async def test_batch_insert_session_events_keeps_typed_and_native_uuid_inputs_ex
     monkeypatch.setattr(session_service_module, "publish_session_event_realtime", publish_session_event_realtime)
 
     created = await service.batch_insert_session_events(
-        [{"session_id": raw_session_id, "event_type": "user.message", "payload": {}}]
+        [{"session_id": session_id, "event_type": "user.message", "payload": {}}]
     )
 
-    expected_session_id = (
-        raw_session_id if isinstance(raw_session_id, SessionId) else SessionId.from_uuid(raw_session_id)
-    )
-    assert locked == [expected_session_id]
-    assert created[0].session_id == expected_session_id
+    assert locked == [session_id]
+    assert created[0].session_id == session_id
     assert db.added == created
     assert db.committed is True

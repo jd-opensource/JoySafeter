@@ -23,26 +23,40 @@ from app.joysafeter_domain.services.joysafeter_sandbox_service import SandboxSer
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import AgentId, EnvironmentId, SandboxId, TaskId
+from app.joysafeter_shared.ids import (
+    AgentId,
+    EnvironmentId,
+    MemoryId,
+    MemoryStoreId,
+    OrganizationId,
+    ProjectId,
+    SandboxId,
+    SessionId,
+    TaskId,
+    UserId,
+)
+
+TEST_USER_ID = UserId.new()
+TEST_ORG_ID = OrganizationId.new()
 
 
-def _auth_ctx(project_id: str | None = None) -> JoySafeterAuthContext:
+def _auth_ctx(project_id: ProjectId | None = None) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
-        project_id=project_id,  # type: ignore[arg-type]
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORG_ID,
+        project_id=project_id,
         role=JoySafeterRole.MEMBER,
     )
 
 
 async def _create_project(db_session, name: str) -> Project:
     org = Organization(
-        id=f"org-{uuid.uuid4()}",
+        id=OrganizationId.new(),
         name=f"{name} Org",
         slug=f"{name.lower()}-org-{uuid.uuid4()}",
     )
     project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name=name,
         slug=f"{name.lower()}-{uuid.uuid4()}",
@@ -55,10 +69,10 @@ async def _create_project(db_session, name: str) -> Project:
 
 async def _create_project_session(db_session, name: str) -> tuple[Project, JoySafeterSession]:
     project = await _create_project(db_session, name)
-    agent = JoySafeterAgent(name=f"{name.lower()}-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"{name.lower()}-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.flush()
-    session = JoySafeterSession(agent_id=agent.id, project_id=project.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, project_id=project.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -102,7 +116,7 @@ async def test_create_task_missing_agent_returns_structured_error(db_session):
 
 @pytest.mark.asyncio
 async def test_get_memory_store_missing_store_returns_structured_error(db_session):
-    store_id = uuid.uuid4()
+    store_id = MemoryStoreId.new()
 
     with pytest.raises(AppError) as exc_info:
         await get_memory_store(store_id, db_session, _auth_ctx())
@@ -282,15 +296,15 @@ async def test_stop_sandbox_cross_project_returns_structured_not_found(db_sessio
 
 @pytest.mark.asyncio
 async def test_get_task_missing_task_returns_structured_error(db_session):
-    task_id = uuid.uuid4()
+    task_id = TaskId.new()
 
     with pytest.raises(AppError) as exc_info:
-        await get_task(TaskId(task_id), db_session, _auth_ctx())
+        await get_task(task_id, db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=404) == {
         "code": "TASK_NOT_FOUND",
         "message": "Task not found",
-        "data": {"task_id": f"task_{task_id}"},
+        "data": {"task_id": str(task_id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -299,11 +313,11 @@ async def test_get_task_missing_task_returns_structured_error(db_session):
 
 @pytest.mark.asyncio
 async def test_get_memory_missing_memory_returns_structured_error(db_session):
-    store = JoySafeterMemoryStore(name=f"store-{uuid.uuid4()}", description="")
+    store = JoySafeterMemoryStore(id=MemoryStoreId.new(), name=f"store-{uuid.uuid4()}", description="")
     db_session.add(store)
     await db_session.commit()
     await db_session.refresh(store)
-    memory_id = uuid.uuid4()
+    memory_id = MemoryId.new()
 
     with pytest.raises(AppError) as exc_info:
         await get_memory(store.id, memory_id, None, db_session, _auth_ctx())

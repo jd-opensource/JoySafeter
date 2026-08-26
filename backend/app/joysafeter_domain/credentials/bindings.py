@@ -14,7 +14,8 @@ from .types import (
     NormalizedEndpoint,
     NormalizedMcpUrl,
     ProjectId,
-    require_identifier,
+    require_credential_group_id,
+    require_credential_id,
     require_project_id,
 )
 
@@ -38,6 +39,24 @@ class EgressInjectKind(StrEnum):
     API_KEY = "api_key"
     RAW_HEADER = "raw_header"
     COOKIE = "cookie"
+
+
+class McpCredentialRequirement(StrEnum):
+    REQUIRED = "required"
+    OPTIONAL = "optional"
+    NONE = "none"
+
+
+@dataclass(frozen=True, slots=True)
+class McpEndpointRequirement:
+    server_url: NormalizedMcpUrl
+    auth_requirement: McpCredentialRequirement
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.server_url, NormalizedMcpUrl):
+            raise TypeError("MCP endpoint server URL must be normalized")
+        if not isinstance(self.auth_requirement, McpCredentialRequirement):
+            raise TypeError("MCP endpoint auth requirement must be a McpCredentialRequirement")
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +129,27 @@ class EgressInjectPolicy:
 
 
 @dataclass(frozen=True, slots=True)
+class CredentialBindingFingerprint:
+    usage: CredentialUsage
+    credential_id: CredentialId
+    endpoint: NormalizedEndpoint | None = None
+    inject: EgressInjectPolicy | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.usage, CredentialUsage):
+            raise TypeError("credential binding fingerprint usage must be a CredentialUsage")
+        require_credential_id(self.credential_id)
+        if self.usage is CredentialUsage.ENVIRONMENT_INJECTION:
+            if self.endpoint is not None or self.inject is not None:
+                raise ValueError("environment binding fingerprints do not accept egress fields")
+        elif self.usage is CredentialUsage.HTTP_EGRESS:
+            if not isinstance(self.endpoint, NormalizedEndpoint) or not isinstance(self.inject, EgressInjectPolicy):
+                raise ValueError("HTTP egress binding fingerprints require endpoint and inject policy")
+        else:
+            raise ValueError("unsupported credential binding fingerprint usage")
+
+
+@dataclass(frozen=True, slots=True)
 class ModelInferenceBinding:
     usage: ClassVar[CredentialUsage] = CredentialUsage.MODEL_INFERENCE
     project_id: ProjectId
@@ -119,7 +159,7 @@ class ModelInferenceBinding:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "project_id", require_project_id(self.project_id))
-        require_identifier(self.credential_id, label="credential id")
+        require_credential_id(self.credential_id)
         if not isinstance(self.engine_kind, EngineKind):
             raise TypeError("model inference engine kind must be an EngineKind")
         if self.model_id is not None:
@@ -139,7 +179,7 @@ class WebhookAuthBinding:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "project_id", require_project_id(self.project_id))
-        require_identifier(self.credential_id, label="credential id")
+        require_credential_id(self.credential_id)
         if not isinstance(self.credential_field, CredentialFieldName):
             raise TypeError("webhook credential field must be a CredentialFieldName")
         methods = frozenset(self.methods)
@@ -156,7 +196,7 @@ class EnvironmentInjectionBinding:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "project_id", require_project_id(self.project_id))
-        require_identifier(self.credential_id, label="credential id")
+        require_credential_id(self.credential_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,7 +209,7 @@ class HttpEgressBinding:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "project_id", require_project_id(self.project_id))
-        require_identifier(self.credential_id, label="credential id")
+        require_credential_id(self.credential_id)
         if not isinstance(self.endpoint, NormalizedEndpoint):
             raise TypeError("HTTP egress endpoint must be normalized")
         if not isinstance(self.inject, EgressInjectPolicy):
@@ -181,24 +221,20 @@ class McpGroupBinding:
     usage: ClassVar[CredentialUsage] = CredentialUsage.MCP_EGRESS
     project_id: ProjectId
     group_ids: tuple[CredentialGroupId, ...]
-    declared_server_urls: tuple[NormalizedMcpUrl, ...]
+    endpoint_requirements: tuple[McpEndpointRequirement, ...]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "project_id", require_project_id(self.project_id))
         group_ids = tuple(self.group_ids)
-        if not group_ids:
-            raise ValueError("MCP Group binding requires at least one group id")
         if len(set(group_ids)) != len(group_ids):
             raise ValueError("MCP Group binding contains duplicate group ids")
         for group_id in group_ids:
-            require_identifier(group_id, label="credential group id")
-        urls = tuple(self.declared_server_urls)
-        if any(not isinstance(url, NormalizedMcpUrl) for url in urls):
-            raise TypeError("MCP Group declared server URLs must be normalized")
-        if len(set(urls)) != len(urls):
-            raise ValueError("MCP Group binding contains duplicate declared server URLs")
+            require_credential_group_id(group_id)
+        requirements = tuple(self.endpoint_requirements)
+        if any(not isinstance(requirement, McpEndpointRequirement) for requirement in requirements):
+            raise TypeError("MCP Group endpoint requirements must be typed")
         object.__setattr__(self, "group_ids", group_ids)
-        object.__setattr__(self, "declared_server_urls", urls)
+        object.__setattr__(self, "endpoint_requirements", requirements)
 
 
 CredentialBinding = (

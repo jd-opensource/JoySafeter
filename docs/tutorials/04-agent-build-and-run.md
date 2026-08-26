@@ -25,11 +25,11 @@
 | 配置 | 说明 |
 |------|------|
 | **引擎（engine_kind）** | `claude` / `codex` / `native` / `pi`。决定运行时 harness，并明确声明支持哪些 LLM Protocol。 |
-| **模型接入（secret_ref）** | 页面只展示服务端返回的兼容 LLM Secret；其中的 Provider、Protocol、模型名和凭据决定模型接入。 |
+| **模型连接（model_credential_id）** | 页面只展示服务端返回的兼容 Model Credential；其中的 Provider、Protocol、模型名和凭据字段决定模型接入。 |
 | **系统提示词（system）** | Agent 的角色与行为约束。 |
 | **技能（skills）** | 勾选已 `approved` 的技能（见教程 03），可选特定版本。 |
 | **工具 + 策略（tools）** | 勾选内置工具，并对高危工具设 `always_ask`（运行时人工确认）。 |
-| **MCP 服务器（mcp_servers）** | URL 型外部工具服务（见教程 02），凭据放 MCP 凭据库。 |
+| **MCP 服务器（mcp_servers）** | URL 型外部工具服务（见教程 02），凭据放 MCP 凭据组。 |
 | **权限模式（permission_mode）** | 如 `bypassPermissions` / `default`，影响工具放行策略。 |
 
 `engine_kind` 是必填身份，前端和 API 都不会在未选择时默认回退到某个引擎。
@@ -44,7 +44,7 @@ curl -X POST http://localhost:8000/api/v1/agents \
   -d '{
     "name": "recon-helper",
     "engine_kind": "claude",
-    "secret_ref": "anthropic-production",
+    "model_credential_id": "cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020",
     "system": "你是一名授权范围内的安全侦察助手。",
     "skills": [ { "type": "skill_id", "skill_id": "<id>", "version": "1.0.0" } ],
     "tools": [ ],

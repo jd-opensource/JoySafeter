@@ -38,6 +38,16 @@ from app.joysafeter_domain.services.joysafeter_skill_service import (
 )
 from app.joysafeter_shared.common.app_errors import AccessDeniedError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
+from app.joysafeter_shared.ids import (
+    OrganizationId,
+    OrganizationMemberId,
+    ProjectId,
+    ProjectMemberId,
+    SkillId,
+    SkillSecurityScanId,
+    SkillVersionId,
+    UserId,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -46,41 +56,41 @@ pytestmark = pytest.mark.asyncio
 
 
 async def _user(db, *, name: str = "U") -> AuthUser:
-    user = AuthUser(id=f"user-{uuid.uuid4()}", name=name, email=f"{uuid.uuid4()}@example.com")
+    user = AuthUser(id=UserId.new(), name=name, email=f"{uuid.uuid4()}@example.com")
     db.add(user)
     await db.flush()
     return user
 
 
 async def _org(db) -> Organization:
-    org = Organization(id=f"org-{uuid.uuid4()}", name="Org", slug=f"org-{uuid.uuid4()}")
+    org = Organization(id=OrganizationId.new(), name="Org", slug=f"org-{uuid.uuid4()}")
     db.add(org)
     await db.flush()
     return org
 
 
-async def _project(db, *, org_id: str) -> Project:
-    proj = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="P", slug=f"p-{uuid.uuid4()}")
+async def _project(db, *, org_id: OrganizationId) -> Project:
+    proj = Project(id=ProjectId.new(), org_id=org_id, name="P", slug=f"p-{uuid.uuid4()}")
     db.add(proj)
     await db.flush()
     return proj
 
 
-async def _org_member(db, *, org_id: str, user_id: str, role: str) -> None:
-    db.add(Member(id=f"mem-{uuid.uuid4()}", organization_id=org_id, user_id=user_id, role=role))
+async def _org_member(db, *, org_id: OrganizationId, user_id: UserId, role: str) -> None:
+    db.add(Member(id=OrganizationMemberId.new(), organization_id=org_id, user_id=user_id, role=role))
     await db.flush()
 
 
-async def _project_member(db, *, project_id: str, user_id: str, role: str) -> None:
-    db.add(ProjectMember(id=f"pm-{uuid.uuid4()}", project_id=project_id, user_id=user_id, role=role))
+async def _project_member(db, *, project_id: ProjectId, user_id: UserId, role: str) -> None:
+    db.add(ProjectMember(id=ProjectMemberId.new(), project_id=project_id, user_id=user_id, role=role))
     await db.flush()
 
 
 async def _skill(
     db,
     *,
-    owner_id: str,
-    project_id: str,
+    owner_id: UserId,
+    project_id: ProjectId,
     visibility: str = "project",
     security_status: str = "passed",
 ) -> JoySafeterSkill:
@@ -95,6 +105,7 @@ async def _skill(
         name=name, description=description, content=content, tags=[], license=None, files=scan_files
     )
     skill = JoySafeterSkill(
+        id=SkillId.new(),
         name=name,
         description=description,
         content=content,
@@ -117,10 +128,11 @@ async def _version(
     *,
     skill: JoySafeterSkill,
     version: str,
-    published_by_id: str,
+    published_by_id: UserId,
     lifecycle_status: str = "approved",
 ) -> JoySafeterSkillVersion:
     sv = JoySafeterSkillVersion(
+        id=SkillVersionId.new(),
         skill_id=skill.id,
         version=version,
         skill_name=skill.name,
@@ -138,7 +150,7 @@ async def _version(
     return sv
 
 
-def _svc(db, *, org_id: str, caller_org_role: JoySafeterRole) -> SkillPromotionService:
+def _svc(db, *, org_id: OrganizationId, caller_org_role: JoySafeterRole) -> SkillPromotionService:
     return SkillPromotionService(db, active_org_id=org_id, caller_org_role=caller_org_role)
 
 
@@ -223,7 +235,7 @@ async def test_approve_promotion_non_superuser_denied(db_session):
     # superuser (owner OR admin).
     svc = _svc(db_session, org_id=org.id, caller_org_role=JoySafeterRole.MEMBER)
     with pytest.raises(AccessDeniedError):
-        await svc.approve_promotion(version_id=sv.id, current_user_id="some-member")
+        await svc.approve_promotion(version_id=sv.id, current_user_id=UserId.new())
 
 
 async def test_approve_promotion_admin_allowed(db_session):
@@ -438,6 +450,7 @@ async def test_rescan_failed_verdict_does_not_demote_published_version(db_sessio
     await db_session.commit()
 
     failed_scan = JoySafeterSkillSecurityScan(
+        id=SkillSecurityScanId.new(),
         skill_id=skill.id,
         created_by_id=author.id,
         trigger="manual",

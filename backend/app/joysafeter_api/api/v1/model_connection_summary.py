@@ -10,7 +10,7 @@ from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_domain.llm.compatibility import resolve_credential_profile
 from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredential
 from app.joysafeter_domain.schemas.joysafeter_credential import ModelCredentialSummary
-from app.joysafeter_shared.ids import CredentialId
+from app.joysafeter_shared.ids import CredentialId, ProjectId
 
 
 def normalize_agent_model(value: object) -> dict[str, str] | None:
@@ -55,24 +55,13 @@ def model_connection_summary(
     )
 
 
-def maybe_credential_id(value: CredentialId | str | None) -> CredentialId | None:
-    if not value:
-        return None
-    if isinstance(value, CredentialId):
-        return value
-    try:
-        return CredentialId.from_public(str(value))
-    except ValueError:
-        return None
-
-
 async def load_model_connection_summaries(
     db: AsyncSession,
-    credential_ids: Iterable[CredentialId | str | None],
+    credential_ids: Iterable[CredentialId | None],
     *,
-    project_id: str | None,
+    project_id: ProjectId | None,
 ) -> dict[CredentialId, ModelCredentialSummary]:
-    ids = {parsed for credential_id in credential_ids if (parsed := maybe_credential_id(credential_id))}
+    ids = {credential_id for credential_id in credential_ids if credential_id is not None}
     if not ids:
         return {}
 

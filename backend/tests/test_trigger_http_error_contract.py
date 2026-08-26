@@ -16,10 +16,14 @@ from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredential
 from app.joysafeter_shared.common.app_errors import RequestValidationAppError
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import AgentId, CredentialId, TriggerId
+from app.joysafeter_shared.ids import AgentId, CredentialId, OrganizationId, ProjectId, TriggerId, UserId
+
+USER_ID = UserId.from_public("user_00000000-0000-0000-0000-000000000001")
+ORG_ID = OrganizationId.from_public("org_00000000-0000-0000-0000-000000000001")
+PROJECT_ID = ProjectId.from_public("proj_00000000-0000-0000-0000-000000000001")
 
 
-async def _make_service_credential(db_session, project_id: str) -> CredentialId:
+async def _make_service_credential(db_session, project_id: ProjectId) -> CredentialId:
     cred = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="service",
@@ -31,9 +35,9 @@ async def _make_service_credential(db_session, project_id: str) -> CredentialId:
     return cred.id
 
 
-def _ctx(project_id: str = "proj-http", org_id: str = "org-http") -> JoySafeterAuthContext:
+def _ctx(project_id: ProjectId = PROJECT_ID, org_id: OrganizationId = ORG_ID) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="user-http",
+        user_id=USER_ID,
         org_id=org_id,
         project_id=project_id,
         role=JoySafeterRole.ADMIN,
@@ -145,7 +149,7 @@ async def test_direct_create_rejects_malformed_auth_methods_before_db_access(aut
             webhook_auth_credential_id=CredentialId.new(),
             webhook_auth_field="WEBHOOK_SECRET",
             auth_methods=auth_methods,
-            project_id="proj-http",
+            project_id=PROJECT_ID,
         )
 
     assert exc.value.code == "TRIGGER_AUTH_METHODS_INVALID"
@@ -168,7 +172,7 @@ async def test_direct_update_rejects_malformed_auth_methods_before_db_access(aut
     service = TriggerApplicationService(_NoDb(), credential_audit_actor=CredentialAuditActor.system("test"))
 
     with pytest.raises(RequestValidationAppError) as exc:
-        await service.update(TriggerId.new(), "proj-http", auth_methods=auth_methods)
+        await service.update(TriggerId.new(), PROJECT_ID, auth_methods=auth_methods)
 
     assert exc.value.code == "TRIGGER_AUTH_METHODS_INVALID"
 
@@ -221,21 +225,26 @@ async def test_create_blank_webhook_secret_key_returns_semantic_error_without_db
 
 @pytest.mark.asyncio
 async def test_update_invalid_session_mode_returns_semantic_error(db_session):
-    org = Organization(name=f"Trigger HTTP Org {uuid.uuid4()}", slug=f"trigger-http-org-{uuid.uuid4()}")
+    org = Organization(
+        id=OrganizationId.new(), name=f"Trigger HTTP Org {uuid.uuid4()}", slug=f"trigger-http-org-{uuid.uuid4()}"
+    )
     db_session.add(org)
     await db_session.flush()
 
-    project = Project(org_id=org.id, name="Trigger HTTP Project", slug=f"trigger-http-project-{uuid.uuid4()}")
+    project = Project(
+        id=ProjectId.new(), org_id=org.id, name="Trigger HTTP Project", slug=f"trigger-http-project-{uuid.uuid4()}"
+    )
     db_session.add(project)
     await db_session.flush()
 
-    agent = JoySafeterAgent(name=f"trigger-http-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"trigger-http-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.flush()
 
     cred_id = await _make_service_credential(db_session, project.id)
 
     trigger = JoySafeterTrigger(
+        id=TriggerId.new(),
         name=f"trigger-http-{uuid.uuid4()}",
         type="webhook",
         agent_id=agent.id,
@@ -248,7 +257,7 @@ async def test_update_invalid_session_mode_returns_semantic_error(db_session):
         config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
         last_payload={},
         project_id=project.id,
-        user_id="user-http",
+        user_id=USER_ID,
         org_id=org.id,
     )
     db_session.add(trigger)
@@ -266,23 +275,31 @@ async def test_update_invalid_session_mode_returns_semantic_error(db_session):
 
 @pytest.mark.asyncio
 async def test_update_blank_webhook_secret_key_returns_semantic_error_without_persisting(db_session):
-    org = Organization(name=f"Trigger HTTP Secret Org {uuid.uuid4()}", slug=f"trigger-http-secret-org-{uuid.uuid4()}")
+    org = Organization(
+        id=OrganizationId.new(),
+        name=f"Trigger HTTP Secret Org {uuid.uuid4()}",
+        slug=f"trigger-http-secret-org-{uuid.uuid4()}",
+    )
     db_session.add(org)
     await db_session.flush()
 
     project = Project(
-        org_id=org.id, name="Trigger HTTP Secret Project", slug=f"trigger-http-secret-project-{uuid.uuid4()}"
+        id=ProjectId.new(),
+        org_id=org.id,
+        name="Trigger HTTP Secret Project",
+        slug=f"trigger-http-secret-project-{uuid.uuid4()}",
     )
     db_session.add(project)
     await db_session.flush()
 
-    agent = JoySafeterAgent(name=f"trigger-http-secret-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"trigger-http-secret-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.flush()
 
     cred_id = await _make_service_credential(db_session, project.id)
 
     trigger = JoySafeterTrigger(
+        id=TriggerId.new(),
         name=f"trigger-http-secret-{uuid.uuid4()}",
         type="webhook",
         agent_id=agent.id,
@@ -295,7 +312,7 @@ async def test_update_blank_webhook_secret_key_returns_semantic_error_without_pe
         config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
         last_payload={},
         project_id=project.id,
-        user_id="user-http",
+        user_id=USER_ID,
         org_id=org.id,
     )
     db_session.add(trigger)

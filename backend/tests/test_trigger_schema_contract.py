@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime, timezone
 
 import pytest
@@ -10,7 +9,7 @@ from app.joysafeter_domain.schemas.joysafeter_trigger import (
     TriggerRunResponse,
     TriggerUpdateRequest,
 )
-from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
+from app.joysafeter_shared.ids import AgentId, EnvironmentId, ProjectId, SessionId, TaskId, TriggerId
 
 pytestmark = pytest.mark.no_db
 
@@ -24,7 +23,7 @@ def test_cron_trigger_create_trims_strings_before_validation() -> None:
         cron_expr="  */5 * * * *  ",
         timezone="  UTC  ",
         concurrency_policy="  forbid  ",
-        environment_ref="   ",
+        environment_id=EnvironmentId.new(),
         description="  ",
     )
 
@@ -34,7 +33,7 @@ def test_cron_trigger_create_trims_strings_before_validation() -> None:
     assert req.cron_expr == "*/5 * * * *"
     assert req.timezone == "UTC"
     assert req.concurrency_policy == "forbid"
-    assert req.environment_ref is None
+    assert isinstance(req.environment_id, EnvironmentId)
     assert req.description is None
 
 
@@ -120,7 +119,7 @@ def test_trigger_update_allows_clearing_nullable_fields_and_trims_values() -> No
         prompt_template="  summarize week  ",
         cron_expr="  0 9 * * 1  ",
         timezone="  UTC  ",
-        environment_ref="   ",
+        environment_id=None,
         description=" ",
     )
 
@@ -128,7 +127,7 @@ def test_trigger_update_allows_clearing_nullable_fields_and_trims_values() -> No
     assert req.prompt_template == "summarize week"
     assert req.cron_expr == "0 9 * * 1"
     assert req.timezone == "UTC"
-    assert req.environment_ref is None
+    assert req.environment_id is None
     assert req.description is None
 
 
@@ -148,7 +147,7 @@ def test_trigger_requests_reject_removed_system_prompt_field() -> None:
 
 
 def test_trigger_responses_serialize_managed_id_prefixes() -> None:
-    trigger_id = uuid.uuid4()
+    trigger_id = TriggerId.new()
     agent_id = AgentId.new()
     task_id = TaskId.new()
     session_id = SessionId.new()
@@ -161,7 +160,7 @@ def test_trigger_responses_serialize_managed_id_prefixes() -> None:
         type="cron",
         agent_id=agent_id,
         prompt_template="summarize",
-        environment_ref=None,
+        environment_id=None,
         enabled=True,
         session_mode="fresh",
         pinned_session_id=None,
@@ -175,7 +174,7 @@ def test_trigger_responses_serialize_managed_id_prefixes() -> None:
         concurrency_policy="allow",
         next_run_at=None,
         last_fired_slot=None,
-        project_id="project-a",
+        project_id=ProjectId.new(),
         last_attempt_at=None,
         last_success_at=None,
         last_error=None,
@@ -199,9 +198,9 @@ def test_trigger_responses_serialize_managed_id_prefixes() -> None:
         completed_at=now,
     )
 
-    assert trigger.model_dump(mode="json")["id"] == f"trig_{trigger_id}"
+    assert trigger.model_dump(mode="json")["id"] == str(trigger_id)
     assert trigger.model_dump(mode="json")["agent_id"] == str(agent_id)
     assert trigger.model_dump(mode="json")["last_task_id"] == str(task_id)
     assert run.model_dump(mode="json")["id"] == str(task_id)
-    assert run.model_dump(mode="json")["trigger_id"] == f"trig_{trigger_id}"
+    assert run.model_dump(mode="json")["trigger_id"] == str(trigger_id)
     assert run.model_dump(mode="json")["chat_session_id"] == str(session_id)

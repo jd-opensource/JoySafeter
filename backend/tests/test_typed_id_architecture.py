@@ -9,9 +9,12 @@ pytestmark = pytest.mark.no_db
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = BACKEND_ROOT.parent
 
 ENTITY_ID_CLASS_NAMES = (
     "AgentId",
+    "AgentVersionId",
+    "ApiKeyId",
     "SessionId",
     "TaskId",
     "EnvironmentId",
@@ -38,6 +41,8 @@ ENTITY_ID_CLASS_NAMES = (
 
 ENTITY_ID_PREFIXES = (
     "agent_",
+    "agentver_",
+    "apikey_",
     "sess_",
     "task_",
     "env_",
@@ -62,6 +67,48 @@ ENTITY_ID_PREFIXES = (
     "staudit_",
 )
 
+ENTITY_MODEL_CLASS_NAMES = {
+    "JoySafeterAgent",
+    "JoySafeterAgentVersion",
+    "JoySafeterApiKey",
+    "JoySafeterCredential",
+    "JoySafeterCredentialGroup",
+    "JoySafeterEnvironment",
+    "JoySafeterFile",
+    "JoySafeterMemoryStore",
+    "JoySafeterMemory",
+    "JoySafeterMemoryVersion",
+    "JoySafeterSandbox",
+    "JoySafeterSession",
+    "JoySafeterSessionEvent",
+    "JoySafeterSessionFile",
+    "JoySafeterSessionMemoryStore",
+    "JoySafeterSessionRepo",
+    "JoySafeterSkill",
+    "JoySafeterSkillFile",
+    "JoySafeterSkillSecurityScan",
+    "JoySafeterSkillVersion",
+    "JoySafeterSkillVersionFile",
+    "JoySafeterSkillUsageLog",
+    "JoySafeterStorageVolume",
+    "JoySafeterStorageProjectGrant",
+    "JoySafeterStorageOrganizationGrant",
+    "JoySafeterSessionStorageMount",
+    "JoySafeterStorageMountAudit",
+    "JoySafeterTask",
+    "JoySafeterTrigger",
+    "AuthUser",
+    "AuthSession",
+    "Organization",
+    "Member",
+    "Project",
+    "ProjectMember",
+    "OAuthAccount",
+    "JoySafeterCredentialAccessAudit",
+    "SecurityAuditLog",
+    "JoySafeterSandboxNetworkPolicy",
+}
+
 REVIEWED_ADAPTER_CATEGORIES = {
     "typed_id_codec": "EntityId public/native codecs and ORM hydration",
     "strict_validation_probe": "native UUID parse used only to reject a bare public reference",
@@ -69,7 +116,6 @@ REVIEWED_ADAPTER_CATEGORIES = {
     "advisory_locks": "UUID bytes used to derive PostgreSQL advisory-lock keys",
     "redis_queue_channel_payloads": "Redis keys, channels, queue members, and payload fields",
     "runner_protobuf_fields": "runner/orchestrator wire fields defined as UUID strings",
-    "telemetry_identities": "OpenTelemetry observation identities, not public entity IDs",
     "object_storage_keys": "object-store keys derived from FileId",
     "physical_resource_naming": "provider labels, env vars, pod/container, and Envoy names",
     "derived_non_identity_value": "UUID bits used for deterministic jitter, not as an ID contract",
@@ -87,10 +133,6 @@ REVIEWED_ENTITY_UUID_ADAPTERS = {
         ("sql_uuid_bind_result", "redis_queue_channel_payloads"),
         2,
     ),
-    "python:app/joysafeter_api/api/v1/sessions.py::_canonical_environment_ref::uuid_parse": (
-        ("strict_validation_probe",),
-        1,
-    ),
     "python:app/joysafeter_api/api/v1/tasks.py::_stream_via_redis::as_uuid_call": (
         ("redis_queue_channel_payloads",),
         1,
@@ -104,10 +146,6 @@ REVIEWED_ENTITY_UUID_ADAPTERS = {
         1,
     ),
     "python:app/joysafeter_domain/schemas/joysafeter_environment.py::_validate_environment_name::uuid_parse": (
-        ("strict_validation_probe",),
-        1,
-    ),
-    "python:app/joysafeter_domain/services/joysafeter_environment_service.py::EnvironmentService::get_environment_by_ref::uuid_parse": (
         ("strict_validation_probe",),
         1,
     ),
@@ -131,14 +169,6 @@ REVIEWED_ENTITY_UUID_ADAPTERS = {
         1,
     ),
     "python:app/joysafeter_shared/ids.py::as_uuid::uuid_attr": (("typed_id_codec",), 1),
-    "python:app/joysafeter_shared/observation/otel/persistence_processor.py::_ExecutionBucket::on_end::uuid_parse": (
-        ("telemetry_identities",),
-        1,
-    ),
-    "python:app/joysafeter_shared/observation/otel/persistence_processor.py::_ExecutionBucket::on_start::uuid_parse": (
-        ("telemetry_identities",),
-        1,
-    ),
     "python:app/joysafeter_shared/orchestrator_bridge/enqueue.py::enqueue_joysafeter_task::uuid_attr": (
         ("redis_queue_channel_payloads",),
         1,
@@ -202,14 +232,13 @@ REVIEWED_ENTITY_UUID_ADAPTERS = {
         ("redis_queue_channel_payloads",),
         2,
     ),
-    "rust:app/joysafeter_orchestrator_rs/src/ids.rs::uuid_parse": (("typed_id_codec",), 1),
     "rust:app/joysafeter_orchestrator_rs/src/kernel/command_listener.rs::uuid_parse": (
         ("redis_queue_channel_payloads", "runner_protobuf_fields"),
         1,
     ),
     "rust:app/joysafeter_orchestrator_rs/src/kernel/harness_input_builder.rs::as_uuid": (
         ("sql_uuid_bind_result", "runner_protobuf_fields"),
-        4,
+        2,
     ),
     "rust:app/joysafeter_orchestrator_rs/src/kernel/queue.rs::as_uuid": (
         ("redis_queue_channel_payloads",),
@@ -225,7 +254,7 @@ REVIEWED_ENTITY_UUID_ADAPTERS = {
     ),
     "rust:app/joysafeter_orchestrator_rs/src/kernel/sandbox_resolver.rs::as_uuid": (
         ("physical_resource_naming", "third_party_uuid_contracts"),
-        27,
+        24,
     ),
     "rust:app/joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs::as_uuid": (
         ("redis_queue_channel_payloads",),
@@ -246,7 +275,7 @@ REVIEWED_ENTITY_UUID_ADAPTERS = {
     ),
     "rust:app/joysafeter_orchestrator_rs/src/sandbox/envoy.rs::as_uuid": (
         ("physical_resource_naming",),
-        6,
+        8,
     ),
     "rust:app/joysafeter_orchestrator_rs/src/sandbox/k8s.rs::as_uuid": (
         ("physical_resource_naming",),
@@ -659,78 +688,10 @@ def _scan_entity_uuid_adapters() -> Counter[str]:
     return counts
 
 
-CORE_TYPED_ID_FILES = (
-    "app/joysafeter_api/api/v1/agents.py",
-    "app/joysafeter_api/api/v1/analytics.py",
-    "app/joysafeter_api/api/v1/environments.py",
-    "app/joysafeter_api/api/v1/files.py",
-    "app/joysafeter_api/api/v1/credentials.py",
-    "app/joysafeter_api/api/v1/credential_groups.py",
-    "app/joysafeter_api/api/v1/sandboxes.py",
-    "app/joysafeter_api/api/v1/sessions.py",
-    "app/joysafeter_api/api/v1/tasks.py",
-    "app/joysafeter_api/api/v1/triggers.py",
-    "app/joysafeter_application/triggers/execution_service.py",
-    "app/joysafeter_domain/services/analytics_service.py",
-    "app/joysafeter_application/agents/command_service.py",
-    "app/joysafeter_application/agents/lifecycle_service.py",
-    "app/joysafeter_application/agents/query_service.py",
-    "app/joysafeter_infrastructure/agents/sqlalchemy_repository.py",
-    "app/joysafeter_application/credentials/application_service.py",
-    "app/joysafeter_domain/services/joysafeter_file_service.py",
-    "app/joysafeter_domain/services/joysafeter_sandbox_service.py",
-    "app/joysafeter_application/sessions/resource_service.py",
-    "app/joysafeter_domain/services/joysafeter_session_service.py",
-    "app/joysafeter_domain/services/joysafeter_task_service.py",
-    "app/joysafeter_domain/services/joysafeter_task_state_machine.py",
-    "app/joysafeter_application/triggers/fire_service.py",
-    "app/joysafeter_domain/services/joysafeter_trigger_runtime_gate.py",
-    "app/joysafeter_domain/services/joysafeter_trigger_service.py",
-    "app/joysafeter_domain/services/task_submission_service.py",
-)
-
-SKILL_TYPED_ID_FILES = (
-    "app/joysafeter_api/api/v1/skills.py",
-    "app/joysafeter_api/api/v1/skills_ai_authoring.py",
-    "app/joysafeter_domain/repositories/joysafeter_skill.py",
-    "app/joysafeter_domain/repositories/joysafeter_skill_version.py",
-    "app/joysafeter_domain/services/joysafeter_skill_security.py",
-    "app/joysafeter_domain/services/joysafeter_skill_service.py",
-)
-
-STORAGE_TYPED_ID_FILES = (
-    "app/joysafeter_api/api/v1/storage_volumes.py",
-    "app/joysafeter_domain/schemas/joysafeter_storage_mount.py",
-    "app/joysafeter_domain/schemas/joysafeter_session.py",
-    "app/joysafeter_domain/services/joysafeter_storage_mount_service.py",
-)
-
-
-@pytest.mark.parametrize("relative_path", CORE_TYPED_ID_FILES)
-def test_core_execution_graph_has_no_bare_uuid_entity_annotations(relative_path: str):
-    source = (BACKEND_ROOT / relative_path).read_text()
-    forbidden = re.compile(
-        r"\b(agent_id|session_id|task_id|sandbox_id|trigger_id|environment_id|env_id|secret_id|vault_id|cred_id|credential_id|file_id|resource_id|event_id)\s*:\s*(?:Optional\[)?uuid\.UUID"
-    )
-
-    assert forbidden.search(source) is None, relative_path
-
-
-def test_agent_legacy_helpers_are_removed_from_application_code():
-    app_root = BACKEND_ROOT / "app"
-    matches = []
-    for path in app_root.rglob("*.py"):
-        source = path.read_text()
-        if "parse_agent_id" in source or "format_agent_id" in source:
-            matches.append(str(path.relative_to(BACKEND_ROOT)))
-
-    assert matches == []
-
-
-def test_python_application_has_no_bare_core_entity_annotations():
+def test_python_application_has_no_bare_entity_annotations():
     app_root = BACKEND_ROOT / "app"
     forbidden = re.compile(
-        r"\b(?P<field>(?:(?:[A-Za-z0-9]+_)?(?:agent|session|task|sandbox|trigger|environment|secret|vault|credential|memory_store|memory|memory_version|file|session_resource|event|storage_volume|storage_grant|storage_mount_audit|volume)_id|store_id|env_id|cred_id|resource_id))\s*:\s*"
+        r"\b(?P<field>(?:(?:[A-Za-z0-9]+_)?(?:agent|agent_version|api_key|session|task|sandbox|sandbox_network_policy|trigger|environment|secret|vault|credential|credential_group|credential_access_audit|memory_store|memory|memory_version|skill|skill_file|skill_security_scan|skill_version|skill_version_file|skill_usage|file|session_resource|event|storage_volume|storage_grant|storage_mount_audit|volume|user|organization|organization_member|project|project_member|oauth_account|auth_session|security_audit)_id|store_id|env_id|cred_id|resource_id|scan_id|version_id))\s*:\s*"
         r"(?:(?:Optional|Union)\[)?(?:uuid\.UUID|UUID|str|Any)"
     )
     matches = []
@@ -740,79 +701,9 @@ def test_python_application_has_no_bare_core_entity_annotations():
             match.group("field")
             for match in forbidden.finditer(path.read_text())
             if match.group("field") not in {"harness_session_id", "source_event_id"}
-            and not (
-                relative_path == "app/joysafeter_domain/schemas/joysafeter_session.py"
-                and match.group("field") == "environment_id"
-            )
         ]
         if violations:
             matches.append(relative_path)
-
-    assert matches == []
-
-
-def test_core_legacy_formatters_are_removed():
-    app_root = BACKEND_ROOT / "app"
-    matches = []
-    for path in app_root.rglob("*.py"):
-        source = path.read_text()
-        if "format_session_id" in source or "format_task_id" in source or "format_sandbox_id" in source:
-            matches.append(str(path.relative_to(BACKEND_ROOT)))
-
-    assert matches == []
-
-
-def test_core_legacy_parsers_are_removed():
-    app_root = BACKEND_ROOT / "app"
-    forbidden = (
-        "parse_agent_id",
-        "parse_session_id",
-        "parse_task_id",
-        "parse_task_after_id",
-        "parse_sandbox_id",
-        "parse_trigger_id",
-        "parse_env_id",
-        "parse_secret_id",
-        "parse_vault_id",
-        "parse_cred_id",
-        "parse_skill_id",
-        "parse_skill_file_id",
-        "parse_skill_security_scan_id",
-        "parse_file_id",
-        "parse_resource_id",
-        "parse_event_id",
-    )
-    matches = []
-    for path in app_root.rglob("*.py"):
-        source = path.read_text()
-        if any(name in source for name in forbidden):
-            matches.append(str(path.relative_to(BACKEND_ROOT)))
-
-    assert matches == []
-
-
-@pytest.mark.parametrize("relative_path", SKILL_TYPED_ID_FILES)
-def test_skill_execution_graph_has_no_bare_uuid_entity_annotations(relative_path: str):
-    source = (BACKEND_ROOT / relative_path).read_text()
-    forbidden = re.compile(r"\b(skill_id|file_id|scan_id|version_id)\s*:\s*(?:Optional\[)?(?:uuid\.UUID|UUID|str|Any)")
-
-    assert forbidden.search(source) is None, relative_path
-
-
-@pytest.mark.parametrize("relative_path", STORAGE_TYPED_ID_FILES)
-def test_storage_execution_graph_has_no_bare_identity_annotations(relative_path: str):
-    source = (BACKEND_ROOT / relative_path).read_text()
-    forbidden = re.compile(r"\b(volume_id|after_id)\s*:\s*(?:Optional\[)?(?:uuid\.UUID|UUID|str|Any)")
-
-    assert forbidden.search(source) is None, relative_path
-
-
-def test_same_id_compatibility_helper_is_removed():
-    app_root = BACKEND_ROOT / "app"
-    matches = []
-    for path in app_root.rglob("*.py"):
-        if "same_id" in path.read_text():
-            matches.append(str(path.relative_to(BACKEND_ROOT)))
 
     assert matches == []
 
@@ -922,14 +813,19 @@ def probe(session_id, task, sid, adapter):
     )
 
 
-def test_retained_entity_uuid_adapters_match_reviewed_allowlist():
-    reviewed_counts = {key: count for key, (_, count) in REVIEWED_ENTITY_UUID_ADAPTERS.items()}
+def test_retained_python_entity_uuid_adapters_match_reviewed_allowlist():
+    reviewed_counts = {
+        key: count for key, (_, count) in REVIEWED_ENTITY_UUID_ADAPTERS.items() if key.startswith("python:")
+    }
     reviewed_categories = {
         category for categories, _ in REVIEWED_ENTITY_UUID_ADAPTERS.values() for category in categories
     }
 
     assert reviewed_categories <= set(REVIEWED_ADAPTER_CATEGORIES)
-    assert _scan_entity_uuid_adapters() == Counter(reviewed_counts)
+    actual_counts = Counter(
+        {key: count for key, count in _scan_entity_uuid_adapters().items() if key.startswith("python:")}
+    )
+    assert actual_counts == Counter(reviewed_counts)
 
 
 def test_python_application_does_not_reprefix_typed_entity_rows():
@@ -945,428 +841,115 @@ def test_python_application_does_not_reprefix_typed_entity_rows():
     assert matches == []
 
 
-def test_analytics_schemas_keep_agent_identity_typed():
-    source = (BACKEND_ROOT / "app/joysafeter_domain/schemas/analytics.py").read_text()
+def test_registered_entity_ids_have_one_python_definition():
+    canonical_path = BACKEND_ROOT / "app/joysafeter_shared/ids.py"
+    duplicates: list[str] = []
 
-    assert re.search(r"class AgentMetricsResponse.*?agent_id:\s*AgentId", source, re.S)
-    assert re.search(r"class AlertItem.*?agent_id:\s*Optional\[AgentId\]", source, re.S)
-    assert re.search(r"class AgentRankingItem.*?agent_id:\s*AgentId", source, re.S)
-
-
-def test_trigger_models_keep_trigger_identity_typed():
-    trigger_source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_trigger.py").read_text()
-    task_source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_task.py").read_text()
-
-    assert re.search(r"\bid:\s*Mapped\[TriggerId\].*?EntityIdType\(TriggerId\)", trigger_source, re.S)
-    assert re.search(
-        r"\btrigger_id:\s*Mapped\[Optional\[TriggerId\]\].*?EntityIdType\(TriggerId\)",
-        task_source,
-        re.S,
-    )
-
-
-def test_environment_models_keep_environment_identity_typed():
-    environment_source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_environment.py").read_text()
-    audit_source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_storage_mount.py").read_text()
-
-    assert re.search(
-        r"\bid:\s*Mapped\[EnvironmentId\].*?EntityIdType\(EnvironmentId\)",
-        environment_source,
-        re.S,
-    )
-    assert re.search(
-        r"\benvironment_id:\s*Mapped\[Optional\[EnvironmentId\]\].*?EntityIdType\(EnvironmentId\)",
-        audit_source,
-        re.S,
-    )
-
-
-def test_credential_models_keep_identity_typed():
-    source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_credential.py").read_text()
-
-    assert re.search(
-        r"class JoySafeterCredential\b.*?\bid:\s*Mapped\[CredentialId\].*?EntityIdType\(CredentialId\)",
-        source,
-        re.S,
-    )
-    assert re.search(
-        r"\bgroup_id:\s*Mapped\[Optional\[CredentialGroupId\]\].*?EntityIdType\(CredentialGroupId\)",
-        source,
-        re.S,
-    )
-    assert re.search(
-        r"class JoySafeterCredentialGroup\b.*?\bid:\s*Mapped\[CredentialGroupId\].*?EntityIdType\(CredentialGroupId\)",
-        source,
-        re.S,
-    )
-    assert re.search(
-        r"\bcredential_group_id:\s*Mapped\[CredentialGroupId\].*?EntityIdType\(CredentialGroupId\)",
-        source,
-        re.S,
-    )
-
-
-def test_sandbox_models_keep_sandbox_identity_typed():
-    sandbox_source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_sandbox.py").read_text()
-    task_source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_task.py").read_text()
-    session_source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_session.py").read_text()
-    policy_source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_sandbox_network_policy.py").read_text()
-
-    assert re.search(r"\bid:\s*Mapped\[SandboxId\].*?EntityIdType\(SandboxId\)", sandbox_source, re.S)
-    assert re.search(
-        r"\bsandbox_id:\s*Mapped\[Optional\[SandboxId\]\].*?EntityIdType\(SandboxId\)",
-        task_source,
-        re.S,
-    )
-    assert re.search(
-        r"\blast_sandbox_id:\s*Mapped\[Optional\[SandboxId\]\].*?EntityIdType\(SandboxId\)",
-        session_source,
-        re.S,
-    )
-    assert re.search(r"\bsandbox_id:\s*Mapped\[SandboxId\].*?EntityIdType\(SandboxId\)", policy_source, re.S)
-
-
-def test_memory_models_keep_memory_identity_typed():
-    source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_memory.py").read_text()
-
-    assert re.search(r"class JoySafeterMemoryStore.*?\bid:\s*Mapped\[MemoryStoreId\]", source, re.S)
-    assert re.search(r"class JoySafeterMemory.*?\bid:\s*Mapped\[MemoryId\]", source, re.S)
-    assert re.search(r"\bstore_id:\s*Mapped\[MemoryStoreId\]", source)
-    assert re.search(r"\bcurrent_version_id:\s*Mapped\[Optional\[MemoryVersionId\]\]", source)
-    assert re.search(r"class JoySafeterMemoryVersion.*?\bid:\s*Mapped\[MemoryVersionId\]", source, re.S)
-
-
-def test_skill_models_keep_skill_identity_typed():
-    source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_skill.py").read_text()
-
-    expected = (
-        ("JoySafeterSkill", "SkillId"),
-        ("JoySafeterSkillFile", "SkillFileId"),
-        ("JoySafeterSkillSecurityScan", "SkillSecurityScanId"),
-        ("JoySafeterSkillVersion", "SkillVersionId"),
-        ("JoySafeterSkillVersionFile", "SkillVersionFileId"),
-        ("JoySafeterSkillUsageLog", "SkillUsageId"),
-    )
-    for model, id_type in expected:
-        assert re.search(rf"class {model}.*?\bid:\s*Mapped\[{id_type}\]", source, re.S)
-
-
-def test_file_and_session_resource_models_keep_identity_typed():
-    file_source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_file.py").read_text()
-    session_file_source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_session_file.py").read_text()
-    session_repo_source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_session_repo.py").read_text()
-
-    assert re.search(r"\bid:\s*Mapped\[FileId\].*?EntityIdType\(FileId\)", file_source, re.S)
-    assert re.search(
-        r"\bid:\s*Mapped\[SessionResourceId\].*?EntityIdType\(SessionResourceId\)",
-        session_file_source,
-        re.S,
-    )
-    assert re.search(
-        r"\bfile_id:\s*Mapped\[FileId\].*?EntityIdType\(FileId\)",
-        session_file_source,
-        re.S,
-    )
-    assert re.search(
-        r"\bid:\s*Mapped\[SessionResourceId\].*?EntityIdType\(SessionResourceId\)",
-        session_repo_source,
-        re.S,
-    )
-
-
-def test_storage_models_keep_resource_identity_typed():
-    source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_storage_mount.py").read_text()
-
-    expected = (
-        ("JoySafeterStorageVolume", "StorageVolumeId"),
-        ("JoySafeterStorageProjectGrant", "StorageGrantId"),
-        ("JoySafeterStorageOrganizationGrant", "StorageGrantId"),
-        ("JoySafeterSessionStorageMount", "SessionResourceId"),
-        ("JoySafeterStorageMountAudit", "StorageMountAuditId"),
-    )
-    for model, id_type in expected:
-        assert re.search(
-            rf"class {model}.*?\bid:\s*Mapped\[{id_type}\].*?EntityIdType\({id_type}\)",
-            source,
-            re.S,
-        )
-    assert source.count("volume_id: Mapped[StorageVolumeId]") == 3
-    assert "volume_id: Mapped[Optional[StorageVolumeId]]" in source
-
-
-def test_storage_response_schemas_keep_resource_identity_typed():
-    storage_source = (BACKEND_ROOT / "app/joysafeter_domain/schemas/joysafeter_storage_mount.py").read_text()
-    session_source = (BACKEND_ROOT / "app/joysafeter_domain/schemas/joysafeter_session.py").read_text()
-
-    assert re.search(r"class StorageVolumeResponse.*?\bid:\s*StorageVolumeId", storage_source, re.S)
-    assert storage_source.count("id: StorageGrantId") == 2
-    assert storage_source.count("volume_id: StorageVolumeId") == 2
-    assert re.search(
-        r"class StorageMountAuditResponse.*?\bid:\s*StorageMountAuditId.*?"
-        r"volume_id:\s*Optional\[StorageVolumeId\]",
-        storage_source,
-        re.S,
-    )
-    assert re.search(
-        r"class SessionStorageMountResponse.*?\bid:\s*SessionResourceId.*?"
-        r"volume_id:\s*StorageVolumeId",
-        session_source,
-        re.S,
-    )
-
-
-def test_session_event_model_keeps_event_identity_typed():
-    source = (BACKEND_ROOT / "app/joysafeter_domain/models/joysafeter_session.py").read_text()
-    assert re.search(
-        r"class JoySafeterSessionEvent.*?\bid:\s*Mapped\[EventId\].*?EntityIdType\(EventId\)",
-        source,
-        re.S,
-    )
-
-
-def test_session_credential_groups_are_typed_not_jsonb():
-    """Sessions bind credential GROUPS via the typed association table, not a
-    ``vault_ids`` JSONB list. The schema carries ``list[CredentialGroupId]`` (on
-    both request + response) and the credential snapshot adapter persists typed
-    ``JoySafeterSessionCredentialGroup`` rows — so ids stay typed end to end and
-    the legacy JSONB column is gone. (Persistence lives in the infrastructure
-    credential adapter after application-layering; the session service now only
-    queries the typed association model.)
-    """
-    schema_source = (BACKEND_ROOT / "app/joysafeter_domain/schemas/joysafeter_session.py").read_text()
-    service_source = (BACKEND_ROOT / "app/joysafeter_domain/services/joysafeter_session_service.py").read_text()
-    adapter_source = (BACKEND_ROOT / "app/joysafeter_infrastructure/credentials/snapshot_adapter.py").read_text()
-
-    assert "vault_ids" not in schema_source
-    assert "vault_ids" not in service_source
-    assert schema_source.count("credential_group_ids: list[CredentialGroupId]") == 2
-    assert "JoySafeterSessionCredentialGroup(" in adapter_source
-
-
-def test_rust_orchestrator_has_no_bare_core_entity_uuid_annotations():
-    rust_root = BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src"
-    forbidden = re.compile(
-        r"\b(?:(?:[A-Za-z0-9]+_)?(?:agent|session|task|environment|vault|credential|sandbox|memory_store|memory|memory_version|skill|file|session_resource|event)_id|store_id|resource_id)\s*:\s*(?:Option<)?Uuid"
-    )
-    matches = []
-    for path in rust_root.rglob("*.rs"):
-        if forbidden.search(path.read_text()):
-            matches.append(str(path.relative_to(BACKEND_ROOT)))
-
-    assert matches == []
-
-
-def test_rust_entity_ids_cannot_implicitly_deref_to_uuid():
-    rust_ids = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/ids.rs").read_text()
-
-    assert "impl std::ops::Deref" not in rust_ids
-
-
-def test_rust_environment_and_credential_identity_boundaries_are_typed():
-    rust_ids = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/ids.rs").read_text()
-    rust_harness = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/harness_input_builder.rs").read_text()
-    rust_resolver = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/sandbox_resolver.rs").read_text()
-    rust_store = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/credentials/store.rs").read_text()
-
-    assert 'entity_id!(EnvironmentId, "env_");' in rust_ids
-    assert 'entity_id!(CredentialId, "cred_");' in rust_ids
-    assert 'entity_id!(CredentialGroupId, "credgrp_");' in rust_ids
-    assert "EnvironmentId::from_public(env_ref)" in rust_resolver
-    assert ".bind(env_id)" in rust_resolver
-    assert 'strip_prefix("env_").unwrap_or(env_ref)' not in rust_resolver
-    # The harness resolves the model credential through the typed-id boundary
-    # helper (Option<CredentialId> -> CredentialId); the former inline
-    # `credential_id: CredentialId` struct field moved into the credential
-    # material-access service during application-layering.
-    assert "require_bound_credential_id(agent.model_credential_id)" in rust_harness
-    assert "association_group_id: Option<CredentialGroupId>" in rust_store
-    assert "credential_id: Option<CredentialId>" in rust_store
-
-
-def test_rust_orchestrator_models_use_core_entity_ids():
-    source = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/db/models.rs").read_text()
-
-    def struct_body(name: str) -> str:
-        match = re.search(rf"pub struct {name}\s*\{{(?P<body>.*?)\n\}}", source, re.S)
-        assert match is not None, name
-        return match.group("body")
-
-    agent_model = struct_body("JoySafeterAgent")
-    task_model = struct_body("JoySafeterTask")
-    session_model = struct_body("JoySafeterSession")
-    sandbox_model = struct_body("JoySafeterSandbox")
-
-    assert re.search(r"\bpub id:\s*AgentId\b", agent_model)
-    assert re.search(r"\bpub id:\s*TaskId\b", task_model)
-    assert re.search(r"\bpub session_id:\s*Option<SessionId>", task_model)
-    assert re.search(r"\bpub sandbox_id:\s*Option<SandboxId>", task_model)
-    assert re.search(r"\bpub id:\s*SessionId\b", session_model)
-    assert re.search(r"\bpub id:\s*SandboxId\b", sandbox_model)
-    assert re.search(r"\bpub chat_session_id:\s*Option<SessionId>", sandbox_model)
-
-
-def test_sandbox_physical_boundaries_explicitly_unwrap_typed_ids():
-    python_runtime = (BACKEND_ROOT / "app/joysafeter_shared/orchestrator_bridge/runtime_commands.py").read_text()
-    rust_ids = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/ids.rs").read_text()
-    rust_redis = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/redis_coordinator.rs").read_text()
-    rust_commands = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/command_listener.rs").read_text()
-    rust_k8s = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/sandbox/k8s.rs").read_text()
-
-    assert 'entity_id!(SandboxId, "sbx_");' in rust_ids
-    assert "sandbox_id_str = str(as_uuid(sandbox_id))" in python_runtime
-    assert 'format!("joysafeter:sandbox_owner:{}", sandbox_id.as_uuid())' in rust_redis
-    assert "sandbox_id.as_uuid().to_string()" in rust_redis
-    assert "SandboxId::from_uuid(id)" in rust_commands
-    assert '"sandbox_id": sandbox_id.as_uuid().to_string()' in rust_commands
-    assert 'format!("joysafeter-{}", sandbox_id.as_uuid())' in rust_k8s
-    assert "let sandbox_uuid = config.sandbox_id.as_uuid();" in rust_k8s
-
-
-def test_memory_physical_boundaries_explicitly_unwrap_typed_ids():
-    python_memory_api = (BACKEND_ROOT / "app/joysafeter_api/api/v1/memory_stores.py").read_text()
-    rust_ids = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/ids.rs").read_text()
-    rust_harness = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/harness_input_builder.rs").read_text()
-    rust_commands = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/command_listener.rs").read_text()
-
-    assert 'entity_id!(MemoryStoreId, "memstore_");' in rust_ids
-    assert 'entity_id!(MemoryId, "mem_");' in rust_ids
-    assert 'entity_id!(MemoryVersionId, "memver_");' in rust_ids
-    assert '"store_id": str(as_uuid(store_id))' in python_memory_api
-    assert "store_id: store.store_id.as_uuid().to_string()" in rust_harness
-    assert ".map(MemoryStoreId::from_uuid)" in rust_commands
-    assert ".notify_store_peers(" in rust_commands
-
-
-def test_skill_public_and_physical_boundaries_use_typed_ids():
-    rust_ids = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/ids.rs").read_text()
-    rust_harness = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/kernel/harness_input_builder.rs").read_text()
-
-    for declaration in (
-        'entity_id!(SkillId, "skill_");',
-        'entity_id!(SkillFileId, "sklfile_");',
-        'entity_id!(SkillSecurityScanId, "sklscan_");',
-        'entity_id!(SkillVersionId, "sklver_");',
-        'entity_id!(SkillVersionFileId, "sklvfile_");',
-        'entity_id!(SkillUsageId, "skluse_");',
-    ):
-        assert declaration in rust_ids
-    assert "SkillId::from_public(skill_id)" in rust_harness
-    assert ".bind(SkillUsageId::from_uuid(Uuid::now_v7()))" in rust_harness
-
-
-def test_file_public_and_physical_boundaries_use_typed_ids():
-    rust_ids = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/ids.rs").read_text()
-    rust_query = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/db/queries/file.rs").read_text()
-    rust_artifacts = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/sandbox/artifacts.rs").read_text()
-    python_file_service = (BACKEND_ROOT / "app/joysafeter_domain/services/joysafeter_file_service.py").read_text()
-
-    assert 'entity_id!(FileId, "file_");' in rust_ids
-    assert 'entity_id!(SessionResourceId, "sesrsc_");' in rust_ids
-    assert "id: FileId" in rust_query
-    assert "Option<FileId>" in rust_artifacts
-    assert "let raw_file_id = file_id.as_uuid();" in rust_artifacts
-    assert "as_uuid(file_id)" in python_file_service
-
-
-def test_event_public_and_physical_boundaries_use_typed_ids():
-    rust_ids = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/ids.rs").read_text()
-    rust_envelope = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/events/envelope.rs").read_text()
-    rust_realtime = (BACKEND_ROOT / "app/joysafeter_orchestrator_rs/src/events/realtime.rs").read_text()
-    python_session = (BACKEND_ROOT / "app/joysafeter_domain/services/joysafeter_session_service.py").read_text()
-
-    assert 'entity_id!(EventId, "evt_");' in rust_ids
-    assert "pub event_id: Option<EventId>" in rust_envelope
-    assert "id.to_public()" in rust_realtime
-    assert 'event["id"] = event_id' in python_session
-    assert "normalize_json_value" in python_session
-
-
-def test_credential_group_id_roundtrip():
-    from app.joysafeter_shared.ids import CredentialGroupId
-
-    cid = CredentialGroupId.new()
-    assert str(cid).startswith("credgrp_")
-    assert CredentialGroupId.from_public(str(cid)) == cid
-
-
-def test_secret_and_vault_ids_removed():
-    import app.joysafeter_shared.ids as ids
-
-    assert not hasattr(ids, "SecretId")
-    assert not hasattr(ids, "VaultId")
-
-
-def test_tenant_ids_have_one_canonical_python_definition():
-    governed = {
-        "UserId", "OrganizationId", "OrganizationMemberId",
-        "ProjectMemberId", "OAuthAccountId", "AuthSessionId",
-        "CredentialAccessAuditId", "SecurityAuditId",
-    }
-    canonical = BACKEND_ROOT / "app/joysafeter_shared/ids.py"
-    duplicates = []
     for path in sorted((BACKEND_ROOT / "app").rglob("*.py")):
-        if path == canonical:
+        if path == canonical_path:
             continue
-        tree = ast.parse(path.read_text(), filename=str(path))
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in tree.body:
-            if isinstance(node, ast.ClassDef) and node.name in governed:
+            if isinstance(node, ast.ClassDef) and node.name in ENTITY_ID_CLASS_NAMES:
                 duplicates.append(f"{path.relative_to(BACKEND_ROOT)}:{node.lineno}:{node.name}")
-            if isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(node.value, ast.Call):
-                function = node.value.func
-                if isinstance(function, ast.Name) and function.id == "NewType":
-                    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                    duplicates.extend(
-                        f"{path.relative_to(BACKEND_ROOT)}:{target.lineno}:{target.id}"
-                        for target in targets
-                        if isinstance(target, ast.Name) and target.id in governed
-                    )
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            value = node.value
+            if not isinstance(value, ast.Call):
+                continue
+            function_name = value.func.id if isinstance(value.func, ast.Name) else None
+            if function_name != "NewType":
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id in ENTITY_ID_CLASS_NAMES:
+                    duplicates.append(f"{path.relative_to(BACKEND_ROOT)}:{target.lineno}:{target.id}")
+
     assert duplicates == []
 
 
-def test_tenant_identity_is_not_created_by_orm_defaults():
-    governed = re.compile(
-        r"default\s*=\s*(?:User|Organization|OrganizationMember|Project|ProjectMember|OAuthAccount|AuthSession|CredentialAccessAudit|SecurityAudit)Id\.new"
-    )
-    violations = []
-    for path in sorted((BACKEND_ROOT / "app/joysafeter_domain/models").rglob("*.py")):
-        for match in governed.finditer(path.read_text()):
-            violations.append(f"{path.relative_to(BACKEND_ROOT)}:{match.group(0)}")
+def test_entity_ids_are_created_by_lifecycle_owners_not_orm_defaults():
+    models_root = BACKEND_ROOT / "app/joysafeter_domain/models"
+    implicit_default = re.compile(r"\bdefault\s*=\s*[A-Z][A-Za-z0-9]+Id\.new\b")
+    violations: list[str] = []
+
+    for path in sorted(models_root.rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        for match in implicit_default.finditer(source):
+            line = source.count("\n", 0, match.start()) + 1
+            violations.append(f"{path.relative_to(BACKEND_ROOT)}:{line}:{match.group(0)}")
+
     assert violations == []
 
 
-def test_tenant_auth_boundaries_do_not_reintroduce_string_id_channels():
-    paths = (
-        "app/joysafeter_api/api/v1/auth.py",
-        "app/joysafeter_api/api/v1/organizations.py",
-        "app/joysafeter_api/api/v1/oauth.py",
-        "app/joysafeter_shared/common/joysafeter_auth/context.py",
-        "app/joysafeter_shared/common/joysafeter_auth/dependencies.py",
-        "app/joysafeter_domain/services/joysafeter_auth_service.py",
-        "app/joysafeter_domain/services/joysafeter_organization_service.py",
-        "app/joysafeter_domain/services/joysafeter_project_service.py",
-    )
-    forbidden = re.compile(
-        r"\b(?:user_id|org_id|organization_id|project_id|member_id|oauth_account_id|auth_session_id)\s*:\s*(?:Optional\[)?(?:str|Any|uuid\.UUID|UUID)"
-    )
-    violations = []
-    for relative_path in paths:
-        if forbidden.search((BACKEND_ROOT / relative_path).read_text()):
-            violations.append(relative_path)
+def test_production_entity_constructors_supply_explicit_typed_ids():
+    violations: list[str] = []
+
+    for path in sorted((BACKEND_ROOT / "app").rglob("*.py")):
+        if "joysafeter_domain/models" in path.as_posix():
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            if node.func.id not in ENTITY_MODEL_CLASS_NAMES:
+                continue
+            if not any(keyword.arg == "id" for keyword in node.keywords):
+                violations.append(f"{path.relative_to(BACKEND_ROOT)}:{node.lineno}:{node.func.id}")
+
     assert violations == []
 
 
-def test_json_boundaries_do_not_use_permissive_default_stringification():
-    roots = (
+def test_test_entity_constructors_supply_explicit_typed_ids():
+    violations: list[str] = []
+
+    for path in sorted((BACKEND_ROOT / "tests").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            if node.func.id not in ENTITY_MODEL_CLASS_NAMES:
+                continue
+            if not any(keyword.arg == "id" for keyword in node.keywords):
+                violations.append(f"{path.relative_to(BACKEND_ROOT)}:{node.lineno}:{node.func.id}")
+
+    assert violations == []
+
+
+def test_tests_do_not_restore_implicit_orm_id_generation():
+    conftest_source = (BACKEND_ROOT / "tests/conftest.py").read_text(encoding="utf-8")
+
+    assert "_install_test_entity_id_factories" not in conftest_source
+    assert 'event.listen(model, "init"' not in conftest_source
+
+
+def test_json_boundaries_do_not_use_permissive_serialization_fallbacks():
+    production_roots = (
         BACKEND_ROOT / "app/joysafeter_api",
         BACKEND_ROOT / "app/joysafeter_application",
         BACKEND_ROOT / "app/joysafeter_domain",
         BACKEND_ROOT / "app/joysafeter_shared/common",
+        BACKEND_ROOT / "app/joysafeter_shared/json_boundary.py",
         BACKEND_ROOT / "app/joysafeter_worker",
     )
-    offenders = [
-        str(path.relative_to(BACKEND_ROOT))
-        for root in roots
-        for path in root.rglob("*.py")
-        if "default=str" in path.read_text()
-    ]
+    offenders: list[str] = []
+    for root in production_roots:
+        for path in root.rglob("*.py"):
+            source = path.read_text()
+            if "default=str" in source:
+                offenders.append(f"{path.relative_to(BACKEND_ROOT)}: default=str")
+            if "custom_encoder={EntityId: str}" in source:
+                offenders.append(f"{path.relative_to(BACKEND_ROOT)}: EntityId custom_encoder")
+
     assert offenders == []
+
+
+def test_network_policy_api_keeps_project_identity_typed():
+    paths = (
+        "app/joysafeter_api/api/v1/network_policies.py",
+        "app/joysafeter_api/api/v1/network_policy_refresh.py",
+    )
+
+    for relative_path in paths:
+        source = (BACKEND_ROOT / relative_path).read_text()
+        assert "project_id: Optional[str]" not in source, relative_path

@@ -18,9 +18,6 @@ from app.joysafeter_domain.credentials.types import (
     CredentialGroupId,
     CredentialId,
     ProjectId,
-    make_credential_group_id,
-    make_credential_id,
-    make_project_id,
 )
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
 from app.joysafeter_domain.models.joysafeter_credential import (
@@ -30,8 +27,7 @@ from app.joysafeter_domain.models.joysafeter_credential import (
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
-from app.joysafeter_shared.ids import CredentialGroupId as SqlCredentialGroupId
-from app.joysafeter_shared.ids import CredentialId as SqlCredentialId
+from app.joysafeter_shared.ids import EntityId
 
 BLOCK_RESOURCE = frozenset(
     {
@@ -45,17 +41,9 @@ _SNAPSHOT_PRIMARY_PATHS = registered_reference_paths(
     documents=_SNAPSHOT_DOCUMENTS,
     surfaces=frozenset({"agent_version_executable_snapshot", "active_session_model_environment_snapshot"}),
 )
-_SNAPSHOT_LEGACY_PATHS = registered_reference_paths(
-    documents=_SNAPSHOT_DOCUMENTS,
-    surfaces=frozenset({"legacy_v0_v1_environment_snapshot"}),
-)
 _ENVIRONMENT_PRIMARY_PATHS = registered_reference_paths(
     documents=frozenset({"environment_config"}),
     surfaces=frozenset({"live_environment_direct_injection", "live_environment_http_egress_binding"}),
-)
-_ENVIRONMENT_LEGACY_PATHS = registered_reference_paths(
-    documents=frozenset({"environment_config"}),
-    surfaces=frozenset({"legacy_v0_v1_environment_snapshot"}),
 )
 
 
@@ -71,15 +59,15 @@ def _scanner_id(surface_id: str) -> ReferenceScannerId:
 def _resource_dependency(
     surface_id: str,
     project_id: ProjectId,
-    source_id: object,
+    source_id: EntityId,
     credential_id: CredentialId,
     dispositions: frozenset[DependencyDisposition],
 ) -> CredentialDependency:
     return CredentialDependency(
         surface_id=ReferenceSurfaceId(surface_id),
-        project_id=make_project_id(str(project_id)),
+        project_id=project_id,
         source_id=str(source_id),
-        credential_id=make_credential_id(str(credential_id)),
+        credential_id=credential_id,
         group_id=None,
         dispositions=dispositions,
     )
@@ -88,16 +76,16 @@ def _resource_dependency(
 def _group_dependency(
     surface_id: str,
     project_id: ProjectId,
-    source_id: object,
+    source_id: EntityId,
     group_id: CredentialGroupId,
     dispositions: frozenset[DependencyDisposition],
 ) -> CredentialDependency:
     return CredentialDependency(
         surface_id=ReferenceSurfaceId(surface_id),
-        project_id=make_project_id(str(project_id)),
+        project_id=project_id,
         source_id=str(source_id),
         credential_id=None,
-        group_id=make_credential_group_id(str(group_id)),
+        group_id=group_id,
         dispositions=dispositions,
     )
 
@@ -109,14 +97,6 @@ def _path_matches(
     allowed_paths: frozenset[str],
 ) -> bool:
     return str(candidate_id) == str(credential_id) and bool(set(source_paths) & allowed_paths)
-
-
-def _sql_credential_id(credential_id: CredentialId) -> SqlCredentialId:
-    return SqlCredentialId.from_public(str(credential_id))
-
-
-def _sql_group_id(group_id: CredentialGroupId) -> SqlCredentialGroupId:
-    return SqlCredentialGroupId.from_public(str(group_id))
 
 
 def _direct_environment_reference(config: object, credential_id: CredentialId) -> bool:
@@ -168,52 +148,6 @@ def _snapshot_reference(
     )
 
 
-def _legacy_environment_reference(config: object, credential_id: CredentialId) -> bool:
-    decoded = _REFERENCE_CODEC.decode_environment(config)
-    if any(
-        str(reference.credential_id) == str(credential_id) and reference.source_path in _ENVIRONMENT_LEGACY_PATHS
-        for reference in decoded.direct_references
-    ):
-        return True
-    return any(
-        _path_matches(
-            credential_id,
-            reference.credential_id,
-            reference.source_paths,
-            _ENVIRONMENT_LEGACY_PATHS,
-        )
-        for reference in decoded.http_egress
-    )
-
-
-def _legacy_snapshot_reference(
-    snapshot: object,
-    credential_id: CredentialId,
-) -> bool:
-    decoded = _REFERENCE_CODEC.decode_snapshot(snapshot)
-    if decoded.model is not None and _path_matches(
-        credential_id,
-        decoded.model.credential_id,
-        decoded.model.source_paths,
-        _SNAPSHOT_LEGACY_PATHS,
-    ):
-        return True
-    if any(
-        str(reference.credential_id) == str(credential_id) and reference.source_path in _SNAPSHOT_LEGACY_PATHS
-        for reference in decoded.environment_references
-    ):
-        return True
-    return any(
-        _path_matches(
-            credential_id,
-            reference.credential_id,
-            reference.source_paths,
-            _SNAPSHOT_LEGACY_PATHS,
-        )
-        for reference in decoded.http_egress
-    )
-
-
 class _ResourceScanner:
     scanner_id: ReferenceScannerId
 
@@ -238,8 +172,8 @@ class LiveAgentModelBindingScanner(_ResourceScanner):
     ) -> tuple[CredentialDependency, ...]:
         rows = await self._db.execute(
             select(JoySafeterAgent.id).where(
-                JoySafeterAgent.model_credential_id == _sql_credential_id(credential_id),
-                JoySafeterAgent.project_id == str(project_id),
+                JoySafeterAgent.model_credential_id == credential_id,
+                JoySafeterAgent.project_id == project_id,
                 JoySafeterAgent.deleted_at.is_(None),
             )
         )
@@ -269,7 +203,7 @@ class AgentVersionExecutableSnapshotScanner(_ResourceScanner):
         rows = await self._db.execute(
             select(JoySafeterAgentVersion.id, JoySafeterAgentVersion.snapshot)
             .join(JoySafeterAgent, JoySafeterAgent.id == JoySafeterAgentVersion.agent_id)
-            .where(JoySafeterAgent.project_id == str(project_id))
+            .where(JoySafeterAgent.project_id == project_id)
         )
         return tuple(
             _resource_dependency(
@@ -297,8 +231,8 @@ class TriggerWebhookAuthBindingScanner(_ResourceScanner):
     ) -> tuple[CredentialDependency, ...]:
         rows = await self._db.execute(
             select(JoySafeterTrigger.id).where(
-                JoySafeterTrigger.webhook_auth_credential_id == _sql_credential_id(credential_id),
-                JoySafeterTrigger.project_id == str(project_id),
+                JoySafeterTrigger.webhook_auth_credential_id == credential_id,
+                JoySafeterTrigger.project_id == project_id,
                 JoySafeterTrigger.deleted_at.is_(None),
             )
         )
@@ -330,7 +264,7 @@ class _EnvironmentScanner(_ResourceScanner):
     ) -> tuple[CredentialDependency, ...]:
         rows = await self._db.execute(
             select(JoySafeterEnvironment.id, JoySafeterEnvironment.config).where(
-                JoySafeterEnvironment.project_id == str(project_id),
+                JoySafeterEnvironment.project_id == project_id,
                 JoySafeterEnvironment.deleted_at.is_(None),
             )
         )
@@ -372,7 +306,7 @@ class ActiveSessionSnapshotScanner(_ResourceScanner):
     ) -> tuple[CredentialDependency, ...]:
         rows = await self._db.execute(
             select(JoySafeterSession.id, JoySafeterSession.agent_snapshot).where(
-                JoySafeterSession.project_id == str(project_id),
+                JoySafeterSession.project_id == project_id,
                 JoySafeterSession.archived_at.is_(None),
                 JoySafeterSession.status != "terminated",
                 JoySafeterSession.agent_snapshot.is_not(None),
@@ -413,8 +347,8 @@ class SessionCredentialGroupAssociationScanner:
             select(JoySafeterSessionCredentialGroup.session_id)
             .join(JoySafeterSession, JoySafeterSession.id == JoySafeterSessionCredentialGroup.session_id)
             .where(
-                JoySafeterSessionCredentialGroup.credential_group_id == _sql_group_id(group_id),
-                JoySafeterSession.project_id == str(project_id),
+                JoySafeterSessionCredentialGroup.credential_group_id == group_id,
+                JoySafeterSession.project_id == project_id,
                 JoySafeterSession.archived_at.is_(None),
                 JoySafeterSession.status != "terminated",
             )
@@ -458,8 +392,8 @@ class CredentialGroupMemberOwnershipScanner:
     ) -> tuple[CredentialDependency, ...]:
         rows = await self._db.execute(
             select(JoySafeterCredential.id).where(
-                JoySafeterCredential.group_id == _sql_group_id(group_id),
-                JoySafeterCredential.project_id == str(project_id),
+                JoySafeterCredential.group_id == group_id,
+                JoySafeterCredential.project_id == project_id,
             )
         )
         return tuple(
@@ -474,75 +408,6 @@ class CredentialGroupMemberOwnershipScanner:
         )
 
 
-class LegacyCompatibilityDependencyScanner(_ResourceScanner):
-    scanner_id = _scanner_id("legacy_v0_v1_environment_snapshot")
-
-    def __init__(self, db: AsyncSession) -> None:
-        self._db = db
-
-    async def scan_resource(
-        self,
-        project_id: ProjectId,
-        credential_id: CredentialId,
-    ) -> tuple[CredentialDependency, ...]:
-        dependencies = []
-        environment_rows = await self._db.execute(
-            select(JoySafeterEnvironment.id, JoySafeterEnvironment.config).where(
-                JoySafeterEnvironment.project_id == str(project_id),
-                JoySafeterEnvironment.deleted_at.is_(None),
-            )
-        )
-        dependencies.extend(
-            _resource_dependency(
-                "legacy_v0_v1_environment_snapshot",
-                project_id,
-                environment_id,
-                credential_id,
-                BLOCK_RESOURCE,
-            )
-            for environment_id, config in environment_rows.all()
-            if _legacy_environment_reference(config, credential_id)
-        )
-
-        version_rows = await self._db.execute(
-            select(JoySafeterAgentVersion.id, JoySafeterAgentVersion.snapshot)
-            .join(JoySafeterAgent, JoySafeterAgent.id == JoySafeterAgentVersion.agent_id)
-            .where(JoySafeterAgent.project_id == str(project_id))
-        )
-        dependencies.extend(
-            _resource_dependency(
-                "legacy_v0_v1_environment_snapshot",
-                project_id,
-                version_id,
-                credential_id,
-                frozenset({DependencyDisposition.REVALIDATE_ON_ACTIVATION}),
-            )
-            for version_id, snapshot in version_rows.all()
-            if _legacy_snapshot_reference(snapshot, credential_id)
-        )
-
-        session_rows = await self._db.execute(
-            select(JoySafeterSession.id, JoySafeterSession.agent_snapshot).where(
-                JoySafeterSession.project_id == str(project_id),
-                JoySafeterSession.archived_at.is_(None),
-                JoySafeterSession.status != "terminated",
-                JoySafeterSession.agent_snapshot.is_not(None),
-            )
-        )
-        dependencies.extend(
-            _resource_dependency(
-                "legacy_v0_v1_environment_snapshot",
-                project_id,
-                session_id,
-                credential_id,
-                BLOCK_RESOURCE,
-            )
-            for session_id, snapshot in session_rows.all()
-            if _legacy_snapshot_reference(snapshot, credential_id)
-        )
-        return tuple(dependencies)
-
-
 def persistent_dependency_scanners(db: AsyncSession) -> tuple[object, ...]:
     return (
         LiveAgentModelBindingScanner(db),
@@ -553,5 +418,4 @@ def persistent_dependency_scanners(db: AsyncSession) -> tuple[object, ...]:
         ActiveSessionSnapshotScanner(db),
         SessionCredentialGroupAssociationScanner(db),
         CredentialGroupMemberOwnershipScanner(db),
-        LegacyCompatibilityDependencyScanner(db),
     )

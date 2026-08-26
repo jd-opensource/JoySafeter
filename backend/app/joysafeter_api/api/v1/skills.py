@@ -58,6 +58,47 @@ from app.joysafeter_shared.skill.yaml_parser import extract_metadata_from_frontm
 router = APIRouter(tags=["joysafeter-skills"])
 
 
+class SkillListResponse(PaginatedResponse[SkillResponse, SkillId]):
+    pass
+
+
+class SkillSecurityScanListResponse(PaginatedResponse[SkillSecurityScanResponse, SkillSecurityScanId]):
+    pass
+
+
+class SkillFileListResponse(BaseModel):
+    data: list[SkillFileResponse]
+
+
+class SkillVersionListResponse(PaginatedResponse[SkillVersionResponse, SkillVersionId]):
+    pass
+
+
+class SkillVersionFileListResponse(BaseModel):
+    data: list[SkillVersionFileResponse]
+
+
+class SkillDeleteResponse(BaseModel):
+    id: SkillId
+    type: Literal["skill_deleted"] = "skill_deleted"
+
+
+class SkillFileDeleteResponse(BaseModel):
+    id: SkillFileId
+    type: Literal["skill_file_deleted"] = "skill_file_deleted"
+
+
+class SkillVersionDeleteResponse(BaseModel):
+    type: Literal["skill_version_deleted"] = "skill_version_deleted"
+
+
+class SkillBatchRescanResponse(BaseModel):
+    scheduled: list[SkillId]
+    count: int
+    limit: int
+    truncated: bool
+
+
 # Skill ZIP import limits — runtime values pulled from settings via accessors so
 # env-driven overrides take effect without a restart of any caller module.
 # Defaults / overrides live in `joysafeter_shared.config.settings.Settings`:
@@ -431,7 +472,7 @@ async def list_skills(
     after_id: Optional[SkillId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-):
+) -> SkillListResponse:
     svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     skills, has_more = await svc.list_skills(
         current_user_id=auth_ctx.user_id,
@@ -440,12 +481,12 @@ async def list_skills(
         after_id=after_id,
     )
     data = [SkillResponse.model_validate(s) for s in skills]
-    return {
-        "data": data,
-        "has_more": has_more,
-        "first_id": str(data[0].id) if data else None,
-        "last_id": str(data[-1].id) if data else None,
-    }
+    return SkillListResponse(
+        data=data,
+        has_more=has_more,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
+    )
 
 
 @router.get("/security-scans/{scan_id}")
@@ -497,7 +538,7 @@ async def list_skill_security_scans(
     after_id: Optional[SkillSecurityScanId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-):
+) -> SkillSecurityScanListResponse:
     svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     scans, has_more = await svc.list_security_scans(
         skill_id,
@@ -507,12 +548,12 @@ async def list_skill_security_scans(
         after_id=after_id,
     )
     data = [SkillSecurityScanResponse.model_validate(scan) for scan in scans]
-    return {
-        "data": data,
-        "has_more": has_more,
-        "first_id": str(data[0].id) if data else None,
-        "last_id": str(data[-1].id) if data else None,
-    }
+    return SkillSecurityScanListResponse(
+        data=data,
+        has_more=has_more,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
+    )
 
 
 @router.get("/usage/search")
@@ -643,10 +684,10 @@ async def delete_skill(
     skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-):
+) -> SkillDeleteResponse:
     svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     await svc.delete_skill(skill_id, current_user_id=auth_ctx.user_id)
-    return {"id": str(skill_id), "type": "skill_deleted"}
+    return SkillDeleteResponse(id=skill_id)
 
     # ── Skill Lifecycle Transitions ─────────────────────────────────────
     # Each endpoint maps to a single edge on the state machine in
@@ -756,7 +797,7 @@ async def admin_rescan_all_skills(
     ),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-):
+) -> SkillBatchRescanResponse:
     """Schedule background rescans for skills whose verdict is older
     than the named ruleset version.
 
@@ -862,14 +903,14 @@ async def admin_rescan_all_skills(
             license=skill.license,
             files=sec.files_from_skill(skill),
         )
-        scheduled.append(str(skill.id))
+        scheduled.append(skill.id)
     await db.commit()
-    return {
-        "scheduled": scheduled,
-        "count": len(scheduled),
-        "limit": limit,
-        "truncated": len(skills) == limit,
-    }
+    return SkillBatchRescanResponse(
+        scheduled=scheduled,
+        count=len(scheduled),
+        limit=limit,
+        truncated=len(skills) == limit,
+    )
 
     # ── Skill Files ──────────────────────────────────────────────────────
 
@@ -902,12 +943,12 @@ async def list_skill_files(
     skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-):
+) -> SkillFileListResponse:
     svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     skill = await svc.get_skill(skill_id, current_user_id=auth_ctx.user_id, project_id=auth_ctx.project_id)
     files = skill.files or []
     data = [SkillFileResponse.model_validate(f) for f in files]
-    return {"data": data}
+    return SkillFileListResponse(data=data)
 
 
 @router.get("/{skill_id}/files/{file_id}")
@@ -959,7 +1000,7 @@ async def delete_skill_file(
     file_id: SkillFileId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-):
+) -> SkillFileDeleteResponse:
     svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     await svc.delete_file(
         file_id,
@@ -967,7 +1008,7 @@ async def delete_skill_file(
         expected_skill_id=skill_id,
     )
     _flush_async_scans(svc, background_tasks)
-    return {"id": str(file_id), "type": "skill_file_deleted"}
+    return SkillFileDeleteResponse(id=file_id)
 
     # ── Skill Versions ───────────────────────────────────────────────────
 
@@ -1009,7 +1050,7 @@ async def list_skill_versions(
     after_id: Optional[SkillVersionId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-):
+) -> SkillVersionListResponse:
     svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     versions, has_more = await svc.list_versions(
         skill_id,
@@ -1019,7 +1060,12 @@ async def list_skill_versions(
         after_id=after_id,
     )
     data = [SkillVersionResponse.model_validate(v) for v in versions]
-    return {"data": data, "has_more": has_more}
+    return SkillVersionListResponse(
+        data=data,
+        has_more=has_more,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
+    )
 
 
 @router.get("/{skill_id}/versions/{version}")
@@ -1046,7 +1092,7 @@ async def delete_skill_version(
     force: bool = Query(False, description="Delete even if agents reference this version"),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-):
+) -> SkillVersionDeleteResponse:
     svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     await svc.delete_version(
         skill_id,
@@ -1054,7 +1100,7 @@ async def delete_skill_version(
         current_user_id=auth_ctx.user_id,
         force=force,
     )
-    return {"type": "skill_version_deleted"}
+    return SkillVersionDeleteResponse()
 
 
 @router.get("/{skill_id}/versions/{version}/files")
@@ -1063,7 +1109,7 @@ async def list_skill_version_files(
     skill_id: SkillId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-):
+) -> SkillVersionFileListResponse:
     svc = SkillVersionService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     sv = await svc.get_version(
         skill_id,
@@ -1073,7 +1119,7 @@ async def list_skill_version_files(
     )
     files = sv.files or []
     data = [SkillVersionFileResponse.model_validate(f) for f in files]
-    return {"data": data}
+    return SkillVersionFileListResponse(data=data)
 
 
 @router.post("/{skill_id}/versions/restore/{version}")

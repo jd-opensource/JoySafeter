@@ -13,11 +13,14 @@ from app.joysafeter_domain.models.joysafeter_skill import (
     JoySafeterSkillLifecycleStatus,
 )
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, SkillId, UserId
+
+ADMIN_USER_ID = UserId.new()
 
 
-def _admin_ctx(project_id: str, org_id: str) -> JoySafeterAuthContext:
+def _admin_ctx(project_id: ProjectId, org_id: OrganizationId) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="admin-user",
+        user_id=ADMIN_USER_ID,
         org_id=org_id,
         project_id=project_id,
         role=JoySafeterRole.ADMIN,
@@ -26,27 +29,30 @@ def _admin_ctx(project_id: str, org_id: str) -> JoySafeterAuthContext:
 
 @pytest.mark.asyncio
 async def test_admin_batch_rescan_skips_archived_skills_without_marking_scanning(db_session):
-    org_id = f"org-{uuid.uuid4()}"
-    project_id = f"proj-{uuid.uuid4()}"
-    user = AuthUser(id="owner-user", name="Owner User", email=f"owner-{uuid.uuid4()}@example.com")
+    org_id = OrganizationId.new()
+    project_id = ProjectId.new()
+    owner_id = UserId.new()
+    user = AuthUser(id=owner_id, name="Owner User", email=f"owner-{uuid.uuid4()}@example.com")
     org = Organization(id=org_id, name="Skill Rescan Org", slug=f"skill-rescan-{uuid.uuid4()}")
     project = Project(id=project_id, org_id=org_id, name="Skill Rescan", slug=f"skill-rescan-{uuid.uuid4()}")
     active_skill = JoySafeterSkill(
+        id=SkillId.new(),
         name=f"active-rescan-skill-{uuid.uuid4()}",
         description="active skill",
         content="active content",
-        owner_id="owner-user",
-        created_by_id="owner-user",
+        owner_id=owner_id,
+        created_by_id=owner_id,
         project_id=project_id,
         lifecycle_status=JoySafeterSkillLifecycleStatus.DRAFT.value,
         security_status="not_scanned",
     )
     archived_skill = JoySafeterSkill(
+        id=SkillId.new(),
         name=f"archived-rescan-skill-{uuid.uuid4()}",
         description="archived skill",
         content="archived content",
-        owner_id="owner-user",
-        created_by_id="owner-user",
+        owner_id=owner_id,
+        created_by_id=owner_id,
         project_id=project_id,
         lifecycle_status=JoySafeterSkillLifecycleStatus.ARCHIVED.value,
         security_status="not_scanned",
@@ -64,8 +70,8 @@ async def test_admin_batch_rescan_skips_archived_skills_without_marking_scanning
         auth_ctx=_admin_ctx(project_id, org_id),
     )
 
-    assert response["scheduled"] == [str(active_skill.id)]
-    assert response["count"] == 1
+    assert response.scheduled == [active_skill.id]
+    assert response.count == 1
 
     rows = (
         await db_session.execute(

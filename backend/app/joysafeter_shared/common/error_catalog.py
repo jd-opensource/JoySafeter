@@ -30,6 +30,18 @@ class CatalogEntry:
 
 
 CATALOG: dict[str, CatalogEntry] = {
+    "INVALID_ORGANIZATION_ID": CatalogEntry(
+        code="INVALID_ORGANIZATION_ID",
+        error_class=AuthenticationError,
+        default_message="Invalid organization ID",
+        user_action="reauthenticate",
+    ),
+    "INVALID_PROJECT_ID": CatalogEntry(
+        code="INVALID_PROJECT_ID",
+        error_class=AuthenticationError,
+        default_message="Invalid project ID",
+        user_action="reauthenticate",
+    ),
     # --- Unified credentials (P0). Flat, stable, actionable codes (design 3.13).
     "CREDENTIAL_NOT_FOUND": CatalogEntry(
         code="CREDENTIAL_NOT_FOUND", error_class=NotFoundError, default_message="Credential not found"
@@ -94,6 +106,12 @@ CATALOG: dict[str, CatalogEntry] = {
         default_message="A masked value was submitted for a field with no stored value to preserve",
         user_action="fix_input",
     ),
+    "CREDENTIAL_MATERIAL_UNREADABLE": CatalogEntry(
+        code="CREDENTIAL_MATERIAL_UNREADABLE",
+        error_class=InvalidRequestError,
+        default_message="Stored credential material cannot be preserved; re-enter all fields to replace it",
+        user_action="fix_input",
+    ),
     "CREDENTIAL_GROUP_NOT_FOUND": CatalogEntry(
         code="CREDENTIAL_GROUP_NOT_FOUND",
         error_class=NotFoundError,
@@ -116,6 +134,18 @@ CATALOG: dict[str, CatalogEntry] = {
         error_class=ResourceConflictError,
         default_message="An mcp credential for this server url already exists in the group",
         user_action="fix_input",
+    ),
+    "SESSION_MCP_CREDENTIAL_REQUIRED": CatalogEntry(
+        code="SESSION_MCP_CREDENTIAL_REQUIRED",
+        error_class=ResourceConflictError,
+        default_message="A required MCP credential was not selected for this Session",
+        user_action="fix_input",
+    ),
+    "SESSION_SNAPSHOT_CORRUPT": CatalogEntry(
+        code="SESSION_SNAPSHOT_CORRUPT",
+        error_class=RequestValidationAppError,
+        default_message="Session snapshot is corrupt",
+        user_action="refresh",
     ),
     "CREDENTIAL_TEST_BASE_URL_REQUIRED": CatalogEntry(
         code="CREDENTIAL_TEST_BASE_URL_REQUIRED",
@@ -175,7 +205,7 @@ CATALOG: dict[str, CatalogEntry] = {
     "AGENT_ACTIVE_TASKS": CatalogEntry(
         code="AGENT_ACTIVE_TASKS",
         error_class=ResourceConflictError,
-        default_message="Agent has active tasks. Stop or wait for them before changing secret_ref or environment_ref.",
+        default_message="Agent has active tasks. Stop or wait for them before changing model_credential_id or environment_id.",
     ),
     "AGENT_ARCHIVED": CatalogEntry(
         code="AGENT_ARCHIVED",
@@ -1270,7 +1300,7 @@ CATALOG: dict[str, CatalogEntry] = {
     "TASK_SESSION_ENVIRONMENT_MISMATCH": CatalogEntry(
         code="TASK_SESSION_ENVIRONMENT_MISMATCH",
         error_class=ResourceConflictError,
-        default_message="Task environment_ref does not match the existing session environment",
+        default_message="Task environment_id does not match the existing session environment",
     ),
     "TASK_SESSION_NOT_FOUND": CatalogEntry(
         code="TASK_SESSION_NOT_FOUND", error_class=NotFoundError, default_message="Session not found"
@@ -1371,12 +1401,12 @@ CATALOG: dict[str, CatalogEntry] = {
     "TRIGGER_SECRET_REF_REQUIRED": CatalogEntry(
         code="TRIGGER_SECRET_REF_REQUIRED",
         error_class=RequestValidationAppError,
-        default_message="Webhook trigger requires secret_ref",
+        default_message="Webhook trigger requires webhook_auth_credential_id",
     ),
     "TRIGGER_SECRET_REQUIRED": CatalogEntry(
         code="TRIGGER_SECRET_REQUIRED",
         error_class=RequestValidationAppError,
-        default_message="Webhook trigger requires secret_ref",
+        default_message="Webhook trigger requires webhook_auth_credential_id",
     ),
     "TRIGGER_SECRET_VALUE_BLANK": CatalogEntry(
         code="TRIGGER_SECRET_VALUE_BLANK",

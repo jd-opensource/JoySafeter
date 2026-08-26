@@ -82,14 +82,14 @@ class _FakeAgentService:
         pass
 
     async def get_agent(self, agent_id, project_id=None):
-        return SimpleNamespace(id=agent_id, archived_at=None, environment_ref=None, version=1, name="Agent", model=None)
+        return SimpleNamespace(id=agent_id, archived_at=None, environment_id=None, version=1, name="Agent", model=None)
 
 
 class _FakeEnvironmentService:
     def __init__(self, db):
         pass
 
-    async def get_environment_by_ref(self, environment_ref, project_id=None):
+    async def get_environment(self, environment_id, project_id=None):
         return None
 
 
@@ -226,7 +226,7 @@ async def test_idempotent_slot_precheck_skips_auto_session_creation(monkeypatch)
         prompt="summarize",
         prompt_template="summarize",
         system_prompt=None,
-        environment_ref=None,
+        environment_id=None,
         concurrency_policy="allow",
         timeout_sec=7200,
         max_retries=2,
@@ -273,7 +273,7 @@ async def test_idempotent_slot_replay_precedes_concurrency_policy(monkeypatch, p
         name="Daily",
         prompt_template="summarize",
         system_prompt=None,
-        environment_ref=None,
+        environment_id=None,
         concurrency_policy=policy,
         timeout_sec=7200,
         max_retries=2,
@@ -320,7 +320,7 @@ async def test_idempotent_slot_replay_precedes_admission_quota(monkeypatch):
         name="Daily",
         prompt_template="summarize",
         system_prompt=None,
-        environment_ref=None,
+        environment_id=None,
         concurrency_policy="allow",
         timeout_sec=7200,
         max_retries=2,
@@ -360,7 +360,7 @@ async def test_fire_rechecks_project_pause_after_claim_before_admission(monkeypa
         name="Daily",
         prompt_template="summarize",
         system_prompt=None,
-        environment_ref=None,
+        environment_id=None,
         concurrency_policy="allow",
         timeout_sec=7200,
         max_retries=2,

@@ -10,16 +10,17 @@ from app.joysafeter_application.triggers import TriggerApplicationService
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId, UserId
 
 
 async def _seed(db_session):
-    org = Organization(name=f"oneoff-org-{uuid.uuid4()}", slug=f"oneoff-org-{uuid.uuid4()}")
+    org = Organization(id=OrganizationId.new(), name=f"oneoff-org-{uuid.uuid4()}", slug=f"oneoff-org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name="P", slug=f"oneoff-p-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org.id, name="P", slug=f"oneoff-p-{uuid.uuid4()}")
     db_session.add(project)
     await db_session.flush()
-    agent = JoySafeterAgent(name=f"oneoff-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"oneoff-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -40,7 +41,7 @@ async def test_one_off_sets_next_run_to_run_at_then_parks_after_fire(db_session)
         prompt_template="do it once",
         run_at=run_at,
         project_id=project.id,
-        user_id="owner",
+        user_id=UserId.new(),
         org_id=org.id,
     )
     assert trigger.cron_expr is None

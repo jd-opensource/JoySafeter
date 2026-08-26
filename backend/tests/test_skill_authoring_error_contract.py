@@ -31,29 +31,38 @@ from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredential
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillService
 from app.joysafeter_shared.common.app_errors import AppError, ResourceConflictError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import CredentialId
+from app.joysafeter_shared.ids import CredentialId, OrganizationId, ProjectId, UserId
+
+TEST_USER_ID = UserId.new()
+TEST_ORG_ID = OrganizationId.new()
+TEST_PROJECT_ID = ProjectId.new()
 
 
-async def _make_project(db_session) -> str:
-    org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+async def _make_project(db_session) -> ProjectId:
+    org = Organization(id=TEST_ORG_ID, name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+    project = Project(
+        id=ProjectId.new(),
+        org_id=org.id,
+        name=f"proj-{uuid.uuid4()}",
+        slug=f"proj-{uuid.uuid4()}",
+    )
     db_session.add(project)
     await db_session.commit()
     return project.id
 
 
 @pytest_asyncio.fixture
-async def project_id(db_session) -> str:
+async def project_id(db_session) -> ProjectId:
     return await _make_project(db_session)
 
 
-def _auth_ctx(project_id: str | None = "proj-a") -> JoySafeterAuthContext:
+def _auth_ctx(project_id: ProjectId | None = TEST_PROJECT_ID) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
-        project_id=project_id,  # type: ignore[arg-type]
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORG_ID,
+        project_id=project_id,
         role=JoySafeterRole.MEMBER,
     )
 
@@ -82,7 +91,7 @@ def _chat_req(cred_id: CredentialId) -> AuthoringChatRequest:
 
 async def _make_model_credential(
     db_session,
-    project_id: str,
+    project_id: ProjectId,
     data: dict[str, str],
     *,
     provider: str = "openai",

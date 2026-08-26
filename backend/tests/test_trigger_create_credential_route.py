@@ -17,16 +17,16 @@ from app.joysafeter_api.api.v1.triggers import create_trigger
 from app.joysafeter_application.triggers import TriggerApplicationService
 from app.joysafeter_domain.schemas.joysafeter_trigger import TriggerCreateRequest
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import AgentId, CredentialId
+from app.joysafeter_shared.ids import AgentId, CredentialId, OrganizationId, ProjectId, UserId
 
 pytestmark = pytest.mark.no_db
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
-        project_id="proj-a",
+        user_id=UserId.from_public("user_00000000-0000-0000-0000-000000000001"),
+        org_id=OrganizationId.from_public("org_00000000-0000-0000-0000-000000000001"),
+        project_id=ProjectId.from_public("proj_00000000-0000-0000-0000-000000000001"),
         role=JoySafeterRole.MEMBER,
     )
 

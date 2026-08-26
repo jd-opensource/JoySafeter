@@ -34,10 +34,7 @@ def test_chain_is_linear_with_single_head():
     revisions = list(script.walk_revisions(base="base", head="heads"))
     assert revisions
     assert revisions[-1].down_revision is None
-    assert all(
-        revision.down_revision == parent.revision
-        for revision, parent in pairwise(revisions)
-    )
+    assert all(revision.down_revision == parent.revision for revision, parent in pairwise(revisions))
 
 
 @pytest.mark.no_db
@@ -50,7 +47,7 @@ def test_upgrade_sql_rejects_the_online_only_unified_credential_migration():
 @pytest.mark.no_db
 def test_downgrade_sql_rejects_the_irreversible_unified_credential_migration():
     cfg = _config()
-    with pytest.raises(NotImplementedError, match="not supported"):
+    with pytest.raises(RuntimeError, match="credential-reference alias removal is irreversible"):
         command.downgrade(cfg, "head:base", sql=True)
 
 
@@ -92,7 +89,7 @@ async def test_migration_drops_root_path(db_session: AsyncSession):
 async def test_insert_skill_with_null_version_pointers(db_session: AsyncSession):
     """A skill row inserts fine with both version pointers left NULL — the
     columns are nullable FKs, not required."""
-    user_id = f"u-{uuid.uuid4()}"
+    user_id = uuid.uuid4()
     await db_session.execute(
         text(
             "INSERT INTO joysafeter_users (id, name, email, hashed_password, is_active, email_verified, is_super_user, failed_login_attempts, created_at, updated_at) "
@@ -101,8 +98,8 @@ async def test_insert_skill_with_null_version_pointers(db_session: AsyncSession)
         {"id": user_id, "name": "migration-test-user", "email": f"{user_id}@example.com"},
     )
     # project_id is NOT NULL (P4), so seed an org + project to satisfy the FK.
-    org_id = f"org-{uuid.uuid4()}"
-    project_id = f"proj-{uuid.uuid4()}"
+    org_id = uuid.uuid4()
+    project_id = uuid.uuid4()
     await db_session.execute(
         text(
             "INSERT INTO joysafeter_organizations (id, name, slug, storage_used_bytes, departed_member_usage, created_at, updated_at) "

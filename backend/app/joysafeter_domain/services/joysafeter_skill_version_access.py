@@ -5,13 +5,15 @@ from typing import Optional
 
 import semver
 
+from app.joysafeter_shared.ids import OrganizationId, ProjectId
+
 
 @dataclass(frozen=True)
 class SkillVersionExposure:
-    skill_project_id: str
-    skill_org_id: Optional[str]
-    consumer_project_id: Optional[str]
-    consumer_org_id: Optional[str]
+    skill_project_id: ProjectId
+    skill_org_id: Optional[OrganizationId]
+    consumer_project_id: Optional[ProjectId]
+    consumer_org_id: Optional[OrganizationId]
     org_version: Optional[str] = None
     public_version: Optional[str] = None
 

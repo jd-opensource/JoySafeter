@@ -11,7 +11,6 @@ from app.joysafeter_api.api.v1.environments import (
     delete_environment,
     update_environment,
 )
-from app.joysafeter_api.api.v1.sessions import _canonical_environment_ref
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
@@ -28,32 +27,45 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import EnvironmentId, as_uuid
+from app.joysafeter_shared.ids import (
+    AgentId,
+    EnvironmentId,
+    OrganizationId,
+    ProjectId,
+    SessionId,
+    TaskId,
+    TriggerId,
+    UserId,
+    as_uuid,
+)
 from app.joysafeter_shared.utils.datetime import utc_now
+
+TEST_USER_ID = UserId.new()
+TEST_ORG_ID = OrganizationId.new()
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
-        project_id=None,  # type: ignore[arg-type]
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORG_ID,
+        project_id=None,
         role=JoySafeterRole.MEMBER,
     )
 
 
-async def _ensure_project(db_session, project_id: str) -> None:
+async def _ensure_project(db_session, project_id: ProjectId) -> None:
     if await db_session.get(Project, project_id):
         return
-    org = await db_session.get(Organization, "test-org")
+    org = await db_session.get(Organization, TEST_ORG_ID)
     if not org:
-        org = Organization(id="test-org", name="Test Org", slug="test-org")
+        org = Organization(id=TEST_ORG_ID, name="Test Org", slug=str(TEST_ORG_ID))
         db_session.add(org)
     db_session.add(
         Project(
             id=project_id,
-            org_id="test-org",
-            name=project_id,
-            slug=project_id,
+            org_id=TEST_ORG_ID,
+            name=str(project_id),
+            slug=str(project_id),
             is_default=False,
         )
     )
@@ -112,26 +124,42 @@ class _FakeRuntimeRedis:
 
 @pytest.mark.asyncio
 async def test_create_environment_allows_same_active_name_in_different_projects(db_session):
-    await _ensure_project(db_session, "project-a")
-    await _ensure_project(db_session, "project-b")
+    project_a = ProjectId.new()
+    project_b = ProjectId.new()
+    await _ensure_project(db_session, project_a)
+    await _ensure_project(db_session, project_b)
     name = f"scoped-env-{uuid.uuid4()}"
     svc = EnvironmentService(db_session)
 
-    env_a = await svc.create_environment(CreateEnvironmentRequest(name=name), project_id="project-a")
-    env_b = await svc.create_environment(CreateEnvironmentRequest(name=name), project_id="project-b")
+    env_a = await svc.create_environment(CreateEnvironmentRequest(name=name), project_id=project_a)
+    env_b = await svc.create_environment(CreateEnvironmentRequest(name=name), project_id=project_b)
 
     assert env_a.id != env_b.id
-    assert env_a.project_id == "project-a"
-    assert env_b.project_id == "project-b"
+    assert env_a.project_id == project_a
+    assert env_b.project_id == project_b
 
 
 @pytest.mark.asyncio
 async def test_create_environment_purges_only_same_project_soft_deleted_name(db_session):
-    await _ensure_project(db_session, "project-a")
-    await _ensure_project(db_session, "project-b")
+    project_a = ProjectId.new()
+    project_b = ProjectId.new()
+    await _ensure_project(db_session, project_a)
+    await _ensure_project(db_session, project_b)
     name = f"reused-env-{uuid.uuid4()}"
-    stale_other_project = JoySafeterEnvironment(name=name, description="", project_id="project-b", deleted_at=utc_now())
-    stale_same_project = JoySafeterEnvironment(name=name, description="", project_id="project-a", deleted_at=utc_now())
+    stale_other_project = JoySafeterEnvironment(
+        id=EnvironmentId.new(),
+        name=name,
+        description="",
+        project_id=project_b,
+        deleted_at=utc_now(),
+    )
+    stale_same_project = JoySafeterEnvironment(
+        id=EnvironmentId.new(),
+        name=name,
+        description="",
+        project_id=project_a,
+        deleted_at=utc_now(),
+    )
     db_session.add(stale_other_project)
     await db_session.commit()
     await db_session.refresh(stale_other_project)
@@ -143,10 +171,10 @@ async def test_create_environment_purges_only_same_project_soft_deleted_name(db_
 
     created = await EnvironmentService(db_session).create_environment(
         CreateEnvironmentRequest(name=name),
-        project_id="project-a",
+        project_id=project_a,
     )
 
-    assert created.project_id == "project-a"
+    assert created.project_id == project_a
     db_session.expire_all()
     other_project_row = (
         await db_session.execute(
@@ -162,9 +190,16 @@ async def test_create_environment_purges_only_same_project_soft_deleted_name(db_
 
 @pytest.mark.asyncio
 async def test_update_environment_rejects_cross_project_at_service_boundary(db_session):
-    await _ensure_project(db_session, "project-a")
-    await _ensure_project(db_session, "project-b")
-    env = JoySafeterEnvironment(name=f"cross-project-env-{uuid.uuid4()}", description="", project_id="project-b")
+    project_a = ProjectId.new()
+    project_b = ProjectId.new()
+    await _ensure_project(db_session, project_a)
+    await _ensure_project(db_session, project_b)
+    env = JoySafeterEnvironment(
+        id=EnvironmentId.new(),
+        name=f"cross-project-env-{uuid.uuid4()}",
+        description="",
+        project_id=project_b,
+    )
     db_session.add(env)
     await db_session.commit()
     await db_session.refresh(env)
@@ -173,10 +208,10 @@ async def test_update_environment_rejects_cross_project_at_service_boundary(db_s
     updated = await EnvironmentService(db_session).update_environment(
         env_id,
         UpdateEnvironmentRequest(description="changed"),
-        project_id="project-a",
+        project_id=project_a,
     )
-    deleted = await EnvironmentService(db_session).delete_environment(env_id, project_id="project-a")
-    archived = await EnvironmentService(db_session).archive_environment(env_id, project_id="project-a")
+    deleted = await EnvironmentService(db_session).delete_environment(env_id, project_id=project_a)
+    archived = await EnvironmentService(db_session).archive_environment(env_id, project_id=project_a)
 
     assert updated is None
     assert deleted is False
@@ -258,16 +293,16 @@ async def test_create_environment_with_packages_rolls_back_when_rust_builder_una
 
 
 @pytest.mark.asyncio
-async def test_archive_environment_rejects_non_archived_session_reference(db_session):
-    env = JoySafeterEnvironment(name=f"env-ref-{uuid.uuid4()}", description="")
-    agent = JoySafeterAgent(name=f"env-agent-{uuid.uuid4()}")
+async def test_archive_environment_rejects_non_archived_session_link(db_session):
+    env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"env-ref-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"env-agent-{uuid.uuid4()}")
     db_session.add_all([env, agent])
     await db_session.commit()
     await db_session.refresh(env)
     await db_session.refresh(agent)
     env_id = env.id
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle", environment_ref=env.name)
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle", environment_id=env.id)
     db_session.add(session)
     await db_session.commit()
 
@@ -291,16 +326,16 @@ async def test_archive_environment_rejects_non_archived_session_reference(db_ses
 
 
 @pytest.mark.asyncio
-async def test_archive_environment_rejects_canonical_id_session_reference(db_session):
-    env = JoySafeterEnvironment(name=f"canonical-env-ref-{uuid.uuid4()}", description="")
-    agent = JoySafeterAgent(name=f"canonical-env-agent-{uuid.uuid4()}")
+async def test_archive_environment_rejects_environment_id_session_link(db_session):
+    env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"canonical-env-ref-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"canonical-env-agent-{uuid.uuid4()}")
     db_session.add_all([env, agent])
     await db_session.commit()
     await db_session.refresh(env)
     await db_session.refresh(agent)
     env_id = env.id
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle", environment_ref=str(env.id))
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle", environment_id=env.id)
     db_session.add(session)
     await db_session.commit()
 
@@ -324,43 +359,19 @@ async def test_archive_environment_rejects_canonical_id_session_reference(db_ses
 
 
 @pytest.mark.asyncio
-async def test_environment_reference_resolver_requires_prefix_for_id_lookup(db_session):
-    env = JoySafeterEnvironment(name=f"typed-env-ref-{uuid.uuid4()}", description="")
-    db_session.add(env)
-    await db_session.commit()
-    await db_session.refresh(env)
-
-    service = EnvironmentService(db_session)
-
-    assert await service.get_environment_by_ref(str(env.id)) == env
-    assert await service.get_environment_by_ref(str(env.id.uuid)) is None
-    assert await service.get_environment_by_ref(env.name) == env
-
-
-def test_session_environment_reference_rejects_bare_uuid_but_preserves_names():
-    environment_id = EnvironmentId.new()
-
-    assert _canonical_environment_ref(str(environment_id)) == str(environment_id)
-    assert _canonical_environment_ref("development") == "development"
-    with pytest.raises(AppError) as exc_info:
-        _canonical_environment_ref(str(environment_id.uuid))
-
-    assert exc_info.value.code == "ENVIRONMENT_ID_INVALID"
-
-
-@pytest.mark.asyncio
-async def test_archive_environment_rejects_active_task_agent_reference_without_session(db_session):
-    env = JoySafeterEnvironment(name=f"agent-env-ref-{uuid.uuid4()}", description="")
+async def test_archive_environment_rejects_active_task_agent_link_without_session(db_session):
+    env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"agent-env-ref-{uuid.uuid4()}", description="")
     db_session.add(env)
     await db_session.commit()
     await db_session.refresh(env)
     env_id = env.id
 
-    agent = JoySafeterAgent(name=f"env-agent-{uuid.uuid4()}", environment_ref=str(env.id))
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"env-agent-{uuid.uuid4()}", environment_id=env.id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         prompt="scan target",
         status=JoySafeterTaskStatus.PENDING.value,
@@ -375,10 +386,10 @@ async def test_archive_environment_rejects_active_task_agent_reference_without_s
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "ENVIRONMENT_ACTIVE_TASK",
         "message": (
-            f"Environment is required by active task '{task.id}' via agent environment_ref. "
+            f"Environment is required by active task '{task.id}' via agent environment_id. "
             "Stop or wait for the task before archiving."
         ),
-        "data": {"environment_id": str(env_id), "task_id": str(task.id), "source": "agent environment_ref"},
+        "data": {"environment_id": str(env_id), "task_id": str(task.id), "source": "agent environment_id"},
         "source": "api",
         "retryable": True,
         "user_action": "retry",
@@ -392,18 +403,19 @@ async def test_archive_environment_rejects_active_task_agent_reference_without_s
 
 
 @pytest.mark.asyncio
-async def test_delete_environment_rejects_active_task_agent_reference_without_session(db_session):
-    env = JoySafeterEnvironment(name=f"delete-agent-env-ref-{uuid.uuid4()}", description="")
+async def test_delete_environment_rejects_active_task_agent_link_without_session(db_session):
+    env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"delete-agent-env-ref-{uuid.uuid4()}", description="")
     db_session.add(env)
     await db_session.commit()
     await db_session.refresh(env)
     env_id = env.id
 
-    agent = JoySafeterAgent(name=f"delete-env-agent-{uuid.uuid4()}", environment_ref=env.name)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"delete-env-agent-{uuid.uuid4()}", environment_id=env.id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         prompt="scan target",
         status=JoySafeterTaskStatus.SCHEDULING.value,
@@ -418,10 +430,10 @@ async def test_delete_environment_rejects_active_task_agent_reference_without_se
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "ENVIRONMENT_ACTIVE_TASK",
         "message": (
-            f"Environment is required by active task '{task.id}' via agent environment_ref. "
+            f"Environment is required by active task '{task.id}' via agent environment_id. "
             "Stop or wait for the task before deleting."
         ),
-        "data": {"environment_id": str(env_id), "task_id": str(task.id), "source": "agent environment_ref"},
+        "data": {"environment_id": str(env_id), "task_id": str(task.id), "source": "agent environment_id"},
         "source": "api",
         "retryable": True,
         "user_action": "retry",
@@ -435,14 +447,14 @@ async def test_delete_environment_rejects_active_task_agent_reference_without_se
 
 
 @pytest.mark.asyncio
-async def test_delete_environment_rejects_agent_reference_without_active_task(db_session):
-    env = JoySafeterEnvironment(name=f"static-agent-env-ref-{uuid.uuid4()}", description="")
+async def test_delete_environment_rejects_agent_link_without_active_task(db_session):
+    env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"static-agent-env-ref-{uuid.uuid4()}", description="")
     db_session.add(env)
     await db_session.commit()
     await db_session.refresh(env)
     env_id = env.id
 
-    agent = JoySafeterAgent(name=f"static-env-agent-{uuid.uuid4()}", environment_ref=str(env.id))
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"static-env-agent-{uuid.uuid4()}", environment_id=env.id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -466,9 +478,9 @@ async def test_delete_environment_rejects_agent_reference_without_active_task(db
 
 
 @pytest.mark.asyncio
-async def test_archive_environment_rejects_cron_trigger_reference_without_active_task(db_session):
-    env = JoySafeterEnvironment(name=f"schedule-env-ref-{uuid.uuid4()}", description="")
-    agent = JoySafeterAgent(name=f"schedule-env-agent-{uuid.uuid4()}")
+async def test_archive_environment_rejects_cron_trigger_link_without_active_task(db_session):
+    env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"schedule-env-ref-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"schedule-env-agent-{uuid.uuid4()}")
     db_session.add_all([env, agent])
     await db_session.commit()
     await db_session.refresh(env)
@@ -476,6 +488,7 @@ async def test_archive_environment_rejects_cron_trigger_reference_without_active
     env_id = env.id
 
     schedule = JoySafeterTrigger(
+        id=TriggerId.new(),
         name=f"env-schedule-{uuid.uuid4()}",
         type="cron",
         agent_id=agent.id,
@@ -484,7 +497,7 @@ async def test_archive_environment_rejects_cron_trigger_reference_without_active
         timezone="UTC",
         enabled=True,
         next_run_at=utc_now(),
-        environment_ref=str(env.id),
+        environment_id=env.id,
         filter={},
         config={},
         last_payload={},
@@ -512,9 +525,9 @@ async def test_archive_environment_rejects_cron_trigger_reference_without_active
 
 
 @pytest.mark.asyncio
-async def test_delete_environment_rejects_cron_trigger_reference_without_active_task(db_session):
-    env = JoySafeterEnvironment(name=f"delete-schedule-env-ref-{uuid.uuid4()}", description="")
-    agent = JoySafeterAgent(name=f"delete-schedule-env-agent-{uuid.uuid4()}")
+async def test_delete_environment_rejects_cron_trigger_link_without_active_task(db_session):
+    env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"delete-schedule-env-ref-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"delete-schedule-env-agent-{uuid.uuid4()}")
     db_session.add_all([env, agent])
     await db_session.commit()
     await db_session.refresh(env)
@@ -522,6 +535,7 @@ async def test_delete_environment_rejects_cron_trigger_reference_without_active_
     env_id = env.id
 
     schedule = JoySafeterTrigger(
+        id=TriggerId.new(),
         name=f"delete-env-schedule-{uuid.uuid4()}",
         type="cron",
         agent_id=agent.id,
@@ -530,7 +544,7 @@ async def test_delete_environment_rejects_cron_trigger_reference_without_active_
         timezone="UTC",
         enabled=False,
         next_run_at=None,
-        environment_ref=env.name,
+        environment_id=env.id,
         filter={},
         config={},
         last_payload={},
@@ -558,9 +572,9 @@ async def test_delete_environment_rejects_cron_trigger_reference_without_active_
 
 
 @pytest.mark.asyncio
-async def test_delete_environment_ignores_soft_deleted_trigger_reference(db_session):
-    env = JoySafeterEnvironment(name=f"soft-deleted-trigger-env-{uuid.uuid4()}", description="")
-    agent = JoySafeterAgent(name=f"soft-deleted-trigger-agent-{uuid.uuid4()}")
+async def test_delete_environment_ignores_soft_deleted_trigger_link(db_session):
+    env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"soft-deleted-trigger-env-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"soft-deleted-trigger-agent-{uuid.uuid4()}")
     db_session.add_all([env, agent])
     await db_session.commit()
     await db_session.refresh(env)
@@ -568,6 +582,7 @@ async def test_delete_environment_ignores_soft_deleted_trigger_reference(db_sess
     env_id = env.id
 
     trigger = JoySafeterTrigger(
+        id=TriggerId.new(),
         name=f"deleted-env-schedule-{uuid.uuid4()}",
         type="cron",
         agent_id=agent.id,
@@ -576,7 +591,7 @@ async def test_delete_environment_ignores_soft_deleted_trigger_reference(db_sess
         timezone="UTC",
         enabled=False,
         next_run_at=None,
-        environment_ref=env.name,
+        environment_id=env.id,
         deleted_at=utc_now(),
         filter={},
         config={},
@@ -596,18 +611,19 @@ async def test_delete_environment_ignores_soft_deleted_trigger_reference(db_sess
 
 
 @pytest.mark.asyncio
-async def test_update_environment_config_rejects_active_task_agent_reference(db_session):
-    env = JoySafeterEnvironment(name=f"update-config-env-{uuid.uuid4()}", description="")
+async def test_update_environment_config_rejects_active_task_agent_link(db_session):
+    env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"update-config-env-{uuid.uuid4()}", description="")
     db_session.add(env)
     await db_session.commit()
     await db_session.refresh(env)
     env_id = env.id
 
-    agent = JoySafeterAgent(name=f"update-config-agent-{uuid.uuid4()}", environment_ref=env.name)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"update-config-agent-{uuid.uuid4()}", environment_id=env.id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         prompt="scan target",
         status=JoySafeterTaskStatus.RUNNING.value,
@@ -624,10 +640,10 @@ async def test_update_environment_config_rejects_active_task_agent_reference(db_
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "ENVIRONMENT_ACTIVE_TASK",
         "message": (
-            f"Environment is required by active task '{task_id}' via agent environment_ref. "
+            f"Environment is required by active task '{task_id}' via agent environment_id. "
             "Stop or wait for the task before updating config."
         ),
-        "data": {"environment_id": str(env_id), "task_id": task_id, "source": "agent environment_ref"},
+        "data": {"environment_id": str(env_id), "task_id": task_id, "source": "agent environment_id"},
         "source": "api",
         "retryable": True,
         "user_action": "retry",
@@ -641,15 +657,15 @@ async def test_update_environment_config_rejects_active_task_agent_reference(db_
 
 
 @pytest.mark.asyncio
-async def test_update_environment_name_rejects_agent_reference_without_active_task(db_session):
-    env = JoySafeterEnvironment(name=f"update-name-env-{uuid.uuid4()}", description="")
+async def test_update_environment_name_rejects_agent_link_without_active_task(db_session):
+    env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"update-name-env-{uuid.uuid4()}", description="")
     db_session.add(env)
     await db_session.commit()
     await db_session.refresh(env)
     env_id = env.id
     original_name = env.name
 
-    agent = JoySafeterAgent(name=f"update-name-agent-{uuid.uuid4()}", environment_ref=env.name)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"update-name-agent-{uuid.uuid4()}", environment_id=env.id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -675,9 +691,9 @@ async def test_update_environment_name_rejects_agent_reference_without_active_ta
 
 
 @pytest.mark.asyncio
-async def test_update_environment_name_rejects_cron_trigger_reference_without_active_task(db_session):
-    env = JoySafeterEnvironment(name=f"update-schedule-env-{uuid.uuid4()}", description="")
-    agent = JoySafeterAgent(name=f"update-schedule-agent-{uuid.uuid4()}")
+async def test_update_environment_name_rejects_cron_trigger_link_without_active_task(db_session):
+    env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"update-schedule-env-{uuid.uuid4()}", description="")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"update-schedule-agent-{uuid.uuid4()}")
     db_session.add_all([env, agent])
     await db_session.commit()
     await db_session.refresh(env)
@@ -686,6 +702,7 @@ async def test_update_environment_name_rejects_cron_trigger_reference_without_ac
     original_name = env.name
 
     schedule = JoySafeterTrigger(
+        id=TriggerId.new(),
         name=f"update-env-schedule-{uuid.uuid4()}",
         type="cron",
         agent_id=agent.id,
@@ -694,7 +711,7 @@ async def test_update_environment_name_rejects_cron_trigger_reference_without_ac
         timezone="UTC",
         enabled=True,
         next_run_at=utc_now(),
-        environment_ref=env.name,
+        environment_id=env.id,
         filter={},
         config={},
         last_payload={},
@@ -724,7 +741,9 @@ async def test_update_environment_name_rejects_cron_trigger_reference_without_ac
 
 @pytest.mark.asyncio
 async def test_update_environment_rejects_archived_environment_with_structured_error(db_session):
-    env = JoySafeterEnvironment(name=f"archived-update-env-{uuid.uuid4()}", description="", archived_at=utc_now())
+    env = JoySafeterEnvironment(
+        id=EnvironmentId.new(), name=f"archived-update-env-{uuid.uuid4()}", description="", archived_at=utc_now()
+    )
     db_session.add(env)
     await db_session.commit()
     await db_session.refresh(env)
@@ -753,7 +772,9 @@ async def test_update_environment_rejects_archived_environment_with_structured_e
 
 @pytest.mark.asyncio
 async def test_archive_environment_rejects_already_archived_environment_with_structured_error(db_session):
-    env = JoySafeterEnvironment(name=f"already-archived-env-{uuid.uuid4()}", description="", archived_at=utc_now())
+    env = JoySafeterEnvironment(
+        id=EnvironmentId.new(), name=f"already-archived-env-{uuid.uuid4()}", description="", archived_at=utc_now()
+    )
     db_session.add(env)
     await db_session.commit()
     await db_session.refresh(env)
@@ -813,7 +834,9 @@ async def test_update_environment_image_build_failure_returns_structured_error_w
 
     monkeypatch.setattr("app.joysafeter_api.api.v1.environments._build_image_update", fail_build)
 
-    env = JoySafeterEnvironment(name=f"update-build-fail-env-{uuid.uuid4()}", description="", config={})
+    env = JoySafeterEnvironment(
+        id=EnvironmentId.new(), name=f"update-build-fail-env-{uuid.uuid4()}", description="", config={}
+    )
     db_session.add(env)
     await db_session.commit()
     await db_session.refresh(env)

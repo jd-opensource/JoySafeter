@@ -56,39 +56,25 @@ def test_runtime_errors_and_versioned_envelopes_are_frozen(credential_contract: 
 
 
 def test_reference_contract_freezes_snapshot_versions_and_key_aliases(reference_contract: dict):
-    assert reference_contract["contract_version"] == 2
-    assert reference_contract["snapshot_schemas"] == {
-        "legacy_v0": None,
-        "v1": "joysafeter.agent_execution_snapshot.v1",
-        "v2": "joysafeter.agent_execution_snapshot.v2",
-    }
+    assert reference_contract["contract_version"] == 3
+    assert reference_contract["snapshot_schemas"] == {"v2": "joysafeter.agent_execution_snapshot.v2"}
     assert reference_contract["canonical_reference_keys"] == [
         "model_credential_id",
         "environment_credential_ids",
-        "service_credential_id",
+        "credential_ref",
         "credential_field",
     ]
-    assert reference_contract["legacy_aliases"] == {
-        "model_credential_id": ["secret_ref"],
-        "environment_credential_ids": ["secret_refs"],
-        "service_credential_id": ["credential_ref"],
-        "credential_field": ["secret_key"],
-    }
-    assert reference_contract["legacy_decoder_keys"] == [
-        "secret_ref",
-        "secret_refs",
-        "credential_ref",
-        "secret_key",
-    ]
+    assert reference_contract["legacy_aliases"] == {}
+    assert reference_contract["legacy_decoder_keys"] == []
     assert reference_contract["normalization"] == {"inject_type": "trim_lowercase"}
     paths = reference_contract["reference_paths"]
-    assert len(paths) == 27
+    assert len(paths) == 13
     assert all(
         set(entry) == {"schemas", "document", "path", "value_kind", "surface", "scanner_fixture"} for entry in paths
     )
     assert Counter(entry["value_kind"] for entry in paths) == {
-        "credential_id": 21,
-        "credential_field": 6,
+        "credential_id": 10,
+        "credential_field": 3,
     }
     assert len({entry["scanner_fixture"] for entry in paths}) == len(paths)
     assert all(entry["surface"] in reference_contract["consumer_surfaces"] for entry in paths)
@@ -105,24 +91,18 @@ def test_reference_contract_includes_consumer_surfaces_and_fail_closed_vector(re
         "session_credential_group_association",
         "quickstart_model_inference",
         "skill_ai_authoring_model_inference",
-        "legacy_v0_v1_environment_snapshot",
+        "credential_group_member_ownership",
     ]
-    assert reference_contract["error_categories"] == {
-        "unknown_explicit_schema": "corrupt_record",
-        "legacy_alias_in_explicit_v2": "corrupt_record",
-    }
+    assert reference_contract["error_categories"] == {"unknown_explicit_schema": "corrupt_record"}
     assert reference_contract["test_vectors"][-1] == {
         "name": "unknown_explicit_schema_fails_closed",
         "schema": "joysafeter.agent_execution_snapshot.v3",
         "result": "corrupt_record",
     }
     assert reference_contract["parity_vectors"][-1] == {
-        "name": "explicit_v2_rejects_legacy_alias",
-        "category": "schema_policy",
+        "name": "unknown_explicit_schema",
+        "category": "unknown_schema",
         "document": "agent_version_snapshot",
-        "input": {
-            "schema": "joysafeter.agent_execution_snapshot.v2",
-            "secret_refs": ["cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f010"],
-        },
+        "input": {"schema": "joysafeter.agent_execution_snapshot.v3"},
         "result": "corrupt_record",
     }

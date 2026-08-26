@@ -39,7 +39,6 @@ from app.joysafeter_domain.credentials.dependencies import (
     CredentialDependency,
     DependencyDisposition,
 )
-from app.joysafeter_domain.credentials.types import CredentialId as DomainCredentialId
 from app.joysafeter_domain.credentials.types import ProjectId
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredential
@@ -58,7 +57,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 )
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import CredentialId
+from app.joysafeter_shared.ids import AgentId, ApiKeyId, CredentialId, OrganizationId, SandboxId, UserId
 
 
 def test_router_imports_ok() -> None:
@@ -75,10 +74,19 @@ def test_router_imports_ok() -> None:
 
 async def _make_project(session_factory) -> str:
     async with session_factory() as session:
-        org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+        org = Organization(
+            id=OrganizationId.new(),
+            name=f"org-{uuid.uuid4()}",
+            slug=f"org-{uuid.uuid4()}",
+        )
         session.add(org)
         await session.flush()
-        project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+        project = Project(
+            id=ProjectId.new(),
+            org_id=org.id,
+            name=f"proj-{uuid.uuid4()}",
+            slug=f"proj-{uuid.uuid4()}",
+        )
         session.add(project)
         await session.commit()
         return project.id
@@ -96,8 +104,11 @@ def client(postgres_url: str) -> Iterator[tuple[TestClient, str, async_sessionma
     engine = create_async_engine(postgres_url, poolclass=NullPool)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     project_id = asyncio.get_event_loop().run_until_complete(_make_project(session_factory))
+    user_id = UserId.new()
+    organization_id = OrganizationId.new()
 
     app = FastAPI()
+    app.state.auth_user_id = user_id
     register_exception_handlers(app)
     app.include_router(credentials_router, prefix="/credentials")
     app.include_router(credential_groups_router, prefix="/credential-groups")
@@ -109,8 +120,8 @@ def client(postgres_url: str) -> Iterator[tuple[TestClient, str, async_sessionma
 
     def _override_auth() -> JoySafeterAuthContext:
         return JoySafeterAuthContext(
-            user_id="test-user",
-            org_id="test-org",
+            user_id=user_id,
+            org_id=organization_id,
             project_id=project_id,
             role=JoySafeterRole.ADMIN,
         )
@@ -205,28 +216,30 @@ def test_credential_mutation_audit_records_request_actor(client) -> None:
             result = await session.execute(
                 select(SecurityAuditLog).where(
                     SecurityAuditLog.event_type == "credential.created",
-                    SecurityAuditLog.details["project_id"].astext == project_id,
+                    SecurityAuditLog.details["project_id"].astext == str(project_id),
                     SecurityAuditLog.details["target_id"].astext == credential_id,
                 )
             )
             return result.scalar_one()
 
     audit = asyncio.get_event_loop().run_until_complete(load_audit())
-    assert audit.user_id == "test-user"
+    assert audit.user_id == api.app.state.auth_user_id
     assert audit.ip_address == "testclient"
     assert audit.user_agent == "credential-audit-test/1.0"
     assert audit.details["principal_type"] == "user"
-    assert audit.details["principal_id"] == "test-user"
+    assert audit.details["principal_id"] == str(api.app.state.auth_user_id)
 
 
 def test_credential_mutation_audit_records_api_key_principal(client) -> None:
     api, project_id, session_factory = client
-    api_key_id = "00000000-0000-0000-0000-000000000123"
+    api_key_id = ApiKeyId.new()
+    api_key_owner_id = UserId.new()
+    organization_id = OrganizationId.new()
 
     def _override_api_key_auth() -> JoySafeterAuthContext:
         return JoySafeterAuthContext(
-            user_id="api-key-owner",
-            org_id="test-org",
+            user_id=api_key_owner_id,
+            org_id=organization_id,
             project_id=project_id,
             role=JoySafeterRole.MEMBER,
             principal_type="api_key",
@@ -252,16 +265,16 @@ def test_credential_mutation_audit_records_api_key_principal(client) -> None:
             result = await session.execute(
                 select(SecurityAuditLog).where(
                     SecurityAuditLog.event_type == "credential.created",
-                    SecurityAuditLog.details["project_id"].astext == project_id,
+                    SecurityAuditLog.details["project_id"].astext == str(project_id),
                     SecurityAuditLog.details["target_id"].astext == credential_id,
                 )
             )
             return result.scalar_one()
 
     audit = asyncio.get_event_loop().run_until_complete(load_audit())
-    assert audit.user_id == "api-key-owner"
+    assert audit.user_id == api_key_owner_id
     assert audit.details["principal_type"] == "api_key"
-    assert audit.details["principal_id"] == api_key_id
+    assert audit.details["principal_id"] == str(api_key_id)
 
 
 def test_credential_group_mutation_audit_records_request_actor(client) -> None:
@@ -279,18 +292,18 @@ def test_credential_group_mutation_audit_records_request_actor(client) -> None:
             result = await session.execute(
                 select(SecurityAuditLog).where(
                     SecurityAuditLog.event_type == "credential_group.created",
-                    SecurityAuditLog.details["project_id"].astext == project_id,
+                    SecurityAuditLog.details["project_id"].astext == str(project_id),
                     SecurityAuditLog.details["target_id"].astext == group_id,
                 )
             )
             return result.scalar_one()
 
     audit = asyncio.get_event_loop().run_until_complete(load_audit())
-    assert audit.user_id == "test-user"
+    assert audit.user_id == api.app.state.auth_user_id
     assert audit.ip_address == "testclient"
     assert audit.user_agent == "credential-group-audit-test/1.0"
     assert audit.details["principal_type"] == "user"
-    assert audit.details["principal_id"] == "test-user"
+    assert audit.details["principal_id"] == str(api.app.state.auth_user_id)
 
 
 def test_deleted_resource_routes_fail_closed_without_clearing_live_default(client) -> None:
@@ -507,6 +520,7 @@ def test_credential_update_nudges_live_sandbox_after_commit(client, monkeypatch)
     async def create_sandbox():
         async with session_factory() as session:
             sandbox = JoySafeterSandbox(
+                id=SandboxId.new(),
                 project_id=project_id,
                 image="test-image:latest",
                 status="running",
@@ -584,6 +598,7 @@ def test_delete_credential_in_use_returns_409(client) -> None:
     async def _bind_agent() -> None:
         async with session_factory() as session:
             agent = JoySafeterAgent(
+                id=AgentId.new(),
                 project_id=project_id,
                 name=f"agent-{uuid.uuid4()}",
                 model_credential_id=CredentialId.from_public(cred_id),
@@ -769,15 +784,15 @@ def test_generic_and_group_member_lifecycle_share_registry_enforce_authority(
     scanner_calls: list[str] = []
 
     async def registry_only_blocker(self, scan_project_id, scan_credential_id):
-        assert str(scan_project_id) == project_id
+        assert scan_project_id == project_id
         assert str(scan_credential_id) == member_id
         scanner_calls.append(str(scan_credential_id))
         return (
             CredentialDependency(
                 surface_id="registry_only_test_surface",
-                project_id=ProjectId(project_id),
+                project_id=project_id,
                 source_id="registry-only-session",
-                credential_id=DomainCredentialId(member_id),
+                credential_id=CredentialId.from_public(member_id),
                 group_id=None,
                 dispositions=frozenset(
                     {
@@ -841,7 +856,7 @@ def test_archived_member_group_precedes_registry_blocker_for_both_endpoints(
                 surface_id="registry_only_priority_surface",
                 project_id=ProjectId(project_id),
                 source_id="registry-only-priority-session",
-                credential_id=DomainCredentialId(member_id),
+                credential_id=CredentialId.from_public(member_id),
                 group_id=None,
                 dispositions=frozenset(
                     {

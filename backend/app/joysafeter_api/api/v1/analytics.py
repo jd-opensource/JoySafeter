@@ -1,6 +1,6 @@
 """
 Analytics API router — aggregated metrics, time series, call history,
-observation trees, and agent comparison views.
+and agent comparison views.
 
 All endpoints are read-only and scoped to the authenticated project.
 """
@@ -22,7 +22,7 @@ from app.joysafeter_domain.schemas.analytics import (
     HealthCheckResponse,
     LatencyStatsResponse,
     LatencyTimePoint,
-    ObservationNodeResponse,
+    TimeHeatmapItem,
     TokensTimePoint,
 )
 from app.joysafeter_domain.services.analytics_service import AnalyticsService
@@ -141,26 +141,6 @@ async def get_calls_list(
     return CallsListResponse(**data)
 
 
-# --- Observations ---
-
-
-@router.get("/observations/{trace_id}", response_model=list[ObservationNodeResponse])
-async def get_observations_tree(
-    trace_id: str,
-    db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> list[ObservationNodeResponse]:
-    """Get the observation tree for a specific trace."""
-    service = AnalyticsService(db)
-    data = await service.get_observations_tree(auth_ctx.project_id, trace_id)
-
-    def to_response(node: dict) -> ObservationNodeResponse:
-        children = [to_response(c) for c in node.get("children", [])]
-        return ObservationNodeResponse(**{**node, "children": children})
-
-    return [to_response(n) for n in data]
-
-
 # --- Agent Comparison ---
 
 
@@ -229,10 +209,11 @@ async def get_time_heatmap(
     range: str = Query("7d", alias="range"),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-):
+) -> list[TimeHeatmapItem]:
     """Get task counts by hour and day-of-week for heatmap visualization."""
     service = AnalyticsService(db)
-    return await service.get_time_heatmap(auth_ctx.project_id, range)
+    data = await service.get_time_heatmap(auth_ctx.project_id, range)
+    return [TimeHeatmapItem(**item) for item in data]
 
 
 # --- Error Summary ---

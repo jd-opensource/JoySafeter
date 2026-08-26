@@ -33,7 +33,7 @@ from app.joysafeter_shared.common.app_errors import (
 )
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.stream_errors import async_error_payload
-from app.joysafeter_shared.ids import AgentId, SessionId, TaskId, TriggerId
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId, SessionId, TaskId, TriggerId, UserId
 from app.joysafeter_shared.orchestrator_bridge.enqueue import enqueue_joysafeter_task
 
 logger = logging.getLogger(__name__)
@@ -79,8 +79,8 @@ class TaskSubmissionService:
     async def enforce_admission(
         self,
         *,
-        project_id: Optional[str],
-        user_id: Optional[str],
+        project_id: ProjectId | None,
+        user_id: UserId | None,
         enforce_user_quota: bool,
     ) -> None:
         """Per-project and per-user concurrent-task admission control.
@@ -100,7 +100,7 @@ class TaskSubmissionService:
                 raise ResourceConflictError(
                     code="PROJECT_ARCHIVED",
                     message="Project is archived and cannot create new tasks.",
-                    data={"project_id": project_id},
+                    data={"project_id": str(project_id)},
                     user_action="refresh",
                 )
 
@@ -112,7 +112,7 @@ class TaskSubmissionService:
                 raise RateLimitExceededError(
                     code="PROJECT_TASK_LIMIT_EXCEEDED",
                     message=f"Project has reached its concurrent task limit ({limit}).",
-                    data={"limit": limit, "active": active, "project_id": project_id},
+                    data={"limit": limit, "active": active, "project_id": str(project_id)},
                     source="api",
                     retryable=True,
                     user_action="retry",
@@ -125,7 +125,7 @@ class TaskSubmissionService:
                 raise RateLimitExceededError(
                     code="USER_TASK_LIMIT_EXCEEDED",
                     message=f"User has reached their concurrent task limit ({user_limit}).",
-                    data={"limit": user_limit, "active": user_active, "user_id": user_id},
+                    data={"limit": user_limit, "active": user_active, "user_id": str(user_id)},
                     source="api",
                     retryable=True,
                     user_action="retry",
@@ -141,9 +141,9 @@ class TaskSubmissionService:
         session_svc: SessionService,
         timeout_sec: int,
         max_retries: int,
-        project_id: Optional[str],
-        user_id: Optional[str],
-        org_id: Optional[str],
+        project_id: ProjectId | None,
+        user_id: UserId | None,
+        org_id: OrganizationId | None,
         idempotency_key: Optional[str],
         trigger_id: Optional[TriggerId] = None,
         auto_created_session_id: Optional[SessionId] = None,
@@ -228,9 +228,7 @@ class TaskSubmissionService:
             try:
                 await self.db.rollback()
             except Exception:
-                logger.exception(
-                    "Failed to rollback task submission transaction before compensation"
-                )
+                logger.exception("Failed to rollback task submission transaction before compensation")
             await self.tasks.update_task_error(
                 task_id,
                 f"Failed to enqueue task: {exc}",
@@ -295,9 +293,7 @@ class TaskSubmissionService:
                     "task_id": str(task.id),
                     "conflict_field": "chat_session_id",
                     "requested_value": str(chat_session_id),
-                    "existing_value": (
-                        str(task.chat_session_id) if task.chat_session_id is not None else None
-                    ),
+                    "existing_value": (str(task.chat_session_id) if task.chat_session_id is not None else None),
                 },
                 user_action="fix_input",
             )

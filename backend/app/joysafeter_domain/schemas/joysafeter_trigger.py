@@ -7,7 +7,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.joysafeter_shared.ids import AgentId, CredentialId, SessionId, TaskId, TriggerId
+from app.joysafeter_shared.ids import AgentId, CredentialId, EnvironmentId, ProjectId, SessionId, TaskId, TriggerId
 
 
 def _strip_required(value: str) -> str:
@@ -28,7 +28,7 @@ class TriggerCreateRequest(BaseModel):
     type: str = "webhook"
     agent_id: AgentId
     prompt_template: str = Field(min_length=1)
-    environment_ref: Optional[str] = None
+    environment_id: Optional[EnvironmentId] = None
     description: Optional[str] = None
     enabled: bool = True
     session_mode: str = "fresh"
@@ -56,7 +56,6 @@ class TriggerCreateRequest(BaseModel):
         return value
 
     @field_validator(
-        "environment_ref",
         "description",
         "cron_expr",
         "webhook_auth_field",
@@ -76,7 +75,7 @@ class TriggerUpdateRequest(BaseModel):
 
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     prompt_template: Optional[str] = Field(default=None, min_length=1)
-    environment_ref: Optional[str] = None
+    environment_id: Optional[EnvironmentId] = None
     description: Optional[str] = None
     enabled: Optional[bool] = None
     session_mode: Optional[str] = None
@@ -104,7 +103,6 @@ class TriggerUpdateRequest(BaseModel):
         return value
 
     @field_validator(
-        "environment_ref",
         "description",
         "cron_expr",
         "webhook_auth_field",
@@ -147,7 +145,7 @@ class TriggerResponse(BaseModel):
     type: Literal["cron", "webhook", "manual"]
     agent_id: AgentId
     prompt_template: str
-    environment_ref: Optional[str]
+    environment_id: Optional[EnvironmentId]
     enabled: bool
     session_mode: str
     pinned_session_id: Optional[SessionId]
@@ -165,7 +163,7 @@ class TriggerResponse(BaseModel):
     last_fired_slot: Optional[datetime] = None
     webhook_auth_credential_id: Optional[CredentialId] = None
     webhook_auth_field: Optional[str] = None
-    project_id: Optional[str]
+    project_id: ProjectId | None
     webhook_url: Optional[str] = None
     last_attempt_at: Optional[datetime]
     last_success_at: Optional[datetime]
@@ -178,6 +176,7 @@ class TriggerResponse(BaseModel):
     last_payload: dict[str, Any]
     created_at: datetime
     updated_at: datetime
+
 
 class TriggerVariable(BaseModel):
     path: str

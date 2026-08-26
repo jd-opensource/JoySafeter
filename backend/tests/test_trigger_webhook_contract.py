@@ -14,6 +14,7 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId, TriggerId, UserId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -53,11 +54,12 @@ def _request_with_headers(headers: dict[str, str]) -> Request:
 
 
 async def _seed_webhook_trigger(db_session, *, triggers_paused: bool = False) -> JoySafeterTrigger:
-    org = Organization(name=f"Webhook Org {uuid.uuid4()}", slug=f"webhook-org-{uuid.uuid4()}")
+    org = Organization(id=OrganizationId.new(), name=f"Webhook Org {uuid.uuid4()}", slug=f"webhook-org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
 
     project = Project(
+        id=ProjectId.new(),
         org_id=org.id,
         name="Webhook Project",
         slug=f"webhook-project-{uuid.uuid4()}",
@@ -66,11 +68,12 @@ async def _seed_webhook_trigger(db_session, *, triggers_paused: bool = False) ->
     db_session.add(project)
     await db_session.flush()
 
-    agent = JoySafeterAgent(name=f"webhook-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"webhook-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.flush()
 
     trigger = JoySafeterTrigger(
+        id=TriggerId.new(),
         name=f"hook-{uuid.uuid4()}",
         type="webhook",
         agent_id=agent.id,
@@ -80,7 +83,7 @@ async def _seed_webhook_trigger(db_session, *, triggers_paused: bool = False) ->
         config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
         last_payload={},
         project_id=project.id,
-        user_id="owner-user",
+        user_id=UserId.new(),
         org_id=org.id,
     )
     db_session.add(trigger)

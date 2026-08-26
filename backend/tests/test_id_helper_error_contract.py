@@ -17,6 +17,7 @@ from app.joysafeter_domain.schemas.joysafeter_session import SessionAgent, Sessi
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.ids import (
     AgentId,
+    FileId,
     MemoryId,
     MemoryStoreId,
     MemoryVersionId,
@@ -35,26 +36,32 @@ def test_analytics_call_record_serializes_canonical_resource_ids():
     session_id = uuid.uuid4()
     agent_id = uuid.uuid4()
 
-    payload = CallRecord(
+    record = CallRecord(
         id=TaskId(task_id),
         trace_id=TaskId(task_id),
         session_id=SessionId(session_id),
         agent_id=AgentId(agent_id),
         status="completed",
-    ).model_dump()
+    )
+    payload = record.model_dump()
+    json_payload = record.model_dump(mode="json")
 
-    assert payload["id"] == f"task_{task_id}"
-    assert payload["trace_id"] == f"task_{task_id}"
-    assert payload["session_id"] == f"sess_{session_id}"
-    assert payload["agent_id"] == f"agent_{agent_id}"
+    assert payload["id"] == TaskId(task_id)
+    assert payload["trace_id"] == TaskId(task_id)
+    assert payload["session_id"] == SessionId(session_id)
+    assert payload["agent_id"] == AgentId(agent_id)
+    assert json_payload["id"] == f"task_{task_id}"
+    assert json_payload["trace_id"] == f"task_{task_id}"
+    assert json_payload["session_id"] == f"sess_{session_id}"
+    assert json_payload["agent_id"] == f"agent_{agent_id}"
 
 
 def test_analytics_agent_responses_serialize_typed_identity():
     agent_id = AgentId.new()
 
-    metrics = AgentMetricsResponse(agent_id=agent_id, agent_name="Agent").model_dump()
-    alert = AlertItem(type="slow_agent", severity="warning", agent_id=agent_id).model_dump()
-    ranking = AgentRankingItem(
+    metrics_model = AgentMetricsResponse(agent_id=agent_id, agent_name="Agent")
+    alert_model = AlertItem(type="slow_agent", severity="warning", agent_id=agent_id)
+    ranking_model = AgentRankingItem(
         agent_id=agent_id,
         agent_name="Agent",
         total_tasks=0,
@@ -63,15 +70,18 @@ def test_analytics_agent_responses_serialize_typed_identity():
         avg_duration_ms=0,
         total_tokens=0,
         activity_status="unused",
-    ).model_dump()
+    )
 
-    assert metrics["agent_id"] == str(agent_id)
-    assert alert["agent_id"] == str(agent_id)
-    assert ranking["agent_id"] == str(agent_id)
+    assert metrics_model.model_dump()["agent_id"] is agent_id
+    assert alert_model.model_dump()["agent_id"] is agent_id
+    assert ranking_model.model_dump()["agent_id"] is agent_id
+    assert metrics_model.model_dump(mode="json")["agent_id"] == str(agent_id)
+    assert alert_model.model_dump(mode="json")["agent_id"] == str(agent_id)
+    assert ranking_model.model_dump(mode="json")["agent_id"] == str(agent_id)
 
 
 def test_task_references_in_operational_responses_use_canonical_prefix():
-    task_id = uuid.uuid4()
+    task_id = TaskId.new()
     sandbox_id = SandboxId.new()
     now = datetime.now(UTC)
 
@@ -92,10 +102,10 @@ def test_task_references_in_operational_responses_use_canonical_prefix():
         sandbox_updated_at=now,
     ).model_dump(mode="json")
 
-    assert sandbox_payload["last_task_id"] == f"task_{task_id}"
+    assert sandbox_payload["last_task_id"] == str(task_id)
     assert sandbox_payload["id"] == str(sandbox_id)
     assert policy_payload["sandbox_id"] == str(sandbox_id)
-    assert policy_payload["task_id"] == f"task_{task_id}"
+    assert policy_payload["task_id"] == str(task_id)
 
 
 def test_sandbox_response_exposes_runtime_config_freshness():
@@ -150,9 +160,10 @@ def test_runtime_config_generation_model_contracts():
 
 def test_file_response_uses_canonical_session_prefix():
     session_id = uuid.uuid4()
+    file_id = FileId.new()
     response = FileResponse.from_model(
         SimpleNamespace(
-            id=uuid.uuid4(),
+            id=file_id,
             filename="report.txt",
             purpose="assistants",
             content_type="text/plain",
@@ -164,7 +175,10 @@ def test_file_response_uses_canonical_session_prefix():
         )
     )
 
+    assert response.id is file_id
     assert response.session_id == SessionId(session_id)
+    assert response.model_dump(mode="json")["id"] == str(file_id)
+    assert response.model_dump(mode="json")["session_id"] == f"sess_{session_id}"
 
 
 def test_file_scope_rejects_removed_session_prefix():

@@ -10,9 +10,11 @@ from app.joysafeter_domain.agents import merge_agent_assets
 from app.joysafeter_domain.schemas.joysafeter_agent import SkillRef
 from app.joysafeter_infrastructure.agents import SqlAlchemyAgentRepository
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
-from app.joysafeter_shared.ids import SkillId
+from app.joysafeter_shared.ids import ProjectId, SkillId
 
 pytestmark = pytest.mark.no_db
+
+PROJECT_ID = ProjectId.new()
 
 
 def test_merge_agent_assets_skill_ref_is_json_serializable_and_prefixed():
@@ -63,7 +65,7 @@ def _service(rows) -> AgentCommandService:
 def _skill(skill_id: SkillId, *, status="passed", lifecycle="approved"):
     return SimpleNamespace(
         id=skill_id,
-        project_id="project-a",
+        project_id=PROJECT_ID,
         org_version_id=None,
         public_version_id=None,
         name="safe-skill",
@@ -82,7 +84,21 @@ async def test_agent_skill_ref_gate_rejects_bad_uuid():
     svc = _service([])
 
     with pytest.raises(InvalidRequestError) as exc:
-        await svc._validate_skill_refs([{"skill_id": "skill_not-a-uuid"}], "project-a")
+        await svc._validate_skill_refs([{"skill_id": "skill_not-a-uuid"}], PROJECT_ID)
+
+    assert exc.value.code == "AGENT_SKILL_REF_INVALID"
+
+
+async def test_agent_skill_ref_gate_rejects_objects_that_only_stringify_as_skill_ids():
+    skill_id = SkillId.new()
+    svc = _service([])
+
+    class _StringableSkillId:
+        def __str__(self) -> str:
+            return str(skill_id)
+
+    with pytest.raises(InvalidRequestError) as exc:
+        await svc._validate_skill_refs([{"skill_id": _StringableSkillId()}], PROJECT_ID)
 
     assert exc.value.code == "AGENT_SKILL_REF_INVALID"
 
@@ -92,7 +108,7 @@ async def test_agent_skill_ref_gate_rejects_missing_skill():
     svc = _service([])
 
     with pytest.raises(InvalidRequestError) as exc:
-        await svc._validate_skill_refs([{"skill_id": str(skill_id)}], "project-a")
+        await svc._validate_skill_refs([{"skill_id": str(skill_id)}], PROJECT_ID)
 
     assert exc.value.code == "AGENT_SKILL_REF_NOT_FOUND"
     assert str(skill_id) in exc.value.data["skill_ids"]
@@ -110,7 +126,7 @@ async def test_agent_skill_ref_gate_rejects_unpublished_skill(monkeypatch):
         _empty_latest_map,
     )
     with pytest.raises(InvalidRequestError) as exc:
-        await svc._validate_skill_refs([{"skill_id": str(skill_id)}], "project-a")
+        await svc._validate_skill_refs([{"skill_id": str(skill_id)}], PROJECT_ID)
 
     assert exc.value.code == "AGENT_SKILL_REF_NOT_PUBLISHED"
     assert exc.value.data["skills"] == [{"skill_id": str(skill_id), "reason": "no_published_version"}]
@@ -127,7 +143,7 @@ async def test_agent_skill_ref_gate_accepts_published_skill_regardless_of_curren
         "app.joysafeter_infrastructure.agents.sqlalchemy_repository.SkillVersionRepository.latest_version_map",
         _latest_map,
     )
-    await svc._validate_skill_refs([{"skill_id": str(skill_id)}], "project-a")
+    await svc._validate_skill_refs([{"skill_id": str(skill_id)}], PROJECT_ID)
 
 
 async def test_agent_skill_ref_gate_accepts_published_runtime_ready_skill(monkeypatch):
@@ -141,7 +157,7 @@ async def test_agent_skill_ref_gate_accepts_published_runtime_ready_skill(monkey
         "app.joysafeter_infrastructure.agents.sqlalchemy_repository.SkillVersionRepository.latest_version_map",
         _latest_map,
     )
-    await svc._validate_skill_refs([{"skill_id": str(skill_id)}], "project-a")
+    await svc._validate_skill_refs([{"skill_id": str(skill_id)}], PROJECT_ID)
 
 
 async def test_agent_skill_ref_gate_rejects_draft_version(monkeypatch):
@@ -157,7 +173,7 @@ async def test_agent_skill_ref_gate_rejects_draft_version(monkeypatch):
     )
 
     with pytest.raises(InvalidRequestError) as exc:
-        await svc._validate_skill_refs([{"skill_id": str(skill_id), "version": "draft"}], "project-a")
+        await svc._validate_skill_refs([{"skill_id": str(skill_id), "version": "draft"}], PROJECT_ID)
 
     assert exc.value.code == "AGENT_SKILL_REF_NOT_PUBLISHED"
     assert exc.value.data["skills"] == [{"skill_id": str(skill_id), "version": "draft", "reason": "draft_not_allowed"}]
@@ -178,7 +194,7 @@ async def test_agent_skill_ref_gate_rejects_missing_pinned_version(monkeypatch):
     )
 
     with pytest.raises(InvalidRequestError) as exc:
-        await svc._validate_skill_refs([{"skill_id": str(skill_id), "version": "9.9.9"}], "project-a")
+        await svc._validate_skill_refs([{"skill_id": str(skill_id), "version": "9.9.9"}], PROJECT_ID)
 
     assert exc.value.code == "AGENT_SKILL_REF_NOT_PUBLISHED"
     assert exc.value.data["skills"] == [{"skill_id": str(skill_id), "version": "9.9.9", "reason": "version_not_found"}]
@@ -198,4 +214,4 @@ async def test_agent_skill_ref_gate_accepts_existing_pinned_version(monkeypatch)
         _get_by_version,
     )
 
-    await svc._validate_skill_refs([{"skill_id": str(skill_id), "version": "1.2.3"}], "project-a")
+    await svc._validate_skill_refs([{"skill_id": str(skill_id), "version": "1.2.3"}], PROJECT_ID)

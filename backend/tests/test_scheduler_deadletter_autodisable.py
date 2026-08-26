@@ -16,6 +16,7 @@ import pytest
 from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_application.triggers import TriggerApplicationService
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId, TriggerId, UserId
 
 _FUTURE = datetime(2999, 1, 1, tzinfo=timezone.utc)
 
@@ -40,7 +41,7 @@ class _StubService(JoySafeterTriggerService):
 
 def _trigger(**over):
     base = dict(
-        id="t1",
+        id=TriggerId.new(),
         slot_attempts=0,
         pending_slot_at=None,
         consecutive_failures=0,
@@ -102,19 +103,20 @@ async def test_re_enable_clears_dead_letter_and_resumes(db_session):
     from app.joysafeter_domain.models.joysafeter_project import Project
     from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 
-    org = Organization(name=f"dl-org-{uuid.uuid4()}", slug=f"dl-org-{uuid.uuid4()}")
+    org = Organization(id=OrganizationId.new(), name=f"dl-org-{uuid.uuid4()}", slug=f"dl-org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name="P", slug=f"dl-p-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org.id, name="P", slug=f"dl-p-{uuid.uuid4()}")
     db_session.add(project)
     await db_session.flush()
-    agent = JoySafeterAgent(name=f"dl-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"dl-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
     await db_session.refresh(project)
 
     trigger = JoySafeterTrigger(
+        id=TriggerId.new(),
         name="dead",
         type="cron",
         agent_id=agent.id,
@@ -122,7 +124,7 @@ async def test_re_enable_clears_dead_letter_and_resumes(db_session):
         cron_expr="0 0 * * *",
         timezone="UTC",
         project_id=project.id,
-        user_id="owner",
+        user_id=UserId.new(),
         org_id=org.id,
         enabled=False,
         consecutive_failures=5,

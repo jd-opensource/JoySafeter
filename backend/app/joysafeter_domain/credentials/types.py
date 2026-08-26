@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-import re
 from enum import StrEnum
-from typing import NewType, cast
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
+from app.joysafeter_shared.ids import CredentialGroupId, CredentialId, ProjectId
+
 CREDENTIAL_FIELD_NAME_MAX_LENGTH = 128
-
-ProjectId = NewType("ProjectId", str)
-CredentialId = NewType("CredentialId", str)
-CredentialGroupId = NewType("CredentialGroupId", str)
-
-_CANONICAL_UUID_PATTERN = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
 class CredentialKind(StrEnum):
@@ -61,36 +55,20 @@ class NormalizedMcpUrl(str):
     def __new__(cls, value: str) -> NormalizedMcpUrl:
         normalized = _normalize_http_url(value, label="MCP URL")
         if normalized.endswith("/"):
-            normalized = normalized.rstrip("/")
+            normalized = normalized[:-1]
         return str.__new__(cls, normalized)
 
 
-def make_project_id(value: str) -> ProjectId:
-    if not isinstance(value, str):
-        raise TypeError("project id must be a string")
-    normalized = value.strip()
-    if not normalized:
-        raise ValueError("project id must not be blank")
-    return ProjectId(normalized)
-
-
-def _make_public_id(value: object, *, prefix: str, label: str) -> str:
-    if not isinstance(value, str):
-        raise TypeError(f"{label} must be a string")
-    if not value.startswith(prefix) or _CANONICAL_UUID_PATTERN.fullmatch(value[len(prefix) :]) is None:
-        raise ValueError(f"{label} is invalid")
+def require_credential_id(value: CredentialId) -> CredentialId:
+    if type(value) is not CredentialId:
+        raise TypeError("credential id must be a CredentialId")
     return value
 
 
-def make_credential_id(value: object) -> CredentialId:
-    return cast(CredentialId, _make_public_id(value, prefix="cred_", label="credential id"))
-
-
-def make_credential_group_id(value: object) -> CredentialGroupId:
-    return cast(
-        CredentialGroupId,
-        _make_public_id(value, prefix="credgrp_", label="credential group id"),
-    )
+def require_credential_group_id(value: CredentialGroupId) -> CredentialGroupId:
+    if type(value) is not CredentialGroupId:
+        raise TypeError("credential group id must be a CredentialGroupId")
+    return value
 
 
 def canonicalize_auth_scheme(value: str | CredentialAuthScheme) -> CredentialAuthScheme:
@@ -119,7 +97,9 @@ def require_non_empty_text(value: str, *, label: str) -> str:
 
 
 def require_project_id(value: ProjectId) -> ProjectId:
-    return make_project_id(value)
+    if type(value) is not ProjectId:
+        raise TypeError("project id must be a ProjectId")
+    return value
 
 
 def require_identifier(value: str, *, label: str) -> str:

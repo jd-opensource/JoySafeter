@@ -20,7 +20,7 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
-from app.joysafeter_shared.ids import SessionId, TaskId
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId, SessionId, TaskId, TriggerId, UserId
 from app.joysafeter_shared.rate_limit import _rate_limiter
 
 
@@ -44,15 +44,17 @@ async def _seed_webhook_trigger(
     secret_value: str = "hook-secret-material",
 ) -> JoySafeterTrigger:
     unique = uuid.uuid4()
-    org = Organization(name=f"Webhook Route Org {unique}", slug=f"webhook-route-org-{unique}")
+    org = Organization(id=OrganizationId.new(), name=f"Webhook Route Org {unique}", slug=f"webhook-route-org-{unique}")
     db_session.add(org)
     await db_session.flush()
 
-    project = Project(org_id=org.id, name="Webhook Route Project", slug=f"webhook-route-project-{unique}")
+    project = Project(
+        id=ProjectId.new(), org_id=org.id, name="Webhook Route Project", slug=f"webhook-route-project-{unique}"
+    )
     db_session.add(project)
     await db_session.flush()
 
-    agent = JoySafeterAgent(name=f"webhook-route-agent-{unique}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"webhook-route-agent-{unique}", project_id=project.id)
     db_session.add(agent)
     await db_session.flush()
 
@@ -66,6 +68,7 @@ async def _seed_webhook_trigger(
     )
 
     trigger = JoySafeterTrigger(
+        id=TriggerId.new(),
         name=f"{name}-{unique}",
         type="webhook",
         agent_id=agent.id,
@@ -77,7 +80,7 @@ async def _seed_webhook_trigger(
         config=config,
         last_payload={},
         project_id=project.id,
-        user_id="owner-user",
+        user_id=UserId.new(),
         org_id=org.id,
     )
     db_session.add(trigger)

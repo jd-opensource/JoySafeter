@@ -23,6 +23,14 @@ from app.joysafeter_domain.services.joysafeter_organization_service import (
     OrganizationService,
 )
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
+from app.joysafeter_shared.ids import (
+    CredentialGroupId,
+    CredentialId,
+    OrganizationId,
+    OrganizationMemberId,
+    ProjectId,
+    UserId,
+)
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -34,22 +42,27 @@ def test_blocker_list_replaces_secrets_and_vaults_with_credentials():
     assert "vaults" not in labels
 
 
-async def _make_org_and_project(db_session) -> tuple[str, str, str]:
-    user = AuthUser(name="Owner", email=f"owner-{uuid.uuid4()}@example.com")
+async def _make_org_and_project(db_session) -> tuple[OrganizationId, ProjectId, UserId]:
+    user = AuthUser(id=UserId.new(), name="Owner", email=f"owner-{uuid.uuid4()}@example.com")
     db_session.add(user)
     await db_session.flush()
-    org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+    org = Organization(id=OrganizationId.new(), name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="owner"))
-    project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org.id, role="owner"))
+    project = Project(
+        id=ProjectId.new(),
+        org_id=org.id,
+        name=f"proj-{uuid.uuid4()}",
+        slug=f"proj-{uuid.uuid4()}",
+    )
     db_session.add(project)
     await db_session.commit()
     return org.id, project.id, user.id
 
 
 @pytest_asyncio.fixture
-async def org_project(db_session) -> tuple[str, str, str]:
+async def org_project(db_session) -> tuple[OrganizationId, ProjectId, UserId]:
     return await _make_org_and_project(db_session)
 
 
@@ -71,7 +84,7 @@ async def test_delete_org_blocked_by_live_credential(db_session, org_project):
 @pytest.mark.asyncio
 async def test_delete_org_blocked_by_credential_group(db_session, org_project):
     org_id, project_id, user_id = org_project
-    group = JoySafeterCredentialGroup(project_id=project_id, name=f"g-{uuid.uuid4()}")
+    group = JoySafeterCredentialGroup(id=CredentialGroupId.new(), project_id=project_id, name=f"g-{uuid.uuid4()}")
     db_session.add(group)
     await db_session.commit()
 
@@ -86,6 +99,7 @@ async def test_delete_org_blocked_by_credential_group(db_session, org_project):
 async def test_soft_deleted_credential_remains_physical_deletion_blocker(db_session, org_project):
     _org_id, project_id, _user_id = org_project
     cred = JoySafeterCredential(
+        id=CredentialId.new(),
         project_id=project_id,
         kind="service",
         name=f"s-{uuid.uuid4()}",
@@ -104,6 +118,7 @@ async def test_soft_deleted_credential_remains_physical_deletion_blocker(db_sess
 async def test_soft_deleted_credential_group_remains_physical_deletion_blocker(db_session, org_project):
     _org_id, project_id, _user_id = org_project
     group = JoySafeterCredentialGroup(
+        id=CredentialGroupId.new(),
         project_id=project_id,
         name=f"g-{uuid.uuid4()}",
         deleted_at=utc_now(),

@@ -23,20 +23,36 @@ from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import SandboxId, as_uuid
+from app.joysafeter_shared.ids import (
+    AgentId,
+    OrganizationId,
+    OrganizationMemberId,
+    ProjectId,
+    ProjectMemberId,
+    SandboxId,
+    SessionId,
+    TaskId,
+    UserId,
+    as_uuid,
+)
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
-def _admin_ctx(project_id: str, org_id: str) -> JoySafeterAuthContext:
+def _admin_ctx(
+    project_id: ProjectId,
+    org_id: OrganizationId,
+    *,
+    user_id: UserId | None = None,
+) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="admin-user",
+        user_id=user_id or UserId.new(),
         org_id=org_id,
         project_id=project_id,
         role=JoySafeterRole.ADMIN,
     )
 
 
-def _member_ctx(project_id: str, org_id: str, user_id: str) -> JoySafeterAuthContext:
+def _member_ctx(project_id: ProjectId, org_id: OrganizationId, user_id: UserId) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
         user_id=user_id,
         org_id=org_id,
@@ -99,9 +115,9 @@ class _ExternalIdChangingDestroyAckRedis(_FakeCommandRedis):
 
 @pytest.mark.asyncio
 async def test_archive_project_rejects_active_tasks(db_session):
-    org_id = f"org-{uuid.uuid4()}"
+    org_id = OrganizationId.new()
     org = Organization(id=org_id, name="Launch Org", slug=f"launch-org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Launch", slug=f"launch-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org_id, name="Launch", slug=f"launch-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.commit()
 
@@ -109,13 +125,14 @@ async def test_archive_project_rejects_active_tasks(db_session):
     await db_session.commit()
     await db_session.refresh(project)
 
-    agent = JoySafeterAgent(name=f"project-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"project-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
     project_id = project.id
 
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         project_id=project_id,
         prompt="scan target",
@@ -130,7 +147,7 @@ async def test_archive_project_rejects_active_tasks(db_session):
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "PROJECT_ACTIVE_TASKS",
         "message": "Project has active tasks. Stop or wait for them before archiving.",
-        "data": {"project_id": project_id, "active": 1},
+        "data": {"project_id": str(project_id), "active": 1},
         "source": "api",
         "retryable": True,
         "user_action": "retry",
@@ -143,9 +160,9 @@ async def test_archive_project_rejects_active_tasks(db_session):
 
 @pytest.mark.asyncio
 async def test_archive_project_fails_closed_when_task_appears_after_active_check(db_session, monkeypatch):
-    org_id = f"org-{uuid.uuid4()}"
+    org_id = OrganizationId.new()
     org = Organization(id=org_id, name="Race Org", slug=f"race-org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Race", slug=f"race-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org_id, name="Race", slug=f"race-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.commit()
 
@@ -153,12 +170,12 @@ async def test_archive_project_fails_closed_when_task_appears_after_active_check
     await db_session.commit()
     await db_session.refresh(project)
 
-    agent = JoySafeterAgent(name=f"project-race-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"project-race-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, project_id=project.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, project_id=project.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -168,6 +185,7 @@ async def test_archive_project_fails_closed_when_task_appears_after_active_check
 
     async def active_task_appears_after_check(self, project_id):
         task = JoySafeterTask(
+            id=TaskId.new(),
             agent_id=agent_id,
             project_id=project_id,
             chat_session_id=session_id,
@@ -189,7 +207,7 @@ async def test_archive_project_fails_closed_when_task_appears_after_active_check
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "PROJECT_ACTIVE_TASKS",
         "message": "Project has active tasks. Stop or wait for them before archiving.",
-        "data": {"project_id": project_id, "active": 1},
+        "data": {"project_id": str(project_id), "active": 1},
         "source": "api",
         "retryable": True,
         "user_action": "retry",
@@ -213,17 +231,17 @@ async def test_archive_project_fails_closed_when_task_appears_after_active_check
 
 @pytest.mark.asyncio
 async def test_set_default_project_rejects_archived_project(db_session):
-    org_id = f"org-{uuid.uuid4()}"
+    org_id = OrganizationId.new()
     org = Organization(id=org_id, name="Default Org", slug=f"default-org-{uuid.uuid4()}")
     active_project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org_id,
         name="Active",
         slug=f"active-{uuid.uuid4()}",
         is_default=True,
     )
     archived_project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org_id,
         name="Archived",
         slug=f"archived-{uuid.uuid4()}",
@@ -240,7 +258,7 @@ async def test_set_default_project_rejects_archived_project(db_session):
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "PROJECT_ARCHIVED",
         "message": "Cannot set an archived project as default",
-        "data": {"project_id": archived_project_id, "organization_id": org_id},
+        "data": {"project_id": str(archived_project_id), "organization_id": str(org_id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -255,10 +273,10 @@ async def test_set_default_project_rejects_archived_project(db_session):
 
 @pytest.mark.asyncio
 async def test_update_project_rejects_archived_project_without_mutating(db_session):
-    org_id = f"org-{uuid.uuid4()}"
+    org_id = OrganizationId.new()
     org = Organization(id=org_id, name="Archived Project Org", slug=f"archived-project-org-{uuid.uuid4()}")
     archived_project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org_id,
         name="Archived",
         slug=f"archived-{uuid.uuid4()}",
@@ -280,7 +298,7 @@ async def test_update_project_rejects_archived_project_without_mutating(db_sessi
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "PROJECT_ARCHIVED",
         "message": "Cannot update an archived project",
-        "data": {"project_id": project_id, "organization_id": org_id},
+        "data": {"project_id": str(project_id), "organization_id": str(org_id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -294,10 +312,10 @@ async def test_update_project_rejects_archived_project_without_mutating(db_sessi
 
 @pytest.mark.asyncio
 async def test_create_project_rejects_blank_name_with_structured_error(db_session):
-    org_id = f"org-{uuid.uuid4()}"
+    org_id = OrganizationId.new()
     org = Organization(id=org_id, name="Project Validation Org", slug=f"project-validation-{uuid.uuid4()}")
     current_project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org_id,
         name="Current",
         slug=f"current-{uuid.uuid4()}",
@@ -325,17 +343,17 @@ async def test_create_project_rejects_blank_name_with_structured_error(db_sessio
 
 @pytest.mark.asyncio
 async def test_create_project_rejects_duplicate_slug_without_db_integrity_leak(db_session):
-    org_id = f"org-{uuid.uuid4()}"
+    org_id = OrganizationId.new()
     org = Organization(id=org_id, name="Project Slug Org", slug=f"project-slug-{uuid.uuid4()}")
     current_project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org_id,
         name="Current",
         slug="current-project",
         is_default=True,
     )
     existing_project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org_id,
         name="Existing",
         slug="shared-slug",
@@ -353,7 +371,7 @@ async def test_create_project_rejects_duplicate_slug_without_db_integrity_leak(d
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "PROJECT_SLUG_CONFLICT",
         "message": "Project slug already exists in this organization",
-        "data": {"organization_id": org_id, "slug": "shared-slug"},
+        "data": {"organization_id": str(org_id), "slug": "shared-slug"},
         "source": "api",
         "retryable": False,
         "user_action": "fix_input",
@@ -369,17 +387,17 @@ async def test_create_project_rejects_duplicate_slug_without_db_integrity_leak(d
 
 @pytest.mark.asyncio
 async def test_update_project_rejects_duplicate_slug_without_mutating(db_session):
-    org_id = f"org-{uuid.uuid4()}"
+    org_id = OrganizationId.new()
     org = Organization(id=org_id, name="Project Update Slug Org", slug=f"project-update-slug-{uuid.uuid4()}")
     current_project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org_id,
         name="Current",
         slug="current-update-project",
         is_default=True,
     )
     target_project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org_id,
         name="Target",
         slug="target-project",
@@ -399,7 +417,7 @@ async def test_update_project_rejects_duplicate_slug_without_mutating(db_session
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "PROJECT_SLUG_CONFLICT",
         "message": "Project slug already exists in this organization",
-        "data": {"organization_id": org_id, "slug": "current-update-project"},
+        "data": {"organization_id": str(org_id), "slug": "current-update-project"},
         "source": "api",
         "retryable": False,
         "user_action": "fix_input",
@@ -413,11 +431,11 @@ async def test_update_project_rejects_duplicate_slug_without_mutating(db_session
 
 @pytest.mark.asyncio
 async def test_project_create_and_update_normalize_slug_at_service_boundary(db_session):
-    org_id = f"org-{uuid.uuid4()}"
-    user = AuthUser(id="admin-user", name="Admin User", email=f"admin-{uuid.uuid4()}@example.com")
+    org_id = OrganizationId.new()
+    user = AuthUser(id=UserId.new(), name="Admin User", email=f"admin-{uuid.uuid4()}@example.com")
     org = Organization(id=org_id, name="Project Normalize Org", slug=f"project-normalize-{uuid.uuid4()}")
     current_project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org_id,
         name="Current",
         slug="current-normalize-project",
@@ -429,7 +447,7 @@ async def test_project_create_and_update_normalize_slug_at_service_boundary(db_s
     created = await create_project(
         CreateProjectRequest(name="  Normalized  ", slug=" Normalized_Project! "),
         db_session,
-        _admin_ctx(current_project.id, org_id),
+        _admin_ctx(current_project.id, org_id, user_id=user.id),
     )
 
     assert created.name == "Normalized"
@@ -446,7 +464,7 @@ async def test_project_create_and_update_normalize_slug_at_service_boundary(db_s
         created.id,
         UpdateProjectRequest(name=" Renamed ", slug=" Renamed Project ", triggers_paused=True),
         db_session,
-        _admin_ctx(current_project.id, org_id),
+        _admin_ctx(current_project.id, org_id, user_id=user.id),
     )
 
     assert updated.name == "Renamed"
@@ -460,20 +478,18 @@ async def test_project_create_and_update_normalize_slug_at_service_boundary(db_s
 
 @pytest.mark.asyncio
 async def test_member_cannot_create_project_when_policy_is_admins_only(db_session):
-    org_id = f"org-{uuid.uuid4()}"
-    user = AuthUser(name="Member", email=f"member-{uuid.uuid4()}@example.com")
+    org_id = OrganizationId.new()
+    user = AuthUser(id=UserId.new(), name="Member", email=f"member-{uuid.uuid4()}@example.com")
     org = Organization(
         id=org_id,
         name="Restricted Org",
         slug=f"restricted-{uuid.uuid4()}",
         project_creation_policy="admins_only",
     )
-    current_project = Project(
-        id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Default", slug="default", is_default=True
-    )
+    current_project = Project(id=ProjectId.new(), org_id=org_id, name="Default", slug="default", is_default=True)
     db_session.add_all([user, org, current_project])
     await db_session.flush()
-    db_session.add(Member(user_id=user.id, organization_id=org_id, role="member"))
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org_id, role="member"))
     await db_session.commit()
 
     with pytest.raises(AppError) as exc_info:
@@ -488,20 +504,18 @@ async def test_member_cannot_create_project_when_policy_is_admins_only(db_sessio
 
 @pytest.mark.asyncio
 async def test_member_creator_becomes_project_admin_when_policy_allows_creation(db_session):
-    org_id = f"org-{uuid.uuid4()}"
-    user = AuthUser(name="Member", email=f"member-{uuid.uuid4()}@example.com")
+    org_id = OrganizationId.new()
+    user = AuthUser(id=UserId.new(), name="Member", email=f"member-{uuid.uuid4()}@example.com")
     org = Organization(
         id=org_id,
         name="Open Org",
         slug=f"open-{uuid.uuid4()}",
         project_creation_policy="all_members",
     )
-    current_project = Project(
-        id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Default", slug="default", is_default=True
-    )
+    current_project = Project(id=ProjectId.new(), org_id=org_id, name="Default", slug="default", is_default=True)
     db_session.add_all([user, org, current_project])
     await db_session.flush()
-    db_session.add(Member(user_id=user.id, organization_id=org_id, role="member"))
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org_id, role="member"))
     await db_session.commit()
 
     created = await create_project(
@@ -517,16 +531,16 @@ async def test_member_creator_becomes_project_admin_when_policy_allows_creation(
 
 @pytest.mark.asyncio
 async def test_project_admin_can_rename_and_pause_but_cannot_change_slug(db_session):
-    org_id = f"org-{uuid.uuid4()}"
-    user = AuthUser(name="Project Admin", email=f"project-admin-{uuid.uuid4()}@example.com")
+    org_id = OrganizationId.new()
+    user = AuthUser(id=UserId.new(), name="Project Admin", email=f"project-admin-{uuid.uuid4()}@example.com")
     org = Organization(id=org_id, name="Org", slug=f"org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Project", slug="project")
+    project = Project(id=ProjectId.new(), org_id=org_id, name="Project", slug="project")
     db_session.add_all([user, org, project])
     await db_session.flush()
     db_session.add_all(
         [
-            Member(user_id=user.id, organization_id=org_id, role="member"),
-            ProjectMember(project_id=project.id, user_id=user.id, role="admin"),
+            Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org_id, role="member"),
+            ProjectMember(id=ProjectMemberId.new(), project_id=project.id, user_id=user.id, role="admin"),
         ]
     )
     await db_session.commit()
@@ -553,10 +567,10 @@ async def test_project_admin_can_rename_and_pause_but_cannot_change_slug(db_sess
 
 @pytest.mark.asyncio
 async def test_restore_project_unarchives_archived_project_for_admin_context(db_session):
-    org_id = f"org-{uuid.uuid4()}"
+    org_id = OrganizationId.new()
     org = Organization(id=org_id, name="Restore Project Org", slug=f"restore-project-org-{uuid.uuid4()}")
     archived_project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org_id,
         name="Archived",
         slug=f"archived-{uuid.uuid4()}",
@@ -577,9 +591,9 @@ async def test_restore_project_unarchives_archived_project_for_admin_context(db_
 
 @pytest.mark.asyncio
 async def test_archive_project_destroys_session_sandbox_via_rust_owner(db_session, monkeypatch):
-    org_id = f"org-{uuid.uuid4()}"
+    org_id = OrganizationId.new()
     org = Organization(id=org_id, name="Project Archive Org", slug=f"archive-org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Archive", slug=f"archive-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org_id, name="Archive", slug=f"archive-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.commit()
 
@@ -588,18 +602,19 @@ async def test_archive_project_destroys_session_sandbox_via_rust_owner(db_sessio
     await db_session.refresh(project)
     project_id = project.id
 
-    agent = JoySafeterAgent(name=f"project-archive-agent-{uuid.uuid4()}", project_id=project_id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"project-archive-agent-{uuid.uuid4()}", project_id=project_id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, project_id=project_id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, project_id=project_id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
     session_id = session.id
 
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         chat_session_id=session_id,
         external_id=f"sandbox-{uuid.uuid4()}",
@@ -619,7 +634,7 @@ async def test_archive_project_destroys_session_sandbox_via_rust_owner(db_sessio
 
     response = await archive_project(project_id, db_session, _admin_ctx(project_id, org_id))
 
-    assert response == {"status": "archived"}
+    assert response.status == "archived"
     assert len(redis.published) == 1
     assert redis.published[0][0] == "joysafeter:cmd:destroy"
     assert redis.published[0][1]["type"] == "destroy"
@@ -643,9 +658,9 @@ async def test_archive_project_destroys_session_sandbox_via_rust_owner(db_sessio
 
 @pytest.mark.asyncio
 async def test_archive_project_rejects_destroy_ack_if_sandbox_external_id_changed(db_session, monkeypatch):
-    org_id = f"org-{uuid.uuid4()}"
+    org_id = OrganizationId.new()
     org = Organization(id=org_id, name="Project Stale Destroy Org", slug=f"stale-destroy-org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Stale Destroy", slug=f"stale-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org_id, name="Stale Destroy", slug=f"stale-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.commit()
 
@@ -654,12 +669,12 @@ async def test_archive_project_rejects_destroy_ack_if_sandbox_external_id_change
     await db_session.refresh(project)
     project_id = project.id
 
-    agent = JoySafeterAgent(name=f"project-stale-destroy-agent-{uuid.uuid4()}", project_id=project_id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"project-stale-destroy-agent-{uuid.uuid4()}", project_id=project_id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, project_id=project_id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, project_id=project_id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -668,6 +683,7 @@ async def test_archive_project_rejects_destroy_ack_if_sandbox_external_id_change
     old_external_id = f"sandbox-old-{uuid.uuid4()}"
     new_external_id = f"sandbox-new-{uuid.uuid4()}"
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         chat_session_id=session_id,
         external_id=old_external_id,
@@ -691,7 +707,7 @@ async def test_archive_project_rejects_destroy_ack_if_sandbox_external_id_change
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "PROJECT_SANDBOX_STATE_SYNC_FAILED",
         "message": "Project could not be archived because sandbox state sync failed.",
-        "data": {"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox_id)},
+        "data": {"project_id": str(project_id), "session_id": str(session_id), "sandbox_id": str(sandbox_id)},
         "source": "api",
         "retryable": True,
         "user_action": "retry",
@@ -716,9 +732,9 @@ async def test_archive_project_rejects_destroy_ack_if_sandbox_external_id_change
 
 @pytest.mark.asyncio
 async def test_archive_project_requires_session_sandbox_destroy_ack_without_provider(db_session, monkeypatch):
-    org_id = f"org-{uuid.uuid4()}"
+    org_id = OrganizationId.new()
     org = Organization(id=org_id, name="Project Shutdown Org", slug=f"shutdown-org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="Shutdown", slug=f"shutdown-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org_id, name="Shutdown", slug=f"shutdown-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.commit()
 
@@ -727,18 +743,19 @@ async def test_archive_project_requires_session_sandbox_destroy_ack_without_prov
     await db_session.refresh(project)
     project_id = project.id
 
-    agent = JoySafeterAgent(name=f"project-shutdown-agent-{uuid.uuid4()}", project_id=project_id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"project-shutdown-agent-{uuid.uuid4()}", project_id=project_id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, project_id=project_id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, project_id=project_id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
     session_id = session.id
 
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         chat_session_id=session_id,
         external_id=f"sandbox-{uuid.uuid4()}",
@@ -762,7 +779,7 @@ async def test_archive_project_requires_session_sandbox_destroy_ack_without_prov
     assert await handled_app_error_payload(exc_info.value, status_code=503) == {
         "code": "PROJECT_ARCHIVE_REDIS_DESTROY_FAILED",
         "message": "Failed to destroy project session sandbox runtime.",
-        "data": {"project_id": project_id, "session_id": str(session_id), "sandbox_id": str(sandbox_id)},
+        "data": {"project_id": str(project_id), "session_id": str(session_id), "sandbox_id": str(sandbox_id)},
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",

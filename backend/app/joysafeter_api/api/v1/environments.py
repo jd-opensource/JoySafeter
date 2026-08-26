@@ -1,8 +1,8 @@
 import logging
-import re
 from typing import NamedTuple, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_api.api.v1.audit import credential_audit_actor
@@ -13,7 +13,15 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
     EnvironmentResponse,
     UpdateEnvironmentRequest,
 )
-from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
+from app.joysafeter_domain.schemas.joysafeter_storage_mount import StorageCatalogItem
+from app.joysafeter_domain.services.joysafeter_environment_service import (
+    EnvironmentActiveSessionConflict,
+    EnvironmentActiveTaskConflict,
+    EnvironmentAgentReferenceConflict,
+    EnvironmentConflict,
+    EnvironmentService,
+    EnvironmentTriggerReferenceConflict,
+)
 from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
 from app.joysafeter_shared.common.app_errors import (
     AppError,
@@ -28,15 +36,11 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import EnvironmentId, TaskId
+from app.joysafeter_shared.ids import EnvironmentId
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["joysafeter-environments"])
-
-_ACTIVE_TASK_ENV_RE = re.compile(r"^Environment is required by active task '([^']+)' via ([^.]+)\. (.+)$")
-_AGENT_ENV_RE = re.compile(r"^Environment is referenced by agent '([^']+)'\.$")
-_TRIGGER_ENV_RE = re.compile(r"^Environment is referenced by cron trigger '([^']+)'\.$")
 
 
 class _EnvironmentImageUpdate(NamedTuple):
@@ -44,40 +48,44 @@ class _EnvironmentImageUpdate(NamedTuple):
     image_version: int
 
 
-def _environment_conflict_error(env_id: EnvironmentId, exc: ValueError) -> AppError:
+class StorageMountCatalogResponse(BaseModel):
+    data: list[StorageCatalogItem]
+
+
+class EnvironmentArchiveResponse(BaseModel):
+    status: str
+
+
+def _environment_conflict_error(env_id: EnvironmentId, exc: EnvironmentConflict) -> AppError:
     message = str(exc)
-    active_task_match = _ACTIVE_TASK_ENV_RE.match(message)
-    if active_task_match:
-        task_id, source, _rest = active_task_match.groups()
+    if isinstance(exc, EnvironmentActiveTaskConflict):
         return ResourceConflictError(
             code="ENVIRONMENT_ACTIVE_TASK",
             message=message,
             data={
                 "environment_id": str(env_id),
-                "task_id": str(TaskId.from_public(task_id)),
-                "source": source,
+                "task_id": str(exc.task_id),
+                "source": exc.source,
             },
             retryable=True,
             user_action="retry",
         )
 
-    agent_match = _AGENT_ENV_RE.match(message)
-    if agent_match:
+    if isinstance(exc, EnvironmentAgentReferenceConflict):
         return ResourceConflictError(
             code="ENVIRONMENT_AGENT_REFERENCE",
             message=message,
-            data={"environment_id": str(env_id), "agent_name": agent_match.group(1)},
+            data={"environment_id": str(env_id), "agent_name": exc.agent_name},
         )
 
-    trigger_match = _TRIGGER_ENV_RE.match(message)
-    if trigger_match:
+    if isinstance(exc, EnvironmentTriggerReferenceConflict):
         return ResourceConflictError(
             code="ENVIRONMENT_TRIGGER_REFERENCE",
             message=message,
-            data={"environment_id": str(env_id), "trigger_name": trigger_match.group(1)},
+            data={"environment_id": str(env_id), "trigger_name": exc.trigger_name},
         )
 
-    if message.startswith("Environment is referenced by one or more active sessions"):
+    if isinstance(exc, EnvironmentActiveSessionConflict):
         return ResourceConflictError(
             code="ENVIRONMENT_ACTIVE_SESSION_REFERENCE",
             message=message,
@@ -180,8 +188,8 @@ def _env_to_response(env) -> EnvironmentResponse:
 async def get_storage_mount_catalog(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> dict:
-    return {"data": await StorageMountService(db).catalog_for_project(auth_ctx.project_id)}
+) -> StorageMountCatalogResponse:
+    return StorageMountCatalogResponse(data=await StorageMountService(db).catalog_for_project(auth_ctx.project_id))
 
 
 @router.post("", status_code=201)
@@ -292,7 +300,7 @@ async def update_environment(
     try:
         try:
             env = await svc.update_environment(env_id, req, project_id=auth_ctx.project_id, commit=False)
-        except ValueError as exc:
+        except EnvironmentConflict as exc:
             raise _environment_conflict_error(env_id, exc) from exc
         if not env:
             raise _environment_not_found_error(env_id)
@@ -331,7 +339,7 @@ async def delete_environment(
     if not env:
         raise _environment_not_found_error(env_id)
 
-    if await svc.environment_is_referenced_by_sessions(env.name, env.id, project_id=auth_ctx.project_id):
+    if await svc.environment_is_referenced_by_sessions(env.id, project_id=auth_ctx.project_id):
         raise ResourceConflictError(
             code="ENVIRONMENT_ACTIVE_SESSION_REFERENCE",
             message="Environment is referenced by one or more active sessions. Archive or remove those sessions first.",
@@ -342,7 +350,7 @@ async def delete_environment(
 
     try:
         ok = await svc.delete_environment(env_id, project_id=auth_ctx.project_id)
-    except ValueError as exc:
+    except EnvironmentConflict as exc:
         raise _environment_conflict_error(env_id, exc) from exc
     if not ok:
         raise _environment_not_found_error(env_id)
@@ -353,7 +361,7 @@ async def archive_environment(
     env_id: EnvironmentId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-) -> dict:
+) -> EnvironmentArchiveResponse:
     svc = EnvironmentService(db)
     env = await svc.get_environment(env_id, project_id=auth_ctx.project_id)
     if not env:
@@ -369,6 +377,6 @@ async def archive_environment(
 
     try:
         await svc.archive_environment(env_id, project_id=auth_ctx.project_id)
-    except ValueError as exc:
+    except EnvironmentConflict as exc:
         raise _environment_conflict_error(env_id, exc) from exc
-    return {"status": "archived"}
+    return EnvironmentArchiveResponse(status="archived")

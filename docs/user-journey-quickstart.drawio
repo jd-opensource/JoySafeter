@@ -28,7 +28,7 @@
 <mxCell id="s2" value="" style="rounded=1;whiteSpace=wrap;fillColor=#f3e5f5;strokeColor=#7b1fa2;strokeWidth=2;arcSize=8;" vertex="1" parent="1">
   <mxGeometry x="310" y="75" width="270" height="370" as="geometry"/>
 </mxCell>
-<mxCell id="s2h" value="&lt;b&gt;STEP 2&lt;/b&gt;  配置模型密钥  /managed/secrets" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#7b1fa2;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
+        <mxCell id="s2h" value="&lt;b&gt;STEP 2&lt;/b&gt;  配置模型连接  /managed/credentials?tab=models" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#7b1fa2;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
   <mxGeometry x="320" y="85" width="250" height="30" as="geometry"/>
 </mxCell>
 <mxCell id="s2c" value="&lt;b&gt;资源 → 密钥&lt;/b&gt;&lt;br/&gt;新建模型供应商 Secret&lt;br/&gt;&lt;br/&gt;&lt;b&gt;填写凭据&lt;/b&gt;&lt;br/&gt;Provider / API Key / Base URL&lt;br/&gt;可选默认模型名&lt;br/&gt;&lt;br/&gt;&lt;b&gt;选择默认模型密钥&lt;/b&gt;&lt;br/&gt;Agent 运行时注入容器 env&lt;br/&gt;&lt;br/&gt;&lt;b&gt;→ 模型就绪&lt;/b&gt;&lt;br/&gt;Agent 可引用当前默认凭据" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
@@ -39,10 +39,10 @@
 <mxCell id="s3" value="" style="rounded=1;whiteSpace=wrap;fillColor=#e0f2f1;strokeColor=#00695c;strokeWidth=2;arcSize=8;" vertex="1" parent="1">
   <mxGeometry x="600" y="75" width="270" height="370" as="geometry"/>
 </mxCell>
-<mxCell id="s3h" value="&lt;b&gt;STEP 3&lt;/b&gt;  MCP 凭据  /managed/vaults" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#00695c;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
+        <mxCell id="s3h" value="&lt;b&gt;STEP 3&lt;/b&gt;  MCP 凭据组  /managed/credentials?tab=mcp" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#00695c;fontColor=#ffffff;fontSize=12;arcSize=15;" vertex="1" parent="1">
   <mxGeometry x="610" y="85" width="250" height="30" as="geometry"/>
 </mxCell>
-<mxCell id="s3c" value="&lt;b&gt;托管智能体 → 凭据库&lt;/b&gt;&lt;br/&gt;创建凭据组存放 MCP 请求头凭据&lt;br/&gt;&lt;br/&gt;&lt;b&gt;配置 MCP 连接&lt;/b&gt;&lt;br/&gt;local_stdio / sse / streamable_http&lt;br/&gt;Bearer、API Key 或自定义头加密保存&lt;br/&gt;&lt;br/&gt;&lt;b&gt;绑定到 Agent&lt;/b&gt;&lt;br/&gt;Orchestrator 生成安全运行计划&lt;br/&gt;&lt;br/&gt;&lt;b&gt;→ MCP 凭据就绪&lt;/b&gt;&lt;br/&gt;Envoy ACK 后沙箱按 Agent 配置连接" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
+<mxCell id="s3c" value="&lt;b&gt;Agent：声明 MCP 连接&lt;/b&gt;&lt;br/&gt;name / URL / transport / auth requirement&lt;br/&gt;不在 Agent 中填写密钥&lt;br/&gt;&lt;br/&gt;&lt;b&gt;凭据：保存认证材料&lt;/b&gt;&lt;br/&gt;URL 规范化后必须与 Agent 匹配&lt;br/&gt;Bearer、API Key 或自定义头加密保存&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Session：选择凭据组&lt;/b&gt;&lt;br/&gt;仅授权本次运行，required 必须唯一匹配&lt;br/&gt;&lt;br/&gt;&lt;b&gt;→ Orchestrator + Envoy&lt;/b&gt;&lt;br/&gt;Runner 不接收明文认证头" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;overflow=hidden;fontSize=11;spacing=6;" vertex="1" parent="1">
   <mxGeometry x="610" y="123" width="250" height="312" as="geometry"/>
 </mxCell>
 

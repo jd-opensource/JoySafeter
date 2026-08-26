@@ -1,5 +1,5 @@
 """Service-level tests for Task 9c: an Environment references service credentials
-by stable id (was name-based ``credential_ref``/``secret_refs``).
+by stable id (was name-based ``credential_ref``/``environment_credential_ids``).
 
 Real-DB tests via conftest's ``db_session``: the CredentialService kind check is
 enforced against Postgres. The full app is intentionally un-loadable mid-cutover,
@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from pydantic import ValidationError
 from sqlalchemy import event as sqlalchemy_event
 from sqlalchemy import select
 
@@ -33,7 +34,6 @@ from app.joysafeter_domain.credentials import (
     CredentialImpact,
     CredentialUsage,
     DependencyDisposition,
-    ProjectId,
 )
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_organization import Organization
@@ -55,25 +55,45 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import CredentialId
+from app.joysafeter_shared.ids import (
+    AgentId,
+    CredentialId,
+    OrganizationId,
+    ProjectId,
+    SandboxId,
+    SessionId,
+    UserId,
+)
+
+TEST_USER_ID = UserId.new()
+TEST_ORG_ID = OrganizationId.new()
 
 
-async def _make_project(db_session) -> str:
-    org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+async def _make_project(db_session) -> ProjectId:
+    org = Organization(id=OrganizationId.new(), name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+    project = Project(
+        id=ProjectId.new(),
+        org_id=org.id,
+        name=f"proj-{uuid.uuid4()}",
+        slug=f"proj-{uuid.uuid4()}",
+    )
     db_session.add(project)
     await db_session.commit()
     return project.id
 
 
 @pytest_asyncio.fixture
-async def project_id(db_session) -> str:
+async def project_id(db_session) -> ProjectId:
     return await _make_project(db_session)
 
 
-async def _make_service_credential(db_session, project_id: str, data: dict[str, str] | None = None) -> CredentialId:
+async def _make_service_credential(
+    db_session,
+    project_id: ProjectId,
+    data: dict[str, str] | None = None,
+) -> CredentialId:
     cred = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="service",
@@ -85,7 +105,7 @@ async def _make_service_credential(db_session, project_id: str, data: dict[str, 
     return cred.id
 
 
-async def _make_model_credential(db_session, project_id: str) -> CredentialId:
+async def _make_model_credential(db_session, project_id: ProjectId) -> CredentialId:
     cred = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="model",
@@ -99,23 +119,23 @@ async def _make_model_credential(db_session, project_id: str) -> CredentialId:
     return cred.id
 
 
-def _auth_ctx(project_id: str) -> JoySafeterAuthContext:
+def _auth_ctx(project_id: ProjectId) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORG_ID,
         project_id=project_id,
         role=JoySafeterRole.MEMBER,
     )
 
 
-def _egress_config(service_credential_id: CredentialId) -> EnvironmentConfig:
+def _egress_config(credential_ref: CredentialId) -> EnvironmentConfig:
     return EnvironmentConfig(
         egress_services=[
             {
                 "name": "crm",
                 "base_url": "https://crm.example.com/api/",
-                "service_credential_id": str(service_credential_id),
-                "inject": {"type": "bearer", "secret_key": "ACCESS_TOKEN"},
+                "credential_ref": str(credential_ref),
+                "inject": {"type": "bearer", "credential_field": "ACCESS_TOKEN"},
             }
         ]
     )
@@ -135,9 +155,9 @@ async def test_create_environment_with_valid_service_credential_persists(db_sess
         project_id=project_id,
     )
 
-    stored = env.config["egress_services"][0]["service_credential_id"]
+    stored = env.config["egress_services"][0]["credential_ref"]
     assert stored == str(cred_id)
-    assert "credential_ref" not in env.config["egress_services"][0]
+    assert "service_credential_id" not in env.config["egress_services"][0]
 
 
 @pytest.mark.asyncio
@@ -232,7 +252,7 @@ async def test_environment_injection_requires_posix_material_names(db_session, p
         await EnvironmentCredentialService(
             db_session, audit_actor=CredentialAuditActor.system("test")
         ).validate_references(
-            EnvironmentConfig(secret_refs=[str(credential_id)]),
+            EnvironmentConfig(environment_credential_ids=[str(credential_id)]),
             project_id,
         )
 
@@ -242,7 +262,7 @@ async def test_environment_injection_requires_posix_material_names(db_session, p
 @pytest.mark.asyncio
 async def test_validate_credential_references_direct_source(db_session, project_id):
     cred_id = await _make_service_credential(db_session, project_id)
-    config = EnvironmentConfig(secret_refs=[str(cred_id)])
+    config = EnvironmentConfig(environment_credential_ids=[str(cred_id)])
     await EnvironmentCredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).validate_references(
         config, project_id
     )
@@ -252,12 +272,12 @@ def test_extract_environment_credential_references_from_both_sources():
     direct_id = CredentialId.new()
     egress_id = CredentialId.new()
     config = EnvironmentConfig(
-        secret_refs=[str(direct_id)],
+        environment_credential_ids=[str(direct_id)],
         egress_services=[
             {
                 "name": "crm",
                 "base_url": "https://crm.example.com/api/",
-                "service_credential_id": str(egress_id),
+                "credential_ref": str(egress_id),
             }
         ],
     )
@@ -276,19 +296,19 @@ def test_extract_environment_credential_references_from_both_sources():
 def test_extract_environment_references_preserves_each_occurrence_and_path():
     credential_id = CredentialId.new()
     config = EnvironmentConfig(
-        secret_refs=[credential_id],
+        environment_credential_ids=[credential_id],
         egress_services=[
             {
                 "name": "one",
                 "base_url": "https://one.example.com",
-                "service_credential_id": credential_id,
-                "inject": {"type": "bearer", "secret_key": "ONE"},
+                "credential_ref": credential_id,
+                "inject": {"type": "bearer", "credential_field": "ONE"},
             },
             {
                 "name": "two",
                 "base_url": "https://two.example.com",
-                "service_credential_id": credential_id,
-                "inject": {"type": "bearer", "secret_key": "TWO"},
+                "credential_ref": credential_id,
+                "inject": {"type": "bearer", "credential_field": "TWO"},
             },
         ],
     )
@@ -309,13 +329,13 @@ def test_extract_environment_references_preserves_each_occurrence_and_path():
 async def test_validate_same_credential_as_direct_and_egress_occurrences(db_session, project_id):
     credential_id = await _make_service_credential(db_session, project_id, data={"ACCESS_TOKEN": "t"})
     config = EnvironmentConfig(
-        secret_refs=[credential_id],
+        environment_credential_ids=[credential_id],
         egress_services=[
             {
                 "name": "crm",
                 "base_url": "https://crm.example.com",
-                "service_credential_id": credential_id,
-                "inject": {"type": "bearer", "secret_key": "ACCESS_TOKEN"},
+                "credential_ref": credential_id,
+                "inject": {"type": "bearer", "credential_field": "ACCESS_TOKEN"},
             }
         ],
     )
@@ -333,14 +353,14 @@ async def test_validate_repeated_egress_credential_checks_each_field(db_session,
             {
                 "name": "one",
                 "base_url": "https://one.example.com",
-                "service_credential_id": credential_id,
-                "inject": {"type": "bearer", "secret_key": "VALID"},
+                "credential_ref": credential_id,
+                "inject": {"type": "bearer", "credential_field": "VALID"},
             },
             {
                 "name": "two",
                 "base_url": "https://two.example.com",
-                "service_credential_id": credential_id,
-                "inject": {"type": "bearer", "secret_key": "MISSING"},
+                "credential_ref": credential_id,
+                "inject": {"type": "bearer", "credential_field": "MISSING"},
             },
         ]
     )
@@ -363,13 +383,13 @@ async def test_validate_repeated_egress_credential_checks_each_field(db_session,
 async def test_environment_create_route_accepts_same_credential_direct_and_egress(db_session, project_id):
     credential_id = await _make_service_credential(db_session, project_id, data={"ACCESS_TOKEN": "t"})
     config = EnvironmentConfig(
-        secret_refs=[credential_id],
+        environment_credential_ids=[credential_id],
         egress_services=[
             {
                 "name": "crm",
                 "base_url": "https://crm.example.com",
-                "service_credential_id": credential_id,
-                "inject": {"type": "bearer", "secret_key": "ACCESS_TOKEN"},
+                "credential_ref": credential_id,
+                "inject": {"type": "bearer", "credential_field": "ACCESS_TOKEN"},
             }
         ],
     )
@@ -388,9 +408,9 @@ async def test_environment_create_route_accepts_same_credential_direct_and_egres
         )
     )
     assert audit is not None
-    assert audit.user_id == "test-user"
+    assert audit.user_id == TEST_USER_ID
     assert audit.details["principal_type"] == "user"
-    assert audit.details["principal_id"] == "test-user"
+    assert audit.details["principal_id"] == str(TEST_USER_ID)
     assert audit.details["runtime_restart_required"] is False
 
 
@@ -407,14 +427,14 @@ async def test_environment_update_route_rejects_second_invalid_egress_occurrence
             {
                 "name": "one",
                 "base_url": "https://one.example.com",
-                "service_credential_id": credential_id,
-                "inject": {"type": "bearer", "secret_key": "VALID"},
+                "credential_ref": credential_id,
+                "inject": {"type": "bearer", "credential_field": "VALID"},
             },
             {
                 "name": "two",
                 "base_url": "https://two.example.com",
-                "service_credential_id": credential_id,
-                "inject": {"type": "bearer", "secret_key": "MISSING"},
+                "credential_ref": credential_id,
+                "inject": {"type": "bearer", "credential_field": "MISSING"},
             },
         ]
     )
@@ -444,6 +464,7 @@ async def test_environment_update_orders_mutation_audit_pending_single_commit_nu
         project_id=project_id,
     )
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         image="test-image:latest",
         status="running",
@@ -501,7 +522,7 @@ async def test_environment_update_orders_mutation_audit_pending_single_commit_nu
         lambda session: (events.append("commit"), committed.append(None)),
     )
 
-    config = EnvironmentConfig(secret_refs=[credential_id])
+    config = EnvironmentConfig(environment_credential_ids=[credential_id])
     response = await update_environment(
         UpdateEnvironmentRequest(config=config),
         environment.id,
@@ -521,53 +542,59 @@ async def test_environment_update_orders_mutation_audit_pending_single_commit_nu
             select(SecurityAuditLog).where(SecurityAuditLog.event_type == "environment.credentials.updated")
         )
     ).scalar_one()
-    assert audit.user_id == "test-user"
+    assert audit.user_id == TEST_USER_ID
     assert audit.ip_address == "unknown"
     assert audit.details["principal_type"] == "user"
-    assert audit.details["principal_id"] == "test-user"
+    assert audit.details["principal_id"] == str(TEST_USER_ID)
     assert audit.details["target_type"] == "environment"
     assert audit.details["runtime_restart_required"] is True
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("environment_ref_kind", ["public_id", "name"])
-async def test_environment_direct_reference_update_marks_only_its_live_session_sandbox_restart_required(
+async def test_environment_direct_binding_update_marks_only_its_live_session_sandbox_restart_required(
     db_session,
     project_id,
-    environment_ref_kind,
 ):
     credential_id = await _make_service_credential(db_session, project_id, data={"TOKEN": "value"})
     environment = await EnvironmentService(db_session).create_environment(
         CreateEnvironmentRequest(name=f"env-{uuid.uuid4()}"),
         project_id=project_id,
     )
-    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    unrelated_environment = await EnvironmentService(db_session).create_environment(
+        CreateEnvironmentRequest(name=f"unrelated-env-{uuid.uuid4()}"),
+        project_id=project_id,
+    )
+    agent = JoySafeterAgent(id=AgentId.new(), project_id=project_id, name=f"agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
     matching_session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="idle",
-        environment_ref=str(environment.id) if environment_ref_kind == "public_id" else environment.name,
+        environment_id=environment.id,
         runtime_config_generation=4,
     )
     matching_session_without_sandbox = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="idle",
-        environment_ref=str(environment.id),
+        environment_id=environment.id,
         runtime_config_generation=9,
     )
     unrelated_session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="idle",
-        environment_ref="another-environment",
+        environment_id=unrelated_environment.id,
         runtime_config_generation=6,
     )
     db_session.add_all([matching_session, matching_session_without_sandbox, unrelated_session])
     await db_session.flush()
     matching_sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         chat_session_id=matching_session.id,
         image="test-image:latest",
@@ -575,6 +602,7 @@ async def test_environment_direct_reference_update_marks_only_its_live_session_s
         networking_status="ready",
     )
     unrelated_sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         chat_session_id=unrelated_session.id,
         image="test-image:latest",
@@ -585,7 +613,7 @@ async def test_environment_direct_reference_update_marks_only_its_live_session_s
     await db_session.commit()
 
     await update_environment(
-        UpdateEnvironmentRequest(config=EnvironmentConfig(secret_refs=[credential_id])),
+        UpdateEnvironmentRequest(config=EnvironmentConfig(environment_credential_ids=[credential_id])),
         environment.id,
         db_session,
         _auth_ctx(project_id),
@@ -620,49 +648,57 @@ async def test_direct_injection_credential_rotation_requires_reactivation_withou
     environment = await EnvironmentService(db_session).create_environment(
         CreateEnvironmentRequest(
             name=f"env-{uuid.uuid4()}",
-            config=EnvironmentConfig(secret_refs=[credential_id]),
+            config=EnvironmentConfig(environment_credential_ids=[credential_id]),
         ),
         project_id=project_id,
     )
-    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    other_environment = await EnvironmentService(db_session).create_environment(
+        CreateEnvironmentRequest(name=f"other-env-{uuid.uuid4()}"),
+        project_id=project_id,
+    )
+    agent = JoySafeterAgent(id=AgentId.new(), project_id=project_id, name=f"agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
     session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="running",
-        environment_ref=environment.name,
+        environment_id=environment.id,
         runtime_config_generation=2,
         agent_snapshot={
-            "schema": "joysafeter.agent_execution_snapshot.v1",
+            "schema": "joysafeter.agent_execution_snapshot.v2",
             "environment": {"config": {}},
         },
     )
-    legacy_snapshot_session = JoySafeterSession(
+    snapshot_only_session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="idle",
-        environment_ref=None,
+        environment_id=None,
         runtime_config_generation=7,
         agent_snapshot={
-            "schema": "joysafeter.agent_execution_snapshot.v1",
-            "environment": {"config": {"secret_refs": [str(credential_id)]}},
+            "schema": "joysafeter.agent_execution_snapshot.v2",
+            "environment": {"config": {"environment_credential_ids": [str(credential_id)]}},
         },
     )
-    explicit_other_session = JoySafeterSession(
+    other_environment_session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="idle",
-        environment_ref="missing-explicit-environment",
+        environment_id=other_environment.id,
         runtime_config_generation=11,
         agent_snapshot={
-            "schema": "joysafeter.agent_execution_snapshot.v1",
-            "environment": {"config": {"secret_refs": [str(credential_id)]}},
+            "schema": "joysafeter.agent_execution_snapshot.v2",
+            "environment": {"config": {"environment_credential_ids": [str(credential_id)]}},
         },
     )
-    db_session.add_all([session, legacy_snapshot_session, explicit_other_session])
+    db_session.add_all([session, snapshot_only_session, other_environment_session])
     await db_session.flush()
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         chat_session_id=session.id,
         image="test-image:latest",
@@ -696,12 +732,12 @@ async def test_direct_injection_credential_rotation_requires_reactivation_withou
 
     assert [impact.usage for impact in impacts] == [CredentialUsage.ENVIRONMENT_INJECTION]
     assert impacts[0].dispositions == frozenset({DependencyDisposition.REVALIDATE_ON_ACTIVATION})
-    assert impacts[0].affected_sandbox_ids == frozenset({str(sandbox.id)})
-    assert impacts[0].affected_session_ids == frozenset({str(session.id), str(legacy_snapshot_session.id)})
+    assert impacts[0].affected_sandbox_ids == frozenset({sandbox.id})
+    assert impacts[0].affected_session_ids == frozenset({session.id, snapshot_only_session.id})
     await db_session.refresh(sandbox)
     await db_session.refresh(session)
-    await db_session.refresh(legacy_snapshot_session)
-    await db_session.refresh(explicit_other_session)
+    await db_session.refresh(snapshot_only_session)
+    await db_session.refresh(other_environment_session)
     assert sandbox.runtime_config_status == "restart_required"
     assert sandbox.runtime_config_last_reason == "credential_updated"
     assert sandbox.runtime_config_required_at is not None
@@ -709,9 +745,9 @@ async def test_direct_injection_credential_rotation_requires_reactivation_withou
     assert session.runtime_config_generation == 3
     assert session.runtime_config_generation_reason == "credential_updated"
     assert session.runtime_config_generation_updated_at is not None
-    assert legacy_snapshot_session.runtime_config_generation == 8
-    assert legacy_snapshot_session.runtime_config_generation_reason == "credential_updated"
-    assert explicit_other_session.runtime_config_generation == 11
+    assert snapshot_only_session.runtime_config_generation == 8
+    assert snapshot_only_session.runtime_config_generation_reason == "credential_updated"
+    assert other_environment_session.runtime_config_generation == 11
     assert network_refreshes == []
 
 
@@ -726,19 +762,21 @@ async def test_mixed_environment_update_advances_generation_once_and_keeps_proje
         CreateEnvironmentRequest(name=f"env-{uuid.uuid4()}"),
         project_id=project_id,
     )
-    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), project_id=project_id, name=f"agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
     session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="running",
-        environment_ref=str(environment.id),
+        environment_id=environment.id,
         runtime_config_generation=13,
     )
     db_session.add(session)
     await db_session.flush()
     attached = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         chat_session_id=session.id,
         image="test-image:latest",
@@ -747,6 +785,7 @@ async def test_mixed_environment_update_advances_generation_once_and_keeps_proje
         config={"fingerprint": {"networking": {"type": "limited"}}},
     )
     unrelated = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         image="test-image:latest",
         status="running",
@@ -778,13 +817,13 @@ async def test_mixed_environment_update_advances_generation_once_and_keeps_proje
     await update_environment(
         UpdateEnvironmentRequest(
             config=EnvironmentConfig(
-                secret_refs=[credential_id],
+                environment_credential_ids=[credential_id],
                 egress_services=[
                     {
                         "name": "api",
                         "base_url": "https://api.example.com",
-                        "service_credential_id": credential_id,
-                        "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                        "credential_ref": credential_id,
+                        "inject": {"type": "bearer", "credential_field": "TOKEN"},
                     }
                 ],
             )
@@ -805,8 +844,8 @@ async def test_mixed_environment_update_advances_generation_once_and_keeps_proje
             DependencyDisposition.REFRESH_RUNTIME_POLICY,
         }
     )
-    assert impacts[0].affected_session_ids == frozenset({str(session.id)})
-    assert impacts[0].affected_sandbox_ids == frozenset({str(attached.id), str(unrelated.id)})
+    assert impacts[0].affected_session_ids == frozenset({session.id})
+    assert impacts[0].affected_sandbox_ids == frozenset({attached.id, unrelated.id})
     assert session.runtime_config_generation == 14
     assert session.runtime_config_generation_reason == "environment.updated"
     assert attached.runtime_config_status == "restart_required"
@@ -815,28 +854,30 @@ async def test_mixed_environment_update_advances_generation_once_and_keeps_proje
 
 
 @pytest.mark.asyncio
-async def test_blank_environment_binding_uses_legacy_snapshot_for_direct_credential_rotation(
+async def test_session_without_environment_binding_uses_snapshot_for_direct_credential_rotation(
     db_session,
     project_id,
 ):
     credential_id = await _make_service_credential(db_session, project_id, data={"TOKEN": "old"})
-    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), project_id=project_id, name=f"agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
     session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="running",
-        environment_ref="",
+        environment_id=None,
         runtime_config_generation=21,
         agent_snapshot={
-            "schema": "joysafeter.agent_execution_snapshot.v1",
-            "environment": {"config": {"secret_refs": [str(credential_id)]}},
+            "schema": "joysafeter.agent_execution_snapshot.v2",
+            "environment": {"config": {"environment_credential_ids": [str(credential_id)]}},
         },
     )
     db_session.add(session)
     await db_session.flush()
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         chat_session_id=session.id,
         image="test-image:latest",
@@ -871,18 +912,19 @@ async def test_duplicate_direct_impacts_advance_each_session_generation_once(
     environment = await EnvironmentService(db_session).create_environment(
         CreateEnvironmentRequest(
             name=f"env-{uuid.uuid4()}",
-            config=EnvironmentConfig(secret_refs=[credential_id]),
+            config=EnvironmentConfig(environment_credential_ids=[credential_id]),
         ),
         project_id=project_id,
     )
-    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), project_id=project_id, name=f"agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
     session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="running",
-        environment_ref=str(environment.id),
+        environment_id=environment.id,
         runtime_config_generation=30,
     )
     db_session.add(session)
@@ -892,7 +934,7 @@ async def test_duplicate_direct_impacts_advance_each_session_generation_once(
         source="credential",
         source_id=str(credential_id),
         reason="duplicate_direct",
-        project_id=ProjectId(project_id),
+        project_id=project_id,
         affected_sandbox_ids=frozenset(),
         affected_session_ids=frozenset(),
         dispositions=frozenset({DependencyDisposition.REVALIDATE_ON_ACTIVATION}),
@@ -920,6 +962,7 @@ async def test_environment_create_with_credentials_has_no_runtime_impact(
 ):
     credential_id = await _make_service_credential(db_session, project_id, data={"TOKEN": "value"})
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         image="test-image:latest",
         status="running",
@@ -950,13 +993,13 @@ async def test_environment_create_with_credentials_has_no_runtime_impact(
         CreateEnvironmentRequest(
             name=f"env-{uuid.uuid4()}",
             config=EnvironmentConfig(
-                secret_refs=[credential_id],
+                environment_credential_ids=[credential_id],
                 egress_services=[
                     {
                         "name": "api",
                         "base_url": "https://api.example.com",
-                        "service_credential_id": credential_id,
-                        "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                        "credential_ref": credential_id,
+                        "inject": {"type": "bearer", "credential_field": "TOKEN"},
                     }
                 ],
             ),
@@ -1001,53 +1044,61 @@ async def test_direct_credential_rotation_excludes_http_terminated_destroyed_and
     await EnvironmentService(db_session).create_environment(
         CreateEnvironmentRequest(
             name=f"env-{uuid.uuid4()}",
-            config=EnvironmentConfig(secret_refs=[credential_id]),
+            config=EnvironmentConfig(environment_credential_ids=[credential_id]),
         ),
         project_id=project_id,
     )
     other_project_id = await _make_project(db_session)
-    agent = JoySafeterAgent(project_id=project_id, name=f"agent-{uuid.uuid4()}")
-    other_agent = JoySafeterAgent(project_id=other_project_id, name=f"agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), project_id=project_id, name=f"agent-{uuid.uuid4()}")
+    other_agent = JoySafeterAgent(
+        id=AgentId.new(),
+        project_id=other_project_id,
+        name=f"agent-{uuid.uuid4()}",
+    )
     db_session.add_all([agent, other_agent])
     await db_session.flush()
     direct_snapshot = {
-        "schema": "joysafeter.agent_execution_snapshot.v1",
-        "environment": {"config": {"secret_refs": [str(credential_id)]}},
+        "schema": "joysafeter.agent_execution_snapshot.v2",
+        "environment": {"config": {"environment_credential_ids": [str(credential_id)]}},
     }
     http_snapshot = {
-        "schema": "joysafeter.agent_execution_snapshot.v1",
+        "schema": "joysafeter.agent_execution_snapshot.v2",
         "environment": {
             "config": {
                 "egress_services": [
                     {
                         "name": "api",
                         "base_url": "https://api.example.com",
-                        "service_credential_id": str(credential_id),
-                        "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                        "credential_ref": str(credential_id),
+                        "inject": {"type": "bearer", "credential_field": "TOKEN"},
                     }
                 ]
             }
         },
     }
     http_session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="running",
         agent_snapshot=http_snapshot,
     )
     terminated_session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="terminated",
         agent_snapshot=direct_snapshot,
     )
     destroyed_session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=project_id,
         agent_id=agent.id,
         status="idle",
         agent_snapshot=direct_snapshot,
     )
     other_project_session = JoySafeterSession(
+        id=SessionId.new(),
         project_id=other_project_id,
         agent_id=other_agent.id,
         status="running",
@@ -1057,6 +1108,7 @@ async def test_direct_credential_rotation_excludes_http_terminated_destroyed_and
     await db_session.flush()
     sandboxes = [
         JoySafeterSandbox(
+            id=SandboxId.new(),
             project_id=project_id,
             chat_session_id=http_session.id,
             image="test-image:latest",
@@ -1064,6 +1116,7 @@ async def test_direct_credential_rotation_excludes_http_terminated_destroyed_and
             networking_status="ready",
         ),
         JoySafeterSandbox(
+            id=SandboxId.new(),
             project_id=project_id,
             chat_session_id=terminated_session.id,
             image="test-image:latest",
@@ -1071,6 +1124,7 @@ async def test_direct_credential_rotation_excludes_http_terminated_destroyed_and
             networking_status="ready",
         ),
         JoySafeterSandbox(
+            id=SandboxId.new(),
             project_id=project_id,
             chat_session_id=destroyed_session.id,
             image="test-image:latest",
@@ -1079,6 +1133,7 @@ async def test_direct_credential_rotation_excludes_http_terminated_destroyed_and
             networking_status="ready",
         ),
         JoySafeterSandbox(
+            id=SandboxId.new(),
             project_id=other_project_id,
             chat_session_id=other_project_session.id,
             image="test-image:latest",
@@ -1111,7 +1166,7 @@ async def test_environment_update_unchanged_binding_config_has_no_pending_impact
     monkeypatch,
 ):
     credential_id = await _make_service_credential(db_session, project_id, data={"TOKEN": "t"})
-    config = EnvironmentConfig(secret_refs=[credential_id])
+    config = EnvironmentConfig(environment_credential_ids=[credential_id])
     environment = await EnvironmentService(db_session).create_environment(
         CreateEnvironmentRequest(name=f"env-{uuid.uuid4()}", config=config),
         project_id=project_id,
@@ -1155,18 +1210,20 @@ async def test_environment_update_unchanged_binding_config_has_no_pending_impact
 
 def test_environment_binding_impact_usages_are_semantic_and_surface_specific() -> None:
     credential_id = CredentialId.new()
-    direct = EnvironmentConfig(secret_refs=[credential_id]).model_dump(mode="json")
+    direct = EnvironmentConfig(environment_credential_ids=[credential_id]).model_dump(mode="json")
     egress = EnvironmentConfig(
         egress_services=[
             {
                 "name": "crm",
                 "base_url": "https://crm.example.com",
-                "service_credential_id": credential_id,
-                "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                "credential_ref": credential_id,
+                "inject": {"type": "bearer", "credential_field": "TOKEN"},
             }
         ]
     ).model_dump(mode="json")
-    both = EnvironmentConfig.model_validate({**egress, "secret_refs": [str(credential_id)]}).model_dump(mode="json")
+    both = EnvironmentConfig.model_validate({**egress, "environment_credential_ids": [str(credential_id)]}).model_dump(
+        mode="json"
+    )
 
     assert _changed_credential_binding_usages(direct, direct) == ()
     assert _changed_credential_binding_usages(None, direct) == (CredentialUsage.ENVIRONMENT_INJECTION,)
@@ -1181,21 +1238,21 @@ def test_environment_config_accepts_typed_credential_ids_at_schema_boundary() ->
     credential_id = CredentialId.new()
 
     config = EnvironmentConfig(
-        secret_refs=[credential_id],
+        environment_credential_ids=[credential_id],
         egress_services=[
             {
                 "name": "crm",
                 "base_url": "https://crm.example.com",
-                "service_credential_id": credential_id,
+                "credential_ref": credential_id,
             }
         ],
     )
 
     assert config.environment_credential_ids == [credential_id]
-    assert config.egress_services[0].service_credential_id == credential_id
+    assert config.egress_services[0].credential_ref == credential_id
 
 
-def test_environment_config_accepts_legacy_aliases_but_emits_canonical_keys() -> None:
+def test_environment_config_rejects_legacy_aliases() -> None:
     credential_id = CredentialId.new()
     canonical = EnvironmentConfig.model_validate(
         {
@@ -1204,36 +1261,49 @@ def test_environment_config_accepts_legacy_aliases_but_emits_canonical_keys() ->
                 {
                     "name": "crm",
                     "base_url": "https://crm.example.com",
-                    "service_credential_id": str(credential_id),
+                    "credential_ref": str(credential_id),
                     "inject": {"credential_field": "TOKEN"},
                 }
             ],
         }
     )
-    legacy = EnvironmentConfig.model_validate(
-        {
-            "secret_refs": [str(credential_id)],
-            "egress_services": [
-                {
-                    "name": "crm",
-                    "base_url": "https://crm.example.com",
-                    "credential_ref": str(credential_id),
-                    "inject": {"secret_key": "TOKEN"},
-                }
-            ],
-        }
-    )
-
-    assert canonical == legacy
     document = canonical.model_dump(mode="json")
     assert document["environment_credential_ids"] == [str(credential_id)]
     assert document["egress_services"][0]["inject"]["credential_field"] == "TOKEN"
     assert "secret_refs" not in document
     assert "secret_key" not in document["egress_services"][0]["inject"]
 
+    with pytest.raises(ValidationError):
+        EnvironmentConfig.model_validate({"secret_refs": [str(credential_id)]})
+    with pytest.raises(ValidationError):
+        EnvironmentConfig.model_validate(
+            {
+                "egress_services": [
+                    {
+                        "name": "crm",
+                        "base_url": "https://crm.example.com",
+                        "service_credential_id": str(credential_id),
+                    }
+                ]
+            }
+        )
+    with pytest.raises(ValidationError):
+        EnvironmentConfig.model_validate(
+            {
+                "egress_services": [
+                    {
+                        "name": "crm",
+                        "base_url": "https://crm.example.com",
+                        "credential_ref": str(credential_id),
+                        "inject": {"secret_key": "TOKEN"},
+                    }
+                ]
+            }
+        )
+
 
 @pytest.mark.asyncio
-async def test_environment_persistence_remains_v1_while_schema_is_canonical(db_session, project_id) -> None:
+async def test_environment_persistence_uses_canonical_fields(db_session, project_id) -> None:
     credential_id = await _make_service_credential(db_session, project_id, data={"TOKEN": "t"})
     environment = await EnvironmentService(db_session).create_environment(
         CreateEnvironmentRequest(
@@ -1245,7 +1315,7 @@ async def test_environment_persistence_remains_v1_while_schema_is_canonical(db_s
                         {
                             "name": "crm",
                             "base_url": "https://crm.example.com",
-                            "service_credential_id": str(credential_id),
+                            "credential_ref": str(credential_id),
                             "inject": {"credential_field": "TOKEN"},
                         }
                     ],
@@ -1255,10 +1325,12 @@ async def test_environment_persistence_remains_v1_while_schema_is_canonical(db_s
         project_id=project_id,
     )
 
-    assert environment.config["secret_refs"] == [str(credential_id)]
-    assert environment.config["egress_services"][0]["inject"]["secret_key"] == "TOKEN"
-    assert "environment_credential_ids" not in environment.config
-    assert "credential_field" not in environment.config["egress_services"][0]["inject"]
+    assert environment.config["environment_credential_ids"] == [str(credential_id)]
+    assert environment.config["egress_services"][0]["credential_ref"] == str(credential_id)
+    assert environment.config["egress_services"][0]["inject"]["credential_field"] == "TOKEN"
+    assert "secret_refs" not in environment.config
+    assert "service_credential_id" not in environment.config["egress_services"][0]
+    assert "secret_key" not in environment.config["egress_services"][0]["inject"]
 
 
 def test_environment_binding_impact_ignores_display_name_and_equivalent_url_spelling() -> None:
@@ -1268,8 +1340,8 @@ def test_environment_binding_impact_ignores_display_name_and_equivalent_url_spel
             {
                 "name": "crm",
                 "base_url": "https://crm.example.com/api",
-                "service_credential_id": credential_id,
-                "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                "credential_ref": credential_id,
+                "inject": {"type": "bearer", "credential_field": "TOKEN"},
             }
         ]
     ).model_dump(mode="json")
@@ -1317,8 +1389,8 @@ async def test_environment_semantic_only_egress_changes_do_not_mark_or_nudge(
             {
                 "name": "crm",
                 "base_url": "https://crm.example.com/api",
-                "service_credential_id": credential_id,
-                "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                "credential_ref": credential_id,
+                "inject": {"type": "bearer", "credential_field": "TOKEN"},
             }
         ]
     )
@@ -1356,8 +1428,8 @@ async def test_environment_semantic_only_egress_changes_do_not_mark_or_nudge(
             {
                 "name": new_name,
                 "base_url": new_url,
-                "service_credential_id": credential_id,
-                "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                "credential_ref": credential_id,
+                "inject": {"type": "bearer", "credential_field": "TOKEN"},
             }
         ]
     )
@@ -1402,7 +1474,7 @@ async def test_environment_update_nudge_failure_is_logged_and_nonfatal(
     monkeypatch.setattr(application.uow.impacts, "nudge_after_commit", failing_nudge)
 
     response = await update_environment(
-        UpdateEnvironmentRequest(config=EnvironmentConfig(secret_refs=[credential_id])),
+        UpdateEnvironmentRequest(config=EnvironmentConfig(environment_credential_ids=[credential_id])),
         environment.id,
         db_session,
         _auth_ctx(project_id),

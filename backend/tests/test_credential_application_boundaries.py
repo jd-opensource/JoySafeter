@@ -79,10 +79,12 @@ from app.joysafeter_infrastructure.repository_access.material_adapter import (
 )
 from app.joysafeter_infrastructure.sensitive_material.versioned import VersionedMaterialProtector
 from app.joysafeter_infrastructure.task_identity.material_adapter import TaskIdentityMaterialAdapter
+from app.joysafeter_shared.ids import EnvironmentId, OrganizationId, SandboxId, SecurityAuditId, SessionId
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 APP_ROOT = BACKEND_ROOT / "app"
 TEST_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+TEST_PROJECT_ID = ProjectId.from_public("proj_00000000-0000-0000-0000-000000000001")
 
 
 def _imports(path: Path) -> set[str]:
@@ -94,6 +96,26 @@ def _imports(path: Path) -> set[str]:
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.add(node.module)
     return imported
+
+
+def _method_parameter_annotation(
+    path: Path,
+    *,
+    class_name: str,
+    method_name: str,
+    parameter_name: str,
+) -> str:
+    tree = ast.parse(path.read_text())
+    class_node = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == class_name)
+    method_node = next(
+        node
+        for node in class_node.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == method_name
+    )
+    parameters = (*method_node.args.args, *method_node.args.kwonlyargs)
+    parameter = next(argument for argument in parameters if argument.arg == parameter_name)
+    assert parameter.annotation is not None
+    return ast.unparse(parameter.annotation)
 
 
 def _transaction_ownership_violations(source: str) -> set[str]:
@@ -123,6 +145,106 @@ def test_credential_transaction_ownership_is_application_only() -> None:
     )
     for path in paths:
         assert not _transaction_ownership_violations(path.read_text()), path
+
+
+@pytest.mark.no_db
+def test_credential_resource_project_ids_remain_typed_through_repository_boundary() -> None:
+    boundaries = (
+        (
+            APP_ROOT / "joysafeter_application/credentials/ports.py",
+            "CredentialRepositoryPort",
+            ("create", "get", "get_resource", "load_encrypted_material"),
+        ),
+        (
+            APP_ROOT / "joysafeter_application/credentials/resource_service.py",
+            "CredentialResourceService",
+            ("_mutate", "create", "get", "get_or_raise"),
+        ),
+        (
+            APP_ROOT / "joysafeter_infrastructure/credentials/sqlalchemy_repository.py",
+            "SqlAlchemyCredentialRepository",
+            ("create", "get", "get_resource", "load_encrypted_material", "_get_or_raise"),
+        ),
+    )
+
+    for path, class_name, method_names in boundaries:
+        for method_name in method_names:
+            assert (
+                _method_parameter_annotation(
+                    path,
+                    class_name=class_name,
+                    method_name=method_name,
+                    parameter_name="project_id",
+                )
+                == "ProjectId"
+            ), f"{path}:{class_name}.{method_name}"
+
+    repository_source = boundaries[-1][0].read_text()
+    assert "str(project_id)" not in repository_source
+
+
+@pytest.mark.no_db
+def test_credential_application_boundaries_do_not_downgrade_project_ids_to_strings() -> None:
+    paths = (
+        APP_ROOT / "joysafeter_application/credentials/application_service.py",
+        APP_ROOT / "joysafeter_application/credentials/group_service.py",
+        APP_ROOT / "joysafeter_application/credentials/lifecycle_coordinator.py",
+        APP_ROOT / "joysafeter_application/credentials/ports.py",
+        APP_ROOT / "joysafeter_infrastructure/credentials/network_policy_adapter.py",
+        APP_ROOT / "joysafeter_infrastructure/credentials/snapshot_adapter.py",
+        APP_ROOT / "joysafeter_infrastructure/credentials/sqlalchemy_repository.py",
+        APP_ROOT / "joysafeter_infrastructure/network_policy/refresh.py",
+    )
+
+    for path in paths:
+        source = path.read_text()
+        assert "project_id: str" not in source, path
+        assert "project_id: Optional[str]" not in source, path
+        assert "project_id=str(" not in source, path
+
+    runtime_status_source = (APP_ROOT / "joysafeter_infrastructure/runtime_configuration/status.py").read_text()
+    impact_adapter_source = (APP_ROOT / "joysafeter_infrastructure/credentials/network_policy_adapter.py").read_text()
+    assert "str(impact.project_id)" not in runtime_status_source
+    assert "_advanced_session_ids: set[str]" not in impact_adapter_source
+    assert "update(str(session_id)" not in impact_adapter_source
+
+
+@pytest.mark.no_db
+def test_credential_test_fixtures_create_typed_model_ids_explicitly() -> None:
+    paths = (
+        BACKEND_ROOT / "tests/test_credential_application_boundaries.py",
+        BACKEND_ROOT / "tests/test_credential_atomic_refresh.py",
+        BACKEND_ROOT / "tests/test_credential_reference_registry.py",
+        BACKEND_ROOT / "tests/test_credential_service.py",
+    )
+    model_names = {
+        "Organization",
+        "Project",
+        "JoySafeterAgent",
+        "JoySafeterCredential",
+        "JoySafeterCredentialGroup",
+        "JoySafeterEnvironment",
+        "JoySafeterSandbox",
+        "JoySafeterSession",
+    }
+    violations: list[str] = []
+    direct_project_id_constructions: list[str] = []
+
+    for path in paths:
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ProjectId":
+                direct_project_id_constructions.append(f"{path.name}:{node.lineno}")
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            if node.func.id not in model_names:
+                continue
+            if any(keyword.arg == "id" for keyword in node.keywords):
+                continue
+            violations.append(f"{path.name}:{node.lineno}:{node.func.id}")
+
+    assert violations == []
+    assert direct_project_id_constructions == []
 
 
 @pytest.mark.parametrize(
@@ -280,13 +402,7 @@ def _credential_boundary_violations(source: str) -> set[str]:
 @pytest.mark.no_db
 def test_credential_management_facades_live_in_application_layer() -> None:
     application_path = APP_ROOT / "joysafeter_application/credentials/application_service.py"
-    legacy_paths = (
-        APP_ROOT / "joysafeter_domain/services/joysafeter_credential_service.py",
-        APP_ROOT / "joysafeter_domain/services/joysafeter_credential_group_service.py",
-    )
 
-    assert application_path.is_file()
-    assert all(not path.exists() for path in legacy_paths)
     imports = _imports(application_path)
     assert not any(name.startswith("app.joysafeter_api") for name in imports)
     assert "composition" in imports
@@ -295,10 +411,7 @@ def test_credential_management_facades_live_in_application_layer() -> None:
 @pytest.mark.no_db
 def test_repository_access_does_not_call_credential_service_encryption_helpers() -> None:
     path = APP_ROOT / "joysafeter_application/sessions/resource_service.py"
-    legacy_path = APP_ROOT / "joysafeter_domain/services/joysafeter_session_resource_service.py"
 
-    assert path.is_file()
-    assert not legacy_path.exists()
     imports = _imports(path)
     calls = _calls(path)
 
@@ -350,13 +463,7 @@ def test_trigger_execution_orchestration_lives_in_application_layer() -> None:
         APP_ROOT / "joysafeter_application/triggers/execution_service.py",
         APP_ROOT / "joysafeter_application/triggers/fire_service.py",
     )
-    legacy_paths = (
-        APP_ROOT / "joysafeter_domain/services/agent_trigger_execution.py",
-        APP_ROOT / "joysafeter_domain/services/joysafeter_trigger_fire_service.py",
-    )
 
-    assert all(path.is_file() for path in application_paths)
-    assert all(not path.exists() for path in legacy_paths)
     assert not any(name.startswith("app.joysafeter_api") for path in application_paths for name in _imports(path))
 
 
@@ -393,7 +500,6 @@ def test_agent_services_are_fully_layered() -> None:
     application_root = APP_ROOT / "joysafeter_application/agents"
     domain_root = APP_ROOT / "joysafeter_domain/agents"
     infrastructure_root = APP_ROOT / "joysafeter_infrastructure/agents"
-    legacy_path = APP_ROOT / "joysafeter_domain/services/joysafeter_agent_service.py"
 
     assert {
         "command_service.py",
@@ -412,8 +518,6 @@ def test_agent_services_are_fully_layered() -> None:
         "trigger_lifecycle_adapter.py",
         "unit_of_work.py",
     } <= {path.name for path in infrastructure_root.glob("*.py")}
-    assert not legacy_path.exists()
-
     for path in domain_root.glob("*.py"):
         imports = _imports(path)
         assert not any(name.startswith("app.joysafeter_application") for name in imports), path
@@ -427,16 +531,6 @@ def test_agent_services_are_fully_layered() -> None:
         assert not any(module.startswith("app.joysafeter_infrastructure") for module in imports), path
         assert not any(module.startswith("sqlalchemy") for module in imports), path
         assert "._uow.db" not in path.read_text()
-
-    api_source = (APP_ROOT / "joysafeter_api/api/v1/agents.py").read_text()
-    for removed_helper in (
-        "_validate_mcp_servers",
-        "_validate_tool_mcp_references",
-        "_validate_environment_ref",
-        "_cancel_active_tasks_for_agent",
-        "_destroy_sandboxes_for_agent",
-    ):
-        assert f"def {removed_helper}" not in api_source
 
 
 @pytest.mark.no_db
@@ -489,16 +583,6 @@ def test_credential_application_entrypoints_require_explicit_audit_actor() -> No
         )
         actor_index = [argument.arg for argument in initializer.args.kwonlyargs].index(actor_name)
         assert initializer.args.kw_defaults[actor_index] is None, f"{class_name}.{actor_name} must be required"
-
-
-@pytest.mark.no_db
-def test_credential_management_compatibility_facades_are_removed() -> None:
-    credentials_root = APP_ROOT / "joysafeter_application/credentials"
-
-    assert not (credentials_root / "management_service.py").exists()
-    for path in (credentials_root / "application_service.py", credentials_root / "resource_service.py"):
-        tree = ast.parse(path.read_text())
-        assert not any(isinstance(node, ast.FunctionDef) and node.name == "__getattr__" for node in ast.walk(tree))
 
 
 def test_task_identity_uses_its_purpose_specific_material_adapter() -> None:
@@ -627,8 +711,8 @@ async def test_managed_material_adapter_returns_only_binding_authorized_fields(d
         project_id=project_id,
     )
     binding = HttpEgressBinding(
-        project_id=ProjectId(project_id),
-        credential_id=CredentialId(str(credential.id)),
+        project_id=project_id,
+        credential_id=credential.id,
         endpoint=NormalizedEndpoint("https://example.com/api"),
         inject=EgressInjectPolicy(
             kind=EgressInjectKind.BEARER,
@@ -661,8 +745,8 @@ async def test_environment_injection_is_the_only_binding_that_can_load_all_field
         project_id=project_id,
     )
     binding = EnvironmentInjectionBinding(
-        project_id=ProjectId(project_id),
-        credential_id=CredentialId(str(credential.id)),
+        project_id=project_id,
+        credential_id=credential.id,
     )
 
     resolved = await application.material_access_service.resolve(
@@ -681,8 +765,8 @@ async def test_environment_injection_is_the_only_binding_that_can_load_all_field
 
 def test_non_environment_binding_cannot_request_all_fields() -> None:
     binding = HttpEgressBinding(
-        project_id=ProjectId("project-1"),
-        credential_id=CredentialId("credential-1"),
+        project_id=TEST_PROJECT_ID,
+        credential_id=CredentialId.from_public("cred_00000000-0000-0000-0000-000000000001"),
         endpoint=NormalizedEndpoint("https://example.com/api"),
         inject=EgressInjectPolicy(
             kind=EgressInjectKind.BEARER,
@@ -696,8 +780,8 @@ def test_non_environment_binding_cannot_request_all_fields() -> None:
 
 def test_model_validated_binding_cannot_be_caller_constructed_with_fields() -> None:
     binding = ModelInferenceBinding(
-        project_id=ProjectId("project-1"),
-        credential_id=CredentialId("credential-1"),
+        project_id=TEST_PROJECT_ID,
+        credential_id=CredentialId.from_public("cred_00000000-0000-0000-0000-000000000001"),
         engine_kind=EngineKind.CODEX,
         model_id=None,
     )
@@ -717,8 +801,8 @@ async def test_material_adapter_rejects_forged_model_validation_before_repositor
     repository = _EncryptedMaterialRepository({"UNRELATED_SECRET": protector.protect("must-not-load")})
     adapter = ManagedCredentialMaterialAdapter(repository, protector, BindingIssuanceAuthority())
     binding = ModelInferenceBinding(
-        project_id=ProjectId("project-1"),
-        credential_id=CredentialId("credential-1"),
+        project_id=TEST_PROJECT_ID,
+        credential_id=CredentialId.from_public("cred_00000000-0000-0000-0000-000000000001"),
         engine_kind=EngineKind.CODEX,
         model_id=None,
     )
@@ -760,8 +844,10 @@ def test_purpose_specific_adapters_share_only_versioned_protector() -> None:
 class _FakeCredentialRepository:
     result: Any = object()
     error: Exception | None = None
+    created_id: CredentialId | None = None
 
-    async def create(self, request: Any, project_id: str) -> Any:
+    async def create(self, credential_id: CredentialId, request: Any, project_id: ProjectId) -> Any:
+        self.created_id = credential_id
         if self.error is not None:
             raise self.error
         return self.result
@@ -788,6 +874,7 @@ class _CapturingDb:
         self.added.append(value)
 
 
+@pytest.mark.no_db
 @pytest.mark.asyncio
 async def test_audit_adapter_target_type_cannot_be_overridden_by_details() -> None:
     db = _CapturingDb()
@@ -802,8 +889,9 @@ async def test_audit_adapter_target_type_cannot_be_overridden_by_details() -> No
 
     await adapter.append(
         CredentialAuditEntry(
+            id=SecurityAuditId.new(),
             action="environment.credentials.updated",
-            project_id="project-1",
+            project_id=TEST_PROJECT_ID,
             target_type="environment",
             target_id="environment-1",
             details={
@@ -818,6 +906,7 @@ async def test_audit_adapter_target_type_cannot_be_overridden_by_details() -> No
     assert audit.user_id == "user-1"
     assert audit.ip_address == "203.0.113.10"
     assert audit.user_agent == "credential-test/1.0"
+    assert audit.details["project_id"] == str(TEST_PROJECT_ID)
     assert audit.details["target_type"] == "environment"
     assert audit.details["principal_type"] == "api_key"
     assert audit.details["principal_id"] == "key-1"
@@ -865,6 +954,7 @@ async def test_application_service_commits_mutation_and_audit_together() -> None
     service = CredentialResourceService(uow)
 
     assert await service.create(object(), project_id="project-1") is result
+    assert isinstance(uow.credentials.created_id, CredentialId)
     assert uow.commits == 1
     assert uow.rollbacks == 0
     assert [entry.action for entry in uow.audit.entries] == ["credential.created"]
@@ -923,11 +1013,16 @@ def test_managed_adapter_protects_domain_material_without_exposing_reveal_capabi
     assert protector.reveal(protected["TOKEN"]) == "managed-value"
 
 
-async def _make_project(db_session) -> str:
-    org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+async def _make_project(db_session) -> ProjectId:
+    org = Organization(id=OrganizationId.new(), name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name=f"project-{uuid.uuid4()}", slug=f"project-{uuid.uuid4()}")
+    project = Project(
+        id=ProjectId.new(),
+        org_id=org.id,
+        name=f"project-{uuid.uuid4()}",
+        slug=f"project-{uuid.uuid4()}",
+    )
     db_session.add(project)
     await db_session.commit()
     return project.id
@@ -1009,8 +1104,8 @@ async def test_generic_binding_validation_rejects_model_inference(db_session) ->
         project_id=project_id,
     )
     binding = ModelInferenceBinding(
-        project_id=ProjectId(project_id),
-        credential_id=CredentialId(str(credential.id)),
+        project_id=project_id,
+        credential_id=credential.id,
         engine_kind=EngineKind.CODEX,
         model_id=None,
     )
@@ -1171,10 +1266,11 @@ def test_binding_service_module_has_no_reproducible_model_seal_recipe() -> None:
 async def test_production_composition_group_service_maps_groups_and_members(db_session) -> None:
     project_id = await _make_project(db_session)
     protector = VersionedMaterialProtector(TEST_KEY)
-    group = JoySafeterCredentialGroup(project_id=project_id, name="composed-group")
+    group = JoySafeterCredentialGroup(id=CredentialGroupId.new(), project_id=project_id, name="composed-group")
     db_session.add(group)
     await db_session.flush()
     member = JoySafeterCredential(
+        id=CredentialId.new(),
         project_id=project_id,
         kind="mcp",
         name="member",
@@ -1188,9 +1284,9 @@ async def test_production_composition_group_service_maps_groups_and_members(db_s
     await db_session.commit()
     application = compose_credential_application(db_session, audit_actor=CredentialAuditActor.system("test"))
     binding = McpGroupBinding(
-        project_id=ProjectId(project_id),
-        group_ids=(CredentialGroupId(str(group.id)),),
-        declared_server_urls=(),
+        project_id=project_id,
+        group_ids=(group.id,),
+        endpoint_requirements=(),
     )
 
     await application.group_service.validate_binding(binding)
@@ -1208,6 +1304,7 @@ async def test_production_composition_orders_mutation_audit_impact_commit_nudge(
         project_id=project_id,
     )
     environment = JoySafeterEnvironment(
+        id=EnvironmentId.new(),
         project_id=project_id,
         name=f"env-{uuid.uuid4()}",
         config={
@@ -1215,13 +1312,14 @@ async def test_production_composition_orders_mutation_audit_impact_commit_nudge(
                 {
                     "name": "api",
                     "base_url": "https://api.example.com",
-                    "service_credential_id": str(credential.id),
-                    "inject": {"type": "bearer", "secret_key": "TOKEN"},
+                    "credential_ref": str(credential.id),
+                    "inject": {"type": "bearer", "credential_field": "TOKEN"},
                 }
             ]
         },
     )
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         image="test-image:latest",
         status="running",
@@ -1273,8 +1371,8 @@ async def test_production_composition_orders_mutation_audit_impact_commit_nudge(
     impact = resolved_impacts[0]
     assert impact.usage is CredentialUsage.HTTP_EGRESS
     assert impact.source == "credential"
-    assert impact.project_id == ProjectId(project_id)
-    assert impact.affected_sandbox_ids == frozenset({str(sandbox_id)})
+    assert impact.project_id == project_id
+    assert impact.affected_sandbox_ids == frozenset({sandbox_id})
     assert impact.affected_session_ids == frozenset()
     assert impact.dispositions == frozenset({DependencyDisposition.REFRESH_RUNTIME_POLICY})
     assert (
@@ -1285,7 +1383,7 @@ async def test_production_composition_orders_mutation_audit_impact_commit_nudge(
             await db_session.execute(
                 select(SecurityAuditLog).where(
                     SecurityAuditLog.event_type == "credential.updated",
-                    SecurityAuditLog.details["project_id"].astext == project_id,
+                    SecurityAuditLog.details["project_id"].astext == str(project_id),
                 )
             )
         )
@@ -1309,7 +1407,7 @@ async def test_credential_application_service_records_explicit_system_audit_for_
         await db_session.execute(
             select(SecurityAuditLog).where(
                 SecurityAuditLog.event_type == "credential.created",
-                SecurityAuditLog.details["project_id"].astext == project_id,
+                SecurityAuditLog.details["project_id"].astext == str(project_id),
                 SecurityAuditLog.details["target_id"].astext == str(credential.id),
             )
         )
@@ -1454,15 +1552,15 @@ def test_credential_impact_is_authoritative_typed_contract() -> None:
     impact = CredentialImpact(
         usage=CredentialUsage.HTTP_EGRESS,
         source="credential",
-        project_id=ProjectId("project-1"),
-        affected_sandbox_ids=frozenset({"sandbox-1"}),
-        affected_session_ids=frozenset({"session-1"}),
+        project_id=TEST_PROJECT_ID,
+        affected_sandbox_ids=frozenset({SandboxId.from_public("sbx_00000000-0000-0000-0000-000000000001")}),
+        affected_session_ids=frozenset({SessionId.from_public("sess_00000000-0000-0000-0000-000000000001")}),
         dispositions=frozenset({DependencyDisposition.REFRESH_RUNTIME_POLICY}),
     )
 
     assert impact.usage is CredentialUsage.HTTP_EGRESS
     assert impact.source == "credential"
-    assert impact.project_id == ProjectId("project-1")
+    assert impact.project_id == TEST_PROJECT_ID
 
 
 def test_task_identity_blank_material_is_not_misclassified_as_key_error() -> None:

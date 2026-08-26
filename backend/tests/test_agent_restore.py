@@ -14,17 +14,26 @@ from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import as_uuid
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId, SessionId, TriggerId, UserId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
 async def _project_and_agent(db_session, *, name: str) -> tuple[Project, JoySafeterAgent]:
-    org = Organization(id=f"org-{uuid.uuid4()}", name=f"{name} Org", slug=f"{name.lower()}-org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name=name, slug=f"{name.lower()}-{uuid.uuid4()}")
+    org = Organization(
+        id=OrganizationId.new(),
+        name=f"{name} Org",
+        slug=f"{name.lower()}-org-{uuid.uuid4()}",
+    )
+    project = Project(
+        id=ProjectId.new(),
+        org_id=org.id,
+        name=name,
+        slug=f"{name.lower()}-{uuid.uuid4()}",
+    )
     db_session.add_all([org, project])
     await db_session.commit()
     await db_session.refresh(project)
-    agent = JoySafeterAgent(name=f"{name.lower()}-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"{name.lower()}-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -33,6 +42,7 @@ async def _project_and_agent(db_session, *, name: str) -> tuple[Project, JoySafe
 
 async def _paused_cron_trigger(db_session, *, project: Project, agent: JoySafeterAgent) -> JoySafeterTrigger:
     trigger = JoySafeterTrigger(
+        id=TriggerId.new(),
         name=f"cron-{uuid.uuid4()}",
         type="cron",
         agent_id=agent.id,
@@ -42,7 +52,7 @@ async def _paused_cron_trigger(db_session, *, project: Project, agent: JoySafete
         enabled=True,
         next_run_at=None,  # simulate the post-archive paused state
         project_id=project.id,
-        user_id="trigger-owner",
+        user_id=UserId.new(),
         org_id=project.org_id,
         concurrency_policy="allow",
         filter={},
@@ -86,9 +96,9 @@ async def test_resume_after_agent_restore_keeps_disabled_trigger_paused(db_sessi
     assert row.next_run_at is None
 
 
-def _write_ctx(project_id: str, org_id: str) -> JoySafeterAuthContext:
+def _write_ctx(project_id: ProjectId, org_id: OrganizationId) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="admin-user",
+        user_id=UserId.new(),
         org_id=org_id,
         project_id=project_id,
         role=JoySafeterRole.ADMIN,
@@ -119,7 +129,7 @@ async def test_unarchive_clears_archived_at_and_rearms_triggers(db_session):
     assert paused.next_run_at is None
 
     result = await unarchive_agent(agent_id, db_session, ctx)
-    assert result == {"status": "active"}
+    assert result.status == "active"
 
     db_session.expire_all()
     restored = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
@@ -133,7 +143,7 @@ async def test_unarchive_clears_archived_at_and_rearms_triggers(db_session):
 @pytest.mark.asyncio
 async def test_unarchive_leaves_terminated_sessions_archived(db_session):
     project, agent = await _project_and_agent(db_session, name="RestoreSessions")
-    session = JoySafeterSession(agent_id=agent.id, project_id=project.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, project_id=project.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -186,7 +196,7 @@ async def test_unarchive_is_idempotent_on_active_agent(db_session):
     ctx = _write_ctx(project.id, project.org_id)
 
     result = await unarchive_agent(agent_id, db_session, ctx)
-    assert result == {"status": "active"}
+    assert result.status == "active"
     db_session.expire_all()
     row = (await db_session.execute(select(JoySafeterAgent).where(JoySafeterAgent.id == agent_id))).scalar_one()
     assert row.archived_at is None
@@ -196,9 +206,9 @@ async def test_unarchive_is_idempotent_on_active_agent(db_session):
 async def test_unarchive_missing_agent_raises_404(db_session):
     project, _agent = await _project_and_agent(db_session, name="RestoreMissing")
     ctx = _write_ctx(project.id, project.org_id)
-    missing_id = as_uuid(uuid.uuid4())
+    missing_id = AgentId.new()
 
     with pytest.raises(AppError) as exc_info:
-        await unarchive_agent(missing_id, db_session, ctx)  # type: ignore[arg-type]
+        await unarchive_agent(missing_id, db_session, ctx)
 
     assert exc_info.value.code == "AGENT_NOT_FOUND"

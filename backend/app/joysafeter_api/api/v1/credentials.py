@@ -1,12 +1,8 @@
-"""Id-based ``/credentials`` REST routes (P0 refactor, Task 8).
+"""ID-based ``/credentials`` REST routes.
 
-Replaces the old name-based ``/secrets`` API. Every route is backed by the
-unified ``CredentialService``; reads are masked (a project reader can never
-recover raw secret material — ``CredentialService.get_masked`` applies the
-default-deny display-safe whitelist), writes require ``require_joysafeter_write``
-and emit an audit event whose details never contain secret values (name / kind /
-provider / protocol / keys only). The ``POST /credentials/test`` connectivity
-adapter is ported verbatim from ``secrets.py``.
+Every route is backed by ``CredentialService``. Reads are masked through its
+default-deny display-safe whitelist; writes require
+``require_joysafeter_write`` and emit audit details without credential values.
 """
 
 from __future__ import annotations
@@ -33,6 +29,7 @@ from app.joysafeter_domain.llm.compatibility import (
     validate_provider_protocol,
 )
 from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredential
+from app.joysafeter_domain.schemas.base import CursorPaginatedResponse
 from app.joysafeter_domain.schemas.joysafeter_credential import (
     CreateCredentialRequest,
     CredentialKind,
@@ -103,9 +100,8 @@ def _credential_response(cred: JoySafeterCredential, svc: CredentialService) -> 
 def _validate_list_filters(provider: str | None, protocol: str | None) -> None:
     """Reject unknown provider/protocol list filters against the LLM catalog.
 
-    Mirrors the old ``/secrets`` list guard so a bad filter surfaces a semantic
-    ``LLM_PROVIDER_UNKNOWN`` / ``LLM_PROTOCOL_UNKNOWN`` instead of silently
-    returning an empty page.
+    Invalid filters surface ``LLM_PROVIDER_UNKNOWN`` or
+    ``LLM_PROTOCOL_UNKNOWN`` instead of silently returning an empty page.
     """
     catalog = get_llm_catalog()
     if provider is not None:
@@ -343,7 +339,7 @@ async def list_credentials(
     compatible_engine: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-):
+) -> CursorPaginatedResponse[CredentialResponse, CredentialId]:
     svc = CredentialService(db, audit_actor=CredentialAuditActor.system("credential_query"))
     _validate_list_filters(provider, protocol)
     creds, has_more = await svc.list(
@@ -358,12 +354,12 @@ async def list_credentials(
         after_id=after_id,
     )
     items = [_credential_response(c, svc) for c in creds]
-    return {
-        "data": [item.model_dump(mode="json") for item in items],
-        "has_more": has_more,
-        "first_id": str(creds[0].id) if creds else None,
-        "last_id": str(creds[-1].id) if creds else None,
-    }
+    return CursorPaginatedResponse[CredentialResponse, CredentialId](
+        data=items,
+        has_more=has_more,
+        first_id=creds[0].id if creds else None,
+        last_id=creds[-1].id if creds else None,
+    )
 
 
 @router.get("/{credential_id}")

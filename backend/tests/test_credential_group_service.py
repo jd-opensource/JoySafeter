@@ -24,7 +24,6 @@ from app.joysafeter_application.credentials.snapshot_service import CreateCreden
 from app.joysafeter_application.sessions.creation_service import SessionCreationService
 from app.joysafeter_domain.credentials.dependencies import DependencyDisposition
 from app.joysafeter_domain.credentials.resource import McpCredentialIdentity
-from app.joysafeter_domain.credentials.types import CredentialGroupId as DomainCredentialGroupId
 from app.joysafeter_domain.models.joysafeter_credential import (
     JoySafeterCredential,
     JoySafeterCredentialGroup,
@@ -43,14 +42,15 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     UpdateCredentialGroupRequest,
 )
 from app.joysafeter_shared.common.app_errors import AppError
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, SandboxId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
 async def _make_project(db_session) -> str:
-    org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+    org = Organization(id=OrganizationId.new(), name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
     db_session.add(project)
     await db_session.commit()
     return project.id
@@ -68,6 +68,7 @@ async def other_project_id(db_session) -> str:
 
 def _limited_sandbox(project_id: str) -> JoySafeterSandbox:
     return JoySafeterSandbox(
+        id=SandboxId.new(),
         project_id=project_id,
         image="test-image:latest",
         status="running",
@@ -378,6 +379,14 @@ async def test_active_session_blocks_group_lifecycle_but_member_changes_refresh_
         JoySafeterCreateAgentRequest(
             name="active-session-agent",
             engine_kind=JoySafeterEngineKind.CLAUDE,
+            mcp_servers=[
+                {
+                    "type": "streamable_http",
+                    "name": "bound",
+                    "url": "https://bound.example.com/mcp",
+                    "auth_requirement": "optional",
+                }
+            ],
         ),
         project_id=project_id,
     )
@@ -532,7 +541,7 @@ async def test_persisted_group_restore_rejects_invalid_loaded_member(
             assert isinstance(identity, McpCredentialIdentity)
             return replace(
                 resource,
-                identity=replace(identity, group_id=DomainCredentialGroupId(str(other_group.id))),
+                identity=replace(identity, group_id=other_group.id),
             )
 
         monkeypatch.setattr(sqlalchemy_repository, "map_credential_row", invalid_mapper)
@@ -572,7 +581,18 @@ async def test_persisted_group_restore_rejects_bound_session_normalized_url_conf
         project_id=project_id,
     )
     agent = await compose_agent_application(db_session).commands.create_agent(
-        JoySafeterCreateAgentRequest(name="restore-url-agent", engine_kind=JoySafeterEngineKind.CLAUDE),
+        JoySafeterCreateAgentRequest(
+            name="restore-url-agent",
+            engine_kind=JoySafeterEngineKind.CLAUDE,
+            mcp_servers=[
+                {
+                    "type": "streamable_http",
+                    "name": "occupied",
+                    "url": "https://occupied.example.com/mcp",
+                    "auth_requirement": "optional",
+                }
+            ],
+        ),
         project_id=project_id,
     )
     await SessionCreationService(db_session, audit_actor=CredentialAuditActor.system("test")).create_from_source(
@@ -723,63 +743,3 @@ async def test_remove_credential_missing_raises(db_session, project_id):
     with pytest.raises(AppError) as exc:
         await svc.remove_credential(group.id, CredentialId.new(), project_id=project_id)
     assert exc.value.code == "CREDENTIAL_NOT_FOUND"
-
-
-# --- cross-group URL-conflict check (session bind) -------------------------------
-
-
-@pytest.mark.asyncio
-async def test_check_url_conflict_for_session_disjoint_ok(db_session, project_id):
-    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
-    g1 = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
-    g2 = await svc.create(CreateCredentialGroupRequest(name="g2"), project_id=project_id)
-    await svc.add_credential(
-        g1.id,
-        AddGroupCredentialRequest(name="a", mcp_server_url="https://a.com/mcp", data={"token_value": "t"}),
-        project_id=project_id,
-    )
-    await svc.add_credential(
-        g2.id,
-        AddGroupCredentialRequest(name="b", mcp_server_url="https://b.com/mcp", data={"token_value": "t"}),
-        project_id=project_id,
-    )
-    # Disjoint urls across the two groups -> no conflict.
-    await svc.check_url_conflict_for_session([g1.id, g2.id], project_id=project_id)
-
-
-@pytest.mark.asyncio
-async def test_check_url_conflict_for_session_shared_url_conflicts(db_session, project_id):
-    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
-    g1 = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
-    g2 = await svc.create(CreateCredentialGroupRequest(name="g2"), project_id=project_id)
-    await svc.add_credential(
-        g1.id,
-        AddGroupCredentialRequest(name="a", mcp_server_url="https://dup.com/mcp", data={"token_value": "t"}),
-        project_id=project_id,
-    )
-    # Same normalized url lives in a DIFFERENT group -> nondeterministic at bind.
-    await svc.add_credential(
-        g2.id,
-        AddGroupCredentialRequest(
-            name="b",
-            mcp_server_url="HTTPS://Dup.com:443/mcp/",
-            data={"token_value": "t"},
-        ),
-        project_id=project_id,
-    )
-    with pytest.raises(AppError) as exc:
-        await svc.check_url_conflict_for_session([g1.id, g2.id], project_id=project_id)
-    assert exc.value.code == "CREDENTIAL_GROUP_URL_CONFLICT"
-
-
-@pytest.mark.asyncio
-async def test_check_url_conflict_single_group_ok(db_session, project_id):
-    svc = CredentialGroupService(db_session, audit_actor=CredentialAuditActor.system("test"))
-    g1 = await svc.create(CreateCredentialGroupRequest(name="g1"), project_id=project_id)
-    await svc.add_credential(
-        g1.id,
-        AddGroupCredentialRequest(name="a", mcp_server_url="https://a.com/mcp", data={"token_value": "t"}),
-        project_id=project_id,
-    )
-    # A single group can never conflict with itself.
-    await svc.check_url_conflict_for_session([g1.id], project_id=project_id)

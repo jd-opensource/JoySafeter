@@ -1,24 +1,16 @@
-"""SQLAlchemy persistence adapter for the Credential compatibility application service.
+"""SQLAlchemy persistence adapter for credential resources and groups.
 
 Owns resource-level CRUD, the flat ``data`` contract (encrypt-on-write,
 mask-on-read via a default-deny display-safe whitelist), the masked-value
-preservation semantics on update, lifecycle (archive/restore/soft-delete), and a
-row-level ``FOR UPDATE`` lock used by later concurrency-sensitive tasks.
-
-Ported from ``joysafeter_secret_service.py`` (encrypt/decrypt/mask/
-merge_update_plaintext/``_is_display_safe_secret_key``) and extended for the
-three credential kinds (model/mcp/service) mirroring the DB CHECK constraint.
-
-Out of scope here (owned by later tasks): cross-consumer dependency scanning +
-in-use rejection (Task 9), group CRUD / mcp add-member flow (Task 6), and error
-catalog registration (Task 11).
+preservation semantics on update, lifecycle transitions, group membership, and
+row-level locks used by concurrency-sensitive operations.
 """
 
 from __future__ import annotations
 
 import builtins
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy import and_, or_, select, text, tuple_, update
@@ -62,12 +54,6 @@ from app.joysafeter_domain.credentials.types import (
     canonicalize_auth_scheme,
 )
 from app.joysafeter_domain.credentials.types import (
-    CredentialGroupId as DomainCredentialGroupId,
-)
-from app.joysafeter_domain.credentials.types import (
-    CredentialId as DomainCredentialId,
-)
-from app.joysafeter_domain.credentials.types import (
     CredentialKind as DomainCredentialKind,
 )
 from app.joysafeter_domain.models.joysafeter_credential import (
@@ -95,9 +81,12 @@ from app.joysafeter_shared.common.app_errors import (
     NotFoundError,
     ResourceConflictError,
 )
-from app.joysafeter_shared.ids import CredentialGroupId, CredentialId
+from app.joysafeter_shared.ids import CredentialGroupId, CredentialId, SessionId
 from app.joysafeter_shared.mcp_url import normalize_mcp_url
-from app.joysafeter_shared.security.credential_cipher import CredentialCiphertextError
+from app.joysafeter_shared.security.credential_cipher import (
+    CredentialCipherConfigurationError,
+    CredentialCiphertextError,
+)
 from app.joysafeter_shared.utils.datetime import utc_now
 
 MASKED_SECRET_PREFIX = "********"
@@ -175,6 +164,10 @@ def _mask_value(value: str) -> str:
     return MASKED_SECRET_PREFIX
 
 
+def _contains_masked_placeholder(data: dict[str, str]) -> bool:
+    return any(not _is_display_safe_key(key) and value.startswith(MASKED_SECRET_PREFIX) for key, value in data.items())
+
+
 def _sanitize_display_value(key: str, value: str) -> str:
     if "URL" not in key.upper():
         return value
@@ -190,10 +183,9 @@ def _sanitize_display_value(key: str, value: str) -> str:
 def _config_references_credential(config: object, cred_id_str: str) -> bool:
     """Whether an environment ``config`` dict references the credential by id.
 
-    Service credentials are referenced from ``secret_refs`` (a list of ids) and
-    ``egress_services[].service_credential_id`` — both are CredentialId strings
-    since Task 9c. Kept as a plain dict scan (no fragile JSONB path SQL); the set
-    of environments per project is small.
+    Service credentials are referenced from ``environment_credential_ids`` and
+    ``egress_services[].credential_ref``. Kept as a plain dict scan (no fragile
+    JSONB path SQL); the set of environments per project is small.
     """
     from app.joysafeter_domain.credentials.references import CredentialReferenceCodec
 
@@ -207,7 +199,7 @@ def _snapshot_references_credential(snapshot: object, cred_id_str: str) -> bool:
     """Whether a session ``agent_snapshot`` blob pins the credential by id.
 
     Covers the model connection (``model_credential_id``) and any credential ids
-    embedded in the snapshot's frozen ``environment.config`` (audit Blocker 1: a
+    embedded in the snapshot's frozen ``environment.config`` (a
     running session must keep a credential alive even after the agent is rebound).
     """
     from app.joysafeter_domain.credentials.references import CredentialReferenceCodec
@@ -295,13 +287,13 @@ def map_credential_row(row: JoySafeterCredential) -> CredentialResource:
         if row.group_id is None or row.normalized_mcp_server_url is None:
             raise ValueError("MCP credential row is missing group or normalized server URL")
         identity = McpCredentialIdentity(
-            group_id=DomainCredentialGroupId(str(row.group_id)),
+            group_id=row.group_id,
             server_url=NormalizedMcpUrl(row.normalized_mcp_server_url),
             auth_scheme=_auth_scheme(row.credential_type),
         )
     return CredentialResource(
-        id=DomainCredentialId(str(row.id)),
-        project_id=ProjectId(row.project_id),
+        id=row.id,
+        project_id=row.project_id,
         name=row.name,
         kind=kind,
         identity=identity,
@@ -315,8 +307,8 @@ def map_credential_row(row: JoySafeterCredential) -> CredentialResource:
 
 def map_credential_group_row(row: JoySafeterCredentialGroup) -> CredentialGroupResource:
     return CredentialGroupResource(
-        id=DomainCredentialGroupId(str(row.id)),
-        project_id=ProjectId(row.project_id),
+        id=row.id,
+        project_id=row.project_id,
         name=row.name,
         state=_credential_state(row),
     )
@@ -328,14 +320,6 @@ def _usage_for_kind(kind: str) -> CredentialUsage:
     if kind == DomainCredentialKind.MCP.value:
         return CredentialUsage.MCP_EGRESS
     return CredentialUsage.HTTP_EGRESS
-
-
-def _shared_credential_id(value: CredentialId | DomainCredentialId) -> CredentialId:
-    return value if isinstance(value, CredentialId) else CredentialId.from_public(str(value))
-
-
-def _shared_group_id(value: CredentialGroupId | DomainCredentialGroupId) -> CredentialGroupId:
-    return value if isinstance(value, CredentialGroupId) else CredentialGroupId.from_public(str(value))
 
 
 class SqlAlchemyCredentialRepository:
@@ -355,7 +339,7 @@ class SqlAlchemyCredentialRepository:
     def _queue_impact(
         self,
         *,
-        project_id: str,
+        project_id: ProjectId,
         reason: str,
         source_type: str,
         source_id: str,
@@ -367,7 +351,7 @@ class SqlAlchemyCredentialRepository:
                 source=source_type,
                 source_id=source_id,
                 reason=reason,
-                project_id=ProjectId(project_id),
+                project_id=project_id,
                 affected_sandbox_ids=frozenset(),
                 affected_session_ids=frozenset(),
                 dispositions=runtime_impact_dispositions(usage),
@@ -432,12 +416,12 @@ class SqlAlchemyCredentialRepository:
 
     async def load_encrypted_material(
         self,
-        credential_id: DomainCredentialId,
+        credential_id: CredentialId,
         project_id: ProjectId,
     ) -> dict[str, str]:
         credential = await self._get_or_raise(
-            _shared_credential_id(credential_id),
-            project_id=str(project_id),
+            credential_id,
+            project_id=project_id,
         )
         return dict(_require_stored_credential_data(credential.data))
 
@@ -469,6 +453,8 @@ class SqlAlchemyCredentialRepository:
         self,
         current_data: dict | None,
         requested_data: dict[str, str] | None,
+        *,
+        existing_plaintext: dict[str, str] | None = None,
     ) -> dict[str, str]:
         """Build update plaintext, preserving unchanged masked sensitive values.
 
@@ -476,7 +462,9 @@ class SqlAlchemyCredentialRepository:
         ORIGINAL plaintext (never persists "********..."). A masked value for a key
         that is NOT present in the existing data is ambiguous → CREDENTIAL_MASK_CONFLICT.
         """
-        existing_plain = self.decrypt_data(current_data)
+        existing_plain = existing_plaintext
+        if existing_plain is None:
+            existing_plain = self._decrypt_existing_material_for_update(current_data)
         next_data: dict[str, str] = {}
         for key, value in (requested_data or {}).items():
             key_str = str(key)
@@ -494,6 +482,17 @@ class SqlAlchemyCredentialRepository:
             else:
                 next_data[key_str] = value_str
         return next_data
+
+    def _decrypt_existing_material_for_update(self, current_data: object) -> dict[str, str]:
+        try:
+            return self.decrypt_data(current_data)
+        except (CredentialCipherConfigurationError, CredentialCiphertextError) as exc:
+            raise InvalidRequestError(
+                code="CREDENTIAL_MATERIAL_UNREADABLE",
+                message="Stored credential material cannot be preserved; re-enter all fields to replace it",
+                data={"required_action": "replace_all_fields"},
+                user_action="fix_input",
+            ) from exc
 
     # --- kind validation (mirror the DB CHECK) ----------------------------------
 
@@ -583,7 +582,7 @@ class SqlAlchemyCredentialRepository:
             "joysafeter_credentials" in message and "name" in message and "unique" in message
         )
 
-    async def _name_exists(self, project_id: str, kind: str, name: str) -> bool:
+    async def _name_exists(self, project_id: ProjectId, kind: str, name: str) -> bool:
         result = await self.db.execute(
             select(JoySafeterCredential.id).where(
                 JoySafeterCredential.project_id == project_id,
@@ -596,7 +595,12 @@ class SqlAlchemyCredentialRepository:
 
     # --- CRUD --------------------------------------------------------------------
 
-    async def create(self, req: CreateCredentialRequest, project_id: str) -> JoySafeterCredential:
+    async def create(
+        self,
+        credential_id: CredentialId,
+        req: CreateCredentialRequest,
+        project_id: ProjectId,
+    ) -> JoySafeterCredential:
         self._validate_kind_identity_create(req)
         plaintext = self._validate_data_contract(req.data)
         mcp_auth_scheme = None
@@ -622,6 +626,7 @@ class SqlAlchemyCredentialRepository:
             await self._clear_default(project_id=project_id, protocol=req.protocol or "")
 
         cred = JoySafeterCredential(
+            id=credential_id,
             project_id=project_id,
             kind=req.kind.value,
             name=req.name,
@@ -655,7 +660,7 @@ class SqlAlchemyCredentialRepository:
         await self.db.refresh(cred)
         return cred
 
-    async def get(self, cred_id: CredentialId, project_id: str) -> Optional[JoySafeterCredential]:
+    async def get(self, cred_id: CredentialId, project_id: ProjectId) -> Optional[JoySafeterCredential]:
         conditions: list[ColumnElement[bool]] = [
             JoySafeterCredential.id == cred_id,
             JoySafeterCredential.project_id == project_id,
@@ -666,29 +671,31 @@ class SqlAlchemyCredentialRepository:
 
     async def get_resource(
         self,
-        credential_id: DomainCredentialId,
+        credential_id: CredentialId,
         project_id: ProjectId,
     ) -> CredentialResource | None:
         result = await self.db.execute(
             select(JoySafeterCredential).where(
-                JoySafeterCredential.id == _shared_credential_id(credential_id),
-                JoySafeterCredential.project_id == str(project_id),
+                JoySafeterCredential.id == credential_id,
+                JoySafeterCredential.project_id == project_id,
             )
         )
         row = result.scalar_one_or_none()
         return None if row is None else map_credential_row(row)
 
-    async def get_group(self, group_id: Any, project_id: str) -> CredentialGroupResource | None:
+    async def get_group(self, group_id: CredentialGroupId, project_id: ProjectId) -> CredentialGroupResource | None:
         result = await self.db.execute(
             select(JoySafeterCredentialGroup).where(
-                JoySafeterCredentialGroup.id == _shared_group_id(group_id),
+                JoySafeterCredentialGroup.id == group_id,
                 JoySafeterCredentialGroup.project_id == project_id,
             )
         )
         row = result.scalar_one_or_none()
         return None if row is None else map_credential_group_row(row)
 
-    async def get_group_row(self, group_id: CredentialGroupId, project_id: str) -> JoySafeterCredentialGroup | None:
+    async def get_group_row(
+        self, group_id: CredentialGroupId, project_id: ProjectId
+    ) -> JoySafeterCredentialGroup | None:
         result = await self.db.execute(
             select(JoySafeterCredentialGroup).where(
                 JoySafeterCredentialGroup.id == group_id,
@@ -699,7 +706,7 @@ class SqlAlchemyCredentialRepository:
         return result.scalar_one_or_none()
 
     async def _get_group_lifecycle_or_raise(
-        self, group_id: CredentialGroupId, project_id: str
+        self, group_id: CredentialGroupId, project_id: ProjectId
     ) -> JoySafeterCredentialGroup:
         result = await self.db.execute(
             select(JoySafeterCredentialGroup).where(
@@ -733,7 +740,7 @@ class SqlAlchemyCredentialRepository:
             )
 
     async def _require_member_group_active(
-        self, group_id: CredentialGroupId | None, project_id: str
+        self, group_id: CredentialGroupId | None, project_id: ProjectId
     ) -> JoySafeterCredentialGroup | None:
         if group_id is None:
             return None
@@ -743,14 +750,13 @@ class SqlAlchemyCredentialRepository:
 
     async def get_many(
         self,
-        group_ids: tuple[Any, ...],
-        project_id: str,
+        group_ids: tuple[CredentialGroupId, ...],
+        project_id: ProjectId,
     ) -> tuple[CredentialGroupResource, ...]:
-        shared_group_ids = tuple(_shared_group_id(group_id) for group_id in group_ids)
         result = await self.db.execute(
             select(JoySafeterCredentialGroup)
             .where(
-                JoySafeterCredentialGroup.id.in_(shared_group_ids),
+                JoySafeterCredentialGroup.id.in_(group_ids),
                 JoySafeterCredentialGroup.project_id == project_id,
             )
             .order_by(JoySafeterCredentialGroup.id)
@@ -759,14 +765,13 @@ class SqlAlchemyCredentialRepository:
 
     async def list_members(
         self,
-        group_ids: tuple[Any, ...],
-        project_id: str,
+        group_ids: tuple[CredentialGroupId, ...],
+        project_id: ProjectId,
     ) -> tuple[CredentialResource, ...]:
-        shared_group_ids = tuple(_shared_group_id(group_id) for group_id in group_ids)
         result = await self.db.execute(
             select(JoySafeterCredential)
             .where(
-                JoySafeterCredential.group_id.in_(shared_group_ids),
+                JoySafeterCredential.group_id.in_(group_ids),
                 JoySafeterCredential.project_id == project_id,
                 JoySafeterCredential.archived_at.is_(None),
                 JoySafeterCredential.deleted_at.is_(None),
@@ -775,7 +780,7 @@ class SqlAlchemyCredentialRepository:
         )
         return tuple(map_credential_row(row) for row in result.scalars().all())
 
-    async def _get_or_raise(self, cred_id: CredentialId, project_id: str) -> JoySafeterCredential:
+    async def _get_or_raise(self, cred_id: CredentialId, project_id: ProjectId) -> JoySafeterCredential:
         cred = await self.get(cred_id, project_id=project_id)
         if cred is None:
             raise NotFoundError(
@@ -785,7 +790,7 @@ class SqlAlchemyCredentialRepository:
             )
         return cred
 
-    async def _get_lifecycle_or_raise(self, cred_id: CredentialId, project_id: str) -> JoySafeterCredential:
+    async def _get_lifecycle_or_raise(self, cred_id: CredentialId, project_id: ProjectId) -> JoySafeterCredential:
         result = await self.db.execute(
             select(JoySafeterCredential).where(
                 JoySafeterCredential.id == cred_id,
@@ -817,7 +822,7 @@ class SqlAlchemyCredentialRepository:
                 user_action="refresh",
             )
 
-    async def lock_default_scope(self, *, project_id: str, protocol: str) -> None:
+    async def lock_default_scope(self, *, project_id: ProjectId, protocol: str) -> None:
         scope = f"joysafeter:credential-default:{project_id}:{protocol}"
         await self.db.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:scope, 0))"),
@@ -857,7 +862,7 @@ class SqlAlchemyCredentialRepository:
 
     async def list(
         self,
-        project_id: str,
+        project_id: ProjectId,
         kind: CredentialKind | str | None = None,
         name: str | None = None,
         provider: str | None = None,
@@ -930,7 +935,7 @@ class SqlAlchemyCredentialRepository:
         self,
         cred_id: CredentialId,
         req: UpdateCredentialRequest,
-        project_id: str,
+        project_id: ProjectId,
     ) -> MutationOutcome[JoySafeterCredential]:
         preliminary = await self._get_lifecycle_or_raise(cred_id, project_id=project_id)
         if req.is_default:
@@ -970,11 +975,39 @@ class SqlAlchemyCredentialRepository:
             mcp_scheme_changed = target_mcp_scheme is not current_mcp_scheme
 
         if req.data is not None or mcp_scheme_changed:
-            current_plaintext = self.decrypt_data(cred.data)
-            if mcp_scheme_changed:
-                merged = dict(req.data) if req.data is not None else {"token_value": current_plaintext["token_value"]}
+            requested_data = self._validate_data_contract(req.data) if req.data is not None else None
+            preserves_masked_values = requested_data is not None and _contains_masked_placeholder(requested_data)
+            requires_current_plaintext = requested_data is None or preserves_masked_values
+            if requires_current_plaintext:
+                current_plaintext = self._decrypt_existing_material_for_update(cred.data)
             else:
-                merged = self.merge_update_plaintext(cred.data, req.data)
+                try:
+                    current_plaintext = self.decrypt_data(cred.data)
+                except (CredentialCipherConfigurationError, CredentialCiphertextError):
+                    current_plaintext = None
+            if mcp_scheme_changed:
+                if requested_data is None:
+                    assert current_plaintext is not None
+                    merged = {"token_value": current_plaintext["token_value"]}
+                elif preserves_masked_values:
+                    assert current_plaintext is not None
+                    merged = self.merge_update_plaintext(
+                        cred.data,
+                        requested_data,
+                        existing_plaintext=current_plaintext,
+                    )
+                else:
+                    merged = requested_data
+            elif preserves_masked_values:
+                assert current_plaintext is not None
+                merged = self.merge_update_plaintext(
+                    cred.data,
+                    requested_data,
+                    existing_plaintext=current_plaintext,
+                )
+            else:
+                assert requested_data is not None
+                merged = requested_data
             merged = self._validate_data_contract(merged)
             if cred.kind == CredentialKind.MCP.value:
                 assert target_mcp_scheme is not None
@@ -982,7 +1015,7 @@ class SqlAlchemyCredentialRepository:
                     target_mcp_scheme,
                     merged,
                 )
-            if merged != current_plaintext:
+            if current_plaintext is None or merged != current_plaintext:
                 cred.data = self.encrypt_data_for_storage(merged)
                 changed = True
                 runtime_material_changed = True
@@ -1081,10 +1114,7 @@ class SqlAlchemyCredentialRepository:
                 JoySafeterSession.project_id == cred.project_id,
                 JoySafeterSession.archived_at.is_(None),
                 JoySafeterSession.status != "terminated",
-                or_(
-                    JoySafeterSession.environment_ref.is_(None),
-                    JoySafeterSession.environment_ref == "",
-                ),
+                JoySafeterSession.environment_id.is_(None),
                 JoySafeterSession.agent_snapshot.is_not(None),
             )
         )
@@ -1095,7 +1125,7 @@ class SqlAlchemyCredentialRepository:
 
     # --- default (model only) ----------------------------------------------------
 
-    async def _clear_default(self, *, project_id: str, protocol: str) -> None:
+    async def _clear_default(self, *, project_id: ProjectId, protocol: str) -> None:
         await self.db.execute(
             update(JoySafeterCredential)
             .where(
@@ -1109,7 +1139,7 @@ class SqlAlchemyCredentialRepository:
         )
         await self.db.flush()
 
-    async def set_default(self, cred_id: CredentialId, project_id: str) -> JoySafeterCredential:
+    async def set_default(self, cred_id: CredentialId, project_id: ProjectId) -> JoySafeterCredential:
         preliminary = await self._get_lifecycle_or_raise(cred_id, project_id=project_id)
         cred = await self._lock_default_selection(preliminary)
         self._require_active_credential(cred)
@@ -1128,7 +1158,7 @@ class SqlAlchemyCredentialRepository:
         await self.db.refresh(cred)
         return cred
 
-    async def clear_default(self, cred_id: CredentialId, project_id: str) -> JoySafeterCredential:
+    async def clear_default(self, cred_id: CredentialId, project_id: ProjectId) -> JoySafeterCredential:
         await self.lock_credential_scope(cred_id, project_id=project_id)
         cred = await self._get_lifecycle_or_raise(cred_id, project_id=project_id)
         self._require_active_credential(cred)
@@ -1138,16 +1168,16 @@ class SqlAlchemyCredentialRepository:
         await self.db.refresh(cred)
         return cred
 
-    # --- cross-consumer dependency scan (Task 9) ---------------------------------
+    # --- cross-consumer dependency scan -----------------------------------------
 
-    async def dependencies(self, cred_id: CredentialId, project_id: str) -> CredentialDependencies:
+    async def dependencies(self, cred_id: CredentialId, project_id: ProjectId) -> CredentialDependencies:
         """Find the live consumers that reference this credential.
 
         Union of: agent ``model_credential_id``, trigger
-        ``webhook_auth_credential_id``, environment ``config`` (service creds via
-        ``secret_refs`` / ``egress_services``), the session→group association (an
+        ``webhook_auth_credential_id``, environment ``config`` (service credentials
+        via ``environment_credential_ids`` / ``egress_services``), the session→group association (an
         mcp credential is reachable through its group), and ACTIVE session
-        ``agent_snapshot`` blobs (audit Blocker 1). Soft-deleted / archived
+        ``agent_snapshot`` blobs. Soft-deleted / archived
         consumers and terminated/archived sessions are excluded so lifecycle
         transitions are only blocked by genuinely live references.
         """
@@ -1214,7 +1244,7 @@ class SqlAlchemyCredentialRepository:
     # consumer (agent / trigger / environment / active session or its snapshot);
     # FK RESTRICT only guards a physical delete, so the service enforces the rest.
 
-    async def archive(self, cred_id: CredentialId, project_id: str) -> MutationOutcome[JoySafeterCredential]:
+    async def archive(self, cred_id: CredentialId, project_id: ProjectId) -> MutationOutcome[JoySafeterCredential]:
         await self.lock_credential_scope(cred_id, project_id=project_id)
         cred = await self._get_lifecycle_or_raise(cred_id, project_id=project_id)
         await self._require_member_group_active(cred.group_id, project_id)
@@ -1231,7 +1261,7 @@ class SqlAlchemyCredentialRepository:
         await self.db.refresh(cred)
         return MutationOutcome(cred, True)
 
-    async def restore(self, cred_id: CredentialId, project_id: str) -> MutationOutcome[JoySafeterCredential]:
+    async def restore(self, cred_id: CredentialId, project_id: ProjectId) -> MutationOutcome[JoySafeterCredential]:
         await self.lock_credential_scope(cred_id, project_id=project_id)
         cred = await self._get_lifecycle_or_raise(cred_id, project_id=project_id)
         await self._require_member_group_active(cred.group_id, project_id)
@@ -1278,7 +1308,7 @@ class SqlAlchemyCredentialRepository:
         await self.db.refresh(cred)
         return MutationOutcome(cred, True)
 
-    async def soft_delete(self, cred_id: CredentialId, project_id: str) -> MutationOutcome[JoySafeterCredential]:
+    async def soft_delete(self, cred_id: CredentialId, project_id: ProjectId) -> MutationOutcome[JoySafeterCredential]:
         await self.lock_credential_scope(cred_id, project_id=project_id)
         cred = await self._get_lifecycle_or_raise(cred_id, project_id=project_id)
         await self._require_member_group_active(cred.group_id, project_id)
@@ -1306,13 +1336,13 @@ class SqlAlchemyCredentialRepository:
 
     async def lock_credentials(
         self,
-        cred_ids: builtins.list[CredentialId | DomainCredentialId],
+        cred_ids: builtins.list[CredentialId],
         *,
-        project_id: str | None = None,
+        project_id: ProjectId | None = None,
     ) -> builtins.list[CredentialId]:
         """Lock credential rows in stable id order within the current transaction."""
         ordered_ids: builtins.list[CredentialId] = sorted(
-            {_shared_credential_id(credential_id) for credential_id in cred_ids},
+            set(cred_ids),
             key=str,
         )
         if not ordered_ids:
@@ -1327,12 +1357,12 @@ class SqlAlchemyCredentialRepository:
 
     async def lock_credential_groups(
         self,
-        group_ids: builtins.list[CredentialGroupId | DomainCredentialGroupId],
+        group_ids: builtins.list[CredentialGroupId],
         *,
-        project_id: str | None = None,
+        project_id: ProjectId | None = None,
     ) -> builtins.list[CredentialGroupId]:
         ordered_ids = sorted(
-            {_shared_group_id(group_id) for group_id in group_ids},
+            set(group_ids),
             key=str,
         )
         if not ordered_ids:
@@ -1352,7 +1382,7 @@ class SqlAlchemyCredentialRepository:
         self,
         group_id: CredentialGroupId | None,
         *,
-        project_id: str | None = None,
+        project_id: ProjectId | None = None,
     ) -> None:
         if group_id is None:
             return
@@ -1363,18 +1393,17 @@ class SqlAlchemyCredentialRepository:
 
     async def lock_credential_scope(
         self,
-        cred_id: CredentialId | DomainCredentialId,
+        cred_id: CredentialId,
         *,
-        project_id: str,
+        project_id: ProjectId,
     ) -> None:
-        shared_credential_id = _shared_credential_id(cred_id)
         result = await self.db.execute(
             select(
                 JoySafeterCredential.group_id,
                 JoySafeterCredential.kind,
                 JoySafeterCredential.protocol,
             ).where(
-                JoySafeterCredential.id == shared_credential_id,
+                JoySafeterCredential.id == cred_id,
                 JoySafeterCredential.project_id == project_id,
             )
         )
@@ -1385,13 +1414,13 @@ class SqlAlchemyCredentialRepository:
         await self.lock_credential_group(group_id, project_id=project_id)
         if kind == CredentialKind.MODEL.value and protocol:
             await self.lock_default_scope(project_id=project_id, protocol=protocol)
-        await self.lock_credential(shared_credential_id, project_id=project_id)
+        await self.lock_credential(cred_id, project_id=project_id)
 
     async def lock_credential(
         self,
-        cred_id: CredentialId | DomainCredentialId,
+        cred_id: CredentialId,
         *,
-        project_id: str | None = None,
+        project_id: ProjectId | None = None,
     ) -> None:
         """Acquire a row-level ``SELECT ... FOR UPDATE`` lock on the credential.
 
@@ -1402,8 +1431,14 @@ class SqlAlchemyCredentialRepository:
 
     # --- credential groups ------------------------------------------------------
 
-    async def create_group(self, request: CreateCredentialGroupRequest, project_id: str) -> JoySafeterCredentialGroup:
+    async def create_group(
+        self,
+        group_id: CredentialGroupId,
+        request: CreateCredentialGroupRequest,
+        project_id: ProjectId,
+    ) -> JoySafeterCredentialGroup:
         group = JoySafeterCredentialGroup(
+            id=group_id,
             project_id=project_id,
             name=request.name,
             description=request.description,
@@ -1426,7 +1461,7 @@ class SqlAlchemyCredentialRepository:
 
     async def list_group_rows(
         self,
-        project_id: str,
+        project_id: ProjectId,
         *,
         limit: int = 20,
         after_id: CredentialGroupId | None = None,
@@ -1471,7 +1506,7 @@ class SqlAlchemyCredentialRepository:
         self,
         group_id: CredentialGroupId,
         request: UpdateCredentialGroupRequest,
-        project_id: str,
+        project_id: ProjectId,
     ) -> JoySafeterCredentialGroup:
         await self.lock_credential_group(group_id, project_id=project_id)
         group = await self._get_group_lifecycle_or_raise(group_id, project_id)
@@ -1497,7 +1532,7 @@ class SqlAlchemyCredentialRepository:
         await self.db.refresh(group)
         return group
 
-    async def active_group_session_ids(self, group_id: CredentialGroupId, project_id: str) -> list[Any]:
+    async def active_group_session_ids(self, group_id: CredentialGroupId, project_id: ProjectId) -> list[SessionId]:
         from app.joysafeter_domain.models.joysafeter_credential import (
             JoySafeterSessionCredentialGroup,
         )
@@ -1516,7 +1551,7 @@ class SqlAlchemyCredentialRepository:
         return list(rows.scalars().all())
 
     async def archive_group(
-        self, group_id: CredentialGroupId, project_id: str
+        self, group_id: CredentialGroupId, project_id: ProjectId
     ) -> MutationOutcome[JoySafeterCredentialGroup]:
         await self.lock_credential_group(group_id, project_id=project_id)
         group = await self._get_group_lifecycle_or_raise(group_id, project_id)
@@ -1537,7 +1572,7 @@ class SqlAlchemyCredentialRepository:
         return MutationOutcome(group, True)
 
     async def restore_group(
-        self, group_id: CredentialGroupId, project_id: str
+        self, group_id: CredentialGroupId, project_id: ProjectId
     ) -> MutationOutcome[JoySafeterCredentialGroup]:
         await self.lock_credential_group(group_id, project_id=project_id)
         group = await self._get_group_lifecycle_or_raise(group_id, project_id)
@@ -1562,7 +1597,7 @@ class SqlAlchemyCredentialRepository:
                 group_resource,
                 CredentialLifecycleCommand.RESTORE,
                 restore_context=CredentialGroupRestoreContext(
-                    project_id=ProjectId(project_id),
+                    project_id=project_id,
                     members=members,
                     occupied_server_urls=frozenset(),
                 ),
@@ -1597,7 +1632,7 @@ class SqlAlchemyCredentialRepository:
         return MutationOutcome(group, True)
 
     async def delete_group(
-        self, group_id: CredentialGroupId, project_id: str
+        self, group_id: CredentialGroupId, project_id: ProjectId
     ) -> MutationOutcome[JoySafeterCredentialGroup]:
         await self.lock_credential_group(group_id, project_id=project_id)
         group = await self._get_group_lifecycle_or_raise(group_id, project_id)
@@ -1638,10 +1673,12 @@ class SqlAlchemyCredentialRepository:
     async def add_group_member(
         self,
         group_id: CredentialGroupId,
+        credential_id: CredentialId,
         request: AddGroupCredentialRequest,
-        project_id: str,
+        project_id: ProjectId,
     ) -> JoySafeterCredential:
         return await self.create(
+            credential_id,
             CreateCredentialRequest(
                 kind=CredentialKind.MCP,
                 name=request.name,
@@ -1656,7 +1693,7 @@ class SqlAlchemyCredentialRepository:
     async def list_group_member_rows(
         self,
         group_id: CredentialGroupId,
-        project_id: str,
+        project_id: ProjectId,
         *,
         include_archived: bool = True,
     ) -> list[JoySafeterCredential]:
@@ -1674,33 +1711,8 @@ class SqlAlchemyCredentialRepository:
         )
         return list(rows.scalars().all())
 
-    async def check_url_conflict_for_session(self, group_ids: list[CredentialGroupId], project_id: str) -> None:
-        unique_ids = list(dict.fromkeys(group_ids))
-        if len(unique_ids) < 2:
-            return
-        rows = await self.db.execute(
-            select(
-                JoySafeterCredential.normalized_mcp_server_url,
-                JoySafeterCredential.group_id,
-            ).where(
-                JoySafeterCredential.project_id == project_id,
-                JoySafeterCredential.group_id.in_(unique_ids),
-                JoySafeterCredential.kind == CredentialKind.MCP.value,
-                JoySafeterCredential.archived_at.is_(None),
-                JoySafeterCredential.deleted_at.is_(None),
-            )
-        )
-        seen: dict[str, CredentialGroupId] = {}
-        for normalized_url, member_group_id in rows.all():
-            if normalized_url is None:
-                continue
-            prior_group_id = seen.get(normalized_url)
-            if prior_group_id is not None and prior_group_id != member_group_id:
-                raise credential_group_url_conflict(normalized_url)
-            seen[normalized_url] = member_group_id
-
     async def _get_member_or_raise(
-        self, group_id: CredentialGroupId, credential_id: CredentialId, project_id: str
+        self, group_id: CredentialGroupId, credential_id: CredentialId, project_id: ProjectId
     ) -> JoySafeterCredential:
         credential = await self._get_lifecycle_or_raise(credential_id, project_id)
         if credential.group_id != group_id or credential.kind != CredentialKind.MCP.value:
@@ -1715,19 +1727,19 @@ class SqlAlchemyCredentialRepository:
         return credential
 
     async def validate_group_member_mutation(
-        self, group_id: CredentialGroupId, credential_id: CredentialId, project_id: str
+        self, group_id: CredentialGroupId, credential_id: CredentialId, project_id: ProjectId
     ) -> JoySafeterCredential:
         await self._require_member_group_active(group_id, project_id)
         return await self._get_member_or_raise(group_id, credential_id, project_id)
 
     async def archive_group_member(
-        self, group_id: CredentialGroupId, credential_id: CredentialId, project_id: str
+        self, group_id: CredentialGroupId, credential_id: CredentialId, project_id: ProjectId
     ) -> JoySafeterCredential:
         await self._get_member_or_raise(group_id, credential_id, project_id)
         return await self.archive(credential_id, project_id)
 
     async def delete_group_member(
-        self, group_id: CredentialGroupId, credential_id: CredentialId, project_id: str
+        self, group_id: CredentialGroupId, credential_id: CredentialId, project_id: ProjectId
     ) -> JoySafeterCredential:
         await self._get_member_or_raise(group_id, credential_id, project_id)
         return await self.soft_delete(credential_id, project_id)

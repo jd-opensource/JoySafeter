@@ -9,8 +9,9 @@ from app.joysafeter_domain.credentials.policies import (
 )
 from app.joysafeter_domain.credentials.types import (
     CredentialFieldName,
-    make_credential_id,
-    make_project_id,
+    CredentialId,
+    ProjectId,
+    require_project_id,
 )
 
 from .catalog import EngineCapability, LlmCatalog
@@ -70,16 +71,16 @@ def require_enabled_model_inference_engine(
 def build_model_inference_policy(
     catalog: LlmCatalog,
     *,
-    project_id: object,
-    credential_id: object,
+    project_id: ProjectId,
+    credential_id: CredentialId,
     engine_kind: EngineKind | str,
     model_id: str | None,
 ) -> ModelInferenceBinding:
     normalized_engine_kind = engine_kind if isinstance(engine_kind, EngineKind) else EngineKind(engine_kind)
     require_enabled_model_inference_engine(catalog, normalized_engine_kind)
     return ModelInferenceBinding(
-        project_id=make_project_id(str(project_id)),
-        credential_id=make_credential_id(str(credential_id)),
+        project_id=require_project_id(project_id),
+        credential_id=credential_id,
         engine_kind=normalized_engine_kind,
         model_id=model_id,
     )

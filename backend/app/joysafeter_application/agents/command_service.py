@@ -20,7 +20,16 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
 )
 from app.joysafeter_domain.services.joysafeter_skill_version_access import SkillVersionExposure
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
-from app.joysafeter_shared.ids import AgentId, CredentialId, SkillId
+from app.joysafeter_shared.ids import (
+    AgentId,
+    AgentVersionId,
+    CredentialId,
+    EnvironmentId,
+    OrganizationId,
+    ProjectId,
+    SkillId,
+)
+from app.joysafeter_shared.json_boundary import normalize_json_value
 from app.joysafeter_shared.utils.datetime import utc_now
 
 _TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
@@ -41,15 +50,23 @@ class AgentCommandService:
         value = getattr(item, "skill_id", None)
         if value is None and isinstance(item, dict):
             value = item.get("skill_id")
-        if not value:
+        if value is None:
             return None
+        if isinstance(value, SkillId):
+            return value
+        if not isinstance(value, str):
+            raise InvalidRequestError(
+                "Invalid skill reference id",
+                code="AGENT_SKILL_REF_INVALID",
+                data={"skill_id_type": type(value).__name__},
+            )
         try:
-            return SkillId.from_public(str(value))
+            return SkillId.from_public(value)
         except ValueError as exc:
             raise InvalidRequestError(
                 "Invalid skill reference id",
                 code="AGENT_SKILL_REF_INVALID",
-                data={"skill_id": str(value)},
+                data={"skill_id": value},
             ) from exc
 
     @staticmethod
@@ -60,7 +77,7 @@ class AgentCommandService:
         normalized = str(value or "latest").strip()
         return normalized or "latest"
 
-    async def _validate_skill_refs(self, skills: list[Any], project_id: Optional[str]) -> list[dict[str, Any]]:
+    async def _validate_skill_refs(self, skills: list[Any], project_id: ProjectId | None) -> list[dict[str, Any]]:
         ref_items = [
             (item, skill_id, self._skill_ref_version(item))
             for item in skills
@@ -83,7 +100,7 @@ class AgentCommandService:
         cross_project_skills = [
             skill for skill in skills_by_id.values() if project_id is None or skill.project_id != project_id
         ]
-        project_org_map: dict[str, str] = {}
+        project_org_map: dict[ProjectId, OrganizationId] = {}
         pointer_version_map = {}
         if cross_project_skills:
             project_ids = list(
@@ -152,9 +169,12 @@ class AgentCommandService:
             elif exposure is None and not await self._repository.get_skill_version(skill_id, version):
                 invalid.append({"skill_id": str(skill_id), "version": version, "reason": "version_not_found"})
 
-            normalized_item = item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
-            normalized_item["skill_id"] = str(skill_id)
-            normalized_item["version"] = resolved_version or version
+            raw_item = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+            raw_item["skill_id"] = skill_id
+            raw_item["version"] = resolved_version or version
+            normalized_item = normalize_json_value(raw_item)
+            if not isinstance(normalized_item, dict):
+                raise TypeError("agent skill reference must normalize to an object")
             normalized.append(normalized_item)
         if invalid:
             raise InvalidRequestError(
@@ -178,7 +198,7 @@ class AgentCommandService:
     async def _validate_model_credential_ref(
         self,
         model_credential_id: Optional[CredentialId],
-        project_id: Optional[str],
+        project_id: ProjectId | None,
         *,
         engine_kind: str,
         model_id: Optional[str],
@@ -201,22 +221,22 @@ class AgentCommandService:
             model_id=model_id,
         )
 
-    async def _lock_environment(self, environment_ref: Optional[str], project_id: Optional[str]) -> None:
-        if not environment_ref:
+    async def _lock_environment(self, environment_id: EnvironmentId | None, project_id: ProjectId | None) -> None:
+        if environment_id is None:
             return
-        environment = await self._repository.lock_environment_by_ref(environment_ref, project_id=project_id)
+        environment = await self._repository.lock_environment(environment_id, project_id=project_id)
         if environment is None:
             raise InvalidRequestError(
                 code="AGENT_ENVIRONMENT_NOT_FOUND",
-                message=f"Environment not found: {environment_ref}",
-                data={"environment_ref": environment_ref},
+                message=f"Environment not found: {environment_id}",
+                data={"environment_id": str(environment_id)},
                 user_action="fix_input",
             )
         if environment.archived_at is not None:
             raise ResourceConflictError(
                 code="ENVIRONMENT_ARCHIVED",
-                message=f"Environment is archived: {environment_ref}",
-                data={"environment_ref": environment_ref, "environment_id": str(environment.id)},
+                message=f"Environment is archived: {environment_id}",
+                data={"environment_id": str(environment.id)},
                 user_action="refresh",
             )
 
@@ -230,7 +250,7 @@ class AgentCommandService:
         )
 
     async def create_agent(
-        self, req: JoySafeterCreateAgentRequest, project_id: Optional[str] = None
+        self, req: JoySafeterCreateAgentRequest, project_id: ProjectId | None = None
     ) -> JoySafeterAgent:
         try:
             return await self._create_agent(req, project_id=project_id)
@@ -239,7 +259,7 @@ class AgentCommandService:
             raise
 
     async def _create_agent(
-        self, req: JoySafeterCreateAgentRequest, project_id: Optional[str] = None
+        self, req: JoySafeterCreateAgentRequest, project_id: ProjectId | None = None
     ) -> JoySafeterAgent:
         mcp_servers = [server.to_persisted() for server in req.mcp_servers]
         AgentConfigurationPolicy.validate_mcp_servers(
@@ -248,7 +268,7 @@ class AgentCommandService:
         )
         AgentConfigurationPolicy.validate_tool_mcp_references(req.tools, mcp_servers)
         validate_engine(req.engine_kind.value)
-        await self._lock_environment(req.environment_ref, project_id)
+        await self._lock_environment(req.environment_id, project_id)
         normalized_skills = await self._validate_skill_refs(list(req.skills or []), project_id)
         await self._validate_model_credential_ref(
             req.model_credential_id,
@@ -258,6 +278,7 @@ class AgentCommandService:
         )
         model_data = req.model if isinstance(req.model, str) else req.model.model_dump() if req.model else None
         agent = JoySafeterAgent(
+            id=AgentId.new(),
             name=req.name,
             engine_kind=req.engine_kind.value,
             model=model_data,
@@ -270,14 +291,14 @@ class AgentCommandService:
             tools=[tool.model_dump() for tool in req.tools],
             multiagent=req.multiagent,
             version=1,
-            environment_ref=req.environment_ref,
+            environment_id=req.environment_id,
             model_credential_id=req.model_credential_id,
             project_id=project_id,
         )
         self._repository.add(agent)
         try:
             await self._repository.flush()
-            await self._repository.save_version(agent, build_agent_snapshot(agent))
+            await self._repository.save_version(AgentVersionId.new(), agent, build_agent_snapshot(agent))
             await self._uow.commit()
         except AgentNameConflictError as exc:
             raise self._name_conflict(req.name) from exc
@@ -288,7 +309,7 @@ class AgentCommandService:
         self,
         agent_id: AgentId,
         req: JoySafeterUpdateAgentRequest,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[JoySafeterAgent]:
         try:
             return await self._update_agent(agent_id, req, project_id=project_id)
@@ -300,7 +321,7 @@ class AgentCommandService:
         self,
         agent_id: AgentId,
         req: JoySafeterUpdateAgentRequest,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[JoySafeterAgent]:
         agent = await self._repository.lock(agent_id, project_id=project_id)
         if agent is None:
@@ -328,7 +349,7 @@ class AgentCommandService:
         effective_tools = req.tools if req.tools is not None else agent.tools or []
         effective_engine = req.engine_kind.value if req.engine_kind is not None else agent.engine_kind
         effective_model = req.model if req.model is not None else agent.model
-        effective_environment_ref = req.environment_ref if req.environment_ref is not None else agent.environment_ref
+        effective_environment_id = req.environment_id if req.environment_id is not None else agent.environment_id
         credential_supplied = "model_credential_id" in req.model_fields_set
         effective_credential_id = req.model_credential_id if credential_supplied else agent.model_credential_id
 
@@ -338,10 +359,10 @@ class AgentCommandService:
         )
         AgentConfigurationPolicy.validate_tool_mcp_references(effective_tools, effective_mcp)
         validate_engine(effective_engine)
-        await self._lock_environment(effective_environment_ref, project_id)
+        await self._lock_environment(effective_environment_id, project_id)
 
         dependency_ref_changed = (credential_supplied and req.model_credential_id != agent.model_credential_id) or (
-            req.environment_ref is not None and req.environment_ref != agent.environment_ref
+            req.environment_id is not None and req.environment_id != agent.environment_id
         )
         if dependency_ref_changed:
             active_tasks = await self._repository.list_active_tasks(agent_id, project_id=project_id)
@@ -350,7 +371,7 @@ class AgentCommandService:
                     code="AGENT_ACTIVE_TASKS",
                     message=(
                         "Agent has active tasks. Stop or wait for them before changing "
-                        "model_credential_id or environment_ref."
+                        "model_credential_id or environment_id."
                     ),
                     data={"agent_id": str(agent_id), "active_task_ids": [str(task.id) for task in active_tasks]},
                     retryable=True,
@@ -412,8 +433,8 @@ class AgentCommandService:
             if new_tools != agent.tools:
                 agent.tools = new_tools
                 changed = True
-        if req.environment_ref is not None and req.environment_ref != agent.environment_ref:
-            agent.environment_ref = req.environment_ref
+        if req.environment_id is not None and req.environment_id != agent.environment_id:
+            agent.environment_id = req.environment_id
             changed = True
         if credential_supplied and req.model_credential_id != agent.model_credential_id:
             agent.model_credential_id = req.model_credential_id
@@ -427,7 +448,7 @@ class AgentCommandService:
         target_name = agent.name
         try:
             await self._repository.flush()
-            await self._repository.save_version(agent, build_agent_snapshot(agent))
+            await self._repository.save_version(AgentVersionId.new(), agent, build_agent_snapshot(agent))
             await self._uow.commit()
         except AgentNameConflictError as exc:
             raise self._name_conflict(target_name) from exc

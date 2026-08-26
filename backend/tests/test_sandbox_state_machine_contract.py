@@ -11,6 +11,7 @@ from app.joysafeter_domain.services.joysafeter_sandbox_service import (
     InvalidSandboxTransition,
     SandboxService,
 )
+from app.joysafeter_shared.ids import AgentId, SessionId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -22,12 +23,13 @@ async def _create_session(
     archived_at=None,
     generation=1,
 ):
-    agent = JoySafeterAgent(name=f"sandbox-state-machine-{uuid.uuid4()}", project_id=project_id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"sandbox-state-machine-{uuid.uuid4()}", project_id=project_id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
     session = JoySafeterSession(
+        id=SessionId.new(),
         agent_id=agent.id,
         project_id=project_id,
         status=status,

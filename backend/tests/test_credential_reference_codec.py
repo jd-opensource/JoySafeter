@@ -12,7 +12,9 @@ from app.joysafeter_domain.credentials.references import (
     _validate_reference_path_inventory,
     credential_reference_metric_snapshot,
     reset_credential_reference_metrics,
+    snapshot_model_credential_id,
 )
+from app.joysafeter_shared.ids import CredentialId
 
 CONTRACT = json.loads(
     (Path(__file__).resolve().parents[1] / "contracts" / "credential_reference_contract.json").read_text()
@@ -25,10 +27,109 @@ REFERENCE_CASES = [(entry, schema) for entry in CONTRACT["reference_paths"] for 
 
 
 @pytest.mark.no_db
+def test_runtime_codec_accepts_only_canonical_v2_snapshot_fields() -> None:
+    codec = CredentialReferenceCodec()
+    canonical = {
+        "schema": "joysafeter.agent_execution_snapshot.v2",
+        "engine_kind": "claude",
+        "model_credential_id": CREDENTIAL_A,
+        "environment_credential_ids": [CREDENTIAL_B],
+        "credential_group_ids": [],
+        "environment": {
+            "config": {
+                "environment_credential_ids": [CREDENTIAL_B],
+                "egress_services": [
+                    {
+                        "base_url": "https://crm.example.com",
+                        "credential_ref": CREDENTIAL_A,
+                        "inject": {"type": "bearer", "credential_field": "TOKEN"},
+                    }
+                ],
+            }
+        },
+    }
+
+    decoded = codec.decode_snapshot(canonical)
+    assert tuple(map(str, decoded.credential_ids)) == (CREDENTIAL_A, CREDENTIAL_B)
+    assert snapshot_model_credential_id(canonical) == CredentialId.from_public(CREDENTIAL_A)
+
+    for invalid in (
+        {**canonical, "schema": "joysafeter.agent_execution_snapshot.v1"},
+        {key: value for key, value in canonical.items() if key != "schema"},
+        {**canonical, "secret_ref": CREDENTIAL_A},
+        {**canonical, "secret_refs": [CREDENTIAL_B]},
+        {**canonical, "vault_ids": []},
+    ):
+        with pytest.raises(ValueError, match="corrupt_record"):
+            codec.decode_snapshot(invalid)
+
+
+@pytest.mark.no_db
+def test_runtime_environment_codec_rejects_all_legacy_aliases() -> None:
+    codec = CredentialReferenceCodec()
+    canonical = {
+        "environment_credential_ids": [CREDENTIAL_A],
+        "egress_services": [
+            {
+                "base_url": "https://crm.example.com",
+                "credential_ref": CREDENTIAL_B,
+                "inject": {"type": "bearer", "credential_field": "TOKEN"},
+            }
+        ],
+    }
+    decoded = codec.decode_environment(canonical)
+    assert tuple(map(str, decoded.credential_ids)) == (CREDENTIAL_A, CREDENTIAL_B)
+
+    for invalid in (
+        {"secret_refs": [CREDENTIAL_A]},
+        {"service_credential_id": CREDENTIAL_A},
+        {"egress_services": [{"base_url": "https://crm.example.com", "service_credential_id": CREDENTIAL_A}]},
+        {
+            "egress_services": [
+                {
+                    "base_url": "https://crm.example.com",
+                    "credential_ref": CREDENTIAL_A,
+                    "inject": {"secret_key": "TOKEN"},
+                }
+            ]
+        },
+    ):
+        with pytest.raises(ValueError, match="corrupt_record"):
+            codec.decode_environment(invalid)
+
+
+@pytest.mark.no_db
+def test_runtime_encoders_emit_only_canonical_v2_fields() -> None:
+    codec = CredentialReferenceCodec()
+    snapshot = codec.encode_snapshot(
+        {
+            "schema": "joysafeter.agent_execution_snapshot.v2",
+            "engine_kind": "claude",
+            "model_credential_id": CREDENTIAL_A,
+            "environment_credential_ids": [CREDENTIAL_B],
+            "environment": {
+                "config": {
+                    "egress_services": [
+                        {
+                            "base_url": "https://crm.example.com",
+                            "credential_ref": CREDENTIAL_A,
+                            "inject": {"credential_field": "TOKEN"},
+                        }
+                    ]
+                }
+            },
+        }
+    )
+    assert snapshot["schema"] == "joysafeter.agent_execution_snapshot.v2"
+    assert snapshot["environment_credential_ids"] == [CREDENTIAL_B]
+    assert snapshot["environment"]["config"]["egress_services"][0]["credential_ref"] == CREDENTIAL_A
+
+
+@pytest.mark.no_db
 def test_contract_and_codec_supported_path_inventories_match_bidirectionally() -> None:
     registered = frozenset((str(entry["document"]), str(entry["path"])) for entry in CONTRACT["reference_paths"])
 
-    assert len(CODEC_SUPPORTED_REFERENCE_PATHS) == 27
+    assert len(CODEC_SUPPORTED_REFERENCE_PATHS) == 13
     assert registered == CODEC_SUPPORTED_REFERENCE_PATHS
 
 
@@ -57,7 +158,6 @@ def test_contract_declares_shared_fixture_matrix_and_parity_vectors() -> None:
     assert fixture_matrix["secondary_credential_id"] == CREDENTIAL_B
     assert {vector["category"] for vector in CONTRACT["parity_vectors"]} >= {
         "malformed",
-        "conflict",
         "duplicates",
         "normalization",
         "unknown_schema",
@@ -82,17 +182,9 @@ def test_dependency_scanner_path_allowlists_match_contract() -> None:
         documents=snapshot_documents,
         surfaces={"agent_version_executable_snapshot", "active_session_model_environment_snapshot"},
     )
-    assert dependency_scanners._SNAPSHOT_LEGACY_PATHS == paths(
-        documents=snapshot_documents,
-        surfaces={"legacy_v0_v1_environment_snapshot"},
-    )
     assert dependency_scanners._ENVIRONMENT_PRIMARY_PATHS == paths(
         documents={"environment_config"},
         surfaces={"live_environment_direct_injection", "live_environment_http_egress_binding"},
-    )
-    assert dependency_scanners._ENVIRONMENT_LEGACY_PATHS == paths(
-        documents={"environment_config"},
-        surfaces={"legacy_v0_v1_environment_snapshot"},
     )
 
 
@@ -114,7 +206,7 @@ def _document_for_case(entry: dict[str, object], schema: str) -> dict[str, objec
     document = build(path.removeprefix("$.").split("."))
     if schema != "live" and CONTRACT["snapshot_schemas"][schema] is not None:
         document["schema"] = CONTRACT["snapshot_schemas"][schema]
-    if "model_credential_id" in path or path == "$.secret_ref":
+    if "model_credential_id" in path:
         document.update({"engine_kind": "claude", "model": {"id": "claude-sonnet"}})
     if "egress_services" in path:
         config = document.get("environment", document)
@@ -122,11 +214,10 @@ def _document_for_case(entry: dict[str, object], schema: str) -> dict[str, objec
             config = config["config"]
         service = config["egress_services"][0]
         service.update({"name": "crm", "base_url": "https://crm.example.com/api"})
-        service.setdefault("service_credential_id", FIXTURE_MATRIX["credential_id"])
+        service.setdefault("credential_ref", FIXTURE_MATRIX["credential_id"])
         inject = service.setdefault("inject", {})
         inject.setdefault("type", FIXTURE_MATRIX["inject_type"])
-        field_key = "credential_field" if schema == "v2" else "secret_key"
-        inject.setdefault(field_key, FIXTURE_MATRIX["credential_field"])
+        inject.setdefault("credential_field", FIXTURE_MATRIX["credential_field"])
     return document
 
 
@@ -168,43 +259,18 @@ def test_every_registered_contract_path_schema_case_is_decoded(
 
 
 @pytest.mark.no_db
-def test_snapshot_mixed_aliases_canonicalize_without_duplicate_ids() -> None:
+def test_snapshot_mixed_aliases_are_rejected() -> None:
     codec = CredentialReferenceCodec()
-    decoded = codec.decode_snapshot(
-        {
-            "schema": "joysafeter.agent_execution_snapshot.v1",
-            "engine_kind": "claude",
-            "model": {"id": "claude-sonnet"},
-            "model_credential_id": CREDENTIAL_A,
-            "secret_ref": CREDENTIAL_A,
-            "environment_credential_ids": [CREDENTIAL_A, CREDENTIAL_B],
-            "secret_refs": [CREDENTIAL_B],
-            "environment": {
-                "config": {
-                    "secret_refs": [CREDENTIAL_A],
-                    "egress_services": [
-                        {
-                            "name": "crm",
-                            "base_url": "https://crm.example.com/api",
-                            "service_credential_id": CREDENTIAL_B,
-                            "credential_ref": CREDENTIAL_B,
-                            "inject": {
-                                "type": "bearer",
-                                "credential_field": "ACCESS_TOKEN",
-                                "secret_key": "ACCESS_TOKEN",
-                            },
-                        }
-                    ],
-                }
-            },
-        }
-    )
-
-    assert str(decoded.model.credential_id) == CREDENTIAL_A
-    assert tuple(map(str, decoded.environment_credential_ids)) == (CREDENTIAL_A, CREDENTIAL_B)
-    assert len(decoded.http_egress) == 1
-    assert decoded.http_egress[0].credential_field == "ACCESS_TOKEN"
-    assert tuple(map(str, decoded.credential_ids)) == (CREDENTIAL_A, CREDENTIAL_B)
+    with pytest.raises(ValueError, match="corrupt_record"):
+        codec.decode_snapshot(
+            {
+                "schema": "joysafeter.agent_execution_snapshot.v2",
+                "engine_kind": "claude",
+                "model": {"id": "claude-sonnet"},
+                "model_credential_id": CREDENTIAL_A,
+                "secret_ref": CREDENTIAL_A,
+            }
+        )
 
 
 @pytest.mark.no_db
@@ -296,18 +362,15 @@ def test_null_and_empty_reference_collections_are_compatible() -> None:
 
     snapshot = codec.decode_snapshot(
         {
+            "schema": "joysafeter.agent_execution_snapshot.v2",
             "model_credential_id": None,
-            "secret_ref": None,
             "environment_credential_ids": None,
-            "secret_refs": [],
-            "environment": {"config": {"secret_refs": None, "egress_services": None}},
+            "environment": {"config": {"environment_credential_ids": None, "egress_services": None}},
         }
     )
     environment = codec.decode_environment(
         {
             "environment_credential_ids": None,
-            "secret_refs": [],
-            "service_credential_id": None,
             "egress_services": None,
         }
     )
@@ -317,22 +380,18 @@ def test_null_and_empty_reference_collections_are_compatible() -> None:
 
 
 @pytest.mark.no_db
-def test_environment_reader_accepts_v0_v1_v2_aliases_and_deduplicates() -> None:
+def test_environment_reader_accepts_canonical_fields_and_deduplicates() -> None:
     decoded = CredentialReferenceCodec().decode_environment(
         {
-            "environment_credential_ids": [CREDENTIAL_A],
-            "secret_refs": [CREDENTIAL_A, CREDENTIAL_B],
-            "service_credential_id": CREDENTIAL_B,
+            "environment_credential_ids": [CREDENTIAL_A, CREDENTIAL_A, CREDENTIAL_B],
             "egress_services": [
                 {
                     "name": "crm",
                     "base_url": "https://crm.example.com",
-                    "service_credential_id": CREDENTIAL_A,
                     "credential_ref": CREDENTIAL_A,
                     "inject": {
                         "type": "raw_header",
                         "credential_field": "TOKEN",
-                        "secret_key": "TOKEN",
                         "header": "x-token",
                     },
                 }
@@ -347,7 +406,7 @@ def test_environment_reader_accepts_v0_v1_v2_aliases_and_deduplicates() -> None:
 
 
 @pytest.mark.no_db
-def test_v1_encoders_remain_default_and_emit_no_v2_only_persistent_keys() -> None:
+def test_encoders_emit_only_canonical_persistent_keys() -> None:
     codec = CredentialReferenceCodec()
     snapshot = codec.encode_snapshot(
         {
@@ -360,7 +419,7 @@ def test_v1_encoders_remain_default_and_emit_no_v2_only_persistent_keys() -> Non
                     "egress_services": [
                         {
                             "base_url": "https://crm.example.com",
-                            "service_credential_id": CREDENTIAL_A,
+                            "credential_ref": CREDENTIAL_A,
                             "inject": {"credential_field": "TOKEN"},
                         }
                     ],
@@ -374,21 +433,21 @@ def test_v1_encoders_remain_default_and_emit_no_v2_only_persistent_keys() -> Non
             "egress_services": [
                 {
                     "base_url": "https://crm.example.com",
-                    "service_credential_id": CREDENTIAL_B,
+                    "credential_ref": CREDENTIAL_B,
                     "inject": {"credential_field": "TOKEN"},
                 }
             ],
         }
     )
 
-    assert snapshot["schema"] == CONTRACT["snapshot_schemas"]["v1"]
-    assert snapshot["secret_refs"] == [CREDENTIAL_B]
-    assert "environment_credential_ids" not in snapshot
-    assert snapshot["environment"]["config"]["secret_refs"] == [CREDENTIAL_B]
-    assert "credential_field" not in snapshot["environment"]["config"]["egress_services"][0]["inject"]
-    assert environment["secret_refs"] == [CREDENTIAL_A]
-    assert "environment_credential_ids" not in environment
-    assert environment["egress_services"][0]["inject"] == {"secret_key": "TOKEN"}
+    assert snapshot["schema"] == CONTRACT["snapshot_schemas"]["v2"]
+    assert snapshot["environment_credential_ids"] == [CREDENTIAL_B]
+    assert snapshot["environment"]["config"]["environment_credential_ids"] == [CREDENTIAL_B]
+    assert snapshot["environment"]["config"]["egress_services"][0]["credential_ref"] == CREDENTIAL_A
+    assert snapshot["environment"]["config"]["egress_services"][0]["inject"] == {"credential_field": "TOKEN"}
+    assert environment["environment_credential_ids"] == [CREDENTIAL_A]
+    assert environment["egress_services"][0]["credential_ref"] == CREDENTIAL_B
+    assert environment["egress_services"][0]["inject"] == {"credential_field": "TOKEN"}
 
 
 @pytest.mark.no_db
@@ -402,7 +461,7 @@ def test_reference_metrics_expose_only_normalized_versions_keys_and_counts() -> 
             "model_credential_id": CREDENTIAL_A,
         }
     )
-    codec.encode_environment({"secret_refs": [CREDENTIAL_B]})
+    codec.encode_environment({"environment_credential_ids": [CREDENTIAL_B]})
     unknown = "joysafeter.agent_execution_snapshot.private-customer-value"
     with pytest.raises(ValueError, match="corrupt_record"):
         codec.decode_snapshot({"schema": unknown})
@@ -412,7 +471,10 @@ def test_reference_metrics_expose_only_normalized_versions_keys_and_counts() -> 
 
     assert metrics.reader_versions[("snapshot", "v2", "success")] == 1
     assert metrics.reader_versions[("snapshot", "unknown", "error")] == 1
-    assert metrics.persisted_keys[("environment", "v1", "$.secret_refs[*]", "secret_refs")] == 1
+    assert (
+        metrics.persisted_keys[("environment", "live", "$.environment_credential_ids[*]", "environment_credential_ids")]
+        == 1
+    )
     assert CREDENTIAL_A not in rendered
     assert CREDENTIAL_B not in rendered
     assert unknown not in rendered

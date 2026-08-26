@@ -41,7 +41,7 @@ from app.joysafeter_shared.common.joysafeter_auth.context import (
 )
 from app.joysafeter_shared.common.skill_permissions import check_skill_access, resolve_skill_org_id
 from app.joysafeter_shared.config.settings import settings
-from app.joysafeter_shared.ids import SkillId, SkillSecurityScanId
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, SkillId, SkillSecurityScanId, UserId
 from app.joysafeter_shared.security.ssrf_guard import validate_url
 from app.joysafeter_shared.skill.yaml_parser import is_system_file
 from app.joysafeter_shared.utils.datetime import utc_now
@@ -285,7 +285,7 @@ class SkillSecurityService:
         self,
         db: AsyncSession,
         *,
-        active_org_id: Optional[str] = None,
+        active_org_id: OrganizationId | None = None,
         caller_org_role: JoySafeterRole = JoySafeterRole.MEMBER,
     ):
         self.db = db
@@ -308,9 +308,9 @@ class SkillSecurityService:
         self,
         *,
         trigger: str,
-        created_by_id: str,
-        owner_id: Optional[str],
-        project_id: Optional[str],
+        created_by_id: UserId,
+        owner_id: UserId | None,
+        project_id: ProjectId | None,
         skill_id: Optional[SkillId],
         name: str,
         description: str,
@@ -375,6 +375,7 @@ class SkillSecurityService:
                 },
             )
             scan = JoySafeterSkillSecurityScan(
+                id=SkillSecurityScanId.new(),
                 skill_id=skill_id,
                 project_id=project_id,
                 owner_id=owner_id,
@@ -404,7 +405,7 @@ class SkillSecurityService:
         await self.db.flush()
         return scan
 
-    async def rescan_existing_skill(self, skill_id: SkillId, current_user_id: str) -> JoySafeterSkillSecurityScan:
+    async def rescan_existing_skill(self, skill_id: SkillId, current_user_id: UserId) -> JoySafeterSkillSecurityScan:
         """Rescan persisted skill content and update the skill's current security state."""
         skill = await self.skill_repo.get_with_files(skill_id)
         if not skill:
@@ -434,6 +435,7 @@ class SkillSecurityService:
         )
         if scan is None:
             scan = JoySafeterSkillSecurityScan(
+                id=SkillSecurityScanId.new(),
                 skill_id=skill.id,
                 project_id=skill.project_id,
                 owner_id=skill.owner_id,
@@ -472,8 +474,8 @@ class SkillSecurityService:
     async def list_scans(
         self,
         skill_id: SkillId,
-        current_user_id: str,
-        project_id: Optional[str] = None,
+        current_user_id: UserId,
+        project_id: ProjectId | None = None,
         limit: int = 20,
         after_id: Optional[SkillSecurityScanId] = None,
     ) -> tuple[list[JoySafeterSkillSecurityScan], bool]:
@@ -494,8 +496,8 @@ class SkillSecurityService:
     async def get_latest_scan(
         self,
         skill_id: SkillId,
-        current_user_id: str,
-        project_id: Optional[str] = None,
+        current_user_id: UserId,
+        project_id: ProjectId | None = None,
     ) -> JoySafeterSkillSecurityScan:
         skill = await self.skill_repo.get(skill_id)
         if not skill:
@@ -521,8 +523,8 @@ class SkillSecurityService:
     async def get_scan(
         self,
         scan_id: SkillSecurityScanId,
-        current_user_id: str,
-        project_id: Optional[str] = None,
+        current_user_id: UserId,
+        project_id: ProjectId | None = None,
     ) -> JoySafeterSkillSecurityScan:
         scan = await self.repo.get(scan_id)
         if not scan:
@@ -551,7 +553,7 @@ class SkillSecurityService:
             )
         return scan
 
-    async def _ensure_scan_read_scope(self, skill: JoySafeterSkill, project_id: Optional[str]) -> None:
+    async def _ensure_scan_read_scope(self, skill: JoySafeterSkill, project_id: ProjectId | None) -> None:
         if project_id is not None and project_id == skill.project_id:
             return
         skill_org_id = await resolve_skill_org_id(self.db, skill)
@@ -667,9 +669,9 @@ class SkillSecurityService:
         scanner_version: Optional[str],
         ruleset_version: Optional[str],
         trigger: str,
-        created_by_id: str,
-        owner_id: Optional[str],
-        project_id: Optional[str],
+        created_by_id: UserId,
+        owner_id: UserId | None,
+        project_id: ProjectId | None,
         skill_id: Optional[SkillId],
         target_name: str,
         target_hash: str,
@@ -694,6 +696,7 @@ class SkillSecurityService:
             scanner_score=scanner_score,
         )
         return JoySafeterSkillSecurityScan(
+            id=SkillSecurityScanId.new(),
             skill_id=skill_id,
             project_id=project_id,
             owner_id=owner_id,
@@ -1005,9 +1008,9 @@ async def run_scan_in_background(
     *,
     skill_id: SkillId,
     trigger: str,
-    created_by_id: str,
-    owner_id: Optional[str],
-    project_id: Optional[str],
+    created_by_id: UserId,
+    owner_id: UserId | None,
+    project_id: ProjectId | None,
     name: str,
     description: str,
     content: str,
@@ -1089,8 +1092,8 @@ async def run_scan_in_background(
                 data={
                     "skill_id": str(skill_id),
                     "trigger": trigger,
-                    "project_id": project_id,
-                    "owner_id": owner_id,
+                    "project_id": str(project_id) if project_id is not None else None,
+                    "owner_id": str(owner_id) if owner_id is not None else None,
                 },
                 source="runtime",
                 retryable=True,
@@ -1125,6 +1128,7 @@ async def run_scan_in_background(
                     files=scan_files,
                 )
                 failed_scan = JoySafeterSkillSecurityScan(
+                    id=SkillSecurityScanId.new(),
                     skill_id=skill_id,
                     project_id=project_id,
                     owner_id=owner_id,

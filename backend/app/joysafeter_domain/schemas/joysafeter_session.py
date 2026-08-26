@@ -21,6 +21,7 @@ from app.joysafeter_shared.ids import (
     AgentId,
     CredentialGroupId,
     CredentialId,
+    EnvironmentId,
     EventId,
     FileId,
     MemoryStoreId,
@@ -252,7 +253,7 @@ class CreateSessionRequest(BaseModel):
     title: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     credential_group_ids: list[CredentialGroupId] = Field(default_factory=list)
-    environment_id: Optional[str] = None
+    environment_id: EnvironmentId | None = None
     resources: list[SessionResourceRequest] = Field(default_factory=list)
     file_resources: list[SessionFileResourceRequest] = Field(default_factory=list)
     repo_resources: list[SessionRepoResourceRequest] = Field(default_factory=list)
@@ -277,10 +278,14 @@ class CreateSessionRequest(BaseModel):
 
 
 class SessionResourceResponse(BaseModel):
+    id: SessionResourceId
+    type: str = "session_memory_store"
     memory_store_id: MemoryStoreId
     access: str = "read_write"
     instructions: Optional[str] = None
     mount_name: str = ""
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SessionRepoResourceResponse(BaseModel):
@@ -352,7 +357,7 @@ class SessionResponse(BaseModel):
     id: SessionId
     type: str = "session"
     agent: SessionAgent
-    environment_id: Optional[str] = None
+    environment_id: EnvironmentId | None = None
     status: str
     stop_reason: Optional[Dict[str, Any]] = None
     title: Optional[str] = None

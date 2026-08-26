@@ -7,13 +7,14 @@ from app.joysafeter_api.api.v1.sessions import delete_session
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import AgentId, OrganizationId, SessionId, UserId
 from app.joysafeter_shared.orchestrator_bridge.session_broadcaster import SessionBroadcaster
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=UserId.new(),
+        org_id=OrganizationId.new(),
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -45,12 +46,12 @@ class _FakeRedis:
 
 
 async def _idle_session(db_session) -> JoySafeterSession:
-    agent = JoySafeterAgent(name=f"del-sess-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"del-sess-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -75,7 +76,7 @@ async def test_delete_session_cancels_redis_subscriber_tasks(db_session, monkeyp
     assert not task.done()
 
     result = await delete_session(session_id, db_session, _auth_ctx())
-    assert result["deleted"] is True
+    assert result.deleted is True
 
     await asyncio.sleep(0)  # let cancellation propagate
 

@@ -8,15 +8,17 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any
+
+from app.joysafeter_shared.ids import EnvironmentId
 
 from .types import (
     CREDENTIAL_FIELD_NAME_MAX_LENGTH,
     CredentialGroupId,
     CredentialId,
     ProjectId,
-    make_credential_id,
-    require_identifier,
+    require_credential_group_id,
+    require_credential_id,
     require_non_empty_text,
     require_project_id,
 )
@@ -25,32 +27,20 @@ _REFERENCE_CONTRACT = json.loads(
     (Path(__file__).resolve().parents[3] / "contracts" / "credential_reference_contract.json").read_text()
 )
 _SNAPSHOT_SCHEMA_VALUES = _REFERENCE_CONTRACT["snapshot_schemas"]
-_CANONICAL_KEYS = frozenset(_REFERENCE_CONTRACT["canonical_reference_keys"])
-_LEGACY_KEYS = frozenset(_REFERENCE_CONTRACT["legacy_decoder_keys"])
-_REGISTERED_KEYS = _CANONICAL_KEYS | _LEGACY_KEYS
 _SNAPSHOT_CODEC_REFERENCE_PATHS = frozenset(
     {
         "$.model_credential_id",
         "$.environment_credential_ids[*]",
         "$.environment.config.environment_credential_ids[*]",
-        "$.environment.config.secret_refs[*]",
-        "$.environment.config.egress_services[*].service_credential_id",
         "$.environment.config.egress_services[*].credential_ref",
         "$.environment.config.egress_services[*].inject.credential_field",
-        "$.environment.config.egress_services[*].inject.secret_key",
-        "$.secret_ref",
-        "$.secret_refs[*]",
     }
 )
 _ENVIRONMENT_CODEC_REFERENCE_PATHS = frozenset(
     {
         "$.environment_credential_ids[*]",
-        "$.secret_refs[*]",
-        "$.egress_services[*].service_credential_id",
         "$.egress_services[*].credential_ref",
         "$.egress_services[*].inject.credential_field",
-        "$.egress_services[*].inject.secret_key",
-        "$.service_credential_id",
     }
 )
 CODEC_SUPPORTED_REFERENCE_PATHS = frozenset(
@@ -82,11 +72,6 @@ def _validate_reference_path_inventory(reference_paths: object) -> None:
 _REFERENCE_PATHS = tuple(_REFERENCE_CONTRACT["reference_paths"])
 _validate_reference_path_inventory(_REFERENCE_PATHS)
 _SUPPORTED_INJECT_KINDS = frozenset({"bearer", "api_key", "raw_header", "cookie"})
-_EXPLICIT_V2_FORBIDDEN_PATHS = frozenset(
-    str(entry["path"])
-    for entry in _REFERENCE_PATHS
-    if entry["document"] != "environment_config" and "v2" not in entry["schemas"]
-)
 
 
 def registered_reference_paths(
@@ -145,18 +130,16 @@ class CredentialReference:
         if self.kind is CredentialReferenceKind.RESOURCE:
             if self.credential_id is None or self.group_id is not None:
                 raise ValueError("resource references require only a credential id")
-            require_identifier(self.credential_id, label="credential id")
+            require_credential_id(self.credential_id)
         elif self.kind is CredentialReferenceKind.GROUP:
             if self.group_id is None or self.credential_id is not None:
                 raise ValueError("group references require only a credential group id")
-            require_identifier(self.group_id, label="credential group id")
+            require_credential_group_id(self.group_id)
         else:
             raise TypeError("credential reference kind is invalid")
 
 
 class SnapshotSchema(StrEnum):
-    LEGACY_V0 = "legacy_v0"
-    V1 = "v1"
     V2 = "v2"
 
 
@@ -266,30 +249,29 @@ def _sorted_ids(values: Any) -> tuple[CredentialId, ...]:
 
 def _credential_id(value: object, *, label: str) -> CredentialId:
     try:
-        return make_credential_id(value)
+        if not isinstance(value, str):
+            raise TypeError("credential id must be a string")
+        return CredentialId.from_public(value)
     except (TypeError, ValueError) as exc:
         raise _corrupt(f"{label} is invalid") from exc
 
 
-def _optional_alias_id(
+def _optional_credential_id(
     document: Mapping[str, Any],
-    keys: tuple[str, ...],
+    key: str,
     *,
     label: str,
     path_prefix: str = "$",
 ) -> tuple[CredentialId | None, tuple[str, ...]]:
-    values = []
-    source_paths = []
-    for key in keys:
-        if key not in document or document[key] is None:
-            continue
-        values.append(_credential_id(document[key], label=label))
-        source_paths.append(f"{path_prefix}.{key}")
-    if not values:
+    if key not in document or document[key] is None:
         return None, ()
-    if len(set(values)) != 1:
-        raise _corrupt(f"{label} aliases conflict")
-    return values[0], tuple(source_paths)
+    return _credential_id(document[key], label=label), (f"{path_prefix}.{key}",)
+
+
+def _reject_keys(document: Mapping[str, Any], keys: tuple[str, ...], *, label: str) -> None:
+    present = sorted(key for key in keys if key in document)
+    if present:
+        raise _corrupt(f"{label} contains legacy fields: {', '.join(present)}")
 
 
 def _credential_id_occurrences(
@@ -346,28 +328,18 @@ def _optional_text(value: object, *, label: str) -> str | None:
     return _required_text(value, label=label)
 
 
-def _alias_text(
+def _credential_field(
     document: Mapping[str, Any],
-    keys: tuple[str, ...],
     *,
     label: str,
     maximum: int | None = None,
     default: str | None = None,
 ) -> tuple[str, tuple[str, ...]]:
-    values = []
-    source_paths = []
-    for key in keys:
-        if key not in document or document[key] is None:
-            continue
-        values.append(_required_text(document[key], label=label, maximum=maximum))
-        source_paths.append(key)
-    if not values:
+    if "credential_field" not in document or document["credential_field"] is None:
         if default is None:
             raise _corrupt(f"{label} is required")
         return default, ()
-    if len(set(values)) != 1:
-        raise _corrupt(f"{label} aliases conflict")
-    return values[0], tuple(source_paths)
+    return _required_text(document["credential_field"], label=label, maximum=maximum), ("credential_field",)
 
 
 def _decode_http_egress(
@@ -383,9 +355,10 @@ def _decode_http_egress(
     references = []
     for index, service in enumerate(raw_services):
         service_mapping = _mapping(service, label=f"HTTP egress service[{index}]")
-        credential_id, credential_paths = _optional_alias_id(
+        _reject_keys(service_mapping, ("service_credential_id",), label=f"HTTP egress service[{index}]")
+        credential_id, credential_paths = _optional_credential_id(
             service_mapping,
-            ("service_credential_id", "credential_ref"),
+            "credential_ref",
             label=f"HTTP egress credential id[{index}]",
             path_prefix=f"{path_prefix}.egress_services[*]",
         )
@@ -397,15 +370,15 @@ def _decode_http_egress(
         )
         raw_inject = service_mapping.get("inject")
         inject = {} if raw_inject is None else _mapping(raw_inject, label=f"HTTP egress inject[{index}]")
+        _reject_keys(inject, ("secret_key",), label=f"HTTP egress inject[{index}]")
         inject_kind = _required_text(
             inject.get("type", "bearer"),
             label=f"HTTP egress inject kind[{index}]",
         ).lower()
         if inject_kind not in _SUPPORTED_INJECT_KINDS:
             raise _corrupt(f"HTTP egress inject kind[{index}] is unsupported")
-        credential_field, field_keys = _alias_text(
+        credential_field, field_keys = _credential_field(
             inject,
-            ("credential_field", "secret_key"),
             label=f"HTTP egress credential field[{index}]",
             maximum=CREDENTIAL_FIELD_NAME_MAX_LENGTH,
             default={
@@ -452,7 +425,7 @@ def _safe_snapshot_schema_label(document: object) -> str:
         return "unknown"
     raw_schema = document.get("schema")
     if raw_schema is None:
-        return "legacy_v0"
+        return "unknown"
     for name, value in _SNAPSHOT_SCHEMA_VALUES.items():
         if value == raw_schema:
             return name
@@ -487,21 +460,18 @@ class CredentialReferenceCodec:
         schema_label = _safe_snapshot_schema_label(raw)
         try:
             document = _mapping(raw, label="Snapshot")
+            _reject_keys(document, ("secret_ref", "secret_refs", "vault_ids"), label="Snapshot")
             raw_schema = document.get("schema")
             schema = next(
                 (SnapshotSchema(name) for name, value in _SNAPSHOT_SCHEMA_VALUES.items() if value == raw_schema),
                 None,
             )
             if schema is None:
-                raise _corrupt("unknown explicit Snapshot schema")
-            if schema is SnapshotSchema.V2 and any(
-                _registered_path_key_count(document, path) for path in _EXPLICIT_V2_FORBIDDEN_PATHS
-            ):
-                raise _corrupt("legacy alias is not allowed in explicit v2 Snapshot")
+                raise _corrupt("Snapshot schema must be joysafeter.agent_execution_snapshot.v2")
 
-            model_credential_id, source_paths = _optional_alias_id(
+            model_credential_id, source_paths = _optional_credential_id(
                 document,
-                ("model_credential_id", "secret_ref"),
+                "model_credential_id",
                 label="Snapshot model credential id",
             )
             model = None
@@ -521,11 +491,6 @@ class CredentialReferenceCodec:
                     document,
                     "environment_credential_ids",
                     label="Snapshot environment credential ids",
-                ),
-                *_credential_id_occurrences(
-                    document,
-                    "secret_refs",
-                    label="Snapshot legacy secret refs",
                 ),
             ]
             environment = document.get("environment")
@@ -566,6 +531,7 @@ class CredentialReferenceCodec:
         path_prefix: str,
     ) -> CanonicalEnvironmentReferences:
         document = _mapping(raw, label="Environment config")
+        _reject_keys(document, ("secret_refs", "service_credential_id"), label="Environment config")
         direct_references = [
             *_credential_id_occurrences(
                 document,
@@ -573,27 +539,7 @@ class CredentialReferenceCodec:
                 label="Environment credential ids",
                 path_prefix=path_prefix,
             ),
-            *_credential_id_occurrences(
-                document,
-                "secret_refs",
-                label="Environment secret refs",
-                path_prefix=path_prefix,
-            ),
         ]
-        legacy_service_id, _paths = _optional_alias_id(
-            document,
-            ("service_credential_id",),
-            label="Environment legacy service credential id",
-            path_prefix=path_prefix,
-        )
-        if legacy_service_id is not None:
-            direct_references.append(
-                SnapshotEnvironmentReference(
-                    credential_id=legacy_service_id,
-                    source_path=f"{path_prefix}.service_credential_id",
-                    index=None,
-                )
-            )
         return CanonicalEnvironmentReferences(
             direct_references=tuple(direct_references),
             http_egress=_decode_http_egress(document, path_prefix=path_prefix),
@@ -602,17 +548,13 @@ class CredentialReferenceCodec:
     def encode_snapshot(
         self,
         value: Mapping[str, object],
-        *,
-        version: Literal["v1", "v2"] = "v1",
     ) -> dict[str, Any]:
-        if version not in {"v1", "v2"}:
-            raise ValueError("Snapshot encode version must be v1 or v2")
         document = copy.deepcopy(dict(_mapping(value, label="Snapshot")))
+        document.setdefault("schema", _SNAPSHOT_SCHEMA_VALUES["v2"])
         decoded = self.decode_snapshot(document)
-        document["schema"] = _SNAPSHOT_SCHEMA_VALUES[version]
+        document["schema"] = _SNAPSHOT_SCHEMA_VALUES["v2"]
 
-        had_model_key = "model_credential_id" in document or "secret_ref" in document
-        document.pop("secret_ref", None)
+        had_model_key = "model_credential_id" in document
         if decoded.model is not None:
             document["model_credential_id"] = str(decoded.model.credential_id)
         elif had_model_key:
@@ -621,14 +563,11 @@ class CredentialReferenceCodec:
         top_level_environment_ids = _sorted_ids(
             reference.credential_id
             for reference in decoded.environment_references
-            if reference.source_path in {"$.environment_credential_ids[*]", "$.secret_refs[*]"}
+            if reference.source_path == "$.environment_credential_ids[*]"
         )
-        had_environment_keys = "environment_credential_ids" in document or "secret_refs" in document
-        document.pop("environment_credential_ids", None)
-        document.pop("secret_refs", None)
+        had_environment_keys = "environment_credential_ids" in document
         if top_level_environment_ids or had_environment_keys:
-            key = "secret_refs" if version == "v1" else "environment_credential_ids"
-            document[key] = [str(credential_id) for credential_id in top_level_environment_ids]
+            document["environment_credential_ids"] = [str(credential_id) for credential_id in top_level_environment_ids]
 
         environment = document.get("environment")
         if environment is not None:
@@ -636,42 +575,32 @@ class CredentialReferenceCodec:
             if environment_mapping.get("config") is not None:
                 environment_mapping["config"] = self._encode_environment(
                     environment_mapping["config"],
-                    version=version,
                     record_metrics=False,
                 )
             document["environment"] = environment_mapping
 
-        _record_persisted_keys(document, document_kind="snapshot", version=version)
+        _record_persisted_keys(document, document_kind="snapshot", version="v2")
         return document
 
     def encode_environment(
         self,
         value: Mapping[str, object],
-        *,
-        version: Literal["v1", "v2"] = "v1",
     ) -> dict[str, Any]:
-        return self._encode_environment(value, version=version, record_metrics=True)
+        return self._encode_environment(value, record_metrics=True)
 
     def _encode_environment(
         self,
         value: Mapping[str, object],
         *,
-        version: Literal["v1", "v2"],
         record_metrics: bool,
     ) -> dict[str, Any]:
-        if version not in {"v1", "v2"}:
-            raise ValueError("Environment encode version must be v1 or v2")
         document = copy.deepcopy(dict(_mapping(value, label="Environment config")))
         decoded = self.decode_environment(document)
-        had_direct_keys = any(
-            key in document for key in ("environment_credential_ids", "secret_refs", "service_credential_id")
-        )
-        document.pop("environment_credential_ids", None)
-        document.pop("secret_refs", None)
-        document.pop("service_credential_id", None)
+        had_direct_keys = "environment_credential_ids" in document
         if decoded.direct_credential_ids or had_direct_keys:
-            key = "secret_refs" if version == "v1" else "environment_credential_ids"
-            document[key] = [str(credential_id) for credential_id in decoded.direct_credential_ids]
+            document["environment_credential_ids"] = [
+                str(credential_id) for credential_id in decoded.direct_credential_ids
+            ]
 
         services = document.get("egress_services")
         if services is None:
@@ -681,20 +610,18 @@ class CredentialReferenceCodec:
             encoded_services = []
             for index, raw_service in enumerate(services):
                 service = copy.deepcopy(dict(_mapping(raw_service, label=f"HTTP egress service[{index}]")))
-                credential_id, _paths = _optional_alias_id(
+                credential_id, _paths = _optional_credential_id(
                     service,
-                    ("service_credential_id", "credential_ref"),
+                    "credential_ref",
                     label=f"HTTP egress credential id[{index}]",
                 )
-                service.pop("credential_ref", None)
                 if credential_id is not None:
-                    service["service_credential_id"] = str(credential_id)
+                    service["credential_ref"] = str(credential_id)
                 inject_value = service.get("inject")
                 if inject_value is not None:
                     inject = copy.deepcopy(dict(_mapping(inject_value, label=f"HTTP egress inject[{index}]")))
-                    field, _field_keys = _alias_text(
+                    field, _field_keys = _credential_field(
                         inject,
-                        ("credential_field", "secret_key"),
                         label=f"HTTP egress credential field[{index}]",
                         maximum=CREDENTIAL_FIELD_NAME_MAX_LENGTH,
                         default={
@@ -709,15 +636,13 @@ class CredentialReferenceCodec:
                             ).lower()
                         ],
                     )
-                    inject.pop("credential_field", None)
-                    inject.pop("secret_key", None)
-                    inject["secret_key" if version == "v1" else "credential_field"] = field
+                    inject["credential_field"] = field
                     service["inject"] = inject
                 encoded_services.append(service)
             document["egress_services"] = encoded_services
 
         if record_metrics:
-            _record_persisted_keys(document, document_kind="environment", version=version)
+            _record_persisted_keys(document, document_kind="environment", version="live")
         return document
 
 
@@ -728,9 +653,9 @@ def decode_snapshot(snapshot: object) -> DecodedSnapshot:
     return _CODEC.decode_snapshot(snapshot)
 
 
-def snapshot_model_credential_id(snapshot: object) -> str | None:
+def snapshot_model_credential_id(snapshot: object) -> CredentialId | None:
     decoded = _CODEC.decode_snapshot(snapshot)
-    return None if decoded.model is None else str(decoded.model.credential_id)
+    return None if decoded.model is None else decoded.model.credential_id
 
 
 def decode_environment(environment: object) -> CanonicalEnvironmentReferences:
@@ -739,37 +664,26 @@ def decode_environment(environment: object) -> CanonicalEnvironmentReferences:
 
 def encode_snapshot(
     value: Mapping[str, object],
-    *,
-    version: Literal["v1", "v2"] = "v1",
 ) -> dict[str, Any]:
-    return _CODEC.encode_snapshot(value, version=version)
+    return _CODEC.encode_snapshot(value)
 
 
 def encode_environment(
     value: Mapping[str, object],
-    *,
-    version: Literal["v1", "v2"] = "v1",
 ) -> dict[str, Any]:
-    return _CODEC.encode_environment(value, version=version)
-
-
-def canonicalize_environment_for_read(value: Mapping[str, object]) -> dict[str, Any]:
-    return _CODEC._encode_environment(value, version="v1", record_metrics=False)
+    return _CODEC.encode_environment(value)
 
 
 def build_environment_execution_snapshot(
     environment: Any,
-    *,
-    environment_ref: str | None,
 ) -> dict[str, Any] | None:
     if environment is None:
         return None
     environment_id = getattr(environment, "id", None)
     return {
-        "ref": environment_ref,
-        "id": str(environment_id) if environment_id is not None else None,
+        "environment_id": str(environment_id) if environment_id is not None else None,
         "name": getattr(environment, "name", None),
-        "config": encode_environment(getattr(environment, "config", None) or {}, version="v1"),
+        "config": encode_environment(getattr(environment, "config", None) or {}),
         "image_tag": getattr(environment, "image_tag", None),
         "image_version": getattr(environment, "image_version", None),
     }
@@ -797,12 +711,12 @@ def build_agent_execution_snapshot(
     agent: Any,
     *,
     environment: Any = None,
-    environment_ref: str | None = None,
+    environment_id: EnvironmentId | None = None,
     version: int | None = None,
     split_assets: tuple[list[dict], list[dict], list[dict]] | None = None,
 ) -> dict[str, Any]:
     skills, agents, commands = split_assets or split_agent_assets(list(agent.skills or []))
-    effective_environment_ref = environment_ref if environment_ref is not None else agent.environment_ref
+    effective_environment_id = environment_id if environment_id is not None else agent.environment_id
     snapshot: dict[str, Any] = {
         "id": str(agent.id),
         "version": version if version is not None else agent.version,
@@ -820,13 +734,10 @@ def build_agent_execution_snapshot(
         "tools": agent.tools,
         "permission_mode": agent.permission_mode,
         "multiagent": agent.multiagent,
-        "environment_ref": effective_environment_ref,
+        "environment_id": str(effective_environment_id) if effective_environment_id is not None else None,
         "model_credential_id": str(agent.model_credential_id) if agent.model_credential_id else None,
     }
-    environment_snapshot = build_environment_execution_snapshot(
-        environment,
-        environment_ref=effective_environment_ref,
-    )
+    environment_snapshot = build_environment_execution_snapshot(environment)
     if environment_snapshot is not None:
         snapshot["environment"] = environment_snapshot
-    return encode_snapshot(snapshot, version="v1")
+    return encode_snapshot(snapshot)

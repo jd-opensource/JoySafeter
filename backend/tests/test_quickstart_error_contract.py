@@ -47,28 +47,31 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
 )
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import CredentialId
+from app.joysafeter_shared.ids import CredentialId, OrganizationId, ProjectId, UserId
+
+TEST_USER_ID = UserId.new()
+TEST_ORGANIZATION_ID = OrganizationId.new()
 
 
-async def _make_project(db_session) -> str:
-    org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+async def _make_project(db_session) -> ProjectId:
+    org = Organization(id=TEST_ORGANIZATION_ID, name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
     db_session.add(project)
     await db_session.commit()
     return project.id
 
 
 @pytest_asyncio.fixture
-async def project_id(db_session) -> str:
+async def project_id(db_session) -> ProjectId:
     return await _make_project(db_session)
 
 
-def _auth_ctx(project_id: str) -> JoySafeterAuthContext:
+def _auth_ctx(project_id: ProjectId) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=project_id,
         role=JoySafeterRole.MEMBER,
     )
@@ -97,7 +100,7 @@ def _chat_req(*, model_credential_id: CredentialId, engine_kind: str = "codex") 
     )
 
 
-async def _make_model_credential(db_session, project_id: str, data: dict[str, str]) -> CredentialId:
+async def _make_model_credential(db_session, project_id: ProjectId, data: dict[str, str]) -> CredentialId:
     cred = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind="model",
@@ -118,7 +121,7 @@ def test_quickstart_schema_uses_model_credential_id_not_secret_ref():
 
 
 def test_quickstart_schema_accepts_claude_code_engine():
-    credential_id = CredentialId(uuid.uuid4())
+    credential_id = CredentialId.new()
     req = QuickstartChatRequest(
         model_credential_id=credential_id,
         engine_kind="claude_code",
@@ -136,7 +139,7 @@ def test_quickstart_agent_context_accepts_mcp_server_map():
 
 
 def test_quickstart_request_accepts_bounded_available_skill_catalog():
-    credential_id = CredentialId(uuid.uuid4())
+    credential_id = CredentialId.new()
     req = QuickstartChatRequest(
         model_credential_id=credential_id,
         engine_kind="codex",

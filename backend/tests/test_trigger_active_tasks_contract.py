@@ -10,18 +10,26 @@ from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafe
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId, TaskId, TriggerId, UserId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
 async def _cron_trigger(db_session):
-    org = Organization(id=f"org-{uuid.uuid4()}", name="Org", slug=f"org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="P", slug=f"p-{uuid.uuid4()}", is_default=False)
+    org = Organization(id=OrganizationId.new(), name="Org", slug=f"org-{uuid.uuid4()}")
+    project = Project(
+        id=ProjectId.new(),
+        org_id=org.id,
+        name="P",
+        slug=f"p-{uuid.uuid4()}",
+        is_default=False,
+    )
     db_session.add_all([org, project])
     await db_session.flush()
-    agent = JoySafeterAgent(name=f"a-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"a-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.flush()
     trigger = JoySafeterTrigger(
+        id=TriggerId.new(),
         name=f"s-{uuid.uuid4()}",
         type="cron",
         agent_id=agent.id,
@@ -31,7 +39,7 @@ async def _cron_trigger(db_session):
         enabled=True,
         next_run_at=utc_now(),
         project_id=project.id,
-        user_id="owner",
+        user_id=UserId.new(),
         org_id=org.id,
         concurrency_policy="replace",
         filter={},
@@ -46,6 +54,7 @@ async def _cron_trigger(db_session):
 async def _cron_trigger_with_active_task(db_session):
     trigger, project, agent = await _cron_trigger(db_session)
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         trigger_id=trigger.id,
         project_id=project.id,

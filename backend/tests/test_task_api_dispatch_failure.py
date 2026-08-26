@@ -20,7 +20,17 @@ from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRe
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import SandboxId, SessionId, TaskId, as_uuid
+from app.joysafeter_shared.ids import (
+    AgentId,
+    EnvironmentId,
+    OrganizationId,
+    ProjectId,
+    SandboxId,
+    SessionId,
+    TaskId,
+    UserId,
+    as_uuid,
+)
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -112,17 +122,17 @@ class _TaskSandboxChangingAckRedis(_FakeCommandRedis):
 
 def _auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
-        project_id=None,  # type: ignore[arg-type]
+        user_id=UserId.new(),
+        org_id=OrganizationId.new(),
+        project_id=None,
         role=JoySafeterRole.MEMBER,
     )
 
 
-def _project_auth_ctx(project_id: str) -> JoySafeterAuthContext:
+def _project_auth_ctx(project_id: ProjectId) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=UserId.new(),
+        org_id=OrganizationId.new(),
         project_id=project_id,
         role=JoySafeterRole.MEMBER,
     )
@@ -130,19 +140,28 @@ def _project_auth_ctx(project_id: str) -> JoySafeterAuthContext:
 
 def _service_auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
-        project_id=None,  # type: ignore[arg-type]
+        user_id=UserId.new(),
+        org_id=OrganizationId.new(),
+        project_id=None,
         role=JoySafeterRole.MEMBER,
         principal_type="api_key",
     )
 
 
 async def _create_project(db_session) -> Project:
-    org = Organization(name=f"task-api-org-{uuid.uuid4()}", slug=f"task-api-org-{uuid.uuid4()}")
+    org = Organization(
+        id=OrganizationId.new(),
+        name=f"task-api-org-{uuid.uuid4()}",
+        slug=f"task-api-org-{uuid.uuid4()}",
+    )
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name=f"task-api-project-{uuid.uuid4()}", slug=f"task-api-project-{uuid.uuid4()}")
+    project = Project(
+        id=ProjectId.new(),
+        org_id=org.id,
+        name=f"task-api-project-{uuid.uuid4()}",
+        slug=f"task-api-project-{uuid.uuid4()}",
+    )
     db_session.add(project)
     await db_session.commit()
     await db_session.refresh(project)
@@ -157,7 +176,7 @@ async def test_create_task_enqueues_via_redis_without_local_scheduler(db_session
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"direct-task-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -202,6 +221,7 @@ async def test_create_task_auto_session_stores_execution_snapshot(db_session, mo
     )
 
     env = JoySafeterEnvironment(
+        id=EnvironmentId.new(),
         name=f"task-snapshot-env-{uuid.uuid4()}",
         description="",
         config={"env_vars": {"SUBMITTED_ENV": "1"}},
@@ -212,11 +232,12 @@ async def test_create_task_auto_session_stores_execution_snapshot(db_session, mo
     await db_session.commit()
     await db_session.refresh(env)
 
-    env_ref = str(env.id)
+    environment_id = env.id
     agent = JoySafeterAgent(
+        id=AgentId.new(),
         name=f"task-snapshot-agent-{uuid.uuid4()}",
         version=1,
-        environment_ref=env_ref,
+        environment_id=environment_id,
         env={"SUBMITTED_AGENT": "1"},
     )
     db_session.add(agent)
@@ -241,36 +262,36 @@ async def test_create_task_auto_session_stores_execution_snapshot(db_session, mo
         await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == task.chat_session_id))
     ).scalar_one()
 
-    assert session.environment_ref == env_ref
+    assert session.environment_id == environment_id
     assert session.agent_version == 1
-    assert session.agent_snapshot["environment_ref"] == env_ref
+    assert session.agent_snapshot["environment_id"] == str(environment_id)
     assert session.agent_snapshot["env"] == {"SUBMITTED_AGENT": "1"}
     assert session.agent_snapshot["environment"]["image_tag"] == "submitted-image:1"
     assert session.agent_snapshot["environment"]["config"]["env_vars"] == {"SUBMITTED_ENV": "1"}
 
 
 @pytest.mark.asyncio
-async def test_create_task_rejects_missing_environment_ref_with_structured_error(db_session, monkeypatch):
+async def test_create_task_rejects_missing_environment_id_with_structured_error(db_session, monkeypatch):
     redis = _FakeRedis()
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"direct-task-missing-env-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-missing-env-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    missing_ref = f"missing-env-{uuid.uuid4()}"
-    req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target", environment_ref=missing_ref)
+    missing_environment_id = EnvironmentId.new()
+    req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target", environment_id=missing_environment_id)
     with pytest.raises(AppError) as exc_info:
         await create_task(req, db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=422) == {
         "code": "TASK_ENVIRONMENT_NOT_FOUND",
-        "message": f"Environment not found: {missing_ref}",
-        "data": {"environment_ref": missing_ref},
+        "message": f"Environment not found: {missing_environment_id}",
+        "data": {"environment_id": str(missing_environment_id)},
         "source": "validation",
         "retryable": False,
         "user_action": "fix_input",
@@ -281,7 +302,7 @@ async def test_create_task_rejects_missing_environment_ref_with_structured_error
 
 
 @pytest.mark.asyncio
-async def test_create_task_rejects_archived_environment_ref_with_structured_error(db_session, monkeypatch):
+async def test_create_task_rejects_archived_environment_id_with_structured_error(db_session, monkeypatch):
     redis = _FakeRedis()
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
@@ -289,6 +310,7 @@ async def test_create_task_rejects_archived_environment_ref_with_structured_erro
     )
 
     env = JoySafeterEnvironment(
+        id=EnvironmentId.new(),
         name=f"archived-task-env-{uuid.uuid4()}",
         description="",
         archived_at=utc_now(),
@@ -297,20 +319,20 @@ async def test_create_task_rejects_archived_environment_ref_with_structured_erro
     await db_session.commit()
     await db_session.refresh(env)
 
-    agent = JoySafeterAgent(name=f"direct-task-archived-env-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-archived-env-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    env_ref = str(env.id)
-    req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target", environment_ref=env_ref)
+    environment_id = env.id
+    req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target", environment_id=environment_id)
     with pytest.raises(AppError) as exc_info:
         await create_task(req, db_session, _auth_ctx())
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "ENVIRONMENT_ARCHIVED",
-        "message": f"Environment is archived: {env_ref}",
-        "data": {"environment_ref": env_ref, "environment_id": str(env.id)},
+        "message": f"Environment is archived: {environment_id}",
+        "data": {"environment_id": str(environment_id)},
         "source": "api",
         "retryable": False,
         "user_action": "refresh",
@@ -328,7 +350,7 @@ async def test_create_task_rejects_archived_agent_with_structured_error(db_sessi
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"direct-task-archived-agent-{uuid.uuid4()}", archived_at=utc_now())
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-archived-agent-{uuid.uuid4()}", archived_at=utc_now())
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -359,7 +381,7 @@ async def test_create_task_enqueue_failure_returns_503_and_marks_task_failed(db_
         staticmethod(lambda: None),
     )
 
-    agent = JoySafeterAgent(name=f"direct-task-fail-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-fail-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -429,12 +451,12 @@ async def test_create_task_rejects_session_with_active_task_even_if_session_look
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"direct-task-active-session-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-active-session-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -443,8 +465,8 @@ async def test_create_task_rejects_session_with_active_task_even_if_session_look
         agent_id=agent.id,
         prompt="already running",
         chat_session_id=session.id,
-        user_id="test-user",
-        org_id="test-org",
+        user_id=UserId.new(),
+        org_id=OrganizationId.new(),
     )
 
     req = JoySafeterCreateTaskRequest(agent_id=agent.id, chat_session_id=session.id, prompt="scan target")
@@ -475,12 +497,12 @@ async def test_create_task_with_existing_session_marks_running_before_enqueue(db
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"direct-task-existing-session-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-existing-session-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -513,15 +535,15 @@ async def test_create_task_with_existing_session_marks_running_before_enqueue(db
 
 
 @pytest.mark.asyncio
-async def test_create_task_rejects_environment_ref_mismatch_for_existing_session(db_session, monkeypatch):
+async def test_create_task_rejects_environment_id_mismatch_for_existing_session(db_session, monkeypatch):
     redis = _FakeRedis()
     monkeypatch.setattr(
         "app.joysafeter_shared.cache.redis.RedisClient.get_client",
         staticmethod(lambda: redis),
     )
 
-    session_env = JoySafeterEnvironment(name=f"session-env-{uuid.uuid4()}", description="")
-    requested_env = JoySafeterEnvironment(name=f"requested-env-{uuid.uuid4()}", description="")
+    session_env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"session-env-{uuid.uuid4()}", description="")
+    requested_env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"requested-env-{uuid.uuid4()}", description="")
     db_session.add(session_env)
     await db_session.commit()
     await db_session.refresh(session_env)
@@ -529,12 +551,12 @@ async def test_create_task_rejects_environment_ref_mismatch_for_existing_session
     await db_session.commit()
     await db_session.refresh(requested_env)
 
-    agent = JoySafeterAgent(name=f"direct-task-env-mismatch-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-env-mismatch-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle", environment_ref=str(session_env.id))
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle", environment_id=session_env.id)
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -542,7 +564,7 @@ async def test_create_task_rejects_environment_ref_mismatch_for_existing_session
     req = JoySafeterCreateTaskRequest(
         agent_id=agent.id,
         chat_session_id=session.id,
-        environment_ref=str(requested_env.id),
+        environment_id=requested_env.id,
         prompt="scan target",
     )
 
@@ -551,11 +573,11 @@ async def test_create_task_rejects_environment_ref_mismatch_for_existing_session
 
     assert await handled_app_error_payload(exc_info.value, status_code=409) == {
         "code": "TASK_SESSION_ENVIRONMENT_MISMATCH",
-        "message": "Task environment_ref does not match the existing session environment",
+        "message": "Task environment_id does not match the existing session environment",
         "data": {
             "session_id": str(session.id),
-            "requested_environment_ref": str(requested_env.id),
-            "session_environment_ref": str(session_env.id),
+            "requested_environment_id": str(requested_env.id),
+            "session_environment_id": str(session_env.id),
         },
         "source": "api",
         "retryable": False,
@@ -575,21 +597,30 @@ async def test_create_task_uses_existing_session_environment_before_agent_defaul
         staticmethod(lambda: redis),
     )
 
-    session_env = JoySafeterEnvironment(name=f"session-env-{uuid.uuid4()}", description="")
+    session_env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"session-env-{uuid.uuid4()}", description="")
     db_session.add(session_env)
     await db_session.commit()
     await db_session.refresh(session_env)
 
-    missing_agent_env = f"missing-agent-env-{uuid.uuid4()}"
+    agent_env = JoySafeterEnvironment(
+        id=EnvironmentId.new(),
+        name=f"archived-agent-env-{uuid.uuid4()}",
+        description="",
+        archived_at=utc_now(),
+    )
+    db_session.add(agent_env)
+    await db_session.commit()
+    await db_session.refresh(agent_env)
     agent = JoySafeterAgent(
+        id=AgentId.new(),
         name=f"direct-task-session-env-agent-{uuid.uuid4()}",
-        environment_ref=missing_agent_env,
+        environment_id=agent_env.id,
     )
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle", environment_ref=str(session_env.id))
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle", environment_id=session_env.id)
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -610,7 +641,7 @@ async def test_create_task_idempotent_retry_after_enqueue_failure_stays_503(db_s
         staticmethod(lambda: None),
     )
 
-    agent = JoySafeterAgent(name=f"direct-task-idem-fail-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-idem-fail-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -649,12 +680,12 @@ async def test_create_task_idempotent_race_does_not_duplicate_enqueue_or_leave_o
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"direct-task-race-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-race-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    existing_session = JoySafeterSession(agent_id=agent.id, status="idle")
+    existing_session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(existing_session)
     await db_session.commit()
     await db_session.refresh(existing_session)
@@ -665,8 +696,8 @@ async def test_create_task_idempotent_race_does_not_duplicate_enqueue_or_leave_o
         prompt="scan target",
         chat_session_id=existing_session.id,
         idempotency_key=key,
-        user_id="test-user",
-        org_id="test-org",
+        user_id=UserId.new(),
+        org_id=OrganizationId.new(),
     )
 
     original_get = JoySafeterTaskService.get_by_idempotency_key
@@ -698,7 +729,7 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_prompt(db
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"direct-task-idem-prompt-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-idem-prompt-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -734,13 +765,13 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_session(d
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"direct-task-idem-session-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-idem-session-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session_a = JoySafeterSession(agent_id=agent.id, status="idle")
-    session_b = JoySafeterSession(agent_id=agent.id, status="idle")
+    session_a = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
+    session_b = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session_a)
     await db_session.flush()
     db_session.add(session_b)
@@ -779,12 +810,12 @@ async def test_create_task_idempotent_replay_accepts_same_session_uuid_value_acr
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"direct-task-idem-same-session-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-idem-same-session-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -810,16 +841,16 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_environme
         staticmethod(lambda: redis),
     )
 
-    env_a = JoySafeterEnvironment(name=f"idem-env-a-{uuid.uuid4()}", description="")
+    env_a = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"idem-env-a-{uuid.uuid4()}", description="")
     db_session.add(env_a)
     await db_session.commit()
     await db_session.refresh(env_a)
-    env_b = JoySafeterEnvironment(name=f"idem-env-b-{uuid.uuid4()}", description="")
+    env_b = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"idem-env-b-{uuid.uuid4()}", description="")
     db_session.add(env_b)
     await db_session.commit()
     await db_session.refresh(env_b)
 
-    agent = JoySafeterAgent(name=f"direct-task-idem-env-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-idem-env-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -827,12 +858,12 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_environme
     key = f"task-reuse-env-{uuid.uuid4()}"
     first = JoySafeterCreateTaskRequest(
         agent_id=agent.id,
-        environment_ref=str(env_a.id),
+        environment_id=env_a.id,
         prompt="scan target",
     )
     second = JoySafeterCreateTaskRequest(
         agent_id=agent.id,
-        environment_ref=str(env_b.id),
+        environment_id=env_b.id,
         prompt="scan target",
     )
 
@@ -845,7 +876,7 @@ async def test_create_task_rejects_idempotency_key_reuse_for_different_environme
         "message": "Idempotency-Key was already used for a different environment",
         "data": {
             "task_id": str(first_response.id),
-            "conflict_field": "environment_ref",
+            "conflict_field": "environment_id",
             "requested_value": str(env_b.id),
             "existing_value": str(env_a.id),
         },
@@ -863,19 +894,19 @@ async def test_create_task_idempotent_retry_allows_original_environment_archived
         staticmethod(lambda: redis),
     )
 
-    env = JoySafeterEnvironment(name=f"idem-archived-env-{uuid.uuid4()}", description="")
+    env = JoySafeterEnvironment(id=EnvironmentId.new(), name=f"idem-archived-env-{uuid.uuid4()}", description="")
     db_session.add(env)
     await db_session.commit()
     await db_session.refresh(env)
 
-    agent = JoySafeterAgent(name=f"direct-task-idem-archived-env-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"direct-task-idem-archived-env-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    env_ref = str(env.id)
+    environment_id = env.id
     key = f"task-retry-archived-env-{uuid.uuid4()}"
-    req = JoySafeterCreateTaskRequest(agent_id=agent.id, environment_ref=env_ref, prompt="scan target")
+    req = JoySafeterCreateTaskRequest(agent_id=agent.id, environment_id=environment_id, prompt="scan target")
 
     first_response = await create_task(req, db_session, _auth_ctx(), idempotency_key=key)
     task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == first_response.id))).scalar_one()
@@ -898,12 +929,13 @@ async def test_create_task_idempotent_retry_allows_original_environment_archived
 
 @pytest.mark.asyncio
 async def test_cancel_task_rejects_terminal_task_with_structured_error(db_session):
-    agent = JoySafeterAgent(name=f"cancel-terminal-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"cancel-terminal-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         prompt="already done",
         status=JoySafeterTaskStatus.COMPLETED.value,
@@ -937,14 +969,15 @@ async def test_cancel_task_relays_cancel_to_rust_orchestrator(db_session, monkey
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"cancel-relay-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"cancel-relay-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
-    session = JoySafeterSession(agent_id=agent.id, status="running")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running")
     db_session.add(session)
     await db_session.flush()
 
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         chat_session_id=session.id,
         external_id="sandbox-cancel-relay",
         provider="docker",
@@ -956,6 +989,7 @@ async def test_cancel_task_relays_cancel_to_rust_orchestrator(db_session, monkey
     session.last_sandbox_id = sandbox.id
 
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         chat_session_id=session.id,
         sandbox_id=sandbox.id,
@@ -969,7 +1003,8 @@ async def test_cancel_task_relays_cancel_to_rust_orchestrator(db_session, monkey
 
     response = await cancel_task(task_id, db_session, _auth_ctx())
 
-    assert response == {"id": str(task_id), "status": "cancelled"}
+    assert response.id == task_id
+    assert response.status == "cancelled"
     command_publishes = [
         (channel, payload) for channel, payload in redis.published if channel.startswith("joysafeter:cmd:")
     ]
@@ -986,14 +1021,15 @@ async def test_cancel_task_relays_cancel_to_rust_orchestrator(db_session, monkey
 async def test_cancel_task_rejects_ack_if_task_moved_to_another_sandbox(db_session, monkeypatch):
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
 
-    agent = JoySafeterAgent(name=f"cancel-stale-sandbox-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"cancel-stale-sandbox-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
-    session = JoySafeterSession(agent_id=agent.id, status="running")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running")
     db_session.add(session)
     await db_session.flush()
 
     old_sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         chat_session_id=session.id,
         external_id=f"sandbox-old-{uuid.uuid4()}",
         provider="docker",
@@ -1001,6 +1037,7 @@ async def test_cancel_task_rejects_ack_if_task_moved_to_another_sandbox(db_sessi
         image="joysafeter/test:latest",
     )
     new_sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         chat_session_id=None,
         external_id=f"sandbox-new-{uuid.uuid4()}",
         provider="docker",
@@ -1014,6 +1051,7 @@ async def test_cancel_task_rejects_ack_if_task_moved_to_another_sandbox(db_sessi
     session.last_sandbox_id = old_sandbox.id
 
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         chat_session_id=session.id,
         sandbox_id=old_sandbox.id,
@@ -1082,13 +1120,14 @@ async def test_cancel_task_does_not_mark_cancelled_when_runtime_cancel_relay_fai
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"cancel-relay-fail-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"cancel-relay-fail-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
-    session = JoySafeterSession(agent_id=agent.id, status="running")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running")
     db_session.add(session)
     await db_session.flush()
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         chat_session_id=session.id,
         external_id="sandbox-cancel-relay-fail",
         provider="docker",
@@ -1098,6 +1137,7 @@ async def test_cancel_task_does_not_mark_cancelled_when_runtime_cancel_relay_fai
     db_session.add(sandbox)
     await db_session.flush()
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         chat_session_id=session.id,
         sandbox_id=sandbox.id,
@@ -1143,13 +1183,14 @@ async def test_cancel_task_does_not_mark_cancelled_when_runtime_cancel_relay_fai
 async def test_cancel_running_task_without_runtime_owner_fails_closed(db_session, monkeypatch):
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
 
-    agent = JoySafeterAgent(name=f"cancel-missing-owner-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"cancel-missing-owner-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
-    session = JoySafeterSession(agent_id=agent.id, status="running")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running")
     db_session.add(session)
     await db_session.flush()
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         chat_session_id=session.id,
         prompt="corrupt running task",
@@ -1199,17 +1240,18 @@ async def test_cancel_task_reports_session_idle_write_failure(db_session, monkey
         fail_idle_transition,
     )
 
-    agent = JoySafeterAgent(name=f"cancel-session-sync-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"cancel-session-sync-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="running")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
 
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         chat_session_id=session.id,
         external_id=f"sandbox-cancel-session-sync-{uuid.uuid4()}",
         provider="docker",
@@ -1222,6 +1264,7 @@ async def test_cancel_task_reports_session_idle_write_failure(db_session, monkey
     session.last_sandbox_id = sandbox.id
 
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         chat_session_id=session.id,
         sandbox_id=sandbox.id,
@@ -1278,19 +1321,23 @@ async def test_per_user_admission_rejects_human_over_limit(db_session, monkeypat
     )
     monkeypatch.setattr(settings, "max_concurrent_per_user", 1)
 
-    agent = JoySafeterAgent(name=f"per-user-human-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"per-user-human-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
     # One active task already attributed to the human principal.
+    auth_ctx = _auth_ctx()
     await JoySafeterTaskService(db_session).create_task(
-        agent_id=agent.id, prompt="busy", user_id="test-user", org_id="test-org"
+        agent_id=agent.id,
+        prompt="busy",
+        user_id=auth_ctx.user_id,
+        org_id=auth_ctx.org_id,
     )
 
     req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target")
     with pytest.raises(AppError) as exc_info:
-        await create_task(req, db_session, _auth_ctx())
+        await create_task(req, db_session, auth_ctx)
 
     assert await handled_app_error_payload(exc_info.value, status_code=429) == {
         "code": "USER_TASK_LIMIT_EXCEEDED",
@@ -1298,7 +1345,7 @@ async def test_per_user_admission_rejects_human_over_limit(db_session, monkeypat
         "data": {
             "limit": 1,
             "active": 1,
-            "user_id": "test-user",
+            "user_id": str(auth_ctx.user_id),
         },
         "source": "api",
         "retryable": True,
@@ -1319,7 +1366,7 @@ async def test_per_project_admission_returns_structured_retryable_error(db_sessi
     monkeypatch.setattr(settings, "max_concurrent_per_project", 1)
 
     project = await _create_project(db_session)
-    agent = JoySafeterAgent(name=f"per-project-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"per-project-agent-{uuid.uuid4()}", project_id=project.id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -1328,8 +1375,8 @@ async def test_per_project_admission_returns_structured_retryable_error(db_sessi
         agent_id=agent.id,
         prompt="busy",
         project_id=project.id,
-        user_id="other-user",
-        org_id="test-org",
+        user_id=UserId.new(),
+        org_id=OrganizationId.new(),
     )
 
     req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target")
@@ -1342,7 +1389,7 @@ async def test_per_project_admission_returns_structured_retryable_error(db_sessi
         "data": {
             "limit": 1,
             "active": 1,
-            "project_id": project.id,
+            "project_id": str(project.id),
         },
         "source": "api",
         "retryable": True,
@@ -1362,7 +1409,7 @@ async def test_per_user_admission_skips_service_principal(db_session, monkeypatc
     )
     monkeypatch.setattr(settings, "max_concurrent_per_user", 1)
 
-    agent = JoySafeterAgent(name=f"per-user-service-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"per-user-service-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -1370,7 +1417,7 @@ async def test_per_user_admission_skips_service_principal(db_session, monkeypatc
     # Same identity already over the per-user limit, but the caller is a service
     # key: the per-user fairness quota must not apply to it.
     await JoySafeterTaskService(db_session).create_task(
-        agent_id=agent.id, prompt="busy", user_id="test-user", org_id="test-org"
+        agent_id=agent.id, prompt="busy", user_id=UserId.new(), org_id=OrganizationId.new()
     )
 
     req = JoySafeterCreateTaskRequest(agent_id=agent.id, prompt="scan target")

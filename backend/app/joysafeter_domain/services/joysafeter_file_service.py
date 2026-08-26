@@ -15,7 +15,7 @@ from app.joysafeter_domain.models.joysafeter_session_file import JoySafeterSessi
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
 from app.joysafeter_shared.config.settings import settings
-from app.joysafeter_shared.ids import FileId, SessionId, as_uuid
+from app.joysafeter_shared.ids import FileId, ProjectId, SessionId, as_uuid
 from app.joysafeter_shared.storage.base import StorageBackend
 
 MAX_FILENAME_LENGTH = 255
@@ -93,7 +93,7 @@ def _validate_extension(filename: str) -> None:
         raise ValueError(f"File type {ext} is not supported")
 
 
-def _make_storage_key(project_id: str, file_id: FileId, filename: str) -> str:
+def _make_storage_key(project_id: ProjectId, file_id: FileId, filename: str) -> str:
     raw_file_id = as_uuid(file_id)
     shard = str(raw_file_id)[:2]
     safe = _sanitize_filename(filename)
@@ -107,7 +107,7 @@ class FileService:
     async def upload(
         self,
         db: AsyncSession,
-        project_id: str,
+        project_id: ProjectId,
         filename: str,
         data: bytes,
         content_type: str | None = None,
@@ -156,7 +156,9 @@ class FileService:
         await db.refresh(record)
         return record
 
-    async def get_metadata(self, db: AsyncSession, file_id: FileId, project_id: str | None) -> JoySafeterFile | None:
+    async def get_metadata(
+        self, db: AsyncSession, file_id: FileId, project_id: ProjectId | None
+    ) -> JoySafeterFile | None:
         result = await db.execute(
             select(JoySafeterFile).where(
                 JoySafeterFile.id == file_id,
@@ -169,7 +171,7 @@ class FileService:
     async def list_files(
         self,
         db: AsyncSession,
-        project_id: str,
+        project_id: ProjectId,
         limit: int = 20,
         after_id: FileId | None = None,
         session_id: SessionId | None = None,
@@ -197,7 +199,7 @@ class FileService:
             rows = rows[:limit]
         return rows, has_more
 
-    async def download(self, db: AsyncSession, file_id: FileId, project_id: str) -> tuple[bytes, JoySafeterFile]:
+    async def download(self, db: AsyncSession, file_id: FileId, project_id: ProjectId) -> tuple[bytes, JoySafeterFile]:
         record = await self.get_metadata(db, file_id, project_id)
         if not record:
             raise FileNotFoundError("File not found")
@@ -206,7 +208,7 @@ class FileService:
         return data, record
 
     async def get_presign_url(
-        self, db: AsyncSession, file_id: FileId, project_id: str
+        self, db: AsyncSession, file_id: FileId, project_id: ProjectId
     ) -> tuple[str | None, JoySafeterFile]:
         record = await self.get_metadata(db, file_id, project_id)
         if not record:
@@ -215,7 +217,7 @@ class FileService:
         url = await self._storage.presign_url(record.storage_key)
         return url, record
 
-    async def delete(self, db: AsyncSession, file_id: FileId, project_id: str) -> bool:
+    async def delete(self, db: AsyncSession, file_id: FileId, project_id: ProjectId) -> bool:
         record = await self.get_metadata(db, file_id, project_id)
         if not record:
             return False

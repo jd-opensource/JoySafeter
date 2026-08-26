@@ -26,16 +26,16 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
 from app.joysafeter_domain.services.joysafeter_trigger_config_policy import TriggerConfigPolicy
 from app.joysafeter_shared.common.app_errors import AppError
-from app.joysafeter_shared.ids import CredentialId
+from app.joysafeter_shared.ids import AgentId, CredentialId, OrganizationId, ProjectId
 
 _WEBHOOK_SECRET = "s3cr3t-webhook-material"
 
 
 async def _make_project(db_session) -> str:
-    org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+    org = Organization(id=OrganizationId.new(), name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
     db_session.add(project)
     await db_session.commit()
     return project.id
@@ -73,7 +73,7 @@ async def _make_model_credential(db_session, project_id: str) -> CredentialId:
 
 
 async def _make_agent(db_session, project_id: str) -> JoySafeterAgent:
-    agent = JoySafeterAgent(name=f"agent-{uuid.uuid4()}", project_id=project_id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"agent-{uuid.uuid4()}", project_id=project_id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
 
@@ -71,9 +72,9 @@ from app.joysafeter_domain.credentials.types import (
     NormalizedEndpoint,
     NormalizedMcpUrl,
     canonicalize_auth_scheme,
-    make_project_id,
 )
 from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
+from app.joysafeter_shared.ids import ProjectId, SandboxId
 
 pytestmark = pytest.mark.no_db
 
@@ -81,8 +82,27 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 CONTRACT_PATH = BACKEND_ROOT / "contracts" / "credential_domain_contract.json"
 
 
-def _project(value: str = "project-a"):
-    return make_project_id(value)
+def _project(value: str = "project-a") -> ProjectId:
+    return ProjectId.from_uuid(uuid.uuid5(uuid.NAMESPACE_URL, f"project:{value}"))
+
+
+def _credential_id(value: str) -> CredentialId:
+    return CredentialId.from_uuid(uuid.uuid5(uuid.NAMESPACE_URL, f"credential:{value}"))
+
+
+def _credential_group_id(value: str) -> CredentialGroupId:
+    return CredentialGroupId.from_uuid(uuid.uuid5(uuid.NAMESPACE_URL, f"credential-group:{value}"))
+
+
+def _mcp_endpoint(
+    url: str = "https://mcp.example.com/api",
+    *,
+    auth_requirement: str = "required",
+):
+    return credential_domain_api.McpEndpointRequirement(
+        server_url=NormalizedMcpUrl(url),
+        auth_requirement=credential_domain_api.McpCredentialRequirement(auth_requirement),
+    )
 
 
 def _field(value: str = "API_KEY") -> CredentialFieldName:
@@ -93,13 +113,17 @@ def _descriptor(*names: str) -> CredentialMaterialDescriptor:
     return CredentialMaterialDescriptor(frozenset(_field(name) for name in names))
 
 
+def test_normalized_mcp_url_strips_exactly_one_trailing_slash() -> None:
+    assert NormalizedMcpUrl("https://mcp.example.com/api//") == "https://mcp.example.com/api/"
+
+
 def _model_resource(
     *,
     state: CredentialState = CredentialState.ACTIVE,
     is_default: bool | None = None,
 ) -> CredentialResource:
     return CredentialResource(
-        id=CredentialId("cred-model"),
+        id=_credential_id("model"),
         project_id=_project(),
         name="Model credential",
         kind=CredentialKind.MODEL,
@@ -112,7 +136,7 @@ def _model_resource(
 
 def _service_resource(*, state: CredentialState = CredentialState.ACTIVE) -> CredentialResource:
     return CredentialResource(
-        id=CredentialId("cred-service"),
+        id=_credential_id("service"),
         project_id=_project(),
         name="Service credential",
         kind=CredentialKind.SERVICE,
@@ -128,17 +152,17 @@ def _mcp_resource(
     state: CredentialState = CredentialState.ACTIVE,
     scheme: CredentialAuthScheme = CredentialAuthScheme.STATIC_BEARER,
     project_id: str = "project-a",
-    group_id: str = "group-a",
+    group_id: str = "a",
     server_url: str = "https://mcp.example.com/api",
     fields: tuple[str, ...] = ("token_value",),
 ) -> CredentialResource:
     return CredentialResource(
-        id=CredentialId("cred-mcp"),
+        id=_credential_id("mcp"),
         project_id=_project(project_id),
         name="MCP credential",
         kind=CredentialKind.MCP,
         identity=McpCredentialIdentity(
-            group_id=CredentialGroupId(group_id),
+            group_id=_credential_group_id(group_id),
             server_url=NormalizedMcpUrl(server_url),
             auth_scheme=scheme,
         ),
@@ -197,12 +221,10 @@ def test_domain_enums_match_the_shared_machine_contract() -> None:
     }
 
 
-def test_project_id_is_trimmed_and_non_empty() -> None:
-    assert _project("  project-a  ") == "project-a"
-    with pytest.raises(ValueError):
-        _project("   ")
-    with pytest.raises(TypeError):
-        make_project_id(None)  # type: ignore[arg-type]
+def test_project_id_fixture_uses_shared_typed_identity() -> None:
+    assert type(_project()) is ProjectId
+    assert _project("project-a") == _project("project-a")
+    assert _project("project-a") != _project("project-b")
 
 
 def test_auth_scheme_aliases_canonicalize_and_unknown_values_fail_closed() -> None:
@@ -312,23 +334,23 @@ def test_inactive_model_resources_cannot_retain_default() -> None:
 def test_binding_union_carries_usage_specific_context() -> None:
     model = ModelInferenceBinding(
         project_id=_project(),
-        credential_id=CredentialId("cred-model"),
+        credential_id=_credential_id("model"),
         engine_kind=EngineKind.NATIVE,
         model_id="gpt-5",
     )
     webhook = WebhookAuthBinding(
         project_id=_project(),
-        credential_id=CredentialId("cred-service"),
+        credential_id=_credential_id("service"),
         credential_field=_field("WEBHOOK_SECRET"),
         methods=frozenset({WebhookAuthMethod.HMAC}),
     )
     environment = EnvironmentInjectionBinding(
         project_id=_project(),
-        credential_id=CredentialId("cred-service"),
+        credential_id=_credential_id("service"),
     )
     http = HttpEgressBinding(
         project_id=_project(),
-        credential_id=CredentialId("cred-service"),
+        credential_id=_credential_id("service"),
         endpoint=NormalizedEndpoint("https://api.example.com/v1"),
         inject=EgressInjectPolicy(
             kind=EgressInjectKind.API_KEY,
@@ -338,8 +360,8 @@ def test_binding_union_carries_usage_specific_context() -> None:
     )
     mcp = McpGroupBinding(
         project_id=_project(),
-        group_ids=(CredentialGroupId("group-a"),),
-        declared_server_urls=(NormalizedMcpUrl("https://declared.example.com/mcp"),),
+        group_ids=(_credential_group_id("a"),),
+        endpoint_requirements=(_mcp_endpoint("https://declared.example.com/mcp"),),
     )
 
     assert model.usage is CredentialUsage.MODEL_INFERENCE
@@ -358,7 +380,7 @@ def test_binding_policy_accepts_valid_model_webhook_environment_and_http_binding
         _model_resource(),
         ModelInferenceBinding(
             project_id=_project(),
-            credential_id=CredentialId("cred-model"),
+            credential_id=_credential_id("model"),
             engine_kind=EngineKind.CODEX,
             model_id="gpt-5",
         ),
@@ -369,7 +391,7 @@ def test_binding_policy_accepts_valid_model_webhook_environment_and_http_binding
 def test_model_binding_requires_matching_pure_catalog_context() -> None:
     binding = ModelInferenceBinding(
         project_id=_project(),
-        credential_id=CredentialId("cred-model"),
+        credential_id=_credential_id("model"),
         engine_kind=EngineKind.CODEX,
         model_id="gpt-5",
     )
@@ -405,7 +427,7 @@ def test_model_catalog_context_rejects_invalid_model_id_containers_before_freezi
         _service_resource(),
         WebhookAuthBinding(
             project_id=_project(),
-            credential_id=CredentialId("cred-service"),
+            credential_id=_credential_id("service"),
             credential_field=_field("WEBHOOK_SECRET"),
             methods=frozenset({WebhookAuthMethod.HMAC, WebhookAuthMethod.BEARER}),
         ),
@@ -414,14 +436,14 @@ def test_model_catalog_context_rejects_invalid_model_id_containers_before_freezi
         _service_resource(),
         EnvironmentInjectionBinding(
             project_id=_project(),
-            credential_id=CredentialId("cred-service"),
+            credential_id=_credential_id("service"),
         ),
     )
     validate_credential_binding(
         _service_resource(),
         HttpEgressBinding(
             project_id=_project(),
-            credential_id=CredentialId("cred-service"),
+            credential_id=_credential_id("service"),
             endpoint=NormalizedEndpoint("https://api.example.com"),
             inject=EgressInjectPolicy(
                 kind=EgressInjectKind.BEARER,
@@ -438,7 +460,7 @@ def test_binding_policy_rejects_archived_and_deleted_resources(state: Credential
             _service_resource(state=state),
             EnvironmentInjectionBinding(
                 project_id=_project(),
-                credential_id=CredentialId("cred-service"),
+                credential_id=_credential_id("service"),
             ),
         )
 
@@ -449,7 +471,7 @@ def test_binding_policy_rejects_project_kind_id_and_field_mismatches() -> None:
             _service_resource(),
             EnvironmentInjectionBinding(
                 project_id=_project("project-b"),
-                credential_id=CredentialId("cred-service"),
+                credential_id=_credential_id("service"),
             ),
         )
     with pytest.raises(CredentialPolicyError, match="kind"):
@@ -457,7 +479,7 @@ def test_binding_policy_rejects_project_kind_id_and_field_mismatches() -> None:
             _model_resource(),
             EnvironmentInjectionBinding(
                 project_id=_project(),
-                credential_id=CredentialId("cred-model"),
+                credential_id=_credential_id("model"),
             ),
         )
     with pytest.raises(CredentialPolicyError, match="credential id"):
@@ -465,7 +487,7 @@ def test_binding_policy_rejects_project_kind_id_and_field_mismatches() -> None:
             _service_resource(),
             EnvironmentInjectionBinding(
                 project_id=_project(),
-                credential_id=CredentialId("different"),
+                credential_id=_credential_id("different"),
             ),
         )
     with pytest.raises(CredentialPolicyError, match="field"):
@@ -473,24 +495,135 @@ def test_binding_policy_rejects_project_kind_id_and_field_mismatches() -> None:
             _service_resource(),
             WebhookAuthBinding(
                 project_id=_project(),
-                credential_id=CredentialId("cred-service"),
+                credential_id=_credential_id("service"),
                 credential_field=_field("MISSING"),
                 methods=frozenset({WebhookAuthMethod.HMAC}),
             ),
         )
 
 
-def test_mcp_policy_rejects_disabled_oauth_and_url_conflicts() -> None:
+def test_mcp_policy_accepts_one_matching_credential_for_required_endpoint() -> None:
     group = CredentialGroupResource(
-        id=CredentialGroupId("group-a"),
-        project_id=_project(),
-        name="MCP group",
-        state=CredentialState.ACTIVE,
+        id=_credential_group_id("a"), project_id=_project(), name="MCP group", state=CredentialState.ACTIVE
     )
     binding = McpGroupBinding(
         project_id=_project(),
-        group_ids=(CredentialGroupId("group-a"),),
-        declared_server_urls=(NormalizedMcpUrl("https://mcp.example.com/api"),),
+        group_ids=(_credential_group_id("a"),),
+        endpoint_requirements=(_mcp_endpoint(),),
+    )
+
+    validate_mcp_group_binding(binding, groups=(group,), members=(_mcp_resource(),))
+
+
+def test_mcp_policy_rejects_missing_credential_for_required_endpoint() -> None:
+    group = CredentialGroupResource(
+        id=_credential_group_id("a"), project_id=_project(), name="MCP group", state=CredentialState.ACTIVE
+    )
+    binding = McpGroupBinding(
+        project_id=_project(),
+        group_ids=(_credential_group_id("a"),),
+        endpoint_requirements=(_mcp_endpoint(),),
+    )
+
+    with pytest.raises(CredentialPolicyError) as exc_info:
+        validate_mcp_group_binding(binding, groups=(group,), members=())
+
+    assert exc_info.value.code.value == "required_credential_missing"
+
+
+@pytest.mark.parametrize("members", [(), (_mcp_resource(),)])
+def test_mcp_policy_accepts_zero_or_one_credential_for_optional_endpoint(
+    members: tuple[CredentialResource, ...],
+) -> None:
+    group = CredentialGroupResource(
+        id=_credential_group_id("a"), project_id=_project(), name="MCP group", state=CredentialState.ACTIVE
+    )
+    binding = McpGroupBinding(
+        project_id=_project(),
+        group_ids=(_credential_group_id("a"),),
+        endpoint_requirements=(_mcp_endpoint(auth_requirement="optional"),),
+    )
+
+    validate_mcp_group_binding(binding, groups=(group,), members=members)
+
+
+def test_mcp_policy_ignores_matching_credential_for_none_endpoint() -> None:
+    groups = (
+        CredentialGroupResource(
+            id=_credential_group_id("a"), project_id=_project(), name="MCP group A", state=CredentialState.ACTIVE
+        ),
+        CredentialGroupResource(
+            id=_credential_group_id("b"), project_id=_project(), name="MCP group B", state=CredentialState.ACTIVE
+        ),
+    )
+    binding = McpGroupBinding(
+        project_id=_project(),
+        group_ids=(_credential_group_id("a"), _credential_group_id("b")),
+        endpoint_requirements=(_mcp_endpoint(auth_requirement="none"),),
+    )
+
+    validate_mcp_group_binding(
+        binding,
+        groups=groups,
+        members=(_mcp_resource(group_id="a"), _mcp_resource(group_id="b")),
+    )
+
+
+def test_mcp_policy_rejects_duplicate_credentials_for_eligible_endpoint() -> None:
+    groups = (
+        CredentialGroupResource(
+            id=_credential_group_id("a"), project_id=_project(), name="MCP group A", state=CredentialState.ACTIVE
+        ),
+        CredentialGroupResource(
+            id=_credential_group_id("b"), project_id=_project(), name="MCP group B", state=CredentialState.ACTIVE
+        ),
+    )
+    binding = McpGroupBinding(
+        project_id=_project(),
+        group_ids=(_credential_group_id("a"), _credential_group_id("b")),
+        endpoint_requirements=(_mcp_endpoint(auth_requirement="optional"),),
+    )
+
+    with pytest.raises(CredentialPolicyError) as exc_info:
+        validate_mcp_group_binding(
+            binding,
+            groups=groups,
+            members=(_mcp_resource(group_id="a"), _mcp_resource(group_id="b")),
+        )
+
+    assert exc_info.value.code.value == "url_conflict"
+
+
+def test_mcp_policy_accepts_duplicate_credentials_for_unrelated_endpoint() -> None:
+    groups = (
+        CredentialGroupResource(
+            id=_credential_group_id("a"), project_id=_project(), name="MCP group A", state=CredentialState.ACTIVE
+        ),
+        CredentialGroupResource(
+            id=_credential_group_id("b"), project_id=_project(), name="MCP group B", state=CredentialState.ACTIVE
+        ),
+    )
+    binding = McpGroupBinding(
+        project_id=_project(),
+        group_ids=(_credential_group_id("a"), _credential_group_id("b")),
+        endpoint_requirements=(_mcp_endpoint("https://agent.example.com/mcp", auth_requirement="optional"),),
+    )
+
+    validate_mcp_group_binding(
+        binding,
+        groups=groups,
+        members=(_mcp_resource(group_id="a"), _mcp_resource(group_id="b")),
+    )
+
+
+def test_mcp_policy_rejects_disabled_oauth() -> None:
+    group = CredentialGroupResource(
+        id=_credential_group_id("a"), project_id=_project(), name="MCP group", state=CredentialState.ACTIVE
+    )
+    binding = McpGroupBinding(
+        project_id=_project(),
+        group_ids=(_credential_group_id("a"),),
+        endpoint_requirements=(_mcp_endpoint("https://other.example.com/mcp", auth_requirement="optional"),),
     )
 
     with pytest.raises(CredentialPolicyError, match="OAUTH2_LEGACY_DISABLED"):
@@ -498,19 +631,16 @@ def test_mcp_policy_rejects_disabled_oauth_and_url_conflicts() -> None:
             binding, groups=(group,), members=(_mcp_resource(scheme=CredentialAuthScheme.OAUTH2_LEGACY_DISABLED),)
         )
 
-    with pytest.raises(CredentialPolicyError, match="URL conflict"):
-        validate_mcp_group_binding(binding, groups=(group,), members=(_mcp_resource(),))
-
 
 def test_mcp_policy_rejects_archived_or_deleted_groups() -> None:
     binding = McpGroupBinding(
         project_id=_project(),
-        group_ids=(CredentialGroupId("group-a"),),
-        declared_server_urls=(),
+        group_ids=(_credential_group_id("a"),),
+        endpoint_requirements=(),
     )
     for state in (CredentialState.ARCHIVED, CredentialState.DELETED):
         group = CredentialGroupResource(
-            id=CredentialGroupId("group-a"),
+            id=_credential_group_id("a"),
             project_id=_project(),
             name="MCP group",
             state=state,
@@ -620,7 +750,7 @@ def test_lifecycle_archive_restore_delete_and_disabled_restore_rules() -> None:
 
 def test_group_lifecycle_uses_the_same_active_archived_deleted_state_machine() -> None:
     group = CredentialGroupResource(
-        id=CredentialGroupId("group-a"),
+        id=_credential_group_id("a"),
         project_id=_project(),
         name="MCP group",
         state=CredentialState.ACTIVE,
@@ -643,7 +773,7 @@ def test_group_lifecycle_uses_the_same_active_archived_deleted_state_machine() -
 
 def test_group_restore_revalidates_members_and_cross_group_urls() -> None:
     group = CredentialGroupResource(
-        id=CredentialGroupId("group-a"),
+        id=_credential_group_id("a"),
         project_id=_project(),
         name="MCP group",
         state=CredentialState.ARCHIVED,
@@ -670,7 +800,7 @@ def test_group_restore_revalidates_members_and_cross_group_urls() -> None:
         _group_restore_context(members=(_mcp_resource(project_id="project-b"),)),
         _group_restore_context(members=(_mcp_resource(scheme=CredentialAuthScheme.OAUTH2_LEGACY_DISABLED),)),
         _group_restore_context(members=(_mcp_resource(fields=("other",)),)),
-        _group_restore_context(members=(_mcp_resource(group_id="group-b"),)),
+        _group_restore_context(members=(_mcp_resource(group_id="b"),)),
         _group_restore_context(occupied_server_urls=frozenset({NormalizedMcpUrl("https://mcp.example.com/api")})),
     )
     for context in invalid_contexts:
@@ -701,7 +831,7 @@ def test_dependency_descriptors_are_metadata_only_and_operation_specific() -> No
         surface_id=descriptor.surface_id,
         project_id=_project(),
         source_id="env-a",
-        credential_id=CredentialId("cred-service"),
+        credential_id=_credential_id("service"),
         group_id=None,
         dispositions=descriptor.dispositions,
     )
@@ -709,7 +839,7 @@ def test_dependency_descriptors_are_metadata_only_and_operation_specific() -> No
         usage=CredentialUsage.ENVIRONMENT_INJECTION,
         source="environment",
         project_id=_project(),
-        affected_sandbox_ids=frozenset({"sandbox-a"}),
+        affected_sandbox_ids=frozenset({SandboxId.new()}),
         affected_session_ids=frozenset(),
         dispositions=frozenset({DependencyDisposition.REFRESH_RUNTIME_POLICY}),
     )
@@ -734,7 +864,7 @@ def test_reference_objects_are_typed_metadata_without_material_or_adapters() -> 
         project_id=_project(),
         source="environment",
         source_id="env-a",
-        credential_id=CredentialId("cred-service"),
+        credential_id=_credential_id("service"),
         group_id=None,
     )
 

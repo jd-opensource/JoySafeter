@@ -33,6 +33,7 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     AddGroupCredentialRequest,
     CreateCredentialGroupRequest,
 )
+from app.joysafeter_shared.ids import OrganizationId, ProjectId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 _OAUTH_MATERIAL = {
@@ -42,10 +43,10 @@ _OAUTH_MATERIAL = {
 
 
 async def _make_project(db_session) -> str:
-    org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+    org = Organization(id=OrganizationId.new(), name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
     db_session.add(project)
     await db_session.commit()
     return project.id

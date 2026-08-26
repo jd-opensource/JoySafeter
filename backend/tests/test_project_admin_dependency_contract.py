@@ -8,7 +8,6 @@ dependency and forget the manual check. `require_joysafeter_project_admin`
 promotes it to a declarative dependency scoped to the path project.
 """
 
-import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -18,8 +17,14 @@ from app.joysafeter_api.api.v1 import auth
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.common.joysafeter_auth import dependencies as deps
+from app.joysafeter_shared.ids import ApiKeyId, OrganizationId, ProjectId, UserId
 
 pytestmark = pytest.mark.no_db
+
+USER_ID = UserId.from_public("user_00000000-0000-0000-0000-000000000001")
+ORG_ID = OrganizationId.from_public("org_00000000-0000-0000-0000-000000000001")
+ACTIVE_PROJECT_ID = ProjectId.from_public("proj_00000000-0000-0000-0000-000000000001")
+PATH_PROJECT_ID = ProjectId.from_public("proj_00000000-0000-0000-0000-000000000002")
 
 
 def _dependency_for(handler, parameter_name: str = "auth_ctx"):
@@ -34,7 +39,11 @@ def _dependency_for(handler, parameter_name: str = "auth_ctx"):
 
 def _ctx(role: JoySafeterRole, *, principal_type: str = "user") -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="u", org_id="o", project_id="active-proj", role=role, principal_type=principal_type
+        user_id=USER_ID,
+        org_id=ORG_ID,
+        project_id=ACTIVE_PROJECT_ID,
+        role=role,
+        principal_type=principal_type,
     )
 
 
@@ -57,15 +66,15 @@ def _patch_role(monkeypatch, role_value, *, expect_project_id=None):
 async def test_project_viewer_is_rejected(monkeypatch):
     _patch_role(monkeypatch, "viewer")
     with pytest.raises(AppError) as exc_info:
-        await deps.require_joysafeter_project_admin("path-proj", db=object(), ctx=_ctx(JoySafeterRole.MEMBER))
+        await deps.require_joysafeter_project_admin(PATH_PROJECT_ID, db=object(), ctx=_ctx(JoySafeterRole.MEMBER))
     assert exc_info.value.code == "JOYSAFETER_PROJECT_ADMIN_REQUIRED"
 
 
 @pytest.mark.asyncio
 async def test_project_admin_of_path_project_is_allowed(monkeypatch):
-    _patch_role(monkeypatch, "admin", expect_project_id="path-proj")
-    result = await deps.require_joysafeter_project_admin("path-proj", db=object(), ctx=_ctx(JoySafeterRole.MEMBER))
-    assert result.user_id == "u"
+    _patch_role(monkeypatch, "admin", expect_project_id=PATH_PROJECT_ID)
+    result = await deps.require_joysafeter_project_admin(PATH_PROJECT_ID, db=object(), ctx=_ctx(JoySafeterRole.MEMBER))
+    assert result.user_id == USER_ID
 
 
 @pytest.mark.asyncio
@@ -81,7 +90,7 @@ async def test_project_admin_is_rejected_for_archived_path_project(monkeypatch):
 
     with pytest.raises(AppError) as exc_info:
         await deps.require_joysafeter_project_admin(
-            "path-proj",
+            PATH_PROJECT_ID,
             db=object(),
             ctx=_ctx(JoySafeterRole.MEMBER),
         )
@@ -92,8 +101,8 @@ async def test_project_admin_is_rejected_for_archived_path_project(monkeypatch):
 @pytest.mark.asyncio
 async def test_org_superuser_allowed_without_project_row(monkeypatch):
     _patch_role(monkeypatch, None)
-    result = await deps.require_joysafeter_project_admin("path-proj", db=object(), ctx=_ctx(JoySafeterRole.OWNER))
-    assert result.user_id == "u"
+    result = await deps.require_joysafeter_project_admin(PATH_PROJECT_ID, db=object(), ctx=_ctx(JoySafeterRole.OWNER))
+    assert result.user_id == USER_ID
 
 
 @pytest.mark.asyncio
@@ -101,7 +110,7 @@ async def test_api_key_principal_is_rejected(monkeypatch):
     _patch_role(monkeypatch, "admin")
     with pytest.raises(AppError) as exc_info:
         await deps.require_joysafeter_project_admin(
-            "path-proj", db=object(), ctx=_ctx(JoySafeterRole.MEMBER, principal_type="api_key")
+            PATH_PROJECT_ID, db=object(), ctx=_ctx(JoySafeterRole.MEMBER, principal_type="api_key")
         )
     assert exc_info.value.code == "JOYSAFETER_USER_SESSION_REQUIRED"
 
@@ -117,7 +126,7 @@ async def test_dependency_reads_project_id_from_path_via_fastapi(monkeypatch):
     from app.joysafeter_shared.common.exceptions import register_exception_handlers
     from app.joysafeter_shared.database import get_db
 
-    seen: dict[str, str] = {}
+    seen: dict[str, ProjectId] = {}
 
     async def fake_role(self, project_id, user_id):
         seen["project_id"] = project_id
@@ -140,11 +149,11 @@ async def test_dependency_reads_project_id_from_path_via_fastapi(monkeypatch):
     app.dependency_overrides[get_db] = lambda: None
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
-        resp = await client.get("/projects/proj-from-path/thing")
+        resp = await client.get(f"/projects/{PATH_PROJECT_ID}/thing")
 
     assert resp.status_code == 403
     assert resp.json()["code"] == "JOYSAFETER_PROJECT_ADMIN_REQUIRED"
-    assert seen["project_id"] == "proj-from-path"
+    assert seen["project_id"] == PATH_PROJECT_ID
 
 
 def test_project_scoped_api_key_routes_require_project_admin():
@@ -155,7 +164,7 @@ def test_project_scoped_api_key_routes_require_project_admin():
 
 @pytest.mark.asyncio
 async def test_project_scoped_api_key_routes_use_path_project(monkeypatch):
-    seen: list[tuple[str, str]] = []
+    seen: list[tuple[str, ProjectId]] = []
 
     class FakeDb:
         async def commit(self):
@@ -174,7 +183,7 @@ async def test_project_scoped_api_key_routes_use_path_project(monkeypatch):
         seen.append(("create", project_id))
         return (
             SimpleNamespace(
-                id="00000000-0000-0000-0000-000000000001",
+                id=ApiKeyId.from_public("apikey_00000000-0000-0000-0000-000000000001"),
                 project_id=project_id,
                 name=name,
                 key_prefix="sk-test",
@@ -211,24 +220,24 @@ async def test_project_scoped_api_key_routes_use_path_project(monkeypatch):
     ctx = _ctx(JoySafeterRole.MEMBER)
     ctx.project_role = "admin"
     db = FakeDb()
-    await auth.list_project_api_keys("path-project", db=db, auth_ctx=ctx)
+    await auth.list_project_api_keys(PATH_PROJECT_ID, db=db, auth_ctx=ctx)
     await auth.create_project_api_key(
-        "path-project",
+        PATH_PROJECT_ID,
         auth.CreateApiKeyRequest(name="key", role="viewer"),
         request,
         db=db,
         auth_ctx=ctx,
     )
     await auth.revoke_project_api_key(
-        "path-project",
-        uuid.UUID("00000000-0000-0000-0000-000000000002"),
+        PATH_PROJECT_ID,
+        ApiKeyId.from_public("apikey_00000000-0000-0000-0000-000000000002"),
         request,
         db=db,
         auth_ctx=ctx,
     )
 
     assert seen == [
-        ("list", "path-project"),
-        ("create", "path-project"),
-        ("revoke", "path-project"),
+        ("list", PATH_PROJECT_ID),
+        ("create", PATH_PROJECT_ID),
+        ("revoke", PATH_PROJECT_ID),
     ]

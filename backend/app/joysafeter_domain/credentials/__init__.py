@@ -1,10 +1,13 @@
 from .bindings import (
     CredentialBinding,
+    CredentialBindingFingerprint,
     EgressInjectKind,
     EgressInjectPolicy,
     EngineKind,
     EnvironmentInjectionBinding,
     HttpEgressBinding,
+    McpCredentialRequirement,
+    McpEndpointRequirement,
     McpGroupBinding,
     ModelCatalogContext,
     ModelInferenceBinding,
@@ -67,7 +70,6 @@ from .types import (
     NormalizedMcpUrl,
     ProjectId,
     canonicalize_auth_scheme,
-    make_project_id,
 )
 
 __all__ = [
@@ -75,6 +77,7 @@ __all__ = [
     "CREDENTIAL_MATERIAL_MAX_FIELD_NAME_LENGTH",
     "CREDENTIAL_MATERIAL_MAX_VALUE_LENGTH",
     "CredentialAuthScheme",
+    "CredentialBindingFingerprint",
     "CredentialBinding",
     "CredentialDependency",
     "CredentialFieldName",
@@ -105,7 +108,9 @@ __all__ = [
     "EnvironmentInjectionBinding",
     "HttpEgressBinding",
     "MaterialRevealCapability",
+    "McpCredentialRequirement",
     "McpCredentialIdentity",
+    "McpEndpointRequirement",
     "McpGroupBinding",
     "ModelCredentialIdentity",
     "ModelCatalogContext",
@@ -124,7 +129,6 @@ __all__ = [
     "canonicalize_mcp_auth_scheme",
     "decide_credential_lifecycle",
     "decide_group_lifecycle",
-    "make_project_id",
     "validate_credential_binding",
     "validate_group_restore",
     "validate_mcp_group_binding",

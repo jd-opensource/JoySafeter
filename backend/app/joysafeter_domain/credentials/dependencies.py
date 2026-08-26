@@ -4,11 +4,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import NewType
 
+from app.joysafeter_shared.ids import SandboxId, SessionId
+
 from .types import (
     CredentialGroupId,
     CredentialId,
     CredentialUsage,
     ProjectId,
+    require_credential_group_id,
+    require_credential_id,
     require_identifier,
     require_non_empty_text,
     require_project_id,
@@ -24,7 +28,6 @@ class ReferenceSurfaceKind(StrEnum):
     HISTORICAL_EXECUTABLE = "historical_executable"
     ACTIVE_SNAPSHOT = "active_snapshot"
     EPHEMERAL_CONSUMER = "ephemeral_consumer"
-    LEGACY_COMPATIBILITY = "legacy_compatibility"
 
 
 class ReferenceTarget(StrEnum):
@@ -87,9 +90,9 @@ class CredentialDependency:
         if (self.credential_id is None) == (self.group_id is None):
             raise ValueError("credential dependency must target exactly one resource or group")
         if self.credential_id is not None:
-            require_identifier(self.credential_id, label="credential id")
+            require_credential_id(self.credential_id)
         if self.group_id is not None:
-            require_identifier(self.group_id, label="credential group id")
+            require_credential_group_id(self.group_id)
         dispositions = frozenset(self.dispositions)
         if not dispositions or any(not isinstance(item, DependencyDisposition) for item in dispositions):
             raise ValueError("credential dependency dispositions must contain supported values")
@@ -104,8 +107,8 @@ class CredentialImpact:
     usage: CredentialUsage
     source: str
     project_id: ProjectId
-    affected_sandbox_ids: frozenset[str]
-    affected_session_ids: frozenset[str]
+    affected_sandbox_ids: frozenset[SandboxId]
+    affected_session_ids: frozenset[SessionId]
     dispositions: frozenset[DependencyDisposition]
     source_id: str | None = None
     reason: str | None = None
@@ -130,13 +133,17 @@ class CredentialImpact:
         object.__setattr__(
             self,
             "affected_sandbox_ids",
-            frozenset(require_identifier(value, label="sandbox id") for value in self.affected_sandbox_ids),
+            frozenset(self.affected_sandbox_ids),
         )
         object.__setattr__(
             self,
             "affected_session_ids",
-            frozenset(require_identifier(value, label="session id") for value in self.affected_session_ids),
+            frozenset(self.affected_session_ids),
         )
+        if any(type(value) is not SandboxId for value in self.affected_sandbox_ids):
+            raise TypeError("affected sandbox ids must contain SandboxId values")
+        if any(type(value) is not SessionId for value in self.affected_session_ids):
+            raise TypeError("affected session ids must contain SessionId values")
         dispositions = frozenset(self.dispositions)
         if not dispositions or any(not isinstance(item, DependencyDisposition) for item in dispositions):
             raise ValueError("credential impact dispositions must contain supported values")
@@ -249,18 +256,5 @@ CREDENTIAL_REFERENCE_SURFACES = (
         target=ReferenceTarget.GROUP,
         dispositions=frozenset({DependencyDisposition.AUDIT_ONLY}),
         owner="credentials",
-    ),
-    _surface(
-        "legacy_v0_v1_environment_snapshot",
-        kind=ReferenceSurfaceKind.LEGACY_COMPATIBILITY,
-        target=ReferenceTarget.RESOURCE,
-        dispositions=frozenset(
-            {
-                DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
-                DependencyDisposition.BLOCK_RESOURCE_DELETE,
-                DependencyDisposition.REVALIDATE_ON_ACTIVATION,
-            }
-        ),
-        owner="credential_compatibility",
     ),
 )

@@ -6,12 +6,13 @@ from app.joysafeter_api.api.v1.tasks import _authorize_task_stream
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
+from app.joysafeter_shared.ids import OrganizationId, OrganizationMemberId, ProjectId, ProjectMemberId, UserId
 
 
 async def _org_project(db_session, *, is_default: bool = False) -> tuple[Organization, Project]:
-    org = Organization(id=f"org-{uuid.uuid4()}", name="Org", slug=f"org-{uuid.uuid4()}")
+    org = Organization(id=OrganizationId.new(), name="Org", slug=f"org-{uuid.uuid4()}")
     project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="P",
         slug="default" if is_default else f"project-{uuid.uuid4()}",
@@ -23,7 +24,7 @@ async def _org_project(db_session, *, is_default: bool = False) -> tuple[Organiz
 
 
 async def _user(db_session, *, is_active: bool = True) -> AuthUser:
-    user = AuthUser(id=f"user-{uuid.uuid4()}", name="U", email=f"{uuid.uuid4()}@example.com", is_active=is_active)
+    user = AuthUser(id=UserId.new(), name="U", email=f"{uuid.uuid4()}@example.com", is_active=is_active)
     db_session.add(user)
     await db_session.flush()
     return user
@@ -36,7 +37,7 @@ async def test_org_member_without_project_row_is_denied(db_session):
     # task output, exactly as the HTTP read path denies them.
     org, project = await _org_project(db_session)
     user = await _user(db_session)
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="member"))
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org.id, role="member"))
     await db_session.commit()
 
     rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=project.id)
@@ -47,7 +48,7 @@ async def test_org_member_without_project_row_is_denied(db_session):
 async def test_org_member_without_project_row_can_stream_default_project(db_session):
     org, project = await _org_project(db_session, is_default=True)
     user = await _user(db_session)
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="member"))
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org.id, role="member"))
     await db_session.commit()
 
     rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=project.id)
@@ -58,8 +59,8 @@ async def test_org_member_without_project_row_can_stream_default_project(db_sess
 async def test_project_member_is_authorized(db_session):
     org, project = await _org_project(db_session)
     user = await _user(db_session)
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="member"))
-    db_session.add(ProjectMember(project_id=project.id, user_id=user.id, role="viewer"))
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org.id, role="member"))
+    db_session.add(ProjectMember(id=ProjectMemberId.new(), project_id=project.id, user_id=user.id, role="viewer"))
     await db_session.commit()
 
     rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=project.id)
@@ -72,7 +73,7 @@ async def test_org_superuser_without_row_is_authorized(db_session):
     # consistent with the HTTP path's org-wide access.
     org, project = await _org_project(db_session)
     user = await _user(db_session)
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="admin"))
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org.id, role="admin"))
     await db_session.commit()
 
     rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=project.id)
@@ -93,8 +94,8 @@ async def test_non_member_is_denied(db_session):
 async def test_inactive_user_is_denied(db_session):
     org, project = await _org_project(db_session)
     user = await _user(db_session, is_active=False)
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="admin"))
-    db_session.add(ProjectMember(project_id=project.id, user_id=user.id, role="admin"))
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org.id, role="admin"))
+    db_session.add(ProjectMember(id=ProjectMemberId.new(), project_id=project.id, user_id=user.id, role="admin"))
     await db_session.commit()
 
     rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=project.id)
@@ -108,7 +109,7 @@ async def test_project_in_other_org_is_denied(db_session):
     org, project = await _org_project(db_session)
     other_org, other_project = await _org_project(db_session)
     user = await _user(db_session)
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="admin"))
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org.id, role="admin"))
     await db_session.commit()
 
     rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=other_project.id)
@@ -120,12 +121,12 @@ async def test_project_member_on_different_project_is_denied(db_session):
     # Cross-project isolation: a non-super-user with a ProjectMember row on
     # ANOTHER project in the same org must not stream the target project.
     org, target = await _org_project(db_session)
-    other = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="Other", slug=f"other-{uuid.uuid4()}")
+    other = Project(id=ProjectId.new(), org_id=org.id, name="Other", slug=f"other-{uuid.uuid4()}")
     db_session.add(other)
     user = await _user(db_session)
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="member"))
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org.id, role="member"))
     await db_session.flush()
-    db_session.add(ProjectMember(project_id=other.id, user_id=user.id, role="editor"))
+    db_session.add(ProjectMember(id=ProjectMemberId.new(), project_id=other.id, user_id=user.id, role="editor"))
     await db_session.commit()
 
     rejection = await _authorize_task_stream(db_session, user_id=user.id, org_id=org.id, project_id=target.id)

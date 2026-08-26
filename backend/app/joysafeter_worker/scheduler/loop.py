@@ -493,17 +493,17 @@ class SchedulerLoop:
                 logger.warning("Trigger %s targets archived agent %s; skipping", trigger.id, trigger.agent_id)
                 return _FireOutcome(status="skipped")
 
-            environment_ref = trigger.environment_ref or getattr(agent, "environment_ref", None)
-            if environment_ref:
-                environment = await EnvironmentService(db).get_environment_by_ref(
-                    environment_ref,
+            environment_id = trigger.environment_id or agent.environment_id
+            if environment_id is not None:
+                environment = await EnvironmentService(db).get_environment(
+                    environment_id,
                     project_id=trigger.project_id,
                 )
                 if environment is None:
-                    logger.warning("Trigger %s targets missing environment %s; skipping", trigger.id, environment_ref)
+                    logger.warning("Trigger %s targets missing environment %s; skipping", trigger.id, environment_id)
                     return _FireOutcome(status="skipped")
                 if getattr(environment, "archived_at", None) is not None:
-                    logger.warning("Trigger %s targets archived environment %s; skipping", trigger.id, environment_ref)
+                    logger.warning("Trigger %s targets archived environment %s; skipping", trigger.id, environment_id)
                     return _FireOutcome(status="skipped")
 
             payload = provider.build_payload(trigger, fired_slot=fired_slot)
@@ -512,7 +512,7 @@ class SchedulerLoop:
                 name=trigger.name,
                 source=f"trigger:cron:{trigger.id}",
                 prompt=render_prompt_template(trigger.prompt_template, payload),
-                environment_ref=environment_ref,
+                environment_id=environment_id,
                 timeout_sec=trigger.timeout_sec,
                 max_retries=trigger.max_retries,
                 project_id=trigger.project_id,

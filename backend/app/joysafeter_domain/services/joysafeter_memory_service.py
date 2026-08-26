@@ -12,7 +12,7 @@ from app.joysafeter_domain.models.joysafeter_memory import (
 )
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor, apply_ordered_cursor
-from app.joysafeter_shared.ids import MemoryId, MemoryStoreId, MemoryVersionId, SessionId
+from app.joysafeter_shared.ids import MemoryId, MemoryStoreId, MemoryVersionId, ProjectId, SessionId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -47,19 +47,19 @@ class MemoryService:
     # --- Memory Store ---
 
     async def create_store(
-        self, name: str, description: str = "", metadata: Optional[dict] = None, project_id: Optional[str] = None
+        self, name: str, description: str = "", metadata: Optional[dict] = None, project_id: ProjectId | None = None
     ) -> JoySafeterMemoryStore:
         kwargs = dict(name=name, description=description, metadata_=metadata or {})
         if project_id is not None:
             kwargs["project_id"] = project_id
-        store = JoySafeterMemoryStore(**kwargs)
+        store = JoySafeterMemoryStore(id=MemoryStoreId.new(), **kwargs)
         self.db.add(store)
         await self.db.commit()
         await self.db.refresh(store)
         return store
 
     async def get_store(
-        self, store_id: MemoryStoreId, project_id: Optional[str] = None, include_archived: bool = False
+        self, store_id: MemoryStoreId, project_id: ProjectId | None = None, include_archived: bool = False
     ) -> Optional[JoySafeterMemoryStore]:
         conditions = [
             JoySafeterMemoryStore.id == store_id,
@@ -75,7 +75,7 @@ class MemoryService:
         self,
         limit: int = 20,
         after_id: Optional[MemoryStoreId] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         include_archived: bool = False,
     ) -> tuple[list[JoySafeterMemoryStore], bool]:
         q = select(JoySafeterMemoryStore)
@@ -95,7 +95,7 @@ class MemoryService:
         name: Optional[str] = None,
         description: Optional[str] = None,
         metadata: Optional[dict] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[JoySafeterMemoryStore]:
         store = await self.get_store(store_id, project_id=project_id)
         if not store:
@@ -114,7 +114,7 @@ class MemoryService:
     async def store_is_referenced_by_sessions(
         self,
         store_id: MemoryStoreId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> bool:
         conditions = [
             JoySafeterSessionMemoryStore.store_id == store_id,
@@ -126,7 +126,7 @@ class MemoryService:
         result = await self.db.execute(select(JoySafeterSessionMemoryStore.id).where(and_(*conditions)).limit(1))
         return result.scalar_one_or_none() is not None
 
-    async def delete_store(self, store_id: MemoryStoreId, project_id: Optional[str] = None) -> bool:
+    async def delete_store(self, store_id: MemoryStoreId, project_id: ProjectId | None = None) -> bool:
         store = await self.get_store(store_id, project_id=project_id, include_archived=True)
         if not store:
             return False
@@ -136,7 +136,7 @@ class MemoryService:
         await self.db.commit()
         return True
 
-    async def archive_store(self, store_id: MemoryStoreId, project_id: Optional[str] = None) -> bool:
+    async def archive_store(self, store_id: MemoryStoreId, project_id: ProjectId | None = None) -> bool:
         store = await self.get_store(store_id, project_id=project_id)
         if not store:
             return False
@@ -151,7 +151,7 @@ class MemoryService:
     # --- Memory ---
 
     async def _get_mutable_store(
-        self, store_id: MemoryStoreId, project_id: Optional[str]
+        self, store_id: MemoryStoreId, project_id: ProjectId | None
     ) -> Optional[JoySafeterMemoryStore]:
         """Return the store for a write, distinguishing not-found from archived.
 
@@ -172,7 +172,7 @@ class MemoryService:
         path: str,
         content: str = "",
         session_id: Optional[SessionId] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[JoySafeterMemory]:
         store = await self._get_mutable_store(store_id, project_id=project_id)
         if not store:
@@ -189,6 +189,7 @@ class MemoryService:
 
         sha = hashlib.sha256(content.encode()).hexdigest()
         mem = JoySafeterMemory(
+            id=MemoryId.new(),
             store_id=store_id,
             path=path,
             content=content,
@@ -218,7 +219,7 @@ class MemoryService:
         self,
         store_id: MemoryStoreId,
         memory_id: MemoryId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[JoySafeterMemory]:
         store = await self.get_store(store_id, project_id=project_id, include_archived=True)
         if not store:
@@ -234,7 +235,7 @@ class MemoryService:
         self,
         store_id: MemoryStoreId,
         path: str,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         include_archived_store: bool = True,
     ) -> Optional[JoySafeterMemory]:
         store = await self.get_store(store_id, project_id=project_id, include_archived=include_archived_store)
@@ -251,7 +252,7 @@ class MemoryService:
         path: str,
         content: str,
         session_id: Optional[SessionId] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[JoySafeterMemory]:
         existing = await self.get_memory_by_path(store_id, path, project_id=project_id)
         if existing:
@@ -274,7 +275,7 @@ class MemoryService:
         path_prefix: Optional[str] = None,
         order_by: str = "path",
         order: str = "asc",
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> tuple[list[JoySafeterMemory], bool]:
         store = await self.get_store(store_id, project_id=project_id, include_archived=True)
         if not store:
@@ -298,7 +299,7 @@ class MemoryService:
         content: str,
         session_id: Optional[SessionId] = None,
         expected_sha256: Optional[str] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[JoySafeterMemory]:
         store = await self._get_mutable_store(store_id, project_id=project_id)
         if not store:
@@ -336,7 +337,7 @@ class MemoryService:
         store_id: MemoryStoreId,
         memory_id: MemoryId,
         session_id: Optional[SessionId] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> bool:
         store = await self._get_mutable_store(store_id, project_id=project_id)
         if not store:
@@ -363,7 +364,7 @@ class MemoryService:
         self,
         store_id: MemoryStoreId,
         version_id: MemoryVersionId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> bool:
         """Check if any memory in this store has current_version_id == version_id."""
         store = await self.get_store(store_id, project_id=project_id, include_archived=True)
@@ -387,7 +388,7 @@ class MemoryService:
         memory_id: Optional[MemoryId] = None,
         session_id: Optional[SessionId] = None,
         operation: Optional[str] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> tuple[list[JoySafeterMemoryVersion], bool]:
         store = await self.get_store(store_id, project_id=project_id, include_archived=True)
         if not store:
@@ -409,7 +410,7 @@ class MemoryService:
         self,
         store_id: MemoryStoreId,
         version_id: MemoryVersionId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[JoySafeterMemoryVersion]:
         store = await self.get_store(store_id, project_id=project_id, include_archived=True)
         if not store:
@@ -426,7 +427,7 @@ class MemoryService:
         store_id: MemoryStoreId,
         version_id: MemoryVersionId,
         redacted_by: Optional[dict] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> bool:
         # Redaction is a compliance operation and must work on archived stores
         # too (consistent with get_version below), so it does not use the
@@ -458,6 +459,7 @@ class MemoryService:
         session_id: Optional[SessionId] = None,
     ) -> JoySafeterMemoryVersion:
         ver = JoySafeterMemoryVersion(
+            id=MemoryVersionId.new(),
             store_id=store_id,
             memory_id=memory_id,
             operation=operation,

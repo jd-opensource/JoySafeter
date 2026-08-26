@@ -15,9 +15,6 @@ from app.joysafeter_domain.credentials.types import (
     CredentialId,
     CredentialState,
     ProjectId,
-    make_credential_group_id,
-    make_credential_id,
-    make_project_id,
 )
 from app.joysafeter_shared.common.app_errors import NotFoundError, ResourceConflictError
 from app.joysafeter_shared.config.settings import settings
@@ -48,13 +45,13 @@ class CredentialLifecycleCoordinator:
     async def _resolve_resource_context(
         self,
         credential_id: CredentialId,
-        project_id: str,
+        project_id: ProjectId,
         *,
-        requested_group_id: Any | None = None,
+        requested_group_id: CredentialGroupId | None = None,
     ) -> CredentialResource:
         resource = await self._uow.credentials.get_resource(
-            make_credential_id(str(credential_id)),
-            make_project_id(str(project_id)),
+            credential_id,
+            project_id,
         )
         if resource is None:
             raise NotFoundError(
@@ -65,8 +62,7 @@ class CredentialLifecycleCoordinator:
 
         identity = resource.identity
         if requested_group_id is not None:
-            requested = make_credential_group_id(str(requested_group_id))
-            if not isinstance(identity, McpCredentialIdentity) or identity.group_id != requested:
+            if not isinstance(identity, McpCredentialIdentity) or identity.group_id != requested_group_id:
                 raise NotFoundError(
                     code="CREDENTIAL_NOT_FOUND",
                     message="Credential not found in group",
@@ -98,15 +94,14 @@ class CredentialLifecycleCoordinator:
     async def _observe_resource(
         self,
         credential_id: CredentialId,
-        project_id: str,
+        project_id: ProjectId,
         disposition: DependencyDisposition,
     ) -> None:
-        scan_project_id = make_project_id(str(project_id))
-        scan_credential_id = make_credential_id(str(credential_id))
+        scan_project_id = project_id
         if settings.credential_dependency_registry_mode == "enforce":
             dependencies = await self._scan_resource_dependencies(
                 scan_project_id,
-                scan_credential_id,
+                credential_id,
             )
             blockers = sorted(
                 {str(dependency.source_id) for dependency in dependencies if dependency.blocks(disposition)}
@@ -137,7 +132,7 @@ class CredentialLifecycleCoordinator:
             self._uow.credentials.dependencies(credential_id, project_id=project_id),
             self._scan_resource_dependencies(
                 scan_project_id,
-                scan_credential_id,
+                credential_id,
             ),
             return_exceptions=True,
         )
@@ -203,14 +198,14 @@ class CredentialLifecycleCoordinator:
 
     async def _observe_group(
         self,
-        group_id: Any,
-        project_id: str,
+        group_id: CredentialGroupId,
+        project_id: ProjectId,
         disposition: DependencyDisposition,
     ) -> None:
         try:
             dependencies = await self._scan_group_dependencies(
-                make_project_id(str(project_id)),
-                make_credential_group_id(str(group_id)),
+                project_id,
+                group_id,
             )
         except asyncio.CancelledError:
             raise
@@ -268,12 +263,12 @@ class CredentialLifecycleCoordinator:
     async def archive_resource(
         self,
         credential_id: CredentialId,
-        project_id: str,
+        project_id: ProjectId,
         *,
-        requested_group_id: Any | None = None,
+        requested_group_id: CredentialGroupId | None = None,
     ) -> Any:
         await self._uow.credentials.lock_credential_scope(
-            make_credential_id(str(credential_id)),
+            credential_id,
             project_id=project_id,
         )
         resource = await self._resolve_resource_context(
@@ -292,12 +287,12 @@ class CredentialLifecycleCoordinator:
     async def delete_resource(
         self,
         credential_id: CredentialId,
-        project_id: str,
+        project_id: ProjectId,
         *,
-        requested_group_id: Any | None = None,
+        requested_group_id: CredentialGroupId | None = None,
     ) -> Any:
         await self._uow.credentials.lock_credential_scope(
-            make_credential_id(str(credential_id)),
+            credential_id,
             project_id=project_id,
         )
         resource = await self._resolve_resource_context(
@@ -313,9 +308,9 @@ class CredentialLifecycleCoordinator:
             )
         return await self._transactions.soft_delete(credential_id, project_id=project_id)
 
-    async def archive_group(self, group_id: Any, project_id: str, operation) -> Any:
+    async def archive_group(self, group_id: CredentialGroupId, project_id: ProjectId, operation) -> Any:
         await self._uow.groups.lock_credential_groups(
-            (make_credential_group_id(str(group_id)),),
+            (group_id,),
             project_id=project_id,
         )
         resource = await self._uow.groups.get_group(group_id, project_id)
@@ -327,9 +322,9 @@ class CredentialLifecycleCoordinator:
             )
         return await operation(group_id, project_id)
 
-    async def delete_group(self, group_id: Any, project_id: str, operation) -> Any:
+    async def delete_group(self, group_id: CredentialGroupId, project_id: ProjectId, operation) -> Any:
         await self._uow.groups.lock_credential_groups(
-            (make_credential_group_id(str(group_id)),),
+            (group_id,),
             project_id=project_id,
         )
         resource = await self._uow.groups.get_group(group_id, project_id)

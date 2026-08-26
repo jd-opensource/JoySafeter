@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_api_key import JoySafeterApiKey
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
+from app.joysafeter_shared.ids import ApiKeyId, OrganizationId, ProjectId, UserId
 
 
 class ApiKeyRevokeResult(StrEnum):
@@ -37,10 +38,10 @@ class ApiKeyService:
 
     async def create_api_key(
         self,
-        project_id: str,
-        org_id: str,
+        project_id: ProjectId,
+        org_id: OrganizationId,
         name: str,
-        created_by: str,
+        created_by: UserId,
         role: str = "viewer",
         expires_at: datetime | None = None,
     ) -> tuple[JoySafeterApiKey, str]:
@@ -53,6 +54,7 @@ class ApiKeyService:
         raw_key = f"cnkey_{uuid.uuid4().hex}"
         key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
         api_key = JoySafeterApiKey(
+            id=ApiKeyId.new(),
             project_id=project_id,
             org_id=org_id,
             name=name,
@@ -70,10 +72,10 @@ class ApiKeyService:
 
     async def list_project_keys_page(
         self,
-        project_id: str,
+        project_id: ProjectId,
         *,
         limit: int,
-        after_id: uuid.UUID | None = None,
+        after_id: ApiKeyId | None = None,
     ) -> tuple[list[JoySafeterApiKey], bool]:
         query = select(JoySafeterApiKey).where(JoySafeterApiKey.project_id == project_id)
         query = apply_created_at_desc_cursor(query, JoySafeterApiKey, after_id).limit(limit + 1)
@@ -81,7 +83,7 @@ class ApiKeyService:
         rows = list(result.scalars().all())
         return rows[:limit], len(rows) > limit
 
-    async def revoke_key(self, key_id: uuid.UUID, project_id: str) -> ApiKeyRevokeResult:
+    async def revoke_key(self, key_id: ApiKeyId, project_id: ProjectId) -> ApiKeyRevokeResult:
         revoked_id = await self.db.scalar(
             update(JoySafeterApiKey)
             .where(

@@ -22,7 +22,7 @@ from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafe
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import TaskId, as_uuid
+from app.joysafeter_shared.ids import AgentId, OrganizationId, SandboxId, SessionId, TaskId, UserId, as_uuid
 
 
 class _FakeCommandRedis:
@@ -49,21 +49,22 @@ class _FakeCommandRedis:
 
 def _auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=UserId.new(),
+        org_id=OrganizationId.new(),
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
 
 
 async def _running_session_with_task(db_session) -> tuple[JoySafeterSession, JoySafeterTask, JoySafeterSandbox]:
-    agent = JoySafeterAgent(name=f"session-stop-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"session-stop-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
-    session = JoySafeterSession(agent_id=agent.id, status="running")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running")
     db_session.add(session)
     await db_session.flush()
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         chat_session_id=session.id,
         external_id=f"sandbox-{uuid.uuid4()}",
         provider="docker",
@@ -74,6 +75,7 @@ async def _running_session_with_task(db_session) -> tuple[JoySafeterSession, Joy
     await db_session.flush()
     session.last_sandbox_id = sandbox.id
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         chat_session_id=session.id,
         sandbox_id=sandbox.id,
@@ -125,8 +127,8 @@ async def test_session_stop_cancels_task_and_idles_session_when_relay_confirmed(
 
     result = await stop_session(session_id, db_session, _auth_ctx())
 
-    assert result["status"] == "idle"
-    assert result["cancelled_tasks"] == 1
+    assert result.status == "idle"
+    assert result.cancelled_tasks == 1
     # A real cancel command was relayed to the sandbox owner.
     cancels = [p for _, p in redis.published if p.get("type") == "cancel"]
     assert len(cancels) == 1 and cancels[0]["sandbox_id"] == str(as_uuid(sandbox.id))
@@ -144,10 +146,10 @@ async def test_session_stop_cancels_task_and_idles_session_when_relay_confirmed(
 async def test_session_stop_does_not_idle_if_active_task_appears_after_recheck(db_session, monkeypatch):
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
 
-    agent = JoySafeterAgent(name=f"session-stop-race-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"session-stop-race-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
-    session = JoySafeterSession(agent_id=agent.id, status="running")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running")
     db_session.add(session)
     await db_session.commit()
     session_id = session.id
@@ -161,6 +163,7 @@ async def test_session_stop_does_not_idle_if_active_task_appears_after_recheck(d
         calls["count"] += 1
         if calls["count"] == 2:
             raced_task = JoySafeterTask(
+                id=TaskId.new(),
                 agent_id=agent.id,
                 chat_session_id=session_id,
                 prompt="new task raced with stop",

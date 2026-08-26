@@ -57,7 +57,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import CredentialId, SkillId
+from app.joysafeter_shared.ids import CredentialId, ProjectId, SkillId
 from app.joysafeter_shared.llm.base_url import LLMBaseUrlError, validate_llm_base_url
 
 logger = logging.getLogger(__name__)
@@ -118,6 +118,11 @@ def _raise_authoring_compatibility_error(
 class AuthoringMessage(BaseModel):
     role: str = Field(..., pattern=r"^(user|assistant)$")
     content: str
+
+
+class SaveDraftResponse(BaseModel):
+    skill_id: SkillId
+    created: bool
 
 
 class AuthoringDraft(BaseModel):
@@ -230,7 +235,7 @@ def _normalize_draft_files(raw_files: list[dict[str, Any]]) -> list[dict[str, An
     return normalized
 
 
-async def _dedupe_skill_name(svc: SkillService, name: str, project_id: str) -> str:
+async def _dedupe_skill_name(svc: SkillService, name: str, project_id: ProjectId) -> str:
     """Return ``name`` if the project has no skill by that name, else the first
     free ``name-2`` / ``name-3`` / … variant.
 
@@ -373,7 +378,7 @@ async def authoring_save_draft(
     req: SaveDraftRequest,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-):
+) -> SaveDraftResponse:
     """Persist the workspace state as a real draft skill row.
 
     Creates a fresh skill on first save; subsequent saves with the same
@@ -407,7 +412,7 @@ async def authoring_save_draft(
                 f"技能名「{req.name}」已被占用，请换一个名称。",
                 code="SKILL_NAME_ALREADY_EXISTS",
             ) from None
-        return {"skill_id": str(skill.id), "created": False}
+        return SaveDraftResponse(skill_id=skill.id, created=False)
 
     # Only-when-taken suffix: keep the first save clean, auto-bump to
     # ``name-2`` / ``-3`` only if the project already has that name. Prevents
@@ -436,4 +441,4 @@ async def authoring_save_draft(
             f"技能名「{unique_name}」已存在，请换一个名称，或回到该草稿继续编辑。",
             code="SKILL_NAME_ALREADY_EXISTS",
         ) from None
-    return {"skill_id": str(skill.id), "created": True}
+    return SaveDraftResponse(skill_id=skill.id, created=True)

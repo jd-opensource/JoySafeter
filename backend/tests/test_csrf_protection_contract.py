@@ -14,6 +14,7 @@ from fastapi import FastAPI
 
 from app.joysafeter_api.api.v1.middleware import CsrfProtectionMiddleware
 from app.joysafeter_shared.config.settings import settings
+from app.joysafeter_shared.ids import UserId
 from app.joysafeter_shared.security import create_csrf_token
 
 pytestmark = pytest.mark.no_db
@@ -54,7 +55,7 @@ async def test_cookie_authed_mutation_without_csrf_header_is_rejected():
 @pytest.mark.asyncio
 async def test_cookie_authed_mutation_with_matching_valid_csrf_passes():
     app = _app()
-    token = create_csrf_token("user-1")
+    token = create_csrf_token(UserId.new())
     async with _client(app) as client:
         resp = await client.post(
             "/api/v1/agents",
@@ -70,8 +71,8 @@ async def test_csrf_header_not_matching_cookie_is_rejected():
     async with _client(app) as client:
         resp = await client.post(
             "/api/v1/agents",
-            cookies={settings.cookie_name: "session-value", "csrf_token": create_csrf_token("user-1")},
-            headers={"X-CSRF-Token": create_csrf_token("user-2")},  # different subject → different token
+            cookies={settings.cookie_name: "session-value", "csrf_token": create_csrf_token(UserId.new())},
+            headers={"X-CSRF-Token": create_csrf_token(UserId.new())},
         )
     assert resp.status_code == 403
 

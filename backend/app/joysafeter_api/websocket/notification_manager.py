@@ -1,11 +1,14 @@
 """WebSocket notification manager for real-time user notifications."""
 
+from __future__ import annotations
+
 import json
 from enum import Enum
-from typing import Any, Dict, List, Set
+from typing import Any, TypedDict
 
 from fastapi import WebSocket
 
+from app.joysafeter_shared.ids import UserId
 from app.joysafeter_shared.json_boundary import normalize_json_value
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -25,15 +28,22 @@ class NotificationType(str, Enum):
     CONNECTED = "connected"
 
 
+class ConnectionMetadata(TypedDict):
+    """Typed metadata retained for each active notification connection."""
+
+    user_id: UserId
+    connected_at: str
+
+
 class NotificationManager:
     """Manages user-based WebSocket connections for notifications."""
 
     def __init__(self):
         """Initialize with empty connection registries."""
-        self.user_connections: Dict[str, Set[WebSocket]] = {}
-        self.connection_metadata: Dict[WebSocket, Dict] = {}
+        self.user_connections: dict[UserId, set[WebSocket]] = {}
+        self.connection_metadata: dict[WebSocket, ConnectionMetadata] = {}
 
-    async def connect(self, websocket: WebSocket, user_id: str, already_accepted: bool = True) -> None:
+    async def connect(self, websocket: WebSocket, user_id: UserId, already_accepted: bool = True) -> None:
         """Register a WebSocket connection for a user and send a connected event."""
         if not already_accepted:
             await websocket.accept()
@@ -70,7 +80,7 @@ class NotificationManager:
 
         del self.connection_metadata[websocket]
 
-    async def send_to_connection(self, websocket: WebSocket, message: Dict[str, Any]) -> bool:
+    async def send_to_connection(self, websocket: WebSocket, message: dict[str, Any]) -> bool:
         """Send a message to a single connection, disconnecting on failure."""
         try:
             await websocket.send_text(json.dumps(normalize_json_value(message), allow_nan=False))
@@ -79,7 +89,7 @@ class NotificationManager:
             self.disconnect(websocket)
             return False
 
-    async def send_to_user(self, user_id: str, message: Dict[str, Any]) -> int:
+    async def send_to_user(self, user_id: UserId, message: dict[str, Any]) -> int:
         """Send a message to all connections for a user.
 
         Returns:
@@ -106,29 +116,29 @@ class NotificationManager:
 
         return success_count
 
-    async def send_to_users(self, user_ids: List[str], message: Dict[str, Any]) -> Dict[str, int]:
+    async def send_to_users(self, user_ids: list[UserId], message: dict[str, Any]) -> dict[UserId, int]:
         """Send a message to multiple users, returning per-user delivery counts."""
         results = {}
         for user_id in user_ids:
             results[user_id] = await self.send_to_user(user_id, message)
         return results
 
-    async def broadcast(self, message: Dict[str, Any]) -> int:
+    async def broadcast(self, message: dict[str, Any]) -> int:
         """Send a message to all connected users."""
         total_sent = 0
         for user_id in list(self.user_connections.keys()):
             total_sent += await self.send_to_user(user_id, message)
         return total_sent
 
-    def is_user_online(self, user_id: str) -> bool:
+    def is_user_online(self, user_id: UserId) -> bool:
         """Return True if the user has at least one active connection."""
         return user_id in self.user_connections and len(self.user_connections[user_id]) > 0
 
-    def get_online_users(self) -> List[str]:
+    def get_online_users(self) -> list[UserId]:
         """Return a list of user IDs with active connections."""
         return list(self.user_connections.keys())
 
-    def get_user_connection_count(self, user_id: str) -> int:
+    def get_user_connection_count(self, user_id: UserId) -> int:
         """Return the number of active connections for a user."""
         return len(self.user_connections.get(user_id, set()))
 

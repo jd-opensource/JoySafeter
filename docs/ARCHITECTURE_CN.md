@@ -374,6 +374,12 @@ endpoint、认证或网络模式。
 
 - 远程 transport 仅为 `streamable_http`、`sse`；本地进程仅为 `local_stdio`。旧别名只在不可逆迁移中改写，
   API、前端、CLI、protobuf、runner 和 orchestrator runtime 均不保留兼容分支。
+- Agent 负责声明所有 MCP 服务器；项目级 Credential Group 只保存加密 HTTP 认证材料；Session 通过
+  `credential_group_ids` 决定本次运行可使用哪些凭据。凭据不会永久绑定到 Agent。
+- runtime planner 按规范化 URL 匹配：`required` 必须恰好一个匹配，`optional` 允许零或一个，`none`
+  忽略匹配。只有与 Agent 可注入端点相关的重复凭据才构成冲突，无关 URL 不阻止 Session。
+- 托管凭据注入仅支持 `streamable_http`；`sse` 必须使用 `auth_requirement: none`；`local_stdio.env`
+  是普通 Agent 配置，不得放置密钥。
 - limited 网络沙箱只收到 `mcp-egress.internal/r/<route-key>/` 形式的不透明 URL；真实 authority 与认证头只存在于
   Envoy 边界。MCP 凭据运行时方案封闭为 `static_bearer`、`header_api_key`、`custom_header`。
 - PostgreSQL 的 `runtime_config_generation` 与网络策略 hash/version/status 是持久化真相；只有捕获 generation
@@ -453,19 +459,21 @@ Redis 消息丢失由 PostgreSQL 驱动的 degraded-policy reconcile 和周期 p
 
 ### 8.1 类型化实体 ID
 
-公共 API 与日志统一使用 canonical 前缀 ID（`agent_<uuid>`、`sess_<uuid>`、`task_<uuid>`、
+公共 API 与日志统一使用 canonical 前缀 ID（`agent_<uuid>`、`agentver_<uuid>`、`apikey_<uuid>`、`sess_<uuid>`、`task_<uuid>`、
 `trig_<uuid>`、`env_<uuid>`、`cred_<uuid>`、`credgrp_<uuid>`、`sbx_<uuid>`、
 `memstore_<uuid>`、`mem_<uuid>`、`memver_<uuid>`、`skill_<uuid>`、`sklfile_<uuid>`、
 `sklscan_<uuid>`、`sklver_<uuid>`、`sklvfile_<uuid>`、`skluse_<uuid>`、`file_<uuid>`、
-`sesrsc_<uuid>`、`evt_<uuid>`）。前缀是语义判别器：让跨实体误传在 UUID 进入领域逻辑前即可被
-识别并拒绝。应用/领域层使用对应的类型（`AgentId`、`SessionId`、`TaskId`、`TriggerId`、
-`EnvironmentId`、`SecretId`、`VaultId`、`CredentialId`、`SandboxId`、`MemoryStoreId`、`MemoryId`、
+`sesrsc_<uuid>`、`evt_<uuid>`、`vol_<uuid>`、`stgrant_<uuid>`、`staudit_<uuid>`）。前缀是语义判别器：让跨实体误传在 UUID 进入领域逻辑前即可被
+识别并拒绝。应用/领域层使用对应的类型（`AgentId`、`AgentVersionId`、`ApiKeyId`、`SessionId`、`TaskId`、`TriggerId`、
+`EnvironmentId`、`CredentialId`、`CredentialGroupId`、`SandboxId`、`MemoryStoreId`、`MemoryId`、
 `MemoryVersionId`、`SkillId`、`SkillFileId`、`SkillSecurityScanId`、`SkillVersionId`、
-`SkillVersionFileId`、`SkillUsageId`、`FileId`、`SessionResourceId`、`EventId`）；PostgreSQL、Redis、protobuf 与明确记录的跨语言适配器使用裸 UUID。因此，
+`SkillVersionFileId`、`SkillUsageId`、`FileId`、`SessionResourceId`、`EventId`、`StorageVolumeId`、
+`StorageGrantId`、`StorageMountAuditId`）；PostgreSQL、Redis、protobuf 与明确记录的跨语言适配器使用裸 UUID。因此，
 使用类型化 ID 并不意味着取消前缀，而是把前缀校验集中到边界，禁止 service、route、前端和
 测试自行拆装前缀。Rust ID newtype 不实现 `Deref<Uuid>`；物理适配器必须显式调用 `.as_uuid()`，
-避免内存中的实体身份静默降级为存储身份。`environment_ref` 是刻意保留的多态边界：它接受环境名称或 canonical
-`env_<uuid>`，但不把裸 UUID 解释为 Environment ID。
+避免内存中的实体身份静默降级为存储身份。Agent、Session、Trigger 与执行快照中的环境绑定统一使用
+`environment_id`：公共及持久化 JSON 只接受 canonical `env_<uuid>`，PostgreSQL 以 native UUID 外键关联
+Environment 生命周期 owner。环境名称仅用于展示与查询，不再作为身份输入。
 Sandbox provider label、容器/Pod 名称、Envoy resource/socket 名称、runner 环境变量、Redis ownership
 key/payload 与 protobuf 字段属于物理边界，必须显式把 `SandboxId` 解包为裸 UUID；公共 API 响应、
 错误、日志和前端状态始终保留 `sbx_<uuid>`。
@@ -479,9 +487,10 @@ SQL UUID 列和 Redis Stream 字段携带裸 Event UUID，并在重新进入类�
 Skill CRUD、生命周期、安全扫描、版本、版本文件快照、使用日志、路由与前端状态统一保留六类
 canonical Skill ID；仅 SQL join、Rust bundle 与存储适配器在物理边界显式解包为裸 UUID。AI
 authoring 的草稿文件在持久化前没有实体身份，禁止用空字符串或伪造的 `SkillFileId` 占位。
-当前契约使用 `model_credential_id`、`environment_credential_ids`、`service_credential_id` 和
-`credential_group_ids`。旧 JSON 键 `secret_ref` / `secret_refs` 仅作为已持久化 v1 快照的读取别名，
-其值仍必须是 canonical `CredentialId`。`vault_ids`、`SecretId` 与 `VaultId` 已不是现役运行时契约。
+当前契约使用 `model_credential_id`、`environment_credential_ids`、`credential_ref`、
+`credential_field` 和 `credential_group_ids`。持久化快照固定使用
+`joysafeter.agent_execution_snapshot.v2`；更早的字段与快照 schema 必须在部署前由迁移完成重写，
+运行时读取器直接拒绝，不再桥接。
 
 | 分组 | 前缀 | 要点 |
 |---|---|---|
@@ -539,14 +548,13 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
 
 ### 9.3 可观测性——全链路追踪
 
-`joysafeter_shared/observation/` 是货真价实的 OTel 实现：
+`joysafeter_shared/telemetry/` 负责应用级 OTel provider：
 
-- 一个全局 `TracerProvider`（可选 OTLP 导出）+ **两个自定义 span processor**：
-  `PersistenceProcessor`（按 `execution.id` 分桶 span，批量落到 `traces` / `observations` 表，聚合
-  token/成本）与 `BroadcastProcessor`（实时 span 流）。
+- 全局 `TracerProvider` 初始化请求链路追踪，并可选通过 OTLP 导出 span。
 - `TracingMiddleware` 在入口提取 W3C `traceparent` 并回显 `x-trace-id`；loguru 把实时 `trace_id`
   注入每行日志以便关联。
-- token/成本计量记录在 span 属性（`llm.usage.*`、`llm.cost.*`）上，聚合进 `Trace` 总计。
+- 产品分析指标来自持久化的 Session、Task 与 session event。已删除的 `Trace` / `Observation`
+  持久化原型不属于运行时或数据库契约。
 
 ### 9.4 安全态势
 
@@ -606,7 +614,7 @@ backend/app/
 └── joysafeter_shared/         # 跨服务基座
     ├── llm/                   #   OpenAI 兼容 SSE 辅助
     ├── skill/                 #   SKILL.md 解析 + 校验
-    ├── observation/           #   OTel provider + processor + trace/observation 模型
+    ├── telemetry/             #   OTel tracer provider 生命周期
     ├── security/ security.py  #   JWT、密码、SSRF 守卫、凭据密钥设置
     ├── storage/               #   可插拔文件后端（local / s3 / oss）
     ├── cache/                 #   池化 Redis 客户端 + 分布式锁

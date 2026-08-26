@@ -527,9 +527,7 @@ class EventBatchSender:
             raise _PartialBatchError(failed_events)
         return all_inserted
 
-    async def _insert_session_group(
-        self, session_id: SessionId, events: list[BufferedEvent]
-    ) -> list[BufferedEvent]:
+    async def _insert_session_group(self, session_id: SessionId, events: list[BufferedEvent]) -> list[BufferedEvent]:
         """Insert events for a single session within its own transaction."""
         from sqlalchemy import func, select, text
         from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -574,14 +572,14 @@ class EventBatchSender:
                     continue
 
                 next_seq += 1
+                event_id = e.id or EventId.new()
                 values: dict[str, Any] = dict(
+                    id=event_id,
                     session_id=e.session_id,
                     event_type=e.event_type,
                     payload=e.payload,
                     seq=next_seq,
                 )
-                if e.id is not None:
-                    values["id"] = e.id
                 insert_stmt = pg_insert(JoySafeterSessionEvent).values(**values)
                 if e.id is not None:
                     # The event id is the PK, so a redelivered id becomes a no-op
@@ -667,14 +665,14 @@ class EventBatchSender:
                     return None
 
                 seq = (base_seq or 0) + 1
+                event_id = event.id or EventId.new()
                 values: dict[str, Any] = dict(
+                    id=event_id,
                     session_id=event.session_id,
                     event_type=event.event_type,
                     payload=event.payload,
                     seq=seq,
                 )
-                if event.id is not None:
-                    values["id"] = event.id
                 insert_stmt = pg_insert(JoySafeterSessionEvent).values(**values)
                 if event.id is not None:
                     # Idempotent on the event-id PK: a redelivery (or a row the

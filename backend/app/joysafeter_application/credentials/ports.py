@@ -18,6 +18,17 @@ from app.joysafeter_domain.credentials.types import (
     CredentialId,
     ProjectId,
 )
+from app.joysafeter_shared.ids import (
+    AgentId,
+    AgentVersionId,
+    CredentialAccessAuditId,
+    EnvironmentId,
+    OrganizationId,
+    SecurityAuditId,
+    SessionId,
+    TaskId,
+    UserId,
+)
 
 if TYPE_CHECKING:
     from .binding_service import ResolvedCredentialMaterial, ValidatedCredentialBinding
@@ -58,12 +69,12 @@ def combine_credential_impacts(
 
 @dataclass(frozen=True, slots=True)
 class CredentialAuditActor:
-    user_id: str | None
+    user_id: UserId | None
     principal_type: str
     principal_id: str
     ip_address: str
     user_agent: str | None = None
-    org_id: str | None = None
+    org_id: OrganizationId | None = None
     role: str | None = None
 
     @classmethod
@@ -87,8 +98,8 @@ class CredentialAccessContext:
     consumer_type: str
     actor: CredentialAuditActor
     consumer_id: str | None = None
-    session_id: object | None = None
-    task_id: object | None = None
+    session_id: SessionId | None = None
+    task_id: TaskId | None = None
     generation: int | None = None
 
     def __post_init__(self) -> None:
@@ -100,6 +111,7 @@ class CredentialAccessContext:
 
 @dataclass(frozen=True, slots=True)
 class CredentialAccessAuditEntry:
+    id: CredentialAccessAuditId
     project_id: ProjectId
     credential_id: CredentialId
     usage: CredentialUsage
@@ -109,8 +121,8 @@ class CredentialAccessAuditEntry:
     result: CredentialAccessResult
     credential_kind: str | None = None
     consumer_id: str | None = None
-    session_id: object | None = None
-    task_id: object | None = None
+    session_id: SessionId | None = None
+    task_id: TaskId | None = None
     generation: int | None = None
     error_code: str | None = None
 
@@ -136,17 +148,18 @@ class CredentialAccessAuditEntry:
 
 @dataclass(frozen=True, slots=True)
 class CredentialAuditEntry:
+    id: SecurityAuditId
     action: str
-    project_id: str | None
+    project_id: ProjectId | None
     target_type: str = "credential"
     target_id: str | None = None
     details: Mapping[str, object] = field(default_factory=dict)
 
 
 class CredentialRepositoryPort(Protocol):
-    async def create(self, request: Any, project_id: str) -> Any: ...
+    async def create(self, credential_id: CredentialId, request: Any, project_id: ProjectId) -> Any: ...
 
-    async def get(self, credential_id: CredentialId, project_id: str) -> Any | None: ...
+    async def get(self, credential_id: CredentialId, project_id: ProjectId) -> Any | None: ...
 
     async def get_resource(
         self,
@@ -162,16 +175,16 @@ class CredentialRepositoryPort(Protocol):
 
     async def lock_credentials(
         self,
-        credential_ids: Sequence[object],
+        credential_ids: Sequence[CredentialId],
         *,
-        project_id: str | None = None,
-    ) -> Sequence[object]: ...
+        project_id: ProjectId | None = None,
+    ) -> Sequence[CredentialId]: ...
 
     async def lock_credential_scope(
         self,
         credential_id: CredentialId,
         *,
-        project_id: str,
+        project_id: ProjectId,
     ) -> None: ...
 
     def take_pending_impacts(self) -> tuple[CredentialImpact, ...]: ...
@@ -180,57 +193,72 @@ class CredentialRepositoryPort(Protocol):
 
 
 class CredentialGroupRepositoryPort(Protocol):
+    async def create_group(
+        self,
+        group_id: CredentialGroupId,
+        request: Any,
+        project_id: ProjectId,
+    ) -> Any: ...
+
     async def get_group(
         self,
-        group_id: Any,
-        project_id: str,
+        group_id: CredentialGroupId,
+        project_id: ProjectId,
     ) -> CredentialGroupResource | None: ...
+
+    async def add_group_member(
+        self,
+        group_id: CredentialGroupId,
+        credential_id: CredentialId,
+        request: Any,
+        project_id: ProjectId,
+    ) -> Any: ...
 
     async def get_many(
         self,
-        group_ids: tuple[Any, ...],
-        project_id: str,
+        group_ids: tuple[CredentialGroupId, ...],
+        project_id: ProjectId,
     ) -> tuple[CredentialGroupResource, ...]: ...
 
     async def list_members(
         self,
-        group_ids: tuple[Any, ...],
-        project_id: str,
+        group_ids: tuple[CredentialGroupId, ...],
+        project_id: ProjectId,
     ) -> tuple[CredentialResource, ...]: ...
 
     async def lock_credential_groups(
         self,
-        group_ids: Sequence[object],
+        group_ids: Sequence[CredentialGroupId],
         *,
-        project_id: str | None = None,
-    ) -> Sequence[object]: ...
+        project_id: ProjectId | None = None,
+    ) -> Sequence[CredentialGroupId]: ...
 
     async def active_group_session_ids(
         self,
-        group_id: Any,
-        project_id: str,
-    ) -> Sequence[object]: ...
+        group_id: CredentialGroupId,
+        project_id: ProjectId,
+    ) -> Sequence[SessionId]: ...
 
 
 @dataclass(frozen=True, slots=True)
 class CredentialSnapshotSource:
-    agent_id: object
+    agent_id: AgentId
     agent_name: str
     agent_version: int
     snapshot: Mapping[str, Any]
-    environment_ref: str | None
-    source_version_id: object | None
-    environment_id: object | None
+    source_version_id: AgentVersionId | None
+    environment_id: EnvironmentId | None
 
 
 @dataclass(frozen=True, slots=True)
 class CredentialSnapshotSession:
-    agent_id: object
-    project_id: str | None
+    id: SessionId
+    agent_id: AgentId
+    project_id: ProjectId | None
     title: str
     metadata: Mapping[str, object]
-    credential_group_ids: tuple[object, ...]
-    environment_ref: str | None
+    credential_group_ids: tuple[CredentialGroupId, ...]
+    environment_id: EnvironmentId | None
     agent_version: int
     agent_snapshot: Mapping[str, Any]
 

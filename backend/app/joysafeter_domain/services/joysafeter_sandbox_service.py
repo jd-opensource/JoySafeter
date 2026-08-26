@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
-from app.joysafeter_shared.ids import AgentId, SandboxId, SessionId
+from app.joysafeter_shared.ids import AgentId, ProjectId, SandboxId, SessionId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 SANDBOX_STATUSES = frozenset(
@@ -161,7 +161,7 @@ class SandboxService:
         external_id: Optional[str] = None,
         sandbox_id: Optional[SandboxId] = None,
         status: str = "creating",
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> JoySafeterSandbox:
         if chat_session_id is not None:
             raise ValueError(
@@ -176,13 +176,11 @@ class SandboxService:
             config=config or {},
             workspace_path=workspace_path,
         )
-        if sandbox_id is not None:
-            kwargs["id"] = sandbox_id
         if external_id is not None:
             kwargs["external_id"] = external_id
         if project_id is not None:
             kwargs["project_id"] = project_id
-        sandbox = JoySafeterSandbox(**kwargs)
+        sandbox = JoySafeterSandbox(id=sandbox_id or SandboxId.new(), **kwargs)
         self.db.add(sandbox)
         await self.db.commit()
         await self.db.refresh(sandbox)
@@ -191,7 +189,7 @@ class SandboxService:
     async def get_sandbox(
         self,
         sandbox_id: SandboxId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[JoySafeterSandbox]:
         conditions = [JoySafeterSandbox.id == sandbox_id]
         if project_id is not None:
@@ -200,7 +198,7 @@ class SandboxService:
         return result.scalar_one_or_none()
 
     async def list_sandboxes(
-        self, limit: int = 20, after_id: Optional[SandboxId] = None, project_id: Optional[str] = None
+        self, limit: int = 20, after_id: Optional[SandboxId] = None, project_id: ProjectId | None = None
     ) -> tuple[list[JoySafeterSandbox], bool]:
         q = select(JoySafeterSandbox).where(JoySafeterSandbox.destroyed_at.is_(None))
         if project_id is not None:
@@ -224,7 +222,7 @@ class SandboxService:
         )
 
     async def find_by_session(
-        self, session_id: SessionId, project_id: Optional[str] = None
+        self, session_id: SessionId, project_id: ProjectId | None = None
     ) -> Optional[JoySafeterSandbox]:
         conditions = [
             JoySafeterSandbox.chat_session_id == session_id,
@@ -250,7 +248,7 @@ class SandboxService:
         return result.scalar_one_or_none()
 
     async def list_active_for_agent(
-        self, agent_id: AgentId, project_id: Optional[str] = None
+        self, agent_id: AgentId, project_id: ProjectId | None = None
     ) -> list[JoySafeterSandbox]:
         from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 
@@ -268,7 +266,7 @@ class SandboxService:
         )
         return list(result.scalars().all())
 
-    async def stop_sandbox(self, sandbox_id: SandboxId, project_id: Optional[str] = None) -> bool:
+    async def stop_sandbox(self, sandbox_id: SandboxId, project_id: ProjectId | None = None) -> bool:
         if project_id is not None and await self.get_sandbox(sandbox_id, project_id=project_id) is None:
             return False
         return await self.update_status_cas(sandbox_id, "idle", "stopping")

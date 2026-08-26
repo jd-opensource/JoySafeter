@@ -28,6 +28,7 @@ from app.joysafeter_domain.schemas.joysafeter_task import JoySafeterCreateTaskRe
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_infrastructure.credentials.snapshot_adapter import SqlAlchemyCredentialSnapshotSourceAdapter
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import CredentialId, EnvironmentId, OrganizationId, ProjectId, UserId
 
 
 class _FakeRedis:
@@ -40,10 +41,15 @@ class _FakeRedis:
 
 async def _project(db: AsyncSession) -> tuple[Project, JoySafeterAuthContext]:
     suffix = str(uuid.uuid4())
-    organization = Organization(name=f"caller-race-org-{suffix}", slug=f"caller-race-org-{suffix}")
+    organization = Organization(
+        id=OrganizationId.new(),
+        name=f"caller-race-org-{suffix}",
+        slug=f"caller-race-org-{suffix}",
+    )
     db.add(organization)
     await db.flush()
     project = Project(
+        id=ProjectId.new(),
         org_id=organization.id,
         name=f"caller-race-project-{suffix}",
         slug=f"caller-race-project-{suffix}",
@@ -51,14 +57,14 @@ async def _project(db: AsyncSession) -> tuple[Project, JoySafeterAuthContext]:
     db.add(project)
     await db.commit()
     return project, JoySafeterAuthContext(
-        user_id="caller-race-user",
+        user_id=UserId.new(),
         org_id=organization.id,
         project_id=project.id,
         role=JoySafeterRole.MEMBER,
     )
 
 
-async def _credential(db: AsyncSession, project_id: str, *, kind: str = "model"):
+async def _credential(db: AsyncSession, project_id: ProjectId, *, kind: str = "model"):
     return await CredentialService(db, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
             kind=kind,
@@ -73,17 +79,17 @@ async def _credential(db: AsyncSession, project_id: str, *, kind: str = "model")
 
 async def _agent(
     db: AsyncSession,
-    project_id: str,
+    project_id: ProjectId,
     *,
-    model_credential_id=None,
-    environment_ref: str | None = None,
+    model_credential_id: CredentialId | None = None,
+    environment_id: EnvironmentId | None = None,
 ):
     return await compose_agent_application(db).commands.create_agent(
         JoySafeterCreateAgentRequest(
             name=f"caller-race-agent-{uuid.uuid4()}",
             engine_kind=JoySafeterEngineKind.CLAUDE,
             model_credential_id=model_credential_id,
-            environment_ref=environment_ref,
+            environment_id=environment_id,
         ),
         project_id=project_id,
     )
@@ -103,7 +109,7 @@ async def _pause_locked_source(monkeypatch, locked: asyncio.Event, release: asyn
 
 
 @pytest.mark.asyncio
-async def test_session_api_refreshes_retained_agent_reference_state(db_session, postgres_url) -> None:
+async def test_session_api_refreshes_retained_agent_credential_state(db_session, postgres_url) -> None:
     project, auth = await _project(db_session)
     first = await _credential(db_session, project.id)
     second = await _credential(db_session, project.id)
@@ -141,7 +147,7 @@ async def test_session_api_refreshes_retained_agent_reference_state(db_session, 
 
 
 @pytest.mark.asyncio
-async def test_task_api_refreshes_retained_environment_reference_state(
+async def test_task_api_refreshes_retained_environment_credential_state(
     db_session,
     postgres_url,
     monkeypatch,
@@ -157,7 +163,7 @@ async def test_task_api_refreshes_retained_environment_reference_state(
     environment = await EnvironmentService(db_session).create_environment(
         CreateEnvironmentRequest(
             name=f"caller-race-env-{uuid.uuid4()}",
-            config=EnvironmentConfig(secret_refs=[first.id]),
+            config=EnvironmentConfig(environment_credential_ids=[first.id]),
         ),
         project_id=project.id,
     )
@@ -172,7 +178,7 @@ async def test_task_api_refreshes_retained_environment_reference_state(
                 update(JoySafeterEnvironment)
                 .where(JoySafeterEnvironment.id == environment.id)
                 .values(
-                    config={"type": "cloud", "secret_refs": [str(second.id)]},
+                    config={"type": "cloud", "environment_credential_ids": [str(second.id)]},
                     updated_at=datetime.now(timezone.utc),
                 )
             )
@@ -182,7 +188,7 @@ async def test_task_api_refreshes_retained_environment_reference_state(
                 JoySafeterCreateTaskRequest(
                     agent_id=agent.id,
                     prompt="retained environment race",
-                    environment_ref=environment.name,
+                    environment_id=environment.id,
                 ),
                 caller_db,
                 auth,
@@ -195,10 +201,10 @@ async def test_task_api_refreshes_retained_environment_reference_state(
                 .execution_options(populate_existing=True)
             )
             assert session is not None
-            assert session.environment_ref == str(environment.id)
-            assert session.agent_snapshot["environment_ref"] == str(environment.id)
-            assert session.agent_snapshot["environment"]["ref"] == str(environment.id)
-            assert session.agent_snapshot["environment"]["config"]["secret_refs"] == [str(second.id)]
+            assert session.environment_id == environment.id
+            assert session.agent_snapshot["environment_id"] == str(environment.id)
+            assert session.agent_snapshot["environment"]["environment_id"] == str(environment.id)
+            assert session.agent_snapshot["environment"]["config"]["environment_credential_ids"] == [str(second.id)]
     finally:
         await engine.dispose()
 
@@ -264,7 +270,7 @@ async def test_environment_archive_waits_then_rechecks_session_blocker(
         async with factory() as caller_db, factory() as writer_db:
             create_future = asyncio.create_task(
                 create_session(
-                    CreateSessionRequest(agent_id=agent.id, environment_id=str(environment.id)),
+                    CreateSessionRequest(agent_id=agent.id, environment_id=environment.id),
                     caller_db,
                     auth,
                 )

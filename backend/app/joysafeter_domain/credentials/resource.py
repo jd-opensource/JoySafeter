@@ -13,7 +13,8 @@ from .types import (
     CredentialState,
     NormalizedMcpUrl,
     ProjectId,
-    require_identifier,
+    require_credential_group_id,
+    require_credential_id,
     require_non_empty_text,
     require_project_id,
 )
@@ -47,7 +48,7 @@ class McpCredentialIdentity:
     auth_scheme: CredentialAuthScheme
 
     def __post_init__(self) -> None:
-        require_identifier(self.group_id, label="credential group id")
+        require_credential_group_id(self.group_id)
         if not isinstance(self.server_url, NormalizedMcpUrl):
             raise TypeError("MCP server URL must be normalized")
         if not isinstance(self.auth_scheme, CredentialAuthScheme):
@@ -91,7 +92,7 @@ class CredentialResource:
     is_default: bool
 
     def __post_init__(self) -> None:
-        require_identifier(self.id, label="credential id")
+        require_credential_id(self.id)
         object.__setattr__(self, "project_id", require_project_id(self.project_id))
         object.__setattr__(self, "name", require_non_empty_text(self.name, label="credential name"))
         if not isinstance(self.kind, CredentialKind):
@@ -121,7 +122,7 @@ class CredentialGroupResource:
     state: CredentialState
 
     def __post_init__(self) -> None:
-        require_identifier(self.id, label="credential group id")
+        require_credential_group_id(self.id)
         object.__setattr__(self, "project_id", require_project_id(self.project_id))
         object.__setattr__(self, "name", require_non_empty_text(self.name, label="credential group name"))
         if not isinstance(self.state, CredentialState):

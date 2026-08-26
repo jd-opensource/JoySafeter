@@ -9,6 +9,7 @@ from starlette.testclient import TestClient
 from app.joysafeter_shared.common.app_errors import ServiceUnavailableError
 from app.joysafeter_shared.common.exceptions import app_error_handler, http_exception_handler
 from app.joysafeter_shared.config.settings import settings
+from app.joysafeter_shared.ids import OrganizationId, ProjectId
 from app.joysafeter_shared.runtime.app_factory import create_app
 
 pytestmark = pytest.mark.no_db
@@ -70,6 +71,25 @@ async def test_semantic_app_error_matches_exception_handler_contract():
         "source": "runtime",
         "retryable": True,
         "user_action": "retry",
+    }
+
+
+@pytest.mark.asyncio
+async def test_app_error_handler_serializes_typed_entity_ids():
+    organization_id = OrganizationId.new()
+    project_id = ProjectId.new()
+    exc = ServiceUnavailableError(
+        code="TYPED_ID_BOUNDARY_TEST",
+        message="Typed IDs remain canonical at the JSON boundary.",
+        data={"organization_id": organization_id, "nested": {"project_id": project_id}},
+    )
+
+    response = await app_error_handler(_request(), exc)
+    payload = json.loads(response.body)
+
+    assert payload["data"] == {
+        "organization_id": str(organization_id),
+        "nested": {"project_id": str(project_id)},
     }
 
 

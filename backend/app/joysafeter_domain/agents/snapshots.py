@@ -8,24 +8,25 @@ from app.joysafeter_domain.credentials.references import (
     build_environment_execution_snapshot,
 )
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
+from app.joysafeter_shared.ids import EnvironmentId
 
 
-def build_environment_snapshot(environment: Any, *, environment_ref: Optional[str]) -> Optional[dict]:
-    return build_environment_execution_snapshot(environment, environment_ref=environment_ref)
+def build_environment_snapshot(environment: Any) -> Optional[dict]:
+    return build_environment_execution_snapshot(environment)
 
 
 def build_agent_snapshot(
     agent: JoySafeterAgent,
     *,
     environment: Any = None,
-    environment_ref: Optional[str] = None,
+    environment_id: Optional[EnvironmentId] = None,
     version: Optional[int] = None,
 ) -> dict:
     skills, agents, commands = split_agent_assets(agent.skills or [])
     return build_agent_execution_snapshot(
         agent,
         environment=environment,
-        environment_ref=environment_ref,
+        environment_id=environment_id,
         version=version,
         split_assets=(skills, agents, commands),
     )

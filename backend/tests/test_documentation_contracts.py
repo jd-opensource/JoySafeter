@@ -164,6 +164,20 @@ def test_required_content_reports_missing_marker(tmp_path: Path) -> None:
     assert "/credential-groups" in violations[1].message
 
 
+def test_forbidden_content_reports_obsolete_marker(tmp_path: Path) -> None:
+    write(tmp_path / "docs/ARCHITECTURE.md", "Use /secrets here.\n")
+
+    violations = checker.check_forbidden_document_content(
+        tmp_path,
+        {Path("docs/ARCHITECTURE.md"): ("/secrets", "/vaults")},
+    )
+
+    assert [(item.code, item.path.as_posix()) for item in violations] == [
+        ("DOC-CONTENT", "docs/ARCHITECTURE.md"),
+    ]
+    assert "/secrets" in violations[0].message
+
+
 def test_architecture_contains_unified_credential_markers() -> None:
     repo_root = _SCRIPT.resolve().parents[1]
 

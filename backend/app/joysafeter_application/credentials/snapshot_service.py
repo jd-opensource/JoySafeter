@@ -12,6 +12,8 @@ from app.joysafeter_domain.credentials.bindings import (
     EgressInjectPolicy,
     EnvironmentInjectionBinding,
     HttpEgressBinding,
+    McpCredentialRequirement,
+    McpEndpointRequirement,
     McpGroupBinding,
 )
 from app.joysafeter_domain.credentials.dependencies import (
@@ -33,13 +35,12 @@ from app.joysafeter_domain.credentials.types import (
     NormalizedEndpoint,
     NormalizedMcpUrl,
     ProjectId,
-    make_credential_group_id,
-    make_project_id,
 )
 from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_domain.llm.model_inference_policy import build_model_inference_policy
 from app.joysafeter_domain.services.credential_binding_errors import raise_public_credential_error
 from app.joysafeter_shared.common.app_errors import NotFoundError, ResourceConflictError
+from app.joysafeter_shared.ids import AgentId, EnvironmentId, SecurityAuditId, SessionId
 from app.joysafeter_shared.utils.datetime import platform_now
 
 from .binding_service import BindingIssuanceAuthority, CredentialBindingService
@@ -58,11 +59,11 @@ _ENVIRONMENT_CONFIG_OVERLAY_KEYS = frozenset({"type", "packages", "networking", 
 
 @dataclass(frozen=True, slots=True)
 class CreateCredentialAwareSession:
-    project_id: str | None
-    agent_id: object
+    project_id: ProjectId | None
+    agent_id: AgentId
     pinned_agent_version: int | None = None
-    environment_ref: str | None = None
-    credential_group_ids: tuple[object, ...] = ()
+    environment_id: EnvironmentId | None = None
+    credential_group_ids: tuple[CredentialGroupId, ...] = ()
     title: str | None = None
     metadata: Mapping[str, object] | None = None
     caller: str = "session_api"
@@ -70,14 +71,13 @@ class CreateCredentialAwareSession:
     environment_mount_resources: tuple[Mapping[str, object], ...] = ()
 
     def __post_init__(self) -> None:
-        project_id = self.project_id.strip() if isinstance(self.project_id, str) else None
-        project_id = project_id or None
+        if self.project_id is not None and type(self.project_id) is not ProjectId:
+            raise TypeError("project_id must be ProjectId")
         if self.agent_id is None:
             raise ValueError("snapshot session agent_id is required")
         if self.pinned_agent_version is not None and self.pinned_agent_version < 1:
             raise ValueError("pinned agent version must be positive")
         group_ids = tuple(dict.fromkeys(self.credential_group_ids))
-        object.__setattr__(self, "project_id", project_id)
         object.__setattr__(self, "credential_group_ids", group_ids)
         overlay = copy.deepcopy(dict(self.environment_config_overlay or {}))
         unsupported_overlay_keys = sorted(set(overlay) - _ENVIRONMENT_CONFIG_OVERLAY_KEYS)
@@ -110,13 +110,19 @@ def _decoded_snapshot(snapshot: Mapping[str, object]) -> DecodedSnapshot:
         raise AssertionError("unreachable")
 
 
-def _declared_mcp_urls(snapshot: Mapping[str, object]) -> tuple[NormalizedMcpUrl, ...]:
+def _mcp_endpoint_requirements(snapshot: Mapping[str, object]) -> tuple[McpEndpointRequirement, ...]:
     try:
-        return tuple(
-            NormalizedMcpUrl(item["url"])
-            for item in (snapshot.get("mcp_servers") or [])
-            if isinstance(item, Mapping) and "url" in item
-        )
+        requirements: list[McpEndpointRequirement] = []
+        for item in snapshot.get("mcp_servers") or []:
+            if not isinstance(item, Mapping) or item.get("type") == "local_stdio":
+                continue
+            requirements.append(
+                McpEndpointRequirement(
+                    server_url=NormalizedMcpUrl(item["url"]),
+                    auth_requirement=McpCredentialRequirement(item["auth_requirement"]),
+                )
+            )
+        return tuple(requirements)
     except (TypeError, ValueError) as exc:
         raise_public_credential_error(exc, constructor_error="url_conflict")
         raise AssertionError("unreachable")
@@ -190,15 +196,16 @@ async def _validate_group_references(
     snapshot: Mapping[str, object],
     uow: CredentialUnitOfWork,
 ) -> None:
-    if not command.credential_group_ids:
+    endpoint_requirements = _mcp_endpoint_requirements(snapshot)
+    if not command.credential_group_ids and not endpoint_requirements:
         return
     if command.project_id is None:
         raise NotFoundError(
             code="SESSION_CREDENTIAL_GROUP_NOT_FOUND",
             message="Credential group not found",
         )
-    project_id = make_project_id(command.project_id)
-    group_ids = tuple(make_credential_group_id(str(group_id)) for group_id in command.credential_group_ids)
+    project_id = command.project_id
+    group_ids = command.credential_group_ids
     groups = tuple(await uow.groups.get_many(group_ids, project_id=command.project_id))
     members = tuple(await uow.groups.list_members(group_ids, project_id=command.project_id))
     try:
@@ -206,7 +213,7 @@ async def _validate_group_references(
             McpGroupBinding(
                 project_id=project_id,
                 group_ids=group_ids,
-                declared_server_urls=_declared_mcp_urls(snapshot),
+                endpoint_requirements=endpoint_requirements,
             ),
             groups=groups,
             members=members,
@@ -216,6 +223,13 @@ async def _validate_group_references(
             raise ResourceConflictError(
                 code="SESSION_CREDENTIAL_GROUP_ARCHIVED",
                 message="Credential group is archived",
+            ) from exc
+        if exc.code is CredentialPolicyErrorCode.REQUIRED_CREDENTIAL_MISSING:
+            raise ResourceConflictError(
+                code="SESSION_MCP_CREDENTIAL_REQUIRED",
+                message="A required MCP credential was not selected for this Session",
+                data=exc.data,
+                user_action="fix_input",
             ) from exc
         if exc.code in {
             CredentialPolicyErrorCode.GROUP_MISMATCH,
@@ -259,7 +273,7 @@ async def create_session_from_source(
                 await uow.rollback()
                 continue
 
-            group_ids = tuple(make_credential_group_id(str(group_id)) for group_id in command.credential_group_ids)
+            group_ids = command.credential_group_ids
             members = tuple(await uow.groups.list_members(group_ids, project_id=command.project_id))
             credential_ids = set(decoded.credential_ids)
             credential_ids.update(member.id for member in members)
@@ -278,29 +292,28 @@ async def create_session_from_source(
                     )
                 await _validate_resource_references(
                     decoded,
-                    project_id=make_project_id(command.project_id),
+                    project_id=command.project_id,
                     binding_service=binding_service,
                 )
             await _validate_group_references(command, locked_source.snapshot, uow)
-            persistent_snapshot = _REFERENCE_CODEC.encode_snapshot(
-                locked_source.snapshot,
-                version="v1",
-            )
+            persistent_snapshot = _REFERENCE_CODEC.encode_snapshot(locked_source.snapshot)
 
             session = await uow.sessions.create(
                 CredentialSnapshotSession(
+                    id=SessionId.new(),
                     agent_id=locked_source.agent_id,
                     project_id=command.project_id,
                     title=_session_title(command.title, locked_source.agent_name),
                     metadata=command.metadata or {},
                     credential_group_ids=command.credential_group_ids,
-                    environment_ref=locked_source.environment_ref,
+                    environment_id=locked_source.environment_id,
                     agent_version=locked_source.agent_version,
                     agent_snapshot=persistent_snapshot,
                 )
             )
             await uow.audit.append(
                 CredentialAuditEntry(
+                    id=SecurityAuditId.new(),
                     action="session.snapshot.created",
                     project_id=command.project_id,
                     target_type="session",
@@ -356,7 +369,7 @@ class NoPersistentDependencyScanner:
 
 
 class CredentialSnapshotService:
-    """Task 5 composition seam; Task 11 owns snapshot locking/linearization."""
+    """Compose session creation with credential snapshot locking."""
 
     def __init__(
         self,

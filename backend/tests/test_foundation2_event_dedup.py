@@ -25,7 +25,7 @@ from app.joysafeter_domain.models.joysafeter_session import (
     JoySafeterSession,
     JoySafeterSessionEvent,
 )
-from app.joysafeter_shared.ids import EventId, SessionId
+from app.joysafeter_shared.ids import AgentId, EventId, SessionId
 from app.joysafeter_worker.events.batch_writer import (
     BufferedEvent,
     EventBatchConfig,
@@ -36,11 +36,11 @@ from app.joysafeter_worker.events.stream_consumer import EventStreamWorker
 
 @pytest_asyncio.fixture
 async def session_id(db_session) -> SessionId:
-    agent = JoySafeterAgent(name=f"dedup-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"dedup-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
-    sess = JoySafeterSession(agent_id=agent.id)
+    sess = JoySafeterSession(id=SessionId.new(), agent_id=agent.id)
     db_session.add(sess)
     await db_session.commit()
     await db_session.refresh(sess)
@@ -55,7 +55,7 @@ async def test_duplicate_event_id_within_one_batch_inserts_once(postgres_url, db
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
 
-    dup_id = uuid.uuid4()
+    dup_id = EventId.new()
     events = [
         BufferedEvent(session_id=session_id, event_type="agent.message", payload={"i": 1}, seq=0, id=dup_id),
         BufferedEvent(session_id=session_id, event_type="agent.message", payload={"i": 2}, seq=0, id=dup_id),
@@ -82,7 +82,7 @@ async def test_redelivered_event_id_across_batches_inserts_once(postgres_url, db
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
 
-    eid = uuid.uuid4()
+    eid = EventId.new()
     ev = BufferedEvent(session_id=session_id, event_type="agent.message", payload={"i": 1}, seq=0, id=eid)
     sender = EventBatchSender(EventBatchConfig())
     try:
@@ -109,11 +109,11 @@ async def test_distinct_events_get_gapless_seq_around_a_duplicate(postgres_url, 
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr("app.joysafeter_shared.database.AsyncSessionLocal", factory)
 
-    dup = uuid.uuid4()
+    dup = EventId.new()
     events = [
         BufferedEvent(session_id=session_id, event_type="agent.message", payload={"n": 1}, seq=0, id=dup),
         BufferedEvent(session_id=session_id, event_type="agent.message", payload={"n": 2}, seq=0, id=dup),  # dup
-        BufferedEvent(session_id=session_id, event_type="agent.message", payload={"n": 3}, seq=0, id=uuid.uuid4()),
+        BufferedEvent(session_id=session_id, event_type="agent.message", payload={"n": 3}, seq=0, id=EventId.new()),
         BufferedEvent(session_id=session_id, event_type="agent.message", payload={"n": 4}, seq=0, id=None),  # id-less
     ]
     sender = EventBatchSender(EventBatchConfig())
@@ -152,7 +152,7 @@ async def test_batch_writer_skips_session_status_events_without_consuming_seq(
             event_type="session.status_idle",
             payload={"task_id": str(uuid.uuid4()), "stop_reason": {"type": "end_turn"}},
             seq=0,
-            id=uuid.uuid4(),
+            id=EventId.new(),
         ),
         BufferedEvent(session_id=session_id, event_type="agent.message", payload={"content": "done"}, seq=0),
     ]

@@ -21,12 +21,13 @@ from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import AgentId, OrganizationId, SessionId, TaskId, UserId
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=UserId.new(),
+        org_id=OrganizationId.new(),
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -36,12 +37,12 @@ def _auth_ctx() -> JoySafeterAuthContext:
 async def test_stop_session_is_idempotent_when_task_becomes_terminal_during_stop(db_session, monkeypatch):
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
 
-    agent = JoySafeterAgent(name=f"stop-race-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"stop-race-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="running")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -51,6 +52,7 @@ async def test_stop_session_is_idempotent_when_task_becomes_terminal_during_stop
     # (nothing to relay to). The stop's first active-task snapshot still reports it
     # as active — modelling the TOCTOU window.
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         chat_session_id=session_id,
         prompt="scan target",
@@ -74,7 +76,7 @@ async def test_stop_session_is_idempotent_when_task_becomes_terminal_during_stop
 
     # Must not raise a bare ValueError (which would surface as a 500).
     result = await stop_session(session_id, db_session, _auth_ctx())
-    assert result["status"] == "idle"
+    assert result.status == "idle"
 
     db_session.expire_all()
     session_row = (

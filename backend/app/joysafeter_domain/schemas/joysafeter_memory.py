@@ -1,11 +1,11 @@
 import re
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.joysafeter_shared.ids import MemoryId, MemoryStoreId, MemoryVersionId
+from app.joysafeter_shared.ids import ApiKeyId, MemoryId, MemoryStoreId, MemoryVersionId, SessionId, UserId
 
 MEMORY_MAX_CONTENT_BYTES = 102400  # 100 KB
 MEMORY_MAX_PATH_BYTES = 1024
@@ -51,6 +51,7 @@ class MemoryStoreResponse(BaseModel):
     archived_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class CreateMemoryRequest(BaseModel):
     path: str
@@ -110,6 +111,28 @@ class MemoryResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class MemorySessionActor(BaseModel):
+    type: Literal["session_actor"] = "session_actor"
+    session_id: SessionId
+
+
+class MemoryApiActor(BaseModel):
+    type: Literal["api_actor"] = "api_actor"
+    api_key_id: ApiKeyId
+
+
+class MemoryUserActor(BaseModel):
+    type: Literal["user_actor"] = "user_actor"
+    user_id: UserId
+
+
+MemoryActor = Annotated[
+    Union[MemorySessionActor, MemoryApiActor, MemoryUserActor],
+    Field(discriminator="type"),
+]
+
+
 class MemoryVersionResponse(BaseModel):
     id: MemoryVersionId
     type: str = "memory_version"
@@ -120,10 +143,9 @@ class MemoryVersionResponse(BaseModel):
     content: Optional[str] = None
     content_sha256: Optional[str] = None
     content_size_bytes: Optional[int] = None
-    created_by: Optional[dict[str, Any]] = None
+    created_by: Optional[MemoryActor] = None
     created_at: datetime
     redacted_at: Optional[datetime] = None
     redacted_by: Optional[dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
-

@@ -11,6 +11,14 @@ from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMemb
 from app.joysafeter_shared.common.app_errors import AccessDeniedError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
 from app.joysafeter_shared.common.joysafeter_auth.dependencies import _auth_via_api_key
+from app.joysafeter_shared.ids import (
+    ApiKeyId,
+    OrganizationId,
+    OrganizationMemberId,
+    ProjectId,
+    ProjectMemberId,
+    UserId,
+)
 
 
 async def _key_setup(
@@ -26,11 +34,11 @@ async def _key_setup(
     creator_org_role None => the creator has NO org Member row (removed).
     creator_project_role None => the creator has NO ProjectMember row.
     """
-    org_id = f"org-{uuid.uuid4()}"
-    creator = AuthUser(id=f"user-{uuid.uuid4()}", name="Creator", email=f"{uuid.uuid4()}@example.com")
+    org_id = OrganizationId.new()
+    creator = AuthUser(id=UserId.new(), name="Creator", email=f"{uuid.uuid4()}@example.com")
     org = Organization(id=org_id, name="Org", slug=f"org-{uuid.uuid4()}")
     project = Project(
-        id=f"proj-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org_id,
         name="P",
         slug="default" if is_default else f"project-{uuid.uuid4()}",
@@ -39,12 +47,27 @@ async def _key_setup(
     db_session.add_all([creator, org, project])
     await db_session.flush()
     if creator_org_role is not None:
-        db_session.add(Member(user_id=creator.id, organization_id=org_id, role=creator_org_role))
+        db_session.add(
+            Member(
+                id=OrganizationMemberId.new(),
+                user_id=creator.id,
+                organization_id=org_id,
+                role=creator_org_role,
+            )
+        )
     if creator_project_role is not None:
-        db_session.add(ProjectMember(project_id=project.id, user_id=creator.id, role=creator_project_role))
+        db_session.add(
+            ProjectMember(
+                id=ProjectMemberId.new(),
+                project_id=project.id,
+                user_id=creator.id,
+                role=creator_project_role,
+            )
+        )
     raw_key = f"sk-{uuid.uuid4()}"
     db_session.add(
         JoySafeterApiKey(
+            id=ApiKeyId.new(),
             project_id=project.id,
             org_id=org_id,
             name="k",
@@ -121,15 +144,16 @@ async def test_key_valid_when_creator_is_org_superuser_without_row(db_session):
 async def test_revoked_key_returns_none_before_creator_check(db_session):
     # A revoked key must still short-circuit to None (not the creator-access
     # error), preserving the existing INVALID_API_KEY behavior.
-    org_id = f"org-{uuid.uuid4()}"
-    creator = AuthUser(id=f"user-{uuid.uuid4()}", name="C", email=f"{uuid.uuid4()}@example.com")
+    org_id = OrganizationId.new()
+    creator = AuthUser(id=UserId.new(), name="C", email=f"{uuid.uuid4()}@example.com")
     org = Organization(id=org_id, name="Org", slug=f"org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="P", slug="default", is_default=True)
+    project = Project(id=ProjectId.new(), org_id=org_id, name="P", slug="default", is_default=True)
     db_session.add_all([creator, org, project])
     await db_session.flush()
     raw_key = f"sk-{uuid.uuid4()}"
     db_session.add(
         JoySafeterApiKey(
+            id=ApiKeyId.new(),
             project_id=project.id,
             org_id=org_id,
             name="k",

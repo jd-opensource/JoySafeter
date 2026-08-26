@@ -1,9 +1,10 @@
 import logging
 import re
 import unicodedata
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse as PaginatedResponse
@@ -34,12 +35,22 @@ from app.joysafeter_shared.ids import (
     MemoryId,
     MemoryStoreId,
     MemoryVersionId,
+    ProjectId,
     SandboxId,
     SessionId,
     as_uuid,
 )
 
 router = APIRouter(tags=["joysafeter-memory-stores"])
+
+
+class MemoryStoreArchiveResponse(BaseModel):
+    status: Literal["archived"]
+
+
+class MemoryVersionRedactResponse(BaseModel):
+    status: Literal["redacted"]
+
 
 logger = logging.getLogger(__name__)
 
@@ -354,7 +365,7 @@ def _memory_to_response(mem, view: Optional[str] = None) -> MemoryResponse:
 def _version_to_response(ver, view: Optional[str] = None) -> MemoryVersionResponse:
     created_by = None
     if ver.session_id:
-        created_by = {"type": "session_actor", "session_id": str(ver.session_id)}
+        created_by = {"type": "session_actor", "session_id": ver.session_id}
     elif ver.api_key_id:
         created_by = {"type": "api_actor", "api_key_id": ver.api_key_id}
     return MemoryVersionResponse(
@@ -376,7 +387,7 @@ def _version_to_response(ver, view: Optional[str] = None) -> MemoryVersionRespon
 async def _get_store_or_404(
     svc: MemoryService,
     store_id: MemoryStoreId,
-    project_id: str | None,
+    project_id: ProjectId | None,
     *,
     include_archived: bool = False,
 ):
@@ -386,11 +397,11 @@ async def _get_store_or_404(
     return store
 
 
-async def _get_readable_store_or_404(svc: MemoryService, store_id: MemoryStoreId, project_id: str | None):
+async def _get_readable_store_or_404(svc: MemoryService, store_id: MemoryStoreId, project_id: ProjectId | None):
     return await _get_store_or_404(svc, store_id, project_id, include_archived=True)
 
 
-async def _get_mutable_store_or_404(svc: MemoryService, store_id: MemoryStoreId, project_id: str | None):
+async def _get_mutable_store_or_404(svc: MemoryService, store_id: MemoryStoreId, project_id: ProjectId | None):
     store = await _get_store_or_404(svc, store_id, project_id, include_archived=True)
     if store.archived_at is not None:
         raise _memory_store_archived_error(store_id)
@@ -485,7 +496,7 @@ async def delete_memory_store(
     store_id: MemoryStoreId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-) -> dict:
+) -> MemoryStoreResponse:
     svc = MemoryService(db)
     store = await _get_mutable_store_or_404(svc, store_id, auth_ctx.project_id)
     response = _store_to_response(store)
@@ -495,7 +506,7 @@ async def delete_memory_store(
         raise _memory_store_conflict_error(store_id, exc) from exc
     if not ok:
         raise _memory_store_not_found_error(store_id)
-    return response.model_dump(mode="json")
+    return response
 
 
 @router.post("/{store_id}/archive")
@@ -503,7 +514,7 @@ async def archive_memory_store(
     store_id: MemoryStoreId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-) -> dict:
+) -> MemoryStoreArchiveResponse:
     svc = MemoryService(db)
     await _get_mutable_store_or_404(svc, store_id, auth_ctx.project_id)
     try:
@@ -512,7 +523,7 @@ async def archive_memory_store(
         raise _memory_store_conflict_error(store_id, exc) from exc
     if not ok:
         raise _memory_store_not_found_error(store_id)
-    return {"status": "archived"}
+    return MemoryStoreArchiveResponse(status="archived")
 
 
 # --- Memory CRUD ---
@@ -735,7 +746,7 @@ async def delete_memory(
     expected_content_sha256: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-) -> dict:
+) -> MemoryResponse:
     svc = MemoryService(db)
     await _get_mutable_store_or_404(svc, store_id, auth_ctx.project_id)
     mem = await svc.get_memory(store_id, memory_id, project_id=auth_ctx.project_id)
@@ -758,7 +769,7 @@ async def delete_memory(
     if not ok:
         raise _memory_not_found_error(store_id, memory_id)
     await _broadcast_memory_update(store_id, mem_path, "", "deleted", db)
-    return response.model_dump(mode="json")
+    return response
 
 
 # --- Memory Versions ---
@@ -818,7 +829,7 @@ async def redact_memory_version(
     version_id: MemoryVersionId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-) -> dict:
+) -> MemoryVersionRedactResponse:
     svc = MemoryService(db)
     await _get_mutable_store_or_404(svc, store_id, auth_ctx.project_id)
     ver = await svc.get_version(store_id, version_id, project_id=auth_ctx.project_id)
@@ -838,4 +849,4 @@ async def redact_memory_version(
     ok = await svc.redact_version(store_id, version_id, project_id=auth_ctx.project_id)
     if not ok:
         raise _memory_version_not_found_error(store_id, version_id)
-    return {"status": "redacted"}
+    return MemoryVersionRedactResponse(status="redacted")

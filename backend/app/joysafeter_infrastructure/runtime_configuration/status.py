@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,53 +8,28 @@ from app.joysafeter_domain.credentials.references import CredentialReferenceCode
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_sandbox import JoySafeterSandbox
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
-from app.joysafeter_shared.ids import SandboxId, SessionId
+from app.joysafeter_shared.ids import EnvironmentId, SandboxId, SessionId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 _REFERENCE_CODEC = CredentialReferenceCodec()
 _LIVE_SANDBOX_STATUSES = ("creating", "provisioning", "idle", "running")
 
 
-def _snapshot_environment_refs(snapshot: object) -> frozenset[str]:
-    if not isinstance(snapshot, Mapping):
-        return frozenset()
-    environment = snapshot.get("environment")
-    if not isinstance(environment, Mapping):
-        return frozenset()
-    return frozenset(
-        str(value).strip()
-        for key in ("id", "ref", "name")
-        if (value := environment.get(key)) is not None and str(value).strip()
-    )
-
-
 async def _active_environments(
     db: AsyncSession,
     impact: CredentialImpact,
-) -> list[tuple[str, str, object]]:
+) -> list[tuple[EnvironmentId, object]]:
     rows = await db.execute(
         select(
             JoySafeterEnvironment.id,
-            JoySafeterEnvironment.name,
             JoySafeterEnvironment.config,
         ).where(
-            JoySafeterEnvironment.project_id == str(impact.project_id),
+            JoySafeterEnvironment.project_id == impact.project_id,
             JoySafeterEnvironment.deleted_at.is_(None),
             JoySafeterEnvironment.archived_at.is_(None),
         )
     )
-    return [(str(environment_id), name, config) for environment_id, name, config in rows.all()]
-
-
-def _session_matches_environment(
-    session: JoySafeterSession,
-    *,
-    environment_refs: frozenset[str],
-) -> bool:
-    explicit_ref = (session.environment_ref or "").strip()
-    if explicit_ref:
-        return explicit_ref in environment_refs
-    return bool(_snapshot_environment_refs(session.agent_snapshot) & environment_refs)
+    return [(environment_id, config) for environment_id, config in rows.all()]
 
 
 def _snapshot_references_direct_credential(snapshot: object, cred_id_str: str) -> bool:
@@ -71,34 +44,27 @@ def _snapshot_references_direct_credential(snapshot: object, cred_id_str: str) -
 async def _affected_session_ids(db: AsyncSession, impact: CredentialImpact) -> list[SessionId]:
     environments = await _active_environments(db, impact)
     if impact.source == "environment":
-        environment_refs = frozenset(
-            value
-            for environment_id, environment_name, _config in environments
-            if environment_id == impact.source_id
-            for value in (environment_id, environment_name)
-        )
-        if not environment_refs:
+        environment_id = EnvironmentId.from_public(impact.source_id)
+        if all(candidate_id != environment_id for candidate_id, _config in environments):
             return []
 
         def is_affected(session: JoySafeterSession) -> bool:
-            return _session_matches_environment(session, environment_refs=environment_refs)
+            return session.environment_id == environment_id
 
     elif impact.source == "credential":
         credential_id = impact.source_id or ""
-        environment_refs = frozenset(
-            value
-            for environment_id, environment_name, config in environments
+        environment_ids = frozenset(
+            environment_id
+            for environment_id, config in environments
             if any(
                 str(candidate) == credential_id
                 for candidate in _REFERENCE_CODEC.decode_environment(config).direct_credential_ids
             )
-            for value in (environment_id, environment_name)
         )
 
         def is_affected(session: JoySafeterSession) -> bool:
-            explicit_ref = (session.environment_ref or "").strip()
-            if explicit_ref:
-                return explicit_ref in environment_refs
+            if session.environment_id is not None:
+                return session.environment_id in environment_ids
             return _snapshot_references_direct_credential(session.agent_snapshot, credential_id)
 
     else:
@@ -108,7 +74,7 @@ async def _affected_session_ids(db: AsyncSession, impact: CredentialImpact) -> l
         (
             await db.execute(
                 select(JoySafeterSession).where(
-                    JoySafeterSession.project_id == str(impact.project_id),
+                    JoySafeterSession.project_id == impact.project_id,
                     JoySafeterSession.archived_at.is_(None),
                     JoySafeterSession.status != "terminated",
                 )
@@ -126,7 +92,7 @@ async def _affected_session_ids(db: AsyncSession, impact: CredentialImpact) -> l
                 select(JoySafeterSession)
                 .where(
                     JoySafeterSession.id.in_(candidate_ids),
-                    JoySafeterSession.project_id == str(impact.project_id),
+                    JoySafeterSession.project_id == impact.project_id,
                     JoySafeterSession.archived_at.is_(None),
                     JoySafeterSession.status != "terminated",
                 )
@@ -148,7 +114,7 @@ async def mark_live_sandboxes_restart_required(
     db: AsyncSession,
     impact: CredentialImpact,
     *,
-    already_advanced_session_ids: frozenset[str] = frozenset(),
+    already_advanced_session_ids: frozenset[SessionId] = frozenset(),
 ) -> tuple[list[SessionId], list[SandboxId]]:
     if impact.source_id is None:
         raise ValueError("credential impact source_id is required")
@@ -156,7 +122,7 @@ async def mark_live_sandboxes_restart_required(
     if not session_ids:
         return [], []
     session_ids_to_advance = [
-        session_id for session_id in session_ids if str(session_id) not in already_advanced_session_ids
+        session_id for session_id in session_ids if session_id not in already_advanced_session_ids
     ]
     changed_at = utc_now()
     if session_ids_to_advance:
@@ -173,7 +139,7 @@ async def mark_live_sandboxes_restart_required(
     marked = await db.execute(
         update(JoySafeterSandbox)
         .where(
-            JoySafeterSandbox.project_id == str(impact.project_id),
+            JoySafeterSandbox.project_id == impact.project_id,
             JoySafeterSandbox.chat_session_id.in_(session_ids),
             JoySafeterSandbox.destroyed_at.is_(None),
             JoySafeterSandbox.status.in_(_LIVE_SANDBOX_STATUSES),

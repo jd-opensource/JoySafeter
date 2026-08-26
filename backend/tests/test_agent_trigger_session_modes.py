@@ -9,9 +9,23 @@ from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_application.triggers.execution_service import AgentTriggerExecutor, AgentTriggerRunConfig
 from app.joysafeter_domain.models.joysafeter_session import SessionStatus
 from app.joysafeter_shared.common.app_errors import AppError
-from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
+from app.joysafeter_shared.ids import (
+    AgentId,
+    EnvironmentId,
+    OrganizationId,
+    ProjectId,
+    SessionId,
+    TaskId,
+    TriggerId,
+    UserId,
+)
 
 pytestmark = pytest.mark.no_db
+
+PROJECT_ID = ProjectId.new()
+OTHER_PROJECT_ID = ProjectId.new()
+USER_ID = UserId.new()
+ORGANIZATION_ID = OrganizationId.new()
 
 
 class _NoActiveTaskResult:
@@ -68,7 +82,7 @@ def _agent(agent_id: AgentId | None = None):
         id=agent_id or AgentId.new(),
         name="agent",
         version=1,
-        environment_ref=None,
+        environment_id=None,
         env={},
         mcp_servers=[],
         skills=[],
@@ -86,7 +100,7 @@ def _session(
     *,
     agent_id: AgentId,
     status: str = SessionStatus.IDLE.value,
-    environment_ref: str | None = None,
+    environment_id: EnvironmentId | None = None,
     metadata: dict | None = None,
 ):
     return SimpleNamespace(
@@ -94,7 +108,7 @@ def _session(
         agent_id=agent_id,
         status=status,
         archived_at=None,
-        environment_ref=environment_ref,
+        environment_id=environment_id,
         metadata_=metadata or {},
     )
 
@@ -105,17 +119,17 @@ def _config(agent, **overrides):
         name="Daily",
         source="trigger:cron:test",
         prompt="run",
-        environment_ref=None,
+        environment_id=None,
         timeout_sec=7200,
         max_retries=2,
-        project_id="project-a",
-        user_id="user-a",
-        org_id="org-a",
+        project_id=PROJECT_ID,
+        user_id=USER_ID,
+        org_id=ORGANIZATION_ID,
         idempotency_key=f"test:{uuid.uuid4()}",
         session_mode="fresh",
         pinned_session_id=None,
         reusable_session_id=None,
-        trigger_id=uuid.uuid4(),
+        trigger_id=TriggerId.new(),
         metadata={"trigger_type": "cron"},
     )
     values.update(overrides)
@@ -152,7 +166,7 @@ def patch_executor_dependencies(monkeypatch):
                 status=SessionStatus.IDLE.value,
                 archived_at=None,
                 title=command.title,
-                environment_ref=command.environment_ref,
+                environment_id=command.environment_id,
                 metadata_=dict(command.metadata or {}),
             )
             state["sessions"][session.id] = session
@@ -163,9 +177,9 @@ def patch_executor_dependencies(monkeypatch):
         def __init__(self, db):
             self.db = db
 
-        async def get_environment_by_ref(self, environment_ref, project_id=None):
-            state["environment_lookups"].append((environment_ref, project_id))
-            environment = state["environments"].get(environment_ref)
+        async def get_environment(self, environment_id, project_id=None):
+            state["environment_lookups"].append((environment_id, project_id))
+            environment = state["environments"].get(environment_id)
             if environment is None or environment.deleted_at is not None:
                 return None
             if project_id is not None and environment.project_id != project_id:
@@ -292,33 +306,34 @@ async def test_reused_session_explicit_invalid_environment_binding_fails_closed(
     expected_code,
 ):
     agent = _agent()
-    agent.environment_ref = "live-environment"
-    patch_executor_dependencies["environments"]["live-environment"] = SimpleNamespace(
-        id="live-environment-id",
-        project_id="project-a",
+    live_environment_id = EnvironmentId.new()
+    agent.environment_id = live_environment_id
+    patch_executor_dependencies["environments"][live_environment_id] = SimpleNamespace(
+        id=live_environment_id,
+        project_id=PROJECT_ID,
         archived_at=None,
         deleted_at=None,
     )
 
-    invalid_ref = f"{binding_state}-environment"
+    invalid_environment_id = EnvironmentId.new()
     if binding_state != "missing":
-        patch_executor_dependencies["environments"][invalid_ref] = SimpleNamespace(
-            id=f"{binding_state}-environment-id",
-            project_id="project-b" if binding_state == "cross_project" else "project-a",
+        patch_executor_dependencies["environments"][invalid_environment_id] = SimpleNamespace(
+            id=invalid_environment_id,
+            project_id=OTHER_PROJECT_ID if binding_state == "cross_project" else PROJECT_ID,
             archived_at=object() if binding_state == "archived" else None,
             deleted_at=object() if binding_state == "deleted" else None,
         )
 
     reused = _session(
         agent_id=agent.id,
-        environment_ref=invalid_ref,
+        environment_id=invalid_environment_id,
         metadata={"trigger_session_key": "alpha"},
     )
     patch_executor_dependencies["sessions"][reused.id] = reused
     db = _FakeDb(keyed_session=reused if session_mode == "keyed" else None, with_trigger_lock=False)
     config_overrides = {
         "session_mode": session_mode,
-        "environment_ref": "live-environment",
+        "environment_id": live_environment_id,
         "trigger_id": None,
         "session_key": "alpha" if session_mode == "keyed" else None,
         "pinned_session_id": reused.id if session_mode == "pinned" else None,
@@ -331,22 +346,23 @@ async def test_reused_session_explicit_invalid_environment_binding_fails_closed(
         )
 
     assert exc_info.value.code == expected_code
-    assert patch_executor_dependencies["environment_lookups"] == [(invalid_ref, "project-a")]
+    assert patch_executor_dependencies["environment_lookups"] == [(invalid_environment_id, PROJECT_ID)]
     assert patch_executor_dependencies["created"] == []
     assert _FakeSubmission.last_kwargs is None
 
 
 @pytest.mark.parametrize("session_mode", ["pinned", "reuse", "keyed"])
 @pytest.mark.asyncio
-async def test_reused_session_without_environment_binding_keeps_existing_fallback(
+async def test_reused_session_without_environment_binding_skips_environment_lookup(
     patch_executor_dependencies,
     session_mode,
 ):
     agent = _agent()
-    agent.environment_ref = "live-environment"
+    live_environment_id = EnvironmentId.new()
+    agent.environment_id = live_environment_id
     reused = _session(
         agent_id=agent.id,
-        environment_ref=None,
+        environment_id=None,
         metadata={"trigger_session_key": "alpha"},
     )
     patch_executor_dependencies["sessions"][reused.id] = reused
@@ -356,7 +372,7 @@ async def test_reused_session_without_environment_binding_keeps_existing_fallbac
         _config(
             agent,
             session_mode=session_mode,
-            environment_ref="live-environment",
+            environment_id=live_environment_id,
             trigger_id=None,
             session_key="alpha" if session_mode == "keyed" else None,
             pinned_session_id=reused.id if session_mode == "pinned" else None,

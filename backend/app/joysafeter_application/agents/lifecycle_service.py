@@ -12,7 +12,7 @@ from app.joysafeter_application.agents.ports import (
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_shared.common.app_errors import ResourceConflictError, ServiceUnavailableError
-from app.joysafeter_shared.ids import AgentId, SessionId
+from app.joysafeter_shared.ids import AgentId, ProjectId, SessionId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ class AgentLifecycleService:
         self,
         agent_id: AgentId,
         *,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
         all_trigger_projects: bool = False,
     ) -> tuple[list[JoySafeterTrigger], Optional[JoySafeterAgent]]:
         trigger_project_id = None if all_trigger_projects else project_id
@@ -56,7 +56,7 @@ class AgentLifecycleService:
         self,
         agent_id: AgentId,
         force: bool = False,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> bool:
         return await self._run_transaction(lambda: self._delete_agent(agent_id, force=force, project_id=project_id))
 
@@ -64,7 +64,7 @@ class AgentLifecycleService:
         self,
         agent_id: AgentId,
         force: bool = False,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> bool:
         triggers, agent = await self._lock_lifecycle_aggregate(
             agent_id,
@@ -79,12 +79,12 @@ class AgentLifecycleService:
         return True
 
     async def archive_agent_with_sessions(
-        self, agent_id: AgentId, project_id: Optional[str] = None
+        self, agent_id: AgentId, project_id: ProjectId | None = None
     ) -> tuple[bool, list[SessionId]]:
         return await self._run_transaction(lambda: self._archive_agent_with_sessions(agent_id, project_id=project_id))
 
     async def _archive_agent_with_sessions(
-        self, agent_id: AgentId, project_id: Optional[str] = None
+        self, agent_id: AgentId, project_id: ProjectId | None = None
     ) -> tuple[bool, list[SessionId]]:
         triggers, agent = await self._lock_lifecycle_aggregate(
             agent_id,
@@ -105,10 +105,10 @@ class AgentLifecycleService:
         agent.updated_at = now
         return True, session_ids
 
-    async def restore_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> bool:
+    async def restore_agent(self, agent_id: AgentId, project_id: ProjectId | None = None) -> bool:
         return await self._run_transaction(lambda: self._restore_agent(agent_id, project_id=project_id))
 
-    async def _restore_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> bool:
+    async def _restore_agent(self, agent_id: AgentId, project_id: ProjectId | None = None) -> bool:
         triggers, agent = await self._lock_lifecycle_aggregate(
             agent_id,
             project_id=project_id,
@@ -124,10 +124,10 @@ class AgentLifecycleService:
         await self._triggers.resume_locked_agent_triggers(triggers)
         return True
 
-    async def hard_delete_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> bool:
+    async def hard_delete_agent(self, agent_id: AgentId, project_id: ProjectId | None = None) -> bool:
         return await self._run_transaction(lambda: self._hard_delete_agent(agent_id, project_id=project_id))
 
-    async def _hard_delete_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> bool:
+    async def _hard_delete_agent(self, agent_id: AgentId, project_id: ProjectId | None = None) -> bool:
         _triggers, agent = await self._lock_lifecycle_aggregate(
             agent_id,
             project_id=project_id,
@@ -140,10 +140,14 @@ class AgentLifecycleService:
         await self._repository.hard_delete_owned_rows(agent_id)
         return True
 
-    async def archive_sessions_for_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> list[SessionId]:
+    async def archive_sessions_for_agent(
+        self, agent_id: AgentId, project_id: ProjectId | None = None
+    ) -> list[SessionId]:
         return await self._run_transaction(lambda: self._archive_sessions_for_agent(agent_id, project_id=project_id))
 
-    async def _archive_sessions_for_agent(self, agent_id: AgentId, project_id: Optional[str] = None) -> list[SessionId]:
+    async def _archive_sessions_for_agent(
+        self, agent_id: AgentId, project_id: ProjectId | None = None
+    ) -> list[SessionId]:
         _triggers, agent = await self._lock_lifecycle_aggregate(
             agent_id,
             project_id=project_id,
@@ -158,7 +162,7 @@ class AgentLifecycleService:
                 raise ValueError("Agent has active tasks. Stop or cancel them before archiving sessions.")
         return session_ids
 
-    async def _cancel_active_tasks(self, agent_id: AgentId, *, project_id: Optional[str]) -> None:
+    async def _cancel_active_tasks(self, agent_id: AgentId, *, project_id: ProjectId | None) -> None:
         active_tasks = await self._repository.list_active_tasks(agent_id, project_id=project_id)
         cancelled = 0
         for task in active_tasks:
@@ -208,7 +212,7 @@ class AgentLifecycleService:
         agent_id: AgentId,
         *,
         force: bool,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
     ) -> bool:
         return await self._run_transaction(
             lambda: self._delete_with_cleanup(agent_id, force=force, project_id=project_id)
@@ -219,7 +223,7 @@ class AgentLifecycleService:
         agent_id: AgentId,
         *,
         force: bool,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
     ) -> bool:
         agent = await self._repository.get(agent_id, project_id=project_id)
         if agent is None:

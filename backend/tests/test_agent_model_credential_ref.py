@@ -33,27 +33,32 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
 )
 from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
 from app.joysafeter_shared.common.app_errors import AppError
-from app.joysafeter_shared.ids import CredentialId
+from app.joysafeter_shared.ids import CredentialId, OrganizationId, ProjectId
 
 
-async def _make_project(db_session) -> str:
-    org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+async def _make_project(db_session) -> ProjectId:
+    org = Organization(id=OrganizationId.new(), name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+    project = Project(
+        id=ProjectId.new(),
+        org_id=org.id,
+        name=f"proj-{uuid.uuid4()}",
+        slug=f"proj-{uuid.uuid4()}",
+    )
     db_session.add(project)
     await db_session.commit()
     return project.id
 
 
 @pytest_asyncio.fixture
-async def project_id(db_session) -> str:
+async def project_id(db_session) -> ProjectId:
     return await _make_project(db_session)
 
 
 async def _make_model_credential(
     db_session,
-    project_id: str,
+    project_id: ProjectId,
     *,
     provider: str = "anthropic",
     protocol: str = "anthropic_messages",
@@ -75,7 +80,7 @@ async def _make_model_credential(
     return cred.id
 
 
-async def _make_service_credential(db_session, project_id: str) -> CredentialId:
+async def _make_service_credential(db_session, project_id: ProjectId) -> CredentialId:
     cred = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(kind="service", name=f"s-{uuid.uuid4()}", data={"TOKEN": "t"}),
         project_id=project_id,

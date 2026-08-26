@@ -42,7 +42,7 @@ from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredential
 from app.joysafeter_infrastructure.credentials.material_adapter import ManagedCredentialMaterialAdapter
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import CredentialId
+from app.joysafeter_shared.ids import CredentialId, OrganizationId, ProjectId, UserId
 
 APP_ROOT = Path(__file__).parents[1] / "app"
 ENDPOINT_PATHS = (
@@ -50,27 +50,33 @@ ENDPOINT_PATHS = (
     APP_ROOT / "joysafeter_api/api/v1/skills_ai_authoring.py",
 )
 AGENT_CREDENTIAL_BINDING_PATH = APP_ROOT / "joysafeter_infrastructure/agents/credential_binding_adapter.py"
+TEST_USER_ID = UserId.new()
+TEST_ORGANIZATION_ID = OrganizationId.new()
 
 
-async def _make_project(db_session) -> str:
-    org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+async def _make_project(
+    db_session,
+    *,
+    organization_id: OrganizationId = TEST_ORGANIZATION_ID,
+) -> ProjectId:
+    org = Organization(id=organization_id, name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
     db_session.add(project)
     await db_session.commit()
     return project.id
 
 
 @pytest_asyncio.fixture
-async def project_id(db_session) -> str:
+async def project_id(db_session) -> ProjectId:
     return await _make_project(db_session)
 
 
-def _auth_ctx(project_id: str) -> JoySafeterAuthContext:
+def _auth_ctx(project_id: ProjectId) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=project_id,
         role=JoySafeterRole.MEMBER,
     )
@@ -93,7 +99,7 @@ def _request() -> Request:
 
 async def _make_model_credential(
     db_session,
-    project_id: str,
+    project_id: ProjectId,
     *,
     provider: str = "openai",
     protocol: str = "openai_responses",
@@ -112,7 +118,7 @@ async def _make_model_credential(
     return credential.id
 
 
-async def _invoke(endpoint: str, credential_id: CredentialId, db_session, project_id: str):
+async def _invoke(endpoint: str, credential_id: CredentialId, db_session, project_id: ProjectId):
     if endpoint == "quickstart":
         return await quickstart_chat(
             QuickstartChatRequest(
@@ -241,7 +247,7 @@ async def test_ephemeral_consumers_hide_deleted_credentials(endpoint, db_session
 @pytest.mark.parametrize("endpoint", ["quickstart", "authoring"])
 @pytest.mark.asyncio
 async def test_ephemeral_consumers_hide_wrong_project_credentials(endpoint, db_session, project_id):
-    other_project_id = await _make_project(db_session)
+    other_project_id = await _make_project(db_session, organization_id=OrganizationId.new())
     credential_id = await _make_model_credential(db_session, other_project_id)
 
     with pytest.raises(AppError) as exc_info:
@@ -351,13 +357,13 @@ async def test_ephemeral_consumers_load_only_catalog_authorized_material(
     assert audit.usage == "model_inference"
     assert audit.consumer_type == ("quickstart_chat" if endpoint == "quickstart" else "skill_ai_authoring")
     assert audit.principal_type == "user"
-    assert audit.principal_id == "test-user"
+    assert audit.principal_id == str(TEST_USER_ID)
     assert audit.field_names == ["OPENAI_API_KEY", "OPENAI_MODEL"]
     credential = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).get(
         credential_id, project_id=project_id
     )
-    assert credential.data["OPENAI_API_KEY"].startswith("enc:v1:")
-    assert credential.data["UNRELATED_SECRET"].startswith("enc:v1:")
+    assert credential.data["OPENAI_API_KEY"].startswith("enc:v2:")
+    assert credential.data["UNRELATED_SECRET"].startswith("enc:v2:")
 
 
 def test_ephemeral_consumers_share_agent_model_inference_policy_builder() -> None:
@@ -374,8 +380,8 @@ def test_model_inference_policy_rejects_disabled_engine_before_candidates() -> N
     with pytest.raises(ValueError, match="disabled"):
         build_model_inference_policy(
             catalog,
-            project_id="project-1",
-            credential_id="credential-1",
+            project_id=ProjectId.new(),
+            credential_id=CredentialId.new(),
             engine_kind="codex",
             model_id=None,
         )

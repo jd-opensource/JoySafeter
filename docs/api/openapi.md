@@ -54,7 +54,7 @@ All paths are under `/api/v1`.
 | **Sessions** | `/sessions` | CRUD, archive, stop, `POST /events` (send message), `GET /events` (history), **SSE** `/events/stream`, resources (files/repos) |
 | **Environments** | `/environments` | Sandbox image/config CRUD |
 | **LLM Catalog** | `/llm/catalog` | Engine capabilities, Protocol definitions, Provider bindings, Credential Profiles |
-| **Secrets** | `/secrets` | LLM model configurations and generic secrets, AES-256-GCM encrypted |
+| **Credentials** | `/credentials` | Model connections, service credentials, MCP members, lifecycle, and connectivity tests |
 | **Credential groups** | `/credential-groups` | MCP server credential groups and closed header-auth schemes |
 | **Skills** | `/skills` | CRUD, `import-zip`, files, versions, security-scans, lifecycle transitions, admin `rescan-all` |
 | **Skills AI authoring** | `/skills/ai-authoring` | **SSE** `/chat` (LLM authoring turn), `/save-draft` |
@@ -65,8 +65,8 @@ All paths are under `/api/v1`.
 | **Quickstart** | `/quickstart` | **SSE** `/chat` — guided onboarding LLM proxy |
 | **Health** | `/health` | readiness (Postgres + Redis), liveness |
 
-An Agent stores `engine_kind + secret_ref`. The referenced LLM Secret stores an explicit
-`kind=llm + provider + protocol + credentials` identity. MCP credentials live in **Vaults**.
+An Agent stores `engine_kind + model_credential_id`. The referenced model Credential stores an
+explicit `kind=model + provider + protocol + data` identity. MCP credentials belong to Credential Groups.
 
 ## LLM Catalog and model configurations
 
@@ -76,11 +76,11 @@ An Agent stores `engine_kind + secret_ref`. The referenced LLM Secret stores an 
 - Providers declare Protocol bindings and Credential Profiles.
 - Credential Profiles declare accepted fields, required alternatives, `base_url_key`, and `model_key`.
 
-Create an LLM Secret with `POST /api/v1/secrets`:
+Create a model Credential with `POST /api/v1/credentials`:
 
 ```json
 {
-  "kind": "llm",
+  "kind": "model",
   "name": "openai-production",
   "provider": "openai",
   "protocol": "openai_responses",
@@ -92,15 +92,15 @@ Create an LLM Secret with `POST /api/v1/secrets`:
 }
 ```
 
-Create a generic Secret with `kind=generic`, no `provider` or `protocol`, and arbitrary `data`.
-The LLM identity fields are immutable after creation; `PUT /secrets/{secret_id}` updates
-credential `data` only.
+Create a service Credential with `kind=service`, no `provider` or `protocol`, and arbitrary `data`.
+The model identity fields are immutable after creation; `PATCH /credentials/{credential_id}` updates
+the mutable credential fields only.
 
-Useful Secret list filters:
+Useful Credential list filters:
 
 | Query | Meaning |
 |---|---|
-| `kind=llm` | Return only model configurations |
+| `kind=model` | Return only model configurations |
 | `compatible_engine=codex` | Return only configurations whose Protocol is supported by Codex |
 | `name=openai-production` | Exact project-scoped name lookup |
 | `provider=openai&protocol=openai_responses` | Filter an explicit Provider/Protocol binding |
@@ -111,25 +111,26 @@ scoped by Protocol.
 
 Agent creation requires an explicit `engine_kind`; the API does not infer or default an Engine.
 Agent create/update and `POST /api/v1/quickstart/chat` validate Engine/Protocol compatibility on
-the server. Quickstart chat requests use `engine_kind` (not `provider`) plus `secret_ref`.
+the server. Quickstart chat requests use `engine_kind` (not `provider`) plus `model_credential_id`.
 
 ## ID formats
 
-Managed-resource responses serialize IDs with a type prefix, such as `agent_<uuid>`, `sess_<uuid>`,
-`task_<uuid>`, `trig_<uuid>`, `env_<uuid>`, `skill_<uuid>`, `vault_<uuid>`, `cred_<uuid>`, `secret_<uuid>`, `sbx_<uuid>`,
+Managed-resource responses serialize IDs with a type prefix, such as `agent_<uuid>`, `agentver_<uuid>`,
+`apikey_<uuid>`, `sess_<uuid>`,
+`task_<uuid>`, `trig_<uuid>`, `env_<uuid>`, `cred_<uuid>`, `credgrp_<uuid>`, `skill_<uuid>`, `sbx_<uuid>`,
 `memstore_<uuid>`, `mem_<uuid>`, `memver_<uuid>`, `sklfile_<uuid>`, `sklscan_<uuid>`, `sklver_<uuid>`,
 `sklvfile_<uuid>`, `skluse_<uuid>`, `file_<uuid>`, `sesrsc_<uuid>`, `evt_<uuid>`, `vol_<uuid>`,
 `stgrant_<uuid>`, and `staudit_<uuid>`. Typed Agent, Session, Task, Trigger, Environment,
-Secret, Vault, Credential, Sandbox, Memory Store, Memory, Memory Version, Skill, Skill File,
+Agent Version, API Key, Credential, Credential Group, Sandbox, Memory Store, Memory, Memory Version, Skill, Skill File,
 Skill Security Scan, Skill Version, Skill Version File, Skill Usage, File, Session Resource, Event,
 Storage Volume, Storage Grant, and Storage Mount Audit request fields, path parameters, and cursors require
 their canonical prefixed form. Bare UUIDs are reserved for database, Redis, protobuf, and explicit
-physical adapters documented in `ARCHITECTURE.md`; they are not public API alternatives. `environment_ref` is the documented exception because it may contain either an
-environment name or canonical `env_<uuid>`; a bare UUID is not accepted as an Environment ID.
-Agent and Environment `secret_ref` values are secret names rather than Secret IDs; clients must not
-substitute `secret_<uuid>` into those name-based configuration fields.
-Session `vault_ids` values require canonical `vault_<uuid>` strings. Nested Vault credential routes
-require canonical `cred_<uuid>` values and reject bare or cross-entity UUIDs.
+physical adapters documented in `ARCHITECTURE.md`; they are not public API alternatives. Environment
+bindings use `environment_id` and require canonical `env_<uuid>` values; names and bare UUIDs are rejected.
+Agent `model_credential_id`, Environment `environment_credential_ids` and
+`egress_services[].credential_ref`, and Session `credential_group_ids` require canonical typed IDs.
+Bare UUIDs and cross-entity prefixes are rejected. Persisted snapshots must use
+`joysafeter.agent_execution_snapshot.v2`; runtime readers do not accept earlier aliases or schemas.
 Sandbox diagnostics and task/session sandbox references return canonical `sbx_<uuid>` values. Runtime
 commands, provider labels/names, Redis keys, and protobuf messages intentionally carry the bare sandbox
 UUID and are not public client contracts.
@@ -141,7 +142,8 @@ Skill routes require the matching canonical ID family rather than a generic UUID
 files use `sklvfile_`, and usage rows use `skluse_`. Cross-family values are rejected even when the UUID
 suffix is otherwise valid.
 File routes use `file_<uuid>`, while mutable file/repository attachments under a Session use
-`sesrsc_<uuid>`. Storage object keys and SQL UUID columns intentionally use the bare File UUID; clients
+`sesrsc_<uuid>`. Session memory-store attachments are also Session Resources and return their own
+`sesrsc_<uuid>` ID with `type=session_memory_store`. Storage object keys and SQL UUID columns intentionally use the bare File UUID; clients
 must retain the canonical prefixes in paths, request bodies, caches, and UI state.
 Persisted Session event IDs use `evt_<uuid>` in REST history, SSE payloads, logs, caches, and UI state.
 SQL UUID columns and Redis stream fields intentionally use the bare Event UUID; those physical forms
@@ -158,7 +160,7 @@ prefer the session-first flow below.
 ### 1. Create a session
 
 `POST /api/v1/sessions` (status `201`). Reference an agent by `agent`, `agent_id`, or
-`agent_name`; optionally pass `title`, `environment_id`, `vault_ids`, memory-store `resources`,
+`agent_name`; optionally pass `title`, `environment_id`, `credential_group_ids`, memory-store `resources`,
 uploaded `file_resources`, and git `repo_resources`.
 
 ```bash
@@ -208,7 +210,7 @@ new Task scheduled onto the same session's sandbox.
 
 `POST /api/v1/tasks` (status `202`) remains available for direct task enqueue. Reference an
 agent by `agent_id` or `agent_name`, provide a `prompt`, and optionally a `chat_session_id`
-(a session is auto-created if omitted), `environment_ref`, and an `Idempotency-Key` header.
+(a session is auto-created if omitted), canonical `environment_id`, and an `Idempotency-Key` header.
 
 ```bash
 curl -X POST https://your-domain/api/v1/tasks \
@@ -275,7 +277,7 @@ curl -X POST https://your-domain/api/v1/auth/api-keys \
   -d '{"name": "Production Key", "role": "developer"}'
 ```
 
-`POST /api/v1/auth/api-keys` accepts `{name, role}` and returns `id`, `project_id`, `name`,
+`POST /api/v1/auth/api-keys` accepts `{name, role}` and returns canonical `id=apikey_<uuid>`, `project_id`, `name`,
 `key_prefix`, `role`, and `raw_key`. The raw key is returned only once. List responses return
 metadata only: `id`, `project_id`, `name`, `key_prefix`, `role`, `created_at`, and
 `last_used_at`.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from importlib.util import resolve_name
 from pathlib import Path
 
@@ -78,18 +79,31 @@ def _domain_import_violations(domain_root: Path) -> list[str]:
                 violations.append(f"{path.relative_to(domain_root)}: forbidden import {imported}")
             if any(imported == layer or imported.startswith(f"{layer}.") for layer in BANNED_APP_LAYERS):
                 violations.append(f"{path.relative_to(domain_root)}: outward layer import {imported}")
-            if imported.startswith("app.") and not imported.startswith("app.joysafeter_domain.credentials"):
+            if (
+                imported.startswith("app.")
+                and not imported.startswith("app.joysafeter_domain.credentials")
+                and imported != "app.joysafeter_shared.ids"
+                and not imported.startswith("app.joysafeter_shared.ids.")
+            ):
                 violations.append(f"{path.relative_to(domain_root)}: non-domain-core app import {imported}")
     return violations
 
 
 def test_domain_core_has_the_exact_scoped_module_set() -> None:
-    assert DOMAIN_ROOT.is_dir(), "Task 4 domain package must exist"
+    assert DOMAIN_ROOT.is_dir(), "credential domain package must exist"
     assert {path.name for path in DOMAIN_ROOT.glob("*.py")} == EXPECTED_MODULES
 
 
 def test_domain_core_import_graph_is_framework_free_and_inward_only() -> None:
     assert _domain_import_violations(DOMAIN_ROOT) == []
+
+
+def test_dependency_scanners_bind_typed_project_ids_without_string_bridges() -> None:
+    scanner_source = (
+        BACKEND_ROOT / "app" / "joysafeter_infrastructure" / "credentials" / "dependency_scanners.py"
+    ).read_text(encoding="utf-8")
+
+    assert "str(project_id)" not in scanner_source
 
 
 def test_architecture_guard_recurses_resolves_relative_imports_and_bans_http_clients(tmp_path: Path) -> None:
@@ -165,7 +179,7 @@ def test_domain_core_contains_no_framework_or_side_effect_concepts() -> None:
     for path in sorted(DOMAIN_ROOT.rglob("*.py")):
         source = path.read_text(encoding="utf-8")
         for token in sorted(banned_tokens):
-            if token in source:
+            if re.search(rf"\b{re.escape(token)}\b", source):
                 violations.append(f"{path.name}: {token}")
 
     assert violations == []

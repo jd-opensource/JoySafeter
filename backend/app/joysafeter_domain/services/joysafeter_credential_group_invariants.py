@@ -10,7 +10,7 @@ from app.joysafeter_domain.models.joysafeter_credential import (
 )
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
-from app.joysafeter_shared.ids import CredentialGroupId
+from app.joysafeter_shared.ids import CredentialGroupId, ProjectId
 from app.joysafeter_shared.mcp_url import normalize_mcp_url
 
 
@@ -35,7 +35,7 @@ async def reject_member_url_conflict_for_bound_sessions(
     *,
     group_id: CredentialGroupId,
     normalized_url: str,
-    project_id: str,
+    project_id: ProjectId,
 ) -> None:
     active_sessions = (
         select(
@@ -54,20 +54,25 @@ async def reject_member_url_conflict_for_bound_sessions(
         )
     )
     active_rows = (await db.execute(active_sessions)).all()
-    for _session_id, snapshot in active_rows:
+    relevant_session_ids = []
+    for session_id, snapshot in active_rows:
         if not isinstance(snapshot, dict):
             continue
         for server in snapshot.get("mcp_servers") or []:
             if (
                 isinstance(server, dict)
+                and server.get("type") in {"streamable_http", "sse"}
+                and server.get("auth_requirement") in {"required", "optional"}
                 and isinstance(server.get("url"), str)
                 and normalize_mcp_url(server["url"]) == normalized_url
             ):
-                raise credential_group_url_conflict(normalized_url)
+                relevant_session_ids.append(session_id)
+                break
 
-    active_session_ids = [session_id for session_id, _snapshot in active_rows]
+    if not relevant_session_ids:
+        return
     peer_group_ids = select(JoySafeterSessionCredentialGroup.credential_group_id).where(
-        JoySafeterSessionCredentialGroup.session_id.in_(active_session_ids),
+        JoySafeterSessionCredentialGroup.session_id.in_(relevant_session_ids),
         JoySafeterSessionCredentialGroup.credential_group_id != group_id,
     )
     conflict = await db.execute(

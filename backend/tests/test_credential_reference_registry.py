@@ -29,8 +29,7 @@ from app.joysafeter_domain.credentials.dependencies import (
     ReferenceSurfaceKind,
     ReferenceTarget,
 )
-from app.joysafeter_domain.credentials.types import CredentialId as DomainCredentialId
-from app.joysafeter_domain.credentials.types import ProjectId
+from app.joysafeter_domain.credentials.types import CredentialId, ProjectId
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
 from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
 from app.joysafeter_domain.models.joysafeter_organization import Organization
@@ -51,6 +50,13 @@ from app.joysafeter_infrastructure.credentials.sqlalchemy_repository import (
 )
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.config.settings import Settings, settings
+from app.joysafeter_shared.ids import (
+    AgentId,
+    AgentVersionId,
+    EnvironmentId,
+    OrganizationId,
+    SessionId,
+)
 
 BLOCK_RESOURCE = frozenset(
     {
@@ -132,18 +138,6 @@ EXPECTED_DESCRIPTOR_MATRIX = {
         frozenset({DependencyDisposition.AUDIT_ONLY}),
         True,
     ),
-    "legacy_v0_v1_environment_snapshot": (
-        ReferenceSurfaceKind.LEGACY_COMPATIBILITY,
-        ReferenceTarget.RESOURCE,
-        frozenset(
-            {
-                DependencyDisposition.BLOCK_RESOURCE_ARCHIVE,
-                DependencyDisposition.BLOCK_RESOURCE_DELETE,
-                DependencyDisposition.REVALIDATE_ON_ACTIVATION,
-            }
-        ),
-        True,
-    ),
 }
 
 
@@ -169,12 +163,17 @@ DEPENDENCY_REFERENCE_PATH_CASES = tuple(
 )
 
 
-async def _make_project(db_session) -> str:
+async def _make_project(db_session) -> ProjectId:
     suffix = str(uuid.uuid4())
-    organization = Organization(name=f"registry-org-{suffix}", slug=f"registry-org-{suffix}")
+    organization = Organization(
+        id=OrganizationId.new(),
+        name=f"registry-org-{suffix}",
+        slug=f"registry-org-{suffix}",
+    )
     db_session.add(organization)
     await db_session.flush()
     project = Project(
+        id=ProjectId.new(),
         org_id=organization.id,
         name=f"registry-project-{suffix}",
         slug=f"registry-project-{suffix}",
@@ -185,7 +184,7 @@ async def _make_project(db_session) -> str:
 
 
 @pytest_asyncio.fixture
-async def project_id(db_session) -> str:
+async def project_id(db_session) -> ProjectId:
     return await _make_project(db_session)
 
 
@@ -217,9 +216,9 @@ def _document_for_reference_path(
         return {key: [child] if expand else child}
 
     document = build(path.removeprefix("$.").split("."))
-    if schema not in {"live", "legacy_v0"}:
+    if schema != "live":
         document["schema"] = REFERENCE_CONTRACT["snapshot_schemas"][schema]
-    if "model_credential_id" in path or path == "$.secret_ref":
+    if "model_credential_id" in path:
         document.update({"engine_kind": "claude", "model": {"id": "claude-sonnet"}})
     if "egress_services" in path:
         config = document.get("environment", document)
@@ -228,19 +227,18 @@ def _document_for_reference_path(
         service = config["egress_services"][0]
         service.update({"name": "crm", "base_url": "https://crm.example.com/api"})
         if entry["value_kind"] == "credential_field":
-            service["service_credential_id"] = credential_id
+            service["credential_ref"] = credential_id
         inject = service.setdefault("inject", {})
         inject.setdefault("type", "bearer")
         if entry["value_kind"] == "credential_id":
-            field_key = "credential_field" if schema == "v2" else "secret_key"
-            inject[field_key] = "ACCESS_TOKEN"
+            inject["credential_field"] = "ACCESS_TOKEN"
     return document
 
 
 async def _persist_reference_path_fixture(
     db_session,
     *,
-    project_id: str,
+    project_id: ProjectId,
     credential_id: str,
     entry: dict[str, object],
     schema: str,
@@ -248,18 +246,29 @@ async def _persist_reference_path_fixture(
     document = _document_for_reference_path(entry, schema, credential_id)
     if entry["document"] == "environment_config":
         source = JoySafeterEnvironment(
+            id=EnvironmentId.new(),
             project_id=project_id,
             name=f"reference-path-environment-{uuid.uuid4()}",
             config=document,
         )
     else:
-        agent = JoySafeterAgent(name=f"reference-path-agent-{uuid.uuid4()}", project_id=project_id)
+        agent = JoySafeterAgent(
+            id=AgentId.new(),
+            name=f"reference-path-agent-{uuid.uuid4()}",
+            project_id=project_id,
+        )
         db_session.add(agent)
         await db_session.flush()
         if entry["document"] == "agent_version_snapshot":
-            source = JoySafeterAgentVersion(agent_id=agent.id, version=1, snapshot=document)
+            source = JoySafeterAgentVersion(
+                id=AgentVersionId.new(),
+                agent_id=agent.id,
+                version=1,
+                snapshot=document,
+            )
         else:
             source = JoySafeterSession(
+                id=SessionId.new(),
                 agent_id=agent.id,
                 project_id=project_id,
                 title=f"reference-path-session-{uuid.uuid4()}",
@@ -357,7 +366,7 @@ async def test_enforce_resource_observation_never_calls_legacy_scanner(monkeypat
     monkeypatch.setattr(settings, "credential_dependency_registry_mode", "enforce")
 
     await coordinator._observe_resource(
-        DomainCredentialId("cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f010"),
+        CredentialId.from_public("cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f010"),
         "project-id",
         DependencyDisposition.BLOCK_RESOURCE_DELETE,
     )
@@ -439,30 +448,21 @@ async def test_enforce_group_lifecycle_never_calls_legacy_session_query(
     assert archived.archived_at is not None
 
 
+@pytest.mark.parametrize("schema", [None, "joysafeter.agent_execution_snapshot.v1"])
 @pytest.mark.parametrize(
-    ("schema", "document", "expected_dispositions"),
+    ("document", "scanner_type"),
     [
-        (None, "agent_version", frozenset({DependencyDisposition.REVALIDATE_ON_ACTIVATION})),
-        (
-            "joysafeter.agent_execution_snapshot.v1",
-            "agent_version",
-            frozenset({DependencyDisposition.REVALIDATE_ON_ACTIVATION}),
-        ),
-        (
-            None,
-            "active_session",
-            BLOCK_RESOURCE,
-        ),
-        ("joysafeter.agent_execution_snapshot.v1", "active_session", BLOCK_RESOURCE),
+        ("agent_version", AgentVersionExecutableSnapshotScanner),
+        ("active_session", ActiveSessionSnapshotScanner),
     ],
 )
 @pytest.mark.asyncio
-async def test_real_snapshot_scanner_covers_top_level_legacy_secret_refs_by_schema(
+async def test_real_snapshot_scanner_rejects_legacy_snapshot_schemas(
     db_session,
     project_id,
     schema,
     document,
-    expected_dispositions,
+    scanner_type,
 ) -> None:
     credential = await CredentialService(db_session, audit_actor=CredentialAuditActor.system("test")).create(
         CreateCredentialRequest(
@@ -472,16 +472,22 @@ async def test_real_snapshot_scanner_covers_top_level_legacy_secret_refs_by_sche
         ),
         project_id=project_id,
     )
-    agent = JoySafeterAgent(name=f"snapshot-agent-{uuid.uuid4()}", project_id=project_id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"snapshot-agent-{uuid.uuid4()}", project_id=project_id)
     db_session.add(agent)
     await db_session.flush()
-    snapshot = {"secret_refs": [str(credential.id)]}
+    snapshot = {"environment_credential_ids": [str(credential.id)]}
     if schema is not None:
         snapshot["schema"] = schema
     if document == "agent_version":
-        source = JoySafeterAgentVersion(agent_id=agent.id, version=1, snapshot=snapshot)
+        source = JoySafeterAgentVersion(
+            id=AgentVersionId.new(),
+            agent_id=agent.id,
+            version=1,
+            snapshot=snapshot,
+        )
     else:
         source = JoySafeterSession(
+            id=SessionId.new(),
             agent_id=agent.id,
             project_id=project_id,
             title=f"snapshot-session-{uuid.uuid4()}",
@@ -490,19 +496,9 @@ async def test_real_snapshot_scanner_covers_top_level_legacy_secret_refs_by_sche
     db_session.add(source)
     await db_session.commit()
 
-    application = compose_credential_application(
-        db_session,
-        audit_actor=CredentialAuditActor.system("test"),
-        auto_commit=False,
-    )
-    dependencies = await application.snapshot_service.scan_resource(
-        ProjectId(project_id),
-        DomainCredentialId(str(credential.id)),
-    )
-    source_dependencies = [dependency for dependency in dependencies if dependency.source_id == str(source.id)]
-
-    assert len(source_dependencies) == 1
-    assert source_dependencies[0].dispositions == expected_dispositions
+    scanner = scanner_type(db_session)
+    with pytest.raises(ValueError, match="corrupt_record"):
+        await scanner.scan_resource(project_id, credential.id)
 
 
 @pytest.mark.parametrize(
@@ -527,7 +523,7 @@ async def test_real_snapshot_scanner_rejects_legacy_alias_in_explicit_v2(
         ),
         project_id=project_id,
     )
-    agent = JoySafeterAgent(name=f"snapshot-v2-agent-{uuid.uuid4()}", project_id=project_id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"snapshot-v2-agent-{uuid.uuid4()}", project_id=project_id)
     db_session.add(agent)
     await db_session.flush()
     snapshot = {
@@ -535,9 +531,15 @@ async def test_real_snapshot_scanner_rejects_legacy_alias_in_explicit_v2(
         "secret_refs": [str(credential.id)],
     }
     source = (
-        JoySafeterAgentVersion(agent_id=agent.id, version=1, snapshot=snapshot)
+        JoySafeterAgentVersion(
+            id=AgentVersionId.new(),
+            agent_id=agent.id,
+            version=1,
+            snapshot=snapshot,
+        )
         if document == "agent_version"
         else JoySafeterSession(
+            id=SessionId.new(),
             agent_id=agent.id,
             project_id=project_id,
             title=f"snapshot-v2-session-{uuid.uuid4()}",
@@ -548,8 +550,8 @@ async def test_real_snapshot_scanner_rejects_legacy_alias_in_explicit_v2(
     await db_session.commit()
 
     scanner = scanner_type(db_session)
-    with pytest.raises(ValueError, match="corrupt_record.*legacy alias"):
-        await scanner.scan_resource(ProjectId(project_id), DomainCredentialId(str(credential.id)))
+    with pytest.raises(ValueError, match="corrupt_record.*legacy fields"):
+        await scanner.scan_resource(project_id, credential.id)
 
 
 @pytest.mark.parametrize(
@@ -586,8 +588,8 @@ async def test_every_credential_identity_path_has_a_real_dependency_scanner_fixt
         auto_commit=False,
     )
     dependencies = await application.snapshot_service.scan_resource(
-        ProjectId(project_id),
-        DomainCredentialId(str(credential.id)),
+        project_id,
+        credential.id,
     )
     matching = [
         dependency
@@ -620,11 +622,14 @@ def test_credential_field_paths_are_codec_owned_not_dependency_edges() -> None:
 def test_unknown_explicit_snapshot_schema_fails_closed() -> None:
     snapshot = {
         "schema": "joysafeter.agent_execution_snapshot.v3",
-        "secret_refs": ["credential-public-id"],
+        "environment_credential_ids": [],
     }
 
-    with pytest.raises(ValueError, match="corrupt_record.*unknown explicit Snapshot schema") as exc_info:
-        _snapshot_reference(snapshot, DomainCredentialId("credential-public-id"))
+    with pytest.raises(ValueError, match="corrupt_record.*Snapshot schema must be .*v2") as exc_info:
+        _snapshot_reference(
+            snapshot,
+            CredentialId.from_public("cred_00000000-0000-0000-0000-000000000001"),
+        )
     assert "joysafeter.agent_execution_snapshot.v3" not in str(exc_info.value)
 
 
@@ -642,7 +647,7 @@ async def test_unknown_explicit_snapshot_schema_fails_closed_in_real_scanners(sc
                     "snapshot-source-id",
                     {
                         "schema": "joysafeter.agent_execution_snapshot.v3",
-                        "secret_refs": ["credential-public-id"],
+                        "environment_credential_ids": [],
                     },
                 )
             ]
@@ -653,10 +658,10 @@ async def test_unknown_explicit_snapshot_schema_fails_closed_in_real_scanners(sc
 
     scanner = scanner_type(FakeSession())
 
-    with pytest.raises(ValueError, match="corrupt_record.*unknown explicit Snapshot schema") as exc_info:
+    with pytest.raises(ValueError, match="corrupt_record.*Snapshot schema must be .*v2") as exc_info:
         await scanner.scan_resource(
-            ProjectId("project-id"),
-            DomainCredentialId("credential-public-id"),
+            ProjectId.from_public("proj_00000000-0000-0000-0000-000000000001"),
+            CredentialId.from_public("cred_00000000-0000-0000-0000-000000000001"),
         )
     assert "joysafeter.agent_execution_snapshot.v3" not in str(exc_info.value)
 
@@ -702,6 +707,7 @@ async def test_shadow_runs_old_and_new_enforces_old_and_logs_only_safe_diff(
         project_id=project_id,
     )
     agent = JoySafeterAgent(
+        id=AgentId.new(),
         name=f"registry-agent-{uuid.uuid4()}",
         project_id=project_id,
         model_credential_id=credential.id,
@@ -717,9 +723,9 @@ async def test_shadow_runs_old_and_new_enforces_old_and_logs_only_safe_diff(
         return (
             CredentialDependency(
                 surface_id="active_session_model_environment_snapshot",
-                project_id=ProjectId(scan_project_id),
+                project_id=scan_project_id,
                 source_id="session-public-id-only",
-                credential_id=DomainCredentialId(str(scan_credential_id)),
+                credential_id=scan_credential_id,
                 group_id=None,
                 dispositions=BLOCK_RESOURCE,
             ),

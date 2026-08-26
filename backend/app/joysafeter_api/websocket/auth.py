@@ -11,6 +11,7 @@ from app.joysafeter_domain.models import User
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure_loguru
 from app.joysafeter_shared.common.cookie_auth import extract_token_from_cookies
 from app.joysafeter_shared.database import AsyncSessionLocal
+from app.joysafeter_shared.ids import UserId
 from app.joysafeter_shared.security import decode_token
 
 
@@ -22,7 +23,7 @@ class WebSocketCloseCode:
     NOT_FOUND = 4004
 
 
-async def authenticate_websocket(websocket: WebSocket) -> Tuple[bool, Optional[str]]:
+async def authenticate_websocket(websocket: WebSocket) -> Tuple[bool, Optional[UserId]]:
     """Authenticate a WebSocket connection via cookie or query-param token.
 
     Returns:
@@ -55,13 +56,13 @@ async def authenticate_websocket(websocket: WebSocket) -> Tuple[bool, Optional[s
         return False, None
 
     async with AsyncSessionLocal() as db:
-        result = await db.execute(select(User).where(User.id == str(payload.sub)))
+        result = await db.execute(select(User).where(User.id == payload.sub))
         user = result.scalar_one_or_none()
 
     if not user or not user.is_active:
         return False, None
 
-    return True, str(user.id)
+    return True, user.id
 
 
 async def authenticate_websocket_with_user(websocket: WebSocket, db: AsyncSession) -> Tuple[bool, Optional[User]]:
@@ -75,7 +76,7 @@ async def authenticate_websocket_with_user(websocket: WebSocket, db: AsyncSessio
     if not is_authenticated or not user_id:
         return False, None
 
-    result = await db.execute(select(User).where(User.id == str(user_id)))
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
     if not user:

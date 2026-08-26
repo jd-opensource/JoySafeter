@@ -12,8 +12,13 @@ from app.joysafeter_application.triggers.execution_service import (
     render_session_key,
 )
 from app.joysafeter_domain.models.joysafeter_session import SessionStatus
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId, SessionId, UserId
 
 pytestmark = pytest.mark.no_db
+
+PROJECT_ID = ProjectId.new()
+USER_ID = UserId.new()
+ORGANIZATION_ID = OrganizationId.new()
 
 
 class _Result:
@@ -39,7 +44,7 @@ class _SequencedDb:
 
 
 def _agent():
-    return SimpleNamespace(id=uuid.uuid4(), name="agent", version=1, environment_ref=None)
+    return SimpleNamespace(id=AgentId.new(), name="agent", version=1, environment_id=None)
 
 
 def _config(agent, **over):
@@ -48,12 +53,12 @@ def _config(agent, **over):
         name="Hook",
         source="trigger:webhook:test",
         prompt="run",
-        environment_ref=None,
+        environment_id=None,
         timeout_sec=7200,
         max_retries=2,
-        project_id="project-a",
-        user_id="user-a",
-        org_id="org-a",
+        project_id=PROJECT_ID,
+        user_id=USER_ID,
+        org_id=ORGANIZATION_ID,
         idempotency_key=f"test:{uuid.uuid4()}",
         session_mode="keyed",
         session_key="alpha",
@@ -80,10 +85,11 @@ def patch_deps(monkeypatch):
 
         async def create_from_source(self, command):
             session = SimpleNamespace(
-                id=uuid.uuid4(),
+                id=SessionId.new(),
                 agent_id=command.agent_id,
                 status=SessionStatus.IDLE.value,
                 archived_at=None,
+                environment_id=command.environment_id,
                 metadata_=dict(command.metadata or {}),
             )
             state["created"].append(session)
@@ -101,10 +107,11 @@ def patch_deps(monkeypatch):
 async def test_keyed_reuses_session_matching_the_key(patch_deps):
     agent = _agent()
     existing = SimpleNamespace(
-        id=uuid.uuid4(),
+        id=SessionId.new(),
         agent_id=agent.id,
         status=SessionStatus.IDLE.value,
         archived_at=None,
+        environment_id=None,
         metadata_={"trigger_session_key": "alpha"},
     )
     executor = AgentTriggerExecutor(

@@ -2,8 +2,7 @@
 Analytics service — aggregation queries against sessions, tasks, and session_events.
 All queries are scoped by project_id for multi-tenancy.
 
-NOTE: The Trace/Observation tables (OpenTelemetry-style) are defined in code but
-not yet migrated to the database. This service queries the existing tables:
+This service queries the durable product tables:
 - joysafeter_sessions (usage, duration, status)
 - joysafeter_session_events (event_type, payload with token/model info)
 - joysafeter_tasks (status, duration_ms, usage, agent_id)
@@ -20,7 +19,7 @@ from sqlalchemy.future import select
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
-from app.joysafeter_shared.ids import AgentId
+from app.joysafeter_shared.ids import AgentId, ProjectId
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +58,7 @@ class AnalyticsService:
 
     async def get_summary(
         self,
-        project_id: str,
+        project_id: ProjectId | None,
         range_str: str = "7d",
         engine: Optional[str] = None,
         model: Optional[str] = None,
@@ -175,7 +174,7 @@ class AnalyticsService:
 
     async def _compute_delta(
         self,
-        project_id: str,
+        project_id: ProjectId | None,
         range_str: str,
         curr_calls: int,
         curr_success_rate: float,
@@ -248,7 +247,7 @@ class AnalyticsService:
 
     async def get_calls_timeseries(
         self,
-        project_id: str,
+        project_id: ProjectId | None,
         range_str: str = "7d",
         engine: Optional[str] = None,
         agent_id: Optional[AgentId] = None,
@@ -289,7 +288,7 @@ class AnalyticsService:
 
     async def get_tokens_timeseries(
         self,
-        project_id: str,
+        project_id: ProjectId | None,
         range_str: str = "7d",
         engine: Optional[str] = None,
         agent_id: Optional[AgentId] = None,
@@ -337,7 +336,7 @@ class AnalyticsService:
 
     async def get_latency_timeseries(
         self,
-        project_id: str,
+        project_id: ProjectId | None,
         range_str: str = "7d",
         engine: Optional[str] = None,
         agent_id: Optional[AgentId] = None,
@@ -383,7 +382,7 @@ class AnalyticsService:
 
     async def get_engine_share(
         self,
-        project_id: str,
+        project_id: ProjectId | None,
         range_str: str = "7d",
     ) -> list[dict]:
         """Distribution of tasks by agent engine_kind."""
@@ -424,7 +423,7 @@ class AnalyticsService:
 
     async def get_calls_list(
         self,
-        project_id: str,
+        project_id: ProjectId | None,
         range_str: str = "7d",
         engine: Optional[str] = None,
         model: Optional[str] = None,
@@ -525,24 +524,12 @@ class AnalyticsService:
         }
 
     # ------------------------------------------------------------------
-    # Observations Tree (stub — tables not yet migrated)
-    # ------------------------------------------------------------------
-
-    async def get_observations_tree(
-        self,
-        project_id: str,
-        trace_id: str,
-    ) -> list[dict]:
-        """Placeholder — returns empty until traces/observations tables are migrated."""
-        return []
-
-    # ------------------------------------------------------------------
     # Agent Comparison
     # ------------------------------------------------------------------
 
     async def get_agent_comparison(
         self,
-        project_id: str,
+        project_id: ProjectId | None,
         range_str: str = "7d",
     ) -> list[dict]:
         """Compare metrics across agents using aggregated queries."""
@@ -618,7 +605,7 @@ class AnalyticsService:
 
     async def get_health_check(
         self,
-        project_id: str,
+        project_id: ProjectId | None,
         range_str: str = "7d",
         consecutive_failures_enabled: bool = True,
         consecutive_failures_threshold: int = 3,
@@ -785,7 +772,7 @@ class AnalyticsService:
 
     async def _detect_consecutive_failures(
         self,
-        project_id: str,
+        project_id: ProjectId | None,
         time_boundary: Optional[datetime],
         threshold: int = 3,
     ) -> list[dict]:
@@ -848,7 +835,7 @@ class AnalyticsService:
 
     async def _detect_slow_agents(
         self,
-        project_id: str,
+        project_id: ProjectId | None,
         time_boundary: Optional[datetime],
         threshold_ms: int = 10000,
     ) -> list[dict]:
@@ -887,7 +874,7 @@ class AnalyticsService:
 
     async def _detect_token_spike(
         self,
-        project_id: str,
+        project_id: ProjectId | None,
         range_str: str,
         threshold_pct: int = 30,
     ) -> list[dict]:
@@ -952,7 +939,7 @@ class AnalyticsService:
 
         return []
 
-    async def _detect_high_retries(self, project_id: str, time_boundary: Optional[datetime]) -> list[dict]:
+    async def _detect_high_retries(self, project_id: ProjectId | None, time_boundary: Optional[datetime]) -> list[dict]:
         """Detect tasks with excessive retries."""
         filters = [
             JoySafeterTask.project_id == project_id,
@@ -987,7 +974,7 @@ class AnalyticsService:
             for row in result.all()
         ]
 
-    async def _detect_zombie_sessions(self, project_id: str) -> list[dict]:
+    async def _detect_zombie_sessions(self, project_id: ProjectId | None) -> list[dict]:
         """Detect sessions stuck in running state for too long."""
         # Sessions running for > 2 hours
         threshold = datetime.now(timezone.utc) - timedelta(hours=2)
@@ -1031,7 +1018,7 @@ class AnalyticsService:
     # Agent Ranking
     # ------------------------------------------------------------------
 
-    async def get_agent_ranking(self, project_id: str, range_str: str = "7d") -> list[dict]:
+    async def get_agent_ranking(self, project_id: ProjectId | None, range_str: str = "7d") -> list[dict]:
         """Rank agents by a composite health score."""
         time_boundary = _get_time_boundary(range_str)
 
@@ -1164,7 +1151,7 @@ class AnalyticsService:
     # Time Heatmap
     # ------------------------------------------------------------------
 
-    async def get_time_heatmap(self, project_id: str, range_str: str = "7d") -> list[dict]:
+    async def get_time_heatmap(self, project_id: ProjectId | None, range_str: str = "7d") -> list[dict]:
         """Get task counts by hour and day-of-week for heatmap."""
         time_boundary = _get_time_boundary(range_str)
 
@@ -1201,7 +1188,7 @@ class AnalyticsService:
 
     async def get_error_summary(
         self,
-        project_id: str,
+        project_id: ProjectId | None,
         range_str: str = "7d",
         engine: Optional[str] = None,
         agent_id: Optional[AgentId] = None,
@@ -1269,7 +1256,7 @@ class AnalyticsService:
 
     async def get_latency_stats(
         self,
-        project_id: str,
+        project_id: ProjectId | None,
         range_str: str = "7d",
         engine: Optional[str] = None,
         agent_id: Optional[AgentId] = None,

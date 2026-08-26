@@ -11,6 +11,7 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.models.joysafeter_task_identity import JoySafeterTaskIdentityContext
+from app.joysafeter_shared.ids import AgentId, TaskId, UserId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -27,15 +28,15 @@ async def test_auth_code_replay_is_rejected_and_task_delete_cascades(
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     )
 
-    user = AuthUser(name="Identity User", email="identity@example.com")
-    agent = JoySafeterAgent(name="identity-db-agent")
+    user = AuthUser(id=UserId.new(), name="Identity User", email="identity@example.com")
+    agent = JoySafeterAgent(id=AgentId.new(), name="identity-db-agent")
     db_session.add_all([user, agent])
     await db_session.commit()
     await db_session.refresh(user)
     await db_session.refresh(agent)
 
-    task_one = JoySafeterTask(agent_id=agent.id, prompt="one", status="pending", user_id=user.id)
-    task_two = JoySafeterTask(agent_id=agent.id, prompt="two", status="pending", user_id=user.id)
+    task_one = JoySafeterTask(id=TaskId.new(), agent_id=agent.id, prompt="one", status="pending", user_id=user.id)
+    task_two = JoySafeterTask(id=TaskId.new(), agent_id=agent.id, prompt="two", status="pending", user_id=user.id)
     db_session.add_all([task_one, task_two])
     await db_session.commit()
     await db_session.refresh(task_one)
@@ -76,11 +77,11 @@ async def test_auth_code_replay_is_rejected_and_task_delete_cascades(
 
 @pytest.mark.asyncio
 async def test_terminal_task_transition_erases_unconsumed_identity_material(db_session) -> None:
-    user = AuthUser(name="Terminal Identity User", email=f"terminal-{uuid.uuid4()}@example.com")
-    agent = JoySafeterAgent(name=f"terminal-agent-{uuid.uuid4()}")
+    user = AuthUser(id=UserId.new(), name="Terminal Identity User", email=f"terminal-{uuid.uuid4()}@example.com")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"terminal-agent-{uuid.uuid4()}")
     db_session.add_all([user, agent])
     await db_session.flush()
-    task = JoySafeterTask(agent_id=agent.id, prompt="terminal", status="pending", user_id=user.id)
+    task = JoySafeterTask(id=TaskId.new(), agent_id=agent.id, prompt="terminal", status="pending", user_id=user.id)
     db_session.add(task)
     await db_session.flush()
     db_session.add(

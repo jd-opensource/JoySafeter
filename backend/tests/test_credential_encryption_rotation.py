@@ -6,6 +6,7 @@ import uuid
 from collections import Counter
 from dataclasses import asdict
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from sqlalchemy import text
@@ -36,6 +37,17 @@ from app.joysafeter_infrastructure.sensitive_material import (
     VersionedMaterialProtector,
     inspect_sensitive_material_envelopes,
     validate_credential_encryption_storage_coverage,
+)
+from app.joysafeter_shared.ids import (
+    AgentId,
+    CredentialGroupId,
+    CredentialId,
+    OrganizationId,
+    ProjectId,
+    SessionId,
+    SessionResourceId,
+    TaskId,
+    UserId,
 )
 from app.joysafeter_shared.security.credential_cipher import (
     CredentialCipher,
@@ -68,6 +80,42 @@ def _damage_ciphertext(ciphertext: str) -> str:
     return f"{prefix}:{replacement}{payload[1:]}"
 
 
+def _new_organization(**values: Any) -> Organization:
+    return Organization(id=OrganizationId.new(), **values)
+
+
+def _new_user(**values: Any) -> AuthUser:
+    return AuthUser(id=UserId.new(), **values)
+
+
+def _new_agent(**values: Any) -> JoySafeterAgent:
+    return JoySafeterAgent(id=AgentId.new(), **values)
+
+
+def _new_project(**values: Any) -> Project:
+    return Project(id=ProjectId.new(), **values)
+
+
+def _new_credential(**values: Any) -> JoySafeterCredential:
+    return JoySafeterCredential(id=CredentialId.new(), **values)
+
+
+def _new_credential_group(**values: Any) -> JoySafeterCredentialGroup:
+    return JoySafeterCredentialGroup(id=CredentialGroupId.new(), **values)
+
+
+def _new_session(**values: Any) -> JoySafeterSession:
+    return JoySafeterSession(id=SessionId.new(), **values)
+
+
+def _new_task(**values: Any) -> JoySafeterTask:
+    return JoySafeterTask(id=TaskId.new(), **values)
+
+
+def _new_session_repo(**values: Any) -> JoySafeterSessionRepo:
+    return JoySafeterSessionRepo(id=SessionResourceId.new(), **values)
+
+
 async def _wait_until_postgres_backend_is_lock_blocked(db: AsyncSession, backend_pid: int) -> None:
     for _ in range(100):
         wait_event_type = await db.scalar(
@@ -81,10 +129,10 @@ async def _wait_until_postgres_backend_is_lock_blocked(db: AsyncSession, backend
 
 
 async def _create_project(db_session) -> Project:
-    organization = Organization(name=f"crypto-org-{uuid.uuid4()}", slug=f"crypto-org-{uuid.uuid4()}")
+    organization = _new_organization(name=f"crypto-org-{uuid.uuid4()}", slug=f"crypto-org-{uuid.uuid4()}")
     db_session.add(organization)
     await db_session.flush()
-    project = Project(org_id=organization.id, name="Crypto Project", slug=f"crypto-{uuid.uuid4()}")
+    project = _new_project(org_id=organization.id, name="Crypto Project", slug=f"crypto-{uuid.uuid4()}")
     db_session.add(project)
     await db_session.flush()
     return project
@@ -252,7 +300,7 @@ async def test_storage_coverage_rejects_removing_legacy_key_while_v1_material_re
     project = await _create_project(db_session)
     legacy = CredentialCipher(LEGACY_KEY)
     db_session.add(
-        JoySafeterCredential(
+        _new_credential(
             project_id=project.id,
             kind="service",
             name="legacy-reader-required",
@@ -277,7 +325,7 @@ async def test_storage_coverage_rejects_removing_referenced_v2_key(db_session):
         write_key_id="previous-2026-07",
     )
     db_session.add(
-        JoySafeterCredential(
+        _new_credential(
             project_id=project.id,
             kind="service",
             name="previous-reader-required",
@@ -298,7 +346,7 @@ async def test_storage_coverage_rejects_removing_referenced_v2_key(db_session):
 async def test_storage_coverage_rejects_plaintext_or_unsupported_envelopes(db_session):
     project = await _create_project(db_session)
     db_session.add(
-        JoySafeterCredential(
+        _new_credential(
             project_id=project.id,
             kind="service",
             name="invalid-envelope",
@@ -326,17 +374,17 @@ async def test_non_object_credential_json_fails_closed_without_rewrite(
 ) -> None:
     project = await _create_project(db_session)
     if column_name == "data":
-        credential = JoySafeterCredential(
+        credential = _new_credential(
             project_id=project.id,
             kind="service",
             name="invalid-data-shape",
             data={"TOKEN": _rotation_cipher().encrypt("valid-before-corruption")},
         )
     else:
-        group = JoySafeterCredentialGroup(project_id=project.id, name="invalid-oauth-shape")
+        group = _new_credential_group(project_id=project.id, name="invalid-oauth-shape")
         db_session.add(group)
         await db_session.flush()
-        credential = JoySafeterCredential(
+        credential = _new_credential(
             project_id=project.id,
             kind="mcp",
             name="invalid-oauth-shape",
@@ -391,27 +439,27 @@ async def test_rewrap_is_bounded_across_all_sensitive_material_stores(db_session
         keyring_json=KEYRING,
         write_key_id="active-2026-08",
     )
-    organization = Organization(name=f"rotation-org-{uuid.uuid4()}", slug=f"rotation-org-{uuid.uuid4()}")
-    user = AuthUser(name="Rotation User", email=f"rotation-{uuid.uuid4()}@example.com")
-    agent = JoySafeterAgent(name=f"rotation-agent-{uuid.uuid4()}")
+    organization = _new_organization(name=f"rotation-org-{uuid.uuid4()}", slug=f"rotation-org-{uuid.uuid4()}")
+    user = _new_user(name="Rotation User", email=f"rotation-{uuid.uuid4()}@example.com")
+    agent = _new_agent(name=f"rotation-agent-{uuid.uuid4()}")
     db_session.add_all([organization, user, agent])
     await db_session.flush()
-    project = Project(org_id=organization.id, name="Rotation Project", slug=f"rotation-{uuid.uuid4()}")
+    project = _new_project(org_id=organization.id, name="Rotation Project", slug=f"rotation-{uuid.uuid4()}")
     db_session.add(project)
     await db_session.flush()
 
-    credential = JoySafeterCredential(
+    credential = _new_credential(
         project_id=project.id,
         kind="service",
         name="rotation-service",
         data={"TOKEN": legacy.encrypt("managed-secret")},
     )
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
-    task = JoySafeterTask(agent_id=agent.id, prompt="rotation", status="pending", user_id=user.id)
+    session = _new_session(agent_id=agent.id, status="idle")
+    task = _new_task(agent_id=agent.id, prompt="rotation", status="pending", user_id=user.id)
     db_session.add_all([credential, session, task])
     await db_session.flush()
     now = utc_now()
-    repository = JoySafeterSessionRepo(
+    repository = _new_session_repo(
         session_id=session.id,
         url="https://github.com/example/private.git",
         branch="main",
@@ -424,7 +472,7 @@ async def test_rewrap_is_bounded_across_all_sensitive_material_stores(db_session
     identity = JoySafeterTaskIdentityContext(
         task_id=task.id,
         project_id=project.id,
-        user_id=str(user.id),
+        user_id=user.id,
         credential_kind="identity_token",
         encrypted_credential=legacy.encrypt("identity-secret"),
         captured_at=now,
@@ -488,29 +536,29 @@ async def test_rewrap_rejects_plaintext_without_silently_encrypting(
         keyring_json=KEYRING,
         write_key_id="active-2026-08",
     )
-    organization = Organization(name=f"invalid-org-{uuid.uuid4()}", slug=f"invalid-org-{uuid.uuid4()}")
-    user = AuthUser(name="Invalid Material User", email=f"invalid-{uuid.uuid4()}@example.com")
-    agent = JoySafeterAgent(name=f"invalid-agent-{uuid.uuid4()}")
+    organization = _new_organization(name=f"invalid-org-{uuid.uuid4()}", slug=f"invalid-org-{uuid.uuid4()}")
+    user = _new_user(name="Invalid Material User", email=f"invalid-{uuid.uuid4()}@example.com")
+    agent = _new_agent(name=f"invalid-agent-{uuid.uuid4()}")
     db_session.add_all([organization, user, agent])
     await db_session.flush()
-    project = Project(org_id=organization.id, name="Invalid Material Project", slug=f"invalid-{uuid.uuid4()}")
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
-    task = JoySafeterTask(agent_id=agent.id, prompt="invalid material", status="pending", user_id=user.id)
+    project = _new_project(org_id=organization.id, name="Invalid Material Project", slug=f"invalid-{uuid.uuid4()}")
+    session = _new_session(agent_id=agent.id, status="idle")
+    task = _new_task(agent_id=agent.id, prompt="invalid material", status="pending", user_id=user.id)
     db_session.add_all([project, session, task])
     await db_session.flush()
 
     if surface == "managed_credential":
-        row = JoySafeterCredential(
+        row = _new_credential(
             project_id=project.id,
             kind="service",
             name="invalid-service",
             data={"TOKEN": "plaintext-must-not-be-rewrapped"},
         )
     elif surface == "managed_oauth":
-        group = JoySafeterCredentialGroup(project_id=project.id, name="invalid-oauth-group")
+        group = _new_credential_group(project_id=project.id, name="invalid-oauth-group")
         db_session.add(group)
         await db_session.flush()
-        row = JoySafeterCredential(
+        row = _new_credential(
             project_id=project.id,
             kind="mcp",
             name="invalid-oauth",
@@ -526,14 +574,14 @@ async def test_rewrap_rejects_plaintext_without_silently_encrypting(
         row = JoySafeterTaskIdentityContext(
             task_id=task.id,
             project_id=project.id,
-            user_id=str(user.id),
+            user_id=user.id,
             credential_kind="identity_token",
             encrypted_credential="plaintext-must-not-be-rewrapped",
             captured_at=now,
             expires_at=now + timedelta(minutes=10),
         )
     else:
-        row = JoySafeterSessionRepo(
+        row = _new_session_repo(
             session_id=session.id,
             url="https://github.com/example/private.git",
             branch="main",
@@ -568,12 +616,12 @@ async def test_rewrap_rolls_back_earlier_store_changes_when_a_later_store_fails(
         write_key_id="active-2026-08",
     )
     project = await _create_project(db_session)
-    user = AuthUser(name="Atomic Rewrap User", email=f"atomic-{uuid.uuid4()}@example.com")
-    agent = JoySafeterAgent(name=f"atomic-agent-{uuid.uuid4()}")
+    user = _new_user(name="Atomic Rewrap User", email=f"atomic-{uuid.uuid4()}@example.com")
+    agent = _new_agent(name=f"atomic-agent-{uuid.uuid4()}")
     db_session.add_all([user, agent])
     await db_session.flush()
-    task = JoySafeterTask(agent_id=agent.id, prompt="atomic rewrap", status="pending", user_id=user.id)
-    credential = JoySafeterCredential(
+    task = _new_task(agent_id=agent.id, prompt="atomic rewrap", status="pending", user_id=user.id)
+    credential = _new_credential(
         project_id=project.id,
         kind="service",
         name="atomic-rewrap-service",
@@ -584,7 +632,7 @@ async def test_rewrap_rolls_back_earlier_store_changes_when_a_later_store_fails(
     identity = JoySafeterTaskIdentityContext(
         task_id=task.id,
         project_id=project.id,
-        user_id=str(user.id),
+        user_id=user.id,
         credential_kind="identity_token",
         encrypted_credential="plaintext-must-fail",
         captured_at=utc_now(),
@@ -611,17 +659,17 @@ async def test_integrity_verifier_detects_active_key_corruption_missed_by_invent
         keyring_json=KEYRING,
         write_key_id="active-2026-08",
     )
-    organization = Organization(name=f"integrity-org-{uuid.uuid4()}", slug=f"integrity-{uuid.uuid4()}")
-    user = AuthUser(name="Integrity User", email=f"integrity-{uuid.uuid4()}@example.com")
-    agent = JoySafeterAgent(name=f"integrity-agent-{uuid.uuid4()}")
+    organization = _new_organization(name=f"integrity-org-{uuid.uuid4()}", slug=f"integrity-{uuid.uuid4()}")
+    user = _new_user(name="Integrity User", email=f"integrity-{uuid.uuid4()}@example.com")
+    agent = _new_agent(name=f"integrity-agent-{uuid.uuid4()}")
     db_session.add_all([organization, user, agent])
     await db_session.flush()
-    project = Project(org_id=organization.id, name="Integrity Project", slug=f"integrity-{uuid.uuid4()}")
+    project = _new_project(org_id=organization.id, name="Integrity Project", slug=f"integrity-{uuid.uuid4()}")
     db_session.add(project)
     await db_session.flush()
-    group = JoySafeterCredentialGroup(project_id=project.id, name="integrity-oauth-group")
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
-    task = JoySafeterTask(agent_id=agent.id, prompt="integrity", status="pending", user_id=user.id)
+    group = _new_credential_group(project_id=project.id, name="integrity-oauth-group")
+    session = _new_session(agent_id=agent.id, status="idle")
+    task = _new_task(agent_id=agent.id, prompt="integrity", status="pending", user_id=user.id)
     db_session.add_all([group, session, task])
     await db_session.flush()
 
@@ -635,13 +683,13 @@ async def test_integrity_verifier_detects_active_key_corruption_missed_by_invent
     now = utc_now()
     db_session.add_all(
         [
-            JoySafeterCredential(
+            _new_credential(
                 project_id=project.id,
                 kind="service",
                 name="damaged-managed",
                 data={"TOKEN": damaged["managed"]},
             ),
-            JoySafeterCredential(
+            _new_credential(
                 project_id=project.id,
                 kind="mcp",
                 name="damaged-oauth",
@@ -658,13 +706,13 @@ async def test_integrity_verifier_detects_active_key_corruption_missed_by_invent
             JoySafeterTaskIdentityContext(
                 task_id=task.id,
                 project_id=project.id,
-                user_id=str(user.id),
+                user_id=user.id,
                 credential_kind="identity_token",
                 encrypted_credential=damaged["identity"],
                 captured_at=now,
                 expires_at=now + timedelta(minutes=10),
             ),
-            JoySafeterSessionRepo(
+            _new_session_repo(
                 session_id=session.id,
                 url="https://github.com/example/damaged.git",
                 branch="main",
@@ -739,16 +787,16 @@ async def test_integrity_verifier_pages_through_every_store(db_session):
         write_key_id="active-2026-08",
     )
     project = await _create_project(db_session)
-    user = AuthUser(name="Paged Integrity User", email=f"paged-{uuid.uuid4()}@example.com")
-    agent = JoySafeterAgent(name=f"paged-agent-{uuid.uuid4()}")
-    group = JoySafeterCredentialGroup(project_id=project.id, name="paged-oauth-group")
+    user = _new_user(name="Paged Integrity User", email=f"paged-{uuid.uuid4()}@example.com")
+    agent = _new_agent(name=f"paged-agent-{uuid.uuid4()}")
+    group = _new_credential_group(project_id=project.id, name="paged-oauth-group")
     db_session.add_all([user, agent, group])
     await db_session.flush()
     now = utc_now()
 
     for index in range(3):
-        session = JoySafeterSession(agent_id=agent.id, status="idle")
-        task = JoySafeterTask(
+        session = _new_session(agent_id=agent.id, status="idle")
+        task = _new_task(
             agent_id=agent.id,
             prompt=f"paged-integrity-{index}",
             status="pending",
@@ -758,13 +806,13 @@ async def test_integrity_verifier_pages_through_every_store(db_session):
         await db_session.flush()
         db_session.add_all(
             [
-                JoySafeterCredential(
+                _new_credential(
                     project_id=project.id,
                     kind="service",
                     name=f"paged-managed-{index}",
                     data={"TOKEN": cipher.encrypt(f"managed-{index}")},
                 ),
-                JoySafeterCredential(
+                _new_credential(
                     project_id=project.id,
                     kind="mcp",
                     name=f"paged-oauth-{index}",
@@ -781,13 +829,13 @@ async def test_integrity_verifier_pages_through_every_store(db_session):
                 JoySafeterTaskIdentityContext(
                     task_id=task.id,
                     project_id=project.id,
-                    user_id=str(user.id),
+                    user_id=user.id,
                     credential_kind="identity_token",
                     encrypted_credential=cipher.encrypt(f"identity-{index}"),
                     captured_at=now,
                     expires_at=now + timedelta(minutes=10),
                 ),
-                JoySafeterSessionRepo(
+                _new_session_repo(
                     session_id=session.id,
                     url=f"https://github.com/example/paged-{index}.git",
                     branch="main",
@@ -820,7 +868,7 @@ async def test_integrity_verifier_reports_invalid_json_shapes_and_value_types_wi
     )
     project = await _create_project(db_session)
     rows = [
-        JoySafeterCredential(
+        _new_credential(
             project_id=project.id,
             kind="service",
             name=f"invalid-shape-{index}",

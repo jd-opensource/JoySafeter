@@ -9,14 +9,21 @@ from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillUsageLo
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.ids import (
     AgentId,
+    OrganizationId,
+    ProjectId,
     SessionId,
     SkillId,
     SkillSecurityScanId,
     SkillUsageId,
     SkillVersionId,
+    UserId,
 )
 
 pytestmark = pytest.mark.no_db
+
+USER_ID = UserId.from_public("user_00000000-0000-0000-0000-000000000001")
+ORG_ID = OrganizationId.from_public("org_00000000-0000-0000-0000-000000000001")
+PROJECT_ID = ProjectId.from_public("proj_00000000-0000-0000-0000-000000000001")
 
 
 class _ScalarResult:
@@ -49,10 +56,10 @@ class _Skill:
     pass
 
 
-def _ctx(project_id: str | None = "proj-a") -> JoySafeterAuthContext:
+def _ctx(project_id: ProjectId | None = PROJECT_ID) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="user-a",
-        org_id="org-a",
+        user_id=USER_ID,
+        org_id=ORG_ID,
         project_id=project_id,
         role=JoySafeterRole.MEMBER,
     )
@@ -73,8 +80,8 @@ def _usage_row(skill_id: SkillId | None, scan_id: SkillSecurityScanId) -> JoySaf
         artifact_hash="b" * 64,
         session_id=session_id,
         agent_id=AgentId.new(),
-        project_id="proj-a",
-        user_id="user-a",
+        project_id=PROJECT_ID,
+        user_id=USER_ID,
     )
     row.created_at = datetime(2026, 7, 20, tzinfo=timezone.utc)
     return row
@@ -92,8 +99,8 @@ async def test_skill_usage_api_filters_security_response_surface(monkeypatch):
 
         async def get_skill(self, requested_skill_id, current_user_id=None, project_id=None):
             assert requested_skill_id == skill_id
-            assert current_user_id == "user-a"
-            assert project_id == "proj-a"
+            assert current_user_id == USER_ID
+            assert project_id == PROJECT_ID
             return _Skill()
 
     monkeypatch.setattr(skills_api, "SkillService", _Svc)
@@ -115,12 +122,12 @@ async def test_skill_usage_api_filters_security_response_surface(monkeypatch):
     assert isinstance(item.session_id, SessionId)
     assert item.security_scan_id == scan_id
 
-    compiled = str(db.statement.compile(compile_kwargs={"literal_binds": True}))
-    assert "joysafeter_skill_usage_log.skill_id" in compiled
-    assert "proj-a" in compiled
-    assert "a" * 64 in compiled
-    assert "b" * 64 in compiled
-    assert "joysafeter_skill_usage_log.security_scan_id" in compiled
+    compiled = db.statement.compile()
+    assert "joysafeter_skill_usage_log.skill_id" in str(compiled)
+    assert PROJECT_ID in compiled.params.values()
+    assert "a" * 64 in compiled.params.values()
+    assert "b" * 64 in compiled.params.values()
+    assert scan_id in compiled.params.values()
 
 
 @pytest.mark.asyncio
@@ -162,10 +169,10 @@ async def test_skill_usage_search_finds_deleted_skill_by_hash():
     assert item.skill_name == "runtime-audit-skill"
     assert item.artifact_hash == "b" * 64
 
-    compiled = str(db.statement.compile(compile_kwargs={"literal_binds": True}))
-    assert "joysafeter_skill_usage_log.skill_id =" not in compiled
-    assert "proj-a" in compiled
-    assert "b" * 64 in compiled
+    compiled = db.statement.compile()
+    assert "joysafeter_skill_usage_log.skill_id =" not in str(compiled)
+    assert PROJECT_ID in compiled.params.values()
+    assert "b" * 64 in compiled.params.values()
 
 
 @pytest.mark.asyncio
@@ -199,6 +206,6 @@ async def test_skill_usage_search_normalizes_uppercase_hash():
         auth_ctx=_ctx(),
     )
 
-    compiled = str(db.statement.compile(compile_kwargs={"literal_binds": True}))
-    assert "b" * 64 in compiled
-    assert "B" * 64 not in compiled
+    compiled = db.statement.compile()
+    assert "b" * 64 in compiled.params.values()
+    assert "B" * 64 not in compiled.params.values()

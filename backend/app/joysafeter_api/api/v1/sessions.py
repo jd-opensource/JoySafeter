@@ -4,12 +4,12 @@ import json
 import logging
 import os
 import re
-import uuid
 from typing import Any, Literal, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.joysafeter_api.api.v1.audit import credential_audit_actor
 from app.joysafeter_api.api.v1.model_connection_summary import (
     load_model_connection_summaries,
-    maybe_credential_id,
     normalize_agent_model,
 )
 from app.joysafeter_application.agents import compose_agent_application
@@ -38,6 +37,7 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
     SessionAgent,
     SessionEventResponse,
     SessionFileResourceRequest,
+    SessionFileResourceResponse,
     SessionRepoResourceRequest,
     SessionRepoResourceResponse,
     SessionResourceResponse,
@@ -69,20 +69,74 @@ from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.ids import (
     AgentId,
     CredentialId,
-    EnvironmentId,
     EventId,
     MemoryStoreId,
+    OrganizationId,
+    ProjectId,
     SandboxId,
     SessionId,
     SessionResourceId,
     SkillUsageId,
     TaskId,
-    registered_entity_id_prefix,
+    UserId,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["joysafeter-sessions"])
+
+
+class SessionResourcesResponse(BaseModel):
+    data: list[SessionFileResourceResponse | SessionRepoResourceResponse]
+
+
+class SessionResourceDeleteResponse(BaseModel):
+    id: SessionResourceId
+    deleted: Literal[True] = True
+
+
+class SessionDeleteResponse(BaseModel):
+    id: SessionId
+    object: Literal["session"] = "session"
+    deleted: Literal[True] = True
+
+
+class SessionArchiveResponse(BaseModel):
+    status: Literal["archived"]
+
+
+class SessionStopResponse(BaseModel):
+    id: SessionId
+    status: Literal["idle"]
+    cancelled_tasks: int
+
+
+class SessionEventBatchResponse(BaseModel):
+    events: list[SessionEventResponse]
+
+
+class SandboxFileEntryResponse(BaseModel):
+    name: str
+    path: str
+    type: str
+    size: int
+    mtime: int
+
+
+class SandboxFileResponse(BaseModel):
+    ok: bool
+    code: str
+    error: str
+    path: str
+    entries: list[SandboxFileEntryResponse] = Field(default_factory=list)
+    encoding: str | None = None
+    content: str | None = None
+    content_base64: str | None = None
+    filename: str | None = None
+    content_type: str | None = None
+    size: int | None = None
+
+    model_config = ConfigDict(extra="forbid")
 
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
@@ -94,40 +148,6 @@ _SANDBOX_FILE_MAX_PREVIEW_CHARS = 2 * 1024 * 1024
 def _slugify_mount_name(name: str) -> str:
     """Slugify a store name: lowercase, replace non-alphanumeric runs with '-'."""
     return _NON_ALNUM_RE.sub("-", name.lower()).strip("-")
-
-
-def _canonical_environment_ref(raw: str | None) -> str:
-    ref = (raw or "").strip()
-    if not ref:
-        return ""
-    prefix = registered_entity_id_prefix(ref)
-    if prefix is not None:
-        if prefix != EnvironmentId.prefix:
-            raise InvalidRequestError(
-                code="ENVIRONMENT_ID_INVALID",
-                message="Invalid environment_id",
-                data={"environment_id": ref},
-                user_action="fix_input",
-            )
-        try:
-            return str(EnvironmentId.from_public(ref))
-        except (TypeError, ValueError) as exc:
-            raise InvalidRequestError(
-                code="ENVIRONMENT_ID_INVALID",
-                message="Invalid environment_id",
-                data={"environment_id": ref},
-                user_action="fix_input",
-            ) from exc
-    try:
-        uuid.UUID(ref)
-    except ValueError:
-        return ref
-    raise InvalidRequestError(
-        code="ENVIRONMENT_ID_INVALID",
-        message="Invalid environment_id",
-        data={"environment_id": ref},
-        user_action="fix_input",
-    )
 
 
 def _safe_content_disposition(filename: str) -> str:
@@ -174,12 +194,12 @@ def _validate_sandbox_file_path(path: str | None) -> str:
     return value if value.startswith("/") else f"/workspace/{value}"
 
 
-async def _load_session_repos(db: AsyncSession, session_id: SessionId, project_id: Optional[str]) -> list:
+async def _load_session_repos(db: AsyncSession, session_id: SessionId, project_id: ProjectId | None) -> list:
     """Load a session's repo resources (without decrypting tokens)."""
     return await SessionResourceService(db).list_repo_records(session_id, project_id=project_id)
 
 
-async def _load_session_storage_mounts(db: AsyncSession, session_id: SessionId, project_id: Optional[str]) -> list:
+async def _load_session_storage_mounts(db: AsyncSession, session_id: SessionId, project_id: ProjectId | None) -> list:
     query = select(JoySafeterSessionStorageMount).where(
         JoySafeterSessionStorageMount.session_id == session_id,
         JoySafeterSessionStorageMount.detached_at.is_(None),
@@ -207,7 +227,7 @@ def _session_model_credential_id(session, agent=None) -> CredentialId | None:
     snapshot = session.agent_snapshot or {}
     if not isinstance(snapshot, dict):
         return None
-    return maybe_credential_id(snapshot_model_credential_id(snapshot))
+    return snapshot_model_credential_id(snapshot)
 
 
 def _session_to_response(
@@ -240,6 +260,7 @@ def _session_to_response(
     for r in resources or []:
         resource_responses.append(
             SessionResourceResponse(
+                id=r.id,
                 memory_store_id=r.store_id,
                 access=r.access,
                 instructions=r.instructions,
@@ -281,7 +302,7 @@ def _session_to_response(
     return SessionResponse(
         id=session.id,
         agent=agent_data,
-        environment_id=session.environment_ref,
+        environment_id=session.environment_id,
         status=session.status,
         stop_reason=session.stop_reason,
         title=session.title,
@@ -319,9 +340,6 @@ async def create_session(
             data={"max": MAX_STORAGE_MOUNT_RESOURCES, "actual": len(req.storage_mounts)},
             user_action="fix_input",
         )
-
-    # --- Parse environment_id: validate canonical ID refs, preserve name refs ---
-    environment_ref = _canonical_environment_ref(req.environment_id)
 
     # --- Resolve agent ---
     agent_svc = compose_agent_application(db).queries
@@ -406,7 +424,7 @@ async def create_session(
             project_id=auth_ctx.project_id,
             agent_id=agent.id,
             pinned_agent_version=pinned_version,
-            environment_ref=environment_ref or None,
+            environment_id=req.environment_id,
             credential_group_ids=tuple(req.credential_group_ids),
             title=req.title,
             metadata=req.metadata,
@@ -426,18 +444,17 @@ async def create_session(
             volume = await storage_svc.get_volume_by_ref(mount.volume_ref)
             if not volume:
                 continue
-            record = JoySafeterSessionStorageMount(
+            record = storage_svc.attach_session_mount(
                 session_id=session.id,
-                volume_id=volume.id,
+                volume=volume,
                 project_id=auth_ctx.project_id,
                 name=mount.name,
                 sub_path=mount.sub_path,
                 mount_path=mount.mount_path,
                 access=mount.access,
                 required=mount.required,
-                config={"volume_ref": mount.volume_ref, "catalog": authorized.get(mount.volume_ref, {})},
+                catalog=authorized.get(mount.volume_ref, {}),
             )
-            db.add(record)
             storage_mount_records.append(record)
         await db.flush()
         for record in storage_mount_records:
@@ -635,7 +652,7 @@ async def delete_session(
     session_id: SessionId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-) -> dict:
+) -> SessionDeleteResponse:
     svc = SessionService(db)
     session = await svc.get_session(session_id, project_id=auth_ctx.project_id)
     if not session:
@@ -745,8 +762,7 @@ async def delete_session(
     if broadcaster:
         broadcaster.remove(session_id)
 
-    session_id_str = str(session_id)
-    return {"id": session_id_str, "object": "session", "deleted": True}
+    return SessionDeleteResponse(id=session_id)
 
 
 @router.post("/{session_id}/archive")
@@ -754,7 +770,7 @@ async def archive_session(
     session_id: SessionId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-) -> dict:
+) -> SessionArchiveResponse:
     svc = SessionService(db)
     session = await svc.get_session(session_id, project_id=auth_ctx.project_id)
     if not session:
@@ -772,7 +788,7 @@ async def archive_session(
             data={"session_id": str(session_id)},
             user_action="refresh",
         )
-    return {"status": "archived"}
+    return SessionArchiveResponse(status="archived")
 
 
 @router.post("/{session_id}/stop")
@@ -780,7 +796,7 @@ async def stop_session(
     session_id: SessionId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
-) -> dict:
+) -> SessionStopResponse:
     svc = SessionService(db)
     session = await svc.get_session(session_id, project_id=auth_ctx.project_id)
     if not session:
@@ -940,11 +956,7 @@ async def stop_session(
             {"type": "session.status_idle", "stop_reason": stop_reason},
         )
 
-    return {
-        "id": str(session_id),
-        "status": "idle",
-        "cancelled_tasks": cancelled_count,
-    }
+    return SessionStopResponse(id=session_id, status="idle", cancelled_tasks=cancelled_count)
 
 
 CONTROL_EVENT_TYPES = {"user.tool_confirmation", "user.custom_tool_result", "user.interrupt"}
@@ -1255,7 +1267,7 @@ async def _find_idempotent_user_message_event(
     db: AsyncSession,
     session_id: SessionId,
     idempotency_key: str,
-    project_id: Optional[str] = None,
+    project_id: ProjectId | None = None,
 ):
     return await SessionService(db).find_user_message_event_by_idempotency_key(
         session_id,
@@ -1280,7 +1292,7 @@ async def _idempotent_user_message_replay_response(
     *,
     session_id: SessionId,
     idempotency_key: str,
-    project_id: Optional[str],
+    project_id: ProjectId | None,
     expected_prompt: Optional[str] = None,
 ) -> SessionEventResponse | None:
     from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService as TaskService
@@ -1342,9 +1354,9 @@ async def _create_and_enqueue_resume_task(
     svc: SessionService,
     session_id: SessionId,
     agent_id: AgentId,
-    project_id: Optional[str],
-    user_id: Optional[str],
-    org_id: Optional[str],
+    project_id: ProjectId | None,
+    user_id: UserId | None,
+    org_id: OrganizationId | None,
     prompt: str,
     failure_context: str,
     source_event_id: EventId,
@@ -1375,7 +1387,7 @@ async def _mark_session_running_for_active_task(
     svc: SessionService,
     session_id: SessionId,
     task_id: TaskId | None = None,
-    project_id: Optional[str] = None,
+    project_id: ProjectId | None = None,
     broadcaster=None,
 ) -> bool:
     if task_id is None:
@@ -1461,7 +1473,7 @@ async def send_event(
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
     request: Request = None,
-) -> dict:
+) -> SessionEventBatchResponse:
     if not isinstance(idempotency_key, str) or not idempotency_key.strip():
         idempotency_key = None
     else:
@@ -1855,7 +1867,7 @@ async def send_event(
 
         results.append(event_response)
 
-    return {"events": [r.model_dump() for r in results]}
+    return SessionEventBatchResponse(events=results)
 
 
 @router.get("/{session_id}/events")
@@ -2111,21 +2123,21 @@ async def list_session_resources(
     session_id: SessionId,
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> SessionResourcesResponse:
     resource_svc = SessionResourceService(db)
     await resource_svc.get_project_session_or_raise(session_id, auth_ctx.project_id)
-    return {"data": await resource_svc.list_resource_payloads(session_id, project_id=auth_ctx.project_id)}
+    return SessionResourcesResponse(data=await resource_svc.list_resources(session_id, project_id=auth_ctx.project_id))
 
 
 async def _relay_sandbox_file_command(
     *,
     db: AsyncSession,
     session_id: SessionId,
-    project_id: Optional[str],
+    project_id: ProjectId | None,
     op: str,
     path: str,
     max_bytes: int | None = None,
-) -> dict[str, Any]:
+) -> SandboxFileResponse:
     session = await SessionService(db).get_session(session_id, project_id=project_id)
     if not session:
         raise NotFoundError(
@@ -2243,15 +2255,16 @@ async def list_sandbox_files(
     path: Optional[str] = Query(default="/workspace"),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
     db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
+) -> SandboxFileResponse:
     safe_path = _validate_sandbox_file_path(path)
-    return await _relay_sandbox_file_command(
+    payload = await _relay_sandbox_file_command(
         db=db,
         session_id=session_id,
         project_id=auth_ctx.project_id,
         op="list",
         path=safe_path,
     )
+    return SandboxFileResponse.model_validate(payload)
 
 
 @router.get("/{session_id}/sandbox/files/content")
@@ -2260,7 +2273,7 @@ async def read_sandbox_file_content(
     path: str = Query(...),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
     db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
+) -> SandboxFileResponse:
     safe_path = _validate_sandbox_file_path(path)
     payload = await _relay_sandbox_file_command(
         db=db,
@@ -2277,7 +2290,7 @@ async def read_sandbox_file_content(
             data={"max_chars": _SANDBOX_FILE_MAX_PREVIEW_CHARS},
             user_action="fix_input",
         )
-    return payload
+    return SandboxFileResponse.model_validate(payload)
 
 
 @router.get("/{session_id}/sandbox/files/raw")
@@ -2337,7 +2350,7 @@ async def add_session_resource(
     req: dict,
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
     db: AsyncSession = Depends(get_db),
-):
+) -> SessionFileResourceResponse | SessionRepoResourceResponse:
     """Add a resource to a running session.
 
     Discriminated by ``type``:
@@ -2399,11 +2412,12 @@ async def delete_session_resource(
     resource_id: SessionResourceId,
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
     db: AsyncSession = Depends(get_db),
-):
+) -> SessionResourceDeleteResponse:
     resource_svc = SessionResourceService(db)
     session = await resource_svc.get_project_session_or_raise(session_id, auth_ctx.project_id)
     resource_svc.ensure_mutable(session, session_id)
-    return await resource_svc.delete_resource(session_id, resource_id, project_id=auth_ctx.project_id)
+    deleted_id = await resource_svc.delete_resource(session_id, resource_id, project_id=auth_ctx.project_id)
+    return SessionResourceDeleteResponse(id=deleted_id)
 
 
 @router.patch("/{session_id}/resources/{resource_id}")

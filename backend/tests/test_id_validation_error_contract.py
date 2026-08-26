@@ -61,7 +61,7 @@ def _build_typed_id_app() -> FastAPI:
         agent_id: AgentId
 
     class PersistedCredential(BaseModel):
-        service_credential_id: CredentialId
+        credential_id: CredentialId
 
     @app.post("/typed")
     async def _create(body: Body) -> dict:  # pragma: no cover - exercised via client
@@ -103,7 +103,7 @@ def _build_typed_id_app() -> FastAPI:
 
     @app.get("/persisted-corruption")
     async def _persisted_corruption() -> dict:  # pragma: no cover - exercised via client
-        PersistedCredential(service_credential_id=str(uuid.uuid4()))
+        PersistedCredential(credential_id=str(uuid.uuid4()))
         return {"ok": True}
 
     return app

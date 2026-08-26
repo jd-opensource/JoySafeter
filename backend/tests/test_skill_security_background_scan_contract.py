@@ -10,6 +10,7 @@ from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkill, JoySafeterSkillSecurityScan
 from app.joysafeter_domain.services.joysafeter_skill_security import SkillSecurityService, run_scan_in_background
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, SkillId, UserId
 
 
 @pytest.mark.asyncio
@@ -27,20 +28,21 @@ async def test_background_skill_scan_failure_records_structured_failed_scan(
 
     monkeypatch.setattr(SkillSecurityService, "scan_for_write", fail_before_scanner_record)
 
-    user = AuthUser(name="Skill Scanner", email=f"skill-scanner-{uuid.uuid4()}@example.com")
+    user = AuthUser(id=UserId.new(), name="Skill Scanner", email=f"skill-scanner-{uuid.uuid4()}@example.com")
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
     user_id = user.id
 
-    org_id = f"org-{uuid.uuid4()}"
-    project_id = f"proj-{uuid.uuid4()}"
+    org_id = OrganizationId.new()
+    project_id = ProjectId.new()
     org = Organization(id=org_id, name="Skill Scan Org", slug=f"skill-scan-{uuid.uuid4()}")
     project = Project(id=project_id, org_id=org_id, name="Skill Scan", slug=f"skill-scan-{uuid.uuid4()}")
     db_session.add_all([org, project])
     await db_session.commit()
 
     skill = JoySafeterSkill(
+        id=SkillId.new(),
         name=f"async-scan-skill-{uuid.uuid4()}",
         description="test skill",
         content="# Skill",
@@ -95,7 +97,7 @@ async def test_background_skill_scan_failure_records_structured_failed_scan(
                 "skill_id": str(skill_id),
                 "trigger": "create",
                 "project_id": None,
-                "owner_id": user_id,
+                "owner_id": str(user_id),
             },
             "source": "runtime",
             "retryable": True,

@@ -12,12 +12,11 @@ from app.joysafeter_shared.cache.redis import RedisClient
 from app.joysafeter_shared.config.service_role import current_role
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.database import AsyncSessionLocal, close_db, engine
-from app.joysafeter_shared.observation.otel.global_provider import init_global_provider
-from app.joysafeter_shared.observation.otel.provider import init_global_processors
 from app.joysafeter_shared.security.credential_cipher import CredentialCipher
 from app.joysafeter_shared.security.credential_encryption_canary import (
     validate_credential_encryption_canaries,
 )
+from app.joysafeter_shared.telemetry.tracer_provider import init_tracer_provider
 
 
 def validate_credential_encryption_configuration() -> None:
@@ -90,8 +89,7 @@ async def _check_docker_availability() -> None:
 
 async def _run_common_startup() -> None:
     validate_llm_catalog_configuration()
-    init_global_provider()
-    init_global_processors()
+    init_tracer_provider()
 
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"   Environment: {settings.environment}")
@@ -129,9 +127,9 @@ async def _run_common_shutdown() -> None:
         logger.debug("Failed to close Redis client during shutdown", exc_info=True)
 
     try:
-        from app.joysafeter_shared.observation.otel.global_provider import get_global_provider
+        from app.joysafeter_shared.telemetry.tracer_provider import get_tracer_provider
 
-        get_global_provider().shutdown()
+        get_tracer_provider().shutdown()
         logger.info("   ✓ OTel TracerProvider shut down")
     except Exception:
         logger.debug("Failed to shut down TracerProvider during shutdown", exc_info=True)

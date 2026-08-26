@@ -26,16 +26,17 @@ from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_service import JoySafeterTriggerService
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId, TriggerId, UserId
 
 
 async def _seed_base(db):
-    org = Organization(name=f"ha-org-{uuid.uuid4()}", slug=f"ha-org-{uuid.uuid4()}")
+    org = Organization(id=OrganizationId.new(), name=f"ha-org-{uuid.uuid4()}", slug=f"ha-org-{uuid.uuid4()}")
     db.add(org)
     await db.flush()
-    project = Project(org_id=org.id, name="P", slug=f"ha-p-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org.id, name="P", slug=f"ha-p-{uuid.uuid4()}")
     db.add(project)
     await db.flush()
-    agent = JoySafeterAgent(name=f"ha-agent-{uuid.uuid4()}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"ha-agent-{uuid.uuid4()}", project_id=project.id)
     db.add(agent)
     await db.commit()
     await db.refresh(agent)
@@ -45,6 +46,7 @@ async def _seed_base(db):
 
 async def _seed_due_cron(db, org, project, agent, name, *, locked_by=None, locked_at=None):
     trigger = JoySafeterTrigger(
+        id=TriggerId.new(),
         name=name,
         type="cron",
         agent_id=agent.id,
@@ -56,7 +58,7 @@ async def _seed_due_cron(db, org, project, agent, name, *, locked_by=None, locke
         locked_by=locked_by,
         locked_at=locked_at,
         project_id=project.id,
-        user_id="owner",
+        user_id=UserId.new(),
         org_id=org.id,
         filter={},
         config={},

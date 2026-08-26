@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -22,11 +23,13 @@ from app.joysafeter_identity.config import (
 )
 from app.joysafeter_identity.service import cleanup_agent_identity
 from app.joysafeter_shared.common.app_errors import ServiceUnavailableError
-from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
+from app.joysafeter_shared.ids import AgentId, ProjectId, SessionId, TaskId, UserId
 from app.joysafeter_shared.security.credential_cipher import CredentialCipher
 
 pytestmark = pytest.mark.no_db
 REPO_ROOT = Path(__file__).resolve().parents[2]
+TEST_KEY_ID = "test-2026-08"
+TEST_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 
 def test_create_session_rejects_reserved_agent_identity_context_metadata() -> None:
@@ -52,13 +55,15 @@ def test_task_identity_context_is_task_scoped_and_cascades() -> None:
     assert table.c.consumed_at.nullable is True
 
 
-def test_identity_encryption_uses_versioned_envelope() -> None:
+def test_identity_encryption_uses_versioned_envelope(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING", json.dumps({TEST_KEY_ID: TEST_KEY}))
+    monkeypatch.setenv("JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID", TEST_KEY_ID)
     encrypted = _encrypt(
         "credential",
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        TEST_KEY,
     )
 
-    assert encrypted.startswith("enc:v1:")
+    assert encrypted.startswith(f"enc:v2:{TEST_KEY_ID}:")
     assert "credential" not in encrypted
 
 
@@ -82,7 +87,9 @@ def test_identity_encryption_delegates_to_shared_cipher(monkeypatch: pytest.Monk
 
 
 @pytest.mark.parametrize("key", ["", "not-a-key", "00"])
-def test_identity_encryption_rejects_invalid_keys(key: str) -> None:
+def test_identity_encryption_rejects_invalid_keys(key: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING", raising=False)
+    monkeypatch.delenv("JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID", raising=False)
     with pytest.raises(ValueError, match="32-byte"):
         _encrypt("credential", key)
 
@@ -192,8 +199,10 @@ async def test_prepared_identity_capture_persists_task_scoped_context(
     monkeypatch.setenv("AGENT_IDENTITY_PROVIDER", "jd")
     monkeypatch.setenv(
         "JOYSAFETER_VAULT_ENCRYPTION_KEY",
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        TEST_KEY,
     )
+    monkeypatch.setenv("JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING", json.dumps({TEST_KEY_ID: TEST_KEY}))
+    monkeypatch.setenv("JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID", TEST_KEY_ID)
     monkeypatch.setenv("AGENT_IDENTITY_CONTEXT_TTL_SECONDS", "300")
     result = SimpleNamespace(scalar_one_or_none=lambda: "user@example.com")
     db = SimpleNamespace(
@@ -203,23 +212,27 @@ async def test_prepared_identity_capture_persists_task_scoped_context(
     )
     request = SimpleNamespace(cookies={"identity": "browser-token"})
     agent = SimpleNamespace(metadata_={})
-    auth_ctx = SimpleNamespace(user_id="user-1", project_id="project-1")
+    user_id = UserId.new()
+    project_id = ProjectId.new()
+    auth_ctx = SimpleNamespace(user_id=user_id, project_id=project_id)
     monkeypatch.setenv("AGENT_IDENTITY_COOKIE_NAME", "identity")
 
     hook = await prepare_agent_identity_capture(db, request, auth_ctx, agent)
     assert hook is not None
-    task = SimpleNamespace(id=TaskId.new(), project_id="project-1")
+    task = SimpleNamespace(id=TaskId.new(), project_id=project_id)
     await hook(task)
 
     context = db.add.call_args.args[0]
     assert isinstance(context, JoySafeterTaskIdentityContext)
     assert context.task_id == task.id
-    assert context.project_id == "project-1"
-    assert context.user_id == "user-1"
+    assert type(context.project_id) is ProjectId
+    assert context.project_id == project_id
+    assert type(context.user_id) is UserId
+    assert context.user_id == user_id
     assert context.user_name == "user@example.com"
     assert context.credential_kind == "identity_token"
     assert context.credential_fingerprint is None
-    assert context.encrypted_credential.startswith("enc:v1:")
+    assert context.encrypted_credential.startswith(f"enc:v2:{TEST_KEY_ID}:")
     assert int((context.expires_at - context.captured_at).total_seconds()) == 300
     db.commit.assert_awaited_once()
 

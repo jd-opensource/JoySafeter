@@ -11,19 +11,20 @@ from app.joysafeter_shared.common.joysafeter_auth.dependencies import (
     _require_admin_context,
     _require_write_context,
 )
+from app.joysafeter_shared.ids import OrganizationId, OrganizationMemberId, ProjectId, ProjectMemberId, UserId
 
 
 async def _setup(db_session, project_role: str) -> JoySafeterAuthContext:
-    org_id = f"org-{uuid.uuid4()}"
-    user = AuthUser(id=f"user-{uuid.uuid4()}", name="Dev", email=f"{uuid.uuid4()}@example.com")
+    org_id = OrganizationId.new()
+    user = AuthUser(id=UserId.new(), name="Dev", email=f"{uuid.uuid4()}@example.com")
     org = Organization(id=org_id, name="Org", slug=f"org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="P", slug="default", is_default=True)
+    project = Project(id=ProjectId.new(), org_id=org_id, name="P", slug="default", is_default=True)
     db_session.add_all([user, org, project])
     await db_session.flush()
     db_session.add_all(
         [
-            Member(user_id=user.id, organization_id=org_id, role="member"),
-            ProjectMember(project_id=project.id, user_id=user.id, role=project_role),
+            Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org_id, role="member"),
+            ProjectMember(id=ProjectMemberId.new(), project_id=project.id, user_id=user.id, role=project_role),
         ]
     )
     await db_session.commit()
@@ -54,15 +55,21 @@ async def _api_key_ctx(
     context mirrors _auth_via_api_key: org role pinned to MEMBER (never a
     super-user) and the key's minted role carried as project_role.
     """
-    org_id = f"org-{uuid.uuid4()}"
-    creator = AuthUser(id=f"user-{uuid.uuid4()}", name="Creator", email=f"{uuid.uuid4()}@example.com")
+    org_id = OrganizationId.new()
+    creator = AuthUser(id=UserId.new(), name="Creator", email=f"{uuid.uuid4()}@example.com")
     org = Organization(id=org_id, name="Org", slug=f"org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="P", slug="default", is_default=True)
+    project = Project(id=ProjectId.new(), org_id=org_id, name="P", slug="default", is_default=True)
     db_session.add_all([creator, org, project])
     await db_session.flush()
-    db_session.add(Member(user_id=creator.id, organization_id=org_id, role=creator_org_role))
+    db_session.add(
+        Member(id=OrganizationMemberId.new(), user_id=creator.id, organization_id=org_id, role=creator_org_role)
+    )
     if creator_project_role is not None:
-        db_session.add(ProjectMember(project_id=project.id, user_id=creator.id, role=creator_project_role))
+        db_session.add(
+            ProjectMember(
+                id=ProjectMemberId.new(), project_id=project.id, user_id=creator.id, role=creator_project_role
+            )
+        )
     await db_session.commit()
     return JoySafeterAuthContext(
         user_id=creator.id,
@@ -119,10 +126,10 @@ async def test_admin_gate_rejects_api_key_principal(db_session):
 async def test_write_gate_rejects_api_key_of_removed_creator(db_session):
     # A key whose creator was fully removed from the org must not write: the
     # re-verify raises MEMBERSHIP_EXPIRED before the capability cap is evaluated.
-    org_id = f"org-{uuid.uuid4()}"
-    creator = AuthUser(id=f"user-{uuid.uuid4()}", name="Gone", email=f"{uuid.uuid4()}@example.com")
+    org_id = OrganizationId.new()
+    creator = AuthUser(id=UserId.new(), name="Gone", email=f"{uuid.uuid4()}@example.com")
     org = Organization(id=org_id, name="Org", slug=f"org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org_id, name="P", slug="default", is_default=True)
+    project = Project(id=ProjectId.new(), org_id=org_id, name="P", slug="default", is_default=True)
     db_session.add_all([creator, org, project])
     await db_session.commit()
     # Creator has NO Member row (removed), yet an editor key still references them.

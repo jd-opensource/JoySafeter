@@ -7,6 +7,8 @@ The consumer now caps redeliveries: once a message's delivery count crosses
 acked, so a poison event can't loop indefinitely.
 """
 
+import uuid
+
 import pytest
 
 from app.joysafeter_worker.events.stream_consumer import (
@@ -15,6 +17,20 @@ from app.joysafeter_worker.events.stream_consumer import (
 )
 
 pytestmark = pytest.mark.no_db
+
+
+def test_stream_consumer_rejects_missing_event_id() -> None:
+    worker = EventStreamWorker(stream_key="joysafeter:test:events", group="test-group")
+
+    with pytest.raises(ValueError, match="event_id"):
+        worker._decode_event(
+            {
+                "session_id": str(uuid.uuid4()),
+                "event_type": "agent.message",
+                "payload": "{}",
+                "seq": "1",
+            }
+        )
 
 
 def test_ids_over_delivery_limit_selects_only_exhausted():

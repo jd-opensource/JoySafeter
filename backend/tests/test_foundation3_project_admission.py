@@ -21,31 +21,41 @@ from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask, JoySafeterTaskStatus
 from app.joysafeter_domain.services.joysafeter_task_service import JoySafeterTaskService
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId
 
 
-async def _make_project(db_session) -> str:
-    org = Organization(name=f"org-{uuid.uuid4()}", slug=f"org-{uuid.uuid4()}")
+async def _make_project(db_session) -> ProjectId:
+    org = Organization(
+        id=OrganizationId.new(),
+        name=f"org-{uuid.uuid4()}",
+        slug=f"org-{uuid.uuid4()}",
+    )
     db_session.add(org)
     await db_session.flush()
-    project = Project(org_id=org.id, name=f"proj-{uuid.uuid4()}", slug=f"proj-{uuid.uuid4()}")
+    project = Project(
+        id=ProjectId.new(),
+        org_id=org.id,
+        name=f"proj-{uuid.uuid4()}",
+        slug=f"proj-{uuid.uuid4()}",
+    )
     db_session.add(project)
     await db_session.commit()
     return project.id
 
 
 @pytest_asyncio.fixture
-async def project_a(db_session) -> str:
+async def project_a(db_session) -> ProjectId:
     return await _make_project(db_session)
 
 
 @pytest_asyncio.fixture
-async def project_b(db_session) -> str:
+async def project_b(db_session) -> ProjectId:
     return await _make_project(db_session)
 
 
 @pytest_asyncio.fixture
-async def agent_id(db_session) -> uuid.UUID:
-    agent = JoySafeterAgent(name=f"test-agent-{uuid.uuid4()}")
+async def agent_id(db_session) -> AgentId:
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"test-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)

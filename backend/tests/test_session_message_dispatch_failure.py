@@ -34,8 +34,20 @@ from app.joysafeter_domain.schemas.joysafeter_session import SendEventRequest, S
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import SandboxId, SessionId, as_uuid
+from app.joysafeter_shared.ids import (
+    AgentId,
+    OrganizationId,
+    ProjectId,
+    SandboxId,
+    SessionId,
+    TaskId,
+    UserId,
+    as_uuid,
+)
 from app.joysafeter_shared.utils.datetime import utc_now
+
+TEST_USER_ID = UserId.new()
+TEST_ORGANIZATION_ID = OrganizationId.new()
 
 
 class _FakeRedis:
@@ -143,19 +155,19 @@ class _AckWaitFailingRedis(_FakeAckRedis):
         raise RuntimeError("ack wait failed")
 
 
-async def _ensure_project(db_session, project_id: str) -> None:
+async def _ensure_project(db_session, project_id: ProjectId) -> None:
     if await db_session.get(Project, project_id):
         return
-    org = await db_session.get(Organization, "test-org")
+    org = await db_session.get(Organization, TEST_ORGANIZATION_ID)
     if not org:
-        org = Organization(id="test-org", name="Test Org", slug="test-org")
+        org = Organization(id=TEST_ORGANIZATION_ID, name="Test Org", slug="test-org")
         db_session.add(org)
     db_session.add(
         Project(
             id=project_id,
-            org_id="test-org",
-            name=project_id,
-            slug=project_id,
+            org_id=TEST_ORGANIZATION_ID,
+            name=str(project_id),
+            slug=str(project_id),
             is_default=False,
         )
     )
@@ -164,13 +176,15 @@ async def _ensure_project(db_session, project_id: str) -> None:
 
 @pytest.mark.asyncio
 async def test_session_event_child_queries_reject_cross_project_parent_at_service_boundary(db_session):
-    await _ensure_project(db_session, "project-a")
-    await _ensure_project(db_session, "project-b")
-    agent = JoySafeterAgent(name=f"event-boundary-agent-{uuid.uuid4()}", project_id="project-b")
+    project_a_id = ProjectId.new()
+    project_b_id = ProjectId.new()
+    await _ensure_project(db_session, project_a_id)
+    await _ensure_project(db_session, project_b_id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"event-boundary-agent-{uuid.uuid4()}", project_id=project_b_id)
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
-    session = JoySafeterSession(agent_id=agent.id, project_id="project-b", status="running")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, project_id=project_b_id, status="running")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -192,7 +206,7 @@ async def test_session_event_child_queries_reject_cross_project_parent_at_servic
         await svc.find_user_message_event_by_idempotency_key(
             session.id,
             "idem-key",
-            project_id="project-a",
+            project_id=project_a_id,
         )
         is None
     )
@@ -200,7 +214,7 @@ async def test_session_event_child_queries_reject_cross_project_parent_at_servic
         await svc.find_status_running_event_for_task(
             session.id,
             running_task_id,
-            project_id="project-a",
+            project_id=project_a_id,
         )
         is None
     )
@@ -208,12 +222,12 @@ async def test_session_event_child_queries_reject_cross_project_parent_at_servic
     project_b_user_event = await svc.find_user_message_event_by_idempotency_key(
         session.id,
         "idem-key",
-        project_id="project-b",
+        project_id=project_b_id,
     )
     project_b_running_event = await svc.find_status_running_event_for_task(
         session.id,
         running_task_id,
-        project_id="project-b",
+        project_id=project_b_id,
     )
     assert project_b_user_event is not None
     assert project_b_running_event is not None
@@ -236,12 +250,12 @@ async def test_user_message_enqueue_failure_returns_503_and_compensates(
         staticmethod(lambda: None),
     )
 
-    agent = JoySafeterAgent(name=f"dispatch-failure-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"dispatch-failure-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -256,8 +270,8 @@ async def test_user_message_enqueue_failure_returns_503_and_compensates(
         ]
     )
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -395,18 +409,19 @@ async def test_command_ack_wait_failure_logs_structured_boundary_error():
 async def test_user_message_rejects_idle_session_with_active_task(db_session, monkeypatch):
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: None)
 
-    agent = JoySafeterAgent(name=f"active-task-session-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"active-task-session-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
     session_id = session.id
 
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         chat_session_id=session_id,
         prompt="still active",
@@ -424,8 +439,8 @@ async def test_user_message_rejects_idle_session_with_active_task(db_session, mo
         ]
     )
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -472,12 +487,12 @@ async def test_user_message_idempotent_retry_after_enqueue_failure_stays_503(
         staticmethod(lambda: None),
     )
 
-    agent = JoySafeterAgent(name=f"dispatch-failure-idem-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"dispatch-failure-idem-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -492,8 +507,8 @@ async def test_user_message_idempotent_retry_after_enqueue_failure_stays_503(
         ]
     )
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -545,12 +560,12 @@ async def test_user_message_idempotency_key_prevents_duplicate_task(
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"dispatch-idem-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"dispatch-idem-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -565,8 +580,8 @@ async def test_user_message_idempotency_key_prevents_duplicate_task(
         ]
     )
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -578,7 +593,7 @@ async def test_user_message_idempotency_key_prevents_duplicate_task(
     finally:
         await engine.dispose()
 
-    assert first["events"][0]["id"] == second["events"][0]["id"]
+    assert first.events[0].id == second.events[0].id
     assert len(redis.rpushed) == 1
 
     task_count = await db_session.scalar(select(func.count()).select_from(JoySafeterTask))
@@ -611,20 +626,20 @@ async def test_user_message_rejects_idempotency_key_reuse_for_different_message(
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"dispatch-idem-reuse-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"dispatch-idem-reuse-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
     session_id = session.id
 
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -676,12 +691,12 @@ async def test_tool_confirmation_fallback_enqueues_via_redis_without_local_sched
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"control-fallback-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"control-fallback-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -697,8 +712,8 @@ async def test_tool_confirmation_fallback_enqueues_via_redis_without_local_sched
         ]
     )
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -729,12 +744,12 @@ async def test_tool_confirmation_fallback_failure_returns_503_and_marks_task_fai
         staticmethod(lambda: None),
     )
 
-    agent = JoySafeterAgent(name=f"control-fallback-fail-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"control-fallback-fail-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -750,8 +765,8 @@ async def test_tool_confirmation_fallback_failure_returns_503_and_marks_task_fai
         ]
     )
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -800,12 +815,12 @@ async def test_tool_confirmation_event_id_is_resolved_to_runtime_call_id_for_red
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"control-call-id-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"control-call-id-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="running", last_sandbox_id=uuid.uuid4())
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running", last_sandbox_id=uuid.uuid4())
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -832,8 +847,8 @@ async def test_tool_confirmation_event_id_is_resolved_to_runtime_call_id_for_red
         ]
     )
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -877,12 +892,12 @@ async def test_custom_tool_result_event_id_is_resolved_to_runtime_call_id_for_re
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"custom-control-call-id-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"custom-control-call-id-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="running", last_sandbox_id=uuid.uuid4())
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running", last_sandbox_id=uuid.uuid4())
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -908,8 +923,8 @@ async def test_custom_tool_result_event_id_is_resolved_to_runtime_call_id_for_re
         ]
     )
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -956,12 +971,12 @@ async def test_interrupt_requires_cancel_delivery_for_running_session(
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"interrupt-cancel-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"interrupt-cancel-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="running", last_sandbox_id=uuid.uuid4())
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running", last_sandbox_id=uuid.uuid4())
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -969,8 +984,8 @@ async def test_interrupt_requires_cancel_delivery_for_running_session(
 
     req = SendEventRequest(events=[SingleEventRequest(type="user.interrupt")])
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -1008,20 +1023,20 @@ async def test_interrupt_requires_cancel_delivery_for_running_session(
 
 @pytest.mark.asyncio
 async def test_stop_session_rejects_archived_session_with_structured_error(db_session):
-    agent = JoySafeterAgent(name=f"stop-archived-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"stop-archived-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle", archived_at=utc_now())
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle", archived_at=utc_now())
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
     session_id = session.id
 
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -1041,20 +1056,20 @@ async def test_stop_session_rejects_archived_session_with_structured_error(db_se
 
 @pytest.mark.asyncio
 async def test_stop_session_rejects_terminated_session_with_structured_error(db_session):
-    agent = JoySafeterAgent(name=f"stop-terminated-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"stop-terminated-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="terminated")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="terminated")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
     session_id = session.id
 
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -1084,18 +1099,19 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"stop-ok-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"stop-ok-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="running")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
     session_id = session.id
 
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         chat_session_id=session_id,
         external_id="sandbox-stop-relay",
         provider="docker",
@@ -1108,6 +1124,7 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
     sandbox_id = sandbox.id
 
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         chat_session_id=session_id,
         sandbox_id=sandbox.id,
@@ -1120,8 +1137,8 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
     task_id = task.id
 
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -1142,8 +1159,8 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
         )
     ).scalar_one()
 
-    assert response["status"] == "idle"
-    assert response["cancelled_tasks"] == 1
+    assert response.status == "idle"
+    assert response.cancelled_tasks == 1
     assert task_row.status == JoySafeterTaskStatus.CANCELLED.value
     assert session_row.status == "idle"
     assert session_row.stop_reason == {"type": "cancelled"}
@@ -1161,20 +1178,20 @@ async def test_stop_session_marks_idle_only_after_active_tasks_cancelled(
 
 @pytest.mark.asyncio
 async def test_delete_session_rejects_running_session_with_structured_error(db_session):
-    agent = JoySafeterAgent(name=f"delete-running-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"delete-running-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="running")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
     session_id = session.id
 
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -1197,18 +1214,19 @@ async def test_delete_session_rejects_active_task_before_deleted_broadcast(db_se
     broadcaster = _FakeBroadcaster()
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: broadcaster)
 
-    agent = JoySafeterAgent(name=f"delete-active-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"delete-active-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
     session_id = session.id
 
     task = JoySafeterTask(
+        id=TaskId.new(),
         agent_id=agent.id,
         chat_session_id=session_id,
         prompt="scan target",
@@ -1220,8 +1238,8 @@ async def test_delete_session_rejects_active_task_before_deleted_broadcast(db_se
     task_id = task.id
 
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -1258,18 +1276,19 @@ async def test_delete_session_relays_sandbox_destroy_to_rust_when_api_has_no_pro
         staticmethod(lambda: redis),
     )
 
-    agent = JoySafeterAgent(name=f"delete-sandbox-rust-relay-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"delete-sandbox-rust-relay-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
     session_id = session.id
 
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         chat_session_id=session_id,
         external_id=f"sandbox-{uuid.uuid4()}",
         image="test-image",
@@ -1282,15 +1301,17 @@ async def test_delete_session_relays_sandbox_destroy_to_rust_when_api_has_no_pro
     external_id = sandbox.external_id
 
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
 
     response = await delete_session_endpoint(session_id, db_session, auth_ctx)
 
-    assert response == {"id": str(session_id), "object": "session", "deleted": True}
+    assert response.id == session_id
+    assert response.object == "session"
+    assert response.deleted is True
     assert len(redis.published) == 1
     channel, payload = redis.published[0]
     assert channel == "joysafeter:cmd:owner-1"
@@ -1317,12 +1338,12 @@ async def test_delete_session_rejects_destroy_ack_if_sandbox_external_id_changed
     broadcaster = _FakeBroadcaster()
     monkeypatch.setattr("app.joysafeter_shared.orchestrator_bridge.get_session_broadcaster", lambda: broadcaster)
 
-    agent = JoySafeterAgent(name=f"delete-sandbox-stale-ack-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"delete-sandbox-stale-ack-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -1331,6 +1352,7 @@ async def test_delete_session_rejects_destroy_ack_if_sandbox_external_id_changed
     old_external_id = f"sandbox-old-{uuid.uuid4()}"
     new_external_id = f"sandbox-new-{uuid.uuid4()}"
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         chat_session_id=session_id,
         external_id=old_external_id,
         image="test-image",
@@ -1348,8 +1370,8 @@ async def test_delete_session_rejects_destroy_ack_if_sandbox_external_id_changed
     )
 
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -1390,18 +1412,19 @@ async def test_delete_session_keeps_session_when_rust_destroy_relay_unavailable(
         staticmethod(lambda: None),
     )
 
-    agent = JoySafeterAgent(name=f"delete-sandbox-rust-relay-missing-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"delete-sandbox-rust-relay-missing-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
     session_id = session.id
 
     sandbox = JoySafeterSandbox(
+        id=SandboxId.new(),
         chat_session_id=session_id,
         external_id=f"sandbox-{uuid.uuid4()}",
         image="test-image",
@@ -1413,8 +1436,8 @@ async def test_delete_session_keeps_session_when_rust_destroy_relay_unavailable(
     sandbox_id = sandbox.id
 
     auth_ctx = JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=TEST_ORGANIZATION_ID,
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )

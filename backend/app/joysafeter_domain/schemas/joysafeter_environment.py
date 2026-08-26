@@ -5,7 +5,6 @@ from typing import Any, Literal, NamedTuple, Optional
 from urllib.parse import urlparse
 
 from pydantic import (
-    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
@@ -15,7 +14,6 @@ from pydantic import (
 
 from app.joysafeter_domain.credentials.references import (
     CredentialReferenceCodec,
-    canonicalize_environment_for_read,
 )
 from app.joysafeter_shared.ids import CredentialId, EnvironmentId, registered_entity_id_prefix
 
@@ -146,11 +144,10 @@ class Networking(BaseModel):
 
 
 class EgressServiceInject(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     type: str = "bearer"
-    credential_field: Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("credential_field", "secret_key"),
-    )
+    credential_field: Optional[str] = None
     header: Optional[str] = None
     cookie_name: Optional[str] = None
     cookies: dict[str, str] = Field(default_factory=dict)
@@ -173,9 +170,9 @@ class EgressServiceInject(BaseModel):
     @classmethod
     def validate_cookies(cls, value: dict[str, str]) -> dict[str, str]:
         cleaned: dict[str, str] = {}
-        for cookie_name, secret_key in value.items():
+        for cookie_name, credential_field in value.items():
             name = str(cookie_name).strip()
-            key = str(secret_key).strip()
+            key = str(credential_field).strip()
             if not name or not key:
                 raise ValueError("cookie mappings require non-empty cookie names and secret keys")
             if any(ch in name for ch in "=;\r\n\t"):
@@ -198,11 +195,13 @@ class EgressServiceInject(BaseModel):
 
 
 class EgressService(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     kind: str = "external"
     exposure: str = "placeholder"
     base_url: str
-    service_credential_id: CredentialId
+    credential_ref: CredentialId
     inject: EgressServiceInject = Field(default_factory=EgressServiceInject)
 
     @field_validator("name", mode="before")
@@ -241,20 +240,6 @@ class EgressService(BaseModel):
         if parsed.username or parsed.password:
             raise ValueError("egress service base_url must not include credentials")
         return raw
-
-
-def _serialize_typed_credential_ids(value: object) -> object:
-    if isinstance(value, CredentialId):
-        return str(value)
-    if isinstance(value, BaseModel):
-        return value.model_dump(mode="json")
-    if isinstance(value, dict):
-        return {key: _serialize_typed_credential_ids(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_serialize_typed_credential_ids(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_serialize_typed_credential_ids(item) for item in value)
-    return value
 
 
 class MountResource(BaseModel):
@@ -302,25 +287,20 @@ class MountResource(BaseModel):
 
 
 class EnvironmentConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     type: str = "cloud"
     packages: Packages = Field(default_factory=Packages)
     networking: Networking = Field(default_factory=Networking)
     env_vars: dict[str, str] = Field(default_factory=dict)
-    environment_credential_ids: list[CredentialId] = Field(
-        default_factory=list,
-        validation_alias=AliasChoices("environment_credential_ids", "secret_refs"),
-    )
+    environment_credential_ids: list[CredentialId] = Field(default_factory=list)
     egress_services: list[EgressService] = Field(default_factory=list)
     mount_resources: list[MountResource] = Field(default_factory=list)
 
-    @model_validator(mode="before")
+    @field_validator("environment_credential_ids")
     @classmethod
-    def decode_credential_reference_aliases(cls, value: object) -> object:
-        if isinstance(value, dict):
-            serialized = _serialize_typed_credential_ids(value)
-            assert isinstance(serialized, dict)
-            return canonicalize_environment_for_read(serialized)
-        return value
+    def deduplicate_credential_ids(cls, values: list[CredentialId]) -> list[CredentialId]:
+        return list(dict.fromkeys(values))
 
     @model_validator(mode="after")
     def validate_egress_services(self) -> "EnvironmentConfig":
@@ -356,20 +336,6 @@ class EnvironmentCredentialReference(NamedTuple):
     path: str | None = None
 
 
-def _coerce_credential_id(value: object) -> Optional[CredentialId]:
-    if isinstance(value, CredentialId):
-        return value
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    try:
-        return CredentialId.from_public(text)
-    except (TypeError, ValueError):
-        return None
-
-
 def extract_environment_credential_references(
     config: EnvironmentConfig | dict[str, Any] | None,
 ) -> list[EnvironmentCredentialReference]:
@@ -379,20 +345,20 @@ def extract_environment_credential_references(
     decoded = _REFERENCE_CODEC.decode_environment(raw)
     references = [
         EnvironmentCredentialReference(
-            CredentialId.from_public(str(reference.credential_id)),
+            reference.credential_id,
             "environment_credential_ids",
             reference.index,
             (
                 f"environment_credential_ids[{reference.index}]"
                 if reference.index is not None
-                else "service_credential_id"
+                else "environment_credential_ids"
             ),
         )
         for reference in decoded.direct_references
     ]
     references.extend(
         EnvironmentCredentialReference(
-            CredentialId.from_public(str(reference.credential_id)),
+            reference.credential_id,
             "egress_services",
             reference.index,
             f"egress_services[{reference.index}]",
@@ -400,19 +366,6 @@ def extract_environment_credential_references(
         for reference in decoded.http_egress
     )
     return references
-
-
-def _normalize_request_credential_ids(config: EnvironmentConfig) -> EnvironmentConfig:
-    # environment_credential_ids is already typed as list[CredentialId]; blank/invalid values are
-    # rejected at field coercion. Deduplicate while preserving order.
-    normalized_refs: list[CredentialId] = []
-    seen: set[CredentialId] = set()
-    for value in config.environment_credential_ids:
-        if value in seen:
-            continue
-        seen.add(value)
-        normalized_refs.append(value)
-    return config.model_copy(update={"environment_credential_ids": normalized_refs})
 
 
 class CreateEnvironmentRequest(BaseModel):
@@ -426,11 +379,6 @@ class CreateEnvironmentRequest(BaseModel):
     def validate_name(cls, value: str) -> str:
         return _validate_environment_name(value)
 
-    @field_validator("config")
-    @classmethod
-    def normalize_credential_ids(cls, value: EnvironmentConfig) -> EnvironmentConfig:
-        return _normalize_request_credential_ids(value)
-
 
 class UpdateEnvironmentRequest(BaseModel):
     name: Optional[str] = None
@@ -442,11 +390,6 @@ class UpdateEnvironmentRequest(BaseModel):
     @classmethod
     def validate_name(cls, value: Optional[str]) -> Optional[str]:
         return None if value is None else _validate_environment_name(value)
-
-    @field_validator("config")
-    @classmethod
-    def normalize_credential_ids(cls, value: Optional[EnvironmentConfig]) -> Optional[EnvironmentConfig]:
-        return None if value is None else _normalize_request_credential_ids(value)
 
 
 class EnvironmentResponse(BaseModel):

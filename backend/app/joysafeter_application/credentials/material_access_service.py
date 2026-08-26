@@ -11,6 +11,7 @@ from app.joysafeter_domain.credentials.bindings import (
 from app.joysafeter_domain.credentials.policies import CredentialPolicyError
 from app.joysafeter_domain.credentials.types import CredentialFieldName
 from app.joysafeter_domain.llm.model_inference_policy import ModelInferencePolicyError
+from app.joysafeter_shared.ids import CredentialAccessAuditId
 from app.joysafeter_shared.security.credential_cipher import (
     CredentialCipherConfigurationError,
     CredentialCiphertextError,
@@ -121,6 +122,7 @@ class CredentialMaterialAccessService:
     ) -> None:
         await self._audit.append(
             CredentialAccessAuditEntry(
+                id=CredentialAccessAuditId.new(),
                 project_id=binding.project_id,
                 credential_id=binding.credential_id,
                 credential_kind=_credential_kind(binding),

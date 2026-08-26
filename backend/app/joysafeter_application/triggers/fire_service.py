@@ -21,11 +21,11 @@ from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_trigger_runtime_gate import TriggerRuntimeGate
 from app.joysafeter_domain.services.joysafeter_trigger_scheduler_state_service import TriggerSchedulerStateService
 from app.joysafeter_domain.triggers import get_provider
-from app.joysafeter_shared.ids import AgentId, SessionId, TaskId
+from app.joysafeter_shared.ids import AgentId, EnvironmentId, ProjectId, SessionId, TaskId
 
 FireResult = tuple[str, Optional[JoySafeterTask], Optional[SessionId], bool, Optional[str]]
-ProjectBlockReason = Callable[[Optional[str]], Awaitable[Optional[str]]]
-ResolveRunnableTarget = Callable[..., Awaitable[tuple[JoySafeterAgent, Optional[str]]]]
+ProjectBlockReason = Callable[[ProjectId | None], Awaitable[Optional[str]]]
+ResolveRunnableTarget = Callable[..., Awaitable[tuple[JoySafeterAgent, Optional[EnvironmentId]]]]
 MarkAttempt = Callable[..., Awaitable[None]]
 
 
@@ -47,7 +47,7 @@ class TriggerFireService:
         self._mark_attempt = mark_attempt
         self._audit_actor = audit_actor
 
-    async def project_trigger_block_reason(self, project_id: Optional[str]) -> Optional[str]:
+    async def project_trigger_block_reason(self, project_id: ProjectId | None) -> Optional[str]:
         if self._project_trigger_block_reason is not None:
             return await self._project_trigger_block_reason(project_id)
         return await self._runtime_gate.project_trigger_block_reason(project_id)
@@ -56,19 +56,19 @@ class TriggerFireService:
         self,
         *,
         agent_id: AgentId,
-        project_id: Optional[str],
-        environment_ref: Optional[str] = None,
-    ) -> tuple[JoySafeterAgent, Optional[str]]:
+        project_id: ProjectId | None,
+        environment_id: Optional[EnvironmentId] = None,
+    ) -> tuple[JoySafeterAgent, Optional[EnvironmentId]]:
         if self._resolve_runnable_target is not None:
             return await self._resolve_runnable_target(
                 agent_id=agent_id,
                 project_id=project_id,
-                environment_ref=environment_ref,
+                environment_id=environment_id,
             )
         return await self._runtime_gate.resolve_runnable_target(
             agent_id=agent_id,
             project_id=project_id,
-            environment_ref=environment_ref,
+            environment_id=environment_id,
         )
 
     async def mark_attempt(
@@ -113,7 +113,7 @@ class TriggerFireService:
         trigger: JoySafeterTrigger,
         *,
         agent: JoySafeterAgent,
-        environment_ref: Optional[str],
+        environment_id: Optional[EnvironmentId],
         payload: dict[str, Any],
         source: str,
         idempotency_key: str,
@@ -126,7 +126,7 @@ class TriggerFireService:
                 name=trigger.name,
                 source=source,
                 prompt=render_prompt_template(trigger.prompt_template, payload),
-                environment_ref=environment_ref,
+                environment_id=environment_id,
                 timeout_sec=trigger.timeout_sec,
                 max_retries=trigger.max_retries,
                 project_id=trigger.project_id,
@@ -174,10 +174,10 @@ class TriggerFireService:
         if not payload_filter_matches(trigger.filter, payload):
             await self.mark_attempt(trigger, success=None, payload=payload)
             return "skipped", None, None, False, "delivery did not match filter"
-        agent, environment_ref = await self.resolve_runnable_target(
+        agent, environment_id = await self.resolve_runnable_target(
             agent_id=trigger.agent_id,
             project_id=trigger.project_id,
-            environment_ref=trigger.environment_ref,
+            environment_id=trigger.environment_id,
         )
         body_hash = hashlib.sha256(raw_body + auth_fingerprint.encode("utf-8")).hexdigest()
         delivery_key = delivery_id or body_hash
@@ -185,7 +185,7 @@ class TriggerFireService:
         return await self._run_agent_trigger(
             trigger,
             agent=agent,
-            environment_ref=environment_ref,
+            environment_id=environment_id,
             payload=payload,
             source=f"trigger:webhook:{trigger.id}",
             idempotency_key=idempotency_key,
@@ -208,10 +208,10 @@ class TriggerFireService:
         if block_reason is not None:
             await self.mark_attempt(trigger, success=None, payload=payload)
             return "skipped", None, None, False, block_reason
-        agent, environment_ref = await self.resolve_runnable_target(
+        agent, environment_id = await self.resolve_runnable_target(
             agent_id=trigger.agent_id,
             project_id=trigger.project_id,
-            environment_ref=trigger.environment_ref,
+            environment_id=trigger.environment_id,
         )
         idempotency_key = provider.idempotency_key(
             trigger,
@@ -222,7 +222,7 @@ class TriggerFireService:
         return await self._run_agent_trigger(
             trigger,
             agent=agent,
-            environment_ref=environment_ref,
+            environment_id=environment_id,
             payload=payload,
             source=f"trigger:manual:{trigger.id}",
             idempotency_key=idempotency_key,

@@ -1,6 +1,6 @@
 """Unified response format."""
 
-from typing import Any, Generic, List, Optional, TypeVar
+from typing import Generic, Optional, TypeVar
 
 from pydantic import BaseModel
 
@@ -22,54 +22,3 @@ class ApiResponse(BaseModel, Generic[T]):
         if "timestamp" not in data or not data["timestamp"]:
             data["timestamp"] = utc_now().isoformat() + "Z"
         super().__init__(**data)
-
-
-class PaginatedData(BaseModel, Generic[T]):
-    """Paginated data."""
-
-    items: List[T]
-    total: int
-    page: int
-    page_size: int
-    pages: int
-
-
-def success_response(
-    data: Any = None,
-    message: str = "Success",
-    code: int = 200,
-) -> dict:
-    """Build a success response."""
-    return {
-        "success": True,
-        "code": code,
-        "message": message,
-        "data": data,
-        "timestamp": utc_now().isoformat() + "Z",
-    }
-
-
-def error_response(error: dict[str, Any]) -> dict:
-    """Build a canonical error response."""
-    return dict(error)
-
-
-def paginated_response(
-    items: List[Any],
-    total: int,
-    page: int = 1,
-    page_size: int = 20,
-    message: str = "Success",
-) -> dict:
-    """Build a paginated response."""
-    pages = (total + page_size - 1) // page_size if page_size > 0 else 0
-    return success_response(
-        data={
-            "items": items,
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "pages": pages,
-        },
-        message=message,
-    )

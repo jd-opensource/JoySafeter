@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -18,8 +17,12 @@ import pytest
 
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillVersionService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError
+from app.joysafeter_shared.ids import OrganizationId, SkillId, SkillVersionId, UserId
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.no_db]
+
+USER_ID = UserId.new()
+ORGANIZATION_ID = OrganizationId.new()
 
 
 # ── #1 non-semver stored version → 400, not 500 ─────────────────
@@ -30,8 +33,8 @@ async def test_publish_version_nonsemver_stored_highest_raises_400(monkeypatch):
     ``semver.Version.parse`` with an unhandled ValueError → 500. Now it maps
     to a clean 400."""
     skill = SimpleNamespace(
-        id=uuid.uuid4(),
-        owner_id="user-1",
+        id=SkillId.new(),
+        owner_id=USER_ID,
         security_status="passed",
         name="x",
         description="x",
@@ -45,7 +48,7 @@ async def test_publish_version_nonsemver_stored_highest_raises_400(monkeypatch):
     )
     svc = SkillVersionService.__new__(SkillVersionService)
     svc.db = MagicMock()
-    svc._active_org_id = "org-test"
+    svc._active_org_id = ORGANIZATION_ID
     svc._caller_org_role = None
     svc.repo = MagicMock()
     svc.repo.get_highest_version_str = AsyncMock(return_value="not-a-semver")
@@ -63,7 +66,7 @@ async def test_publish_version_nonsemver_stored_highest_raises_400(monkeypatch):
     )
 
     with pytest.raises(InvalidRequestError) as ei:
-        await svc.publish_version(skill_id=skill.id, current_user_id="user-1", version_str="1.2.3")
+        await svc.publish_version(skill_id=skill.id, current_user_id=USER_ID, version_str="1.2.3")
     assert ei.value.code == "SKILL_VERSION_STORED_INVALID"
 
 
@@ -72,13 +75,13 @@ async def test_publish_version_nonsemver_stored_highest_raises_400(monkeypatch):
 
 async def test_restore_draft_populates_latest_version(monkeypatch):
     skill = SimpleNamespace(
-        id=uuid.uuid4(),
-        owner_id="user-1",
+        id=SkillId.new(),
+        owner_id=USER_ID,
         lifecycle_status="approved",
         latest_version=None,
     )
     sv = SimpleNamespace(
-        id=uuid.uuid4(),
+        id=SkillVersionId.new(),
         skill_name="restored",
         skill_description="d",
         content="c",
@@ -94,7 +97,7 @@ async def test_restore_draft_populates_latest_version(monkeypatch):
     svc.db.commit = AsyncMock()
     svc.db.refresh = AsyncMock()
     svc.db.add = MagicMock()
-    svc._active_org_id = "org-test"
+    svc._active_org_id = ORGANIZATION_ID
     svc._caller_org_role = None
     svc.repo = MagicMock()
     svc.repo.get_by_version = AsyncMock(return_value=sv)
@@ -116,5 +119,5 @@ async def test_restore_draft_populates_latest_version(monkeypatch):
         _allow,
     )
 
-    result = await svc.restore_draft(skill_id=skill.id, version_str="1.0.0", current_user_id="user-1")
+    result = await svc.restore_draft(skill_id=skill.id, version_str="1.0.0", current_user_id=USER_ID)
     assert result.latest_version == "3.1.4"

@@ -4,15 +4,18 @@ import ast
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from typing import get_origin
 
 import pytest
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ValidationError
 
 from app.joysafeter_api.api.v1 import auth as auth_api
 from app.joysafeter_api.api.v1 import organizations as organizations_api
 from app.joysafeter_api.api.v1.middleware import ApiV1ResponseWrapperMiddleware
+from app.joysafeter_api.api.v1.router import joysafeter_router
 from app.joysafeter_domain.schemas.base import CursorPaginatedResponse
 from app.joysafeter_domain.services.joysafeter_auth_service import IssuedLoginTokens
 from app.joysafeter_shared.common.dependencies import get_current_user
@@ -20,6 +23,21 @@ from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, 
 from app.joysafeter_shared.ids import OrganizationId, ProjectId, UserId
 
 pytestmark = pytest.mark.no_db
+
+
+_REVIEWED_RESPONSE_MODEL_EXEMPTIONS = {
+    ("GET", "/auth/oauth/{provider}"),
+    ("GET", "/auth/oauth/{provider}/callback"),
+    ("GET", "/sessions/{session_id}/events/stream"),
+    ("GET", "/sessions/{session_id}/sandbox/files/raw"),
+    ("GET", "/sessions/{session_id}/sandbox/files/archive"),
+    ("GET", "/files/{file_id}/content"),
+    ("GET", "/health/ready"),
+    ("GET", "/health"),
+    ("GET", "/health/live"),
+    ("POST", "/quickstart/chat"),
+    ("POST", "/skills/ai-authoring/chat"),
+}
 
 
 class _TypedUserPayload(BaseModel):
@@ -123,6 +141,31 @@ def test_api_routes_do_not_construct_unparameterized_cursor_pages() -> None:
                 violations.append(f"{path.name}:{node.lineno}")
 
     assert not violations, "Unparameterized cursor page construction:\n" + "\n".join(violations)
+
+
+def test_every_body_bearing_json_route_declares_a_response_model() -> None:
+    missing: list[str] = []
+    for route in joysafeter_router.routes:
+        if not isinstance(route, APIRoute) or route.status_code == 204 or route.response_model is not None:
+            continue
+        for method in sorted(route.methods or set()):
+            if (method, route.path) not in _REVIEWED_RESPONSE_MODEL_EXEMPTIONS:
+                missing.append(f"{method} {route.path}")
+
+    assert not missing, "JSON routes without response models:\n" + "\n".join(missing)
+
+
+def test_json_routes_do_not_use_schema_less_mapping_response_models() -> None:
+    schema_less: list[str] = []
+    for route in joysafeter_router.routes:
+        if not isinstance(route, APIRoute) or route.status_code == 204:
+            continue
+        if all((method, route.path) in _REVIEWED_RESPONSE_MODEL_EXEMPTIONS for method in route.methods or set()):
+            continue
+        if route.response_model is dict or get_origin(route.response_model) is dict:
+            schema_less.extend(f"{method} {route.path}" for method in sorted(route.methods or set()))
+
+    assert not schema_less, "JSON routes with mapping response models:\n" + "\n".join(schema_less)
 
 
 def test_organization_creation_has_one_canonical_route_owner() -> None:

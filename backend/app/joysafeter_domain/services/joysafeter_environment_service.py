@@ -1,7 +1,6 @@
-import uuid
 from typing import Optional
 
-from sqlalchemy import and_, delete, or_, select
+from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -16,17 +15,41 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
     CreateEnvironmentRequest,
     UpdateEnvironmentRequest,
 )
-from app.joysafeter_shared.ids import EnvironmentId, TaskId, registered_entity_id_prefix
+from app.joysafeter_shared.ids import EnvironmentId, ProjectId, TaskId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 _REFERENCE_CODEC = CredentialReferenceCodec()
 
 
-def _environment_ref_matches(ref: object, env_name: str, env_id: EnvironmentId) -> bool:
-    if ref is None:
-        return False
-    normalized = str(ref).strip()
-    return normalized == env_name or normalized == str(env_id)
+class EnvironmentConflict(ValueError):
+    pass
+
+
+class EnvironmentActiveTaskConflict(EnvironmentConflict):
+    def __init__(self, *, task_id: TaskId, source: str, action: str) -> None:
+        self.task_id = task_id
+        self.source = source
+        super().__init__(
+            f"Environment is required by active task '{task_id}' via {source}. "
+            f"Stop or wait for the task before {action}."
+        )
+
+
+class EnvironmentAgentReferenceConflict(EnvironmentConflict):
+    def __init__(self, agent_name: str) -> None:
+        self.agent_name = agent_name
+        super().__init__(f"Environment is referenced by agent '{agent_name}'.")
+
+
+class EnvironmentTriggerReferenceConflict(EnvironmentConflict):
+    def __init__(self, trigger_name: str) -> None:
+        self.trigger_name = trigger_name
+        super().__init__(f"Environment is referenced by cron trigger '{trigger_name}'.")
+
+
+class EnvironmentActiveSessionConflict(EnvironmentConflict):
+    def __init__(self) -> None:
+        super().__init__("Environment is referenced by one or more active sessions.")
 
 
 class EnvironmentService:
@@ -36,7 +59,7 @@ class EnvironmentService:
     async def create_environment(
         self,
         req: CreateEnvironmentRequest,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         *,
         commit: bool = True,
     ) -> JoySafeterEnvironment:
@@ -54,12 +77,12 @@ class EnvironmentService:
             description=req.description,
             metadata_=req.metadata,
             # ``mode="json"`` serializes typed CredentialId refs (egress
-            # service_credential_id / environment_credential_ids) to plain strings for JSONB.
-            config=_REFERENCE_CODEC.encode_environment(req.config.model_dump(mode="json"), version="v1"),
+            # credential_ref / environment_credential_ids) to plain strings for JSONB.
+            config=_REFERENCE_CODEC.encode_environment(req.config.model_dump(mode="json")),
         )
         if project_id is not None:
             kwargs["project_id"] = project_id
-        env = JoySafeterEnvironment(**kwargs)
+        env = JoySafeterEnvironment(id=EnvironmentId.new(), **kwargs)
         self.db.add(env)
         if commit:
             await self.db.commit()
@@ -69,7 +92,7 @@ class EnvironmentService:
         return env
 
     async def get_environment(
-        self, env_id: EnvironmentId, project_id: Optional[str] = None
+        self, env_id: EnvironmentId, project_id: ProjectId | None = None
     ) -> Optional[JoySafeterEnvironment]:
         conditions = [
             JoySafeterEnvironment.id == env_id,
@@ -81,7 +104,7 @@ class EnvironmentService:
         return result.scalar_one_or_none()
 
     async def lock_environment(
-        self, env_id: EnvironmentId, project_id: Optional[str] = None
+        self, env_id: EnvironmentId, project_id: ProjectId | None = None
     ) -> Optional[JoySafeterEnvironment]:
         conditions = [
             JoySafeterEnvironment.id == env_id,
@@ -97,44 +120,12 @@ class EnvironmentService:
         )
         return result.scalar_one_or_none()
 
-    async def get_environment_by_ref(
-        self, ref: str, project_id: Optional[str] = None
-    ) -> Optional[JoySafeterEnvironment]:
-        """Resolve an ``env_<uuid>`` reference or environment name."""
-        normalized = ref.strip()
-        if not normalized:
-            return None
-        prefix = registered_entity_id_prefix(normalized)
-        if prefix is not None:
-            if prefix != EnvironmentId.prefix:
-                return None
-            try:
-                env_id = EnvironmentId.from_public(normalized)
-                return await self.get_environment(env_id, project_id=project_id)
-            except (TypeError, ValueError):
-                return None
-        try:
-            uuid.UUID(normalized)
-        except ValueError:
-            pass
-        else:
-            return None
-        # Fall back to name lookup
-        conditions = [
-            JoySafeterEnvironment.name == normalized,
-            JoySafeterEnvironment.deleted_at.is_(None),
-        ]
-        if project_id is not None:
-            conditions.append(JoySafeterEnvironment.project_id == project_id)
-        result = await self.db.execute(select(JoySafeterEnvironment).where(and_(*conditions)))
-        return result.scalar_one_or_none()
-
     async def list_environments(
         self,
         limit: int = 20,
         after_id: Optional[EnvironmentId] = None,
         include_archived: bool = False,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> tuple[list[JoySafeterEnvironment], bool]:
         q = select(JoySafeterEnvironment).where(JoySafeterEnvironment.deleted_at.is_(None))
         if not include_archived:
@@ -151,7 +142,7 @@ class EnvironmentService:
         self,
         env_id: EnvironmentId,
         req: UpdateEnvironmentRequest,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         *,
         commit: bool = True,
     ) -> Optional[JoySafeterEnvironment]:
@@ -159,30 +150,29 @@ class EnvironmentService:
         if not env:
             return None
         next_config = (
-            _REFERENCE_CODEC.encode_environment(req.config.model_dump(mode="json"), version="v1")
-            if req.config is not None
-            else None
+            _REFERENCE_CODEC.encode_environment(req.config.model_dump(mode="json")) if req.config is not None else None
         )
         name_changed = req.name is not None and req.name != env.name
         config_changed = next_config is not None and next_config != (env.config or {})
         if name_changed or config_changed:
-            active_dependency = await self.active_task_environment_dependency(env.name, env.id, project_id=project_id)
+            active_dependency = await self.active_task_environment_dependency(env.id, project_id=project_id)
             if active_dependency:
                 task_id, source = active_dependency
                 action = "config" if config_changed else "name"
-                raise ValueError(
-                    f"Environment is required by active task '{task_id}' via {source}. "
-                    f"Stop or wait for the task before updating {action}."
+                raise EnvironmentActiveTaskConflict(
+                    task_id=task_id,
+                    source=source,
+                    action=f"updating {action}",
                 )
         if name_changed:
-            agent_name = await self.environment_is_referenced_by_agent(env.name, env.id, project_id=project_id)
+            agent_name = await self.environment_is_referenced_by_agent(env.id, project_id=project_id)
             if agent_name:
-                raise ValueError(f"Environment is referenced by agent '{agent_name}'.")
-            blocking_trigger = await self.environment_is_referenced_by_trigger(env.name, env.id, project_id=project_id)
+                raise EnvironmentAgentReferenceConflict(agent_name)
+            blocking_trigger = await self.environment_is_referenced_by_trigger(env.id, project_id=project_id)
             if blocking_trigger:
-                raise ValueError(f"Environment is referenced by cron trigger '{blocking_trigger}'.")
-            if await self.environment_is_referenced_by_sessions(env.name, env.id, project_id=project_id):
-                raise ValueError("Environment is referenced by one or more active sessions.")
+                raise EnvironmentTriggerReferenceConflict(blocking_trigger)
+            if await self.environment_is_referenced_by_sessions(env.id, project_id=project_id):
+                raise EnvironmentActiveSessionConflict()
         if req.name is not None:
             env.name = req.name
         if req.description is not None:
@@ -199,67 +189,55 @@ class EnvironmentService:
             await self.db.flush()
         return env
 
-    async def delete_environment(self, env_id: EnvironmentId, project_id: Optional[str] = None) -> bool:
+    async def delete_environment(self, env_id: EnvironmentId, project_id: ProjectId | None = None) -> bool:
         env = await self.lock_environment(env_id, project_id=project_id)
         if not env:
             return False
-        active_dependency = await self.active_task_environment_dependency(env.name, env.id, project_id=project_id)
+        active_dependency = await self.active_task_environment_dependency(env.id, project_id=project_id)
         if active_dependency:
             task_id, source = active_dependency
-            raise ValueError(
-                f"Environment is required by active task '{task_id}' via {source}. "
-                "Stop or wait for the task before deleting."
-            )
-        agent_name = await self.environment_is_referenced_by_agent(env.name, env.id, project_id=project_id)
+            raise EnvironmentActiveTaskConflict(task_id=task_id, source=source, action="deleting")
+        agent_name = await self.environment_is_referenced_by_agent(env.id, project_id=project_id)
         if agent_name:
-            raise ValueError(f"Environment is referenced by agent '{agent_name}'.")
-        blocking_trigger = await self.environment_is_referenced_by_trigger(env.name, env.id, project_id=project_id)
+            raise EnvironmentAgentReferenceConflict(agent_name)
+        blocking_trigger = await self.environment_is_referenced_by_trigger(env.id, project_id=project_id)
         if blocking_trigger:
-            raise ValueError(f"Environment is referenced by cron trigger '{blocking_trigger}'.")
-        if await self.environment_is_referenced_by_sessions(env.name, env.id, project_id=project_id):
-            raise ValueError("Environment is referenced by one or more active sessions.")
+            raise EnvironmentTriggerReferenceConflict(blocking_trigger)
+        if await self.environment_is_referenced_by_sessions(env.id, project_id=project_id):
+            raise EnvironmentActiveSessionConflict()
         env.deleted_at = utc_now()
         await self.db.commit()
         return True
 
-    async def archive_environment(self, env_id: EnvironmentId, project_id: Optional[str] = None) -> bool:
+    async def archive_environment(self, env_id: EnvironmentId, project_id: ProjectId | None = None) -> bool:
         env = await self.lock_environment(env_id, project_id=project_id)
         if not env:
             return False
         if env.archived_at:
             return True
-        active_dependency = await self.active_task_environment_dependency(env.name, env.id, project_id=project_id)
+        active_dependency = await self.active_task_environment_dependency(env.id, project_id=project_id)
         if active_dependency:
             task_id, source = active_dependency
-            raise ValueError(
-                f"Environment is required by active task '{task_id}' via {source}. "
-                "Stop or wait for the task before archiving."
-            )
-        agent_name = await self.environment_is_referenced_by_agent(env.name, env.id, project_id=project_id)
+            raise EnvironmentActiveTaskConflict(task_id=task_id, source=source, action="archiving")
+        agent_name = await self.environment_is_referenced_by_agent(env.id, project_id=project_id)
         if agent_name:
-            raise ValueError(f"Environment is referenced by agent '{agent_name}'.")
-        blocking_trigger = await self.environment_is_referenced_by_trigger(env.name, env.id, project_id=project_id)
+            raise EnvironmentAgentReferenceConflict(agent_name)
+        blocking_trigger = await self.environment_is_referenced_by_trigger(env.id, project_id=project_id)
         if blocking_trigger:
-            raise ValueError(f"Environment is referenced by cron trigger '{blocking_trigger}'.")
-        if await self.environment_is_referenced_by_sessions(env.name, env.id, project_id=project_id):
-            raise ValueError("Environment is referenced by one or more active sessions.")
+            raise EnvironmentTriggerReferenceConflict(blocking_trigger)
+        if await self.environment_is_referenced_by_sessions(env.id, project_id=project_id):
+            raise EnvironmentActiveSessionConflict()
         env.archived_at = utc_now()
         await self.db.commit()
         return True
 
     async def environment_is_referenced_by_sessions(
         self,
-        env_name: str,
         env_id: EnvironmentId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> bool:
-        """Check active sessions for the environment name or ``env_<uuid>`` ref."""
-        env_prefixed = str(env_id)
         conditions = [
-            or_(
-                JoySafeterSession.environment_ref == env_name,
-                JoySafeterSession.environment_ref == env_prefixed,
-            ),
+            JoySafeterSession.environment_id == env_id,
             JoySafeterSession.archived_at.is_(None),
         ]
         if project_id is not None:
@@ -269,52 +247,42 @@ class EnvironmentService:
 
     async def environment_is_referenced_by_agent(
         self,
-        env_name: str,
         env_id: EnvironmentId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[str]:
         conditions: list[ColumnElement[bool]] = [
+            JoySafeterAgent.environment_id == env_id,
             JoySafeterAgent.deleted_at.is_(None),
         ]
         if project_id is not None:
             conditions.append(JoySafeterAgent.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterAgent.name, JoySafeterAgent.environment_ref).where(and_(*conditions))
-        )
-        for agent_name, environment_ref in result.all():
-            if _environment_ref_matches(environment_ref, env_name, env_id):
-                return str(agent_name)
-        return None
+        result = await self.db.execute(select(JoySafeterAgent.name).where(and_(*conditions)).limit(1))
+        agent_name = result.scalar_one_or_none()
+        return str(agent_name) if agent_name is not None else None
 
     async def environment_is_referenced_by_trigger(
         self,
-        env_name: str,
         env_id: EnvironmentId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[str]:
         # Scope to type='cron' so the "referenced by cron trigger '<name>'" message
         # stays accurate (a webhook trigger does not pin a runtime environment the
         # same way a scheduled cron trigger does).
         conditions: list[ColumnElement[bool]] = [
-            JoySafeterTrigger.environment_ref.is_not(None),
+            JoySafeterTrigger.environment_id == env_id,
             JoySafeterTrigger.type == "cron",
             JoySafeterTrigger.deleted_at.is_(None),
         ]
         if project_id is not None:
             conditions.append(JoySafeterTrigger.project_id == project_id)
-        result = await self.db.execute(
-            select(JoySafeterTrigger.name, JoySafeterTrigger.environment_ref).where(and_(*conditions))
-        )
-        for trigger_name, environment_ref in result.all():
-            if _environment_ref_matches(environment_ref, env_name, env_id):
-                return str(trigger_name)
-        return None
+        result = await self.db.execute(select(JoySafeterTrigger.name).where(and_(*conditions)).limit(1))
+        trigger_name = result.scalar_one_or_none()
+        return str(trigger_name) if trigger_name is not None else None
 
     async def active_task_environment_dependency(
         self,
-        env_name: str,
         env_id: EnvironmentId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[tuple[TaskId, str]]:
         terminal_values = [s.value for s in JOYSAFETER_TERMINAL_STATUSES]
         conditions: list[ColumnElement[bool]] = [JoySafeterTask.status.notin_(terminal_values)]
@@ -323,17 +291,18 @@ class EnvironmentService:
         result = await self.db.execute(
             select(
                 JoySafeterTask.id,
-                JoySafeterAgent.environment_ref,
-                JoySafeterSession.environment_ref,
+                JoySafeterTask.chat_session_id,
+                JoySafeterAgent.environment_id,
+                JoySafeterSession.environment_id,
             )
             .join(JoySafeterAgent, JoySafeterTask.agent_id == JoySafeterAgent.id)
             .outerjoin(JoySafeterSession, JoySafeterTask.chat_session_id == JoySafeterSession.id)
             .where(and_(*conditions))
             .order_by(JoySafeterTask.created_at.asc())
         )
-        for task_id, agent_env_ref, session_env_ref in result.all():
-            if _environment_ref_matches(session_env_ref, env_name, env_id):
-                return task_id, "session environment_ref"
-            if _environment_ref_matches(agent_env_ref, env_name, env_id):
-                return task_id, "agent environment_ref"
+        for task_id, session_id, agent_environment_id, session_environment_id in result.all():
+            if session_id is not None and session_environment_id == env_id:
+                return task_id, "session environment_id"
+            if session_id is None and agent_environment_id == env_id:
+                return task_id, "agent environment_id"
         return None

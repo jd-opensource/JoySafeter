@@ -8,21 +8,23 @@ from app.joysafeter_application.sensitive_material_cleanup import erase_expired_
 from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession
 from app.joysafeter_domain.models.joysafeter_session_repo import JoySafeterSessionRepo
+from app.joysafeter_shared.ids import AgentId, SessionId, SessionResourceId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
 @pytest.mark.asyncio
 async def test_expired_repository_token_cleanup_is_bounded_and_preserves_future_material(db_session):
-    agent = JoySafeterAgent(name=f"repo-token-cleanup-agent-{uuid.uuid4()}")
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"repo-token-cleanup-agent-{uuid.uuid4()}")
     db_session.add(agent)
     await db_session.flush()
-    session = JoySafeterSession(agent_id=agent.id, status="idle")
+    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="idle")
     db_session.add(session)
     await db_session.flush()
     now = utc_now()
     db_session.add_all(
         [
             JoySafeterSessionRepo(
+                id=SessionResourceId.new(),
                 session_id=session.id,
                 url=f"https://github.com/example/private-{index}.git",
                 branch="main",

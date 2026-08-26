@@ -13,9 +13,12 @@ from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.ids import (
     EnvironmentId,
+    OrganizationId,
+    ProjectId,
     SessionId,
     StorageMountAuditId,
     StorageVolumeId,
+    UserId,
 )
 
 pytestmark = pytest.mark.no_db
@@ -24,6 +27,9 @@ pytestmark = pytest.mark.no_db
 class _StorageServiceStub:
     def __init__(self) -> None:
         now = datetime(2026, 8, 7, tzinfo=UTC)
+        self.user_id = UserId.new()
+        self.org_id = OrganizationId.new()
+        self.project_id = ProjectId.new()
         self.volume = SimpleNamespace(
             id=StorageVolumeId.new(),
             volume_ref="datasets",
@@ -44,10 +50,10 @@ class _StorageServiceStub:
         self.audit = SimpleNamespace(
             id=StorageMountAuditId.new(),
             volume_id=self.volume.id,
-            project_id="project-storage",
+            project_id=self.project_id,
             session_id=SessionId.new(),
             environment_id=EnvironmentId.new(),
-            user_id="user-storage",
+            user_id=self.user_id,
             action="mount",
             volume_ref=self.volume.volume_ref,
             mount_path="/workspace/data",
@@ -86,9 +92,9 @@ def _client(monkeypatch: pytest.MonkeyPatch, service: _StorageServiceStub) -> Te
     app.include_router(storage_api.router, prefix="/storage-volumes")
     app.dependency_overrides[storage_api.get_db] = lambda: object()
     app.dependency_overrides[storage_api.require_joysafeter_user_admin] = lambda: JoySafeterAuthContext(
-        user_id="user-storage",
-        org_id="org-storage",
-        project_id="project-storage",
+        user_id=service.user_id,
+        org_id=service.org_id,
+        project_id=service.project_id,
         role=JoySafeterRole.ADMIN,
         project_role="admin",
         is_super_user=True,
@@ -101,8 +107,10 @@ def _audit_payload(**overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
         "id": str(StorageMountAuditId.new()),
         "volume_id": str(StorageVolumeId.new()),
+        "project_id": str(ProjectId.new()),
         "session_id": str(SessionId.new()),
         "environment_id": str(EnvironmentId.new()),
+        "user_id": str(UserId.new()),
         "action": "mount",
         "result": "success",
         "created_at": "2026-08-07T00:00:00Z",
@@ -117,14 +125,20 @@ def test_storage_response_model_serializes_canonical_ids_and_rejects_noncanonica
 
     assert serialized["id"].startswith("staudit_")
     assert serialized["volume_id"].startswith("vol_")
+    assert serialized["project_id"].startswith("proj_")
     assert serialized["session_id"].startswith("sess_")
     assert serialized["environment_id"].startswith("env_")
+    assert serialized["user_id"].startswith("user_")
 
     for field, invalid_value in [
         ("id", str(uuid.uuid4())),
         ("id", str(StorageVolumeId.new())),
         ("volume_id", str(uuid.uuid4())),
         ("volume_id", str(StorageMountAuditId.new())),
+        ("project_id", str(uuid.uuid4())),
+        ("project_id", str(UserId.new())),
+        ("user_id", str(uuid.uuid4())),
+        ("user_id", str(ProjectId.new())),
     ]:
         with pytest.raises(ValidationError):
             StorageMountAuditResponse.model_validate(_audit_payload(**{field: invalid_value}))

@@ -11,12 +11,15 @@ from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent
 from app.joysafeter_domain.models.joysafeter_security_audit_log import SecurityAuditLog
 from app.joysafeter_domain.schemas.joysafeter_session import CreateSessionRequest
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
+from app.joysafeter_shared.ids import AgentId, OrganizationId, UserId
+
+TEST_USER_ID = UserId.new()
 
 
 def _auth_ctx() -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="test-user",
-        org_id="test-org",
+        user_id=TEST_USER_ID,
+        org_id=OrganizationId.new(),
         project_id=None,  # type: ignore[arg-type]
         role=JoySafeterRole.MEMBER,
     )
@@ -24,7 +27,7 @@ def _auth_ctx() -> JoySafeterAuthContext:
 
 @pytest.fixture
 async def named_agent(db_session) -> JoySafeterAgent:
-    agent = JoySafeterAgent(name="Research Agent")
+    agent = JoySafeterAgent(id=AgentId.new(), name="Research Agent")
     db_session.add(agent)
     await db_session.commit()
     await db_session.refresh(agent)
@@ -125,7 +128,7 @@ async def test_create_session_api_auto_names_agent_shortcut(
         )
     )
     assert audit is not None
-    assert audit.user_id == "test-user"
+    assert audit.user_id == TEST_USER_ID
     assert audit.ip_address == "unknown"
     assert audit.details["principal_type"] == "user"
-    assert audit.details["principal_id"] == "test-user"
+    assert audit.details["principal_id"] == str(TEST_USER_ID)

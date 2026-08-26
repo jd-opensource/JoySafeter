@@ -28,7 +28,7 @@ from app.joysafeter_shared.common.app_errors import (
     RequestValidationAppError,
     ResourceConflictError,
 )
-from app.joysafeter_shared.ids import SessionId, TriggerId
+from app.joysafeter_shared.ids import EnvironmentId, OrganizationId, ProjectId, SessionId, TriggerId, UserId
 
 _TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
 _SESSION_KEY_MAX_CHARS = 512
@@ -96,12 +96,12 @@ class AgentTriggerRunConfig:
     name: str
     source: str
     prompt: str
-    environment_ref: Optional[str]
+    environment_id: Optional[EnvironmentId]
     timeout_sec: int
     max_retries: int
-    project_id: Optional[str]
-    user_id: Optional[str]
-    org_id: Optional[str]
+    project_id: ProjectId | None
+    user_id: UserId | None
+    org_id: OrganizationId | None
     idempotency_key: str
     session_mode: str = "fresh"
     pinned_session_id: Optional[SessionId] = None
@@ -124,7 +124,7 @@ class AgentTriggerExecutor:
         self.db = db
         self._audit_actor = audit_actor
 
-    async def _lock_trigger_for_submission(self, *, trigger_id: TriggerId, project_id: Optional[str]) -> None:
+    async def _lock_trigger_for_submission(self, *, trigger_id: TriggerId, project_id: ProjectId | None) -> None:
         result = await self.db.execute(TriggerRuntimeGate.lock_stmt(trigger_id, project_id))
         if result.scalar_one_or_none() is None:
             raise TriggerRuntimeGate.trigger_not_found_error(trigger_id)
@@ -133,26 +133,26 @@ class AgentTriggerExecutor:
         self,
         session: JoySafeterSession,
         *,
-        project_id: Optional[str],
+        project_id: ProjectId | None,
     ) -> tuple[JoySafeterSession, bool]:
-        environment_ref = (getattr(session, "environment_ref", None) or "").strip()
-        if environment_ref:
-            environment = await EnvironmentService(self.db).get_environment_by_ref(
-                environment_ref,
+        environment_id = session.environment_id
+        if environment_id is not None:
+            environment = await EnvironmentService(self.db).get_environment(
+                environment_id,
                 project_id=project_id,
             )
             if environment is None:
                 raise RequestValidationAppError(
                     code="SESSION_ENVIRONMENT_NOT_FOUND",
-                    message=f"Environment not found: {environment_ref}",
-                    data={"environment_ref": environment_ref},
+                    message=f"Environment not found: {environment_id}",
+                    data={"environment_id": str(environment_id)},
                     user_action="fix_input",
                 )
             if environment.archived_at is not None:
                 raise ResourceConflictError(
                     code="ENVIRONMENT_ARCHIVED",
-                    message=f"Environment is archived: {environment_ref}",
-                    data={"environment_ref": environment_ref, "environment_id": str(environment.id)},
+                    message=f"Environment is archived: {environment_id}",
+                    data={"environment_id": str(environment.id)},
                     user_action="refresh",
                 )
         return session, False
@@ -229,7 +229,7 @@ class AgentTriggerExecutor:
             CreateCredentialAwareSession(
                 project_id=config.project_id,
                 agent_id=config.agent.id,
-                environment_ref=config.environment_ref,
+                environment_id=config.environment_id,
                 title=f"Triggered: {config.name}",
                 metadata=session_metadata,
                 caller="trigger",

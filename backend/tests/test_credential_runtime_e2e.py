@@ -16,13 +16,10 @@ from app.joysafeter_application.credentials.ports import (
 )
 from app.joysafeter_domain.credentials import (
     CredentialFieldName,
-    CredentialGroupId,
-    CredentialId,
     EngineKind,
     EnvironmentInjectionBinding,
     HttpEgressBinding,
     McpGroupBinding,
-    ProjectId,
     WebhookAuthBinding,
 )
 from app.joysafeter_domain.credentials.bindings import (
@@ -40,15 +37,17 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
     CreateCredentialRequest,
 )
 from app.joysafeter_shared.config.settings import joysafeter_config
+from app.joysafeter_shared.ids import OrganizationId, ProjectId
 
 RUST_KERNEL = Path(__file__).resolve().parents[1] / "app/joysafeter_orchestrator_rs/src/kernel"
 
 
-async def _project(db_session) -> str:
-    organization = Organization(name=f"runtime-{uuid.uuid4()}", slug=f"runtime-{uuid.uuid4()}")
+async def _project(db_session) -> ProjectId:
+    organization = Organization(id=OrganizationId.new(), name=f"runtime-{uuid.uuid4()}", slug=f"runtime-{uuid.uuid4()}")
     db_session.add(organization)
     await db_session.flush()
     project = Project(
+        id=ProjectId.new(),
         org_id=organization.id,
         name=f"runtime-{uuid.uuid4()}",
         slug=f"runtime-{uuid.uuid4()}",
@@ -83,8 +82,8 @@ async def test_runtime_binding_matrix_limits_material_to_each_consumer(db_sessio
 
     model_binding = build_model_inference_policy(
         application.binding_service._catalog,
-        project_id=ProjectId(project_id),
-        credential_id=CredentialId(str(model.id)),
+        project_id=project_id,
+        credential_id=model.id,
         engine_kind=EngineKind.CODEX,
         model_id="gpt-5",
     )
@@ -98,20 +97,20 @@ async def test_runtime_binding_matrix_limits_material_to_each_consumer(db_sessio
     )
 
     http_binding = HttpEgressBinding(
-        ProjectId(project_id),
-        CredentialId(str(service.id)),
+        project_id,
+        service.id,
         NormalizedEndpoint("https://example.com/api"),
         EgressInjectPolicy(EgressInjectKind.BEARER, CredentialFieldName("HTTP_TOKEN")),
     )
     webhook_binding = WebhookAuthBinding(
-        ProjectId(project_id),
-        CredentialId(str(service.id)),
+        project_id,
+        service.id,
         CredentialFieldName("WEBHOOK_SECRET"),
         frozenset({WebhookAuthMethod.BEARER}),
     )
     environment_binding = EnvironmentInjectionBinding(
-        ProjectId(project_id),
-        CredentialId(str(service.id)),
+        project_id,
+        service.id,
     )
 
     http_material = await application.material_access_service.resolve(
@@ -164,13 +163,13 @@ async def test_mcp_group_validates_live_member_without_exposing_token(db_session
 
     await application.group_service.validate_binding(
         McpGroupBinding(
-            ProjectId(project_id),
-            (CredentialGroupId(str(group.id)),),
+            project_id,
+            (group.id,),
             (),
         )
     )
 
-    assert member.data["token_value"].startswith("enc:v1:")
+    assert member.data["token_value"].startswith("enc:v2:")
     assert "mcp-secret" not in repr(member)
 
 

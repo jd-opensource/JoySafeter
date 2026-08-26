@@ -13,10 +13,13 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.ids import (
     EnvironmentId,
+    OrganizationId,
+    ProjectId,
     SessionId,
     StorageGrantId,
     StorageMountAuditId,
     StorageVolumeId,
+    UserId,
 )
 
 SUPPORTED_STORAGE_BACKENDS = {"generic", "cubefs", "cephfs", "nfs", "juicefs", "lustre", "pvc", "host_path"}
@@ -241,19 +244,11 @@ class UpdateStorageVolumeRequest(BaseModel):
 
 
 class StorageProjectGrantInput(BaseModel):
-    project_id: str
+    project_id: ProjectId
     max_access: str = "read_only"
     allowed_prefixes: list[str] = Field(default_factory=list)
     quota_bytes: Optional[int] = None
     enabled: bool = True
-
-    @field_validator("project_id", mode="before")
-    @classmethod
-    def validate_project_id(cls, value: object) -> str:
-        project_id = _trim(value)
-        if not project_id:
-            raise ValueError("project_id is required")
-        return project_id
 
     _validate_max_access = field_validator("max_access", mode="before")(
         _shared_field_validator(StorageVolumeBase.validate_max_access)
@@ -267,19 +262,11 @@ class StorageProjectGrantInput(BaseModel):
 
 
 class StorageOrganizationGrantInput(BaseModel):
-    org_id: str
+    org_id: OrganizationId
     max_access: str = "read_only"
     allowed_prefixes: list[str] = Field(default_factory=list)
     quota_bytes: Optional[int] = None
     enabled: bool = True
-
-    @field_validator("org_id", mode="before")
-    @classmethod
-    def validate_org_id(cls, value: object) -> str:
-        org_id = _trim(value)
-        if not org_id:
-            raise ValueError("org_id is required")
-        return org_id
 
     _validate_max_access = field_validator("max_access", mode="before")(
         _shared_field_validator(StorageVolumeBase.validate_max_access)
@@ -295,7 +282,7 @@ class StorageOrganizationGrantInput(BaseModel):
 class StorageProjectGrantResponse(BaseModel):
     id: StorageGrantId
     volume_id: StorageVolumeId
-    project_id: str
+    project_id: ProjectId
     max_access: str
     allowed_prefixes: list[str] = Field(default_factory=list)
     quota_bytes: Optional[int] = None
@@ -309,7 +296,7 @@ class StorageProjectGrantResponse(BaseModel):
 class StorageOrganizationGrantResponse(BaseModel):
     id: StorageGrantId
     volume_id: StorageVolumeId
-    org_id: str
+    org_id: OrganizationId
     max_access: str
     allowed_prefixes: list[str] = Field(default_factory=list)
     quota_bytes: Optional[int] = None
@@ -358,10 +345,10 @@ class StorageCatalogItem(BaseModel):
 class StorageMountAuditResponse(BaseModel):
     id: StorageMountAuditId
     volume_id: Optional[StorageVolumeId] = None
-    project_id: Optional[str] = None
+    project_id: ProjectId | None = None
     session_id: Optional[SessionId] = None
     environment_id: Optional[EnvironmentId] = None
-    user_id: Optional[str] = None
+    user_id: UserId | None = None
     action: str
     volume_ref: Optional[str] = None
     mount_path: Optional[str] = None

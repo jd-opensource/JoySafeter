@@ -8,6 +8,7 @@ from .bindings import (
     CredentialBinding,
     EnvironmentInjectionBinding,
     HttpEgressBinding,
+    McpCredentialRequirement,
     McpGroupBinding,
     ModelCatalogContext,
     ModelInferenceBinding,
@@ -64,6 +65,7 @@ class CredentialPolicyErrorCode(StrEnum):
     UNSUPPORTED_SCHEME = "unsupported_scheme"
     GROUP_MISMATCH = "group_mismatch"
     URL_CONFLICT = "url_conflict"
+    REQUIRED_CREDENTIAL_MISSING = "required_credential_missing"
     CATALOG_MISMATCH = "catalog_mismatch"
 
 
@@ -249,7 +251,7 @@ def validate_mcp_group_binding(
             raise CredentialPolicyError(CredentialPolicyErrorCode.PROJECT_MISMATCH, "credential group project mismatch")
         _require_active(group.state, subject="credential group")
 
-    normalized_urls = set(binding.declared_server_urls)
+    members_by_url: dict[NormalizedMcpUrl, list[CredentialResource]] = {}
     for member in members:
         if member.project_id != binding.project_id:
             raise CredentialPolicyError(CredentialPolicyErrorCode.PROJECT_MISMATCH, "MCP member project mismatch")
@@ -260,12 +262,24 @@ def validate_mcp_group_binding(
             raise CredentialPolicyError(CredentialPolicyErrorCode.GROUP_MISMATCH, "MCP member group mismatch")
         _require_runnable_scheme(member.identity.auth_scheme)
         _require_field(member, CredentialFieldName("token_value"))
-        if member.identity.server_url in normalized_urls:
+        members_by_url.setdefault(member.identity.server_url, []).append(member)
+
+    for requirement in binding.endpoint_requirements:
+        if requirement.auth_requirement is McpCredentialRequirement.NONE:
+            continue
+        matching_members = members_by_url.get(requirement.server_url, [])
+        if len(matching_members) > 1:
             raise CredentialPolicyError(
                 CredentialPolicyErrorCode.URL_CONFLICT,
-                f"MCP normalized URL conflict: {member.identity.server_url}",
+                f"MCP normalized URL conflict: {requirement.server_url}",
+                data={"normalized_mcp_server_url": str(requirement.server_url)},
             )
-        normalized_urls.add(member.identity.server_url)
+        if requirement.auth_requirement is McpCredentialRequirement.REQUIRED and not matching_members:
+            raise CredentialPolicyError(
+                CredentialPolicyErrorCode.REQUIRED_CREDENTIAL_MISSING,
+                f"Required MCP credential is missing: {requirement.server_url}",
+                data={"normalized_mcp_server_url": str(requirement.server_url)},
+            )
 
 
 def validate_group_restore(

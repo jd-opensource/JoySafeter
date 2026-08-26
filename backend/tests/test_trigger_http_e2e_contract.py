@@ -21,7 +21,9 @@ from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredentialRequest
 from app.joysafeter_shared.common.exceptions import register_exception_handlers
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import SessionId, TaskId, TriggerId
+from app.joysafeter_shared.ids import AgentId, OrganizationId, ProjectId, SessionId, TaskId, TriggerId, UserId
+
+TRIGGER_HTTP_USER_ID = UserId.new()
 
 
 class _FakeQueueRedis:
@@ -37,9 +39,9 @@ class _FakeQueueRedis:
         return 1
 
 
-def _ctx(project_id: str, org_id: str) -> JoySafeterAuthContext:
+def _ctx(project_id: ProjectId, org_id: OrganizationId) -> JoySafeterAuthContext:
     return JoySafeterAuthContext(
-        user_id="trigger-http-e2e-user",
+        user_id=TRIGGER_HTTP_USER_ID,
         org_id=org_id,
         project_id=project_id,
         role=JoySafeterRole.ADMIN,
@@ -67,15 +69,17 @@ def _parse_iso_datetime(value: str) -> datetime:
 
 async def _seed_project_agent_and_secret(db_session):
     unique = uuid.uuid4()
-    org = Organization(name=f"Trigger E2E Org {unique}", slug=f"trigger-e2e-org-{unique}")
+    org = Organization(id=OrganizationId.new(), name=f"Trigger E2E Org {unique}", slug=f"trigger-e2e-org-{unique}")
     db_session.add(org)
     await db_session.flush()
 
-    project = Project(org_id=org.id, name="Trigger E2E Project", slug=f"trigger-e2e-project-{unique}")
+    project = Project(
+        id=ProjectId.new(), org_id=org.id, name="Trigger E2E Project", slug=f"trigger-e2e-project-{unique}"
+    )
     db_session.add(project)
     await db_session.flush()
 
-    agent = JoySafeterAgent(name=f"trigger-e2e-agent-{unique}", project_id=project.id)
+    agent = JoySafeterAgent(id=AgentId.new(), name=f"trigger-e2e-agent-{unique}", project_id=project.id)
     db_session.add(agent)
     await db_session.flush()
 
@@ -161,9 +165,9 @@ async def test_trigger_http_crud_manual_run_history_and_delete_flow(db_session, 
             )
         )
         assert snapshot_audit is not None
-        assert snapshot_audit.user_id == "trigger-http-e2e-user"
+        assert snapshot_audit.user_id == TRIGGER_HTTP_USER_ID
         assert snapshot_audit.details["principal_type"] == "user"
-        assert snapshot_audit.details["principal_id"] == "trigger-http-e2e-user"
+        assert snapshot_audit.details["principal_id"] == str(TRIGGER_HTTP_USER_ID)
 
         replay_resp = await client.post(
             f"/api/v1/triggers/{trigger_id}/run",
@@ -291,9 +295,9 @@ async def test_trigger_http_manual_type_create_list_run_and_history(db_session, 
         assert runs[0]["id"] == fired["task_id"]
         assert runs[0]["trigger_id"] == trigger_id
 
-    task_uuid = uuid.UUID(fired["task_id"].removeprefix("task_"))
+    task_id = TaskId.from_public(fired["task_id"])
     db_session.expire_all()
-    stored_task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_uuid))).scalar_one()
+    stored_task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
     stored_trigger = (
         await db_session.execute(
             select(JoySafeterTrigger).where(JoySafeterTrigger.id == TriggerId.from_public(trigger_id))
@@ -311,13 +315,14 @@ async def test_trigger_http_manual_type_create_list_run_and_history(db_session, 
     assert stored_trigger.config == {}
     assert stored_trigger.webhook_auth_credential_id is None
     assert stored_trigger.webhook_auth_field is None
-    assert redis.rpushed == [("joysafeter:global_queue", str(task_uuid))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(task_id.uuid))]
 
 
 @pytest.mark.asyncio
 async def test_trigger_http_webhook_test_fire_and_sample_flow(db_session, monkeypatch):
     org, project, agent, credential_id = await _seed_project_agent_and_secret(db_session)
     trigger = JoySafeterTrigger(
+        id=TriggerId.new(),
         name="Webhook HTTP E2E",
         type="webhook",
         agent_id=agent.id,
@@ -329,7 +334,7 @@ async def test_trigger_http_webhook_test_fire_and_sample_flow(db_session, monkey
         config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
         last_payload={},
         project_id=project.id,
-        user_id="trigger-http-e2e-user",
+        user_id=TRIGGER_HTTP_USER_ID,
         org_id=org.id,
     )
     db_session.add(trigger)
@@ -395,7 +400,7 @@ async def test_trigger_http_webhook_test_fire_and_sample_flow(db_session, monkey
     assert captured["fire"]["auth_fingerprint"] == "test"
     assert captured["fire"]["ignore_enabled"] is True
     assert captured["fire"]["principal_type"] == "user"
-    assert captured["fire"]["principal_id"] == "trigger-http-e2e-user"
+    assert captured["fire"]["principal_id"] == str(TRIGGER_HTTP_USER_ID)
 
 
 @pytest.mark.asyncio
@@ -477,12 +482,12 @@ async def test_trigger_http_cron_create_toggle_run_and_webhook_only_errors(db_se
         assert runs[0]["id"] == fired["task_id"]
         assert runs[0]["trigger_id"] == trigger_id
 
-    task_uuid = uuid.UUID(fired["task_id"].removeprefix("task_"))
+    task_id = TaskId.from_public(fired["task_id"])
     db_session.expire_all()
-    stored_task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_uuid))).scalar_one()
+    stored_task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
     assert stored_task.prompt == "run cron"
     assert stored_task.trigger_id == TriggerId.from_public(trigger_id)
-    assert redis.rpushed == [("joysafeter:global_queue", str(task_uuid))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(task_id.uuid))]
 
 
 @pytest.mark.asyncio
@@ -490,6 +495,7 @@ async def test_trigger_http_management_endpoints_are_project_scoped(db_session, 
     org_a, project_a, _agent_a, _credential_a = await _seed_project_agent_and_secret(db_session)
     org_b, project_b, agent_b, credential_b = await _seed_project_agent_and_secret(db_session)
     trigger_b = JoySafeterTrigger(
+        id=TriggerId.new(),
         name="Project B Webhook",
         type="webhook",
         agent_id=agent_b.id,
@@ -501,7 +507,7 @@ async def test_trigger_http_management_endpoints_are_project_scoped(db_session, 
         config={"auth_methods": ["hmac"], "dedupe_header": "x-joysafeter-delivery"},
         last_payload={},
         project_id=project_b.id,
-        user_id="project-b-user",
+        user_id=UserId.new(),
         org_id=org_b.id,
     )
     db_session.add(trigger_b)
