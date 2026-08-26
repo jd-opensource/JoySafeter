@@ -2,13 +2,14 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 
 import type { AuthUser } from '@/lib/auth/api-client'
+import type { UserId } from '@/types/entity-id'
 
 /**
  * Safe user information type (does not contain sensitive data)
  * Only stores basic information for display
  */
 interface SafeUserInfo {
-  id: string
+  id: UserId
   email: string
   name: string
   image?: string | null
@@ -82,6 +83,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'auth-state',
+      version: 1,
       // Use localStorage to store user display information (reduce loading on page refresh)
       // Note: Token is not stored here, authentication is managed by HttpOnly Cookie
       storage: createJSONStorage(() => {

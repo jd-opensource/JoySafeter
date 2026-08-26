@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { USER_ID } from '@/test-utils/entity-ids'
+
 const { managedPostMock } = vi.hoisted(() => ({
   managedPostMock: vi.fn(),
 }))
@@ -34,7 +36,24 @@ import { authApi } from './api-client'
 describe('auth password transport contract', () => {
   beforeEach(() => {
     managedPostMock.mockReset()
-    managedPostMock.mockResolvedValue({})
+    managedPostMock.mockImplementation((path: string) => {
+      if (path === 'auth/sign-in/email' || path === 'auth/sign-up/email') {
+        return Promise.resolve({
+          user: {
+            id: USER_ID,
+            email: 'user@example.com',
+            name: 'User',
+            emailVerified: false,
+            isSuperUser: false,
+          },
+          access_token: 'access-token',
+          token_type: 'bearer',
+          expires_in: 900,
+        })
+      }
+
+      return Promise.resolve({})
+    })
   })
 
   it('sends raw passwords for server-side adaptive hashing', async () => {
@@ -66,4 +85,26 @@ describe('auth password transport contract', () => {
       new_password: 'New-One1!',
     })
   })
+
+  it.each([{}, 'proj_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021'])(
+    'rejects malformed login user IDs before returning auth state',
+    async (id) => {
+      managedPostMock.mockResolvedValueOnce({
+        user: {
+          id,
+          email: 'user@example.com',
+          name: 'User',
+          emailVerified: false,
+          isSuperUser: false,
+        },
+        access_token: 'access-token',
+        token_type: 'bearer',
+        expires_in: 900,
+      })
+
+      await expect(
+        authApi.signInEmail({ email: 'user@example.com', password: 'Sign-In1!' }),
+      ).rejects.toThrow(TypeError)
+    },
+  )
 })

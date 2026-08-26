@@ -12,6 +12,12 @@ import {
   refreshAccessTokenOrRelogin,
 } from '@/lib/api-client'
 import { createLogger } from '@/lib/logs/console/logger'
+import {
+  parseUserId,
+  type AuthSessionId,
+  type OrganizationId,
+  type UserId,
+} from '@/types/entity-id'
 
 import { setCsrfToken, clearCsrfToken } from './csrf'
 import { notifySessionChange, onSessionChange, type SessionChangeType } from './session-events'
@@ -20,7 +26,7 @@ const logger = createLogger('AuthAPI')
 
 // ==================== Type Definitions ====================
 export interface AuthUser {
-  id: string
+  id: UserId
   email: string
   name: string
   image?: string | null
@@ -31,11 +37,19 @@ export interface AuthUser {
 }
 
 export interface AuthSession {
-  id: string
+  id: AuthSessionId
   token: string
   expiresAt: string
-  userId: string
-  activeOrganizationId?: string | null
+  userId: UserId
+  activeOrganizationId?: OrganizationId | null
+}
+
+interface AuthUserPayload extends Omit<AuthUser, 'id'> {
+  id: string
+}
+
+function parseAuthUser(user: AuthUserPayload): AuthUser {
+  return { ...user, id: parseUserId(user.id) }
 }
 
 export interface LoginResponse {
@@ -72,7 +86,7 @@ export const authApi = {
     password: string
     callbackURL?: string
   }): Promise<LoginResponse> {
-    const response = await managedPost<LoginResponse>(
+    const response = await managedPost<Omit<LoginResponse, 'user'> & { user: AuthUserPayload }>(
       'auth/sign-in/email',
       {
         email: params.email,
@@ -86,7 +100,7 @@ export const authApi = {
     }
 
     notifySessionChange('signin')
-    return response
+    return { ...response, user: parseAuthUser(response.user) }
   },
 
   async signUpEmail(params: {
@@ -94,7 +108,7 @@ export const authApi = {
     password: string
     name: string
   }): Promise<SignUpResponse> {
-    const response = await managedPost<SignUpResponse>(
+    const response = await managedPost<Omit<SignUpResponse, 'user'> & { user: AuthUserPayload }>(
       'auth/sign-up/email',
       {
         email: params.email,
@@ -109,7 +123,7 @@ export const authApi = {
     }
 
     notifySessionChange('signin')
-    return response
+    return { ...response, user: parseAuthUser(response.user) }
   },
 
   async signOut(): Promise<void> {
@@ -140,7 +154,7 @@ export const authApi = {
 
       return {
         user: {
-          id: response.user.id,
+          id: parseUserId(response.user.id),
           email: response.user.email,
           name: response.user.name,
           image: response.user.image,
@@ -228,7 +242,7 @@ export const authApi = {
   },
 
   async signInEmailOtp(params: { email: string; otp: string }): Promise<LoginResponse> {
-    const response = await managedPost<LoginResponse>(
+    const response = await managedPost<Omit<LoginResponse, 'user'> & { user: AuthUserPayload }>(
       'auth/sign-in/email-otp',
       {
         email: params.email,
@@ -242,7 +256,7 @@ export const authApi = {
     }
 
     notifySessionChange('signin')
-    return response
+    return { ...response, user: parseAuthUser(response.user) }
   },
 }
 
