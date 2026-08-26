@@ -12,22 +12,29 @@ from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+# Direct execution initializes the backend import path and safe defaults before
+# loading application modules.
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 os.environ.setdefault("SECRET_KEY", "credential-p0-5-preflight-read-only")
 
-from jsonschema import Draft202012Validator
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from jsonschema import Draft202012Validator  # noqa: E402
+from sqlalchemy import select, text  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
-from app.joysafeter_domain.models.joysafeter_agent import JoySafeterAgent, JoySafeterAgentVersion
-from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredential
-from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment
-from app.joysafeter_domain.models.joysafeter_session import JoySafeterSession, SessionStatus
-from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
-from app.joysafeter_shared.database import async_session_factory, engine
-
+from app.joysafeter_domain.models.joysafeter_agent import (  # noqa: E402
+    JoySafeterAgent,
+    JoySafeterAgentVersion,
+)
+from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredential  # noqa: E402
+from app.joysafeter_domain.models.joysafeter_environment import JoySafeterEnvironment  # noqa: E402
+from app.joysafeter_domain.models.joysafeter_session import (  # noqa: E402
+    JoySafeterSession,
+    SessionStatus,
+)
+from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger  # noqa: E402
+from app.joysafeter_shared.database import async_session_factory, engine  # noqa: E402
 
 _SCHEMA_PATH = BACKEND_ROOT / "contracts" / "credential_p0_5_preflight.schema.json"
 _SNAPSHOT_SCHEMA_COUNTS = ("legacy-v0", "v1", "v2", "unknown")
@@ -68,9 +75,7 @@ def _normalized_field_path(parts: tuple[str | int, ...]) -> str:
 
 
 def _count_path(parts: tuple[str | int, ...]) -> str:
-    return _normalized_field_path(tuple("[]" if isinstance(part, int) else part for part in parts)).replace(
-        ".[]", "[]"
-    )
+    return _normalized_field_path(tuple("[]" if isinstance(part, int) else part for part in parts)).replace(".[]", "[]")
 
 
 def _snapshot_schema(snapshot: object) -> str:
@@ -94,7 +99,11 @@ def _iter_references(value: object, path: tuple[str | int, ...] = ()) -> Iterabl
                 if key in {"environment_credential_ids", "secret_refs"} and isinstance(nested_value, list):
                     for index, reference in enumerate(nested_value):
                         if isinstance(reference, str) and reference:
-                            yield _normalized_field_path((*nested_path, index)), reference, key in _LEGACY_REFERENCE_KEYS
+                            yield (
+                                _normalized_field_path((*nested_path, index)),
+                                reference,
+                                key in _LEGACY_REFERENCE_KEYS,
+                            )
                 elif isinstance(nested_value, str) and nested_value:
                     yield _normalized_field_path(nested_path), nested_value, key in _LEGACY_REFERENCE_KEYS
             yield from _iter_references(nested_value, nested_path)
@@ -203,7 +212,7 @@ def _inspect_references(
                     resource_id=credential_id,
                 )
             )
-        elif (credential_project_id := credential_projects.get(credential_id)) not in (None, owner_project_id):
+        elif credential_projects.get(credential_id) not in (None, owner_project_id):
             cross_project_references.append(
                 _reference_entry(
                     error_class="CROSS_PROJECT_CREDENTIAL_REFERENCE",
@@ -380,11 +389,7 @@ def serialize_report(report: CredentialPreflightReport) -> str:
 
 
 def _has_blockers(report: CredentialPreflightReport) -> bool:
-    return bool(
-        report.invalid_resources
-        or report.cross_project_references
-        or report.mcp_url_conflicts
-    )
+    return bool(report.invalid_resources or report.cross_project_references or report.mcp_url_conflicts)
 
 
 def _blocker_error_classes(report: CredentialPreflightReport) -> tuple[str, ...]:
