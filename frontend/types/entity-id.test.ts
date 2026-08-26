@@ -7,6 +7,8 @@ import {
   isEntityId,
   parseAnyEntityId,
   parseAgentId,
+  parseAgentVersionId,
+  parseApiKeyId,
   parseCredentialId,
   parseEnvironmentId,
   parseEventId,
@@ -32,8 +34,22 @@ import {
 const UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f001'
 
 describe('typed entity ids', () => {
+  it('registers canonical tenant and authentication prefixes', () => {
+    expect(ENTITY_ID_PREFIXES).toMatchObject({
+      user: 'user_',
+      organization: 'org_',
+      organizationMember: 'orgmem_',
+      project: 'proj_',
+      projectMember: 'projmem_',
+      oauthAccount: 'oauthacct_',
+      authSession: 'authsess_',
+    })
+  })
+
   it('accepts canonical prefixed UUIDs', () => {
     expect(parseAgentId(`agent_${UUID}`)).toBe(`agent_${UUID}`)
+    expect(parseAgentVersionId(`agentver_${UUID}`)).toBe(`agentver_${UUID}`)
+    expect(parseApiKeyId(`apikey_${UUID}`)).toBe(`apikey_${UUID}`)
     expect(parseSessionId(`sess_${UUID}`)).toBe(`sess_${UUID}`)
     expect(parseTaskId(`task_${UUID}`)).toBe(`task_${UUID}`)
     expect(parseEnvironmentId(`env_${UUID}`)).toBe(`env_${UUID}`)

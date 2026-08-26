@@ -4,6 +4,15 @@ const entityIdBrand: unique symbol = Symbol('entityIdBrand')
 
 export const ENTITY_ID_PREFIXES = {
   agent: 'agent_',
+  agentVersion: 'agentver_',
+  apiKey: 'apikey_',
+  user: 'user_',
+  organization: 'org_',
+  organizationMember: 'orgmem_',
+  project: 'proj_',
+  projectMember: 'projmem_',
+  oauthAccount: 'oauthacct_',
+  authSession: 'authsess_',
   session: 'sess_',
   task: 'task_',
   trigger: 'trig_',
@@ -36,6 +45,15 @@ export type EntityId<Prefix extends EntityIdPrefix> = `${Prefix}${string}` & {
 }
 
 export type AgentId = EntityId<'agent_'>
+export type AgentVersionId = EntityId<'agentver_'>
+export type ApiKeyId = EntityId<'apikey_'>
+export type UserId = EntityId<'user_'>
+export type OrganizationId = EntityId<'org_'>
+export type OrganizationMemberId = EntityId<'orgmem_'>
+export type ProjectId = EntityId<'proj_'>
+export type ProjectMemberId = EntityId<'projmem_'>
+export type OAuthAccountId = EntityId<'oauthacct_'>
+export type AuthSessionId = EntityId<'authsess_'>
 export type SessionId = EntityId<'sess_'>
 export type TaskId = EntityId<'task_'>
 export type TriggerId = EntityId<'trig_'>
@@ -106,6 +124,42 @@ export function parseNullableId<T>(value: string | null, parse: (raw: string) =>
 
 export function parseAgentId(value: string): AgentId {
   return parseEntityId(value, 'agent')
+}
+
+export function parseAgentVersionId(value: string): AgentVersionId {
+  return parseEntityId(value, 'agentVersion')
+}
+
+export function parseApiKeyId(value: string): ApiKeyId {
+  return parseEntityId(value, 'apiKey')
+}
+
+export function parseUserId(value: string): UserId {
+  return parseEntityId(value, 'user')
+}
+
+export function parseOrganizationId(value: string): OrganizationId {
+  return parseEntityId(value, 'organization')
+}
+
+export function parseOrganizationMemberId(value: string): OrganizationMemberId {
+  return parseEntityId(value, 'organizationMember')
+}
+
+export function parseProjectId(value: string): ProjectId {
+  return parseEntityId(value, 'project')
+}
+
+export function parseProjectMemberId(value: string): ProjectMemberId {
+  return parseEntityId(value, 'projectMember')
+}
+
+export function parseOAuthAccountId(value: string): OAuthAccountId {
+  return parseEntityId(value, 'oauthAccount')
+}
+
+export function parseAuthSessionId(value: string): AuthSessionId {
+  return parseEntityId(value, 'authSession')
 }
 
 export function tryParseAgentId(value: string | null | undefined): AgentId | null {
