@@ -2,6 +2,22 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { JSDOM } from 'jsdom'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  parseOrganizationId,
+  parseProjectId,
+  parseUserId,
+  type OrganizationId,
+  type ProjectId,
+  type UserId,
+} from '@/types/entity-id'
+
+const USER_A = parseUserId('user_018f6f42-0a51-7cc4-98c8-4f6f0ca5f101')
+const USER_B = parseUserId('user_018f6f42-0a51-7cc4-98c8-4f6f0ca5f102')
+const ORG_A = parseOrganizationId('org_018f6f42-0a51-7cc4-98c8-4f6f0ca5f103')
+const ORG_B = parseOrganizationId('org_018f6f42-0a51-7cc4-98c8-4f6f0ca5f104')
+const PROJECT_A = parseProjectId('proj_018f6f42-0a51-7cc4-98c8-4f6f0ca5f105')
+const PROJECT_B = parseProjectId('proj_018f6f42-0a51-7cc4-98c8-4f6f0ca5f106')
+const ARCHIVED_PROJECT = parseProjectId('proj_018f6f42-0a51-7cc4-98c8-4f6f0ca5f107')
 
 vi.mock('next-runtime-env', () => ({
   env: vi.fn(() => undefined),
@@ -124,7 +140,7 @@ vi.mock('@/lib/api-client', () => {
 })
 
 interface AuthUser {
-  id: string
+  id: UserId
   email: string
   name: string
   emailVerified: boolean
@@ -201,7 +217,7 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
-function user(id: string): AuthUser {
+function user(id: UserId): AuthUser {
   return {
     id,
     email: `${id}@example.com`,
@@ -211,7 +227,7 @@ function user(id: string): AuthUser {
   }
 }
 
-function authMe(userId: string, orgId: string, projectId: string) {
+function authMe(userId: UserId, orgId: OrganizationId, projectId: ProjectId) {
   return {
     user: {
       id: userId,
@@ -232,10 +248,10 @@ function authMe(userId: string, orgId: string, projectId: string) {
 }
 
 function authMeWithProject(
-  userId: string,
-  orgId: string,
+  userId: UserId,
+  orgId: OrganizationId,
   project: {
-    id: string
+    id: ProjectId
     name: string
     slug: string
     is_default: boolean
@@ -307,13 +323,13 @@ describe('ProjectProvider auth context lifecycle', () => {
         },
       },
     })
-    queryClient.setQueryData(['session'], { user: user('user-a') })
-    queryClient.setQueryData(['auth-me'], authMe('user-a', 'org-a', 'project-a'))
-    setMockSessionUser(user('user-a'))
+    queryClient.setQueryData(['session'], { user: user(USER_A) })
+    queryClient.setQueryData(['auth-me'], authMe(USER_A, ORG_A, PROJECT_A))
+    setMockSessionUser(user(USER_A))
 
     managedGetMock
-      .mockResolvedValueOnce(authMe('user-a', 'org-a', 'project-a'))
-      .mockResolvedValueOnce(authMe('user-b', 'org-b', 'project-b'))
+      .mockResolvedValueOnce(authMe(USER_A, ORG_A, PROJECT_A))
+      .mockResolvedValueOnce(authMe(USER_B, ORG_B, PROJECT_B))
 
     const { rerender } = render(
       <QueryClientProvider client={queryClient}>
@@ -324,7 +340,7 @@ describe('ProjectProvider auth context lifecycle', () => {
     )
 
     await waitFor(() => {
-      expect(useProjectStore.getState().currentProjectId).toBe('project-a')
+      expect(useProjectStore.getState().currentProjectId).toBe(PROJECT_A)
     })
 
     await act(async () => {
@@ -344,7 +360,7 @@ describe('ProjectProvider auth context lifecycle', () => {
         </QueryClientProvider>,
       )
       await wait(0)
-      setMockSessionUser(user('user-b'))
+      setMockSessionUser(user(USER_B))
       rerender(
         <QueryClientProvider client={queryClient}>
           <ProjectProvider>
@@ -356,8 +372,8 @@ describe('ProjectProvider auth context lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(useProjectStore.getState().currentOrgId).toBe('org-b')
-      expect(useProjectStore.getState().currentProjectId).toBe('project-b')
+      expect(useProjectStore.getState().currentOrgId).toBe(ORG_B)
+      expect(useProjectStore.getState().currentProjectId).toBe(PROJECT_B)
     })
     expect(managedGetMock).toHaveBeenCalledTimes(2)
     expect(managedGetMock.mock.calls[0][0]).toBe('/auth/me')
@@ -367,7 +383,7 @@ describe('ProjectProvider auth context lifecycle', () => {
   it('does not let a stale auth-me response overwrite a newer managed context', async () => {
     const initialAuthMe = deferred<ReturnType<typeof authMe>>()
     managedGetMock.mockReturnValue(initialAuthMe.promise)
-    setMockSessionUser(user('user-a'))
+    setMockSessionUser(user(USER_A))
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -390,37 +406,37 @@ describe('ProjectProvider auth context lifecycle', () => {
 
     await act(async () => {
       useProjectStore.setState({
-        currentOrgId: 'org-b',
-        currentProjectId: 'project-b',
-        organizations: [{ id: 'org-b', name: 'org-b', slug: 'org-b', role: 'owner' }],
-        projects: [{ id: 'project-b', name: 'project-b', slug: 'project-b', is_default: true }],
+        currentOrgId: ORG_B,
+        currentProjectId: PROJECT_B,
+        organizations: [{ id: ORG_B, name: 'org-b', slug: 'org-b', role: 'owner' }],
+        projects: [{ id: PROJECT_B, name: 'project-b', slug: 'project-b', is_default: true }],
       })
       await Promise.resolve()
     })
 
     await act(async () => {
-      initialAuthMe.resolve(authMe('user-a', 'org-a', 'project-a'))
+      initialAuthMe.resolve(authMe(USER_A, ORG_A, PROJECT_A))
       await Promise.resolve()
     })
 
     await waitFor(() => {
-      expect(queryClient.getQueryData(['auth-me', 'user-a'])).toBeTruthy()
+      expect(queryClient.getQueryData(['auth-me', USER_A])).toBeTruthy()
     })
 
-    expect(useProjectStore.getState().currentOrgId).toBe('org-b')
-    expect(useProjectStore.getState().currentProjectId).toBe('project-b')
+    expect(useProjectStore.getState().currentOrgId).toBe(ORG_B)
+    expect(useProjectStore.getState().currentProjectId).toBe(PROJECT_B)
   })
 
   it('preserves archived current project metadata even when active project list excludes it', async () => {
     const archivedProject = {
-      id: 'project-archived',
+      id: ARCHIVED_PROJECT,
       name: 'Archived Project',
       slug: 'archived-project',
       is_default: false,
       archived_at: '2026-01-02T00:00:00Z',
     }
-    managedGetMock.mockResolvedValueOnce(authMeWithProject('user-a', 'org-a', archivedProject, []))
-    setMockSessionUser(user('user-a'))
+    managedGetMock.mockResolvedValueOnce(authMeWithProject(USER_A, ORG_A, archivedProject, []))
+    setMockSessionUser(user(USER_A))
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -438,7 +454,7 @@ describe('ProjectProvider auth context lifecycle', () => {
     )
 
     await waitFor(() => {
-      expect(useProjectStore.getState().currentProjectId).toBe('project-archived')
+      expect(useProjectStore.getState().currentProjectId).toBe(ARCHIVED_PROJECT)
     })
     expect(useProjectStore.getState().currentProject?.archived_at).toBe('2026-01-02T00:00:00Z')
     expect(useProjectStore.getState().projects).toEqual([])

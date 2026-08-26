@@ -5,18 +5,15 @@ import { useEffect } from 'react'
 
 import { ApiError, managedGet } from '@/lib/api-client'
 import { useSession } from '@/lib/auth/auth-client'
+import {
+  parseAuthContextResponse,
+  type AuthContextResponse,
+  type AuthContextResponsePayload,
+} from '@/lib/managed/tenant-response-parsers'
 import { useProjectStore } from '@/stores/managed/project-store'
-import type { OrgInfo, ProjectInfo } from '@/stores/managed/project-store'
-
-interface AuthMeResponse {
-  organization: OrgInfo
-  project: ProjectInfo
-  organizations: OrgInfo[]
-  projects: ProjectInfo[]
-}
 
 interface AuthMeQueryResult {
-  data: AuthMeResponse
+  data: AuthContextResponse
   requestedOrgId: string | null
   requestedProjectId: string | null
 }
@@ -34,17 +31,19 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     queryFn: async () => {
       const { currentOrgId: requestedOrgId, currentProjectId: requestedProjectId } =
         useProjectStore.getState()
-      let data: AuthMeResponse
+      let payload: AuthContextResponsePayload
       try {
-        data = await managedGet<AuthMeResponse>('/auth/me')
+        payload = await managedGet<AuthContextResponsePayload>('/auth/me')
       } catch (error) {
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-          data = await managedGet<AuthMeResponse>('/auth/me', { skipManagedContext: true })
+          payload = await managedGet<AuthContextResponsePayload>('/auth/me', {
+            skipManagedContext: true,
+          })
         } else {
           throw error
         }
       }
-      return { data, requestedOrgId, requestedProjectId }
+      return { data: parseAuthContextResponse(payload), requestedOrgId, requestedProjectId }
     },
     enabled: !!sessionUserId,
     staleTime: 30_000,

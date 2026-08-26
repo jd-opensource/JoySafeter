@@ -4,10 +4,14 @@ import {
   parseEnvironmentId,
   parseEventId,
   parseFileId,
+  parseOrganizationId,
+  parseOrganizationMemberId,
+  parseProjectId,
   parseSessionId,
   parseSessionResourceId,
   parseTaskId,
   parseTriggerId,
+  parseUserId,
 } from '@/types/entity-id'
 
 export const AGENT_ID = parseAgentId('agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001')
@@ -30,3 +34,15 @@ export const SESSION_RESOURCE_ID = parseSessionResourceId(
 )
 export const EVENT_ID = parseEventId('evt_018f6f42-0a51-7cc4-98c8-4f6f0ca5f017')
 export const OTHER_EVENT_ID = parseEventId('evt_018f6f42-0a51-7cc4-98c8-4f6f0ca5f018')
+export const USER_ID = parseUserId('user_018f6f42-0a51-7cc4-98c8-4f6f0ca5f019')
+export const ORGANIZATION_ID = parseOrganizationId('org_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020')
+export const PROJECT_ID = parseProjectId('proj_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021')
+export const OTHER_ORGANIZATION_ID = parseOrganizationId('org_018f6f42-0a51-7cc4-98c8-4f6f0ca5f022')
+export const THIRD_ORGANIZATION_ID = parseOrganizationId('org_018f6f42-0a51-7cc4-98c8-4f6f0ca5f023')
+export const OTHER_PROJECT_ID = parseProjectId('proj_018f6f42-0a51-7cc4-98c8-4f6f0ca5f024')
+export const THIRD_PROJECT_ID = parseProjectId('proj_018f6f42-0a51-7cc4-98c8-4f6f0ca5f025')
+export const FOURTH_PROJECT_ID = parseProjectId('proj_018f6f42-0a51-7cc4-98c8-4f6f0ca5f026')
+export const FIFTH_PROJECT_ID = parseProjectId('proj_018f6f42-0a51-7cc4-98c8-4f6f0ca5f027')
+export const ORGANIZATION_MEMBER_ID = parseOrganizationMemberId(
+  'orgmem_018f6f42-0a51-7cc4-98c8-4f6f0ca5f028',
+)
