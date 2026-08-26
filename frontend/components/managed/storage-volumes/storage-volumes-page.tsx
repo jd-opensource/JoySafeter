@@ -4,13 +4,19 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Database, Edit3, KeyRound, Plus, Search, ShieldCheck, Trash2, X } from 'lucide-react'
 import type {
-  ProjectRecord,
   StorageMountAudit,
   StorageOrganizationGrant,
   StorageProjectGrant,
   StorageVolume,
 } from '@/types/managed'
-import { parseStorageMountAuditId, type StorageVolumeId } from '@/types/entity-id'
+import {
+  parseOrganizationId,
+  parseProjectId,
+  parseStorageMountAuditId,
+  type OrganizationId,
+  type ProjectId,
+  type StorageVolumeId,
+} from '@/types/entity-id'
 import { managedDelete, managedGet, managedPost } from '@/lib/api-client'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { apiResourceId } from '@/lib/managed/api-paths'
@@ -22,6 +28,12 @@ import {
   parseStorageVolumeResponse,
 } from '@/lib/managed/storage-mount-response-parsers'
 import { toastOperationError } from '@/lib/managed/errors'
+import {
+  parsePlatformOrganizationPageResponse,
+  parseProjectSummaryPageResponse,
+  type PlatformOrganization,
+  type ProjectSummary,
+} from '@/lib/managed/tenant-response-parsers'
 import { managedRequestOptions, useManagedRequestScope } from '@/lib/managed/request-scope'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { useSession } from '@/lib/auth/auth-client'
@@ -91,20 +103,11 @@ interface VolumeFormState {
 }
 
 interface GrantFormState {
-  orgId: string
-  projectId: string
+  orgId: OrganizationId | null
+  projectId: ProjectId | null
   maxAccess: AccessMode
   allowedPrefixes: string
   enabled: boolean
-}
-
-interface PlatformOrganization {
-  id: string
-  name: string
-  slug: string
-  member_count?: number
-  project_count?: number
-  member_emails?: string[]
 }
 
 interface SearchSelectOption {
@@ -144,8 +147,8 @@ const emptyVolumeForm = (mode: VolumeFormMode = 'create'): VolumeFormState => ({
 })
 
 const emptyGrantForm = (): GrantFormState => ({
-  orgId: '',
-  projectId: '',
+  orgId: null,
+  projectId: null,
   maxAccess: 'read_only',
   allowedPrefixes: '',
   enabled: true,
@@ -184,7 +187,7 @@ function SearchableGroupedSelect({
   options,
   disabled,
 }: {
-  value: string
+  value: string | null
   onChange: (value: string) => void
   placeholder: string
   searchPlaceholder: string
@@ -213,7 +216,7 @@ function SearchableGroupedSelect({
   const palette = ['bg-purple-500', 'bg-blue-500', 'bg-emerald-500', 'bg-slate-500']
 
   return (
-    <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
+    <Select value={value ?? undefined} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
@@ -331,7 +334,7 @@ function volumeToForm(volume: StorageVolume): VolumeFormState {
 function projectGrantToForm(grant?: StorageProjectGrant): GrantFormState {
   if (!grant) return emptyGrantForm()
   return {
-    orgId: '',
+    orgId: null,
     projectId: grant.project_id,
     maxAccess: grant.max_access === 'read_write' ? 'read_write' : 'read_only',
     allowedPrefixes: joinLines(grant.allowed_prefixes),
@@ -343,18 +346,18 @@ function organizationGrantToForm(grant?: StorageOrganizationGrant): GrantFormSta
   if (!grant) return emptyGrantForm()
   return {
     orgId: grant.org_id,
-    projectId: '',
+    projectId: null,
     maxAccess: grant.max_access === 'read_write' ? 'read_write' : 'read_only',
     allowedPrefixes: joinLines(grant.allowed_prefixes),
     enabled: grant.enabled,
   }
 }
 
-function defaultGrantFormForProject(projectId?: string | null): GrantFormState {
-  return { ...emptyGrantForm(), projectId: projectId || '' }
+function defaultGrantFormForProject(projectId?: ProjectId | null): GrantFormState {
+  return { ...emptyGrantForm(), projectId: projectId ?? null }
 }
 
-function currentProjectGrant(volume: StorageVolume, projectId?: string | null) {
+function currentProjectGrant(volume: StorageVolume, projectId?: ProjectId | null) {
   return projectId ? volume.grants?.find((item) => item.project_id === projectId) : undefined
 }
 
@@ -384,8 +387,9 @@ function buildVolumePayload(form: VolumeFormState) {
 }
 
 function buildGrantPayload(form: GrantFormState) {
+  if (!form.projectId) throw new TypeError('Project ID is required for a storage grant')
   return {
-    project_id: form.projectId.trim(),
+    project_id: form.projectId,
     max_access: form.maxAccess,
     allowed_prefixes: splitLines(form.allowedPrefixes),
     enabled: form.enabled,
@@ -393,15 +397,16 @@ function buildGrantPayload(form: GrantFormState) {
 }
 
 function buildOrganizationGrantPayload(form: GrantFormState) {
+  if (!form.orgId) throw new TypeError('Organization ID is required for a storage grant')
   return {
-    org_id: form.orgId.trim(),
+    org_id: form.orgId,
     max_access: form.maxAccess,
     allowed_prefixes: splitLines(form.allowedPrefixes),
     enabled: form.enabled,
   }
 }
 
-function grantStatus(volume: StorageVolume, projectId?: string | null) {
+function grantStatus(volume: StorageVolume, projectId?: ProjectId | null) {
   const grant = projectId ? volume.grants?.find((item) => item.project_id === projectId) : undefined
   if (!grant) return '未授权'
   return grant.enabled ? '已授权' : '已禁用'
@@ -456,21 +461,21 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
   })
   const projectsQuery = useQuery({
     queryKey: ['storage-volumes-projects', requestScope.key],
-    queryFn: () => managedGet<CollectionResponse<ProjectRecord>>('/auth/projects'),
+    queryFn: () => managedGet<unknown>('/auth/projects').then(parseProjectSummaryPageResponse),
   })
   const organizationsQuery = useQuery({
     queryKey: ['platform-organizations', requestScope.key],
     queryFn: () =>
-      managedGet<CollectionResponse<PlatformOrganization>>(
-        '/auth/platform/organizations?limit=500',
+      managedGet<unknown>('/auth/platform/organizations?limit=500').then(
+        parsePlatformOrganizationPageResponse,
       ),
     enabled: platformMode && isPlatformAdmin,
   })
 
   const volumes = collectionData(volumesQuery.data)
   const auditRows = auditQuery.data
-  const projects = collectionData(projectsQuery.data)
-  const organizations = collectionData(organizationsQuery.data)
+  const projects: ProjectSummary[] = projectsQuery.data?.data ?? []
+  const organizations: PlatformOrganization[] = organizationsQuery.data?.data ?? []
   const projectNameById = useMemo(
     () =>
       new Map(projects.map((project) => [project.id, project.name || project.slug || project.id])),
@@ -623,8 +628,8 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
       orgId,
     }: {
       volume: StorageVolume
-      projectId?: string
-      orgId?: string
+      projectId?: ProjectId
+      orgId?: OrganizationId
     }) => {
       if (platformMode && orgId) {
         return managedDelete(
@@ -632,8 +637,9 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
           managedRequestOptions(requestScope),
         )
       }
+      if (!projectId) throw new TypeError('Project ID is required to delete a storage grant')
       return managedDelete(
-        `/storage-volumes/${volume.id}/grants/${encodeURIComponent(projectId || '')}`,
+        `/storage-volumes/${volume.id}/grants/${encodeURIComponent(projectId)}`,
         managedRequestOptions(requestScope),
       )
     },
@@ -1135,13 +1141,14 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
                     <SearchableGroupedSelect
                       value={grantForm.orgId}
                       onChange={(value) => {
+                        const organizationId = parseOrganizationId(value)
                         const existing = grantTarget.organization_grants?.find(
-                          (grant) => grant.org_id === value,
+                          (grant) => grant.org_id === organizationId,
                         )
                         setGrantForm(
                           existing
                             ? organizationGrantToForm(existing)
-                            : { ...emptyGrantForm(), orgId: value },
+                            : { ...emptyGrantForm(), orgId: organizationId },
                         )
                       }}
                       placeholder={
@@ -1174,13 +1181,14 @@ export function StorageVolumesPage({ mode }: { mode: 'org' | 'platform' }) {
                     <SearchableGroupedSelect
                       value={grantForm.projectId}
                       onChange={(value) => {
+                        const projectId = parseProjectId(value)
                         const existing = grantTarget.grants?.find(
-                          (grant) => grant.project_id === value,
+                          (grant) => grant.project_id === projectId,
                         )
                         setGrantForm(
                           existing
                             ? projectGrantToForm(existing)
-                            : { ...emptyGrantForm(), projectId: value },
+                            : { ...emptyGrantForm(), projectId },
                         )
                       }}
                       placeholder="选择项目"

@@ -1,12 +1,15 @@
 import {
   parseEnvironmentId,
+  parseOrganizationId,
   parseOptionalId,
+  parseProjectId,
   parseSessionId,
   parseSessionResourceId,
   parseStorageGrantId,
   parseStorageMountAuditId,
   parseStorageVolumeId,
   type EnvironmentId,
+  type ProjectId,
   type SessionId,
   type StorageVolumeId,
 } from '@/types/entity-id'
@@ -18,14 +21,16 @@ import type {
   StorageVolume,
 } from '@/types/managed'
 
-type RawStorageProjectGrant = Omit<StorageProjectGrant, 'id' | 'volume_id'> & {
+type RawStorageProjectGrant = Omit<StorageProjectGrant, 'id' | 'volume_id' | 'project_id'> & {
   id: string
   volume_id: string
+  project_id: string
 }
 
-type RawStorageOrganizationGrant = Omit<StorageOrganizationGrant, 'id' | 'volume_id'> & {
+type RawStorageOrganizationGrant = Omit<StorageOrganizationGrant, 'id' | 'volume_id' | 'org_id'> & {
   id: string
   volume_id: string
+  org_id: string
 }
 
 type RawStorageVolume = Omit<StorageVolume, 'id' | 'grants' | 'organization_grants'> & {
@@ -41,10 +46,11 @@ type RawSessionStorageMount = Omit<SessionStorageMount, 'id' | 'volume_id'> & {
 
 type RawStorageMountAudit = Omit<
   StorageMountAudit,
-  'id' | 'volume_id' | 'session_id' | 'environment_id'
+  'id' | 'volume_id' | 'project_id' | 'session_id' | 'environment_id'
 > & {
   id: string
   volume_id?: string | null
+  project_id?: string | null
   session_id?: string | null
   environment_id?: string | null
 }
@@ -55,6 +61,7 @@ export function parseStorageProjectGrantResponse(response: unknown): StorageProj
     ...raw,
     id: parseStorageGrantId(raw.id),
     volume_id: parseStorageVolumeId(raw.volume_id),
+    project_id: parseProjectId(raw.project_id),
   }
 }
 
@@ -64,6 +71,7 @@ export function parseStorageOrganizationGrantResponse(response: unknown): Storag
     ...raw,
     id: parseStorageGrantId(raw.id),
     volume_id: parseStorageVolumeId(raw.volume_id),
+    org_id: parseOrganizationId(raw.org_id),
   }
 }
 
@@ -103,6 +111,7 @@ export function parseStorageMountAuditResponse(response: unknown): StorageMountA
     ...raw,
     id: parseStorageMountAuditId(raw.id),
     volume_id: parseOptionalId<StorageVolumeId>(raw.volume_id, parseStorageVolumeId),
+    project_id: parseOptionalId<ProjectId>(raw.project_id, parseProjectId),
     session_id: parseOptionalId<SessionId>(raw.session_id, parseSessionId),
     environment_id: parseOptionalId<EnvironmentId>(raw.environment_id, parseEnvironmentId),
   }

@@ -7,6 +7,7 @@ import type {
   EventId,
   FileId,
   MemoryStoreId,
+  OrganizationId,
   ProjectId,
   SandboxId,
   SessionId,
@@ -21,6 +22,7 @@ import type {
   StorageMountAuditId,
   StorageVolumeId,
   TaskId,
+  UserId,
 } from '@/types/entity-id'
 
 export interface Agent {
@@ -337,7 +339,7 @@ export interface StorageVolumeCatalogItem {
 export interface StorageProjectGrant {
   id: StorageGrantId
   volume_id: StorageVolumeId
-  project_id: string
+  project_id: ProjectId
   max_access: 'read_only' | 'read_write' | string
   allowed_prefixes?: string[]
   quota_bytes?: number | null
@@ -349,7 +351,7 @@ export interface StorageProjectGrant {
 export interface StorageOrganizationGrant {
   id: StorageGrantId
   volume_id: StorageVolumeId
-  org_id: string
+  org_id: OrganizationId
   max_access: 'read_only' | 'read_write' | string
   allowed_prefixes?: string[]
   quota_bytes?: number | null
@@ -373,10 +375,10 @@ export interface StorageVolume extends StorageVolumeCatalogItem {
 export interface StorageMountAudit {
   id: StorageMountAuditId
   volume_id?: StorageVolumeId | null
-  project_id?: string | null
+  project_id?: ProjectId | null
   session_id?: SessionId | null
   environment_id?: EnvironmentId | null
-  user_id?: string | null
+  user_id?: UserId | null
   action: string
   volume_ref?: string | null
   mount_path?: string | null

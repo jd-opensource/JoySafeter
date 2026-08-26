@@ -16,12 +16,12 @@ describe('storage mount response parsers', () => {
     const projectGrant = {
       id: `stgrant_${UUID}`,
       volume_id: `vol_${UUID}`,
-      project_id: 'project-1',
+      project_id: `proj_${UUID}`,
     }
     const organizationGrant = {
       id: `stgrant_${UUID}`,
       volume_id: `vol_${UUID}`,
-      org_id: 'org-1',
+      org_id: `org_${UUID}`,
     }
     const volume = parseStorageVolumeResponse({
       id: `vol_${UUID}`,
@@ -36,6 +36,7 @@ describe('storage mount response parsers', () => {
     const audit = parseStorageMountAuditResponse({
       id: `staudit_${UUID}`,
       volume_id: `vol_${UUID}`,
+      project_id: `proj_${UUID}`,
       session_id: `sess_${UUID}`,
       environment_id: `env_${UUID}`,
       action: 'mount',
@@ -58,11 +59,14 @@ describe('storage mount response parsers', () => {
     expect(volume.grants?.[0].id).toBe(`stgrant_${UUID}`)
     expect('data' in list ? list.data?.[0].id : undefined).toBe(`vol_${UUID}`)
     expect(parseStorageProjectGrantResponse(projectGrant).volume_id).toBe(`vol_${UUID}`)
+    expect(parseStorageProjectGrantResponse(projectGrant).project_id).toBe(`proj_${UUID}`)
     expect(parseStorageOrganizationGrantResponse(organizationGrant).id).toBe(`stgrant_${UUID}`)
+    expect(parseStorageOrganizationGrantResponse(organizationGrant).org_id).toBe(`org_${UUID}`)
     expect(audit.id).toBe(`staudit_${UUID}`)
     expect(audit.volume_id).toBe(`vol_${UUID}`)
     expect(audit.session_id).toBe(`sess_${UUID}`)
     expect(audit.environment_id).toBe(`env_${UUID}`)
+    expect(audit.project_id).toBe(`proj_${UUID}`)
     expect(sessionMount.id).toBe(`sesrsc_${UUID}`)
     expect(sessionMount.volume_id).toBe(`vol_${UUID}`)
   })
@@ -98,16 +102,25 @@ describe('storage mount response parsers', () => {
     ).toThrow()
     expect(() =>
       parseStorageProjectGrantResponse({
-        id: `vol_${UUID}`,
+        id: `stgrant_${UUID}`,
         volume_id: `vol_${UUID}`,
-        project_id: 'project-1',
+        project_id: `org_${UUID}`,
       }),
     ).toThrow()
     expect(() =>
       parseStorageOrganizationGrantResponse({
         id: `stgrant_${UUID}`,
-        volume_id: `stgrant_${UUID}`,
-        org_id: 'org-1',
+        volume_id: `vol_${UUID}`,
+        org_id: `proj_${UUID}`,
+      }),
+    ).toThrow()
+    expect(() =>
+      parseStorageMountAuditResponse({
+        id: `staudit_${UUID}`,
+        project_id: `org_${UUID}`,
+        action: 'mount',
+        result: 'success',
+        created_at: '2026-08-06T00:00:00Z',
       }),
     ).toThrow()
     expect(() =>
