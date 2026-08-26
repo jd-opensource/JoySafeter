@@ -7,7 +7,7 @@ import remarkGfm from 'remark-gfm'
 import { X, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
-import { entityIdUuid, shortEntityId } from '@/lib/managed/id'
+import { eventIdTimestamp, shortEntityId } from '@/lib/managed/entity-id-display'
 import { parseEventId } from '@/types/entity-id'
 import { RoleBadge } from './role-badge'
 
@@ -489,15 +489,9 @@ function parseEventTime(value: string): number {
   if (!value) return NaN
   const d = new Date(value).getTime()
   if (!isNaN(d)) return d
-  let hex: string
   try {
-    hex = entityIdUuid(parseEventId(value), 'event').replace(/-/g, '')
+    return eventIdTimestamp(parseEventId(value)) ?? NaN
   } catch {
     return NaN
   }
-  if (hex.length >= 12) {
-    const ts = parseInt(hex.slice(0, 12), 16)
-    if (ts > 1_000_000_000_000 && ts < 2_000_000_000_000) return ts
-  }
-  return NaN
 }

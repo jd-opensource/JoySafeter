@@ -16,20 +16,23 @@ const REGISTERED_ENTITY_PREFIXES = ENTITY_PREFIX_ALTERNATION.split('|')
 const REGISTERED_ENTITY_PREFIX_LENGTHS = new Set(
   REGISTERED_ENTITY_PREFIXES.map((prefix) => prefix.length),
 )
-const DISPLAY_ID_HELPERS = ['entityIdUuid', 'shortEntityId'] as const
+const DISPLAY_ID_HELPERS = ['entityIdUuid', 'eventIdTimestamp', 'shortEntityId'] as const
 const DISPLAY_ID_HELPER_ALLOWLIST = {
   'app/managed/quickstart/page.tsx': { 'QuickstartPage::shortEntityId': 6 },
   'app/managed/sessions/[sessionId]/page.tsx': { 'SessionDetailPageInner::shortEntityId': 2 },
   'components/managed/session/event-detail.tsx': {
     'EventDetail::shortEntityId': 1,
-    'parseEventTime::entityIdUuid': 1,
+    'parseEventTime::eventIdTimestamp': 1,
   },
-  'components/managed/session/event-row.tsx': { 'parseEventTime::entityIdUuid': 1 },
-  'components/managed/session/event-timeline.tsx': { 'parseEventTime::entityIdUuid': 1 },
-  'lib/managed/id.ts': { 'shortEntityId::entityIdUuid': 1 },
+  'components/managed/session/event-row.tsx': { 'parseEventTime::eventIdTimestamp': 1 },
+  'components/managed/session/event-timeline.tsx': { 'parseEventTime::eventIdTimestamp': 1 },
+  'lib/managed/entity-id-display.ts': {
+    'eventIdTimestamp::entityIdUuid': 1,
+    'shortEntityId::entityIdUuid': 1,
+  },
 } as const
 const PREFIX_REMOVAL_ALLOWLIST = {
-  'lib/managed/id.ts': { 'entityIdUuid::prefix_length_slice': 1 },
+  'lib/managed/entity-id-display.ts': { 'entityIdUuid::prefix_length_slice': 1 },
 } as const
 const NON_ENTITY_CORE_PREFIX_LITERAL_ALLOWLIST = {} as const
 
@@ -121,13 +124,16 @@ function resolveDisplayHelper(
 
 function isManagedIdModule(node: ts.Expression, relativePath: string): boolean {
   if (!ts.isStringLiteral(node)) return false
-  if (node.text === '@/lib/managed/id') return true
+  if (node.text === '@/lib/managed/entity-id-display') return true
   if (!node.text.startsWith('.')) return false
   const normalizedFile = relativePath.replaceAll('\\', '/')
   const resolved = path.posix
     .normalize(path.posix.join(path.posix.dirname(normalizedFile), node.text))
     .replace(/\.(?:ts|tsx|js|jsx)$/, '')
-  return resolved === 'lib/managed/id' || resolved.endsWith('/lib/managed/id')
+  return (
+    resolved === 'lib/managed/entity-id-display' ||
+    resolved.endsWith('/lib/managed/entity-id-display')
+  )
 }
 
 function analyzeDisplayHelpers(
@@ -518,8 +524,8 @@ describe('typed entity id architecture', () => {
 
   it('resolves display helper import and local aliases semantically', () => {
     const source = `
-import { shortEntityId as short } from '@/lib/managed/id'
-import * as entityIds from '@/lib/managed/id'
+import { shortEntityId as short } from '@/lib/managed/entity-id-display'
+import * as entityIds from '@/lib/managed/entity-id-display'
 
 function probe(id, candidate) {
   const localShort = short
@@ -538,8 +544,8 @@ function probe(id, candidate) {
 
   it('resolves relative named, namespace, and destructured helper aliases', () => {
     const source = `
-import { shortEntityId as short } from './id'
-import * as ids from '../managed/id'
+import { shortEntityId as short } from './entity-id-display'
+import * as ids from '../managed/entity-id-display'
 
 const { entityIdUuid: raw, shortEntityId: destructuredShort } = ids
 const rawAlias = raw

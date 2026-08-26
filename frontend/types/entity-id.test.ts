@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { entityIdUuid, shortEntityId } from '@/lib/managed/id'
+import { shortEntityId } from '@/lib/managed/entity-id-display'
 
 import {
   ENTITY_ID_PREFIXES,
@@ -133,7 +133,6 @@ describe('typed entity ids', () => {
   it('formats validated entity ids for display only', () => {
     const agentId = parseAgentId(`agent_${UUID}`)
 
-    expect(entityIdUuid(agentId, 'agent')).toBe(UUID)
     expect(shortEntityId(agentId, 'agent', 6)).toBe('agent_018f6f')
   })
 })

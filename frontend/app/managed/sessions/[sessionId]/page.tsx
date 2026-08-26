@@ -41,7 +41,7 @@ import {
 } from '@/lib/api-client'
 import { apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
-import { shortEntityId } from '@/lib/managed/id'
+import { shortEntityId } from '@/lib/managed/entity-id-display'
 import { mcpServerEndpointLabel } from '@/lib/managed/mcp-config'
 import { generateUUID } from '@/lib/utils/uuid'
 import {

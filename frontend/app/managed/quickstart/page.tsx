@@ -57,7 +57,7 @@ import {
   type ManagedRequestScope,
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
-import { shortEntityId } from '@/lib/managed/id'
+import { shortEntityId } from '@/lib/managed/entity-id-display'
 import { getEnabledEngines } from '@/lib/managed/llm-catalog'
 import {
   recommendQuickstartModelConnection,
