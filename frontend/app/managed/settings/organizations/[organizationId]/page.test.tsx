@@ -3,6 +3,12 @@ import { JSDOM } from 'jsdom'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+const ORG_A = 'org_018f6f42-0a51-7cc4-98c8-4f6f0ca5f101'
+const ORG_B = 'org_018f6f42-0a51-7cc4-98c8-4f6f0ca5f102'
+const USER_OWNER = 'user_018f6f42-0a51-7cc4-98c8-4f6f0ca5f103'
+const USER_MEMBER = 'user_018f6f42-0a51-7cc4-98c8-4f6f0ca5f104'
+const MEMBER_ID = 'orgmem_018f6f42-0a51-7cc4-98c8-4f6f0ca5f105'
+
 const managedGet = vi.fn()
 const managedPut = vi.fn()
 const managedPost = vi.fn()
@@ -13,10 +19,10 @@ const mutationOptions: Array<{
   mutationFn?: (variables: Record<string, string>) => Promise<unknown>
 }> = []
 let organizationRole = 'owner'
-let currentOrgId = 'org-a'
+let currentOrgId = ORG_A
 
 const organization = () => ({
-  id: 'org-b',
+  id: ORG_B,
   name: 'Organization B',
   slug: 'organization-b',
   role: organizationRole,
@@ -33,9 +39,9 @@ vi.mock('@tanstack/react-query', () => ({
           data: {
             data: [
               {
-                id: 'membership-member',
-                user_id: 'user-member',
-                organization_id: 'org-b',
+                id: MEMBER_ID,
+                user_id: USER_MEMBER,
+                organization_id: ORG_B,
                 role: 'member',
                 user_name: 'Member',
                 user_email: 'member@example.com',
@@ -53,7 +59,7 @@ vi.mock('@tanstack/react-query', () => ({
 }))
 
 vi.mock('next/navigation', () => ({
-  useParams: () => ({ organizationId: 'org-b' }),
+  useParams: () => ({ organizationId: ORG_B }),
   useRouter: () => ({ push: routerPush }),
 }))
 
@@ -63,7 +69,7 @@ vi.mock('@/stores/managed/project-store', () => ({
 }))
 
 vi.mock('@/lib/auth/auth-client', () => ({
-  useSession: () => ({ data: { user: { id: 'user-owner' } } }),
+  useSession: () => ({ data: { user: { id: USER_OWNER } } }),
 }))
 
 vi.mock('@/lib/i18n', () => ({
@@ -114,7 +120,7 @@ describe('OrganizationOverviewPage', () => {
   afterEach(() => {
     cleanup()
     organizationRole = 'owner'
-    currentOrgId = 'org-a'
+    currentOrgId = ORG_A
     mutationOptions.length = 0
     vi.clearAllMocks()
   })
@@ -131,7 +137,7 @@ describe('OrganizationOverviewPage', () => {
       name: 'Renamed Organization',
       projectCreationPolicy: 'all_members',
     })
-    expect(managedPut).toHaveBeenCalledWith('organizations/org-b', {
+    expect(managedPut).toHaveBeenCalledWith(`organizations/${ORG_B}`, {
       name: 'Renamed Organization',
       project_creation_policy: 'all_members',
     })
@@ -146,12 +152,12 @@ describe('OrganizationOverviewPage', () => {
     expect(view.getByText('manage.organization.transferOwnership')).toBeTruthy()
     expect(view.getByText('manage.organization.delete')).toBeTruthy()
 
-    await mutationOptions[1]?.mutationFn?.({ userId: 'user-member' })
-    expect(managedPost).toHaveBeenCalledWith('organizations/org-b/transfer-ownership', {
-      new_owner_user_id: 'user-member',
+    await mutationOptions[1]?.mutationFn?.({ userId: USER_MEMBER })
+    expect(managedPost).toHaveBeenCalledWith(`organizations/${ORG_B}/transfer-ownership`, {
+      new_owner_user_id: USER_MEMBER,
     })
     await mutationOptions[2]?.mutationFn?.({})
-    expect(managedDelete).toHaveBeenCalledWith('organizations/org-b')
+    expect(managedDelete).toHaveBeenCalledWith(`organizations/${ORG_B}`)
   })
 
   it('shows ordinary members a read-only overview', async () => {
@@ -165,7 +171,7 @@ describe('OrganizationOverviewPage', () => {
   })
 
   it('explains why the active organization cannot be deleted', async () => {
-    currentOrgId = 'org-b'
+    currentOrgId = ORG_B
     const { default: OrganizationOverviewPage } = await import('./page')
     const view = render(<OrganizationOverviewPage />)
 

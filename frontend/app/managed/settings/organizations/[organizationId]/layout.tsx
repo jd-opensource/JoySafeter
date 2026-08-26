@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import { OrganizationDetailShell } from '@/components/managed/settings/organization-detail-shell'
+import { parseOrganizationId } from '@/types/entity-id'
 
 export default async function OrganizationDetailLayout({
   children,
@@ -11,6 +12,8 @@ export default async function OrganizationDetailLayout({
 }) {
   const { organizationId } = await params
   return (
-    <OrganizationDetailShell organizationId={organizationId}>{children}</OrganizationDetailShell>
+    <OrganizationDetailShell organizationId={parseOrganizationId(organizationId)}>
+      {children}
+    </OrganizationDetailShell>
   )
 }

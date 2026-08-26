@@ -31,6 +31,7 @@ import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { normalizeManagedRole, roleLabel } from '@/lib/managed/roles'
 import { useProjectStore } from '@/stores/managed/project-store'
+import { parseOrganizationId, type OrganizationId } from '@/types/entity-id'
 
 interface OrganizationMember {
   id: string
@@ -46,7 +47,7 @@ interface OrganizationMembersResponse {
 }
 
 interface OrganizationDraft {
-  organizationId: string
+  organizationId: OrganizationId
   name: string
   projectCreationPolicy: 'admins_only' | 'all_members'
 }
@@ -55,9 +56,7 @@ export default function OrganizationOverviewPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const params = useParams<{ organizationId: string }>()
-  const organizationId = Array.isArray(params.organizationId)
-    ? params.organizationId[0]
-    : params.organizationId
+  const organizationId = parseOrganizationId(params.organizationId)
   const queryClient = useQueryClient()
   const session = useSession()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)

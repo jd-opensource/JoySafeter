@@ -44,6 +44,7 @@ import {
   roleLabel,
   roleOptions,
 } from '@/lib/managed/roles'
+import { parseOrganizationId, type OrganizationId } from '@/types/entity-id'
 
 interface MemberRecord {
   id: string
@@ -60,9 +61,7 @@ export default function MembersPage() {
   const queryClient = useQueryClient()
   const session = useSession()
   const params = useParams<{ organizationId: string }>()
-  const organizationId = Array.isArray(params.organizationId)
-    ? params.organizationId[0]
-    : params.organizationId
+  const organizationId = parseOrganizationId(params.organizationId)
   const organizationQuery = useQuery({
     queryKey: ['organization-detail', organizationId],
     queryFn: () => managedGet<OrganizationDetail>(`organizations/${organizationId}`),
@@ -70,9 +69,9 @@ export default function MembersPage() {
   })
   const currentOrganization = organizationQuery.data
   const canManage = ['owner', 'admin'].includes(normalizeManagedRole(currentOrganization?.role))
-  const orgScope = organizationId ?? ''
+  const orgScope = organizationId
   const orgScopeRef = useRef(orgScope)
-  const previousOrgScopeRef = useRef<string | null>(null)
+  const previousOrgScopeRef = useRef<OrganizationId | null>(null)
   const addMemberRunRef = useRef(0)
   const roleRunRef = useRef(0)
   const removeRunRef = useRef(0)
@@ -134,8 +133,11 @@ export default function MembersPage() {
   const currentOrgScopeIsActive = (scope = orgScopeRef.current) =>
     orgScopeRef.current === scope && organizationId === scope
 
-  const isCurrentScopedRun = (runRef: MutableRefObject<number>, runId: number, scope: string) =>
-    runRef.current === runId && currentOrgScopeIsActive(scope)
+  const isCurrentScopedRun = (
+    runRef: MutableRefObject<number>,
+    runId: number,
+    scope: OrganizationId,
+  ) => runRef.current === runId && currentOrgScopeIsActive(scope)
 
   const currentMutableMember = (member: MemberRecord | null) => {
     if (!member) return null
@@ -212,7 +214,7 @@ export default function MembersPage() {
 
   // ── Mutations ──
   const addMemberMutation = useMutation({
-    mutationFn: (data: { email: string; role: string; runId: number; scope: string }) => {
+    mutationFn: (data: { email: string; role: string; runId: number; scope: OrganizationId }) => {
       if (!currentOrgScopeIsActive(data.scope) || data.runId !== addMemberRunRef.current) {
         throw new Error('Stale member addition ignored')
       }
@@ -235,7 +237,15 @@ export default function MembersPage() {
   })
 
   const removeMemberMut = useMutation({
-    mutationFn: ({ userId, runId, scope }: { userId: string; runId: number; scope: string }) => {
+    mutationFn: ({
+      userId,
+      runId,
+      scope,
+    }: {
+      userId: string
+      runId: number
+      scope: OrganizationId
+    }) => {
       if (!currentOrgScopeIsActive(scope) || runId !== removeRunRef.current) {
         throw new Error('Stale member removal ignored')
       }
@@ -267,7 +277,7 @@ export default function MembersPage() {
       userId: string
       role: string
       runId: number
-      scope: string
+      scope: OrganizationId
     }) => {
       if (!currentOrgScopeIsActive(scope) || runId !== roleRunRef.current) {
         throw new Error('Stale member role update ignored')

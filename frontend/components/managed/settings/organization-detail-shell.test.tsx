@@ -3,11 +3,13 @@ import { JSDOM } from 'jsdom'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { ORGANIZATION_ID, OTHER_ORGANIZATION_ID } from '@/test-utils/entity-ids'
+
 const managedGet = vi.fn()
-let pathname = '/managed/settings/organizations/org-b/members'
-let currentOrgId = 'org-a'
+let pathname = `/managed/settings/organizations/${OTHER_ORGANIZATION_ID}/members`
+let currentOrgId = ORGANIZATION_ID
 let organization = {
-  id: 'org-b',
+  id: OTHER_ORGANIZATION_ID,
   name: 'Organization B',
   slug: 'organization-b',
   role: 'admin',
@@ -57,10 +59,10 @@ describe('OrganizationDetailShell', () => {
   afterEach(() => {
     cleanup()
     managedGet.mockClear()
-    pathname = '/managed/settings/organizations/org-b/members'
-    currentOrgId = 'org-a'
+    pathname = `/managed/settings/organizations/${OTHER_ORGANIZATION_ID}/members`
+    currentOrgId = ORGANIZATION_ID
     organization = {
-      id: 'org-b',
+      id: OTHER_ORGANIZATION_ID,
       name: 'Organization B',
       slug: 'organization-b',
       role: 'admin',
@@ -72,14 +74,15 @@ describe('OrganizationDetailShell', () => {
   })
 
   it('identifies the route organization without changing active context', async () => {
+    managedGet.mockResolvedValue(organization)
     const { OrganizationDetailShell } = await import('./organization-detail-shell')
     const view = render(
-      <OrganizationDetailShell organizationId="org-b">
+      <OrganizationDetailShell organizationId={OTHER_ORGANIZATION_ID}>
         <div>organization-content</div>
       </OrganizationDetailShell>,
     )
 
-    expect(managedGet).toHaveBeenCalledWith('organizations/org-b')
+    expect(managedGet).toHaveBeenCalledWith(`organizations/${OTHER_ORGANIZATION_ID}`)
     expect(view.getByText('Organization B')).toBeTruthy()
     expect(view.getByText('manage.organization.detail.role.admin')).toBeTruthy()
     expect(view.getByText(/Workspace Owner/)).toBeTruthy()
@@ -94,19 +97,22 @@ describe('OrganizationDetailShell', () => {
     ).toBe('/managed/settings')
     expect(
       view.getByText('manage.organization.detail.tabs.overview').closest('a')?.getAttribute('href'),
-    ).toBe('/managed/settings/organizations/org-b')
+    ).toBe(`/managed/settings/organizations/${OTHER_ORGANIZATION_ID}`)
     const membersTab = view.getByText('manage.organization.detail.tabs.members').closest('a')
-    expect(membersTab?.getAttribute('href')).toBe('/managed/settings/organizations/org-b/members')
+    expect(membersTab?.getAttribute('href')).toBe(
+      `/managed/settings/organizations/${OTHER_ORGANIZATION_ID}/members`,
+    )
     expect(membersTab?.getAttribute('aria-current')).toBe('page')
   })
 
   it('marks the active organization and explains read-only access', async () => {
-    currentOrgId = 'org-b'
-    pathname = '/managed/settings/organizations/org-b'
+    currentOrgId = OTHER_ORGANIZATION_ID
+    pathname = `/managed/settings/organizations/${OTHER_ORGANIZATION_ID}`
     organization = { ...organization, role: 'member' }
+    managedGet.mockResolvedValue(organization)
     const { OrganizationDetailShell } = await import('./organization-detail-shell')
     const view = render(
-      <OrganizationDetailShell organizationId="org-b">
+      <OrganizationDetailShell organizationId={OTHER_ORGANIZATION_ID}>
         <div>organization-content</div>
       </OrganizationDetailShell>,
     )

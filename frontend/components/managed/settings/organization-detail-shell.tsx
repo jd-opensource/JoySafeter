@@ -14,6 +14,7 @@ import { useTranslation } from '@/lib/i18n'
 import { normalizeManagedRole } from '@/lib/managed/roles'
 import { cn } from '@/lib/utils'
 import { useProjectStore } from '@/stores/managed/project-store'
+import type { OrganizationId } from '@/types/entity-id'
 
 export interface OrganizationDetail {
   id: string
@@ -36,7 +37,7 @@ export function OrganizationDetailShell({
   organizationId,
   children,
 }: {
-  organizationId: string
+  organizationId: OrganizationId
   children: ReactNode
 }) {
   const pathname = usePathname()

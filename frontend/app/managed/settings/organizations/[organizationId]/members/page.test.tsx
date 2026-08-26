@@ -3,29 +3,39 @@ import { JSDOM } from 'jsdom'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+const ORG_A = 'org_018f6f42-0a51-7cc4-98c8-4f6f0ca5f201'
+const ORG_B = 'org_018f6f42-0a51-7cc4-98c8-4f6f0ca5f202'
+const USER_OWNER = 'user_018f6f42-0a51-7cc4-98c8-4f6f0ca5f203'
+const USER_MEMBER = 'user_018f6f42-0a51-7cc4-98c8-4f6f0ca5f204'
+const USER_ADMIN = 'user_018f6f42-0a51-7cc4-98c8-4f6f0ca5f205'
+const OWNER_MEMBER_ID = 'orgmem_018f6f42-0a51-7cc4-98c8-4f6f0ca5f206'
+const MEMBER_ID = 'orgmem_018f6f42-0a51-7cc4-98c8-4f6f0ca5f207'
+const ADMIN_MEMBER_ID = 'orgmem_018f6f42-0a51-7cc4-98c8-4f6f0ca5f208'
+const FOREIGN_MEMBER_ID = 'orgmem_018f6f42-0a51-7cc4-98c8-4f6f0ca5f209'
+
 const members = [
   {
-    id: 'membership-owner',
-    user_id: 'user-owner',
-    organization_id: 'org-a',
+    id: OWNER_MEMBER_ID,
+    user_id: USER_OWNER,
+    organization_id: ORG_A,
     user_email: 'owner@example.com',
     user_name: 'Owner',
     role: 'owner',
     joined_at: '2026-08-01T00:00:00Z',
   },
   {
-    id: 'membership-member',
-    user_id: 'user-member',
-    organization_id: 'org-a',
+    id: MEMBER_ID,
+    user_id: USER_MEMBER,
+    organization_id: ORG_A,
     user_email: 'member@example.com',
     user_name: 'Member',
     role: 'developer',
     joined_at: '2026-08-02T00:00:00Z',
   },
   {
-    id: 'membership-admin',
-    user_id: 'user-admin',
-    organization_id: 'org-a',
+    id: ADMIN_MEMBER_ID,
+    user_id: USER_ADMIN,
+    organization_id: ORG_A,
     user_email: 'admin@example.com',
     user_name: 'Admin',
     role: 'admin',
@@ -36,7 +46,7 @@ const members = [
 let cachedMemberPages: Array<[unknown, { data: typeof members }]> = [
   [['org-members'], { data: members }],
 ]
-let currentUserId = 'user-owner'
+let currentUserId = USER_OWNER
 let organizationRole = 'owner'
 const invalidateQueries = vi.fn()
 const paginatedListOptions = vi.fn()
@@ -61,7 +71,7 @@ vi.mock('@tanstack/react-query', () => ({
   },
   useQuery: () => ({
     data: {
-      id: 'org-a',
+      id: ORG_A,
       name: 'Acme',
       slug: 'acme',
       role: organizationRole,
@@ -93,7 +103,7 @@ vi.mock('@/hooks/managed/use-paginated-list', () => ({
 }))
 
 vi.mock('next/navigation', () => ({
-  useParams: () => ({ organizationId: 'org-a' }),
+  useParams: () => ({ organizationId: ORG_A }),
 }))
 vi.mock('@/lib/auth/auth-client', () => ({
   useSession: () => ({ data: { user: { id: currentUserId } } }),
@@ -208,7 +218,7 @@ describe('MembersPage', () => {
   afterEach(() => {
     cleanup()
     cachedMemberPages = [[['organization-members'], { data: members }]]
-    currentUserId = 'user-owner'
+    currentUserId = USER_OWNER
     organizationRole = 'owner'
     invalidateQueries.mockClear()
     paginatedListOptions.mockClear()
@@ -289,7 +299,7 @@ describe('MembersPage', () => {
   })
 
   it('does not expose self-management actions for the current administrator', async () => {
-    currentUserId = 'user-admin'
+    currentUserId = USER_ADMIN
     const { default: MembersPage } = await import('./page')
     const view = render(<MembersPage />)
     const desktop = within(view.getByTestId('desktop-list'))
@@ -301,10 +311,10 @@ describe('MembersPage', () => {
   it('opens management from the current organization row even when another organization is cached', async () => {
     cachedMemberPages = [
       [
-        ['organization-members', 'org-b'],
-        { data: [{ ...members[1], id: 'foreign-membership', role: 'owner' }] },
+        ['organization-members', ORG_B],
+        { data: [{ ...members[1], id: FOREIGN_MEMBER_ID, role: 'owner' }] },
       ],
-      [['organization-members', 'org-a'], { data: members }],
+      [['organization-members', ORG_A], { data: members }],
     ]
     const { default: MembersPage } = await import('./page')
     const view = render(<MembersPage />)
@@ -336,10 +346,10 @@ describe('MembersPage', () => {
       email: 'new@example.com',
       role: 'member',
       runId: 0,
-      scope: 'org-a',
+      scope: ORG_A,
     })
 
-    expect(managedPost).toHaveBeenCalledWith('organizations/org-a/members', {
+    expect(managedPost).toHaveBeenCalledWith(`organizations/${ORG_A}/members`, {
       email: 'new@example.com',
       role: 'member',
     })
@@ -356,7 +366,7 @@ describe('MembersPage', () => {
     expect(paginatedListOptions).toHaveBeenCalledWith(
       expect.objectContaining({
         queryKey: 'organization-members',
-        path: '/organizations/org-a/members',
+        path: `/organizations/${ORG_A}/members`,
       }),
     )
 
@@ -366,24 +376,24 @@ describe('MembersPage', () => {
     })
     await waitFor(() =>
       expect(managedGet).toHaveBeenCalledWith(
-        'organizations/org-a/member-candidates?q=new%40example.com&limit=5',
+        `organizations/${ORG_A}/member-candidates?q=new%40example.com&limit=5`,
       ),
     )
 
     await mutationOptions[1]?.mutationFn?.({
-      userId: 'user-member',
+      userId: USER_MEMBER,
       runId: 0,
-      scope: 'org-a',
+      scope: ORG_A,
     })
-    expect(managedDelete).toHaveBeenCalledWith('organizations/org-a/members/user-member')
+    expect(managedDelete).toHaveBeenCalledWith(`organizations/${ORG_A}/members/${USER_MEMBER}`)
 
     await mutationOptions[2]?.mutationFn?.({
-      userId: 'user-member',
+      userId: USER_MEMBER,
       role: 'admin',
       runId: 0,
-      scope: 'org-a',
+      scope: ORG_A,
     })
-    expect(managedPut).toHaveBeenCalledWith('organizations/org-a/members/user-member', {
+    expect(managedPut).toHaveBeenCalledWith(`organizations/${ORG_A}/members/${USER_MEMBER}`, {
       role: 'admin',
     })
   })
@@ -421,11 +431,11 @@ describe('MembersPage', () => {
       render(<MembersPage />)
 
       act(() => {
-        mutationOptions[index]?.onSuccess?.({ runId: 0, scope: 'org-a' })
+        mutationOptions[index]?.onSuccess?.({ runId: 0, scope: ORG_A })
       })
 
       expect(invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['organization-members', 'org-a'],
+        queryKey: ['organization-members', ORG_A],
       })
     },
   )

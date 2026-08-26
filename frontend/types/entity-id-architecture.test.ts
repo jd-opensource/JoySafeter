@@ -650,6 +650,15 @@ function numeric(sessionId) {
     expect(readProjectFile('app/managed/environments/[envId]/page.tsx')).toContain(
       'parseEnvironmentId(rawId)',
     )
+    expect(
+      readProjectFile('app/managed/settings/organizations/[organizationId]/layout.tsx'),
+    ).toContain('parseOrganizationId(organizationId)')
+    expect(
+      readProjectFile('app/managed/settings/organizations/[organizationId]/page.tsx'),
+    ).toContain('parseOrganizationId(params.organizationId)')
+    expect(
+      readProjectFile('app/managed/settings/organizations/[organizationId]/members/page.tsx'),
+    ).toContain('parseOrganizationId(params.organizationId)')
   })
 
   it('does not strip canonical session ids in quickstart runtime flows', () => {
