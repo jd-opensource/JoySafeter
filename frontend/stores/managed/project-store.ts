@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+import { parseOrganizationId, parseProjectId } from '@/types/entity-id'
+
 export interface OrgInfo {
   id: string
   name: string
@@ -39,6 +41,44 @@ interface ProjectState {
     currentProject?: ProjectInfo | null,
   ) => void
   clearContext: () => void
+}
+
+function parsePersistedContext(
+  value: unknown,
+): Pick<ProjectState, 'currentOrgId' | 'currentProjectId'> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { currentOrgId: null, currentProjectId: null }
+  }
+
+  const stored = value as Record<string, unknown>
+  let currentOrgId: string | null = null
+  if (stored.currentOrgId !== undefined && stored.currentOrgId !== null) {
+    if (typeof stored.currentOrgId !== 'string') {
+      return { currentOrgId: null, currentProjectId: null }
+    }
+    try {
+      currentOrgId = parseOrganizationId(stored.currentOrgId)
+    } catch {
+      return { currentOrgId: null, currentProjectId: null }
+    }
+  }
+
+  if (currentOrgId === null) {
+    return { currentOrgId: null, currentProjectId: null }
+  }
+
+  if (stored.currentProjectId === undefined || stored.currentProjectId === null) {
+    return { currentOrgId, currentProjectId: null }
+  }
+  if (typeof stored.currentProjectId !== 'string') {
+    return { currentOrgId, currentProjectId: null }
+  }
+
+  try {
+    return { currentOrgId, currentProjectId: parseProjectId(stored.currentProjectId) }
+  } catch {
+    return { currentOrgId, currentProjectId: null }
+  }
 }
 
 export const useProjectStore = create<ProjectState>()(
@@ -88,6 +128,12 @@ export const useProjectStore = create<ProjectState>()(
     }),
     {
       name: 'managed-project-state',
+      version: 1,
+      migrate: (persistedState) => parsePersistedContext(persistedState),
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...parsePersistedContext(persistedState),
+      }),
       partialize: (state) => ({
         currentOrgId: state.currentOrgId,
         currentProjectId: state.currentProjectId,
