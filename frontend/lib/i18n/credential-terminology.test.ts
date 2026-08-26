@@ -1231,7 +1231,7 @@ describe('credential domain terminology', () => {
   it('inventories direct, template, and finite active translation leaves', () => {
     const inventory = getActiveTranslationInventory()
 
-    expect(inventory.sourceFileCount).toBe(288)
+    expect(inventory.sourceFileCount).toBe(285)
     expect(inventory.sourceFiles).toContain('lib/managed/errors.ts')
     expect(inventory.sourceFiles).not.toContain('lib/i18n/locales/en.ts')
     expect(inventory.sourceFiles).not.toContain(
@@ -1566,7 +1566,6 @@ describe('credential domain closure terminology guards', () => {
     expect(read('components/managed/credentials/credential-kind-chooser.tsx')).toContain(
       "'credential-group'",
     )
-    expect(read('lib/managed/credential-redirects.ts')).toContain('create=credential-group')
     expect(read('lib/i18n/locales/en.ts')).not.toMatch(/(?:newMcpVault|searchMcpVaults|goToVault)/)
   })
 

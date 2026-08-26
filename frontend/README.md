@@ -46,7 +46,6 @@ app/
     ├── credentials/              # 统一凭据界面：模型、服务与 MCP 凭据组
     ├── files/                    # 上传文件资源
     ├── skills/                   # Skill 导入、编辑、版本、安全扫描、AI authoring
-    ├── secrets/、vaults/         # 旧地址兼容，仅重定向到 credentials
     ├── memory-stores/            # 记忆库与版本
     ├── settings/                 # 组织设置
     ├── projects/                 # 项目管理
