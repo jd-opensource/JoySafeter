@@ -783,6 +783,8 @@ function numeric(sessionId) {
       ['app/managed/skills/page.tsx', 'parseCursor: parseSkillId'],
       ['app/managed/files/page.tsx', 'parseCursor: parseFileId'],
       ['app/managed/api-keys/page.tsx', 'parseCursor: parseApiKeyId'],
+      ['app/managed/projects/page.tsx', 'parseCursor: parseProjectId'],
+      ['app/managed/settings/page.tsx', 'parseCursor: parseOrganizationId'],
       [
         'components/managed/credentials/mcp-credential-group-list.tsx',
         'parseCursor: parseCredentialGroupId',
@@ -801,9 +803,7 @@ function numeric(sessionId) {
     const nonEntityLists = [
       'app/managed/settings/organizations/[organizationId]/members/page.tsx',
       'app/managed/platform/users/page.tsx',
-      'app/managed/projects/page.tsx',
       'app/managed/projects/[projectId]/members/page.tsx',
-      'app/managed/settings/page.tsx',
     ]
 
     for (const file of nonEntityLists) {
