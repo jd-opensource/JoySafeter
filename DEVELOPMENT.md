@@ -93,6 +93,12 @@ cargo test --manifest-path backend/app/joysafeter_orchestrator_rs/Cargo.toml
 
 # Sandbox runner workspace
 cargo test --manifest-path sandbox-runner/Cargo.toml
+
+# MCP connection matrix (L1 is offline; L2 needs a running local API)
+cd tests/mcp_connection_matrix
+../../backend/.venv/bin/python -m pytest test_matrix_infrastructure.py test_l1_direct.py
+JOYSAFETER_TEST_PASSWORD='<local-admin-password>' \
+  ../../backend/.venv/bin/python -m pytest test_l2_contract.py
 ```
 
 Install repository hooks after backend dependencies are ready:
