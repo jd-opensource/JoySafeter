@@ -46,7 +46,14 @@ class EntityId:
     def from_public(cls, value: str) -> Self:
         if not isinstance(value, str) or not value.startswith(cls.prefix):
             raise ValueError(f"expected {cls.prefix} prefix")
-        return cls.from_uuid(uuid.UUID(value[len(cls.prefix) :]))
+        raw_uuid = value[len(cls.prefix) :]
+        try:
+            parsed_uuid = uuid.UUID(raw_uuid)
+        except ValueError as exc:
+            raise ValueError(f"expected canonical {cls.prefix} entity ID") from exc
+        if str(parsed_uuid) != raw_uuid:
+            raise ValueError(f"expected canonical {cls.prefix} entity ID")
+        return cls.from_uuid(parsed_uuid)
 
     @property
     def uuid(self) -> uuid.UUID:

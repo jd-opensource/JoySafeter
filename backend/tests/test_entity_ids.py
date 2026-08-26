@@ -141,6 +141,21 @@ def test_public_factory_requires_canonical_prefix():
         AgentId.from_public(str(uuid.uuid4()))
 
 
+@pytest.mark.parametrize(
+    "non_canonical_uuid",
+    [
+        lambda value: str(value).upper(),
+        lambda value: value.hex,
+        lambda value: f"{{{value}}}",
+    ],
+)
+def test_public_factory_rejects_non_canonical_uuid_spellings(non_canonical_uuid):
+    value = uuid.uuid4()
+
+    with pytest.raises(ValueError, match="canonical agent_ entity ID"):
+        AgentId.from_public(f"agent_{non_canonical_uuid(value)}")
+
+
 def test_rejects_arbitrary_stringifiable_objects():
     class LooksLikeUuid:
         def __str__(self) -> str:
