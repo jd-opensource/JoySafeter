@@ -1,18 +1,19 @@
 use std::env;
 
+use joysafeter_orchestrator::ids::{CredentialId, OrganizationId, ProjectId};
 use joysafeter_orchestrator::kernel::credentials::material::ManagedCredentialMaterialAdapter;
 use joysafeter_orchestrator::kernel::repository_access::material::RepositoryAccessMaterialAdapter;
 use joysafeter_orchestrator::kernel::sensitive_material::versioned::VersionedMaterialProtector;
 use joysafeter_orchestrator::kernel::task_identity::material::TaskIdentityMaterialAdapter;
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
+use uuid::Uuid;
 
 const KEY_ID: &str = "rust-canary-2026-08";
 const KEY: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 const ENCRYPTED_CANARY: &str = "enc:v2:rust-canary-2026-08:p9+2vu5Oe3pPnN0CzoDKEDl2UJvPoOgV8r/Ono4Z0WJBxpUY8q9pz03jqamAZLltIfIiqYTJBm0AIbSlMQ4VZh9nut+e10KWQDHnUq/FE4A8yQg2aTjW";
-const COVERAGE_ORG_ID: &str = "credential-encryption-rust-test-org";
-const COVERAGE_PROJECT_ID: &str = "credential-encryption-rust-test-project";
-const COVERAGE_CREDENTIAL_ID: &str = "00000000-0000-7000-8000-000000000001";
+const COVERAGE_ORG_SLUG: &str = "credential-encryption-rust-test-org";
+const COVERAGE_PROJECT_SLUG: &str = "credential-encryption-rust-test-project";
 
 fn database_url() -> String {
     env::var("JOYSAFETER_CREDENTIAL_RUNTIME_TEST_DATABASE_URL")
@@ -24,6 +25,12 @@ fn database_url() -> String {
 
 #[tokio::test]
 async fn rust_validates_python_generated_database_canary() {
+    let coverage_organization_id =
+        OrganizationId::from_uuid(Uuid::from_u128(0x00000000000070008000000000000001));
+    let coverage_project_id =
+        ProjectId::from_uuid(Uuid::from_u128(0x00000000000070008000000000000002));
+    let coverage_credential_id =
+        CredentialId::from_uuid(Uuid::from_u128(0x00000000000070008000000000000003));
     let pool = PgPoolOptions::new()
         .max_connections(1)
         .connect(&database_url())
@@ -72,18 +79,18 @@ async fn rust_validates_python_generated_database_canary() {
         Some("joysafeter-credential-encryption-canary:rust-canary-2026-08")
     );
 
-    sqlx::query("DELETE FROM joysafeter_credentials WHERE id = $1::uuid")
-        .bind(COVERAGE_CREDENTIAL_ID)
+    sqlx::query("DELETE FROM joysafeter_credentials WHERE id = $1")
+        .bind(coverage_credential_id)
         .execute(&pool)
         .await
         .expect("remove stale coverage credential");
     sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
-        .bind(COVERAGE_PROJECT_ID)
+        .bind(coverage_project_id)
         .execute(&pool)
         .await
         .expect("remove stale coverage project");
     sqlx::query("DELETE FROM joysafeter_organizations WHERE id = $1")
-        .bind(COVERAGE_ORG_ID)
+        .bind(coverage_organization_id)
         .execute(&pool)
         .await
         .expect("remove stale coverage organization");
@@ -92,8 +99,8 @@ async fn rust_validates_python_generated_database_canary() {
          (id, name, slug, storage_used_bytes, departed_member_usage) \
          VALUES ($1, 'Credential Encryption Rust Test', $2, 0, 0)",
     )
-    .bind(COVERAGE_ORG_ID)
-    .bind(COVERAGE_ORG_ID)
+    .bind(coverage_organization_id)
+    .bind(COVERAGE_ORG_SLUG)
     .execute(&pool)
     .await
     .expect("insert coverage organization");
@@ -101,27 +108,27 @@ async fn rust_validates_python_generated_database_canary() {
         "INSERT INTO joysafeter_organization_projects (id, org_id, name, slug, is_default) \
          VALUES ($1, $2, 'Credential Encryption Rust Test', $3, false)",
     )
-    .bind(COVERAGE_PROJECT_ID)
-    .bind(COVERAGE_ORG_ID)
-    .bind(COVERAGE_PROJECT_ID)
+    .bind(coverage_project_id)
+    .bind(coverage_organization_id)
+    .bind(COVERAGE_PROJECT_SLUG)
     .execute(&pool)
     .await
     .expect("insert coverage project");
     sqlx::query(
         "INSERT INTO joysafeter_credentials (id, project_id, kind, name, data, is_default) \
-         VALUES ($1::uuid, $2, 'service', 'missing-reader-key', \
+         VALUES ($1, $2, 'service', 'missing-reader-key', \
          '{\"TOKEN\":\"enc:v2:retired-2025-01:AA==\"}'::jsonb, false)",
     )
-    .bind(COVERAGE_CREDENTIAL_ID)
-    .bind(COVERAGE_PROJECT_ID)
+    .bind(coverage_credential_id)
+    .bind(coverage_project_id)
     .execute(&pool)
     .await
     .expect("insert coverage credential");
 
     let coverage_result = VersionedMaterialProtector::validate_database_state(&pool).await;
 
-    sqlx::query("DELETE FROM joysafeter_credentials WHERE id = $1::uuid")
-        .bind(COVERAGE_CREDENTIAL_ID)
+    sqlx::query("DELETE FROM joysafeter_credentials WHERE id = $1")
+        .bind(coverage_credential_id)
         .execute(&pool)
         .await
         .expect("remove coverage credential");
@@ -133,18 +140,18 @@ async fn rust_validates_python_generated_database_canary() {
 
     sqlx::query(
         "INSERT INTO joysafeter_credentials (id, project_id, kind, name, data, is_default) \
-         VALUES ($1::uuid, $2, 'service', 'invalid-json-shape', '[]'::jsonb, false)",
+         VALUES ($1, $2, 'service', 'invalid-json-shape', '[]'::jsonb, false)",
     )
-    .bind(COVERAGE_CREDENTIAL_ID)
-    .bind(COVERAGE_PROJECT_ID)
+    .bind(coverage_credential_id)
+    .bind(coverage_project_id)
     .execute(&pool)
     .await
     .expect("insert invalid-shape coverage credential");
 
     let invalid_shape_result = VersionedMaterialProtector::validate_database_state(&pool).await;
 
-    sqlx::query("DELETE FROM joysafeter_credentials WHERE id = $1::uuid")
-        .bind(COVERAGE_CREDENTIAL_ID)
+    sqlx::query("DELETE FROM joysafeter_credentials WHERE id = $1")
+        .bind(coverage_credential_id)
         .execute(&pool)
         .await
         .expect("remove invalid-shape coverage credential");
@@ -160,12 +167,12 @@ async fn rust_validates_python_generated_database_canary() {
         .await
         .expect("remove test canary");
     sqlx::query("DELETE FROM joysafeter_organization_projects WHERE id = $1")
-        .bind(COVERAGE_PROJECT_ID)
+        .bind(coverage_project_id)
         .execute(&pool)
         .await
         .expect("remove coverage project");
     sqlx::query("DELETE FROM joysafeter_organizations WHERE id = $1")
-        .bind(COVERAGE_ORG_ID)
+        .bind(coverage_organization_id)
         .execute(&pool)
         .await
         .expect("remove coverage organization");

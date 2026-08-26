@@ -4,11 +4,10 @@ use std::time::Duration;
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
-use crate::ids::{AgentId, SandboxId, SessionId, TaskId};
+use crate::ids::{SandboxId, SessionId, TaskId};
 use crate::kernel::ha::BridgeStore;
 use crate::kernel::queue::TaskQueue;
 
@@ -876,9 +875,14 @@ mod tests {
 
     use serde_json::Value;
     use sqlx::postgres::PgPoolOptions;
+    use tokio::sync::{Mutex, MutexGuard};
+    use uuid::Uuid;
 
     use super::*;
+    use crate::ids::AgentId;
     use crate::kernel::sandbox_bridge::BridgeRegistry;
+
+    static DATABASE_TEST_LOCK: Mutex<()> = Mutex::const_new(());
 
     fn database_url() -> Option<String> {
         env::var("JOYSAFETER_TEST_DATABASE_URL")
@@ -887,18 +891,18 @@ mod tests {
             .map(|url| url.replace("postgresql+asyncpg://", "postgres://"))
     }
 
-    async fn test_pool() -> Option<PgPool> {
+    async fn test_pool() -> Option<(MutexGuard<'static, ()>, PgPool)> {
         let Some(url) = database_url() else {
             eprintln!("skipping real Postgres TaskController test: DATABASE_URL is not set");
             return None;
         };
-        Some(
-            PgPoolOptions::new()
-                .max_connections(5)
-                .connect(&url)
-                .await
-                .expect("connect to migrated Postgres test database"),
-        )
+        let guard = DATABASE_TEST_LOCK.lock().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&url)
+            .await
+            .expect("connect to migrated Postgres test database");
+        Some((guard, pool))
     }
 
     fn test_controller(pool: PgPool) -> TaskController {
@@ -1114,7 +1118,7 @@ mod tests {
 
     #[tokio::test]
     async fn task_controller_startup_recovery_fails_overdue_running_task_and_idles_session() {
-        let Some(pool) = test_pool().await else {
+        let Some((_database_guard, pool)) = test_pool().await else {
             return;
         };
         cleanup_test_artifacts(&pool).await;
@@ -1199,7 +1203,7 @@ mod tests {
 
     #[tokio::test]
     async fn task_controller_overdue_timeout_releases_sandbox_and_idles_session() {
-        let Some(pool) = test_pool().await else {
+        let Some((_database_guard, pool)) = test_pool().await else {
             return;
         };
         cleanup_test_artifacts(&pool).await;
@@ -1291,7 +1295,7 @@ mod tests {
 
     #[tokio::test]
     async fn task_controller_retry_helper_marks_session_rescheduling() {
-        let Some(pool) = test_pool().await else {
+        let Some((_database_guard, pool)) = test_pool().await else {
             return;
         };
         cleanup_test_artifacts(&pool).await;
@@ -1356,7 +1360,7 @@ mod tests {
 
     #[tokio::test]
     async fn task_controller_retry_helper_does_not_release_sandbox_on_terminal_conflict() {
-        let Some(pool) = test_pool().await else {
+        let Some((_database_guard, pool)) = test_pool().await else {
             return;
         };
         cleanup_test_artifacts(&pool).await;
@@ -1442,7 +1446,7 @@ mod tests {
 
     #[tokio::test]
     async fn task_controller_fail_helper_does_not_release_sandbox_on_terminal_conflict() {
-        let Some(pool) = test_pool().await else {
+        let Some((_database_guard, pool)) = test_pool().await else {
             return;
         };
         cleanup_test_artifacts(&pool).await;
@@ -1526,7 +1530,7 @@ mod tests {
 
     #[tokio::test]
     async fn task_controller_runtime_helpers_do_not_mutate_pending_task() {
-        let Some(pool) = test_pool().await else {
+        let Some((_database_guard, pool)) = test_pool().await else {
             return;
         };
         cleanup_test_artifacts(&pool).await;
@@ -1635,7 +1639,7 @@ mod tests {
 
     #[tokio::test]
     async fn task_controller_stale_scheduling_retry_does_not_mutate_running_task() {
-        let Some(pool) = test_pool().await else {
+        let Some((_database_guard, pool)) = test_pool().await else {
             return;
         };
         cleanup_test_artifacts(&pool).await;
@@ -1720,7 +1724,7 @@ mod tests {
 
     #[tokio::test]
     async fn task_controller_stale_scheduling_failure_does_not_mutate_running_task() {
-        let Some(pool) = test_pool().await else {
+        let Some((_database_guard, pool)) = test_pool().await else {
             return;
         };
         cleanup_test_artifacts(&pool).await;
@@ -1805,7 +1809,7 @@ mod tests {
 
     #[tokio::test]
     async fn task_controller_stuck_scheduling_exhausted_moves_rescheduling_session_idle() {
-        let Some(pool) = test_pool().await else {
+        let Some((_database_guard, pool)) = test_pool().await else {
             return;
         };
         cleanup_test_artifacts(&pool).await;
@@ -1877,7 +1881,7 @@ mod tests {
 
     #[tokio::test]
     async fn task_controller_failover_with_agent_output_completes_and_releases_sandbox() {
-        let Some(pool) = test_pool().await else {
+        let Some((_database_guard, pool)) = test_pool().await else {
             return;
         };
         cleanup_test_artifacts(&pool).await;
@@ -1972,7 +1976,7 @@ mod tests {
 
     #[tokio::test]
     async fn task_controller_agent_output_failover_does_not_complete_pending_retry() {
-        let Some(pool) = test_pool().await else {
+        let Some((_database_guard, pool)) = test_pool().await else {
             return;
         };
         cleanup_test_artifacts(&pool).await;

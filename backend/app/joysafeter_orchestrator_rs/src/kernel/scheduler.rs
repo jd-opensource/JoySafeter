@@ -10,9 +10,9 @@ use tracing::{debug, error, info, warn};
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
-use crate::ids::{AgentId, SessionId, TaskId};
+use crate::ids::{AgentId, ProjectId, SessionId, TaskId};
 use crate::kernel::credentials::snapshot;
-use crate::kernel::credentials::{error::CredentialRuntimeError, CredentialStore, ProjectId};
+use crate::kernel::credentials::{error::CredentialRuntimeError, CredentialStore};
 use crate::kernel::ha::BridgeStore;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::runtime_freshness::RuntimeFreshnessError;
@@ -50,14 +50,13 @@ pub fn spawn_scheduler(
     config: JoySafeterConfig,
     pool_replenish_notify: Option<Arc<tokio::sync::Notify>>,
     network_policy_queue: Option<Arc<dyn crate::kernel::ha::NetworkPolicyRequestQueue>>,
+    xds_authority: crate::kernel::xds_authority::XdsAuthorityState,
     identity_provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
 ) -> JoinHandle<()> {
-    let mut resolver = SandboxResolver::new(pool.clone(), provider, config.clone());
+    let mut resolver = SandboxResolver::new(pool.clone(), provider, config.clone())
+        .with_network_policy_control(xds_authority, network_policy_queue);
     if let Some(notify) = pool_replenish_notify {
         resolver = resolver.with_pool_replenish_notify(notify);
-    }
-    if let Some(queue) = network_policy_queue {
-        resolver = resolver.with_network_policy_queue(queue);
     }
     resolver = resolver.with_identity_provider(identity_provider);
     let resolver = Arc::new(resolver);
@@ -182,7 +181,7 @@ pub fn spawn_scheduler(
                             task_id,
                             task.agent_id,
                             task.session_id,
-                            task.project_id.as_deref(),
+                            task.project_id,
                         ),
                     )
                     .await;
@@ -223,7 +222,7 @@ async fn schedule_single_task(
     task_id: TaskId,
     agent_id: Option<AgentId>,
     mut session_id: Option<SessionId>,
-    project_id: Option<&str>,
+    project_id: Option<ProjectId>,
 ) -> anyhow::Result<()> {
     // --- Resolve agent ---
     let agent = match agent_id {
@@ -275,9 +274,8 @@ async fn schedule_single_task(
 
     // --- Auto-create session if needed ---
     if session_id.is_none() {
-        let project_id = ProjectId::parse(
-            project_id.ok_or_else(|| anyhow::anyhow!("scheduler task project is required"))?,
-        )?;
+        let project_id =
+            project_id.ok_or_else(|| anyhow::anyhow!("scheduler task project is required"))?;
         let credential_store = CredentialStore::new(pool.clone());
         let Some(new_session) = snapshot::create_scheduler_session(
             pool,
@@ -628,7 +626,7 @@ async fn mark_terminal_task_and_session_idle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ids::{EnvironmentId, SandboxId};
+    use crate::ids::{EnvironmentId, OrganizationId, SandboxId};
     use crate::kernel::sandbox_bridge::BridgeRegistry;
     use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
     use sqlx::postgres::PgPoolOptions;
@@ -967,8 +965,8 @@ mod tests {
         let unique = Uuid::now_v7().simple().to_string();
         let agent_id = create_scheduler_agent(&pool, &unique).await;
         let task_id = TaskId::from_uuid(Uuid::now_v7());
-        let organization_id = format!("scheduler-stale-task-org-{unique}");
-        let project_id = format!("scheduler-stale-task-project-{unique}");
+        let organization_id = OrganizationId::new();
+        let project_id = ProjectId::new();
 
         sqlx::query(
             "INSERT INTO joysafeter_organizations (id, name, slug, storage_used_bytes, departed_member_usage) VALUES ($1, $2, $3, 0, 0)",
@@ -1025,7 +1023,7 @@ mod tests {
                 task_id,
                 Some(agent_id),
                 None,
-                Some(&project_id),
+                Some(project_id),
             )
             .await
             .expect("stale auto-session scheduling should be skipped");
@@ -1516,7 +1514,6 @@ mod tests {
         let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
         let task_id = TaskId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
-        let environment_ref = environment_id.to_string();
 
         async {
             sqlx::query(
@@ -1541,7 +1538,7 @@ mod tests {
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata,
-                    multiagent, version, environment_ref
+                    multiagent, version, environment_id
                 )
                 VALUES (
                     $1, $2, 'claude', $3, 'scheduler snapshot system', $4, $5,
@@ -1556,7 +1553,7 @@ mod tests {
             .bind(json!({"SCHEDULER_ENV": "before"}))
             .bind(json!([{"name": "scheduler-mcp", "url": "https://mcp.before.test"}]))
             .bind(json!([{"name": "scheduler-tool"}]))
-            .bind(&environment_ref)
+            .bind(environment_id)
             .execute(&pool)
             .await
             .expect("insert agent");
@@ -1576,8 +1573,8 @@ mod tests {
             .await
             .expect("insert scheduling task");
             let store = CredentialStore::new(pool.clone());
-            let organization_id = format!("scheduler-snapshot-test-org-{unique}");
-            let project_id = format!("scheduler-snapshot-test-project-{unique}");
+            let organization_id = OrganizationId::new();
+            let project_id = ProjectId::new();
             sqlx::query(
                 "INSERT INTO joysafeter_organizations (id, name, slug, storage_used_bytes, departed_member_usage) VALUES ($1, $2, $3, 0, 0)",
             )
@@ -1621,7 +1618,7 @@ mod tests {
                 snapshot::SchedulerSnapshotCommand {
                     task_id,
                     agent_id,
-                    project_id: ProjectId::parse(&project_id).expect("scheduler test project"),
+                    project_id,
                 },
             )
             .await
@@ -1667,14 +1664,11 @@ mod tests {
             .await
             .expect("load created session");
 
-            assert_eq!(
-                stored.environment_ref.as_deref(),
-                Some(environment_ref.as_str())
-            );
+            assert_eq!(stored.environment_id, Some(environment_id));
             let stored_snapshot = stored.agent_snapshot.expect("session snapshot");
             assert_eq!(
                 stored_snapshot.get("schema").and_then(Value::as_str),
-                Some("joysafeter.agent_execution_snapshot.v1")
+                Some("joysafeter.agent_execution_snapshot.v2")
             );
             assert_eq!(
                 stored_snapshot.get("model").and_then(Value::as_str),

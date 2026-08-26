@@ -1,7 +1,7 @@
 use std::env;
 
 use joysafeter_orchestrator::db::queries;
-use joysafeter_orchestrator::ids::SandboxId;
+use joysafeter_orchestrator::ids::{SandboxId, SandboxNetworkPolicyId};
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -48,10 +48,14 @@ async fn delete_sandbox(pool: &PgPool, sandbox_id: SandboxId) {
         .expect("delete sandbox fixture");
 }
 
-async fn networking_state(pool: &PgPool, sandbox_id: SandboxId) -> (String, String, i64) {
+async fn networking_state(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+) -> (String, Option<String>, i64, Option<String>, Option<i64>) {
     sqlx::query_as(
         r#"
-        SELECT networking_status, networking_policy_hash, networking_policy_version
+        SELECT networking_status, networking_policy_hash, networking_policy_version,
+               networking_applied_hash, networking_applied_version
         FROM joysafeter_sandboxes
         WHERE id = $1
         "#,
@@ -63,29 +67,153 @@ async fn networking_state(pool: &PgPool, sandbox_id: SandboxId) -> (String, Stri
 }
 
 #[tokio::test]
-async fn same_policy_repush_keeps_generation_and_returns_to_pending() {
+async fn same_policy_prepare_keeps_ready_generation_ready() {
     let pool = test_pool().await;
     let sandbox_id = create_sandbox(&pool).await;
 
-    let first = queries::prepare_sandbox_network_policy_push(&pool, sandbox_id, "policy-a")
+    let first = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
         .await
         .expect("prepare first policy generation");
+    assert!(matches!(
+        first,
+        queries::NetworkPolicyPrepareOutcome::Pending(_)
+    ));
+    let first = first.into_generation();
     assert_eq!(first.policy_hash, "policy-a");
     assert_eq!(first.policy_version, 1);
-    assert!(
+    assert_eq!(
         queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &first)
             .await
-            .expect("ack first policy generation")
+            .expect("ack first policy generation"),
+        queries::NetworkPolicyAckOutcome::Applied
     );
 
-    let repush = queries::prepare_sandbox_network_policy_push(&pool, sandbox_id, "policy-a")
+    let repush = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
         .await
-        .expect("prepare same policy after in-memory xDS state loss");
-    assert_eq!(repush, first);
+        .expect("prepare same ready policy");
+    assert_eq!(
+        repush,
+        queries::NetworkPolicyPrepareOutcome::AlreadyReady(first.clone())
+    );
     assert_eq!(
         networking_state(&pool, sandbox_id).await,
-        ("pending".to_string(), "policy-a".to_string(), 1)
+        (
+            "ready".to_string(),
+            Some("policy-a".to_string()),
+            1,
+            Some("policy-a".to_string()),
+            Some(1),
+        )
     );
+
+    delete_sandbox(&pool, sandbox_id).await;
+}
+
+#[tokio::test]
+async fn duplicate_ack_is_idempotent() {
+    let pool = test_pool().await;
+    let sandbox_id = create_sandbox(&pool).await;
+    let generation = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
+        .await
+        .expect("prepare policy generation")
+        .into_generation();
+
+    assert_eq!(
+        queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &generation)
+            .await
+            .expect("apply policy ACK"),
+        queries::NetworkPolicyAckOutcome::Applied
+    );
+    assert_eq!(
+        queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &generation)
+            .await
+            .expect("repeat policy ACK"),
+        queries::NetworkPolicyAckOutcome::AlreadyReady
+    );
+
+    delete_sandbox(&pool, sandbox_id).await;
+}
+
+#[tokio::test]
+async fn ready_generation_cannot_be_claimed_for_failed_setup_cleanup() {
+    let pool = test_pool().await;
+    let sandbox_id = create_sandbox(&pool).await;
+    let external_id = format!("network-policy-generation-{sandbox_id}");
+    let generation = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
+        .await
+        .expect("prepare policy generation")
+        .into_generation();
+    assert_eq!(
+        queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &generation)
+            .await
+            .expect("ack policy generation"),
+        queries::NetworkPolicyAckOutcome::Applied
+    );
+
+    assert!(
+        !queries::begin_owned_sandbox_cleanup(&pool, sandbox_id, &external_id, &generation)
+            .await
+            .expect("ready generation rejects stale cleanup")
+    );
+
+    delete_sandbox(&pool, sandbox_id).await;
+}
+
+#[tokio::test]
+async fn stale_generation_cannot_claim_newer_pending_sandbox_for_cleanup() {
+    let pool = test_pool().await;
+    let sandbox_id = create_sandbox(&pool).await;
+    let external_id = format!("network-policy-generation-{sandbox_id}");
+    let first = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
+        .await
+        .expect("prepare first policy generation")
+        .into_generation();
+    let second = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-b")
+        .await
+        .expect("prepare newer policy generation")
+        .into_generation();
+
+    assert!(
+        !queries::begin_owned_sandbox_cleanup(&pool, sandbox_id, &external_id, &first)
+            .await
+            .expect("stale generation rejects cleanup")
+    );
+    assert_eq!(
+        networking_state(&pool, sandbox_id).await,
+        (
+            "pending".to_string(),
+            Some("policy-b".to_string()),
+            second.policy_version,
+            None,
+            None,
+        )
+    );
+
+    delete_sandbox(&pool, sandbox_id).await;
+}
+
+#[tokio::test]
+async fn current_failed_generation_can_claim_cleanup_ownership() {
+    let pool = test_pool().await;
+    let sandbox_id = create_sandbox(&pool).await;
+    let external_id = format!("network-policy-generation-{sandbox_id}");
+    let generation = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
+        .await
+        .expect("prepare policy generation")
+        .into_generation();
+
+    assert!(
+        queries::begin_owned_sandbox_cleanup(&pool, sandbox_id, &external_id, &generation)
+            .await
+            .expect("current failed generation claims cleanup")
+    );
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .fetch_one(&pool)
+            .await
+            .expect("load claimed sandbox status");
+    assert_eq!(status, "stopping");
 
     delete_sandbox(&pool, sandbox_id).await;
 }
@@ -95,32 +223,48 @@ async fn stale_ack_cannot_mark_a_newer_policy_generation_ready() {
     let pool = test_pool().await;
     let sandbox_id = create_sandbox(&pool).await;
 
-    let first = queries::prepare_sandbox_network_policy_push(&pool, sandbox_id, "policy-a")
+    let first = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
         .await
-        .expect("prepare first policy generation");
-    let second = queries::prepare_sandbox_network_policy_push(&pool, sandbox_id, "policy-b")
+        .expect("prepare first policy generation")
+        .into_generation();
+    let second = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-b")
         .await
-        .expect("prepare newer policy generation");
+        .expect("prepare newer policy generation")
+        .into_generation();
     assert_eq!(second.policy_version, first.policy_version + 1);
 
-    assert!(
-        !queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &first)
+    assert_eq!(
+        queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &first)
             .await
-            .expect("reject stale ACK")
+            .expect("reject stale ACK"),
+        queries::NetworkPolicyAckOutcome::Stale
     );
     assert_eq!(
         networking_state(&pool, sandbox_id).await,
-        ("pending".to_string(), "policy-b".to_string(), 2)
+        (
+            "pending".to_string(),
+            Some("policy-b".to_string()),
+            2,
+            None,
+            None,
+        )
     );
 
-    assert!(
+    assert_eq!(
         queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &second)
             .await
-            .expect("ack current policy generation")
+            .expect("ack current policy generation"),
+        queries::NetworkPolicyAckOutcome::Applied
     );
     assert_eq!(
         networking_state(&pool, sandbox_id).await,
-        ("ready".to_string(), "policy-b".to_string(), 2)
+        (
+            "ready".to_string(),
+            Some("policy-b".to_string()),
+            2,
+            Some("policy-b".to_string()),
+            Some(2),
+        )
     );
 
     delete_sandbox(&pool, sandbox_id).await;
@@ -133,46 +277,62 @@ async fn stale_failure_cannot_nack_a_newer_policy_generation() {
     let desired = json!({"networking": {"type": "limited"}});
     let rendered = json!({"routes": []});
 
-    let first = queries::prepare_sandbox_network_policy_push(&pool, sandbox_id, "policy-a")
+    let first = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
         .await
-        .expect("prepare first policy generation");
-    let second = queries::prepare_sandbox_network_policy_push(&pool, sandbox_id, "policy-b")
+        .expect("prepare first policy generation")
+        .into_generation();
+    let second = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-b")
         .await
-        .expect("prepare newer policy generation");
+        .expect("prepare newer policy generation")
+        .into_generation();
 
-    assert!(!queries::record_network_policy_failure_detail(
-        &pool,
-        queries::UpsertNetworkPolicy {
-            sandbox_id,
-            session_id: None,
-            task_id: None,
-            generation: &first,
-            desired_policy_json: &desired,
-            rendered_summary_json: &rendered,
-        },
-        "stale failure",
-    )
-    .await
-    .expect("ignore stale policy failure"));
+    assert_eq!(
+        queries::record_network_policy_failure_detail(
+            &pool,
+            queries::UpsertNetworkPolicy {
+                id: SandboxNetworkPolicyId::new(),
+                sandbox_id,
+                session_id: None,
+                task_id: None,
+                generation: &first,
+                desired_policy_json: &desired,
+                rendered_summary_json: &rendered,
+            },
+            "stale failure",
+        )
+        .await
+        .expect("ignore stale policy failure"),
+        queries::NetworkPolicyFailureOutcome::Stale
+    );
     assert_eq!(
         networking_state(&pool, sandbox_id).await,
-        ("pending".to_string(), "policy-b".to_string(), 2)
+        (
+            "pending".to_string(),
+            Some("policy-b".to_string()),
+            2,
+            None,
+            None,
+        )
     );
 
-    assert!(queries::record_network_policy_failure_detail(
-        &pool,
-        queries::UpsertNetworkPolicy {
-            sandbox_id,
-            session_id: None,
-            task_id: None,
-            generation: &second,
-            desired_policy_json: &desired,
-            rendered_summary_json: &rendered,
-        },
-        "current failure",
-    )
-    .await
-    .expect("record current policy failure"));
+    assert_eq!(
+        queries::record_network_policy_failure_detail(
+            &pool,
+            queries::UpsertNetworkPolicy {
+                id: SandboxNetworkPolicyId::new(),
+                sandbox_id,
+                session_id: None,
+                task_id: None,
+                generation: &second,
+                desired_policy_json: &desired,
+                rendered_summary_json: &rendered,
+            },
+            "current failure",
+        )
+        .await
+        .expect("record current policy failure"),
+        queries::NetworkPolicyFailureOutcome::Recorded
+    );
     let state: (String, String, i64, Option<String>) = sqlx::query_as(
         r#"
         SELECT networking_status, networking_policy_hash,
@@ -205,32 +365,44 @@ async fn late_failure_cannot_replace_an_acknowledged_generation() {
     let desired = json!({"networking": {"type": "limited"}});
     let rendered = json!({"routes": []});
 
-    let generation = queries::prepare_sandbox_network_policy_push(&pool, sandbox_id, "policy-a")
+    let generation = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
         .await
-        .expect("prepare policy generation");
-    assert!(
+        .expect("prepare policy generation")
+        .into_generation();
+    assert_eq!(
         queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &generation)
             .await
-            .expect("ack policy generation")
+            .expect("ack policy generation"),
+        queries::NetworkPolicyAckOutcome::Applied
     );
 
-    assert!(!queries::record_network_policy_failure_detail(
-        &pool,
-        queries::UpsertNetworkPolicy {
-            sandbox_id,
-            session_id: None,
-            task_id: None,
-            generation: &generation,
-            desired_policy_json: &desired,
-            rendered_summary_json: &rendered,
-        },
-        "late failure after ACK",
-    )
-    .await
-    .expect("ignore late policy failure"));
+    assert_eq!(
+        queries::record_network_policy_failure_detail(
+            &pool,
+            queries::UpsertNetworkPolicy {
+                id: SandboxNetworkPolicyId::new(),
+                sandbox_id,
+                session_id: None,
+                task_id: None,
+                generation: &generation,
+                desired_policy_json: &desired,
+                rendered_summary_json: &rendered,
+            },
+            "late failure after ACK",
+        )
+        .await
+        .expect("ignore late policy failure"),
+        queries::NetworkPolicyFailureOutcome::AlreadyReady
+    );
     assert_eq!(
         networking_state(&pool, sandbox_id).await,
-        ("ready".to_string(), "policy-a".to_string(), 1)
+        (
+            "ready".to_string(),
+            Some("policy-a".to_string()),
+            1,
+            Some("policy-a".to_string()),
+            Some(1),
+        )
     );
 
     let policy_rows: i64 = sqlx::query_scalar(

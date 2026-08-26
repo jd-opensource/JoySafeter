@@ -2,26 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::Index;
 
-use crate::ids::{CredentialGroupId, CredentialId};
+use crate::ids::{CredentialGroupId, CredentialId, ProjectId};
 
 use super::error::CredentialRuntimeError;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ProjectId(String);
-
-impl ProjectId {
-    pub fn parse(value: &str) -> Result<Self, CredentialRuntimeError> {
-        let value = value.trim();
-        if value.is_empty() {
-            return Err(CredentialRuntimeError::ProjectMismatch);
-        }
-        Ok(Self(value.to_string()))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CredentialKind {

@@ -9,11 +9,14 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context};
 use envoy_types::pb::envoy::service::discovery::v3::aggregated_discovery_service_server::AggregatedDiscoveryServiceServer;
-use joysafeter_orchestrator::ids::SandboxId;
+use joysafeter_orchestrator::ids::{AgentId, SandboxId};
+use joysafeter_orchestrator::kernel::mcp_runtime_plan::{
+    resolve_mcp_runtime_plan, EffectiveNetworkMode,
+};
 use joysafeter_orchestrator::sandbox::envoy::{EnvoyConfig, EnvoyManager};
 use joysafeter_orchestrator::sandbox::lds_backend::{
-    DeltaXdsServer, EgressCredentialRoute, EgressExposure, EgressKind, GrpcCds, GrpcLds,
-    SandboxCredentials, MCP_EGRESS_HOST,
+    DeltaXdsServer, EgressCredentialRoute, EgressExposure, EgressKind, EgressPathMapping,
+    EgressRetryMode, GrpcCds, GrpcLds, SandboxCredentials, MCP_EGRESS_HOST,
 };
 use serde_json::Value;
 use tempfile::TempDir;
@@ -116,7 +119,9 @@ fn docker_diagnostics(container: &str) -> String {
 }
 
 fn docker_visible_tempdir() -> anyhow::Result<TempDir> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/live-tests");
+    let root = std::env::var_os("JOYSAFETER_LIVE_TEST_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("target/live-tests"));
     fs::create_dir_all(&root)?;
     Ok(tempfile::Builder::new()
         .prefix("mcp-envoy-")
@@ -220,6 +225,32 @@ fn curl_status(container: &str, socket: &str, url: &str) -> anyhow::Result<u16> 
     Ok(String::from_utf8(output.stdout)?.trim().parse()?)
 }
 
+fn curl_json_with_status(
+    container: &str,
+    socket: &str,
+    method: &str,
+    url: &str,
+) -> anyhow::Result<(u16, Value)> {
+    let output = command_output(Command::new("docker").args([
+        "exec",
+        container,
+        "curl",
+        "-sS",
+        "-X",
+        method,
+        "-w",
+        "\n%{http_code}",
+        "--unix-socket",
+        socket,
+        url,
+    ]))?;
+    let text = String::from_utf8(output.stdout)?;
+    let (body, status) = text
+        .rsplit_once('\n')
+        .context("curl response did not include an HTTP status")?;
+    Ok((status.trim().parse()?, serde_json::from_str(body)?))
+}
+
 fn assert_sse_streams_without_buffering(container: &str, socket: &str) -> anyhow::Result<()> {
     let started = Instant::now();
     let partial = Command::new("docker")
@@ -284,11 +315,13 @@ fn route(
         kind: EgressKind::Mcp,
         exposure: EgressExposure::Placeholder,
         match_host: MCP_EGRESS_HOST.to_string(),
-        match_prefix: format!("/r/{route_key}/"),
-        exact_path: false,
+        path_mapping: EgressPathMapping::RewritePrefix {
+            exposed_prefix: format!("/r/{route_key}/"),
+            upstream_prefix: upstream_prefix.to_string(),
+        },
+        retry_mode: EgressRetryMode::Disabled,
         upstream_host: upstream_host.to_string(),
         upstream_port,
-        upstream_prefix: upstream_prefix.to_string(),
         upstream_tls,
         cluster_name: String::new(),
         vetted_addresses: vec![fixture_ip.to_string()],
@@ -400,13 +433,51 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
         "/fixture/mcp_live_fixture.py",
     ])?;
     resources.track_container(fixture_container.clone());
-    wait_for_fixture(&fixture_container)?;
+    if let Err(error) = wait_for_fixture(&fixture_container) {
+        bail!(
+            "{error:#}\nMCP fixture diagnostics:\n{}",
+            docker_diagnostics(&fixture_container)
+        )
+    }
     let fixture_ip = docker(&[
         "inspect",
         "-f",
         "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
         &fixture_container,
     ])?;
+
+    let raw_mcp_servers = serde_json::json!([
+        {
+            "type": "streamable_http",
+            "name": "exact-path",
+            "url": "http://mcp-http.fixture:8765/mcp?tenant=a&tenant=b",
+            "auth_requirement": "none"
+        },
+        {
+            "type": "streamable_http",
+            "name": "no-retry",
+            "url": "http://mcp-http.fixture:8765/retry-probe",
+            "auth_requirement": "none"
+        }
+    ]);
+    let mut runtime_plan = resolve_mcp_runtime_plan(
+        AgentId::from_uuid(Uuid::now_v7()),
+        1,
+        EffectiveNetworkMode::Limited,
+        Some(&raw_mcp_servers),
+        &[],
+    )?;
+    for server in &mut runtime_plan.servers {
+        server
+            .original_endpoint
+            .as_mut()
+            .expect("remote MCP server")
+            .vetted_addresses = vec![fixture_ip.parse()?];
+    }
+    let runner_servers = runtime_plan.runner_servers();
+    let exact_url = runner_servers[0].url.clone();
+    let retry_url = runner_servers[1].url.clone();
+    let exact_route_key = runtime_plan.servers[0].route_key.clone();
 
     let xds = DeltaXdsServer::new();
     let listener = TcpListener::bind("0.0.0.0:0").await?;
@@ -483,11 +554,10 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
     let socket_parent = format!("/sockets/{}", sandbox_id.as_uuid());
     docker(&["exec", &fixture_container, "mkdir", "-p", &socket_parent])?;
     docker(&["exec", &fixture_container, "chmod", "755", &socket_parent])?;
+    let mut initial_policy = policy(&fixture_ip, "bearer-one");
+    initial_policy.routes.extend(runtime_plan.egress_routes());
     if let Err(error) = manager
-        .add_sandbox_policy(
-            sandbox_id,
-            policy(&fixture_ip, "bearer-one").to_policy(&sandbox_id, vec![]),
-        )
+        .add_sandbox_policy(sandbox_id, initial_policy.to_policy(&sandbox_id, vec![]))
         .await
     {
         bail!(
@@ -497,6 +567,24 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
     }
     let socket = format!("/sockets/{}/http.sock", sandbox_id.as_uuid());
     wait_for_socket(&fixture_container, &socket)?;
+
+    let (exact_status, exact_body) =
+        curl_json_with_status(&fixture_container, &socket, "POST", &exact_url)?;
+    assert_eq!(exact_status, 200);
+    assert_eq!(exact_body["method"], "POST");
+    assert_eq!(exact_body["path"], "/mcp?tenant=a&tenant=b");
+
+    let descendant_status = curl_status(
+        &fixture_container,
+        &socket,
+        &format!("http://{MCP_EGRESS_HOST}/r/{exact_route_key}/child"),
+    )?;
+    assert_ne!(descendant_status, 200);
+
+    let (retry_status, retry_body) =
+        curl_json_with_status(&fixture_container, &socket, "POST", &retry_url)?;
+    assert_eq!(retry_status, 503);
+    assert_eq!(retry_body["request_count"], 1);
 
     let http_default = curl_json(
         &fixture_container,

@@ -917,6 +917,11 @@ impl SandboxProvider for DockerProvider {
             // allowlist. If it cannot initialize or recover the live sandboxes'
             // listeners, abort startup instead of serving them without enforcement.
             manager.init().await?;
+            // Prove the orchestrator, Envoy, and sandboxes share the same socket
+            // storage before serving any sandbox. A cross-mount mismatch otherwise
+            // manifests only as a silent per-sandbox egress outage — and does so
+            // the moment the deployment moves to a differently-mounted environment.
+            manager.verify_socket_storage_consistency().await?;
             info!(
                 xds_mode = %self.config.envoy_xds_mode,
                 "EnvoyManager initialized"

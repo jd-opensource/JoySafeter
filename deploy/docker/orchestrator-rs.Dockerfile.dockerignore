@@ -2,12 +2,18 @@
 
 !proto/
 !proto/**
+!shared/
+!shared/rust/
+!shared/rust/joysafeter-entity-id/
+!shared/rust/joysafeter-entity-id/**
 !backend/
 !backend/app/
 !backend/app/joysafeter_orchestrator_rs/
 !backend/app/joysafeter_orchestrator_rs/**
 !backend/config/
 !backend/config/**
+!backend/contracts/
+!backend/contracts/**
 
 **/target/
 **/.git/

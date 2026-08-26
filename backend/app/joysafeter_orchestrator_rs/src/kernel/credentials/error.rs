@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::ids::CredentialId;
+use crate::ids::{CredentialId, ProjectId};
 
 #[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
 pub enum CredentialRuntimeError {
@@ -54,7 +54,7 @@ impl CredentialRuntimeError {
 
 #[derive(Debug, Clone, Copy)]
 pub struct BoundCredentialState<'a> {
-    pub project_id: &'a str,
+    pub project_id: &'a ProjectId,
     pub archived: bool,
     pub deleted: bool,
 }
@@ -66,16 +66,14 @@ pub fn require_bound_credential_id(
 }
 
 pub fn require_bound_project(
-    project_id: Option<&str>,
+    project_id: Option<ProjectId>,
     _credential_id: CredentialId,
-) -> Result<&str, CredentialRuntimeError> {
-    project_id
-        .filter(|project_id| !project_id.trim().is_empty())
-        .ok_or(CredentialRuntimeError::ProjectMismatch)
+) -> Result<ProjectId, CredentialRuntimeError> {
+    project_id.ok_or(CredentialRuntimeError::ProjectMismatch)
 }
 
 pub fn validate_bound_credential(
-    project_id: Option<&str>,
+    project_id: Option<ProjectId>,
     credential_id: CredentialId,
     state: Option<BoundCredentialState<'_>>,
 ) -> Result<(), CredentialRuntimeError> {
@@ -84,7 +82,7 @@ pub fn validate_bound_credential(
     if state.deleted {
         return Err(CredentialRuntimeError::NotFound);
     }
-    if state.project_id != project_id {
+    if *state.project_id != project_id {
         return Err(CredentialRuntimeError::ProjectMismatch);
     }
     if state.archived {

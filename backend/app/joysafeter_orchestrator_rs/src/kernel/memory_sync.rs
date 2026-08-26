@@ -6,6 +6,7 @@ use tracing::debug;
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage};
 use crate::ids::{MemoryStoreId, SandboxId, SessionId};
 use crate::kernel::ha::BridgeStore;
+#[cfg(test)]
 use crate::kernel::sandbox_bridge::BridgeRegistry;
 
 /// In-memory tracking of which sessions subscribe to which memory stores.

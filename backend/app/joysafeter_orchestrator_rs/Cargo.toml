@@ -13,6 +13,7 @@ name = "joysafeter-orchestrator"
 path = "src/main.rs"
 
 [dependencies]
+joysafeter-entity-id = { path = "../../../shared/rust/joysafeter-entity-id", features = ["sqlx"] }
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }

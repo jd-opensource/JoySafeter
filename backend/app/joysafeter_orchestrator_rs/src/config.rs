@@ -109,7 +109,8 @@ pub struct JoySafeterConfig {
     pub envoy_grpc_host: String,
     pub envoy_grpc_port: u16,
     pub envoy_container_name: String,
-    /// LDS transport: `"filesystem"` (default, `lds.json`) or `"grpc"` (Delta xDS).
+    /// LDS transport: `"grpc"` (default, Delta xDS) or explicit compatibility
+    /// mode `"filesystem"` (`lds.json`).
     pub envoy_xds_mode: String,
     /// Write per-sandbox non-secret debug entry files under Envoy config dir.
     /// Disabled by default because gRPC xDS recovery derives state from DB and
@@ -297,7 +298,7 @@ impl JoySafeterConfig {
             envoy_grpc_host: env_str("JOYSAFETER_ENVOY_GRPC_HOST", "host.docker.internal"),
             envoy_grpc_port: env_u16("JOYSAFETER_ENVOY_GRPC_PORT", 9090),
             envoy_container_name: env_str("JOYSAFETER_ENVOY_CONTAINER_NAME", "joysafeter-envoy"),
-            envoy_xds_mode: env_str("JOYSAFETER_ENVOY_XDS_MODE", "filesystem"),
+            envoy_xds_mode: env_str("JOYSAFETER_ENVOY_XDS_MODE", default_envoy_xds_mode()),
             envoy_write_debug_entries: env_bool("JOYSAFETER_ENVOY_WRITE_DEBUG_ENTRIES", false),
             envoy_socket_subpath_mount: env_bool("JOYSAFETER_ENVOY_SOCKET_SUBPATH_MOUNT", true),
             envoy_socket_ready_timeout_ms: env_u64(
@@ -409,6 +410,12 @@ impl JoySafeterConfig {
         if self.ha_mode == "multi" && self.redis_url.is_none() {
             anyhow::bail!("JOYSAFETER_HA_MODE=multi requires Redis. Set REDIS_URL or REDIS_HOST.");
         }
+        if !matches!(self.envoy_xds_mode.as_str(), "grpc" | "filesystem") {
+            anyhow::bail!(
+                "JOYSAFETER_ENVOY_XDS_MODE must be 'grpc' or 'filesystem', got {:?}",
+                self.envoy_xds_mode
+            );
+        }
         let uses_k8s_lease = self.leader_election_enabled
             || (self.ha_mode == "multi"
                 && matches!(self.sandbox_provider.as_str(), "k8s" | "kubernetes")
@@ -456,6 +463,10 @@ impl JoySafeterConfig {
             _ => Ok(self.sandbox_image.clone()),
         }
     }
+}
+
+fn default_envoy_xds_mode() -> &'static str {
+    "grpc"
 }
 
 fn ensure_distinct_host_dirs(
@@ -687,6 +698,7 @@ fn build_redis_url() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::build_database_url_from_values;
+    use super::default_envoy_xds_mode;
     use super::parse_env_list;
     use super::JoySafeterConfig;
 
@@ -818,6 +830,21 @@ mod tests {
             .validate()
             .expect_err("renew interval must be below lease duration");
         assert!(error.to_string().contains("RENEW_INTERVAL"));
+    }
+
+    #[test]
+    fn envoy_xds_defaults_to_grpc() {
+        assert_eq!(default_envoy_xds_mode(), "grpc");
+    }
+
+    #[test]
+    fn envoy_xds_mode_validation_accepts_only_supported_transports() {
+        let mut cfg = JoySafeterConfig::from_env();
+        cfg.envoy_xds_mode = "filesystem".to_string();
+        assert!(cfg.validate().is_ok());
+
+        cfg.envoy_xds_mode = "polling".to_string();
+        assert!(cfg.validate().is_err());
     }
 
     #[test]

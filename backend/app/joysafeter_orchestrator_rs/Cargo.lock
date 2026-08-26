@@ -49,6 +49,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "joysafeter-entity-id",
  "serde_json",
 ]
 
@@ -2178,6 +2179,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "joysafeter-entity-id"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "sqlx",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
 name = "joysafeter-orchestrator"
 version = "0.1.0"
 dependencies = [
@@ -2199,6 +2210,7 @@ dependencies = [
  "gethostname",
  "hex",
  "jd-agent-identity",
+ "joysafeter-entity-id",
  "k8s-openapi",
  "kube",
  "proc-macro2",

@@ -534,7 +534,7 @@ impl SandboxController {
                         debug!(
                             sandbox_id = %sandbox_id,
                             active_task_id = ?activity.active_task_id,
-                            session_id = ?activity.session_id,
+                            harness_session_id = ?activity.harness_session_id,
                             age_secs,
                             "Skipping idle reap because runner heartbeat reports busy runtime"
                         );

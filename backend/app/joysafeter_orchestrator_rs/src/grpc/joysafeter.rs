@@ -48,7 +48,7 @@ pub struct RunnerIdle {
     #[prost(string, optional, tag = "2")]
     pub work_dir: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "3")]
-    pub session_id: ::core::option::Option<::prost::alloc::string::String>,
+    pub harness_session_id: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RunnerHarnessEvent {
@@ -161,7 +161,7 @@ pub struct TaskNotificationEvent {
     #[prost(string, tag = "1")]
     pub phase: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub task_id: ::prost::alloc::string::String,
+    pub subagent_task_id: ::prost::alloc::string::String,
     #[prost(string, optional, tag = "3")]
     pub tool_use_id: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "4")]
@@ -195,7 +195,7 @@ pub struct RunnerHarnessResult {
     #[prost(string, optional, tag = "3")]
     pub error: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "4")]
-    pub session_id: ::core::option::Option<::prost::alloc::string::String>,
+    pub harness_session_id: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(message, optional, tag = "5")]
     pub usage: ::core::option::Option<TokenUsage>,
     #[prost(int64, tag = "6")]
@@ -243,7 +243,7 @@ pub struct RunnerHeartbeat {
     #[prost(string, optional, tag = "3")]
     pub active_task_id: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "4")]
-    pub session_id: ::core::option::Option<::prost::alloc::string::String>,
+    pub harness_session_id: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OrchestratorMessage {
@@ -382,8 +382,6 @@ pub struct SetupSandbox {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MemoryStoreMount {
-    #[prost(string, tag = "1")]
-    pub store_id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub mount_name: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
@@ -422,7 +420,7 @@ pub struct StartTask {
     #[prost(string, optional, tag = "4")]
     pub system_prompt: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "5")]
-    pub session_id: ::core::option::Option<::prost::alloc::string::String>,
+    pub harness_session_id: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "6")]
     pub model: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(uint32, optional, tag = "7")]

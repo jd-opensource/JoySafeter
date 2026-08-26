@@ -11,7 +11,7 @@
 use serde_json::Value;
 use sqlx::PgPool;
 
-use crate::ids::{EnvironmentId, SessionId};
+use crate::ids::{EnvironmentId, ProjectId, SessionId};
 use crate::kernel::runtime_freshness::RuntimeFreshnessError;
 
 /// A live environment row loaded under the strict binding rules.
@@ -22,60 +22,40 @@ pub struct EnvironmentBinding {
     pub archived_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-/// Split the environment references that govern a run into the explicit
-/// (session-bound, hard-fail) reference and the effective reference actually
-/// used to load the environment.
+/// Resolve the authoritative environment ID for a run.
 ///
-/// Precedence: an explicit session binding wins and is a hard requirement; the
-/// snapshot reference is preferred over the agent default for the soft
-/// fallback.
-pub fn environment_binding_refs(
-    session_ref: Option<&str>,
-    snapshot_ref: Option<&str>,
-    agent_ref: Option<&str>,
-) -> (Option<String>, Option<String>) {
-    let normalize = |value: Option<&str>| {
-        value
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned)
-    };
-    let explicit = normalize(session_ref);
-    let fallback = normalize(snapshot_ref).or_else(|| normalize(agent_ref));
-    let effective = explicit.clone().or(fallback);
-    (explicit, effective)
+/// A persisted session owns its environment binding, including an explicit
+/// absence of a binding. The live agent is consulted only before a session
+/// exists.
+pub fn environment_binding_ids(
+    session_environment_id: Option<EnvironmentId>,
+    agent_environment_id: Option<EnvironmentId>,
+    session_id: Option<SessionId>,
+) -> (bool, Option<EnvironmentId>) {
+    if session_id.is_some() {
+        (session_environment_id.is_some(), session_environment_id)
+    } else {
+        (false, agent_environment_id)
+    }
 }
 
-/// Load a live environment by public id or name under the strict rules: not
+/// Load a live environment by typed ID under the strict rules: not
 /// deleted and never cross-project (`IS NOT DISTINCT FROM` so a NULL-project
 /// row only matches a NULL project scope). `archived_at` is returned rather
 /// than filtered in SQL so callers can distinguish archived from missing.
 pub async fn load_environment_strict(
     pool: &PgPool,
-    env_ref: &str,
-    project_id: Option<&str>,
+    environment_id: EnvironmentId,
+    project_id: Option<ProjectId>,
 ) -> Result<Option<EnvironmentBinding>, sqlx::Error> {
-    if let Ok(env_id) = EnvironmentId::from_public(env_ref) {
-        return sqlx::query_as::<_, EnvironmentBinding>(
-            r#"
-            SELECT config, image_tag, archived_at FROM joysafeter_environments
-            WHERE id = $1 AND deleted_at IS NULL
-              AND project_id IS NOT DISTINCT FROM $2
-            "#,
-        )
-        .bind(env_id)
-        .bind(project_id)
-        .fetch_optional(pool)
-        .await;
-    }
     sqlx::query_as::<_, EnvironmentBinding>(
         r#"
         SELECT config, image_tag, archived_at FROM joysafeter_environments
-        WHERE name = $1 AND deleted_at IS NULL
+        WHERE id = $1 AND deleted_at IS NULL
           AND project_id IS NOT DISTINCT FROM $2
         "#,
     )
-    .bind(env_ref)
+    .bind(environment_id)
     .bind(project_id)
     .fetch_optional(pool)
     .await
@@ -83,30 +63,30 @@ pub async fn load_environment_strict(
 
 /// Resolve and validate the live environment binding for a run.
 ///
-/// * `Ok(Some(_))` — the effective reference resolved to a non-archived,
+/// * `Ok(Some(_))` — the effective ID resolved to a non-archived,
 ///   same-project environment.
-/// * `Ok(None)` — there is no reference, or only a soft (snapshot/agent)
-///   fallback reference that does not resolve.
+/// * `Ok(None)` — there is no binding, or an unbound agent environment is no
+///   longer live before session creation.
 /// * `Err(SessionBindingInvalid)` — an explicit session binding is missing,
 ///   archived, or cross-project. The run must not proceed against it, and the
 ///   resolver must not provision a sandbox the harness would reject.
 pub async fn resolve_live_environment_binding(
     pool: &PgPool,
-    session_ref: Option<&str>,
-    snapshot_ref: Option<&str>,
-    agent_ref: Option<&str>,
-    project_id: Option<&str>,
+    session_environment_id: Option<EnvironmentId>,
+    agent_environment_id: Option<EnvironmentId>,
+    project_id: Option<ProjectId>,
     session_id: Option<SessionId>,
 ) -> Result<Option<EnvironmentBinding>, RuntimeFreshnessError> {
-    let (explicit, effective) = environment_binding_refs(session_ref, snapshot_ref, agent_ref);
-    let Some(env_ref) = effective else {
+    let (explicit, effective) =
+        environment_binding_ids(session_environment_id, agent_environment_id, session_id);
+    let Some(environment_id) = effective else {
         return Ok(None);
     };
-    let environment = load_environment_strict(pool, &env_ref, project_id).await?;
+    let environment = load_environment_strict(pool, environment_id, project_id).await?;
     match environment.filter(|environment| environment.archived_at.is_none()) {
         Some(environment) => Ok(Some(environment)),
         None => {
-            if explicit.is_some() {
+            if explicit {
                 Err(RuntimeFreshnessError::SessionBindingInvalid {
                     session_id: session_id
                         .expect("explicit environment binding requires a session"),
@@ -121,43 +101,43 @@ pub async fn resolve_live_environment_binding(
 
 #[cfg(test)]
 mod tests {
-    use super::environment_binding_refs;
+    use super::environment_binding_ids;
+    use crate::ids::{EnvironmentId, SessionId};
 
     #[test]
-    fn explicit_session_ref_is_hard_requirement_and_wins() {
+    fn session_environment_id_is_authoritative() {
+        let session_id = SessionId::new();
+        let session_environment_id = EnvironmentId::new();
+        let agent_environment_id = EnvironmentId::new();
+        let (explicit, effective) = environment_binding_ids(
+            Some(session_environment_id),
+            Some(agent_environment_id),
+            Some(session_id),
+        );
+        assert!(explicit);
+        assert_eq!(effective, Some(session_environment_id));
+    }
+
+    #[test]
+    fn session_without_environment_does_not_fall_back_to_agent() {
         let (explicit, effective) =
-            environment_binding_refs(Some("env_session"), Some("env_snapshot"), Some("env_agent"));
-        assert_eq!(explicit.as_deref(), Some("env_session"));
-        assert_eq!(effective.as_deref(), Some("env_session"));
+            environment_binding_ids(None, Some(EnvironmentId::new()), Some(SessionId::new()));
+        assert!(!explicit);
+        assert_eq!(effective, None);
     }
 
     #[test]
-    fn snapshot_ref_preferred_over_agent_for_fallback() {
-        let (explicit, effective) =
-            environment_binding_refs(None, Some("env_snapshot"), Some("env_agent"));
-        assert_eq!(explicit, None);
-        assert_eq!(effective.as_deref(), Some("env_snapshot"));
+    fn agent_environment_id_is_used_before_session_creation() {
+        let agent_environment_id = EnvironmentId::new();
+        let (explicit, effective) = environment_binding_ids(None, Some(agent_environment_id), None);
+        assert!(!explicit);
+        assert_eq!(effective, Some(agent_environment_id));
     }
 
     #[test]
-    fn agent_ref_is_last_resort_fallback() {
-        let (explicit, effective) = environment_binding_refs(None, None, Some("env_agent"));
-        assert_eq!(explicit, None);
-        assert_eq!(effective.as_deref(), Some("env_agent"));
-    }
-
-    #[test]
-    fn blank_refs_are_ignored() {
-        let (explicit, effective) =
-            environment_binding_refs(Some("  "), Some(""), Some("env_agent"));
-        assert_eq!(explicit, None);
-        assert_eq!(effective.as_deref(), Some("env_agent"));
-    }
-
-    #[test]
-    fn no_refs_yield_none() {
-        let (explicit, effective) = environment_binding_refs(None, None, None);
-        assert_eq!(explicit, None);
+    fn no_ids_yield_none() {
+        let (explicit, effective) = environment_binding_ids(None, None, None);
+        assert!(!explicit);
         assert_eq!(effective, None);
     }
 }

@@ -5,7 +5,8 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use joysafeter_orchestrator::db::queries;
 use joysafeter_orchestrator::ids::{
-    AgentId, CredentialGroupId, CredentialId, EnvironmentId, SandboxId, SessionId, TaskId,
+    AgentId, CredentialAccessAuditId, CredentialGroupId, CredentialId, EnvironmentId,
+    OrganizationId, ProjectId, SandboxId, SessionId, TaskId,
 };
 use joysafeter_orchestrator::kernel;
 use joysafeter_orchestrator::kernel::credentials::access::{
@@ -21,7 +22,6 @@ use joysafeter_orchestrator::kernel::credentials::error::{
 use joysafeter_orchestrator::kernel::credentials::material::ManagedCredentialMaterialAdapter;
 use joysafeter_orchestrator::kernel::credentials::mcp::resolve_mcp_members;
 use joysafeter_orchestrator::kernel::credentials::model::resolve_model_credential;
-use joysafeter_orchestrator::kernel::credentials::record::ProjectId;
 use joysafeter_orchestrator::kernel::credentials::service::{
     resolve_service_credential, ResolvedServiceCredential, ServiceUsage,
 };
@@ -99,8 +99,8 @@ fn test_store(pool: PgPool) -> CredentialStore {
     )
 }
 
-async fn insert_project(pool: &PgPool, unique: &str, project_id: &str) -> String {
-    let organization_id = format!("org-task10-{unique}");
+async fn insert_project(pool: &PgPool, unique: &str, project_id: &ProjectId) -> OrganizationId {
+    let organization_id = OrganizationId::new();
     sqlx::query(
         r#"
         INSERT INTO joysafeter_organizations
@@ -132,7 +132,7 @@ async fn insert_project(pool: &PgPool, unique: &str, project_id: &str) -> String
     organization_id
 }
 
-async fn insert_agent(pool: &PgPool, agent_id: AgentId, project_id: &str) {
+async fn insert_agent(pool: &PgPool, agent_id: AgentId, project_id: &ProjectId) {
     sqlx::query(
         r#"
         INSERT INTO joysafeter_agents (
@@ -154,7 +154,12 @@ async fn insert_agent(pool: &PgPool, agent_id: AgentId, project_id: &str) {
     .expect("insert agent fixture");
 }
 
-async fn insert_session(pool: &PgPool, session_id: SessionId, agent_id: AgentId, project_id: &str) {
+async fn insert_session(
+    pool: &PgPool,
+    session_id: SessionId,
+    agent_id: AgentId,
+    project_id: &ProjectId,
+) {
     sqlx::query(
         r#"
         INSERT INTO joysafeter_sessions (id, agent_id, project_id, status)
@@ -172,7 +177,7 @@ async fn insert_session(pool: &PgPool, session_id: SessionId, agent_id: AgentId,
 async fn insert_environment(
     pool: &PgPool,
     environment_id: EnvironmentId,
-    project_id: &str,
+    project_id: &ProjectId,
     name: &str,
     archived: bool,
 ) {
@@ -195,7 +200,7 @@ async fn insert_environment(
 
 struct CredentialFixture<'a> {
     id: CredentialId,
-    project_id: &'a str,
+    project_id: &'a ProjectId,
     kind: &'a str,
     provider: Option<&'a str>,
     protocol: Option<&'a str>,
@@ -246,7 +251,7 @@ async fn insert_credential(pool: &PgPool, fixture: CredentialFixture<'_>) {
 async fn insert_group(
     pool: &PgPool,
     group_id: CredentialGroupId,
-    project_id: &str,
+    project_id: &ProjectId,
     archived: bool,
     deleted: bool,
 ) {
@@ -291,7 +296,7 @@ async fn cleanup(
     session_ids: &[SessionId],
     credential_ids: &[CredentialId],
     group_ids: &[CredentialGroupId],
-    projects: &[(&str, &str)],
+    projects: &[(&ProjectId, &OrganizationId)],
 ) {
     for session_id in session_ids {
         let _ =
@@ -409,7 +414,7 @@ async fn new_sandbox_creation_starts_runtime_configuration_ready() {
 async fn session_bound_sandbox_insert_requires_captured_generation() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_id = format!("proj-task3c-{unique}");
+    let project_id = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_id).await;
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
     let session_id = SessionId::from_uuid(Uuid::now_v7());
@@ -429,7 +434,7 @@ async fn session_bound_sandbox_insert_requires_captured_generation() {
         "test",
         "joysafeter/task-3c:latest",
         session_id,
-        Some(&project_id),
+        Some(project_id),
         None,
         Some(&json!({})),
         6,
@@ -455,7 +460,7 @@ async fn session_bound_sandbox_insert_requires_captured_generation() {
         "test",
         "joysafeter/task-3c:latest",
         session_id,
-        Some(&project_id),
+        Some(project_id),
         None,
         Some(&json!({})),
         7,
@@ -480,7 +485,7 @@ async fn session_bound_sandbox_insert_requires_captured_generation() {
 async fn task_attach_rejects_generation_change_after_resolution() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_id = format!("proj-task3c-attach-{unique}");
+    let project_id = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_id).await;
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
     let session_id = SessionId::from_uuid(Uuid::now_v7());
@@ -500,7 +505,7 @@ async fn task_attach_rejects_generation_change_after_resolution() {
         "test",
         "joysafeter/task-3c:latest",
         session_id,
-        Some(&project_id),
+        Some(project_id),
         None,
         Some(&json!({})),
         8,
@@ -529,7 +534,7 @@ async fn task_attach_rejects_generation_change_after_resolution() {
         task_id,
         sandbox_id,
         session_id,
-        Some(&project_id),
+        Some(project_id),
         7,
     )
     .await;
@@ -636,7 +641,7 @@ async fn pool_reservation_is_freshness_neutral() {
 async fn guarded_stopped_restart_rejects_generation_mismatch_without_writing() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_id = format!("proj-task3c-stopped-mismatch-{unique}");
+    let project_id = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_id).await;
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
     let session_id = SessionId::from_uuid(Uuid::now_v7());
@@ -658,7 +663,7 @@ async fn guarded_stopped_restart_rejects_generation_mismatch_without_writing() {
         "test",
         "joysafeter/task-3-stopped:latest",
         Some(session_id),
-        Some(&project_id),
+        Some(project_id),
         None,
         Some(&config),
     )
@@ -686,7 +691,7 @@ async fn guarded_stopped_restart_rejects_generation_mismatch_without_writing() {
         sandbox_id,
         &external_id,
         session_id,
-        Some(&project_id),
+        Some(project_id),
         8,
     )
     .await;
@@ -717,8 +722,8 @@ async fn guarded_stopped_restart_rejects_generation_mismatch_without_writing() {
 async fn guarded_stopped_restart_rejects_inactive_or_cross_project_session_without_writing() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_id = format!("proj-task3c-stopped-validation-{unique}");
-    let other_project_id = format!("proj-task3c-stopped-validation-other-{unique}");
+    let project_id = ProjectId::new();
+    let other_project_id = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_id).await;
     let other_organization_id =
         insert_project(&pool, &format!("{unique}-other"), &other_project_id).await;
@@ -740,7 +745,7 @@ async fn guarded_stopped_restart_rejects_inactive_or_cross_project_session_witho
         "test",
         "joysafeter/task-3c-stopped-validation:latest",
         Some(session_id),
-        Some(&project_id),
+        Some(project_id),
         None,
         Some(&json!({})),
     )
@@ -758,7 +763,7 @@ async fn guarded_stopped_restart_rejects_inactive_or_cross_project_session_witho
         sandbox_id,
         &external_id,
         session_id,
-        Some(&other_project_id),
+        Some(other_project_id),
         10,
     )
     .await;
@@ -780,7 +785,7 @@ async fn guarded_stopped_restart_rejects_inactive_or_cross_project_session_witho
         sandbox_id,
         &external_id,
         session_id,
-        Some(&project_id),
+        Some(project_id),
         10,
     )
     .await;
@@ -815,7 +820,7 @@ async fn guarded_stopped_restart_rejects_inactive_or_cross_project_session_witho
 async fn stopped_restart_compensation_restores_exact_runtime_configuration() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_id = format!("proj-task3c-stopped-restore-{unique}");
+    let project_id = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_id).await;
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
     let session_id = SessionId::from_uuid(Uuid::now_v7());
@@ -840,7 +845,7 @@ async fn stopped_restart_compensation_restores_exact_runtime_configuration() {
         "test",
         "joysafeter/task-3-stopped-restore:latest",
         Some(session_id),
-        Some(&project_id),
+        Some(project_id),
         None,
         Some(&config),
     )
@@ -868,7 +873,7 @@ async fn stopped_restart_compensation_restores_exact_runtime_configuration() {
         sandbox_id,
         &external_id,
         session_id,
-        Some(&project_id),
+        Some(project_id),
         12,
     )
     .await
@@ -924,7 +929,7 @@ async fn stopped_restart_compensation_restores_exact_runtime_configuration() {
 async fn stopped_restart_compensation_does_not_clobber_newer_applied_generation() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_id = format!("proj-task3c-stopped-no-clobber-{unique}");
+    let project_id = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_id).await;
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
     let session_id = SessionId::from_uuid(Uuid::now_v7());
@@ -946,7 +951,7 @@ async fn stopped_restart_compensation_does_not_clobber_newer_applied_generation(
         "test",
         "joysafeter/task-3-stopped-no-clobber:latest",
         Some(session_id),
-        Some(&project_id),
+        Some(project_id),
         None,
         Some(&config),
     )
@@ -973,7 +978,7 @@ async fn stopped_restart_compensation_does_not_clobber_newer_applied_generation(
         sandbox_id,
         &external_id,
         session_id,
-        Some(&project_id),
+        Some(project_id),
         20,
     )
     .await
@@ -1040,7 +1045,7 @@ async fn guarded_pool_activation_attaches_complete_freshness_state_and_cleanup_c
 {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_id = format!("proj-task3c-pool-activation-{unique}");
+    let project_id = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_id).await;
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
     let session_id = SessionId::from_uuid(Uuid::now_v7());
@@ -1087,7 +1092,7 @@ async fn guarded_pool_activation_attaches_complete_freshness_state_and_cleanup_c
         sandbox_id,
         &external_id,
         session_id,
-        Some(&project_id),
+        Some(project_id),
         &fingerprint,
         31,
     )
@@ -1096,7 +1101,7 @@ async fn guarded_pool_activation_attaches_complete_freshness_state_and_cleanup_c
     let attached: (
         String,
         Option<SessionId>,
-        Option<String>,
+        Option<ProjectId>,
         Value,
         String,
         Option<String>,
@@ -1120,7 +1125,7 @@ async fn guarded_pool_activation_attaches_complete_freshness_state_and_cleanup_c
         (
             "provisioning".to_string(),
             Some(session_id),
-            Some(project_id.clone()),
+            Some(project_id),
             fingerprint,
             "ready".to_string(),
             None,
@@ -1218,7 +1223,7 @@ async fn guarded_pool_activation_attaches_complete_freshness_state_and_cleanup_c
 async fn guarded_pool_activation_waits_for_session_before_locking_sandbox() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_id = format!("proj-task3c-pool-mutation-first-{unique}");
+    let project_id = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_id).await;
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
     let session_id = SessionId::from_uuid(Uuid::now_v7());
@@ -1271,7 +1276,7 @@ async fn guarded_pool_activation_waits_for_session_before_locking_sandbox() {
             sandbox_id,
             &external_for_writer,
             session_id,
-            Some(&project_for_writer),
+            Some(project_for_writer),
             &json!({"image": "guarded"}),
             51,
         )
@@ -1334,7 +1339,7 @@ async fn guarded_pool_activation_waits_for_session_before_locking_sandbox() {
 async fn guarded_stopped_restart_holds_session_lock_while_waiting_for_sandbox() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_id = format!("proj-task3c-stopped-writer-first-{unique}");
+    let project_id = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_id).await;
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
     let session_id = SessionId::from_uuid(Uuid::now_v7());
@@ -1354,7 +1359,7 @@ async fn guarded_stopped_restart_holds_session_lock_while_waiting_for_sandbox() 
         "test",
         "joysafeter/task-3c-stopped-writer-first:latest",
         Some(session_id),
-        Some(&project_id),
+        Some(project_id),
         None,
         Some(&json!({})),
     )
@@ -1392,7 +1397,7 @@ async fn guarded_stopped_restart_holds_session_lock_while_waiting_for_sandbox() 
             sandbox_id,
             &external_for_writer,
             session_id,
-            Some(&project_for_writer),
+            Some(project_for_writer),
             61,
         )
         .await
@@ -1490,9 +1495,9 @@ async fn ordinary_running_idle_transitions_preserve_restart_required_runtime_con
 async fn store_and_usage_resolvers_cover_model_and_service_happy_paths() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_raw = format!("proj-task10-{unique}");
+    let project_raw = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_raw).await;
-    let project_id = ProjectId::parse(&project_raw).expect("valid project id");
+    let project_id = project_raw;
     let model_id = CredentialId::from_uuid(Uuid::now_v7());
     let service_id = CredentialId::from_uuid(Uuid::now_v7());
 
@@ -1587,11 +1592,11 @@ async fn store_and_usage_resolvers_cover_model_and_service_happy_paths() {
 async fn persisted_broken_bindings_fail_closed_while_only_absence_is_not_bound() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_a_raw = format!("proj-task10-{unique}-a");
-    let project_b_raw = format!("proj-task10-{unique}-b");
+    let project_a_raw = ProjectId::new();
+    let project_b_raw = ProjectId::new();
     let org_a = insert_project(&pool, &format!("{unique}-a"), &project_a_raw).await;
     let org_b = insert_project(&pool, &format!("{unique}-b"), &project_b_raw).await;
-    let project_a = ProjectId::parse(&project_a_raw).expect("valid project id");
+    let project_a = project_a_raw;
     let archived_id = CredentialId::from_uuid(Uuid::now_v7());
     let deleted_id = CredentialId::from_uuid(Uuid::now_v7());
     let cross_project_id = CredentialId::from_uuid(Uuid::now_v7());
@@ -1602,42 +1607,36 @@ async fn persisted_broken_bindings_fail_closed_while_only_absence_is_not_bound()
     for (id, project_id, data, archived, deleted) in [
         (
             archived_id,
-            project_a_raw.as_str(),
+            &project_a_raw,
             json!({"ANTHROPIC_API_KEY": ENCRYPTED_HELLO_WORLD}),
             true,
             false,
         ),
         (
             deleted_id,
-            project_a_raw.as_str(),
+            &project_a_raw,
             json!({"ANTHROPIC_API_KEY": ENCRYPTED_HELLO_WORLD}),
             false,
             true,
         ),
         (
             cross_project_id,
-            project_b_raw.as_str(),
+            &project_b_raw,
             json!({"ANTHROPIC_API_KEY": ENCRYPTED_HELLO_WORLD}),
             false,
             false,
         ),
-        (
-            missing_field_id,
-            project_a_raw.as_str(),
-            json!({}),
-            false,
-            false,
-        ),
+        (missing_field_id, &project_a_raw, json!({}), false, false),
         (
             malformed_material_id,
-            project_a_raw.as_str(),
+            &project_a_raw,
             json!([ENCRYPTED_HELLO_WORLD]),
             false,
             false,
         ),
         (
             malformed_envelope_id,
-            project_a_raw.as_str(),
+            &project_a_raw,
             json!({"ANTHROPIC_API_KEY": "enc:v1:not-base64"}),
             false,
             false,
@@ -1736,11 +1735,11 @@ async fn persisted_broken_bindings_fail_closed_while_only_absence_is_not_bound()
 async fn session_mcp_members_prove_project_and_state_and_fail_as_one_usage() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_a_raw = format!("proj-task10-{unique}-a");
-    let project_b_raw = format!("proj-task10-{unique}-b");
+    let project_a_raw = ProjectId::new();
+    let project_b_raw = ProjectId::new();
     let org_a = insert_project(&pool, &format!("{unique}-a"), &project_a_raw).await;
     let org_b = insert_project(&pool, &format!("{unique}-b"), &project_b_raw).await;
-    let project_a = ProjectId::parse(&project_a_raw).expect("valid project id");
+    let project_a = project_a_raw;
     let agent_a = AgentId::from_uuid(Uuid::now_v7());
     let agent_b = AgentId::from_uuid(Uuid::now_v7());
     let session_a = SessionId::from_uuid(Uuid::now_v7());
@@ -1764,7 +1763,7 @@ async fn session_mcp_members_prove_project_and_state_and_fail_as_one_usage() {
         (
             bearer_id,
             group_a,
-            project_a_raw.as_str(),
+            &project_a_raw,
             "https://mcp-a.example/api",
             "static_bearer",
             ENCRYPTED_HELLO_WORLD,
@@ -1772,7 +1771,7 @@ async fn session_mcp_members_prove_project_and_state_and_fail_as_one_usage() {
         (
             corrupt_id,
             group_a,
-            project_a_raw.as_str(),
+            &project_a_raw,
             "https://mcp-b.example/api",
             "static_bearer",
             "enc:v1:not-base64",
@@ -1780,7 +1779,7 @@ async fn session_mcp_members_prove_project_and_state_and_fail_as_one_usage() {
         (
             unknown_scheme_id,
             group_b,
-            project_b_raw.as_str(),
+            &project_b_raw,
             "https://mcp-c.example/api",
             "future_scheme",
             ENCRYPTED_HELLO_WORLD,
@@ -1864,10 +1863,7 @@ async fn session_mcp_members_prove_project_and_state_and_fail_as_one_usage() {
     );
     assert_eq!(
         store
-            .load_session_mcp_members(
-                &ProjectId::parse(&project_b_raw).expect("valid project id"),
-                session_b,
-            )
+            .load_session_mcp_members(&project_b_raw, session_b,)
             .await
             .unwrap_err(),
         CredentialRuntimeError::CorruptRecord
@@ -1879,10 +1875,7 @@ async fn session_mcp_members_prove_project_and_state_and_fail_as_one_usage() {
         .expect("set known disabled MCP scheme");
     assert_eq!(
         store
-            .load_session_mcp_members(
-                &ProjectId::parse(&project_b_raw).expect("valid project id"),
-                session_b,
-            )
+            .load_session_mcp_members(&project_b_raw, session_b,)
             .await
             .unwrap_err(),
         CredentialRuntimeError::UnsupportedScheme
@@ -1944,12 +1937,111 @@ async fn session_mcp_members_prove_project_and_state_and_fail_as_one_usage() {
 }
 
 #[tokio::test]
+async fn mcp_member_material_selection_preserves_scheme_specific_fields() {
+    let pool = test_pool().await;
+    let unique = Uuid::now_v7().simple().to_string();
+    let project_id = ProjectId::new();
+    let organization_id = insert_project(&pool, &unique, &project_id).await;
+    let agent_id = AgentId::new();
+    let session_id = SessionId::new();
+    let group_id = CredentialGroupId::new();
+    let custom_header_id = CredentialId::new();
+    let api_key_id = CredentialId::new();
+
+    insert_agent(&pool, agent_id, &project_id).await;
+    insert_session(&pool, session_id, agent_id, &project_id).await;
+    insert_group(&pool, group_id, &project_id, false, false).await;
+    bind_group(&pool, session_id, group_id).await;
+
+    insert_credential(
+        &pool,
+        CredentialFixture {
+            id: custom_header_id,
+            project_id: &project_id,
+            kind: "mcp",
+            provider: None,
+            protocol: None,
+            data: json!({
+                "token_value": ENCRYPTED_HELLO_WORLD,
+                "header_name": ENCRYPTED_HELLO_WORLD,
+                "value_prefix": ENCRYPTED_HELLO_WORLD,
+                "unrelated": "invalid-envelope",
+            }),
+            group_id: Some(group_id),
+            server_url: Some("https://custom-header.example/mcp"),
+            scheme: Some("custom_header"),
+            archived: false,
+            deleted: false,
+        },
+    )
+    .await;
+    insert_credential(
+        &pool,
+        CredentialFixture {
+            id: api_key_id,
+            project_id: &project_id,
+            kind: "mcp",
+            provider: None,
+            protocol: None,
+            data: json!({
+                "token_value": ENCRYPTED_HELLO_WORLD,
+                "header_name": ENCRYPTED_HELLO_WORLD,
+                "unrelated": "invalid-envelope",
+            }),
+            group_id: Some(group_id),
+            server_url: Some("https://api-key.example/mcp"),
+            scheme: Some("header_api_key"),
+            archived: false,
+            deleted: false,
+        },
+    )
+    .await;
+    let store = test_store(pool.clone());
+    store
+        .load_session_mcp_member_metadata(&project_id, session_id)
+        .await
+        .expect("load scheme-specific MCP metadata");
+    let members = store
+        .load_session_mcp_members(&project_id, session_id)
+        .await
+        .expect("load scheme-specific MCP material");
+    let resolved = resolve_mcp_members(&members).expect("resolve scheme-specific MCP headers");
+
+    let custom_header = resolved
+        .iter()
+        .find(|credential| credential.auth_scheme == "custom_header")
+        .expect("custom header credential");
+    assert_eq!(custom_header.injection.header_name, "hello-world");
+    assert_eq!(
+        custom_header.injection.header_value,
+        "hello-worldhello-world"
+    );
+
+    let api_key = resolved
+        .iter()
+        .find(|credential| credential.auth_scheme == "header_api_key")
+        .expect("header API key credential");
+    assert_eq!(api_key.injection.header_name, "hello-world");
+    assert_eq!(api_key.injection.header_value, "hello-world");
+
+    cleanup(
+        &pool,
+        &[agent_id],
+        &[session_id],
+        &[custom_header_id, api_key_id],
+        &[group_id],
+        &[(&project_id, &organization_id)],
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn mcp_urls_are_canonical_unique_and_stably_ordered() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_raw = format!("proj-task10-{unique}");
+    let project_raw = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_raw).await;
-    let project_id = ProjectId::parse(&project_raw).expect("valid project id");
+    let project_id = project_raw;
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
     let session_id = SessionId::from_uuid(Uuid::now_v7());
     insert_agent(&pool, agent_id, &project_raw).await;
@@ -2106,7 +2198,8 @@ async fn credential_access_audit_deduplicates_success_and_preserves_failures() {
     let session_id = SessionId::from_uuid(Uuid::now_v7());
     let task_id = TaskId::from_uuid(Uuid::now_v7());
     let entry = CredentialAccessAuditEntry {
-        project_id: ProjectId::parse("project-a").unwrap(),
+        id: CredentialAccessAuditId::new(),
+        project_id: ProjectId::from_uuid(Uuid::from_u128(1)),
         credential_id,
         credential_kind:
             joysafeter_orchestrator::kernel::credentials::record::CredentialKind::Service,
@@ -2125,16 +2218,33 @@ async fn credential_access_audit_deduplicates_success_and_preserves_failures() {
     assert!(!writer.append_success(&entry).await.unwrap());
 
     let next_generation = CredentialAccessAuditEntry {
+        id: CredentialAccessAuditId::new(),
         generation: Some(8),
         ..entry.clone()
     };
     assert!(writer.append_success(&next_generation).await.unwrap());
+    let first_failure = CredentialAccessAuditEntry {
+        id: CredentialAccessAuditId::new(),
+        ..entry.clone()
+    };
     assert!(writer
-        .append_failure(&entry, CredentialAccessFailure::Failed, "envelope_invalid")
+        .append_failure(
+            &first_failure,
+            CredentialAccessFailure::Failed,
+            "envelope_invalid",
+        )
         .await
         .unwrap());
+    let second_failure = CredentialAccessAuditEntry {
+        id: CredentialAccessAuditId::new(),
+        ..entry.clone()
+    };
     assert!(writer
-        .append_failure(&entry, CredentialAccessFailure::Failed, "envelope_invalid")
+        .append_failure(
+            &second_failure,
+            CredentialAccessFailure::Failed,
+            "envelope_invalid",
+        )
         .await
         .unwrap());
 
@@ -2178,9 +2288,9 @@ async fn credential_access_audit_deduplicates_success_and_preserves_failures() {
 async fn credential_material_access_audits_success_and_ciphertext_failure_without_values() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_raw = format!("proj-access-{unique}");
+    let project_raw = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_raw).await;
-    let project_id = ProjectId::parse(&project_raw).expect("valid project id");
+    let project_id = project_raw;
     let model_id = CredentialId::from_uuid(Uuid::now_v7());
     let metadata_only_model_id = CredentialId::from_uuid(Uuid::now_v7());
     let model_name_only_id = CredentialId::from_uuid(Uuid::now_v7());
@@ -2422,23 +2532,22 @@ async fn credential_material_access_audits_success_and_ciphertext_failure_withou
 
 /// Regression: the sandbox resolver and the harness must agree on which
 /// environment bindings are valid. Both now route through
-/// `resolve_live_environment_binding`, so an explicit (session) binding that is
+/// `resolve_live_environment_binding`, so an explicit session binding that is
 /// archived or cross-project fails closed with `SessionBindingInvalid` before a
-/// sandbox is ever provisioned, while a soft (agent/snapshot) fallback that no
-/// longer resolves is not a hard error.
+/// sandbox is ever provisioned. A persisted session with no environment does
+/// not inherit a later agent environment.
 #[tokio::test]
-async fn resolve_live_environment_binding_rejects_archived_or_cross_project_explicit_ref() {
+async fn resolve_live_environment_binding_rejects_invalid_session_environment_id() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_id = format!("proj-envbind-{unique}");
-    let other_project_id = format!("proj-envbind-other-{unique}");
+    let project_id = ProjectId::new();
+    let other_project_id = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_id).await;
     let other_organization_id =
         insert_project(&pool, &format!("{unique}-other"), &other_project_id).await;
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
     let session_id = SessionId::from_uuid(Uuid::now_v7());
     let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
-    let environment_ref = environment_id.to_string();
     insert_agent(&pool, agent_id, &project_id).await;
     insert_session(&pool, session_id, agent_id, &project_id).await;
     insert_environment(
@@ -2453,10 +2562,9 @@ async fn resolve_live_environment_binding_rejects_archived_or_cross_project_expl
     // Valid, same-project, non-archived explicit binding resolves.
     let resolved = kernel::environment_binding::resolve_live_environment_binding(
         &pool,
-        Some(&environment_ref),
+        Some(environment_id),
         None,
-        None,
-        Some(&project_id),
+        Some(project_id),
         Some(session_id),
     )
     .await;
@@ -2468,10 +2576,9 @@ async fn resolve_live_environment_binding_rejects_archived_or_cross_project_expl
     // Cross-project explicit binding fails closed (before any provisioning).
     let cross_project = kernel::environment_binding::resolve_live_environment_binding(
         &pool,
-        Some(&environment_ref),
+        Some(environment_id),
         None,
-        None,
-        Some(&other_project_id),
+        Some(other_project_id),
         Some(session_id),
     )
     .await;
@@ -2491,10 +2598,9 @@ async fn resolve_live_environment_binding_rejects_archived_or_cross_project_expl
         .expect("archive environment fixture");
     let archived = kernel::environment_binding::resolve_live_environment_binding(
         &pool,
-        Some(&environment_ref),
+        Some(environment_id),
         None,
-        None,
-        Some(&project_id),
+        Some(project_id),
         Some(session_id),
     )
     .await;
@@ -2506,20 +2612,19 @@ async fn resolve_live_environment_binding_rejects_archived_or_cross_project_expl
         "archived explicit binding must fail closed, got {archived:?}"
     );
 
-    // A soft (agent/snapshot) fallback that no longer resolves is not a hard
-    // error — only an explicit session binding blocks the run.
-    let soft_fallback = kernel::environment_binding::resolve_live_environment_binding(
+    // A persisted session with no environment does not inherit the agent's
+    // archived environment binding.
+    let unbound_session = kernel::environment_binding::resolve_live_environment_binding(
         &pool,
         None,
-        None,
-        Some(&environment_ref),
-        Some(&project_id),
+        Some(environment_id),
+        Some(project_id),
         Some(session_id),
     )
     .await;
     assert!(
-        matches!(soft_fallback, Ok(None)),
-        "archived soft fallback must be Ok(None), got {soft_fallback:?}"
+        matches!(unbound_session, Ok(None)),
+        "unbound session must not inherit agent environment, got {unbound_session:?}"
     );
 
     let _ = sqlx::query("DELETE FROM joysafeter_environments WHERE id = $1")

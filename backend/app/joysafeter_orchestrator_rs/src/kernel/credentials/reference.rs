@@ -12,33 +12,12 @@ const CREDENTIAL_FIELD_MAX_LENGTH: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnapshotSchema {
-    LegacyV0,
-    V1,
     V2,
 }
 
 impl SnapshotSchema {
     fn metric_label(self) -> &'static str {
-        match self {
-            Self::LegacyV0 => "legacy_v0",
-            Self::V1 => "v1",
-            Self::V2 => "v2",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EncodeVersion {
-    V1,
-    V2,
-}
-
-impl EncodeVersion {
-    fn label(self) -> &'static str {
-        match self {
-            Self::V1 => "v1",
-            Self::V2 => "v2",
-        }
+        "v2"
     }
 }
 
@@ -176,21 +155,17 @@ pub fn decode_environment(
     }
 }
 
-pub fn encode_snapshot(
-    snapshot: &Value,
-    version: Option<EncodeVersion>,
-) -> Result<Value, CredentialRuntimeError> {
-    let version = version.unwrap_or(EncodeVersion::V1);
-    let decoded = decode_snapshot(snapshot)?;
+pub fn encode_snapshot(snapshot: &Value) -> Result<Value, CredentialRuntimeError> {
     let mut document = object(snapshot)?.clone();
     let schema = CredentialReferenceContract::embedded()
-        .snapshot_schema_value(version.label())
+        .snapshot_schema_value("v2")
         .ok_or(CredentialRuntimeError::CorruptRecord)?;
-    document.insert("schema".to_string(), Value::String(schema.to_string()));
+    document
+        .entry("schema".to_string())
+        .or_insert_with(|| Value::String(schema.to_string()));
+    let decoded = decode_snapshot(&Value::Object(document.clone()))?;
 
-    let had_model_key =
-        document.contains_key("model_credential_id") || document.contains_key("secret_ref");
-    document.remove("secret_ref");
+    let had_model_key = document.contains_key("model_credential_id");
     if let Some(model) = decoded.model {
         document.insert(
             "model_credential_id".to_string(),
@@ -200,29 +175,17 @@ pub fn encode_snapshot(
         document.insert("model_credential_id".to_string(), Value::Null);
     }
 
-    let had_environment_keys =
-        document.contains_key("environment_credential_ids") || document.contains_key("secret_refs");
+    let had_environment_keys = document.contains_key("environment_credential_ids");
     let mut top_level_ids = decoded
         .environment_references
         .iter()
-        .filter(|reference| {
-            matches!(
-                reference.source_path.as_str(),
-                "$.environment_credential_ids[*]" | "$.secret_refs[*]"
-            )
-        })
+        .filter(|reference| reference.source_path == "$.environment_credential_ids[*]")
         .map(|reference| reference.credential_id)
         .collect::<Vec<_>>();
     sort_dedup_ids(&mut top_level_ids);
-    document.remove("environment_credential_ids");
-    document.remove("secret_refs");
     if !top_level_ids.is_empty() || had_environment_keys {
-        let key = match version {
-            EncodeVersion::V1 => "secret_refs",
-            EncodeVersion::V2 => "environment_credential_ids",
-        };
         document.insert(
-            key.to_string(),
+            "environment_credential_ids".to_string(),
             Value::Array(
                 top_level_ids
                     .into_iter()
@@ -239,7 +202,7 @@ pub fn encode_snapshot(
                 if !config.is_null() {
                     environment.insert(
                         "config".to_string(),
-                        encode_environment_inner(config, version, false)?,
+                        encode_environment_inner(config, false)?,
                     );
                 }
             }
@@ -248,60 +211,38 @@ pub fn encode_snapshot(
     }
 
     let encoded = Value::Object(document);
-    record_persisted_keys(&encoded, "snapshot", version.label());
+    record_persisted_keys(&encoded, "snapshot", "v2");
     Ok(encoded)
 }
 
-pub fn encode_environment(
-    environment: &Value,
-    version: Option<EncodeVersion>,
-) -> Result<Value, CredentialRuntimeError> {
-    encode_environment_inner(environment, version.unwrap_or(EncodeVersion::V1), true)
+pub fn encode_environment(environment: &Value) -> Result<Value, CredentialRuntimeError> {
+    encode_environment_inner(environment, true)
 }
 
 fn decode_snapshot_inner(snapshot: &Value) -> Result<DecodedSnapshot, CredentialRuntimeError> {
     let document = object(snapshot)?;
+    reject_keys(document, &["secret_ref", "secret_refs", "vault_ids"])?;
     let raw_schema = match document.get("schema") {
         None | Some(Value::Null) => None,
         Some(Value::String(value)) => Some(value.as_str()),
         _ => return Err(CredentialRuntimeError::CorruptRecord),
     };
     let schema = match CredentialReferenceContract::embedded().snapshot_schema_name(raw_schema) {
-        Some("legacy_v0") => SnapshotSchema::LegacyV0,
-        Some("v1") => SnapshotSchema::V1,
         Some("v2") => SnapshotSchema::V2,
         _ => return Err(CredentialRuntimeError::CorruptRecord),
     };
-    if schema == SnapshotSchema::V2
-        && CredentialReferenceContract::embedded()
-            .reference_paths()
-            .iter()
-            .filter(|entry| {
-                entry.document != "environment_config"
-                    && !entry.schemas.iter().any(|item| item == "v2")
-            })
-            .any(|entry| registered_path_key_count(snapshot, &entry.path) > 0)
-    {
-        return Err(CredentialRuntimeError::CorruptRecord);
-    }
 
-    let has_model_key =
-        document.contains_key("model_credential_id") || document.contains_key("secret_ref");
-    let model = optional_alias_id(
-        document,
-        &["model_credential_id", "secret_ref"],
-        "Snapshot model credential id",
-        "$",
-    )?
-    .map(|(credential_id, source_paths)| {
-        Ok(SnapshotModelReference {
-            credential_id,
-            engine_kind: require_non_empty_string(document.get("engine_kind"))?.to_string(),
-            model_id: model_id(document.get("model"))?,
-            source_paths,
+    let has_model_key = document.contains_key("model_credential_id");
+    let model = optional_credential_id(document, "model_credential_id", "$")?
+        .map(|(credential_id, source_paths)| {
+            Ok(SnapshotModelReference {
+                credential_id,
+                engine_kind: require_non_empty_string(document.get("engine_kind"))?.to_string(),
+                model_id: model_id(document.get("model"))?,
+                source_paths,
+            })
         })
-    })
-    .transpose()?;
+        .transpose()?;
     let model_credential_override =
         has_model_key.then(|| model.as_ref().map(|reference| reference.credential_id));
 
@@ -310,12 +251,6 @@ fn decode_snapshot_inner(snapshot: &Value) -> Result<DecodedSnapshot, Credential
         "environment_credential_ids",
         "$.environment_credential_ids[*]",
     )?;
-    environment_references.extend(credential_id_occurrences(
-        document,
-        "secret_refs",
-        "$.secret_refs[*]",
-    )?);
-
     let config = match document.get("environment") {
         None | Some(Value::Null) => None,
         Some(environment) => match object(environment)?.get("config") {
@@ -371,28 +306,12 @@ fn decode_environment_inner(
     path_prefix: &str,
 ) -> Result<DecodedEnvironment, CredentialRuntimeError> {
     let document = object(environment)?;
-    let mut direct_references = credential_id_occurrences(
+    reject_keys(document, &["secret_refs", "service_credential_id"])?;
+    let direct_references = credential_id_occurrences(
         document,
         "environment_credential_ids",
         &format!("{path_prefix}.environment_credential_ids[*]"),
     )?;
-    direct_references.extend(credential_id_occurrences(
-        document,
-        "secret_refs",
-        &format!("{path_prefix}.secret_refs[*]"),
-    )?);
-    if let Some((credential_id, _)) = optional_alias_id(
-        document,
-        &["service_credential_id"],
-        "Environment legacy service credential id",
-        path_prefix,
-    )? {
-        direct_references.push(EnvironmentCredentialReference {
-            credential_id,
-            source_path: format!("{path_prefix}.service_credential_id"),
-            index: None,
-        });
-    }
     let mut direct_credential_ids = direct_references
         .iter()
         .map(|reference| reference.credential_id)
@@ -407,28 +326,14 @@ fn decode_environment_inner(
 
 fn encode_environment_inner(
     environment: &Value,
-    version: EncodeVersion,
     record_metrics: bool,
 ) -> Result<Value, CredentialRuntimeError> {
     let decoded = decode_environment_inner(environment, "$")?;
     let mut document = object(environment)?.clone();
-    let had_direct_keys = [
-        "environment_credential_ids",
-        "secret_refs",
-        "service_credential_id",
-    ]
-    .iter()
-    .any(|key| document.contains_key(*key));
-    document.remove("environment_credential_ids");
-    document.remove("secret_refs");
-    document.remove("service_credential_id");
+    let had_direct_keys = document.contains_key("environment_credential_ids");
     if !decoded.direct_credential_ids.is_empty() || had_direct_keys {
-        let key = match version {
-            EncodeVersion::V1 => "secret_refs",
-            EncodeVersion::V2 => "environment_credential_ids",
-        };
         document.insert(
-            key.to_string(),
+            "environment_credential_ids".to_string(),
             Value::Array(
                 decoded
                     .direct_credential_ids
@@ -449,17 +354,11 @@ fn encode_environment_inner(
                 .ok_or(CredentialRuntimeError::CorruptRecord)?
             {
                 let mut service = object(service)?.clone();
-                let credential_id = optional_alias_id(
-                    &service,
-                    &["service_credential_id", "credential_ref"],
-                    "HTTP egress credential id",
-                    "$",
-                )?
-                .map(|(credential_id, _)| credential_id);
-                service.remove("credential_ref");
+                let credential_id = optional_credential_id(&service, "credential_ref", "$")?
+                    .map(|(credential_id, _)| credential_id);
                 if let Some(credential_id) = credential_id {
                     service.insert(
-                        "service_credential_id".to_string(),
+                        "credential_ref".to_string(),
                         Value::String(credential_id.to_string()),
                     );
                 }
@@ -467,18 +366,8 @@ fn encode_environment_inner(
                     if !inject.is_null() {
                         let mut inject = object(inject)?.clone();
                         let kind = inject_kind(&inject)?;
-                        let (field, _) = alias_text(
-                            &inject,
-                            &["credential_field", "secret_key"],
-                            default_field(&kind),
-                        )?;
-                        inject.remove("credential_field");
-                        inject.remove("secret_key");
-                        let key = match version {
-                            EncodeVersion::V1 => "secret_key",
-                            EncodeVersion::V2 => "credential_field",
-                        };
-                        inject.insert(key.to_string(), Value::String(field));
+                        let (field, _) = credential_field(&inject, default_field(&kind))?;
+                        inject.insert("credential_field".to_string(), Value::String(field));
                         service.insert("inject".to_string(), Value::Object(inject));
                     }
                 }
@@ -493,7 +382,7 @@ fn encode_environment_inner(
 
     let encoded = Value::Object(document);
     if record_metrics {
-        record_persisted_keys(&encoded, "environment", version.label());
+        record_persisted_keys(&encoded, "environment", "live");
     }
     Ok(encoded)
 }
@@ -574,31 +463,28 @@ fn parse_credential_id(value: &Value) -> Result<CredentialId, CredentialRuntimeE
         })
 }
 
-fn optional_alias_id(
+fn optional_credential_id(
     document: &Map<String, Value>,
-    keys: &[&str],
-    _label: &str,
+    key: &str,
     path_prefix: &str,
 ) -> Result<Option<(CredentialId, Vec<String>)>, CredentialRuntimeError> {
-    let mut values = Vec::new();
-    let mut paths = Vec::new();
-    for key in keys {
-        let Some(value) = document.get(*key) else {
-            continue;
-        };
-        if value.is_null() {
-            continue;
-        }
-        values.push(parse_credential_id(value)?);
-        paths.push(format!("{path_prefix}.{key}"));
-    }
-    let Some(first) = values.first().copied() else {
+    let Some(value) = document.get(key) else {
         return Ok(None);
     };
-    if values.iter().any(|value| *value != first) {
+    if value.is_null() {
+        return Ok(None);
+    }
+    Ok(Some((
+        parse_credential_id(value)?,
+        vec![format!("{path_prefix}.{key}")],
+    )))
+}
+
+fn reject_keys(document: &Map<String, Value>, keys: &[&str]) -> Result<(), CredentialRuntimeError> {
+    if keys.iter().any(|key| document.contains_key(*key)) {
         return Err(CredentialRuntimeError::CorruptRecord);
     }
-    Ok(Some((first, paths)))
+    Ok(())
 }
 
 fn credential_id_occurrences(
@@ -650,34 +536,21 @@ fn default_field(kind: &str) -> &'static str {
     }
 }
 
-fn alias_text(
+fn credential_field(
     document: &Map<String, Value>,
-    keys: &[&str],
     default: &str,
 ) -> Result<(String, Vec<String>), CredentialRuntimeError> {
-    let mut values = Vec::new();
-    let mut source_keys = Vec::new();
-    for key in keys {
-        let Some(value) = document.get(*key) else {
-            continue;
-        };
-        if value.is_null() {
-            continue;
-        }
-        let value = require_non_empty_string(Some(value))?;
-        if value.chars().count() > CREDENTIAL_FIELD_MAX_LENGTH {
-            return Err(CredentialRuntimeError::CorruptRecord);
-        }
-        values.push(value.to_string());
-        source_keys.push((*key).to_string());
-    }
-    if values.is_empty() {
+    let Some(value) = document.get("credential_field") else {
+        return Ok((default.to_string(), Vec::new()));
+    };
+    if value.is_null() {
         return Ok((default.to_string(), Vec::new()));
     }
-    if values.iter().any(|value| value != &values[0]) {
+    let value = require_non_empty_string(Some(value))?;
+    if value.chars().count() > CREDENTIAL_FIELD_MAX_LENGTH {
         return Err(CredentialRuntimeError::CorruptRecord);
     }
-    Ok((values.remove(0), source_keys))
+    Ok((value.to_string(), vec!["credential_field".to_string()]))
 }
 
 fn decode_http_egress(
@@ -696,10 +569,10 @@ fn decode_http_egress(
     let mut references = Vec::new();
     for (index, service) in services.iter().enumerate() {
         let service = object(service)?;
-        let (credential_id, credential_paths) = optional_alias_id(
+        reject_keys(service, &["service_credential_id"])?;
+        let (credential_id, credential_paths) = optional_credential_id(
             service,
-            &["service_credential_id", "credential_ref"],
-            "HTTP egress credential id",
+            "credential_ref",
             &format!("{path_prefix}.egress_services[*]"),
         )?
         .ok_or(CredentialRuntimeError::CorruptRecord)?;
@@ -709,12 +582,9 @@ fn decode_http_egress(
             None | Some(Value::Null) => &empty_inject,
             Some(inject) => object(inject)?,
         };
+        reject_keys(inject, &["secret_key"])?;
         let kind = inject_kind(inject)?;
-        let (credential_field, field_keys) = alias_text(
-            inject,
-            &["credential_field", "secret_key"],
-            default_field(&kind),
-        )?;
+        let (credential_field, field_keys) = credential_field(inject, default_field(&kind))?;
         let allowed_paths = match service.get("allowed_paths") {
             None | Some(Value::Null) => Vec::new(),
             Some(Value::Array(paths)) => paths
@@ -895,7 +765,7 @@ mod tests {
             }
         }
         let path = &entry.path;
-        if path.contains("model_credential_id") || path == "$.secret_ref" {
+        if path.contains("model_credential_id") {
             let object = document.as_object_mut().unwrap();
             object.insert(
                 "engine_kind".to_string(),
@@ -925,7 +795,7 @@ mod tests {
                 Value::String("https://crm.example.com".to_string()),
             );
             service
-                .entry("service_credential_id".to_string())
+                .entry("credential_ref".to_string())
                 .or_insert_with(|| Value::String(fixture.credential_id.clone()));
             let inject = service
                 .entry("inject".to_string())
@@ -935,13 +805,8 @@ mod tests {
             inject
                 .entry("type".to_string())
                 .or_insert_with(|| Value::String(fixture.inject_type.clone()));
-            let field_key = if schema == "v2" {
-                "credential_field"
-            } else {
-                "secret_key"
-            };
             inject
-                .entry(field_key.to_string())
+                .entry("credential_field".to_string())
                 .or_insert_with(|| Value::String(fixture.credential_field.clone()));
         }
         document
@@ -986,7 +851,7 @@ mod tests {
                 executed += 1;
             }
         }
-        assert_eq!(executed, 57);
+        assert_eq!(executed, 13);
     }
 
     #[test]
@@ -1045,14 +910,12 @@ mod tests {
     #[test]
     fn contract_schema_versions_and_unknown_schema_are_fail_closed() {
         assert_eq!(
-            decode_snapshot(&json!({})).unwrap().schema,
-            SnapshotSchema::LegacyV0
+            decode_snapshot(&json!({})),
+            Err(CredentialRuntimeError::CorruptRecord)
         );
         assert_eq!(
-            decode_snapshot(&json!({"schema": "joysafeter.agent_execution_snapshot.v1"}))
-                .unwrap()
-                .schema,
-            SnapshotSchema::V1
+            decode_snapshot(&json!({"schema": "joysafeter.agent_execution_snapshot.v1"})),
+            Err(CredentialRuntimeError::CorruptRecord)
         );
         assert_eq!(
             decode_snapshot(&json!({"schema": "joysafeter.agent_execution_snapshot.v2"}))
@@ -1067,31 +930,23 @@ mod tests {
     }
 
     #[test]
-    fn mixed_snapshot_aliases_and_nested_egress_canonicalize() {
+    fn canonical_snapshot_and_nested_egress_decode() {
         let decoded = decode_snapshot(&json!({
-            "schema": "joysafeter.agent_execution_snapshot.v1",
+            "schema": "joysafeter.agent_execution_snapshot.v2",
             "engine_kind": "claude",
             "model": {"id": "claude-sonnet"},
             "model_credential_id": CREDENTIAL_A,
-            "secret_ref": CREDENTIAL_A,
             "environment_credential_ids": [CREDENTIAL_A, CREDENTIAL_B],
-            "secret_refs": [CREDENTIAL_B],
             "environment": {"config": {
-                "secret_refs": [CREDENTIAL_A],
+                "environment_credential_ids": [CREDENTIAL_A],
                 "egress_services": [{
                     "base_url": "https://crm.example.com",
-                    "service_credential_id": CREDENTIAL_B,
                     "credential_ref": CREDENTIAL_B,
-                    "inject": {
-                        "type": "bearer",
-                        "credential_field": "ACCESS_TOKEN",
-                        "secret_key": "ACCESS_TOKEN"
-                    }
+                    "inject": {"type": "bearer", "credential_field": "ACCESS_TOKEN"}
                 }]
             }}
         }))
         .unwrap();
-
         assert_eq!(
             decoded
                 .credential_ids()
@@ -1106,16 +961,13 @@ mod tests {
     }
 
     #[test]
-    fn environment_reader_covers_legacy_v0_v1_v2_and_null_compatibility() {
+    fn environment_reader_decodes_canonical_fields_and_nulls() {
         let decoded = decode_environment(&json!({
-            "environment_credential_ids": [CREDENTIAL_A],
-            "secret_refs": [CREDENTIAL_A, CREDENTIAL_B],
-            "service_credential_id": CREDENTIAL_B,
+            "environment_credential_ids": [CREDENTIAL_A, CREDENTIAL_A, CREDENTIAL_B],
             "egress_services": [{
                 "base_url": "https://crm.example.com",
-                "service_credential_id": CREDENTIAL_A,
                 "credential_ref": CREDENTIAL_A,
-                "inject": {"credential_field": "TOKEN", "secret_key": "TOKEN"}
+                "inject": {"credential_field": "TOKEN"}
             }]
         }))
         .unwrap();
@@ -1124,8 +976,6 @@ mod tests {
 
         let empty = decode_environment(&json!({
             "environment_credential_ids": null,
-            "secret_refs": [],
-            "service_credential_id": null,
             "egress_services": null
         }))
         .unwrap();
@@ -1133,19 +983,18 @@ mod tests {
     }
 
     #[test]
-    fn malformed_ids_fields_and_conflicting_aliases_fail_closed() {
+    fn malformed_ids_and_legacy_aliases_fail_closed() {
         for document in [
-            json!({"model_credential_id": CREDENTIAL_A, "secret_ref": CREDENTIAL_B, "engine_kind": "claude"}),
-            json!({"environment_credential_ids": [7]}),
-            json!({"environment": {"config": {"egress_services": [{
+            json!({"schema": "joysafeter.agent_execution_snapshot.v2", "model_credential_id": CREDENTIAL_A, "secret_ref": CREDENTIAL_B, "engine_kind": "claude"}),
+            json!({"schema": "joysafeter.agent_execution_snapshot.v2", "environment_credential_ids": [7]}),
+            json!({"schema": "joysafeter.agent_execution_snapshot.v2", "environment": {"config": {"egress_services": [{
                 "base_url": "https://crm.example.com",
                 "service_credential_id": CREDENTIAL_A,
-                "credential_ref": CREDENTIAL_B,
                 "inject": {"secret_key": "TOKEN"}
             }]}}}),
-            json!({"environment": {"config": {"egress_services": [{
+            json!({"schema": "joysafeter.agent_execution_snapshot.v2", "environment": {"config": {"egress_services": [{
                 "base_url": "https://crm.example.com",
-                "service_credential_id": CREDENTIAL_A,
+                "credential_ref": CREDENTIAL_A,
                 "inject": {"credential_field": 7}
             }]}}}),
         ] {
@@ -1169,7 +1018,7 @@ mod tests {
         let decoded = decode_environment(&json!({
             "egress_services": [{
                 "base_url": "https://crm.example.com",
-                "service_credential_id": CREDENTIAL_A,
+                "credential_ref": CREDENTIAL_A,
                 "inject": {"type": "  BEARER  ", "credential_field": "ACCESS_TOKEN"}
             }]
         }))
@@ -1178,37 +1027,37 @@ mod tests {
     }
 
     #[test]
-    fn v1_encoding_is_default_and_metrics_never_capture_payloads() {
+    fn canonical_encoding_and_metrics_never_capture_payloads() {
         let before = metric_snapshot();
-        let snapshot = encode_snapshot(
-            &json!({
-                "environment_credential_ids": [CREDENTIAL_A],
-                "environment": {"config": {"environment_credential_ids": [CREDENTIAL_B]}},
-            }),
-            None,
-        )
+        let snapshot = encode_snapshot(&json!({
+            "environment_credential_ids": [CREDENTIAL_A],
+            "environment": {"config": {"environment_credential_ids": [CREDENTIAL_B]}},
+        }))
         .unwrap();
         let environment =
-            encode_environment(&json!({"environment_credential_ids": [CREDENTIAL_A]}), None)
-                .unwrap();
+            encode_environment(&json!({"environment_credential_ids": [CREDENTIAL_A]})).unwrap();
 
-        assert_eq!(snapshot["schema"], "joysafeter.agent_execution_snapshot.v1");
-        assert_eq!(snapshot["secret_refs"], json!([CREDENTIAL_A]));
-        assert!(snapshot.get("environment_credential_ids").is_none());
-        assert_eq!(environment["secret_refs"], json!([CREDENTIAL_A]));
-        assert!(environment.get("environment_credential_ids").is_none());
+        assert_eq!(snapshot["schema"], "joysafeter.agent_execution_snapshot.v2");
+        assert_eq!(
+            snapshot["environment_credential_ids"],
+            json!([CREDENTIAL_A])
+        );
+        assert_eq!(
+            environment["environment_credential_ids"],
+            json!([CREDENTIAL_A])
+        );
 
         let snapshot_key = (
             "snapshot".to_string(),
-            "v1".to_string(),
-            "$.environment.config.secret_refs[*]".to_string(),
-            "secret_refs".to_string(),
+            "v2".to_string(),
+            "$.environment.config.environment_credential_ids[*]".to_string(),
+            "environment_credential_ids".to_string(),
         );
         let environment_key = (
             "environment".to_string(),
-            "v1".to_string(),
-            "$.secret_refs[*]".to_string(),
-            "secret_refs".to_string(),
+            "live".to_string(),
+            "$.environment_credential_ids[*]".to_string(),
+            "environment_credential_ids".to_string(),
         );
         let metrics = metric_snapshot();
         let before_snapshot = before
@@ -1222,11 +1071,11 @@ mod tests {
             .copied()
             .unwrap_or_default();
         assert_eq!(
-            persisted_key_counts(&snapshot, "snapshot", "v1").get(&snapshot_key),
+            persisted_key_counts(&snapshot, "snapshot", "v2").get(&snapshot_key),
             Some(&1),
         );
         assert_eq!(
-            persisted_key_counts(&environment, "environment", "v1").get(&environment_key),
+            persisted_key_counts(&environment, "environment", "live").get(&environment_key),
             Some(&1),
         );
         assert!(
@@ -1252,17 +1101,14 @@ mod tests {
 
     #[test]
     fn persisted_key_metrics_ignore_registered_names_outside_contract_paths() {
-        let environment = encode_environment(
-            &json!({
-                "metadata": {
-                    "credential_ref": CREDENTIAL_A,
-                    "secret_key": "not-a-reference-field"
-                }
-            }),
-            None,
-        )
+        let environment = encode_environment(&json!({
+            "metadata": {
+                "credential_ref": CREDENTIAL_A,
+                "secret_key": "not-a-reference-field"
+            }
+        }))
         .unwrap();
 
-        assert!(persisted_key_counts(&environment, "environment", "v1").is_empty());
+        assert!(persisted_key_counts(&environment, "environment", "live").is_empty());
     }
 }

@@ -1,7 +1,7 @@
 use sqlx::PgPool;
 
 use crate::db::models::JoySafeterSession;
-use crate::ids::{AgentId, EventId, MemoryStoreId, SandboxId, SessionId};
+use crate::ids::{AgentId, EnvironmentId, EventId, MemoryStoreId, ProjectId, SandboxId, SessionId};
 
 // ---------------------------------------------------------------------------
 // Structs
@@ -272,14 +272,14 @@ pub async fn create_session(
     pool: &PgPool,
     id: SessionId,
     agent_id: Option<AgentId>,
-    project_id: Option<&str>,
+    project_id: Option<ProjectId>,
     agent_snapshot: Option<&serde_json::Value>,
-    environment_ref: Option<&str>,
+    environment_id: Option<EnvironmentId>,
 ) -> Result<JoySafeterSession, sqlx::Error> {
     sqlx::query_as::<_, JoySafeterSession>(
         r#"
         INSERT INTO joysafeter_sessions
-            (id, agent_id, project_id, status, agent_snapshot, environment_ref, created_at, updated_at)
+            (id, agent_id, project_id, status, agent_snapshot, environment_id, created_at, updated_at)
         VALUES ($1, $2, $3, 'idle', $4, $5, NOW(), NOW())
         RETURNING *
         "#,
@@ -288,7 +288,7 @@ pub async fn create_session(
     .bind(agent_id)
     .bind(project_id)
     .bind(agent_snapshot)
-    .bind(environment_ref)
+    .bind(environment_id)
     .fetch_one(pool)
     .await
 }

@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, fmt};
 use anyhow::Context as _;
 use sqlx::PgPool;
 
-use crate::ids::{CredentialId, SessionId, TaskId};
+use crate::ids::{CredentialAccessAuditId, CredentialId, ProjectId, SessionId, TaskId};
 
 use super::audit::{
     CredentialAccessAuditEntry, CredentialAccessAuditWriter, CredentialAccessFailure,
@@ -16,7 +16,7 @@ use super::model::{
     model_material_fields, resolve_model_credential, validate_model_credential_metadata,
     ResolvedModelCredential,
 };
-use super::record::{CredentialKind, McpCredentialMetadataRecord, ProjectId};
+use super::record::{CredentialKind, McpCredentialMetadataRecord};
 use super::service::{
     resolve_service_credential, validate_service_credential_metadata, ResolvedServiceCredential,
     ServiceUsage,
@@ -550,7 +550,8 @@ fn audit_entry(
     field_names: BTreeSet<String>,
 ) -> CredentialAccessAuditEntry {
     CredentialAccessAuditEntry {
-        project_id: project_id.clone(),
+        id: CredentialAccessAuditId::new(),
+        project_id: *project_id,
         credential_id,
         credential_kind,
         usage,

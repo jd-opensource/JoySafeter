@@ -55,14 +55,14 @@ class RunnerReady(_message.Message):
     def __init__(self, runner_version: _Optional[str] = ..., available_providers: _Optional[_Iterable[str]] = ..., sandbox_id: _Optional[str] = ..., is_reconnect: bool = ..., active_task_id: _Optional[str] = ..., capabilities: _Optional[_Iterable[str]] = ..., runner_token: _Optional[str] = ...) -> None: ...
 
 class RunnerIdle(_message.Message):
-    __slots__ = ("sandbox_id", "work_dir", "session_id")
+    __slots__ = ("sandbox_id", "work_dir", "harness_session_id")
     SANDBOX_ID_FIELD_NUMBER: _ClassVar[int]
     WORK_DIR_FIELD_NUMBER: _ClassVar[int]
-    SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    HARNESS_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
     sandbox_id: str
     work_dir: str
-    session_id: str
-    def __init__(self, sandbox_id: _Optional[str] = ..., work_dir: _Optional[str] = ..., session_id: _Optional[str] = ...) -> None: ...
+    harness_session_id: str
+    def __init__(self, sandbox_id: _Optional[str] = ..., work_dir: _Optional[str] = ..., harness_session_id: _Optional[str] = ...) -> None: ...
 
 class RunnerHarnessEvent(_message.Message):
     __slots__ = ("seq", "timestamp_ms", "text", "thinking", "tool_use", "tool_result", "error", "status", "log", "model_request_start", "model_request_end", "task_notification")
@@ -167,9 +167,9 @@ class ModelRequestEndEvent(_message.Message):
     def __init__(self, model: _Optional[str] = ..., input_tokens: _Optional[int] = ..., output_tokens: _Optional[int] = ..., cache_read_tokens: _Optional[int] = ..., cache_write_tokens: _Optional[int] = ...) -> None: ...
 
 class TaskNotificationEvent(_message.Message):
-    __slots__ = ("phase", "task_id", "tool_use_id", "description", "status", "summary", "result", "output_file", "last_tool_name", "total_tokens", "tool_uses", "duration_ms")
+    __slots__ = ("phase", "subagent_task_id", "tool_use_id", "description", "status", "summary", "result", "output_file", "last_tool_name", "total_tokens", "tool_uses", "duration_ms")
     PHASE_FIELD_NUMBER: _ClassVar[int]
-    TASK_ID_FIELD_NUMBER: _ClassVar[int]
+    SUBAGENT_TASK_ID_FIELD_NUMBER: _ClassVar[int]
     TOOL_USE_ID_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
@@ -181,7 +181,7 @@ class TaskNotificationEvent(_message.Message):
     TOOL_USES_FIELD_NUMBER: _ClassVar[int]
     DURATION_MS_FIELD_NUMBER: _ClassVar[int]
     phase: str
-    task_id: str
+    subagent_task_id: str
     tool_use_id: str
     description: str
     status: str
@@ -192,25 +192,25 @@ class TaskNotificationEvent(_message.Message):
     total_tokens: int
     tool_uses: int
     duration_ms: int
-    def __init__(self, phase: _Optional[str] = ..., task_id: _Optional[str] = ..., tool_use_id: _Optional[str] = ..., description: _Optional[str] = ..., status: _Optional[str] = ..., summary: _Optional[str] = ..., result: _Optional[str] = ..., output_file: _Optional[str] = ..., last_tool_name: _Optional[str] = ..., total_tokens: _Optional[int] = ..., tool_uses: _Optional[int] = ..., duration_ms: _Optional[int] = ...) -> None: ...
+    def __init__(self, phase: _Optional[str] = ..., subagent_task_id: _Optional[str] = ..., tool_use_id: _Optional[str] = ..., description: _Optional[str] = ..., status: _Optional[str] = ..., summary: _Optional[str] = ..., result: _Optional[str] = ..., output_file: _Optional[str] = ..., last_tool_name: _Optional[str] = ..., total_tokens: _Optional[int] = ..., tool_uses: _Optional[int] = ..., duration_ms: _Optional[int] = ...) -> None: ...
 
 class RunnerHarnessResult(_message.Message):
-    __slots__ = ("status", "output", "error", "session_id", "usage", "duration_ms", "work_dir")
+    __slots__ = ("status", "output", "error", "harness_session_id", "usage", "duration_ms", "work_dir")
     STATUS_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
-    SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    HARNESS_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
     USAGE_FIELD_NUMBER: _ClassVar[int]
     DURATION_MS_FIELD_NUMBER: _ClassVar[int]
     WORK_DIR_FIELD_NUMBER: _ClassVar[int]
     status: str
     output: str
     error: str
-    session_id: str
+    harness_session_id: str
     usage: TokenUsage
     duration_ms: int
     work_dir: str
-    def __init__(self, status: _Optional[str] = ..., output: _Optional[str] = ..., error: _Optional[str] = ..., session_id: _Optional[str] = ..., usage: _Optional[_Union[TokenUsage, _Mapping]] = ..., duration_ms: _Optional[int] = ..., work_dir: _Optional[str] = ...) -> None: ...
+    def __init__(self, status: _Optional[str] = ..., output: _Optional[str] = ..., error: _Optional[str] = ..., harness_session_id: _Optional[str] = ..., usage: _Optional[_Union[TokenUsage, _Mapping]] = ..., duration_ms: _Optional[int] = ..., work_dir: _Optional[str] = ...) -> None: ...
 
 class TokenUsage(_message.Message):
     __slots__ = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "by_model")
@@ -241,16 +241,16 @@ class ModelUsageEntry(_message.Message):
     def __init__(self, model: _Optional[str] = ..., input_tokens: _Optional[int] = ..., output_tokens: _Optional[int] = ..., cache_read_tokens: _Optional[int] = ..., cache_write_tokens: _Optional[int] = ...) -> None: ...
 
 class RunnerHeartbeat(_message.Message):
-    __slots__ = ("timestamp_ms", "runtime_state", "active_task_id", "session_id")
+    __slots__ = ("timestamp_ms", "runtime_state", "active_task_id", "harness_session_id")
     TIMESTAMP_MS_FIELD_NUMBER: _ClassVar[int]
     RUNTIME_STATE_FIELD_NUMBER: _ClassVar[int]
     ACTIVE_TASK_ID_FIELD_NUMBER: _ClassVar[int]
-    SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    HARNESS_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
     timestamp_ms: int
     runtime_state: str
     active_task_id: str
-    session_id: str
-    def __init__(self, timestamp_ms: _Optional[int] = ..., runtime_state: _Optional[str] = ..., active_task_id: _Optional[str] = ..., session_id: _Optional[str] = ...) -> None: ...
+    harness_session_id: str
+    def __init__(self, timestamp_ms: _Optional[int] = ..., runtime_state: _Optional[str] = ..., active_task_id: _Optional[str] = ..., harness_session_id: _Optional[str] = ...) -> None: ...
 
 class OrchestratorMessage(_message.Message):
     __slots__ = ("start", "cancel", "input", "shutdown", "setup", "memory_update", "sandbox_file_request")
@@ -391,18 +391,16 @@ class SetupSandbox(_message.Message):
     def __init__(self, skills: _Optional[_Iterable[_Union[SkillArchive, _Mapping]]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpConfig, _Mapping]]] = ..., custom_tools: _Optional[_Iterable[_Union[CustomTool, _Mapping]]] = ..., setup_commands: _Optional[_Iterable[str]] = ..., work_dir: _Optional[str] = ..., env: _Optional[_Mapping[str, str]] = ..., secrets: _Optional[_Mapping[str, str]] = ..., permission_mode: _Optional[str] = ..., provider: _Optional[str] = ..., model: _Optional[str] = ..., memory_system_prompt: _Optional[str] = ..., memory_mounts: _Optional[_Iterable[_Union[MemoryStoreMount, _Mapping]]] = ..., files: _Optional[_Iterable[_Union[FileMount, _Mapping]]] = ..., file_refs: _Optional[_Iterable[_Union[FileRef, _Mapping]]] = ..., allowed_tools: _Optional[_Iterable[str]] = ..., disallowed_tools: _Optional[_Iterable[str]] = ..., ask_tools: _Optional[_Iterable[str]] = ..., repos: _Optional[_Iterable[_Union[RepoConfig, _Mapping]]] = ...) -> None: ...
 
 class MemoryStoreMount(_message.Message):
-    __slots__ = ("store_id", "mount_name", "mount_path", "access", "files")
-    STORE_ID_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("mount_name", "mount_path", "access", "files")
     MOUNT_NAME_FIELD_NUMBER: _ClassVar[int]
     MOUNT_PATH_FIELD_NUMBER: _ClassVar[int]
     ACCESS_FIELD_NUMBER: _ClassVar[int]
     FILES_FIELD_NUMBER: _ClassVar[int]
-    store_id: str
     mount_name: str
     mount_path: str
     access: str
     files: _containers.RepeatedCompositeFieldContainer[MemoryFile]
-    def __init__(self, store_id: _Optional[str] = ..., mount_name: _Optional[str] = ..., mount_path: _Optional[str] = ..., access: _Optional[str] = ..., files: _Optional[_Iterable[_Union[MemoryFile, _Mapping]]] = ...) -> None: ...
+    def __init__(self, mount_name: _Optional[str] = ..., mount_path: _Optional[str] = ..., access: _Optional[str] = ..., files: _Optional[_Iterable[_Union[MemoryFile, _Mapping]]] = ...) -> None: ...
 
 class MemoryFile(_message.Message):
     __slots__ = ("relative_path", "content")
@@ -425,7 +423,7 @@ class MemoryFileSync(_message.Message):
     def __init__(self, store_mount_name: _Optional[str] = ..., relative_path: _Optional[str] = ..., content: _Optional[str] = ..., operation: _Optional[str] = ...) -> None: ...
 
 class StartTask(_message.Message):
-    __slots__ = ("task_id", "provider", "prompt", "system_prompt", "session_id", "model", "max_turns", "timeout_seconds", "env", "secrets", "mcp_servers", "repos", "work_dir", "skills", "allowed_tools", "disallowed_tools", "permission_mode", "setup_commands", "custom_tools", "ask_tools", "system_prompt_mode")
+    __slots__ = ("task_id", "provider", "prompt", "system_prompt", "harness_session_id", "model", "max_turns", "timeout_seconds", "env", "secrets", "mcp_servers", "repos", "work_dir", "skills", "allowed_tools", "disallowed_tools", "permission_mode", "setup_commands", "custom_tools", "ask_tools", "system_prompt_mode")
     class EnvEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -444,7 +442,7 @@ class StartTask(_message.Message):
     PROVIDER_FIELD_NUMBER: _ClassVar[int]
     PROMPT_FIELD_NUMBER: _ClassVar[int]
     SYSTEM_PROMPT_FIELD_NUMBER: _ClassVar[int]
-    SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    HARNESS_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
     MAX_TURNS_FIELD_NUMBER: _ClassVar[int]
     TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
@@ -465,7 +463,7 @@ class StartTask(_message.Message):
     provider: str
     prompt: str
     system_prompt: str
-    session_id: str
+    harness_session_id: str
     model: str
     max_turns: int
     timeout_seconds: int
@@ -482,7 +480,7 @@ class StartTask(_message.Message):
     custom_tools: _containers.RepeatedCompositeFieldContainer[CustomTool]
     ask_tools: _containers.RepeatedScalarFieldContainer[str]
     system_prompt_mode: str
-    def __init__(self, task_id: _Optional[str] = ..., provider: _Optional[str] = ..., prompt: _Optional[str] = ..., system_prompt: _Optional[str] = ..., session_id: _Optional[str] = ..., model: _Optional[str] = ..., max_turns: _Optional[int] = ..., timeout_seconds: _Optional[int] = ..., env: _Optional[_Mapping[str, str]] = ..., secrets: _Optional[_Mapping[str, str]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpConfig, _Mapping]]] = ..., repos: _Optional[_Iterable[_Union[RepoConfig, _Mapping]]] = ..., work_dir: _Optional[str] = ..., skills: _Optional[_Iterable[_Union[SkillArchive, _Mapping]]] = ..., allowed_tools: _Optional[_Iterable[str]] = ..., disallowed_tools: _Optional[_Iterable[str]] = ..., permission_mode: _Optional[str] = ..., setup_commands: _Optional[_Iterable[str]] = ..., custom_tools: _Optional[_Iterable[_Union[CustomTool, _Mapping]]] = ..., ask_tools: _Optional[_Iterable[str]] = ..., system_prompt_mode: _Optional[str] = ...) -> None: ...
+    def __init__(self, task_id: _Optional[str] = ..., provider: _Optional[str] = ..., prompt: _Optional[str] = ..., system_prompt: _Optional[str] = ..., harness_session_id: _Optional[str] = ..., model: _Optional[str] = ..., max_turns: _Optional[int] = ..., timeout_seconds: _Optional[int] = ..., env: _Optional[_Mapping[str, str]] = ..., secrets: _Optional[_Mapping[str, str]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpConfig, _Mapping]]] = ..., repos: _Optional[_Iterable[_Union[RepoConfig, _Mapping]]] = ..., work_dir: _Optional[str] = ..., skills: _Optional[_Iterable[_Union[SkillArchive, _Mapping]]] = ..., allowed_tools: _Optional[_Iterable[str]] = ..., disallowed_tools: _Optional[_Iterable[str]] = ..., permission_mode: _Optional[str] = ..., setup_commands: _Optional[_Iterable[str]] = ..., custom_tools: _Optional[_Iterable[_Union[CustomTool, _Mapping]]] = ..., ask_tools: _Optional[_Iterable[str]] = ..., system_prompt_mode: _Optional[str] = ...) -> None: ...
 
 class CustomTool(_message.Message):
     __slots__ = ("name", "description", "input_schema_json")

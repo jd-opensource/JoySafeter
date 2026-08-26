@@ -20,7 +20,7 @@ pub async fn archive_task_artifacts(
     let Some(task) = queries::get_task(pool, task_id).await? else {
         return Ok(None);
     };
-    let Some(project_id) = task.project_id.as_deref() else {
+    let Some(project_id) = task.project_id else {
         return Ok(None);
     };
 

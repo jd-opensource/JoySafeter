@@ -84,9 +84,33 @@ pub fn normalize(raw: &str) -> String {
     out
 }
 
+/// Builds the canonical identity used by transport routing. Unlike
+/// [`normalize`], this preserves the configured request target exactly,
+/// including a trailing slash and the original query ordering.
+pub fn routing_identity(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    let mut url = Url::parse(trimmed).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+
+    if let (Some(port), Some(default)) = (url.port(), default_port(url.scheme())) {
+        if port == default {
+            url.set_port(None).ok()?;
+        }
+    }
+
+    Some(url.to_string())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::normalize;
+    use super::{normalize, routing_identity};
     use std::path::PathBuf;
 
     #[derive(serde::Deserialize)]
@@ -128,6 +152,18 @@ mod tests {
         assert_eq!(
             normalize("https://example.com/"),
             normalize("https://example.com")
+        );
+    }
+
+    #[test]
+    fn routing_identity_preserves_request_target_identity() {
+        assert_eq!(
+            routing_identity(" HTTPS://Example.COM:443/mcp?b=2&a=1&a=3 ").as_deref(),
+            Some("https://example.com/mcp?b=2&a=1&a=3")
+        );
+        assert_ne!(
+            routing_identity("https://example.com/mcp"),
+            routing_identity("https://example.com/mcp/")
         );
     }
 

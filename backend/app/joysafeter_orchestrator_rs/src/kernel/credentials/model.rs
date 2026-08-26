@@ -162,13 +162,14 @@ mod tests {
 
     use super::model_material_fields;
     use crate::ids::CredentialId;
-    use crate::kernel::credentials::record::{CredentialKind, CredentialMetadataRecord, ProjectId};
+    use crate::ids::ProjectId;
+    use crate::kernel::credentials::record::{CredentialKind, CredentialMetadataRecord};
 
     #[test]
     fn model_material_fields_include_catalog_fields_and_exclude_unknown_fields() {
         let metadata = CredentialMetadataRecord {
             id: CredentialId::from_uuid(Uuid::now_v7()),
-            project_id: ProjectId::parse("project-a").unwrap(),
+            project_id: ProjectId::from_uuid(uuid::Uuid::from_u128(1)),
             kind: CredentialKind::Model,
             provider: Some("anthropic".to_string()),
             protocol: Some("anthropic_messages".to_string()),

@@ -184,6 +184,57 @@ pub enum EgressExposure {
     Transparent,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EgressPathMatcher {
+    Any,
+    Exact(String),
+    Prefix(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EgressPathMapping {
+    Passthrough {
+        matcher: EgressPathMatcher,
+    },
+    RewriteExact {
+        exposed_path: String,
+        upstream_path: String,
+    },
+    RewritePrefix {
+        exposed_prefix: String,
+        upstream_prefix: String,
+    },
+}
+
+impl EgressPathMapping {
+    fn exposed_path(&self) -> &str {
+        match self {
+            Self::Passthrough {
+                matcher: EgressPathMatcher::Any,
+            } => "/",
+            Self::Passthrough {
+                matcher: EgressPathMatcher::Exact(path),
+            }
+            | Self::Passthrough {
+                matcher: EgressPathMatcher::Prefix(path),
+            }
+            | Self::RewriteExact {
+                exposed_path: path, ..
+            }
+            | Self::RewritePrefix {
+                exposed_prefix: path,
+                ..
+            } => path,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EgressRetryMode {
+    Disabled,
+    SafeIdempotent,
+}
+
 /// A single credential-injection route rendered into the HTTP listener.
 ///
 /// Envoy matches `match_host` + `match_prefix` on the sandbox's own listener,
@@ -203,21 +254,14 @@ pub struct EgressCredentialRoute {
     pub exposure: EgressExposure,
     /// Host the sandbox targets or the transparent upstream host.
     pub match_host: String,
-    /// Path prefix the sandbox uses, e.g. `/`, `/mcp/<name>/`, `/git/<slug>/`,
-    /// or `/services/<name>/`. When `exact_path` is true this is matched as an
-    /// exact path instead of a prefix.
-    pub match_prefix: String,
-    /// When true, `match_prefix` is matched as an exact path (Envoy `path`)
-    /// rather than a prefix (Envoy `prefix`). Used by the external-service path
-    /// allowlist so only whitelisted endpoints get credential injection.
-    pub exact_path: bool,
+    /// Explicit match and rewrite behavior for the request path.
+    pub path_mapping: EgressPathMapping,
+    /// Whether Envoy may retry upstream failures for this route.
+    pub retry_mode: EgressRetryMode,
     /// Real upstream authority to rewrite the Host header + SNI to.
     pub upstream_host: String,
     /// Real upstream port.
     pub upstream_port: u16,
-    /// Prefix to substitute for `match_prefix` on the upstream, e.g. `/` or the
-    /// real MCP/git base path.
-    pub upstream_prefix: String,
     /// Whether to TLS-originate to the upstream.
     pub upstream_tls: bool,
     /// Name of the per-upstream STRICT_DNS cluster to route to.
@@ -244,11 +288,10 @@ impl std::fmt::Debug for EgressCredentialRoute {
             .field("kind", &self.kind)
             .field("exposure", &self.exposure)
             .field("match_host", &self.match_host)
-            .field("match_prefix", &self.match_prefix)
-            .field("exact_path", &self.exact_path)
+            .field("path_mapping", &self.path_mapping)
+            .field("retry_mode", &self.retry_mode)
             .field("upstream_host", &self.upstream_host)
             .field("upstream_port", &self.upstream_port)
-            .field("upstream_prefix", &self.upstream_prefix)
             .field("upstream_tls", &self.upstream_tls)
             .field("cluster_name", &self.cluster_name)
             .field("vetted_addresses", &self.vetted_addresses)
@@ -411,15 +454,33 @@ pub fn validate_egress_policy(
         validate_route_host(&route.upstream_host).map_err(|e| {
             anyhow::anyhow!("invalid egress upstream_host {}: {e}", route.upstream_host)
         })?;
-        validate_route_path(&route.match_prefix).map_err(|e| {
-            anyhow::anyhow!("invalid egress match_prefix {}: {e}", route.match_prefix)
-        })?;
-        validate_route_path(&route.upstream_prefix).map_err(|e| {
-            anyhow::anyhow!(
-                "invalid egress upstream_prefix {}: {e}",
-                route.upstream_prefix
-            )
-        })?;
+        match &route.path_mapping {
+            EgressPathMapping::Passthrough {
+                matcher: EgressPathMatcher::Any,
+            } => {}
+            EgressPathMapping::Passthrough {
+                matcher: EgressPathMatcher::Exact(path),
+            }
+            | EgressPathMapping::Passthrough {
+                matcher: EgressPathMatcher::Prefix(path),
+            } => validate_route_path(path)
+                .map_err(|e| anyhow::anyhow!("invalid egress path {path}: {e}"))?,
+            EgressPathMapping::RewriteExact {
+                exposed_path,
+                upstream_path,
+            }
+            | EgressPathMapping::RewritePrefix {
+                exposed_prefix: exposed_path,
+                upstream_prefix: upstream_path,
+            } => {
+                validate_route_path(exposed_path).map_err(|e| {
+                    anyhow::anyhow!("invalid exposed egress path {exposed_path}: {e}")
+                })?;
+                validate_route_path(upstream_path).map_err(|e| {
+                    anyhow::anyhow!("invalid upstream egress path {upstream_path}: {e}")
+                })?;
+            }
+        }
         if route.cluster_name.is_empty()
             || (!SHARED_CLUSTERS.contains(&route.cluster_name.as_str())
                 && !pinned_clusters.contains(&route.cluster_name))
@@ -484,7 +545,10 @@ pub fn validate_egress_policy(
     Ok(())
 }
 
-pub fn egress_policy_summary(sandbox_id: &SandboxId, policy: &SandboxEgressPolicy) -> Value {
+pub fn rendered_egress_policy_summary(
+    sandbox_id: &SandboxId,
+    policy: &SandboxEgressPolicy,
+) -> Value {
     let routes: Vec<Value> = policy
         .credential_routes
         .iter()
@@ -506,11 +570,10 @@ pub fn egress_policy_summary(sandbox_id: &SandboxId, policy: &SandboxEgressPolic
                 "kind": format!("{:?}", route.kind),
                 "exposure": format!("{:?}", route.exposure),
                 "match_host": route.match_host,
-                "match_prefix": route.match_prefix,
-                "exact_path": route.exact_path,
+                "path_mapping": format!("{:?}", route.path_mapping),
+                "retry_mode": format!("{:?}", route.retry_mode),
                 "upstream_host": route.upstream_host,
                 "upstream_port": route.upstream_port,
-                "upstream_prefix": route.upstream_prefix,
                 "upstream_tls": route.upstream_tls,
                 "cluster_name": route.cluster_name,
                 "vetted_addresses": route.vetted_addresses,
@@ -621,25 +684,6 @@ impl SandboxCredentials {
     }
 }
 
-/// Ensure a path prefix is non-empty and starts with `/`.
-pub(crate) fn normalize_prefix(p: &str) -> String {
-    if p.is_empty() {
-        "/".to_string()
-    } else if p.starts_with('/') {
-        p.to_string()
-    } else {
-        format!("/{p}")
-    }
-}
-
-pub(crate) fn normalize_rewrite_base_prefix(p: &str) -> String {
-    let mut prefix = normalize_prefix(p);
-    if prefix != "/" && !prefix.ends_with('/') {
-        prefix.push('/');
-    }
-    prefix
-}
-
 /// Parsed upstream target from a URL. Eliminates the redundant
 /// `Url::parse` → host/port/prefix/tls extraction duplicated across the
 /// LLM/MCP/Git/External credential builders. `prefix` is the raw URL path
@@ -681,14 +725,6 @@ impl UpstreamTarget {
     }
 }
 
-fn route_prefix_rewrite(r: &EgressCredentialRoute) -> String {
-    if r.match_host == LLM_EGRESS_HOST {
-        normalize_rewrite_base_prefix(&r.upstream_prefix)
-    } else {
-        r.upstream_prefix.clone()
-    }
-}
-
 fn upstream_authority(host: &str, port: u16, tls: bool) -> String {
     if (tls && port == 443) || (!tls && port == 80) {
         host.to_string()
@@ -717,6 +753,12 @@ fn auth_headers_to_remove(inject_headers: &[(String, String)]) -> Vec<String> {
 /// with `Not supported field in StreamInfo: 7C`.
 fn escape_envoy_header_value(raw: &str) -> String {
     raw.replace('%', "%%")
+}
+
+fn sha256_hex(value: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(value.as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 impl ListenerSpec {
@@ -795,9 +837,11 @@ impl FilesystemLds {
 
     /// Serialise the current listener set to `lds.json` and write it atomically.
     async fn write_lds(&self, listeners: &HashMap<String, Value>) -> anyhow::Result<()> {
-        let resources: Vec<&Value> = listeners.values().collect();
+        let mut resources: Vec<&Value> = listeners.values().collect();
+        resources.sort_by_key(|value| value.to_string());
+        let resources_json = serde_json::to_string(&resources)?;
         let lds = json!({
-            "version_info": listeners.len().to_string(),
+            "version_info": sha256_hex(&resources_json),
             "resources": resources,
         });
         let lds_json = serde_json::to_string(&lds)?;
@@ -884,9 +928,11 @@ impl FilesystemCds {
     }
 
     async fn write_cds(&self, clusters: &HashMap<String, Value>) -> anyhow::Result<()> {
-        let resources: Vec<&Value> = clusters.values().collect();
+        let mut resources: Vec<&Value> = clusters.values().collect();
+        resources.sort_by_key(|value| value.to_string());
+        let resources_json = serde_json::to_string(&resources)?;
         let cds = json!({
-            "version_info": clusters.len().to_string(),
+            "version_info": sha256_hex(&resources_json),
             "resources": resources,
         });
         let cds_json = serde_json::to_string(&cds)?;
@@ -1139,55 +1185,61 @@ fn build_virtual_hosts_json(
                 {
                     headers_to_remove.push("proxy-authorization".to_string());
                 }
-                // For transparent routes (host is already real), no host_rewrite
-                // or prefix_rewrite is needed. Placeholder routes rewrite to
-                // the real upstream.
                 let is_transparent = r.exposure == EgressExposure::Transparent;
-                let prefix_rewrite = route_prefix_rewrite(r);
-                let route_json = if is_transparent {
-                    // Transparent: Host is real, path is real, just forward.
-                    json!({
-                        "cluster": r.cluster_name,
-                        "timeout": "0s",
-                        "retry_policy": {
-                            "retry_on": "5xx,reset,connect-failure",
-                            "num_retries": 2
-                        }
-                    })
-                } else if r.exact_path {
-                    json!({
-                        "cluster": r.cluster_name,
-                        "host_rewrite_literal": upstream_authority(
+                let mut route_json = json!({
+                    "cluster": r.cluster_name,
+                    "timeout": "0s",
+                });
+                let route_object = route_json
+                    .as_object_mut()
+                    .expect("route projection is an object");
+                if !is_transparent {
+                    route_object.insert(
+                        "host_rewrite_literal".to_string(),
+                        json!(upstream_authority(
                             &r.upstream_host,
                             r.upstream_port,
                             r.upstream_tls,
-                        ),
-                        "timeout": "0s",
-                        "retry_policy": {
+                        )),
+                    );
+                }
+                match &r.path_mapping {
+                    EgressPathMapping::Passthrough { .. } => {}
+                    EgressPathMapping::RewriteExact { upstream_path, .. } => {
+                        route_object.insert("prefix_rewrite".to_string(), json!(upstream_path));
+                    }
+                    EgressPathMapping::RewritePrefix {
+                        upstream_prefix, ..
+                    } => {
+                        route_object.insert("prefix_rewrite".to_string(), json!(upstream_prefix));
+                    }
+                }
+                if r.retry_mode == EgressRetryMode::SafeIdempotent {
+                    route_object.insert(
+                        "retry_policy".to_string(),
+                        json!({
                             "retry_on": "5xx,reset,connect-failure",
                             "num_retries": 2
-                        }
-                    })
-                } else {
-                    json!({
-                        "cluster": r.cluster_name,
-                        "host_rewrite_literal": upstream_authority(
-                            &r.upstream_host,
-                            r.upstream_port,
-                            r.upstream_tls,
-                        ),
-                        "prefix_rewrite": prefix_rewrite,
-                        "timeout": "0s",
-                        "retry_policy": {
-                            "retry_on": "5xx,reset,connect-failure",
-                            "num_retries": 2
-                        }
-                    })
-                };
-                let mut match_json = if r.exact_path {
-                    json!({ "path": r.match_prefix })
-                } else {
-                    json!({ "prefix": r.match_prefix })
+                        }),
+                    );
+                }
+                let mut match_json = match &r.path_mapping {
+                    EgressPathMapping::Passthrough {
+                        matcher: EgressPathMatcher::Any,
+                    } => json!({ "prefix": "/" }),
+                    EgressPathMapping::Passthrough {
+                        matcher: EgressPathMatcher::Exact(path),
+                    }
+                    | EgressPathMapping::RewriteExact {
+                        exposed_path: path, ..
+                    } => json!({ "path": path }),
+                    EgressPathMapping::Passthrough {
+                        matcher: EgressPathMatcher::Prefix(prefix),
+                    }
+                    | EgressPathMapping::RewritePrefix {
+                        exposed_prefix: prefix,
+                        ..
+                    } => json!({ "prefix": prefix }),
                 };
                 add_proxy_auth_match(&mut match_json, proxy_auth_token);
                 json!({
@@ -1416,7 +1468,7 @@ fn validate_header_name(name: &str) -> anyhow::Result<()> {
 }
 
 /// Group credential routes by their placeholder `match_host`, returning a stable
-/// (host-sorted) list with routes ordered longest-`match_prefix`-first so more
+/// (host-sorted) list with routes ordered longest exposed path first so more
 /// specific prefixes are matched before `/`.
 fn group_credentials_by_host(
     credentials: &[EgressCredentialRoute],
@@ -1431,7 +1483,12 @@ fn group_credentials_by_host(
     let mut grouped: Vec<(String, Vec<EgressCredentialRoute>)> = by_host.into_iter().collect();
     grouped.sort_by(|a, b| a.0.cmp(&b.0));
     for (_, routes) in &mut grouped {
-        routes.sort_by(|a, b| b.match_prefix.len().cmp(&a.match_prefix.len()));
+        routes.sort_by(|a, b| {
+            b.path_mapping
+                .exposed_path()
+                .len()
+                .cmp(&a.path_mapping.exposed_path().len())
+        });
     }
     grouped
 }
@@ -2078,6 +2135,14 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                     msg = inbound.message() => {
                         match msg {
                             Ok(Some(req)) => {
+                                debug!(
+                                    type_url = %req.type_url,
+                                    response_nonce = %req.response_nonce,
+                                    has_error = req.error_detail.is_some(),
+                                    subscribe_count = req.resource_names_subscribe.len(),
+                                    unsubscribe_count = req.resource_names_unsubscribe.len(),
+                                    "Received Envoy Delta ADS request"
+                                );
                                 // Capture node_id from the first request (Envoy sends it on initial subscription)
                                 if stream_node.is_empty() {
                                     if let Some(ref node) = req.node {
@@ -2088,9 +2153,14 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                                     }
                                 }
                                 if !req.response_nonce.is_empty() {
-                                    let (acked_type_url, acked_version, resources) = nonce_resources
-                                        .take(&req.response_nonce)
-                                        .unwrap_or_default();
+                                    let tracked = nonce_resources.take(&req.response_nonce);
+                                    debug!(
+                                        nonce = %req.response_nonce,
+                                        tracked = tracked.is_some(),
+                                        "Resolved Envoy Delta ADS response nonce"
+                                    );
+                                    let (acked_type_url, acked_version, resources) =
+                                        tracked.unwrap_or_default();
                                     if let Some(err) = &req.error_detail {
                                         warn!(code = err.code, message = %err.message, nonce = %req.response_nonce, "Envoy NACK'd xDS update");
                                         xds_status_handle.record_nack(resources, acked_version, err.message.clone()).await;
@@ -2116,6 +2186,14 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                                         &mut nonce_resources,
                                     );
                                     sent.insert(req.type_url, current);
+                                    debug!(
+                                        type_url = %resp.type_url,
+                                        version,
+                                        resources = resp.resources.len(),
+                                        removed = resp.removed_resources.len(),
+                                        nonce = %resp.nonce,
+                                        "Sending Envoy Delta ADS snapshot"
+                                    );
                                     if tx.send(Ok(resp)).await.is_err() {
                                         break;
                                     }
@@ -2136,6 +2214,11 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                             break; // server dropped
                         }
                         let version = *notify_rx.borrow_and_update();
+                        debug!(
+                            previous_version = last_seen_version,
+                            version,
+                            "Observed xDS resource-state change"
+                        );
                         if version == last_seen_version {
                             continue;
                         }
@@ -2207,6 +2290,14 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                             if resp.resources.is_empty() && resp.removed_resources.is_empty() {
                                 continue;
                             }
+                            debug!(
+                                type_url = %resp.type_url,
+                                version,
+                                resources = resp.resources.len(),
+                                removed = resp.removed_resources.len(),
+                                nonce = %resp.nonce,
+                                "Sending Envoy Delta ADS update"
+                            );
                             if tx.send(Ok(resp)).await.is_err() {
                                 closed = true;
                                 break;
@@ -2750,16 +2841,31 @@ fn build_virtual_hosts_proto(
                 {
                     headers_to_remove.push("proxy-authorization".to_string());
                 }
-                let path_specifier = if r.exact_path {
-                    route_match::PathSpecifier::Path(r.match_prefix.clone())
-                } else {
-                    route_match::PathSpecifier::Prefix(r.match_prefix.clone())
+                let path_specifier = match &r.path_mapping {
+                    EgressPathMapping::Passthrough {
+                        matcher: EgressPathMatcher::Any,
+                    } => route_match::PathSpecifier::Prefix("/".to_string()),
+                    EgressPathMapping::Passthrough {
+                        matcher: EgressPathMatcher::Exact(path),
+                    }
+                    | EgressPathMapping::RewriteExact {
+                        exposed_path: path, ..
+                    } => route_match::PathSpecifier::Path(path.clone()),
+                    EgressPathMapping::Passthrough {
+                        matcher: EgressPathMatcher::Prefix(prefix),
+                    }
+                    | EgressPathMapping::RewritePrefix {
+                        exposed_prefix: prefix,
+                        ..
+                    } => route_match::PathSpecifier::Prefix(prefix.clone()),
                 };
                 let is_transparent = r.exposure == EgressExposure::Transparent;
-                let prefix_rewrite = if is_transparent || r.exact_path {
-                    String::new()
-                } else {
-                    route_prefix_rewrite(r)
+                let prefix_rewrite = match &r.path_mapping {
+                    EgressPathMapping::Passthrough { .. } => String::new(),
+                    EgressPathMapping::RewriteExact { upstream_path, .. } => upstream_path.clone(),
+                    EgressPathMapping::RewritePrefix {
+                        upstream_prefix, ..
+                    } => upstream_prefix.clone(),
                 };
                 let host_rewrite = if is_transparent {
                     None
@@ -2786,15 +2892,18 @@ fn build_virtual_hosts_proto(
                             seconds: 0,
                             nanos: 0,
                         }),
-                        retry_policy: Some(
-                            envoy_types::pb::envoy::config::route::v3::RetryPolicy {
-                                retry_on: "5xx,reset,connect-failure".to_string(),
-                                num_retries: Some(envoy_types::pb::google::protobuf::UInt32Value {
-                                    value: 2,
-                                }),
-                                ..Default::default()
-                            },
-                        ),
+                        retry_policy: match r.retry_mode {
+                            EgressRetryMode::Disabled => None,
+                            EgressRetryMode::SafeIdempotent => {
+                                Some(envoy_types::pb::envoy::config::route::v3::RetryPolicy {
+                                    retry_on: "5xx,reset,connect-failure".to_string(),
+                                    num_retries: Some(
+                                        envoy_types::pb::google::protobuf::UInt32Value { value: 2 },
+                                    ),
+                                    ..Default::default()
+                                })
+                            }
+                        },
                         ..Default::default()
                     })),
                     request_headers_to_add: headers,
@@ -3322,11 +3431,13 @@ mod tests {
             kind: EgressKind::Llm,
             exposure: EgressExposure::Placeholder,
             match_host: LLM_EGRESS_HOST.to_string(),
-            match_prefix: "/".to_string(),
-            exact_path: false,
+            path_mapping: EgressPathMapping::RewritePrefix {
+                exposed_prefix: "/".to_string(),
+                upstream_prefix: "/v1/".to_string(),
+            },
+            retry_mode: EgressRetryMode::SafeIdempotent,
             upstream_host: "llm.internal.example.com".to_string(),
             upstream_port: 443,
-            upstream_prefix: "/v1".to_string(),
             upstream_tls: true,
             cluster_name: "dynamic_forward_proxy_tls".to_string(),
             vetted_addresses: vec![],
@@ -3341,11 +3452,13 @@ mod tests {
             kind: EgressKind::Mcp,
             exposure: EgressExposure::Placeholder,
             match_host: MCP_EGRESS_HOST.to_string(),
-            match_prefix: format!("/mcp/{name}/"),
-            exact_path: false,
+            path_mapping: EgressPathMapping::RewritePrefix {
+                exposed_prefix: format!("/mcp/{name}/"),
+                upstream_prefix: "/sse".to_string(),
+            },
+            retry_mode: EgressRetryMode::Disabled,
             upstream_host: "mcp.example.com".to_string(),
             upstream_port: 443,
-            upstream_prefix: "/sse".to_string(),
             upstream_tls: true,
             cluster_name: "dynamic_forward_proxy_tls".to_string(),
             vetted_addresses: vec![],
@@ -3403,7 +3516,7 @@ mod tests {
             proxy_auth_token: None,
         }
         .to_policy(&sid, vec![]);
-        let summary = egress_policy_summary(&sid, &policy);
+        let summary = rendered_egress_policy_summary(&sid, &policy);
         let text = summary.to_string();
         assert!(text.contains("value_sha256"));
         assert!(!text.contains("Bearer sk-secret"));
@@ -3441,11 +3554,13 @@ mod tests {
                     kind: EgressKind::Llm,
                     exposure: EgressExposure::Placeholder,
                     match_host: LLM_EGRESS_HOST.to_string(),
-                    match_prefix: "/".to_string(),
-                    exact_path: false,
+                    path_mapping: EgressPathMapping::RewritePrefix {
+                        exposed_prefix: "/".to_string(),
+                        upstream_prefix: "/v1/".to_string(),
+                    },
+                    retry_mode: EgressRetryMode::SafeIdempotent,
                     upstream_host: "llm.internal.example.com".to_string(),
                     upstream_port: 443,
-                    upstream_prefix: "/v1/".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
                     vetted_addresses: vec![],
@@ -3457,11 +3572,13 @@ mod tests {
                     kind: EgressKind::Mcp,
                     exposure: EgressExposure::Placeholder,
                     match_host: MCP_EGRESS_HOST.to_string(),
-                    match_prefix: "/mcp/gitlab/".to_string(),
-                    exact_path: false,
+                    path_mapping: EgressPathMapping::RewritePrefix {
+                        exposed_prefix: "/mcp/gitlab/".to_string(),
+                        upstream_prefix: "/sse".to_string(),
+                    },
+                    retry_mode: EgressRetryMode::Disabled,
                     upstream_host: "mcp.example.com".to_string(),
                     upstream_port: 8443,
-                    upstream_prefix: "/sse".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
                     vetted_addresses: vec![],
@@ -3496,9 +3613,14 @@ mod tests {
             .iter()
             .find(|r| r.match_host == LLM_EGRESS_HOST)
             .unwrap();
-        assert_eq!(llm.match_prefix, "/");
+        assert_eq!(
+            llm.path_mapping,
+            EgressPathMapping::RewritePrefix {
+                exposed_prefix: "/".to_string(),
+                upstream_prefix: "/v1/".to_string(),
+            }
+        );
         assert_eq!(llm.upstream_host, "llm.internal.example.com");
-        assert_eq!(llm.upstream_prefix, "/v1/");
         assert_eq!(llm.cluster_name, "dynamic_forward_proxy_tls");
 
         // MCP route scoped by name.
@@ -3506,8 +3628,14 @@ mod tests {
             .iter()
             .find(|r| r.match_host == MCP_EGRESS_HOST)
             .unwrap();
-        assert_eq!(mcp.match_prefix, "/mcp/gitlab/");
-        assert_eq!(mcp.upstream_prefix, "/sse");
+        assert_eq!(
+            mcp.path_mapping,
+            EgressPathMapping::RewritePrefix {
+                exposed_prefix: "/mcp/gitlab/".to_string(),
+                upstream_prefix: "/sse".to_string(),
+            }
+        );
+        assert_eq!(mcp.retry_mode, EgressRetryMode::Disabled);
         assert_eq!(mcp.cluster_name, "dynamic_forward_proxy_tls");
     }
 
@@ -3525,11 +3653,13 @@ mod tests {
                     kind: EgressKind::External,
                     exposure: EgressExposure::Placeholder,
                     match_host: EXTERNAL_EGRESS_HOST.to_string(),
-                    match_prefix: "/services/crm/".to_string(),
-                    exact_path: false,
+                    path_mapping: EgressPathMapping::RewritePrefix {
+                        exposed_prefix: "/services/crm/".to_string(),
+                        upstream_prefix: "/api/".to_string(),
+                    },
+                    retry_mode: EgressRetryMode::SafeIdempotent,
                     upstream_host: "crm.example.com".to_string(),
                     upstream_port: 443,
-                    upstream_prefix: "/api/".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
                     vetted_addresses: vec![],
@@ -3541,11 +3671,12 @@ mod tests {
                     kind: EgressKind::External,
                     exposure: EgressExposure::Transparent,
                     match_host: "crm.example.com".to_string(),
-                    match_prefix: "/api/".to_string(),
-                    exact_path: false,
+                    path_mapping: EgressPathMapping::Passthrough {
+                        matcher: EgressPathMatcher::Prefix("/api/".to_string()),
+                    },
+                    retry_mode: EgressRetryMode::SafeIdempotent,
                     upstream_host: "crm.example.com".to_string(),
                     upstream_port: 443,
-                    upstream_prefix: "/api/".to_string(),
                     upstream_tls: true,
                     cluster_name: String::new(),
                     vetted_addresses: vec![],
@@ -3571,9 +3702,13 @@ mod tests {
             .find(|r| r.match_host == "crm.example.com")
             .unwrap();
         assert_eq!(direct.exposure, EgressExposure::Transparent);
-        assert_eq!(direct.match_prefix, "/api/");
+        assert_eq!(
+            direct.path_mapping,
+            EgressPathMapping::Passthrough {
+                matcher: EgressPathMatcher::Prefix("/api/".to_string())
+            }
+        );
         assert_eq!(direct.upstream_host, "crm.example.com");
-        assert_eq!(direct.upstream_prefix, "/api/");
         assert!(direct.upstream_tls);
         assert_eq!(direct.cluster_name, "dynamic_forward_proxy_tls");
 
@@ -3669,11 +3804,12 @@ mod tests {
             kind: EgressKind::External,
             exposure: EgressExposure::Transparent,
             match_host: "crm.example.com".to_string(),
-            match_prefix: prefix.to_string(),
-            exact_path: false,
+            path_mapping: EgressPathMapping::Passthrough {
+                matcher: EgressPathMatcher::Prefix(prefix.to_string()),
+            },
+            retry_mode: EgressRetryMode::SafeIdempotent,
             upstream_host: "crm.example.com".to_string(),
             upstream_port: 443,
-            upstream_prefix: prefix.to_string(),
             upstream_tls: true,
             cluster_name: String::new(),
             vetted_addresses: vec![],
@@ -3719,21 +3855,18 @@ mod tests {
     }
 
     #[test]
-    fn exact_path_route_renders_path_match_without_prefix_rewrite() {
-        // A transparent allowlist route with exact_path=true must render an
-        // Envoy `path` match (not `prefix`) and must NOT emit prefix_rewrite
-        // (which is only valid for prefix matches). A prefix route (trailing /)
-        // renders `prefix` + prefix_rewrite.
+    fn passthrough_routes_render_exact_or_prefix_without_rewrite() {
         let exact = EgressCredentialRoute {
             id: "external-direct:crm:0".to_string(),
             kind: EgressKind::External,
             exposure: EgressExposure::Transparent,
             match_host: "crm.example.com".to_string(),
-            match_prefix: "/api/warning/getWarningDetailById".to_string(),
-            exact_path: true,
+            path_mapping: EgressPathMapping::Passthrough {
+                matcher: EgressPathMatcher::Exact("/api/warning/getWarningDetailById".to_string()),
+            },
+            retry_mode: EgressRetryMode::SafeIdempotent,
             upstream_host: "crm.example.com".to_string(),
             upstream_port: 443,
-            upstream_prefix: "/api/warning/getWarningDetailById".to_string(),
             upstream_tls: true,
             cluster_name: "dynamic_forward_proxy_tls".to_string(),
             vetted_addresses: vec![],
@@ -3742,9 +3875,9 @@ mod tests {
         };
         let prefix = EgressCredentialRoute {
             id: "external-direct:crm:1".to_string(),
-            match_prefix: "/api/work/".to_string(),
-            upstream_prefix: "/api/work/".to_string(),
-            exact_path: false,
+            path_mapping: EgressPathMapping::Passthrough {
+                matcher: EgressPathMatcher::Prefix("/api/work/".to_string()),
+            },
             ..exact.clone()
         };
 
@@ -3774,6 +3907,49 @@ mod tests {
         assert_eq!(prefix_route["match"]["prefix"], "/api/work/");
         // Transparent routes don't need prefix_rewrite (path is already correct).
         assert!(prefix_route["route"].get("prefix_rewrite").is_none());
+    }
+
+    #[test]
+    fn exact_rewrite_route_has_renderer_parity_and_can_disable_retries() {
+        use envoy_types::pb::envoy::config::route::v3::{route, route_match};
+
+        let credential = EgressCredentialRoute {
+            id: "mcp:exact".to_string(),
+            kind: EgressKind::Mcp,
+            exposure: EgressExposure::Placeholder,
+            match_host: MCP_EGRESS_HOST.to_string(),
+            path_mapping: EgressPathMapping::RewriteExact {
+                exposed_path: "/r/exact/".to_string(),
+                upstream_path: "/mcp".to_string(),
+            },
+            retry_mode: EgressRetryMode::Disabled,
+            upstream_host: "mcp.example.com".to_string(),
+            upstream_port: 443,
+            upstream_tls: true,
+            cluster_name: "mcp_exact".to_string(),
+            vetted_addresses: vec![],
+            inject_headers: vec![],
+            remove_headers: vec![],
+        };
+
+        let json_vhosts = build_virtual_hosts_json(&[], &[credential.clone()], None);
+        let json_route = &json_vhosts[0]["routes"][0];
+        assert_eq!(json_route["match"]["path"], "/r/exact/");
+        assert_eq!(json_route["route"]["prefix_rewrite"], "/mcp");
+        assert!(json_route["route"].get("retry_policy").is_none());
+
+        let proto_vhosts = build_virtual_hosts_proto(&[], &[credential], None);
+        let proto_route = &proto_vhosts[0].routes[0];
+        assert!(matches!(
+            proto_route.r#match.as_ref().and_then(|value| value.path_specifier.as_ref()),
+            Some(route_match::PathSpecifier::Path(path)) if path == "/r/exact/"
+        ));
+        let action = match proto_route.action.as_ref() {
+            Some(route::Action::Route(action)) => action,
+            _ => panic!("expected route action"),
+        };
+        assert_eq!(action.prefix_rewrite, "/mcp");
+        assert!(action.retry_policy.is_none());
     }
 
     #[test]
@@ -3997,14 +4173,15 @@ mod tests {
             kind: EgressKind::External,
             exposure: EgressExposure::Transparent,
             match_host: "llm-egress.internal".to_string(),
-            match_prefix: "/v1/".to_string(),
+            path_mapping: EgressPathMapping::Passthrough {
+                matcher: EgressPathMatcher::Prefix("/v1/".to_string()),
+            },
+            retry_mode: EgressRetryMode::SafeIdempotent,
             upstream_host: "api.example.com".to_string(),
             upstream_port: 443,
-            upstream_prefix: "/v1/".to_string(),
             upstream_tls: true,
             cluster_name: "dynamic_forward_proxy_tls".to_string(),
             vetted_addresses: vec![],
-            exact_path: false,
             inject_headers: vec![("cookie".to_string(), "session=abc%7Cdef%3Dxyz".to_string())],
             remove_headers: vec![],
         };

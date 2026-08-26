@@ -5,8 +5,10 @@ use std::time::Duration;
 use anyhow::Context;
 use sqlx::PgPool;
 
-use crate::db::queries::{self, NetworkPolicyGeneration};
+use crate::db::queries::{self, NetworkPolicyAckOutcome, NetworkPolicyGeneration};
 use crate::ids::SandboxId;
+use crate::kernel::ha::{NetworkPolicyRequest, NetworkPolicyRequestQueue};
+use crate::sandbox::provider::SandboxProvider;
 
 #[derive(Clone)]
 pub struct XdsAuthorityState {
@@ -127,7 +129,7 @@ pub async fn wait_for_network_policy_ready(
     sandbox_id: SandboxId,
     generation: &NetworkPolicyGeneration,
     timeout: Duration,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<NetworkPolicyAckOutcome> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let sandbox = queries::get_sandbox(pool, sandbox_id)
@@ -144,7 +146,12 @@ pub async fn wait_for_network_policy_ready(
             );
         }
         match sandbox.networking_status.as_str() {
-            "ready" => return Ok(()),
+            "ready"
+                if sandbox.networking_applied_hash.as_deref() == Some(&generation.policy_hash)
+                    && sandbox.networking_applied_version == Some(generation.policy_version) =>
+            {
+                return Ok(NetworkPolicyAckOutcome::AlreadyReady)
+            }
             "nacked" | "failed" => anyhow::bail!(
                 "xDS authority rejected sandbox {sandbox_id} policy: {}",
                 sandbox
@@ -161,6 +168,52 @@ pub async fn wait_for_network_policy_ready(
             );
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+pub async fn ensure_network_policy_ready(
+    pool: &PgPool,
+    provider: &dyn SandboxProvider,
+    queue: Option<&dyn NetworkPolicyRequestQueue>,
+    authority: &XdsAuthorityState,
+    sandbox_id: SandboxId,
+    generation: &NetworkPolicyGeneration,
+    llm_egress_allowed_hosts: &[String],
+    timeout: Duration,
+) -> anyhow::Result<NetworkPolicyAckOutcome> {
+    if let Some(queue) = queue {
+        queue
+            .publish(NetworkPolicyRequest::reconcile(
+                sandbox_id,
+                generation.clone(),
+            ))
+            .await
+            .context("failed to request xDS authority reconciliation")?;
+        return wait_for_network_policy_ready(pool, sandbox_id, generation, timeout).await;
+    }
+    let _application_lock = authority.lock_application().await;
+    let guard = authority
+        .ready_guard()
+        .ok_or_else(|| anyhow::anyhow!("local xDS authority is not ready"))?;
+    match crate::kernel::sandbox_resolver::apply_sandbox_networking_generation_as_authority(
+        pool,
+        provider,
+        sandbox_id,
+        generation,
+        llm_egress_allowed_hosts,
+        &guard,
+    )
+    .await?
+    {
+        crate::kernel::sandbox_resolver::NetworkingReconcileOutcome::Refreshed { .. } => {
+            Ok(NetworkPolicyAckOutcome::Applied)
+        }
+        crate::kernel::sandbox_resolver::NetworkingReconcileOutcome::AlreadyReady { .. } => {
+            Ok(NetworkPolicyAckOutcome::AlreadyReady)
+        }
+        crate::kernel::sandbox_resolver::NetworkingReconcileOutcome::NotLimited => {
+            anyhow::bail!("sandbox {sandbox_id} no longer requires limited networking")
+        }
     }
 }
 

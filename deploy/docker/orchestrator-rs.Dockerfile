@@ -19,10 +19,13 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY proto ./proto
+COPY shared ./shared
 COPY backend/app/joysafeter_orchestrator_rs ./backend/app/joysafeter_orchestrator_rs
 # src/kernel/llm_catalog.rs embeds ../../../../config/llm_catalog.yaml via
 # include_str! at compile time -> resolves to /src/backend/config/; must be present.
 COPY backend/config ./backend/config
+# src/kernel/credentials/contract.rs embeds the credential contracts at compile time.
+COPY backend/contracts ./backend/contracts
 
 WORKDIR /src/backend/app/joysafeter_orchestrator_rs
 # aws-sdk-s3 is extremely memory-hungry to compile. Limit parallelism and relax

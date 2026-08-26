@@ -12,6 +12,7 @@
 //! is disabled unless a provider is explicitly configured.
 
 use async_trait::async_trait;
+pub use joysafeter_entity_id::{AgentId, ProjectId, SessionId, TaskId, UserId};
 use serde_json::Value as JsonValue;
 
 // ---------------------------------------------------------------------------
@@ -46,15 +47,15 @@ pub struct AgentIdentityInjection {
 #[derive(Debug, Clone)]
 pub struct IdentityResolveContext {
     /// Authenticated project/tenant scope.
-    pub project_id: String,
+    pub project_id: ProjectId,
     /// Immutable authenticated user ID.
-    pub user_id: String,
+    pub user_id: UserId,
     /// Agent's unique ID.
-    pub agent_id: String,
+    pub agent_id: AgentId,
     /// Session ID (if available).
-    pub session_id: String,
+    pub session_id: SessionId,
     /// Task ID being executed.
-    pub task_id: String,
+    pub task_id: TaskId,
     /// Triggering user's raw identity credential (decrypted from storage).
     /// Provider uses this to bootstrap its token exchange flow.
     /// Empty when `auth_code` is provided instead.
@@ -76,9 +77,9 @@ pub struct IdentityResolveContext {
 #[derive(Debug, Clone)]
 pub struct IdentityCleanupContext {
     /// Agent ID whose credentials should be cleaned up.
-    pub agent_id: String,
+    pub agent_id: AgentId,
     /// If provided, only clean up credentials for this immutable user ID.
-    pub user_id: Option<String>,
+    pub user_id: Option<UserId>,
 }
 
 // ---------------------------------------------------------------------------

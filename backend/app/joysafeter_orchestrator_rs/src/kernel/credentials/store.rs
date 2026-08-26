@@ -4,14 +4,14 @@ use chrono::{DateTime, Utc};
 use sqlx::{FromRow, PgConnection, PgPool};
 use url::Url;
 
-use crate::ids::{CredentialGroupId, CredentialId, SessionId};
+use crate::ids::{CredentialGroupId, CredentialId, ProjectId, SessionId};
 
 use super::contract::canonical_auth_scheme;
 use super::error::CredentialRuntimeError;
 use super::material::{ManagedCredentialMaterialAdapter, MaterialFieldSelection};
 use super::record::{
     CredentialKind, CredentialMetadataRecord, CredentialRecord, McpCredentialMetadataRecord,
-    McpCredentialRecord, ProjectId,
+    McpCredentialRecord,
 };
 
 #[derive(Clone)]
@@ -48,7 +48,7 @@ impl CredentialStore {
             "#,
         )
         .bind(credential_id)
-        .bind(project_id.as_str())
+        .bind(project_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| CredentialRuntimeError::CorruptRecord)?
@@ -76,7 +76,7 @@ impl CredentialStore {
             "#,
         )
         .bind(credential_id)
-        .bind(project_id.as_str())
+        .bind(project_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| CredentialRuntimeError::CorruptRecord)?
@@ -104,7 +104,7 @@ impl CredentialStore {
             "#,
         )
         .bind(credential_id)
-        .bind(project_id.as_str())
+        .bind(project_id)
         .fetch_optional(connection)
         .await
         .map_err(|_| CredentialRuntimeError::CorruptRecord)?
@@ -153,7 +153,7 @@ impl CredentialStore {
             "#,
         )
         .bind(credential_id)
-        .bind(project_id.as_str())
+        .bind(project_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| CredentialRuntimeError::CorruptRecord)?
@@ -205,7 +205,7 @@ impl CredentialStore {
             "#,
         )
         .bind(session_id)
-        .bind(project_id.as_str())
+        .bind(project_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|_| CredentialRuntimeError::CorruptRecord)?;
@@ -296,7 +296,7 @@ impl CredentialStore {
         }
         Ok(CredentialMetadataRecord {
             id: row.id,
-            project_id: ProjectId::parse(&row.project_id)?,
+            project_id: row.project_id,
             kind,
             provider: row.provider.clone(),
             protocol: row.protocol.clone(),
@@ -314,7 +314,7 @@ impl CredentialStore {
         expected_group_id: CredentialGroupId,
     ) -> Result<McpCredentialRecord, CredentialRuntimeError> {
         let metadata = self.validate_mcp_metadata_row(&row, expected_group_id)?;
-        let material_fields = BTreeSet::from(["token_value".to_string()]);
+        let material_fields = mcp_material_fields(&metadata)?;
         Ok(McpCredentialRecord {
             id: metadata.id,
             project_id: metadata.project_id,
@@ -367,7 +367,7 @@ impl CredentialStore {
 #[derive(Debug, FromRow)]
 struct CredentialRow {
     id: CredentialId,
-    project_id: String,
+    project_id: ProjectId,
     kind: String,
     provider: Option<String>,
     protocol: Option<String>,
@@ -383,18 +383,18 @@ struct CredentialRow {
 
 #[derive(Debug, FromRow)]
 struct SessionMcpRow {
-    session_project_id: Option<String>,
+    session_project_id: Option<ProjectId>,
     session_archived_at: Option<DateTime<Utc>>,
     session_status: String,
     session_project_matches: Option<bool>,
     association_group_id: Option<CredentialGroupId>,
     group_id: Option<CredentialGroupId>,
-    group_project_id: Option<String>,
+    group_project_id: Option<ProjectId>,
     group_archived_at: Option<DateTime<Utc>>,
     group_deleted_at: Option<DateTime<Utc>>,
     group_project_matches: Option<bool>,
     credential_id: Option<CredentialId>,
-    credential_project_id: Option<String>,
+    credential_project_id: Option<ProjectId>,
     credential_kind: Option<String>,
     credential_provider: Option<String>,
     credential_protocol: Option<String>,
@@ -453,9 +453,7 @@ fn validate_resource_state(row: &CredentialRow) -> Result<(), CredentialRuntimeE
 }
 
 fn validate_session_state(row: &SessionMcpRow) -> Result<(), CredentialRuntimeError> {
-    if row.session_project_id.as_deref().is_none_or(str::is_empty)
-        || row.session_project_matches != Some(true)
-    {
+    if row.session_project_id.is_none() || row.session_project_matches != Some(true) {
         return Err(CredentialRuntimeError::ProjectMismatch);
     }
     if row.session_archived_at.is_some() || row.session_status == "terminated" {
@@ -475,9 +473,7 @@ fn validate_group_state(
     if group_id != association_group_id {
         return Err(CredentialRuntimeError::CorruptRecord);
     }
-    if row.group_project_id.as_deref().is_none_or(str::is_empty)
-        || row.group_project_matches != Some(true)
-    {
+    if row.group_project_id.is_none() || row.group_project_matches != Some(true) {
         return Err(CredentialRuntimeError::ProjectMismatch);
     }
     if row.group_deleted_at.is_some() {
@@ -544,7 +540,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::{CredentialRow, CredentialStore, MaterialFieldSelection};
-    use crate::ids::{CredentialGroupId, CredentialId};
+    use crate::ids::{CredentialGroupId, CredentialId, ProjectId};
     use crate::kernel::credentials::error::CredentialRuntimeError;
     use crate::kernel::credentials::material::ManagedCredentialMaterialAdapter;
 
@@ -567,7 +563,7 @@ mod tests {
     fn archived_row(kind: &str, group_id: Option<CredentialGroupId>) -> CredentialRow {
         CredentialRow {
             id: CredentialId::from_uuid(Uuid::now_v7()),
-            project_id: "project-a".to_string(),
+            project_id: ProjectId::from_uuid(Uuid::from_u128(1)),
             kind: kind.to_string(),
             provider: None,
             protocol: None,
@@ -656,6 +652,31 @@ mod tests {
 
         assert_eq!(error, CredentialRuntimeError::Archived);
     }
+}
+
+fn mcp_material_fields(
+    metadata: &McpCredentialMetadataRecord,
+) -> Result<BTreeSet<String>, CredentialRuntimeError> {
+    let mut fields = BTreeSet::from(["token_value".to_string()]);
+    match metadata.auth_scheme.as_str() {
+        "static_bearer" => {}
+        "header_api_key" => {
+            if metadata.material_fields.contains("header_name") {
+                fields.insert("header_name".to_string());
+            }
+        }
+        "custom_header" => {
+            if !metadata.material_fields.contains("header_name") {
+                return Err(CredentialRuntimeError::FieldMissing);
+            }
+            fields.insert("header_name".to_string());
+            if metadata.material_fields.contains("value_prefix") {
+                fields.insert("value_prefix".to_string());
+            }
+        }
+        _ => return Err(CredentialRuntimeError::UnsupportedScheme),
+    }
+    Ok(fields)
 }
 
 fn canonical_scheme(raw: Option<&str>) -> Result<String, CredentialRuntimeError> {

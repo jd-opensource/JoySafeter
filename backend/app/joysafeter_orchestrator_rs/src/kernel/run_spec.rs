@@ -7,7 +7,6 @@ use crate::kernel::credentials::reference::{decode_environment, decode_snapshot}
 
 #[derive(Debug, Clone)]
 pub struct SnapshotEnvironment {
-    pub reference: Option<String>,
     pub config: Value,
     pub image_tag: Option<String>,
 }
@@ -73,13 +72,10 @@ pub fn agent_for_execution(
             .or(session_version)
             .or_else(|| live.map(|agent| agent.version))
             .unwrap_or(1),
-        environment_ref: snapshot_string_override(snapshot, "environment_ref").unwrap_or_else(
-            || {
-                session
-                    .and_then(|session| session.environment_ref.clone())
-                    .or_else(|| live.and_then(|agent| agent.environment_ref.clone()))
-            },
-        ),
+        environment_id: match session {
+            Some(session) => session.environment_id,
+            None => live.and_then(|agent| agent.environment_id),
+        },
         // The agent's primary model credential is now referenced by id. The
         // snapshot persists it as the canonical public id string under
         // "model_credential_id"; parse it back to a CredentialId, else fall back
@@ -106,19 +102,7 @@ pub fn environment_for_execution(
         .get("image_tag")
         .and_then(|value| value.as_str())
         .map(ToOwned::to_owned);
-    let reference = ["id", "ref", "name"].into_iter().find_map(|key| {
-        environment
-            .get(key)
-            .and_then(|value| value.as_str())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned)
-    });
-    Some(SnapshotEnvironment {
-        reference,
-        config,
-        image_tag,
-    })
+    Some(SnapshotEnvironment { config, image_tag })
 }
 
 fn snapshot_value_override(snapshot: Option<&Value>, key: &str) -> Option<Option<Value>> {
@@ -173,7 +157,7 @@ pub(crate) fn environment_credential_ids(config: &Value) -> anyhow::Result<Vec<C
     decode_environment(config)
         .map(|decoded| decoded.direct_credential_ids)
         .map_err(anyhow::Error::new)
-        .context("persisted environment secret_refs are invalid")
+        .context("persisted environment credential references are invalid")
 }
 
 fn snapshot_i32(snapshot: Option<&Value>, key: &str) -> Option<i32> {
@@ -213,14 +197,14 @@ mod tests {
         snapshot_credential_id_override,
     };
     use crate::db::models::{JoySafeterAgent, JoySafeterSession};
-    use crate::ids::{AgentId, SessionId};
+    use crate::ids::{AgentId, ProjectId, SessionId};
 
     #[test]
     fn session_snapshot_identity_opt_out_overrides_reenabled_live_agent() {
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let live_agent = JoySafeterAgent {
             id: agent_id,
-            project_id: Some("project".to_string()),
+            project_id: Some(ProjectId::from_uuid(Uuid::from_u128(1))),
             name: "live-agent".to_string(),
             engine_kind: None,
             model: None,
@@ -236,21 +220,22 @@ mod tests {
             metadata: Some(json!({"agent_identity": {"enabled": true}})),
             multiagent: None,
             version: 2,
-            environment_ref: None,
+            environment_id: None,
             model_credential_id: None,
         };
         let session = JoySafeterSession {
             id: SessionId::from_uuid(Uuid::now_v7()),
             agent_id: Some(agent_id),
-            project_id: Some("project".to_string()),
+            project_id: Some(ProjectId::from_uuid(Uuid::from_u128(1))),
             status: "idle".to_string(),
             agent_version: Some(1),
             agent_snapshot: Some(json!({
+                "schema": "joysafeter.agent_execution_snapshot.v2",
                 "metadata": {"agent_identity": {"enabled": false}}
             })),
             last_harness_session_id: None,
             last_work_dir: None,
-            environment_ref: None,
+            environment_id: None,
             runtime_config_generation: 0,
             runtime_config_generation_reason: None,
             runtime_config_generation_updated_at: None,
@@ -284,35 +269,34 @@ mod tests {
     }
 
     #[test]
-    fn environment_secret_refs_reject_malformed_public_id() {
+    fn environment_credential_ids_reject_malformed_public_id() {
         let config = json!({
-            "secret_refs": ["019f891f-6539-71d3-b791-c25814af3efd"]
+            "environment_credential_ids": ["019f891f-6539-71d3-b791-c25814af3efd"]
         });
 
         let error = environment_credential_ids(&config)
             .expect_err("bare UUID in persisted environment must fail");
 
-        assert!(error.to_string().contains("secret_refs"));
+        assert!(error.to_string().contains("credential references"));
     }
 
     #[test]
-    fn snapshot_environment_reference_skips_null_id_for_legacy_ref() {
+    fn snapshot_environment_uses_frozen_config_without_identifier_fallback() {
         let session = JoySafeterSession {
             id: SessionId::from_uuid(Uuid::now_v7()),
             agent_id: None,
-            project_id: Some("project".to_string()),
+            project_id: Some(ProjectId::from_uuid(Uuid::from_u128(1))),
             status: "idle".to_string(),
             agent_version: None,
             agent_snapshot: Some(json!({
                 "environment": {
-                    "id": null,
-                    "ref": "legacy-environment",
+                    "environment_id": "env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f011",
                     "config": {"env_vars": {"FROZEN": "yes"}}
                 }
             })),
             last_harness_session_id: None,
             last_work_dir: None,
-            environment_ref: None,
+            environment_id: None,
             runtime_config_generation: 0,
             runtime_config_generation_reason: None,
             runtime_config_generation_updated_at: None,
@@ -320,6 +304,6 @@ mod tests {
 
         let environment = environment_for_execution(Some(&session)).expect("snapshot environment");
 
-        assert_eq!(environment.reference.as_deref(), Some("legacy-environment"));
+        assert_eq!(environment.config["env_vars"]["FROZEN"], "yes");
     }
 }

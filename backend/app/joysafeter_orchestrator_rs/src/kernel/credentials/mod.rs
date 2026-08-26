@@ -11,5 +11,4 @@ pub mod service;
 pub mod snapshot;
 pub mod store;
 
-pub use record::ProjectId;
 pub use store::CredentialStore;

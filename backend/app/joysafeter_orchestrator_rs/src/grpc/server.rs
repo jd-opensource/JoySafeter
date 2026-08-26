@@ -29,10 +29,9 @@ use crate::grpc::proto::agent_bridge_server::{AgentBridge, AgentBridgeServer};
 use crate::grpc::proto::{
     orchestrator_message, runner_message, OrchestratorMessage, RunnerMessage, Shutdown,
 };
-use crate::ids::{
-    AgentId, EventId, FileId, MemoryId, MemoryStoreId, MemoryVersionId, SandboxId, SessionId,
-    SessionResourceId, TaskId,
-};
+#[cfg(test)]
+use crate::ids::{AgentId, FileId, OrganizationId, ProjectId, SessionResourceId};
+use crate::ids::{EventId, MemoryId, MemoryStoreId, MemoryVersionId, SandboxId, SessionId, TaskId};
 use crate::kernel::ha::BridgeStore;
 use crate::kernel::harness_input_builder::HarnessInputBuilder;
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
@@ -217,11 +216,6 @@ impl AgentBridge for AgentBridgeService {
                     return;
                 }
 
-                // CAS status transition (skip for pooled)
-                if status != "pooled" {
-                    let _ =
-                        queries::transition_sandbox_cas(&pool, sandbox_db_id, status, "idle").await;
-                }
                 let _ = queries::touch_sandbox(&pool, sandbox_db_id).await;
                 // Successful runner attach → clear any stale disconnect
                 // marker left by a prior crash, so the fallback sweeper
@@ -267,11 +261,19 @@ impl AgentBridge for AgentBridgeService {
 
             // Capture reconnect info for the spawned task
             let reconnect_active_task_id = if ready.is_reconnect {
-                ready
+                match ready
                     .active_task_id
-                    .as_ref()
-                    .and_then(|s| s.parse::<Uuid>().ok())
-                    .map(TaskId::from_uuid)
+                    .as_deref()
+                    .map(TaskId::from_public)
+                    .transpose()
+                {
+                    Ok(task_id) => task_id,
+                    Err(error) => {
+                        warn!(sandbox_id = %sandbox_db_id, error = %error, "Runner sent invalid reconnect task id");
+                        send_shutdown(&tx, format!("invalid active task id: {error}")).await;
+                        return;
+                    }
+                }
             } else {
                 None
             };
@@ -481,13 +483,16 @@ async fn multi_task_loop(
                                 match &runner_msg.payload {
                                     Some(runner_message::Payload::Heartbeat(heartbeat)) => {
                                         heartbeat_deadline = Instant::now() + heartbeat_timeout;
-                                        bridge
+                                        if let Err(error) = bridge
                                             .record_runner_heartbeat(
                                                 &heartbeat.runtime_state,
-                                                heartbeat.active_task_id.clone(),
-                                                heartbeat.session_id.clone(),
+                                                heartbeat.active_task_id.as_deref(),
+                                                heartbeat.harness_session_id.clone(),
                                             )
-                                            .await;
+                                            .await
+                                        {
+                                            warn!(sandbox_id = %sandbox_db_id, error = %error, "Ignoring invalid runner heartbeat task id");
+                                        }
                                         // Heartbeats no longer touch last_used_at:
                                         // the idle sweep drives off idle_since
                                         // (set by RunnerIdle, precise even with
@@ -1635,15 +1640,16 @@ async fn handle_task_message(
 
         runner_message::Payload::Idle(idle_msg) => {
             bridge
-                .record_runner_heartbeat("idle", None, idle_msg.session_id.clone())
-                .await;
+                .record_runner_heartbeat("idle", None, idle_msg.harness_session_id.clone())
+                .await
+                .expect("idle heartbeat has no task id");
 
             // Update sandbox DB status
             let _ = queries::complete_sandbox_task(pool, sandbox_db_id).await;
 
             // Update session sandbox info
             if let Some(sid) = session_id {
-                let harness_session_id = idle_msg.session_id.as_deref();
+                let harness_session_id = idle_msg.harness_session_id.as_deref();
                 let work_dir = idle_msg.work_dir.as_deref();
                 let _ = queries::update_session_sandbox_info(
                     pool,
@@ -1694,13 +1700,16 @@ async fn handle_task_message(
         }
 
         runner_message::Payload::Heartbeat(heartbeat) => {
-            bridge
+            if let Err(error) = bridge
                 .record_runner_heartbeat(
                     &heartbeat.runtime_state,
-                    heartbeat.active_task_id.clone(),
-                    heartbeat.session_id.clone(),
+                    heartbeat.active_task_id.as_deref(),
+                    heartbeat.harness_session_id.clone(),
                 )
-                .await;
+                .await
+            {
+                warn!(task_id = %task_id, error = %error, "Ignoring invalid runner heartbeat task id");
+            }
             debug!(task_id = %task_id, "Heartbeat");
             TaskMessageOutcome::default()
         }
@@ -1932,8 +1941,8 @@ mod tests {
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let session_id = SessionId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
-        let organization_id = format!("org-grpc-{unique}");
-        let project_id = format!("proj-grpc-{unique}");
+        let organization_id = OrganizationId::new();
+        let project_id = ProjectId::new();
         sqlx::query(
             r#"
             INSERT INTO joysafeter_organizations
@@ -1994,7 +2003,7 @@ mod tests {
     }
 
     async fn cleanup(pool: &PgPool, agent_id: AgentId, session_id: SessionId) {
-        let project = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+        let project = sqlx::query_as::<_, (Option<ProjectId>, Option<OrganizationId>)>(
             r#"
             SELECT agents.project_id, projects.org_id
             FROM joysafeter_agents AS agents
@@ -2361,7 +2370,7 @@ mod tests {
         };
         let (agent_id, session_id) = create_agent_and_session(&pool).await;
         let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
-        let project_id: String =
+        let project_id: ProjectId =
             sqlx::query_scalar("SELECT project_id FROM joysafeter_sessions WHERE id = $1")
                 .bind(session_id)
                 .fetch_one(&pool)
@@ -2652,8 +2661,8 @@ mod tests {
         let file_id = FileId::from_uuid(Uuid::now_v7());
         let session_file_id = SessionResourceId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
-        let org_id = format!("org-{unique}");
-        let project_id = format!("proj-{unique}");
+        let org_id = OrganizationId::new();
+        let project_id = ProjectId::new();
         let missing_storage_key = format!("grpc-missing-session-file-{unique}.txt");
 
         let result = async {

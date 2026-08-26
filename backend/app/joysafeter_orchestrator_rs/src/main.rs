@@ -414,6 +414,7 @@ async fn main() -> anyhow::Result<()> {
         config.clone(),
         Some(sandbox_controller.pool_replenish_notify.clone()),
         ha.network_policy_queue.clone(),
+        xds_authority.clone(),
         identity_provider.clone(),
     );
     info!("Task scheduler started");

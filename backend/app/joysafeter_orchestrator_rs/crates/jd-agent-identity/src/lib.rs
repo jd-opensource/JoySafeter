@@ -653,9 +653,9 @@ impl JdAgentIdentityProvider {
         let key = Self::cache_key(
             &self.platform_id,
             &tenant_scope,
-            &ctx.agent_id,
+            &ctx.agent_id.to_string(),
             &self.auth_type,
-            &ctx.user_id,
+            &ctx.user_id.to_string(),
             &scope_str,
         );
 
@@ -669,8 +669,11 @@ impl JdAgentIdentityProvider {
         debug!(cache_key = %key, "BotToken cache miss, creating");
         let trace_id = uuid::Uuid::new_v4().to_string();
         let timestamp = chrono::Utc::now().timestamp_millis();
+        let agent_id = ctx.agent_id.to_string();
+        let session_id = ctx.session_id.to_string();
+        let task_id = ctx.task_id.to_string();
         let signature =
-            self.sign_create_bot_token(&ctx.agent_id, &ctx.identity_token, timestamp, &trace_id);
+            self.sign_create_bot_token(&agent_id, &ctx.identity_token, timestamp, &trace_id);
         // Reconstruct a minimal headersMap containing only the SSO cookie the
         // identity platform needs. The user's full request headers are NOT
         // persisted anywhere (privacy); we rebuild just the Cookie here from the
@@ -695,9 +698,9 @@ impl JdAgentIdentityProvider {
             trace_id,
             client_id: self.client_id.clone(),
             platform_id: self.platform_id.clone(),
-            agent_id: ctx.agent_id.clone(),
-            session_id: ctx.session_id.clone(),
-            request_id: ctx.task_id.clone(),
+            agent_id,
+            session_id,
+            request_id: task_id,
             scope: scope_str,
             tenant_code: config.tenant_code.clone(),
             auth_type: self.auth_type.clone(),
@@ -758,9 +761,9 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
             let cache_key = Self::cache_key(
                 &self.platform_id,
                 &format!("{}:{}", context.project_id, config.tenant_code),
-                &context.agent_id,
+                &context.agent_id.to_string(),
                 &self.auth_type,
-                &context.user_id,
+                &context.user_id.to_string(),
                 &context.egress_hosts.join(","),
             );
             if let Some(cached) = self.get_cached_bot_token(&cache_key).await {
@@ -788,14 +791,11 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
         let remove_headers = vec!["x-security-agenttoken".to_string()];
         let mut targets = Vec::with_capacity(context.egress_hosts.len());
         for host in &context.egress_hosts {
+            let agent_id = context.agent_id.to_string();
+            let session_id = context.session_id.to_string();
+            let task_id = context.task_id.to_string();
             let agent_token_data = self
-                .api_exchange_agent_token(
-                    &bot_token,
-                    &context.agent_id,
-                    &context.session_id,
-                    &context.task_id,
-                    host,
-                )
+                .api_exchange_agent_token(&bot_token, &agent_id, &session_id, &task_id, host)
                 .await?;
             targets.push(IdentityEgressTarget {
                 host: host.clone(),
@@ -820,6 +820,7 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
 
     async fn cleanup(&self, context: &IdentityCleanupContext) {
         let pattern = if let Some(ref user_id) = context.user_id {
+            let user_id = user_id.to_string();
             format!(
                 "joysafeter:bot_token:*:*:{}:*:{:x}:*",
                 context.agent_id,
@@ -881,7 +882,10 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
 #[cfg(test)]
 mod tests {
     use super::{JdAgentIdentityProvider, JdIdentityConfig};
-    use agent_identity_trait::{AgentIdentityProvider, IdentityResolveContext};
+    use agent_identity_trait::{
+        AgentId, AgentIdentityProvider, IdentityResolveContext, ProjectId, SessionId, TaskId,
+        UserId,
+    };
     use redis::AsyncCommands;
     use serde_json::json;
     use std::sync::Arc;
@@ -933,11 +937,11 @@ mod tests {
     async fn resolve_explicit_disabled_config_returns_no_injection() {
         let provider = provider_for_config_tests();
         let context = IdentityResolveContext {
-            project_id: "project".to_string(),
-            user_id: "user".to_string(),
-            agent_id: "agent".to_string(),
-            session_id: "session".to_string(),
-            task_id: "task".to_string(),
+            project_id: ProjectId::new(),
+            user_id: UserId::new(),
+            agent_id: AgentId::new(),
+            session_id: SessionId::new(),
+            task_id: TaskId::new(),
             identity_token: "identity-token".to_string(),
             auth_code: None,
             user_name: "user@example.com".to_string(),
@@ -1072,11 +1076,11 @@ mod tests {
             redis_client: redis_client.clone(),
         };
         let context = IdentityResolveContext {
-            project_id: "project".to_string(),
-            user_id: "user".to_string(),
-            agent_id: "agent".to_string(),
-            session_id: "session".to_string(),
-            task_id: "task".to_string(),
+            project_id: ProjectId::new(),
+            user_id: UserId::new(),
+            agent_id: AgentId::new(),
+            session_id: SessionId::new(),
+            task_id: TaskId::new(),
             identity_token: String::new(),
             auth_code: Some("one-time-code".to_string()),
             user_name: "user@example.com".to_string(),
@@ -1088,9 +1092,9 @@ mod tests {
         let cache_key = JdAgentIdentityProvider::cache_key(
             &provider.platform_id,
             &format!("{}:{}", context.project_id, config.tenant_code),
-            &context.agent_id,
+            &context.agent_id.to_string(),
             &provider.auth_type,
-            &context.user_id,
+            &context.user_id.to_string(),
             &context.egress_hosts.join(","),
         );
         let mut redis = redis_client

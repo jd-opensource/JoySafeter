@@ -16,7 +16,7 @@ pub async fn get_agent(
         r#"
         SELECT id, project_id, name, engine_kind, model->>'id' AS model, system_prompt,
                description, env, mcp_servers, skills, agents, commands, tools,
-               permission_mode, metadata, multiagent, version, environment_ref, model_credential_id
+               permission_mode, metadata, multiagent, version, environment_id, model_credential_id
         FROM joysafeter_agents
         WHERE id = $1 AND deleted_at IS NULL
         "#,

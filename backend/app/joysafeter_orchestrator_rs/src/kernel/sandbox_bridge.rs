@@ -9,14 +9,14 @@ use tokio::sync::{mpsc, oneshot, watch, Mutex, Notify};
 use uuid::Uuid;
 
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage, SandboxFileResponse};
-use crate::ids::{EventId, SandboxId, TaskId};
+use crate::ids::{EntityIdParseError, EventId, SandboxId, TaskId};
 use crate::kernel::ha::BridgeStore;
 
 #[derive(Clone, Debug)]
 pub struct RunnerRuntimeActivity {
     pub runtime_state: String,
-    pub active_task_id: Option<String>,
-    pub session_id: Option<String>,
+    pub active_task_id: Option<TaskId>,
+    pub harness_session_id: Option<String>,
     pub observed_at: DateTime<Utc>,
 }
 
@@ -103,19 +103,21 @@ impl SandboxBridge {
     pub async fn record_runner_heartbeat(
         &self,
         runtime_state: &str,
-        active_task_id: Option<String>,
-        session_id: Option<String>,
-    ) {
+        active_task_id: Option<&str>,
+        harness_session_id: Option<String>,
+    ) -> Result<(), EntityIdParseError> {
         let state = runtime_state.trim();
         if state.is_empty() {
-            return;
+            return Ok(());
         }
+        let active_task_id = active_task_id.map(TaskId::from_public).transpose()?;
         *self.runner_runtime_activity.lock().await = Some(RunnerRuntimeActivity {
             runtime_state: state.to_string(),
             active_task_id,
-            session_id,
+            harness_session_id,
             observed_at: Utc::now(),
         });
+        Ok(())
     }
 
     pub async fn runner_runtime_activity(&self) -> Option<RunnerRuntimeActivity> {
@@ -388,5 +390,28 @@ mod tests {
 
         assert!(result.is_err());
         assert!(!*bridge.confirmation_rx.lock().await.borrow());
+    }
+
+    #[tokio::test]
+    async fn runner_heartbeat_requires_canonical_active_task_id() {
+        let (runner_tx, _runner_rx) = mpsc::channel(1);
+        let bridge = SandboxBridge::new(SandboxId::from_uuid(uuid::Uuid::nil()), runner_tx);
+        let task_id = crate::ids::TaskId::new();
+
+        bridge
+            .record_runner_heartbeat("busy", Some(&task_id.to_string()), None)
+            .await
+            .expect("canonical task id");
+        assert_eq!(
+            bridge
+                .runner_runtime_activity()
+                .await
+                .and_then(|activity| activity.active_task_id),
+            Some(task_id)
+        );
+        assert!(bridge
+            .record_runner_heartbeat("busy", Some(&task_id.as_uuid().to_string()), None)
+            .await
+            .is_err());
     }
 }

@@ -8,19 +8,20 @@ use thiserror::Error;
 use url::Url;
 
 use crate::grpc::proto;
-use crate::ids::{AgentId, CredentialId, SessionId};
+use crate::ids::{AgentId, CredentialId, ProjectId, SessionId};
 use crate::kernel::credentials::access::{
     CredentialAccessContext, CredentialMaterialAccessService,
 };
 use crate::kernel::credentials::mcp::{McpHeaderInjection, ResolvedMcpCredential};
-use crate::kernel::credentials::record::{McpCredentialMetadataRecord, ProjectId};
+use crate::kernel::credentials::record::McpCredentialMetadataRecord;
 use crate::kernel::mcp_network_policy::{
     resolve_vetted_addresses_with, McpAddressResolver, McpNetworkPolicy, McpNetworkPolicyError,
     SystemMcpAddressResolver,
 };
 use crate::kernel::mcp_url;
 use crate::sandbox::lds_backend::{
-    EgressCredentialRoute, EgressExposure, EgressKind, MCP_EGRESS_HOST,
+    EgressCredentialRoute, EgressExposure, EgressKind, EgressPathMapping, EgressRetryMode,
+    MCP_EGRESS_HOST,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,11 +108,12 @@ impl McpAuthRequirement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpEndpoint {
-    pub original_url: String,
-    pub normalized_url: String,
+    pub configured_url: String,
+    pub credential_match_key: String,
+    pub routing_identity: String,
     pub host: String,
     pub port: u16,
-    pub upstream_prefix: String,
+    pub path: String,
     pub query: Option<String>,
     pub tls: bool,
     pub vetted_addresses: Vec<IpAddr>,
@@ -240,11 +242,13 @@ impl ResolvedMcpRuntimePlan {
                     kind: EgressKind::Mcp,
                     exposure: EgressExposure::Placeholder,
                     match_host: MCP_EGRESS_HOST.to_string(),
-                    match_prefix: format!("/r/{}/", server.route_key),
-                    exact_path: false,
+                    path_mapping: EgressPathMapping::RewriteExact {
+                        exposed_path: format!("/r/{}/", server.route_key),
+                        upstream_path: endpoint.path.clone(),
+                    },
+                    retry_mode: EgressRetryMode::Disabled,
                     upstream_host: endpoint.host.clone(),
                     upstream_port: endpoint.port,
-                    upstream_prefix: endpoint.upstream_prefix.clone(),
                     upstream_tls: endpoint.tls,
                     cluster_name: String::new(),
                     vetted_addresses: endpoint
@@ -280,6 +284,11 @@ pub enum McpRuntimePlanError {
     MissingAuthRequirement,
     #[error("unsupported MCP authentication requirement: {requirement}")]
     UnsupportedAuthRequirement { requirement: String },
+    #[error("SSE MCP servers require auth_requirement=none: {server_name} uses {requirement}")]
+    UnsupportedSseAuthRequirement {
+        server_name: String,
+        requirement: String,
+    },
     #[error("remote MCP server URL is invalid: {server_name}")]
     InvalidRemoteUrl { server_name: String },
     #[error("local MCP server command is invalid: {server_name}")]
@@ -292,6 +301,10 @@ pub enum McpRuntimePlanError {
     DuplicateCredential { normalized_url: String },
     #[error("MCP credential injection requires limited networking: {server_name}")]
     CredentialInjectionRequiresLimitedNetwork { server_name: String },
+    #[error(
+        "MCP_SSE_UNSUPPORTED_WITH_LIMITED_NETWORKING: SSE MCP transport requires unrestricted networking or migration to streamable_http: {server_name}"
+    )]
+    LimitedNetworkingSseUnsupported { server_name: String },
     #[error("remote MCP networking is disabled: {server_name}")]
     RemoteNetworkingDisabled { server_name: String },
     #[error(transparent)]
@@ -354,17 +367,18 @@ fn remote_endpoint(name: &str, raw_url: &str) -> Result<McpEndpoint, McpRuntimeP
     } else {
         parsed.path()
     };
-    let upstream_prefix = if path.ends_with('/') {
-        path.to_string()
-    } else {
-        format!("{path}/")
-    };
+    let routing_identity = mcp_url::routing_identity(raw_url).ok_or_else(|| {
+        McpRuntimePlanError::InvalidRemoteUrl {
+            server_name: name.to_string(),
+        }
+    })?;
     Ok(McpEndpoint {
-        original_url: raw_url.trim().to_string(),
-        normalized_url: mcp_url::normalize(raw_url),
+        configured_url: raw_url.trim().to_string(),
+        credential_match_key: mcp_url::normalize(raw_url),
+        routing_identity,
         host: parsed.host_str().unwrap_or_default().to_string(),
         port,
-        upstream_prefix,
+        path: path.to_string(),
         query: parsed.query().map(ToOwned::to_owned),
         tls,
         vetted_addresses: Vec::new(),
@@ -447,7 +461,7 @@ pub fn resolve_mcp_runtime_plan_from_metadata(
 pub async fn resolve_mcp_runtime_plan_with_access(
     credential_access: &CredentialMaterialAccessService,
     access_context: &CredentialAccessContext,
-    project_id: Option<&str>,
+    project_id: Option<ProjectId>,
     session_id: Option<SessionId>,
     agent_id: AgentId,
     runtime_generation: i64,
@@ -472,7 +486,7 @@ pub async fn resolve_mcp_runtime_plan_with_access(
 pub(crate) async fn resolve_mcp_runtime_plan_with_access_and_resolver(
     credential_access: &CredentialMaterialAccessService,
     access_context: &CredentialAccessContext,
-    project_id: Option<&str>,
+    project_id: Option<ProjectId>,
     session_id: Option<SessionId>,
     agent_id: AgentId,
     runtime_generation: i64,
@@ -482,7 +496,6 @@ pub(crate) async fn resolve_mcp_runtime_plan_with_access_and_resolver(
     policy: &McpNetworkPolicy,
 ) -> anyhow::Result<ResolvedMcpRuntimePlan> {
     let mut plan = if let (Some(project_id), Some(session_id)) = (project_id, session_id) {
-        let project_id = ProjectId::parse(project_id)?;
         let metadata = credential_access
             .load_mcp_member_metadata(&project_id, session_id)
             .await?;
@@ -646,11 +659,6 @@ fn resolve_mcp_runtime_plan_from_bindings(
             continue;
         }
 
-        if network_mode == EffectiveNetworkMode::Disabled {
-            return Err(McpRuntimePlanError::RemoteNetworkingDisabled {
-                server_name: name.to_string(),
-            });
-        }
         if let Some(field) = object
             .keys()
             .find(|field| !matches!(field.as_str(), "type" | "name" | "url" | "auth_requirement"))
@@ -672,13 +680,32 @@ fn resolve_mcp_runtime_plan_from_bindings(
                 .get("auth_requirement")
                 .and_then(|value| value.as_str()),
         )?;
+        if transport == McpTransport::Sse && auth_requirement != McpAuthRequirement::None {
+            return Err(McpRuntimePlanError::UnsupportedSseAuthRequirement {
+                server_name: name.to_string(),
+                requirement: object["auth_requirement"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+            });
+        }
+        if network_mode == EffectiveNetworkMode::Disabled {
+            return Err(McpRuntimePlanError::RemoteNetworkingDisabled {
+                server_name: name.to_string(),
+            });
+        }
+        if transport == McpTransport::Sse && network_mode == EffectiveNetworkMode::Limited {
+            return Err(McpRuntimePlanError::LimitedNetworkingSseUnsupported {
+                server_name: name.to_string(),
+            });
+        }
         let matching_credentials = credentials_by_url
-            .get(endpoint.normalized_url.as_str())
+            .get(endpoint.credential_match_key.as_str())
             .map(Vec::as_slice)
             .unwrap_or_default();
-        if matching_credentials.len() > 1 {
+        if auth_requirement != McpAuthRequirement::None && matching_credentials.len() > 1 {
             return Err(McpRuntimePlanError::DuplicateCredential {
-                normalized_url: endpoint.normalized_url.clone(),
+                normalized_url: endpoint.credential_match_key.clone(),
             });
         }
         let matching_credential = matching_credentials.first().copied();
@@ -699,8 +726,13 @@ fn resolve_mcp_runtime_plan_from_bindings(
             );
         }
 
-        let (server_id, route_key) =
-            route_identity(agent_id, ordinal, transport, name, &endpoint.normalized_url);
+        let (server_id, route_key) = route_identity(
+            agent_id,
+            ordinal,
+            transport,
+            name,
+            &endpoint.routing_identity,
+        );
         let sandbox_endpoint = match network_mode {
             EffectiveNetworkMode::Limited => Some(format!(
                 "http://{MCP_EGRESS_HOST}/r/{route_key}/{}",
@@ -710,7 +742,7 @@ fn resolve_mcp_runtime_plan_from_bindings(
                     .map(|query| format!("?{query}"))
                     .unwrap_or_default()
             )),
-            EffectiveNetworkMode::Unrestricted => Some(endpoint.original_url.clone()),
+            EffectiveNetworkMode::Unrestricted => Some(endpoint.configured_url.clone()),
             EffectiveNetworkMode::Disabled => unreachable!(),
         };
         servers.push(ResolvedMcpServer {
@@ -757,7 +789,7 @@ fn egress_revision(harness_revision: &str, servers: &[ResolvedMcpServer]) -> Str
     hasher.update(harness_revision.as_bytes());
     for server in servers {
         if let Some(endpoint) = &server.original_endpoint {
-            hasher.update(endpoint.normalized_url.as_bytes());
+            hasher.update(endpoint.routing_identity.as_bytes());
             for address in &endpoint.vetted_addresses {
                 hasher.update(address.to_string().as_bytes());
             }
@@ -778,9 +810,9 @@ mod tests {
     use uuid::Uuid;
 
     use crate::grpc::proto::McpTransport as ProtoMcpTransport;
-    use crate::ids::{AgentId, CredentialGroupId, CredentialId};
+    use crate::ids::{AgentId, CredentialGroupId, CredentialId, ProjectId};
     use crate::kernel::credentials::mcp::{McpHeaderInjection, ResolvedMcpCredential};
-    use crate::kernel::credentials::record::{McpCredentialMetadataRecord, ProjectId};
+    use crate::kernel::credentials::record::McpCredentialMetadataRecord;
     use crate::kernel::mcp_network_policy::{
         McpAddressResolver, McpNetworkPolicy, McpNetworkPolicyError,
     };
@@ -790,6 +822,7 @@ mod tests {
         resolve_mcp_runtime_plan_from_metadata, EffectiveNetworkMode, McpAuthRequirement,
         McpRuntimePlanError, McpTransport,
     };
+    use crate::sandbox::lds_backend::{EgressPathMapping, EgressRetryMode, MCP_EGRESS_HOST};
 
     struct StaticResolver {
         addresses: HashMap<String, Vec<IpAddr>>,
@@ -831,12 +864,168 @@ mod tests {
     fn credential_metadata(url: &str) -> McpCredentialMetadataRecord {
         McpCredentialMetadataRecord {
             id: CredentialId::from_uuid(Uuid::nil()),
-            project_id: ProjectId::parse("project-1").unwrap(),
+            project_id: ProjectId::from_uuid(Uuid::from_u128(1)),
             group_id: CredentialGroupId::from_uuid(Uuid::nil()),
             server_url: url.to_string(),
             normalized_server_url: crate::kernel::mcp_url::normalize(url),
             auth_scheme: "static_bearer".to_string(),
             material_fields: BTreeSet::from(["token_value".to_string()]),
+        }
+    }
+
+    #[test]
+    fn endpoint_keeps_exact_transport_identity_separate_from_credential_key() {
+        let raw = serde_json::json!([{
+            "type": "streamable_http",
+            "name": "frontend",
+            "url": "http://host.docker.internal:3404/mcp?b=2&a=1&a=3",
+            "auth_requirement": "none"
+        }]);
+        let plan = resolve_mcp_runtime_plan(
+            AgentId::from_uuid(Uuid::nil()),
+            1,
+            EffectiveNetworkMode::Limited,
+            Some(&raw),
+            &[],
+        )
+        .unwrap();
+        let endpoint = plan.servers[0].original_endpoint.as_ref().unwrap();
+
+        assert_eq!(
+            endpoint.configured_url,
+            "http://host.docker.internal:3404/mcp?b=2&a=1&a=3"
+        );
+        assert_eq!(
+            endpoint.credential_match_key,
+            "http://host.docker.internal:3404/mcp?b=2&a=1&a=3"
+        );
+        assert_eq!(
+            endpoint.routing_identity,
+            "http://host.docker.internal:3404/mcp?b=2&a=1&a=3"
+        );
+        assert_eq!(endpoint.path, "/mcp");
+        assert_eq!(endpoint.query.as_deref(), Some("b=2&a=1&a=3"));
+
+        let runner = &plan.runner_servers()[0];
+        let route_key = &plan.servers[0].route_key;
+        assert_eq!(
+            runner.url,
+            format!("http://{MCP_EGRESS_HOST}/r/{route_key}/?b=2&a=1&a=3")
+        );
+        let routes = plan.egress_routes();
+        assert_eq!(routes.len(), 1);
+        assert_eq!(
+            routes[0].path_mapping,
+            EgressPathMapping::RewriteExact {
+                exposed_path: format!("/r/{route_key}/"),
+                upstream_path: "/mcp".to_string(),
+            }
+        );
+        assert_eq!(routes[0].retry_mode, EgressRetryMode::Disabled);
+    }
+
+    #[test]
+    fn trailing_slash_changes_egress_revision() {
+        let resolve = |url: &str| {
+            let raw = serde_json::json!([{
+                "type": "streamable_http",
+                "name": "frontend",
+                "url": url,
+                "auth_requirement": "none"
+            }]);
+            resolve_mcp_runtime_plan(
+                AgentId::from_uuid(Uuid::nil()),
+                1,
+                EffectiveNetworkMode::Limited,
+                Some(&raw),
+                &[],
+            )
+            .unwrap()
+        };
+
+        assert_ne!(
+            resolve("https://example.com/mcp").egress_revision,
+            resolve("https://example.com/mcp/").egress_revision
+        );
+    }
+
+    #[test]
+    fn limited_networking_rejects_sse() {
+        let raw = serde_json::json!([{
+            "type": "sse",
+            "name": "events",
+            "url": "http://events.example.com/sse",
+            "auth_requirement": "none"
+        }]);
+
+        let error = resolve_mcp_runtime_plan(
+            AgentId::from_uuid(Uuid::nil()),
+            1,
+            EffectiveNetworkMode::Limited,
+            Some(&raw),
+            &[],
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            McpRuntimePlanError::LimitedNetworkingSseUnsupported {
+                server_name: "events".to_string(),
+            }
+        );
+        assert!(error
+            .to_string()
+            .starts_with("MCP_SSE_UNSUPPORTED_WITH_LIMITED_NETWORKING:"));
+    }
+
+    #[test]
+    fn unrestricted_networking_keeps_sse_endpoint() {
+        let raw = serde_json::json!([{
+            "type": "sse",
+            "name": "events",
+            "url": "http://events.example.com/sse",
+            "auth_requirement": "none"
+        }]);
+        let plan = resolve_mcp_runtime_plan(
+            AgentId::from_uuid(Uuid::nil()),
+            1,
+            EffectiveNetworkMode::Unrestricted,
+            Some(&raw),
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(
+            plan.runner_servers()[0].url,
+            "http://events.example.com/sse"
+        );
+        assert!(plan.egress_routes().is_empty());
+    }
+
+    #[test]
+    fn sse_rejects_managed_auth_requirements() {
+        for auth_requirement in ["required", "optional"] {
+            let raw = serde_json::json!([{
+                "type": "sse",
+                "name": "events",
+                "url": "http://events.example.com/sse",
+                "auth_requirement": auth_requirement
+            }]);
+
+            let error = resolve_mcp_runtime_plan(
+                AgentId::from_uuid(Uuid::nil()),
+                1,
+                EffectiveNetworkMode::Unrestricted,
+                Some(&raw),
+                &[],
+            )
+            .unwrap_err();
+            assert_eq!(
+                error,
+                McpRuntimePlanError::UnsupportedSseAuthRequirement {
+                    server_name: "events".to_string(),
+                    requirement: auth_requirement.to_string(),
+                }
+            );
         }
     }
 
@@ -900,6 +1089,36 @@ mod tests {
     }
 
     #[test]
+    fn credentials_are_ignored_for_none_endpoint_even_when_duplicate() {
+        let raw = serde_json::json!([{
+            "type": "streamable_http",
+            "name": "public",
+            "url": "https://public.example/mcp",
+            "auth_requirement": "none"
+        }]);
+        let credentials = [
+            credential("https://public.example/mcp", "authorization", "Bearer one"),
+            ResolvedMcpCredential {
+                id: CredentialId::from_uuid(Uuid::from_u128(u128::MAX)),
+                ..credential("https://public.example/mcp/", "authorization", "Bearer two")
+            },
+        ];
+
+        let plan = resolve_mcp_runtime_plan(
+            AgentId::from_uuid(Uuid::nil()),
+            1,
+            EffectiveNetworkMode::Limited,
+            Some(&raw),
+            &credentials,
+        )
+        .unwrap();
+
+        assert_eq!(plan.servers[0].credential_id, None);
+        assert!(plan.servers[0].injection.is_none());
+        assert!(plan.egress_routes()[0].inject_headers.is_empty());
+    }
+
+    #[test]
     fn effective_network_mode_uses_environment_before_envoy_default() {
         assert_eq!(
             effective_network_mode(Some(&serde_json::json!({"type": "limited"})), false).unwrap(),
@@ -937,12 +1156,6 @@ mod tests {
                 "auth_requirement": "required"
             },
             {
-                "type": "sse",
-                "name": "events",
-                "url": "http://events.example.com:8765/sse",
-                "auth_requirement": "none"
-            },
-            {
                 "type": "local_stdio",
                 "name": "local",
                 "command": "node",
@@ -964,14 +1177,13 @@ mod tests {
         .unwrap();
 
         assert_eq!(plan.runtime_generation, 7);
-        assert_eq!(plan.servers.len(), 3);
+        assert_eq!(plan.servers.len(), 2);
         assert_eq!(plan.servers[0].transport, McpTransport::StreamableHttp);
         assert_eq!(
             plan.servers[0].auth_requirement,
             McpAuthRequirement::Required
         );
-        assert_eq!(plan.servers[1].transport, McpTransport::Sse);
-        assert_eq!(plan.servers[2].transport, McpTransport::LocalStdio);
+        assert_eq!(plan.servers[1].transport, McpTransport::LocalStdio);
 
         let runner = plan.runner_servers();
         assert_eq!(
@@ -983,26 +1195,32 @@ mod tests {
         assert!(!runner[0].url.contains("mcp.example.com"));
         assert!(!runner[0].url.contains("Unsafe"));
         assert!(runner[0].headers.is_empty());
-        assert_eq!(runner[1].transport, ProtoMcpTransport::Sse as i32);
-        assert_eq!(runner[2].command, "node");
-        assert_eq!(runner[2].args, vec!["server.js"]);
+        assert_eq!(runner[1].command, "node");
+        assert_eq!(runner[1].args, vec!["server.js"]);
         assert_eq!(
-            runner[2].env,
+            runner[1].env,
             HashMap::from([("MODE".to_string(), "safe".to_string())])
         );
 
         let routes = plan.egress_routes();
-        assert_eq!(routes.len(), 2);
+        assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].match_host, "mcp-egress.internal");
-        assert!(routes[0].match_prefix.starts_with("/r/"));
-        assert!(!routes[0].match_prefix.contains("Unsafe"));
+        let EgressPathMapping::RewriteExact {
+            exposed_path,
+            upstream_path,
+        } = &routes[0].path_mapping
+        else {
+            panic!("expected exact MCP path rewrite")
+        };
+        assert!(exposed_path.starts_with("/r/"));
+        assert!(!exposed_path.contains("Unsafe"));
+        assert_eq!(upstream_path, "/base/path");
         assert_eq!(routes[0].upstream_host, "mcp.example.com");
         assert_eq!(routes[0].upstream_port, 8443);
-        assert_eq!(routes[0].upstream_prefix, "/base/path/");
+        assert_eq!(routes[0].retry_mode, EgressRetryMode::Disabled);
         assert!(routes[0].upstream_tls);
         assert_eq!(routes[0].inject_headers[0].0, "x-service-token");
         assert_eq!(routes[0].inject_headers[0].1, "Token secret");
-        assert!(routes[1].inject_headers.is_empty());
     }
 
     #[tokio::test]

@@ -1,4 +1,4 @@
-use crate::ids::{AgentId, CredentialId, SandboxId, SessionId, TaskId};
+use crate::ids::{AgentId, CredentialId, EnvironmentId, ProjectId, SandboxId, SessionId, TaskId};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -45,7 +45,7 @@ impl TaskStatus {
 #[derive(Debug, Clone, FromRow)]
 pub struct JoySafeterTask {
     pub id: TaskId,
-    pub project_id: Option<String>,
+    pub project_id: Option<ProjectId>,
     pub agent_id: Option<AgentId>,
     #[sqlx(rename = "chat_session_id")]
     pub session_id: Option<SessionId>,
@@ -76,13 +76,13 @@ pub struct JoySafeterTask {
 pub struct JoySafeterSession {
     pub id: SessionId,
     pub agent_id: Option<AgentId>,
-    pub project_id: Option<String>,
+    pub project_id: Option<ProjectId>,
     pub status: String,
     pub agent_version: Option<i32>,
     pub agent_snapshot: Option<serde_json::Value>,
     pub last_harness_session_id: Option<String>,
     pub last_work_dir: Option<String>,
-    pub environment_ref: Option<String>,
+    pub environment_id: Option<EnvironmentId>,
     pub runtime_config_generation: i64,
     pub runtime_config_generation_reason: Option<String>,
     pub runtime_config_generation_updated_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -104,6 +104,8 @@ pub struct JoySafeterSandbox {
     pub networking_status: String,
     pub networking_policy_hash: Option<String>,
     pub networking_policy_version: i64,
+    pub networking_applied_hash: Option<String>,
+    pub networking_applied_version: Option<i64>,
     pub networking_last_error: Option<String>,
     pub networking_ready_at: Option<chrono::DateTime<chrono::Utc>>,
     pub runtime_config_status: String,
@@ -119,7 +121,7 @@ pub struct JoySafeterSandbox {
 #[derive(Debug, Clone, FromRow)]
 pub struct JoySafeterAgent {
     pub id: AgentId,
-    pub project_id: Option<String>,
+    pub project_id: Option<ProjectId>,
     pub name: String,
     pub engine_kind: Option<String>,
     pub model: Option<String>,
@@ -135,6 +137,6 @@ pub struct JoySafeterAgent {
     pub metadata: Option<serde_json::Value>,
     pub multiagent: Option<serde_json::Value>,
     pub version: i32,
-    pub environment_ref: Option<String>,
+    pub environment_id: Option<EnvironmentId>,
     pub model_credential_id: Option<CredentialId>,
 }

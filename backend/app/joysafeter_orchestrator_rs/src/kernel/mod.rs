@@ -14,6 +14,7 @@ pub mod mcp_network_policy;
 pub mod mcp_runtime_plan;
 pub mod mcp_url;
 pub mod memory_sync;
+pub mod network_policy;
 pub mod queue;
 pub mod redis_coordinator;
 pub mod repository_access;

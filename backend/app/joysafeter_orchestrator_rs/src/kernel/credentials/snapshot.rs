@@ -4,13 +4,12 @@ use sqlx::{FromRow, PgConnection, PgPool};
 use uuid::Uuid;
 
 use crate::db::models::{JoySafeterAgent, JoySafeterSession};
-use crate::ids::{AgentId, EnvironmentId, SessionId, TaskId};
+use crate::ids::{AgentId, EnvironmentId, ProjectId, SecurityAuditId, SessionId, TaskId};
 
 use super::error::CredentialRuntimeError;
 use super::model::validate_model_credential_metadata;
-use super::record::ProjectId;
 use super::reference::{
-    decode_snapshot, encode_snapshot, DecodedSnapshot, EncodeVersion, SnapshotCredentialReference,
+    decode_snapshot, encode_snapshot, DecodedSnapshot, SnapshotCredentialReference,
 };
 use super::service::{validate_service_credential_metadata, ServiceUsage};
 use super::CredentialStore;
@@ -49,7 +48,7 @@ struct SnapshotLockFingerprint {
 
 #[derive(Debug, FromRow)]
 struct TaskSnapshotBinding {
-    project_id: Option<String>,
+    project_id: Option<ProjectId>,
     agent_id: Option<AgentId>,
     status: String,
     chat_session_id: Option<SessionId>,
@@ -71,7 +70,7 @@ pub async fn create_scheduler_session(
             transaction.rollback().await?;
             return Ok(None);
         };
-        if task_binding.project_id.as_deref() != Some(command.project_id.as_str())
+        if task_binding.project_id != Some(command.project_id)
             || task_binding.agent_id != Some(command.agent_id)
         {
             transaction.rollback().await?;
@@ -108,17 +107,17 @@ pub async fn create_scheduler_session(
             r#"
             INSERT INTO joysafeter_sessions
                 (id, agent_id, project_id, status, agent_version, agent_snapshot,
-                 environment_ref, created_at, updated_at)
+                 environment_id, created_at, updated_at)
             VALUES ($1, $2, $3, 'idle', $4, $5, $6, NOW(), NOW())
             RETURNING *
             "#,
         )
         .bind(session_id)
         .bind(locked_source.agent.id)
-        .bind(command.project_id.as_str())
+        .bind(command.project_id)
         .bind(locked_source.agent.version)
         .bind(&locked_source.snapshot)
-        .bind(locked_source.agent.environment_ref.as_deref())
+        .bind(locked_source.agent.environment_id)
         .fetch_one(&mut *transaction)
         .await?;
 
@@ -129,7 +128,7 @@ pub async fn create_scheduler_session(
             VALUES ($1, 'session.snapshot.created', 'success', 'scheduler', $2, NOW(), NOW())
             "#,
         )
-        .bind(Uuid::now_v7())
+        .bind(SecurityAuditId::new())
         .bind(json!({
             "project_id": locked_source.agent.project_id,
             "target_type": "session",
@@ -155,7 +154,7 @@ pub async fn create_scheduler_session(
         )
         .bind(command.task_id)
         .bind(session.id)
-        .bind(command.project_id.as_str())
+        .bind(command.project_id)
         .bind(command.agent_id)
         .execute(&mut *transaction)
         .await?;
@@ -257,19 +256,18 @@ async fn load_source_from_pool(
         r#"
         SELECT id, project_id, name, engine_kind, model->>'id' AS model, system_prompt,
                description, env, mcp_servers, skills, agents, commands, tools,
-               permission_mode, metadata, multiagent, version, environment_ref,
+               permission_mode, metadata, multiagent, version, environment_id,
                model_credential_id
         FROM joysafeter_agents
         WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL AND archived_at IS NULL
         "#,
     )
     .bind(agent_id)
-    .bind(project_id.as_str())
+    .bind(project_id)
     .fetch_optional(pool)
     .await?
     .context("scheduler Snapshot agent not found")?;
-    let environment =
-        load_environment_from_pool(pool, agent.environment_ref.as_deref(), project_id).await?;
+    let environment = load_environment_from_pool(pool, agent.environment_id, project_id).await?;
     Ok(build_source(agent, environment)?)
 }
 
@@ -282,7 +280,7 @@ async fn load_source_from_connection(
         r#"
         SELECT id, project_id, name, engine_kind, model->>'id' AS model, system_prompt,
                description, env, mcp_servers, skills, agents, commands, tools,
-               permission_mode, metadata, multiagent, version, environment_ref,
+               permission_mode, metadata, multiagent, version, environment_id,
                model_credential_id
         FROM joysafeter_agents
         WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL AND archived_at IS NULL
@@ -290,51 +288,33 @@ async fn load_source_from_connection(
         "#,
     )
     .bind(agent_id)
-    .bind(project_id.as_str())
+    .bind(project_id)
     .fetch_optional(&mut *connection)
     .await?
     .context("scheduler Snapshot agent not found")?;
     let environment =
-        load_environment_from_connection(connection, agent.environment_ref.as_deref(), project_id)
-            .await?;
+        load_environment_from_connection(connection, agent.environment_id, project_id).await?;
     Ok(build_source(agent, environment)?)
 }
 
 async fn load_environment_from_pool(
     pool: &PgPool,
-    environment_ref: Option<&str>,
+    environment_id: Option<EnvironmentId>,
     project_id: &ProjectId,
 ) -> anyhow::Result<Option<EnvironmentSnapshot>> {
-    let Some(environment_ref) = environment_ref.filter(|value| !value.trim().is_empty()) else {
+    let Some(environment_id) = environment_id else {
         return Ok(None);
     };
-    if let Ok(environment_id) = EnvironmentId::from_public(environment_ref) {
-        let environment = sqlx::query_as::<_, EnvironmentSnapshot>(
-            r#"
-            SELECT id, name, config, image_tag, image_version
-            FROM joysafeter_environments
-            WHERE id = $1 AND deleted_at IS NULL AND archived_at IS NULL
-              AND project_id = $2
-            "#,
-        )
-        .bind(environment_id)
-        .bind(project_id.as_str())
-        .fetch_optional(pool)
-        .await?;
-        return environment
-            .map(Some)
-            .ok_or_else(|| anyhow::anyhow!("scheduler Snapshot environment not found"));
-    }
     let environment = sqlx::query_as::<_, EnvironmentSnapshot>(
         r#"
         SELECT id, name, config, image_tag, image_version
         FROM joysafeter_environments
-        WHERE name = $1 AND deleted_at IS NULL AND archived_at IS NULL
+        WHERE id = $1 AND deleted_at IS NULL AND archived_at IS NULL
           AND project_id = $2
         "#,
     )
-    .bind(environment_ref)
-    .bind(project_id.as_str())
+    .bind(environment_id)
+    .bind(project_id)
     .fetch_optional(pool)
     .await?;
     environment
@@ -344,41 +324,23 @@ async fn load_environment_from_pool(
 
 async fn load_environment_from_connection(
     connection: &mut PgConnection,
-    environment_ref: Option<&str>,
+    environment_id: Option<EnvironmentId>,
     project_id: &ProjectId,
 ) -> anyhow::Result<Option<EnvironmentSnapshot>> {
-    let Some(environment_ref) = environment_ref.filter(|value| !value.trim().is_empty()) else {
+    let Some(environment_id) = environment_id else {
         return Ok(None);
     };
-    if let Ok(environment_id) = EnvironmentId::from_public(environment_ref) {
-        let environment = sqlx::query_as::<_, EnvironmentSnapshot>(
-            r#"
-            SELECT id, name, config, image_tag, image_version
-            FROM joysafeter_environments
-            WHERE id = $1 AND deleted_at IS NULL AND archived_at IS NULL
-              AND project_id = $2
-            FOR UPDATE
-            "#,
-        )
-        .bind(environment_id)
-        .bind(project_id.as_str())
-        .fetch_optional(&mut *connection)
-        .await?;
-        return environment
-            .map(Some)
-            .ok_or_else(|| anyhow::anyhow!("scheduler Snapshot environment not found"));
-    }
     let environment = sqlx::query_as::<_, EnvironmentSnapshot>(
         r#"
         SELECT id, name, config, image_tag, image_version
         FROM joysafeter_environments
-        WHERE name = $1 AND deleted_at IS NULL AND archived_at IS NULL
+        WHERE id = $1 AND deleted_at IS NULL AND archived_at IS NULL
           AND project_id = $2
         FOR UPDATE
         "#,
     )
-    .bind(environment_ref)
-    .bind(project_id.as_str())
+    .bind(environment_id)
+    .bind(project_id)
     .fetch_optional(&mut *connection)
     .await?;
     environment
@@ -387,12 +349,9 @@ async fn load_environment_from_connection(
 }
 
 fn build_source(
-    mut agent: JoySafeterAgent,
+    agent: JoySafeterAgent,
     environment: Option<EnvironmentSnapshot>,
 ) -> Result<SnapshotSource, CredentialRuntimeError> {
-    if let Some(ref environment) = environment {
-        agent.environment_ref = Some(environment.id.to_string());
-    }
     let mut snapshot = json!({
         "id": agent.id.to_string(),
         "version": agent.version,
@@ -410,20 +369,19 @@ fn build_source(
         "mcp_servers": agent.mcp_servers,
         "permission_mode": agent.permission_mode,
         "multiagent": agent.multiagent,
-        "environment_ref": agent.environment_ref,
+        "environment_id": agent.environment_id.map(|id| id.to_string()),
         "model_credential_id": agent.model_credential_id.map(|id| id.to_string()),
     });
     if let Some(ref environment) = environment {
         snapshot["environment"] = json!({
-            "ref": agent.environment_ref,
-            "id": environment.id.to_string(),
+            "environment_id": environment.id.to_string(),
             "name": environment.name,
             "config": environment.config,
             "image_tag": environment.image_tag,
             "image_version": environment.image_version,
         });
     }
-    let snapshot = encode_snapshot(&snapshot, Some(EncodeVersion::V1))?;
+    let snapshot = encode_snapshot(&snapshot)?;
     let environment_id = environment.as_ref().map(|environment| environment.id);
     Ok(SnapshotSource {
         agent,

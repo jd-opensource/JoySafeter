@@ -133,7 +133,10 @@ pub fn map_harness_event(
             };
             let mut payload = serde_json::Map::new();
             payload.insert("phase".into(), Value::String(e.phase.clone()));
-            payload.insert("task_id".into(), Value::String(e.task_id.clone()));
+            payload.insert(
+                "subagent_task_id".into(),
+                Value::String(e.subagent_task_id.clone()),
+            );
             if let Some(v) = e.tool_use_id.as_ref() {
                 payload.insert("tool_use_id".into(), Value::String(v.clone()));
             }

@@ -114,7 +114,13 @@ services:
         done
         exec envoy -c /envoy-config/bootstrap.json --log-level ${JOYSAFETER_ENVOY_LOG_LEVEL:-info}
     volumes:
-      - ${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}:/sockets
+      # Egress sockets MUST use the same storage the orchestrator and sandboxes
+      # use. The orchestrator (volume mode, the default) creates per-sandbox dirs
+      # in the `joysafeter-sockets` named volume and mounts that volume (subpath)
+      # into each sandbox, so Envoy must mount the very same volume here. Binding a
+      # host path instead put Envoy on a different filesystem, so it could not bind
+      # the per-sandbox listener pipes and all egress silently failed.
+      - joysafeter-sockets:/sockets
       - ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}:/envoy-config
     extra_hosts:
       - "host.docker.internal:host-gateway"

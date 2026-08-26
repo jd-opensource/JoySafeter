@@ -1,11 +1,9 @@
 use std::collections::BTreeSet;
 
+use crate::ids::{CredentialAccessAuditId, CredentialId, ProjectId, SessionId, TaskId};
 use sqlx::PgPool;
-use uuid::Uuid;
 
-use crate::ids::{CredentialId, SessionId, TaskId};
-
-use super::record::{CredentialKind, ProjectId};
+use super::record::CredentialKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CredentialAccessUsage {
@@ -43,6 +41,7 @@ impl CredentialAccessFailure {
 
 #[derive(Debug, Clone)]
 pub struct CredentialAccessAuditEntry {
+    pub id: CredentialAccessAuditId,
     pub project_id: ProjectId,
     pub credential_id: CredentialId,
     pub credential_kind: CredentialKind,
@@ -86,8 +85,8 @@ impl CredentialAccessAuditWriter {
             DO NOTHING
             "#,
         )
-        .bind(Uuid::now_v7())
-        .bind(entry.project_id.as_str())
+        .bind(entry.id)
+        .bind(entry.project_id)
         .bind(entry.credential_id)
         .bind(entry.credential_kind.as_str())
         .bind(entry.usage.as_str())
@@ -121,8 +120,8 @@ impl CredentialAccessAuditWriter {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             "#,
         )
-        .bind(Uuid::now_v7())
-        .bind(entry.project_id.as_str())
+        .bind(entry.id)
+        .bind(entry.project_id)
         .bind(entry.credential_id)
         .bind(entry.credential_kind.as_str())
         .bind(entry.usage.as_str())

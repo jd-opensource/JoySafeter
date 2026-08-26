@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::db::models::JoySafeterTask;
-use crate::ids::{SandboxId, SessionId, TaskId};
+use crate::ids::{ProjectId, SandboxId, SessionId, TaskId};
 use crate::kernel::runtime_freshness::RuntimeFreshnessError;
 
 // ---------------------------------------------------------------------------
@@ -118,14 +118,14 @@ pub async fn attach_sandbox_to_task_guarded(
     task_id: TaskId,
     sandbox_id: SandboxId,
     session_id: SessionId,
-    project_id: Option<&str>,
+    project_id: Option<ProjectId>,
     captured_generation: i64,
 ) -> Result<(), RuntimeFreshnessError> {
     let mut transaction = pool.begin().await?;
     let session = sqlx::query_as::<
         _,
         (
-            Option<String>,
+            Option<ProjectId>,
             String,
             Option<chrono::DateTime<chrono::Utc>>,
             i64,
@@ -153,7 +153,7 @@ pub async fn attach_sandbox_to_task_guarded(
             reason: "inactive session",
         });
     }
-    if session_project_id.as_deref() != project_id {
+    if session_project_id != project_id {
         return Err(RuntimeFreshnessError::SessionBindingInvalid {
             session_id,
             reason: "project mismatch",
@@ -166,7 +166,7 @@ pub async fn attach_sandbox_to_task_guarded(
         });
     }
 
-    let sandbox = sqlx::query_as::<_, (Option<SessionId>, Option<String>, String, i64)>(
+    let sandbox = sqlx::query_as::<_, (Option<SessionId>, Option<ProjectId>, String, i64)>(
         r#"
         SELECT chat_session_id, project_id, runtime_config_status,
                runtime_config_applied_generation
@@ -185,7 +185,7 @@ pub async fn attach_sandbox_to_task_guarded(
             "sandbox {sandbox_id} is not available"
         )));
     };
-    if sandbox_session_id != Some(session_id) || sandbox_project_id.as_deref() != project_id {
+    if sandbox_session_id != Some(session_id) || sandbox_project_id != project_id {
         return Err(RuntimeFreshnessError::Conflict(format!(
             "sandbox {sandbox_id} ownership changed"
         )));

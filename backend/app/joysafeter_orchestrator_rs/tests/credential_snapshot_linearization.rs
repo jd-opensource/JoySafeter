@@ -1,12 +1,14 @@
 use std::env;
 
-use joysafeter_orchestrator::ids::{AgentId, CredentialId, EnvironmentId, TaskId};
+use joysafeter_orchestrator::ids::{
+    AgentId, CredentialId, EnvironmentId, OrganizationId, ProjectId, TaskId,
+};
 use joysafeter_orchestrator::kernel::credentials::material::ManagedCredentialMaterialAdapter;
 use joysafeter_orchestrator::kernel::credentials::reference::decode_snapshot;
 use joysafeter_orchestrator::kernel::credentials::snapshot::{
     create_scheduler_session, SchedulerSnapshotCommand,
 };
-use joysafeter_orchestrator::kernel::credentials::{CredentialStore, ProjectId};
+use joysafeter_orchestrator::kernel::credentials::CredentialStore;
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -34,9 +36,9 @@ async fn test_pool() -> PgPool {
         .expect("connect to migrated PostgreSQL test database")
 }
 
-async fn seed_project(pool: &PgPool, unique: &str) -> (String, String) {
-    let organization_id = format!("org-task11-{unique}");
-    let project_id = format!("proj-task11-{unique}");
+async fn seed_project(pool: &PgPool, unique: &str) -> (OrganizationId, ProjectId) {
+    let organization_id = OrganizationId::new();
+    let project_id = ProjectId::new();
     sqlx::query(
         "INSERT INTO joysafeter_organizations (id, name, slug, storage_used_bytes, departed_member_usage) VALUES ($1, $2, $3, 0, 0)",
     )
@@ -62,7 +64,7 @@ async fn seed_project(pool: &PgPool, unique: &str) -> (String, String) {
 async fn seed_credential(
     pool: &PgPool,
     credential_id: CredentialId,
-    project_id: &str,
+    project_id: &ProjectId,
     archived: bool,
 ) {
     sqlx::query(
@@ -92,7 +94,7 @@ async fn seed_agent_and_task(
     agent_id: AgentId,
     task_id: TaskId,
     credential_id: CredentialId,
-    project_id: &str,
+    project_id: &ProjectId,
 ) {
     sqlx::query(
         r#"
@@ -133,7 +135,7 @@ async fn seed_agent_and_task(
     .expect("insert task fixture");
 }
 
-async fn seed_environment(pool: &PgPool, environment_id: EnvironmentId, project_id: &str) {
+async fn seed_environment(pool: &PgPool, environment_id: EnvironmentId, project_id: &ProjectId) {
     sqlx::query(
         r#"
         INSERT INTO joysafeter_environments
@@ -168,8 +170,8 @@ async fn assert_no_scheduler_session(pool: &PgPool, agent_id: AgentId, task_id: 
 
 async fn cleanup(
     pool: &PgPool,
-    organization_id: &str,
-    project_id: &str,
+    organization_id: &OrganizationId,
+    project_id: &ProjectId,
     agent_id: AgentId,
     task_id: TaskId,
     credential_id: CredentialId,
@@ -214,27 +216,27 @@ fn scheduler_delegates_snapshot_creation_to_the_credential_kernel() {
 }
 
 #[test]
-fn canonical_reference_decoder_accepts_versioned_and_legacy_paths() {
+fn canonical_reference_decoder_accepts_canonical_v2_paths() {
     let credential_id = CredentialId::from_uuid(Uuid::now_v7());
     let environment_id = CredentialId::from_uuid(Uuid::now_v7());
     let http_id = CredentialId::from_uuid(Uuid::now_v7());
     let decoded = decode_snapshot(&json!({
-        "schema": "joysafeter.agent_execution_snapshot.v1",
+        "schema": "joysafeter.agent_execution_snapshot.v2",
         "engine_kind": "claude",
         "model": {"id": "claude-sonnet-4"},
-        "secret_ref": credential_id.to_string(),
-        "secret_refs": [environment_id.to_string()],
+        "model_credential_id": credential_id.to_string(),
+        "environment_credential_ids": [environment_id.to_string()],
         "environment": {
             "config": {
                 "egress_services": [{
                     "base_url": "https://api.example.com",
                     "credential_ref": http_id.to_string(),
-                    "inject": {"type": "bearer", "secret_key": "TOKEN"}
+                    "inject": {"type": "bearer", "credential_field": "TOKEN"}
                 }]
             }
         }
     }))
-    .expect("canonical decoder accepts pulled-forward v1 paths");
+    .expect("canonical decoder accepts v2 paths");
 
     let mut expected = vec![credential_id, environment_id, http_id];
     expected.sort_by_key(ToString::to_string);
@@ -260,13 +262,12 @@ async fn scheduler_snapshot_validation_and_session_attach_share_one_transaction(
     seed_credential(&pool, credential_id, &project_id, false).await;
     seed_agent_and_task(&pool, agent_id, task_id, credential_id, &project_id).await;
     seed_environment(&pool, environment_id, &project_id).await;
-    let environment_name = format!("task-11-environment-{environment_id}");
-    sqlx::query("UPDATE joysafeter_agents SET environment_ref = $2 WHERE id = $1")
+    sqlx::query("UPDATE joysafeter_agents SET environment_id = $2 WHERE id = $1")
         .bind(agent_id)
-        .bind(&environment_name)
+        .bind(environment_id)
         .execute(&pool)
         .await
-        .expect("bind Agent to Environment name");
+        .expect("bind Agent to Environment ID");
     let store = CredentialStore::with_material_adapter(
         pool.clone(),
         ManagedCredentialMaterialAdapter::from_key(TEST_KEY),
@@ -278,7 +279,7 @@ async fn scheduler_snapshot_validation_and_session_attach_share_one_transaction(
         SchedulerSnapshotCommand {
             task_id,
             agent_id,
-            project_id: ProjectId::parse(&project_id).expect("project id"),
+            project_id,
         },
     )
     .await
@@ -292,22 +293,19 @@ async fn scheduler_snapshot_validation_and_session_attach_share_one_transaction(
             .and_then(|value| value["model_credential_id"].as_str()),
         Some(credential_id.to_string().as_str())
     );
+    assert_eq!(session.environment_id, Some(environment_id));
     assert_eq!(
-        session.environment_ref.as_deref(),
+        session
+            .agent_snapshot
+            .as_ref()
+            .and_then(|value| value["environment_id"].as_str()),
         Some(environment_id.to_string().as_str())
     );
     assert_eq!(
         session
             .agent_snapshot
             .as_ref()
-            .and_then(|value| value["environment_ref"].as_str()),
-        Some(environment_id.to_string().as_str())
-    );
-    assert_eq!(
-        session
-            .agent_snapshot
-            .as_ref()
-            .and_then(|value| value["environment"]["ref"].as_str()),
+            .and_then(|value| value["environment"]["environment_id"].as_str()),
         Some(environment_id.to_string().as_str())
     );
     let attached: Option<joysafeter_orchestrator::ids::SessionId> =
@@ -369,7 +367,7 @@ async fn archived_credential_rolls_back_scheduler_session_and_task_attach() {
         SchedulerSnapshotCommand {
             task_id,
             agent_id,
-            project_id: ProjectId::parse(&project_id).expect("project id"),
+            project_id,
         },
     )
     .await
@@ -429,7 +427,7 @@ async fn scheduler_snapshot_rejects_wrong_project_and_creates_no_session() {
         SchedulerSnapshotCommand {
             task_id,
             agent_id,
-            project_id: ProjectId::parse(&other_project_id).expect("other project id"),
+            project_id: other_project_id,
         },
     )
     .await
@@ -462,7 +460,7 @@ async fn scheduler_snapshot_rejects_wrong_project_and_creates_no_session() {
 }
 
 #[tokio::test]
-async fn scheduler_snapshot_rejects_missing_environment_and_creates_no_session() {
+async fn environment_foreign_key_rejects_missing_environment_before_snapshot_creation() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
     let (organization_id, project_id) = seed_project(&pool, &unique).await;
@@ -472,28 +470,19 @@ async fn scheduler_snapshot_rejects_missing_environment_and_creates_no_session()
     seed_credential(&pool, credential_id, &project_id, false).await;
     seed_agent_and_task(&pool, agent_id, task_id, credential_id, &project_id).await;
     let missing_environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
-    sqlx::query("UPDATE joysafeter_agents SET environment_ref = $2 WHERE id = $1")
+    let error = sqlx::query("UPDATE joysafeter_agents SET environment_id = $2 WHERE id = $1")
         .bind(agent_id)
-        .bind(missing_environment_id.to_string())
+        .bind(missing_environment_id)
         .execute(&pool)
         .await
-        .expect("set missing environment ref");
-    let store = CredentialStore::with_material_adapter(
-        pool.clone(),
-        ManagedCredentialMaterialAdapter::from_key(TEST_KEY),
+        .expect_err("native environment foreign key must reject missing environment IDs");
+    assert_eq!(
+        error
+            .as_database_error()
+            .and_then(|database_error| database_error.code().map(|code| code.into_owned()))
+            .as_deref(),
+        Some("23503")
     );
-
-    create_scheduler_session(
-        &pool,
-        &store,
-        SchedulerSnapshotCommand {
-            task_id,
-            agent_id,
-            project_id: ProjectId::parse(&project_id).expect("project id"),
-        },
-    )
-    .await
-    .expect_err("missing Environment must fail closed");
     let session_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM joysafeter_sessions WHERE agent_id = $1")
             .bind(agent_id)
@@ -536,7 +525,7 @@ async fn scheduler_snapshot_waits_for_task_project_binding_lock() {
 
     let pool_for_create = pool.clone();
     let store_for_create = store.clone();
-    let project_for_create = ProjectId::parse(&project_id).expect("project id");
+    let project_for_create = project_id;
     let create = tokio::spawn(async move {
         create_scheduler_session(
             &pool_for_create,
@@ -603,7 +592,7 @@ async fn scheduler_snapshot_waits_for_credential_archive_and_fails_without_sessi
 
     let pool_for_create = pool.clone();
     let store_for_create = store.clone();
-    let project_for_create = ProjectId::parse(&project_id).expect("project id");
+    let project_for_create = project_id;
     let create = tokio::spawn(async move {
         create_scheduler_session(
             &pool_for_create,
@@ -664,7 +653,7 @@ async fn scheduler_snapshot_waits_for_agent_archive_and_fails_without_session() 
 
     let pool_for_create = pool.clone();
     let store_for_create = store.clone();
-    let project_for_create = ProjectId::parse(&project_id).expect("project id");
+    let project_for_create = project_id;
     let create = tokio::spawn(async move {
         create_scheduler_session(
             &pool_for_create,
@@ -713,9 +702,9 @@ async fn scheduler_snapshot_waits_for_environment_archive_and_fails_without_sess
     seed_credential(&pool, credential_id, &project_id, false).await;
     seed_agent_and_task(&pool, agent_id, task_id, credential_id, &project_id).await;
     seed_environment(&pool, environment_id, &project_id).await;
-    sqlx::query("UPDATE joysafeter_agents SET environment_ref = $2 WHERE id = $1")
+    sqlx::query("UPDATE joysafeter_agents SET environment_id = $2 WHERE id = $1")
         .bind(agent_id)
-        .bind(environment_id.to_string())
+        .bind(environment_id)
         .execute(&pool)
         .await
         .expect("bind Agent to Environment");
@@ -736,7 +725,7 @@ async fn scheduler_snapshot_waits_for_environment_archive_and_fails_without_sess
 
     let pool_for_create = pool.clone();
     let store_for_create = store.clone();
-    let project_for_create = ProjectId::parse(&project_id).expect("project id");
+    let project_for_create = project_id;
     let create = tokio::spawn(async move {
         create_scheduler_session(
             &pool_for_create,

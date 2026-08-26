@@ -185,12 +185,13 @@ mod tests {
     use crate::ids::{CredentialGroupId, CredentialId};
 
     use super::{resolve_mcp_members, CredentialRuntimeError};
-    use crate::kernel::credentials::record::{CredentialMaterial, McpCredentialRecord, ProjectId};
+    use crate::ids::ProjectId;
+    use crate::kernel::credentials::record::{CredentialMaterial, McpCredentialRecord};
 
     fn record(auth_scheme: &str, fields: &[(&str, &str)]) -> McpCredentialRecord {
         McpCredentialRecord {
             id: CredentialId::from_uuid(Uuid::nil()),
-            project_id: ProjectId::parse("project-a").unwrap(),
+            project_id: ProjectId::from_uuid(uuid::Uuid::from_u128(1)),
             group_id: CredentialGroupId::from_uuid(Uuid::nil()),
             server_url: "https://example.com/mcp".to_string(),
             normalized_server_url: "https://example.com/mcp".to_string(),

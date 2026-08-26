@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::ids::SandboxId;
 use anyhow::Context;
@@ -8,6 +9,7 @@ use bollard::container::{
     Config, CreateContainerOptions, RemoveContainerOptions, RestartContainerOptions,
     StartContainerOptions, WaitContainerOptions,
 };
+use bollard::exec::{CreateExecOptions, StartExecOptions};
 use bollard::models::{HostConfig, Mount, MountTypeEnum};
 use bollard::Docker;
 use futures::TryStreamExt;
@@ -51,7 +53,8 @@ pub struct EnvoyConfig {
     pub grpc_target_host: String,
     pub grpc_target_port: u16,
     pub container_name: String,
-    /// `"filesystem"` (default, `lds.json`) or `"grpc"` (Delta xDS).
+    /// `"grpc"` (default, Delta xDS) or explicit compatibility mode
+    /// `"filesystem"` (`lds.json`).
     pub xds_mode: String,
     pub write_debug_entries: bool,
     pub socket_ready_timeout_ms: u64,
@@ -71,6 +74,53 @@ impl EnvoyConfig {
     fn is_grpc_mode(&self) -> bool {
         self.xds_mode == "grpc"
     }
+}
+
+/// Poll interval while waiting for Envoy to materialize a per-sandbox egress socket.
+const SOCKET_READY_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Poll `check` every `interval` until it returns `true` or `timeout` elapses.
+///
+/// Returns `true` iff readiness was observed within the budget. Deliberately free
+/// of I/O so its timing contract can be unit-tested without Docker; callers inject
+/// the actual readiness probe.
+async fn poll_until_ready<F, Fut>(mut check: F, timeout: Duration, interval: Duration) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if check().await {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(interval).await;
+    }
+}
+
+/// Human description of where the orchestrator writes per-sandbox egress socket
+/// directories, used in diagnostics when Envoy cannot see them.
+fn socket_storage_description(host_dir: Option<&str>, volume: &str) -> String {
+    match host_dir {
+        Some(dir) => format!("host bind dir {dir}"),
+        None => format!("docker volume {volume}"),
+    }
+}
+
+/// Precise, actionable error for when Envoy's `/sockets` mount does not point at
+/// the same storage the orchestrator (and sandboxes) use for egress sockets.
+fn socket_storage_mismatch_error(storage: &str) -> String {
+    format!(
+        "Envoy cannot see the orchestrator's sandbox egress socket storage ({storage}). \
+         The orchestrator, the Envoy proxy, and every sandbox container must mount the \
+         SAME storage at /sockets; otherwise Envoy binds each per-sandbox listener pipe \
+         on a filesystem the sandbox never sees and all egress silently fails. Align the \
+         Envoy container's /sockets mount with the orchestrator's \
+         JOYSAFETER_ENVOY_SOCKET_VOLUME / JOYSAFETER_ENVOY_SOCKET_HOST_DIR."
+    )
 }
 
 impl EnvoyManager {
@@ -128,22 +178,32 @@ impl EnvoyManager {
         if self.config.skip_socket_dir_prep {
             return Ok(()); // K8s: handled by pod initContainer
         }
-        let Some(socket_dir) = self.host_socket_dir(sandbox_id) else {
-            self.prepare_socket_dir_in_volume(sandbox_id).await?;
-            return Ok(());
-        };
-        tokio::fs::create_dir_all(&socket_dir).await?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            tokio::fs::set_permissions(&socket_dir, std::fs::Permissions::from_mode(0o755)).await?;
-        }
-        Ok(())
+        self.ensure_socket_subdir(&sandbox_id.as_uuid().to_string())
+            .await
     }
 
-    async fn prepare_socket_dir_in_volume(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-        let sandbox_uuid = sandbox_id.as_uuid();
-        let helper_name = format!("joysafeter-envoy-socket-init-{sandbox_uuid}");
+    /// Create a directory named `name` under the shared socket storage (host bind
+    /// dir or Docker volume), matching where per-sandbox egress sockets live. Used
+    /// both for per-sandbox socket dirs and the startup consistency probe.
+    async fn ensure_socket_subdir(&self, name: &str) -> anyhow::Result<()> {
+        match self.config.socket_host_dir.as_deref() {
+            Some(root) => {
+                let dir = PathBuf::from(root).join(name);
+                tokio::fs::create_dir_all(&dir).await?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    tokio::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755))
+                        .await?;
+                }
+                Ok(())
+            }
+            None => self.mkdir_in_socket_volume(name).await,
+        }
+    }
+
+    async fn mkdir_in_socket_volume(&self, name: &str) -> anyhow::Result<()> {
+        let helper_name = format!("joysafeter-envoy-socket-init-{name}");
         let _ = self
             .docker()?
             .remove_container(
@@ -155,8 +215,7 @@ impl EnvoyManager {
             )
             .await;
 
-        let mkdir_cmd =
-            format!("mkdir -p /sockets/{sandbox_uuid} && chmod 755 /sockets/{sandbox_uuid}");
+        let mkdir_cmd = format!("mkdir -p /sockets/{name} && chmod 755 /sockets/{name}");
         let container_config = Config {
             image: Some(self.config.envoy_image.clone()),
             user: Some("0".to_string()),
@@ -204,10 +263,10 @@ impl EnvoyManager {
             .await;
         if status_code != 0 {
             anyhow::bail!(
-                "failed to prepare Envoy socket volume directory for sandbox {sandbox_id}: helper exited {status_code}"
+                "failed to prepare Envoy socket volume directory {name}: helper exited {status_code}"
             );
         }
-        debug!(sandbox_id = %sandbox_id, socket_volume = %self.config.socket_volume, "Prepared Envoy socket dir in Docker volume");
+        debug!(name, socket_volume = %self.config.socket_volume, "Prepared Envoy socket dir in Docker volume");
         Ok(())
     }
 
@@ -216,6 +275,148 @@ impl EnvoyManager {
             .socket_host_dir
             .as_ref()
             .map(|root| PathBuf::from(root).join(sandbox_id.as_uuid().to_string()))
+    }
+
+    /// Run `test <flag> <path>` inside the Envoy container, returning `true` iff
+    /// it exits 0. This queries the path from Envoy's *own* mount namespace, which
+    /// is the authority on whether a per-sandbox egress socket actually exists.
+    async fn envoy_path_test(&self, flag: &str, path: &str) -> anyhow::Result<bool> {
+        let docker = self.docker()?;
+        let exec = docker
+            .create_exec(
+                &self.config.container_name,
+                CreateExecOptions {
+                    cmd: Some(vec!["test".to_string(), flag.to_string(), path.to_string()]),
+                    attach_stdout: Some(false),
+                    attach_stderr: Some(false),
+                    ..Default::default()
+                },
+            )
+            .await?;
+        docker
+            .start_exec(
+                &exec.id,
+                Some(StartExecOptions {
+                    detach: true,
+                    ..Default::default()
+                }),
+            )
+            .await?;
+        // `test` exits immediately; poll the exec inspection for its exit code.
+        for _ in 0..50 {
+            let inspect = docker.inspect_exec(&exec.id).await?;
+            if inspect.running == Some(false) {
+                return Ok(inspect.exit_code == Some(0));
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        Ok(false)
+    }
+
+    /// Wait until Envoy has actually created the sandbox's egress socket, or fail.
+    ///
+    /// xDS ACK / filesystem LDS writes only prove the *config* was accepted; the
+    /// runner cannot reach the network until the Unix socket file exists on the
+    /// shared mount. In Docker standalone mode we confirm this from Envoy's own
+    /// view. K8s / externalized socket-dir setups skip it (no shared Docker mount
+    /// the orchestrator can query here).
+    async fn wait_for_socket_ready(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
+        if self.docker.is_none() || self.config.skip_socket_dir_prep {
+            return Ok(());
+        }
+        let socket_path = format!("/sockets/{}/http.sock", sandbox_id.as_uuid());
+        self.wait_for_socket_ready_with(sandbox_id, || {
+            let socket_path = socket_path.clone();
+            async move {
+                self.envoy_path_test("-S", &socket_path)
+                    .await
+                    .unwrap_or(false)
+            }
+        })
+        .await
+    }
+
+    /// Core of [`wait_for_socket_ready`] with the readiness probe injected, so the
+    /// fail-loud contract can be unit-tested without Docker.
+    async fn wait_for_socket_ready_with<F, Fut>(
+        &self,
+        sandbox_id: SandboxId,
+        check: F,
+    ) -> anyhow::Result<()>
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = bool>,
+    {
+        let timeout = Duration::from_millis(self.config.socket_ready_timeout_ms.max(1));
+        if poll_until_ready(check, timeout, SOCKET_READY_POLL_INTERVAL).await {
+            return Ok(());
+        }
+        anyhow::bail!(
+            "Envoy did not create egress socket /sockets/{sandbox}/http.sock for sandbox \
+             {sandbox} within {timeout_ms}ms; the sandbox has no working egress. This usually \
+             means Envoy's /sockets mount does not match the orchestrator's socket storage \
+             ({storage}), or Envoy rejected the listener config.",
+            sandbox = sandbox_id.as_uuid(),
+            timeout_ms = self.config.socket_ready_timeout_ms,
+            storage = socket_storage_description(
+                self.config.socket_host_dir.as_deref(),
+                &self.config.socket_volume
+            ),
+        );
+    }
+
+    /// Startup self-check: prove that the storage the orchestrator uses for
+    /// per-sandbox egress socket dirs is the *same* storage Envoy mounts at
+    /// `/sockets`. Creates a marker dir via the normal socket-dir path and
+    /// confirms Envoy can see it; fails fast with a precise remediation message
+    /// otherwise. This makes a cross-mount misconfiguration a loud boot-time
+    /// failure instead of a silent per-sandbox egress outage in a new environment.
+    pub async fn verify_socket_storage_consistency(&self) -> anyhow::Result<()> {
+        if self.docker.is_none() || self.config.skip_socket_dir_prep {
+            return Ok(());
+        }
+        // Envoy must be up for the probe; surface a clear error if it is not.
+        self.wait_until_ready(Duration::from_secs(15)).await?;
+
+        const MARKER: &str = ".joysafeter-socket-preflight";
+        self.ensure_socket_subdir(MARKER)
+            .await
+            .context("failed to create socket-storage preflight marker")?;
+        let visible = self
+            .envoy_path_test("-d", &format!("/sockets/{MARKER}"))
+            .await
+            .unwrap_or(false);
+        let storage = socket_storage_description(
+            self.config.socket_host_dir.as_deref(),
+            &self.config.socket_volume,
+        );
+        if !visible {
+            anyhow::bail!("{}", socket_storage_mismatch_error(&storage));
+        }
+        info!(storage = %storage, "Envoy socket-storage consistency verified");
+        Ok(())
+    }
+
+    /// Restart the Envoy container so it reloads a changed bootstrap. Envoy parses
+    /// its bootstrap only once at process start, so a bootstrap/xDS-mode change is
+    /// invisible to a long-running Envoy until it restarts. No-op when Docker is
+    /// unavailable (K8s) or Envoy is not currently running (its entrypoint reads
+    /// the fresh bootstrap on first start).
+    async fn reload_envoy_after_bootstrap_change(&self) -> anyhow::Result<()> {
+        let Some(docker) = self.docker.as_deref() else {
+            return Ok(());
+        };
+        if self.health_check().await.is_err() {
+            return Ok(());
+        }
+        warn!("Envoy bootstrap changed; restarting Envoy to load the new xDS transport");
+        docker
+            .restart_container(
+                &self.config.container_name,
+                Some(RestartContainerOptions { t: 10 }),
+            )
+            .await?;
+        self.wait_until_ready(Duration::from_secs(15)).await
     }
 
     pub fn spawn_health_monitor(
@@ -320,14 +521,22 @@ impl EnvoyManager {
         let _ = tokio::fs::remove_dir_all(&sandboxes_dir).await;
         tokio::fs::create_dir_all(&sandboxes_dir).await?;
 
-        // Write bootstrap config (mode-aware)
-        self.write_bootstrap_config().await?;
+        // Write bootstrap config (mode-aware). A running Envoy only parses its
+        // bootstrap at process start, so if the transport/mode changed we must
+        // restart it — otherwise it keeps using the stale (e.g. gRPC) transport
+        // while we serve the new (e.g. filesystem) one, and no listeners land.
+        let bootstrap_changed = self.write_bootstrap_config().await?;
 
         // Reset xDS state to an empty initial state.
         self.cds.replace_all(vec![]).await?;
         self.lds.replace_all(vec![]).await?;
+
+        if bootstrap_changed {
+            self.reload_envoy_after_bootstrap_change().await?;
+        }
         info!(
             xds_mode = %self.config.xds_mode,
+            bootstrap_changed,
             "EnvoyManager initialized (container={})",
             self.config.container_name
         );
@@ -434,9 +643,12 @@ impl EnvoyManager {
                         .map(ToOwned::to_owned)
                 })
                 .unwrap_or_else(|| "recovered-unknown".to_string());
-            let generation =
-                crate::db::queries::prepare_sandbox_network_policy_push(pool, sb.id, &policy_hash)
-                    .await?;
+            let generation = crate::db::queries::reopen_network_policy_for_authority_recovery(
+                pool,
+                sb.id,
+                &policy_hash,
+            )
+            .await?;
 
             clusters.extend(policy.clusters(&sb.id));
             specs.push(ListenerSpec {
@@ -470,12 +682,21 @@ impl EnvoyManager {
             if !authority.is_current() {
                 anyhow::bail!("xDS authority changed before recovered policy ACK persistence");
             }
-            if !crate::db::queries::mark_sandbox_network_policy_acked(pool, sandbox_id, &generation)
-                .await?
+            match crate::db::queries::mark_sandbox_network_policy_acked(
+                pool,
+                sandbox_id,
+                &generation,
+            )
+            .await?
             {
-                anyhow::bail!(
+                crate::db::queries::NetworkPolicyAckOutcome::Applied
+                | crate::db::queries::NetworkPolicyAckOutcome::AlreadyReady => {}
+                crate::db::queries::NetworkPolicyAckOutcome::Stale => anyhow::bail!(
                     "sandbox {sandbox_id} network policy generation changed during recovery"
-                );
+                ),
+                crate::db::queries::NetworkPolicyAckOutcome::Missing => {
+                    anyhow::bail!("sandbox {sandbox_id} disappeared during network policy recovery")
+                }
             }
         }
         info!(
@@ -549,9 +770,12 @@ impl EnvoyManager {
             .await
             .map_err(|_| anyhow::anyhow!("timed out applying Envoy xDS update"))??;
             if !applied_as_batch {
-                self.cds
-                    .replace_by_prefix(&cluster_prefix, clusters)
-                    .await?;
+                if !clusters.is_empty() {
+                    anyhow::bail!(
+                        "filesystem xDS cannot safely publish listener {} with dedicated clusters; use JOYSAFETER_ENVOY_XDS_MODE=grpc",
+                        listener.resource_name()
+                    );
+                }
                 self.lds.upsert(vec![listener]).await?;
             }
             drop(_guard);
@@ -566,10 +790,16 @@ impl EnvoyManager {
             )
             .await?;
 
+        // xDS acceptance is not proof of egress: the runner cannot reach the
+        // network until Envoy has actually bound the per-sandbox Unix socket on
+        // the shared mount. Verify it, and fail loudly (so the sandbox is torn
+        // down) instead of reporting the networking as ready while it is offline.
+        self.wait_for_socket_ready(sandbox_id).await?;
+
         info!(
             sandbox_id = %sandbox_id,
             socket_dir = %socket_dir,
-            "Added sandbox to Envoy config; egress socket readiness will be reconciled asynchronously"
+            "Added sandbox to Envoy config; egress socket confirmed ready"
         );
         Ok(())
     }
@@ -639,7 +869,10 @@ impl EnvoyManager {
     /// * filesystem: `dynamic_resources.lds_config.path_config_source`.
     /// * grpc: `lds_config.ads` + `ads_config { DELTA_GRPC }` + a static
     ///   `xds_cluster` pointing at the orchestrator gRPC server.
-    async fn write_bootstrap_config(&self) -> anyhow::Result<()> {
+    ///
+    /// Returns `true` when the on-disk bootstrap content actually changed, so the
+    /// caller can decide whether the running Envoy needs a restart to pick it up.
+    async fn write_bootstrap_config(&self) -> anyhow::Result<bool> {
         let mut clusters = vec![
             json!({
                 "name": "dynamic_forward_proxy",
@@ -770,10 +1003,13 @@ impl EnvoyManager {
         });
 
         let bootstrap_json = serde_json::to_string_pretty(&bootstrap)?;
+        let path = PathBuf::from(&self.config.config_dir).join("bootstrap.json");
+        let previous = tokio::fs::read_to_string(&path).await.ok();
+        let changed = previous.as_deref() != Some(bootstrap_json.as_str());
         self.write_config_file("/envoy-config/bootstrap.json", &bootstrap_json)
             .await?;
-        info!(xds_mode = %self.config.xds_mode, "Wrote Envoy bootstrap config (JSON)");
-        Ok(())
+        info!(xds_mode = %self.config.xds_mode, changed, "Wrote Envoy bootstrap config (JSON)");
+        Ok(changed)
     }
 
     // ── Envoy container helpers ──────────────────────────────────────────
@@ -888,5 +1124,120 @@ mod tests {
 
         assert_eq!(removed, 1);
         assert_eq!(lds.configured_sandbox_ids().await, HashSet::from([live]));
+    }
+
+    fn manager_without_docker() -> EnvoyManager {
+        let server = DeltaXdsServer::new();
+        EnvoyManager::new(
+            None,
+            test_config(),
+            Arc::new(GrpcLds::new(server.clone())),
+            Arc::new(GrpcCds::new(server)),
+        )
+    }
+
+    #[tokio::test]
+    async fn poll_until_ready_returns_true_once_predicate_holds() {
+        let mut calls = 0u32;
+        let ready = poll_until_ready(
+            || {
+                calls += 1;
+                let hit = calls >= 3;
+                async move { hit }
+            },
+            std::time::Duration::from_millis(500),
+            std::time::Duration::from_millis(5),
+        )
+        .await;
+        assert!(ready);
+        assert!(calls >= 3, "predicate should be polled until it holds");
+    }
+
+    #[tokio::test]
+    async fn poll_until_ready_times_out_when_never_ready() {
+        let ready = poll_until_ready(
+            || async { false },
+            std::time::Duration::from_millis(30),
+            std::time::Duration::from_millis(5),
+        )
+        .await;
+        assert!(!ready);
+    }
+
+    /// Regression: the orchestrator must fail loudly when Envoy never
+    /// materializes a sandbox's egress socket, instead of reporting the
+    /// networking as ready (which left the sandbox silently offline).
+    #[tokio::test]
+    async fn socket_readiness_errors_when_socket_never_appears() {
+        let manager = manager_without_docker();
+        let sandbox = SandboxId::from_uuid(Uuid::from_u128(7));
+        let err = manager
+            .wait_for_socket_ready_with(sandbox, || async { false })
+            .await
+            .expect_err("missing egress socket must fail loudly");
+        let msg = err.to_string();
+        assert!(msg.contains("egress socket"), "unexpected error: {msg}");
+        assert!(
+            msg.contains(&sandbox.as_uuid().to_string()),
+            "error must name the sandbox: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn socket_readiness_succeeds_when_socket_present() {
+        let manager = manager_without_docker();
+        let sandbox = SandboxId::from_uuid(Uuid::from_u128(8));
+        manager
+            .wait_for_socket_ready_with(sandbox, || async { true })
+            .await
+            .expect("an existing socket must be accepted");
+    }
+
+    #[test]
+    fn socket_storage_description_reports_volume_or_host_dir() {
+        assert_eq!(
+            socket_storage_description(None, "joysafeter-sockets"),
+            "docker volume joysafeter-sockets"
+        );
+        assert_eq!(
+            socket_storage_description(Some("/tmp/joysafeter-sockets"), "joysafeter-sockets"),
+            "host bind dir /tmp/joysafeter-sockets"
+        );
+    }
+
+    #[test]
+    fn socket_storage_mismatch_error_names_storage_and_remediation() {
+        let msg = socket_storage_mismatch_error("docker volume joysafeter-sockets");
+        assert!(
+            msg.contains("docker volume joysafeter-sockets"),
+            "names storage: {msg}"
+        );
+        assert!(msg.contains("/sockets"), "names mount point: {msg}");
+        assert!(msg.to_lowercase().contains("envoy"), "names Envoy: {msg}");
+    }
+
+    #[tokio::test]
+    async fn write_bootstrap_reports_change_only_when_content_differs() {
+        let server = DeltaXdsServer::new();
+        let mut cfg = test_config();
+        let dir =
+            std::env::temp_dir().join(format!("joysafeter-bootstrap-test-{}", std::process::id()));
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        cfg.config_dir = dir.to_string_lossy().into_owned();
+        let manager = EnvoyManager::new(
+            None,
+            cfg,
+            Arc::new(GrpcLds::new(server.clone())),
+            Arc::new(GrpcCds::new(server)),
+        );
+        assert!(
+            manager.write_bootstrap_config().await.unwrap(),
+            "first write must report a change (file created)"
+        );
+        assert!(
+            !manager.write_bootstrap_config().await.unwrap(),
+            "identical rewrite must report no change"
+        );
+        let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 }

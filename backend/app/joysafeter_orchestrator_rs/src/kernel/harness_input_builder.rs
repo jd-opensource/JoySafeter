@@ -18,13 +18,13 @@ use uuid::Uuid;
 use crate::db::queries;
 use crate::grpc::proto;
 use crate::ids::{
-    SandboxId, SessionId, SkillId, SkillSecurityScanId, SkillUsageId, SkillVersionId, TaskId,
+    OrganizationId, ProjectId, SandboxId, SessionId, SkillId, SkillSecurityScanId, SkillUsageId,
+    SkillVersionId, TaskId,
 };
 use crate::kernel::credentials::access::{
     CredentialAccessContext, CredentialMaterialAccessService,
 };
 use crate::kernel::credentials::error::{require_bound_credential_id, CredentialRuntimeError};
-use crate::kernel::credentials::record::ProjectId;
 use crate::kernel::environment_binding::{self, EnvironmentBinding};
 use crate::kernel::mcp_runtime_plan::{
     effective_network_mode, resolve_mcp_runtime_plan_from_metadata,
@@ -100,7 +100,7 @@ pub struct HarnessInput {
     pub prompt: String,
     pub env: HashMap<String, String>,
     pub permission_mode: Option<String>,
-    pub session_id: Option<String>,
+    pub harness_session_id: Option<String>,
     pub mcp_servers: Vec<proto::McpConfig>,
     pub custom_tools: Vec<proto::CustomTool>,
     pub skills: Vec<proto::SkillArchive>,
@@ -128,7 +128,7 @@ impl fmt::Debug for HarnessInput {
             .field("prompt", &"<redacted>")
             .field("env", &"<redacted>")
             .field("permission_mode", &self.permission_mode)
-            .field("session_id", &self.session_id)
+            .field("harness_session_id", &self.harness_session_id)
             .field("mcp_servers", &self.mcp_servers.len())
             .field("custom_tools", &self.custom_tools.len())
             .field("skills", &self.skills.len())
@@ -222,11 +222,7 @@ impl HarnessInputBuilder {
         let snapshot_environment = environment_for_execution(session.as_ref());
         let agent = agent_for_execution(live_agent, session.as_ref())?;
         let live_environment = self
-            .load_live_environment(
-                session.as_ref(),
-                agent.as_ref(),
-                snapshot_environment.as_ref(),
-            )
+            .load_live_environment(session.as_ref(), agent.as_ref())
             .await?;
 
         let mut input = HarnessInput {
@@ -240,7 +236,7 @@ impl HarnessInputBuilder {
                 .session_id
                 .map(|_| "/workspace".to_string())
                 .or_else(|| Some(sandbox_external_id.to_string())),
-            session_id: session
+            harness_session_id: session
                 .as_ref()
                 .and_then(|s| s.last_harness_session_id.clone()),
             max_turns: extract_max_turns(agent.as_ref().and_then(|a| a.metadata.as_ref())),
@@ -258,9 +254,8 @@ impl HarnessInputBuilder {
                 })
                 .and_then(|config| config.get("networking"));
             let network_mode = effective_network_mode(networking, self.envoy_enabled)?;
-            let mcp_metadata = match (session.as_ref(), agent.project_id.as_deref()) {
+            let mcp_metadata = match (session.as_ref(), agent.project_id) {
                 (Some(session), Some(project_id)) => {
-                    let project_id = ProjectId::parse(project_id)?;
                     credential_access
                         .load_mcp_member_metadata(&project_id, session.id)
                         .await?
@@ -352,7 +347,7 @@ impl HarnessInputBuilder {
             .to_string();
 
         let has_harness_resume = input
-            .session_id
+            .harness_session_id
             .as_ref()
             .map(|sid| !sid.trim().is_empty())
             .unwrap_or(false);
@@ -418,11 +413,11 @@ impl HarnessInputBuilder {
         timeout_seconds: u64,
     ) -> proto::StartTask {
         proto::StartTask {
-            task_id: task.id.as_uuid().to_string(),
+            task_id: task.id.to_string(),
             provider: input.provider.clone(),
             prompt: input.prompt.clone(),
             system_prompt: input.system_prompt.clone(),
-            session_id: input.session_id.clone(),
+            harness_session_id: input.harness_session_id.clone(),
             model: input.model.clone(),
             max_turns: Some(input.max_turns),
             timeout_seconds,
@@ -466,17 +461,15 @@ impl HarnessInputBuilder {
         &self,
         session: Option<&crate::db::models::JoySafeterSession>,
         agent: Option<&crate::db::models::JoySafeterAgent>,
-        snapshot_environment: Option<&SnapshotEnvironment>,
     ) -> anyhow::Result<Option<EnvironmentBinding>> {
         let project_id = match session {
-            Some(session) => session.project_id.as_deref(),
-            None => agent.and_then(|agent| agent.project_id.as_deref()),
+            Some(session) => session.project_id,
+            None => agent.and_then(|agent| agent.project_id),
         };
         environment_binding::resolve_live_environment_binding(
             &self.pool,
-            session.and_then(|session| session.environment_ref.as_deref()),
-            snapshot_environment.and_then(|environment| environment.reference.as_deref()),
-            agent.and_then(|agent| agent.environment_ref.as_deref()),
+            session.and_then(|session| session.environment_id),
+            agent.and_then(|agent| agent.environment_id),
             project_id,
             session.map(|session| session.id),
         )
@@ -521,12 +514,9 @@ impl HarnessInputBuilder {
         needs_model_value: bool,
     ) -> anyhow::Result<crate::kernel::credentials::access::ResolvedModelRuntimeConfig> {
         let model_credential_id = require_bound_credential_id(agent.model_credential_id)?;
-        let project_id = ProjectId::parse(
-            agent
-                .project_id
-                .as_deref()
-                .ok_or(CredentialRuntimeError::ProjectMismatch)?,
-        )?;
+        let project_id = agent
+            .project_id
+            .ok_or(CredentialRuntimeError::ProjectMismatch)?;
         credential_access
             .resolve_model_runtime_config(
                 &project_id,
@@ -623,7 +613,7 @@ impl HarnessInputBuilder {
         task: &crate::db::models::JoySafeterTask,
     ) -> anyhow::Result<proto::SkillArchive> {
         let skill = self
-            .load_skill_for_archive(skill_id, agent.project_id.as_deref())
+            .load_skill_for_archive(skill_id, agent.project_id)
             .await?
             .ok_or_else(|| anyhow::anyhow!("skill not found: {skill_id}"))?;
         let project_latest = if version == "latest" && skill.same_project() {
@@ -674,14 +664,14 @@ impl HarnessInputBuilder {
     async fn load_skill_for_archive(
         &self,
         skill_id: SkillId,
-        consumer_project_id: Option<&str>,
+        consumer_project_id: Option<ProjectId>,
     ) -> anyhow::Result<Option<SkillForArchive>> {
         sqlx::query_as::<_, SkillForArchive>(
             r#"
             SELECT s.source_type,
                    s.project_id,
                    skill_project.org_id AS skill_org_id,
-                   $2::text AS consumer_project_id,
+                   $2::uuid AS consumer_project_id,
                    consumer_project.org_id AS consumer_org_id,
                    org_version.version AS org_version,
                    public_version.version AS public_version
@@ -761,7 +751,7 @@ impl HarnessInputBuilder {
         .bind(artifact_hash)
         .bind(task.session_id.map(|id| id.as_uuid()))
         .bind(agent.id.as_uuid())
-        .bind(agent.project_id.as_deref())
+        .bind(agent.project_id)
         .execute(&self.pool)
         .await
         {
@@ -846,7 +836,6 @@ impl HarnessInputBuilder {
             }
 
             input.memory_mounts.push(proto::MemoryStoreMount {
-                store_id: store.store_id.as_uuid().to_string(),
                 mount_name: store.mount_name.clone(),
                 mount_path: mount_path.clone(),
                 access: store.access.clone(),
@@ -1202,8 +1191,8 @@ mod tests {
         HarnessInputBuilder, SkillForArchive, SkillVersionForArchive,
     };
     use crate::ids::{
-        AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, SandboxId, SessionId,
-        SessionResourceId, SkillVersionId, TaskId,
+        AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, OrganizationId, ProjectId,
+        SandboxId, SessionId, SessionResourceId, SkillVersionId, TaskId,
     };
     use crate::kernel::runtime_freshness::RuntimeFreshnessError;
     use uuid::Uuid;
@@ -1236,7 +1225,7 @@ mod tests {
         pool: &PgPool,
         sandbox_id: SandboxId,
         session_id: SessionId,
-        project_id: &str,
+        project_id: &ProjectId,
         applied_generation: i64,
     ) {
         sqlx::query(
@@ -1266,8 +1255,8 @@ mod tests {
         task_id: TaskId,
         sandbox_id: SandboxId,
         environment_id: EnvironmentId,
-        org_id: String,
-        project_id: String,
+        org_id: OrganizationId,
+        project_id: ProjectId,
     }
 
     async fn insert_generation_fixture(pool: &PgPool) -> GenerationFixture {
@@ -1277,11 +1266,10 @@ mod tests {
         let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
-        let org_id = format!("harness-generation-org-{unique}");
-        let project_id = format!("harness-generation-project-{unique}");
-        let environment_ref = environment_id.to_string();
+        let org_id = OrganizationId::new();
+        let project_id = ProjectId::new();
         let snapshot = json!({
-            "schema": "joysafeter.agent_execution_snapshot.v1",
+            "schema": "joysafeter.agent_execution_snapshot.v2",
             "id": agent_id.to_string(),
             "version": 1,
             "name": format!("harness-generation-agent-{unique}"),
@@ -1293,17 +1281,16 @@ mod tests {
             "skills": [],
             "agents": [],
             "commands": [],
-            "environment_ref": environment_ref,
+            "environment_id": environment_id.to_string(),
             "model_credential_id": null,
             "environment": {
-                "ref": environment_ref,
-                "id": environment_id.to_string(),
+                "environment_id": environment_id.to_string(),
                 "name": format!("harness-generation-env-{unique}"),
                 "image_tag": "snapshot-image:1",
                 "image_version": 1,
                 "config": {
                     "env_vars": {"FROZEN_VALUE": "snapshot"},
-                    "secret_refs": [],
+                    "environment_credential_ids": [],
                     "packages": {"pip": ["snapshot-package"]}
                 }
             }
@@ -1334,7 +1321,7 @@ mod tests {
         .bind(environment_id)
         .bind(&project_id)
         .bind(format!("harness-generation-env-{unique}"))
-        .bind(json!({"env_vars": {"FROZEN_VALUE": "live"}, "secret_refs": []}))
+        .bind(json!({"env_vars": {"FROZEN_VALUE": "live"}, "environment_credential_ids": []}))
         .execute(pool)
         .await
         .expect("insert generation environment");
@@ -1342,7 +1329,7 @@ mod tests {
             r#"
             INSERT INTO joysafeter_agents (
                 id, project_id, name, engine_kind, env, mcp_servers, skills, tools,
-                agents, commands, permission_mode, metadata, version, environment_ref
+                agents, commands, permission_mode, metadata, version, environment_id
             )
             VALUES ($1, $2, $3, 'claude', '{}'::jsonb, '[]'::jsonb, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'default', '{}'::jsonb, 1, $4)
@@ -1351,7 +1338,7 @@ mod tests {
         .bind(agent_id)
         .bind(&project_id)
         .bind(format!("harness-generation-agent-{unique}"))
-        .bind(&environment_ref)
+        .bind(environment_id)
         .execute(pool)
         .await
         .expect("insert generation agent");
@@ -1359,7 +1346,7 @@ mod tests {
             r#"
             INSERT INTO joysafeter_sessions (
                 id, agent_id, project_id, status, agent_version, agent_snapshot,
-                environment_ref, runtime_config_generation
+                environment_id, runtime_config_generation
             )
             VALUES ($1, $2, $3, 'idle', 1, $4, $5, 7)
             "#,
@@ -1368,7 +1355,7 @@ mod tests {
         .bind(agent_id)
         .bind(&project_id)
         .bind(&snapshot)
-        .bind(&environment_ref)
+        .bind(environment_id)
         .execute(pool)
         .await
         .expect("insert generation session");
@@ -1605,34 +1592,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn harness_input_explicit_invalid_environment_binding_fails_closed() {
+    async fn session_environment_binding_fk_rejects_missing_environment() {
         let Some(pool) = test_pool().await else {
             return;
         };
         let fixture = insert_generation_fixture(&pool).await;
-        let missing_environment = EnvironmentId::from_uuid(Uuid::now_v7()).to_string();
-        sqlx::query("UPDATE joysafeter_sessions SET environment_ref = $2 WHERE id = $1")
+        let missing_environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
+        let error = sqlx::query("UPDATE joysafeter_sessions SET environment_id = $2 WHERE id = $1")
             .bind(fixture.session_id)
-            .bind(&missing_environment)
+            .bind(missing_environment_id)
             .execute(&pool)
             .await
-            .expect("replace canonical environment binding");
-        let task = crate::db::queries::get_task(&pool, fixture.task_id)
-            .await
-            .expect("load generation task")
-            .expect("generation task exists");
-
-        let error = HarnessInputBuilder::new(pool.clone(), false)
-            .build(&task, "sandbox-ext", fixture.sandbox_id)
-            .await
-            .expect_err("explicit missing binding must not fall back to the snapshot");
-        assert!(
-            matches!(
-            error.downcast_ref::<RuntimeFreshnessError>(),
-            Some(RuntimeFreshnessError::SessionBindingInvalid { session_id, .. })
-                if *session_id == fixture.session_id
-            ),
-            "unexpected error: {error:?}"
+            .expect_err("native environment foreign key must reject missing environment IDs");
+        assert_eq!(
+            error
+                .as_database_error()
+                .and_then(|database_error| database_error.code().map(|code| code.into_owned()))
+                .as_deref(),
+            Some("23503")
         );
         delete_generation_fixture(&pool, &fixture).await;
     }
@@ -1757,16 +1734,23 @@ mod tests {
         assert!(parse_semver("1.2.0") > parse_semver("1.1.9"));
     }
 
-    fn exposed_skill(
-        consumer_project_id: Option<&str>,
-        consumer_org_id: Option<&str>,
-    ) -> SkillForArchive {
+    fn exposed_skill(same_project: bool, same_org: bool) -> SkillForArchive {
+        let project_id = ProjectId::new();
+        let skill_org_id = OrganizationId::new();
         SkillForArchive {
             source_type: Some("local".to_string()),
-            project_id: "project-source".to_string(),
-            skill_org_id: "org-source".to_string(),
-            consumer_project_id: consumer_project_id.map(str::to_string),
-            consumer_org_id: consumer_org_id.map(str::to_string),
+            project_id,
+            skill_org_id,
+            consumer_project_id: Some(if same_project {
+                project_id
+            } else {
+                ProjectId::new()
+            }),
+            consumer_org_id: Some(if same_org {
+                skill_org_id
+            } else {
+                OrganizationId::new()
+            }),
             org_version: Some("1.0.0".to_string()),
             public_version: Some("0.9.0".to_string()),
         }
@@ -1774,7 +1758,7 @@ mod tests {
 
     #[test]
     fn same_org_latest_uses_promoted_versions_only() {
-        let skill = exposed_skill(Some("project-consumer"), Some("org-source"));
+        let skill = exposed_skill(false, true);
         assert_eq!(
             resolve_skill_version_request(&skill, "latest", Some("2.0.0")).unwrap(),
             "1.0.0"
@@ -1783,7 +1767,7 @@ mod tests {
 
     #[test]
     fn cross_org_latest_uses_public_pointer_only() {
-        let skill = exposed_skill(Some("project-consumer"), Some("org-consumer"));
+        let skill = exposed_skill(false, false);
         assert_eq!(
             resolve_skill_version_request(&skill, "latest", Some("2.0.0")).unwrap(),
             "0.9.0"
@@ -1792,14 +1776,14 @@ mod tests {
 
     #[test]
     fn cross_project_explicit_private_version_is_rejected() {
-        let skill = exposed_skill(Some("project-consumer"), Some("org-source"));
+        let skill = exposed_skill(false, true);
         let error = resolve_skill_version_request(&skill, "2.0.0", Some("2.0.0")).unwrap_err();
         assert!(error.to_string().contains("not exposed"));
     }
 
     #[test]
     fn same_project_latest_uses_project_latest() {
-        let skill = exposed_skill(Some("project-source"), Some("org-source"));
+        let skill = exposed_skill(true, true);
         assert_eq!(
             resolve_skill_version_request(&skill, "latest", Some("2.0.0")).unwrap(),
             "2.0.0"
@@ -1888,9 +1872,8 @@ mod tests {
         let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
-        let org_id = format!("org-{unique}");
-        let project_id = format!("proj-{unique}");
-        let environment_ref = environment_id.to_string();
+        let org_id = OrganizationId::new();
+        let project_id = ProjectId::new();
         let snapshot_credential_id = CredentialId::from_uuid(Uuid::now_v7());
         let live_credential_id = CredentialId::from_uuid(Uuid::now_v7());
         let snapshot_environment_credential_id = CredentialId::from_uuid(Uuid::now_v7());
@@ -1898,7 +1881,7 @@ mod tests {
         let agent_name = format!("snapshot-agent-{unique}");
         let environment_name = format!("snapshot-env-{unique}");
         let snapshot = json!({
-            "schema": "joysafeter.agent_execution_snapshot.v1",
+            "schema": "joysafeter.agent_execution_snapshot.v2",
             "id": agent_id.to_string(),
             "version": 7,
             "name": agent_name,
@@ -1908,8 +1891,9 @@ mod tests {
             "env": {"AGENT_LEVEL": "snapshot-agent-env"},
             "mcp_servers": [{
                 "name": "snapshot-mcp",
-                "type": "http",
-                "url": "https://mcp.snapshot.example"
+                "type": "streamable_http",
+                "url": "https://mcp.snapshot.example",
+                "auth_requirement": "none"
             }],
             "tools": [{
                 "type": "custom",
@@ -1921,17 +1905,16 @@ mod tests {
             "skills": [],
             "agents": [],
             "commands": [],
-            "environment_ref": environment_ref,
+            "environment_id": environment_id.to_string(),
             "model_credential_id": snapshot_credential_id.to_string(),
             "environment": {
-                "ref": environment_ref,
-                "id": environment_id.to_string(),
+                "environment_id": environment_id.to_string(),
                 "name": environment_name,
                 "image_tag": "snapshot-image:1",
                 "image_version": 1,
                 "config": {
                     "env_vars": {"ENV_LEVEL": "snapshot-env"},
-                    "secret_refs": [snapshot_environment_credential_id.to_string()],
+                    "environment_credential_ids": [snapshot_environment_credential_id.to_string()],
                     "packages": {"pip": ["snapshot-pkg"]}
                 }
             }
@@ -1979,7 +1962,7 @@ mod tests {
             .bind(&environment_name)
             .bind(json!({
                 "env_vars": {"ENV_LEVEL": "live-env", "LIVE_ONLY": "must-not-appear"},
-                "secret_refs": [live_environment_credential_id.to_string()],
+                "environment_credential_ids": [live_environment_credential_id.to_string()],
                 "packages": {"pip": ["live-pkg"]}
             }))
             .execute(&pool)
@@ -2052,7 +2035,7 @@ mod tests {
                 INSERT INTO joysafeter_agents (
                     id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
                     skills, tools, agents, commands, permission_mode, metadata,
-                    version, environment_ref, model_credential_id
+                    version, environment_id, model_credential_id
                 )
                 VALUES (
                     $1, $2, $3, 'codex', $4, 'live system', $5, '[]'::jsonb,
@@ -2066,7 +2049,7 @@ mod tests {
             .bind(&agent_name)
             .bind(json!({"id": "live-model"}))
             .bind(json!({"AGENT_LEVEL": "live-agent-env", "LIVE_AGENT_ONLY": "must-not-appear"}))
-            .bind(&environment_ref)
+            .bind(environment_id)
             .bind(live_credential_id)
             .execute(&pool)
             .await
@@ -2075,7 +2058,7 @@ mod tests {
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_sessions (
-                    id, agent_id, project_id, status, agent_version, agent_snapshot, environment_ref
+                    id, agent_id, project_id, status, agent_version, agent_snapshot, environment_id
                 )
                 VALUES ($1, $2, $3, 'idle', 7, $4, $5)
                 "#,
@@ -2084,7 +2067,7 @@ mod tests {
             .bind(agent_id)
             .bind(&project_id)
             .bind(&snapshot)
-            .bind(&environment_ref)
+            .bind(environment_id)
             .execute(&pool)
             .await
             .expect("insert snapshot session");
@@ -2206,8 +2189,8 @@ mod tests {
         let file_id = FileId::from_uuid(Uuid::now_v7());
         let session_file_id = SessionResourceId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
-        let org_id = format!("org-{unique}");
-        let project_id = format!("proj-{unique}");
+        let org_id = OrganizationId::new();
+        let project_id = ProjectId::new();
         let missing_storage_key = format!("missing-session-file-{unique}.txt");
 
         async {
@@ -2391,8 +2374,8 @@ mod tests {
         let group_id = CredentialGroupId::from_uuid(Uuid::now_v7());
         let credential_id = CredentialId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
-        let org_id = format!("org-{unique}");
-        let project_id = format!("proj-{unique}");
+        let org_id = OrganizationId::new();
+        let project_id = ProjectId::new();
         let mcp_url = "https://mcp.vault-alias.example/api";
         let normalized = super::mcp_url::normalize(mcp_url);
 
@@ -2477,8 +2460,9 @@ mod tests {
             .bind(json!({"id": "claude-sonnet"}))
             .bind(json!([{
                 "name": "secure-mcp",
-                "type": "http",
-                "url": mcp_url
+                "type": "streamable_http",
+                "url": mcp_url,
+                "auth_requirement": "required"
             }]))
             .execute(&pool)
             .await
@@ -2611,8 +2595,8 @@ mod tests {
         let group_id = CredentialGroupId::from_uuid(Uuid::now_v7());
         let credential_id = CredentialId::from_uuid(Uuid::now_v7());
         let unique = agent_id.as_uuid().simple().to_string();
-        let org_id = format!("org-{unique}");
-        let project_id = format!("proj-{unique}");
+        let org_id = OrganizationId::new();
+        let project_id = ProjectId::new();
         let mcp_url = "https://mcp.vault-decrypt-fail.example/api";
         let normalized = super::mcp_url::normalize(mcp_url);
 
@@ -2699,8 +2683,9 @@ mod tests {
             .bind(json!({"id": "claude-sonnet"}))
             .bind(json!([{
                 "name": "secure-mcp",
-                "type": "http",
-                "url": mcp_url
+                "type": "streamable_http",
+                "url": mcp_url,
+                "auth_requirement": "required"
             }]))
             .execute(&pool)
             .await
@@ -3128,21 +3113,21 @@ async fn load_session_file_resource(row: &SessionFileRow) -> anyhow::Result<Vec<
 #[derive(Debug, FromRow)]
 struct SkillForArchive {
     source_type: Option<String>,
-    project_id: String,
-    skill_org_id: String,
-    consumer_project_id: Option<String>,
-    consumer_org_id: Option<String>,
+    project_id: ProjectId,
+    skill_org_id: OrganizationId,
+    consumer_project_id: Option<ProjectId>,
+    consumer_org_id: Option<OrganizationId>,
     org_version: Option<String>,
     public_version: Option<String>,
 }
 
 impl SkillForArchive {
     fn same_project(&self) -> bool {
-        self.consumer_project_id.as_deref() == Some(self.project_id.as_str())
+        self.consumer_project_id == Some(self.project_id)
     }
 
     fn same_org(&self) -> bool {
-        self.consumer_org_id.as_deref() == Some(self.skill_org_id.as_str())
+        self.consumer_org_id == Some(self.skill_org_id)
     }
 
     fn exposed_versions(&self) -> Vec<&str> {
@@ -3237,11 +3222,11 @@ struct SessionRepoRow {
 #[derive(Debug, FromRow)]
 struct HarnessGenerationFence {
     session_id: SessionId,
-    session_project_id: Option<String>,
+    session_project_id: Option<ProjectId>,
     session_status: String,
     session_archived_at: Option<chrono::DateTime<chrono::Utc>>,
     sandbox_session_id: Option<SessionId>,
-    sandbox_project_id: Option<String>,
+    sandbox_project_id: Option<ProjectId>,
     runtime_config_status: String,
     generation: i64,
     applied_generation: i64,

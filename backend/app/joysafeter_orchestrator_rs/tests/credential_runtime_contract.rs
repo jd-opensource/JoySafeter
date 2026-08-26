@@ -18,7 +18,10 @@ mod sandbox;
 use std::env;
 
 use db::models::JoySafeterSandbox;
-use ids::{AgentId, CredentialGroupId, CredentialId, EnvironmentId, SandboxId, SessionId, TaskId};
+use ids::{
+    AgentId, CredentialGroupId, CredentialId, EnvironmentId, OrganizationId, ProjectId, SandboxId,
+    SessionId, TaskId,
+};
 use kernel::credentials::error::{require_bound_credential_id, CredentialRuntimeError};
 use kernel::harness_input_builder::HarnessInputBuilder;
 use kernel::sandbox_resolver::rebuild_sandbox_credentials;
@@ -45,8 +48,8 @@ async fn test_pool() -> PgPool {
         .expect("connect to migrated PostgreSQL test database")
 }
 
-async fn insert_project(pool: &PgPool, unique: &str, project_id: &str) -> String {
-    let organization_id = format!("org-{unique}");
+async fn insert_project(pool: &PgPool, unique: &str, project_id: &ProjectId) -> OrganizationId {
+    let organization_id = OrganizationId::new();
     sqlx::query(
         r#"
         INSERT INTO joysafeter_organizations
@@ -81,7 +84,7 @@ async fn insert_project(pool: &PgPool, unique: &str, project_id: &str) -> String
 async fn insert_credential(
     pool: &PgPool,
     credential_id: CredentialId,
-    project_id: &str,
+    project_id: &ProjectId,
     kind: &str,
     provider: Option<&str>,
     protocol: Option<&str>,
@@ -112,10 +115,10 @@ async fn insert_credential(
 async fn insert_agent(
     pool: &PgPool,
     agent_id: AgentId,
-    project_id: Option<&str>,
+    project_id: Option<&ProjectId>,
     engine_kind: &str,
     model_credential_id: Option<CredentialId>,
-    environment_ref: Option<&str>,
+    environment_id: Option<EnvironmentId>,
     mcp_servers: Value,
 ) {
     sqlx::query(
@@ -123,7 +126,7 @@ async fn insert_agent(
         INSERT INTO joysafeter_agents (
             id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
             skills, tools, agents, commands, permission_mode, metadata, version,
-            environment_ref, model_credential_id
+            environment_id, model_credential_id
         )
         VALUES (
             $1, $2, $3, $4, '{}'::jsonb, '', '{}'::jsonb, $5,
@@ -137,7 +140,7 @@ async fn insert_agent(
     .bind(format!("runtime-agent-{agent_id}"))
     .bind(engine_kind)
     .bind(mcp_servers)
-    .bind(environment_ref)
+    .bind(environment_id)
     .bind(model_credential_id)
     .execute(pool)
     .await
@@ -148,14 +151,14 @@ async fn insert_session(
     pool: &PgPool,
     session_id: SessionId,
     agent_id: AgentId,
-    project_id: Option<&str>,
+    project_id: Option<&ProjectId>,
     snapshot: Option<Value>,
-    environment_ref: Option<&str>,
+    environment_id: Option<EnvironmentId>,
 ) {
     sqlx::query(
         r#"
         INSERT INTO joysafeter_sessions
-            (id, agent_id, project_id, status, agent_snapshot, environment_ref)
+            (id, agent_id, project_id, status, agent_snapshot, environment_id)
         VALUES ($1, $2, $3, 'idle', $4, $5)
         "#,
     )
@@ -163,7 +166,7 @@ async fn insert_session(
     .bind(agent_id)
     .bind(project_id)
     .bind(snapshot)
-    .bind(environment_ref)
+    .bind(environment_id)
     .execute(pool)
     .await
     .expect("insert session fixture");
@@ -195,7 +198,7 @@ async fn insert_task(
 async fn insert_environment(
     pool: &PgPool,
     environment_id: EnvironmentId,
-    project_id: &str,
+    project_id: &ProjectId,
     config: Value,
 ) {
     sqlx::query(
@@ -226,6 +229,8 @@ fn sandbox_for(session_id: SessionId) -> JoySafeterSandbox {
         networking_status: "ready".to_string(),
         networking_policy_hash: None,
         networking_policy_version: 0,
+        networking_applied_hash: None,
+        networking_applied_version: None,
         networking_last_error: None,
         networking_ready_at: None,
         runtime_config_status: "ready".to_string(),
@@ -241,7 +246,7 @@ async fn build_harness_error(pool: &PgPool, task_id: TaskId) -> anyhow::Error {
         .expect("load task fixture")
         .expect("task fixture exists");
     let session_id = task.session_id.expect("runtime contract task has session");
-    let (session_project_id, captured_generation): (Option<String>, i64) = sqlx::query_as(
+    let (session_project_id, captured_generation): (Option<ProjectId>, i64) = sqlx::query_as(
         "SELECT project_id, runtime_config_generation FROM joysafeter_sessions WHERE id = $1",
     )
     .bind(session_id)
@@ -256,7 +261,7 @@ async fn build_harness_error(pool: &PgPool, task_id: TaskId) -> anyhow::Error {
         "test",
         "joysafeter/runtime-contract:latest",
         session_id,
-        session_project_id.as_deref(),
+        session_project_id,
         None,
         Some(&json!({})),
         captured_generation,
@@ -283,7 +288,7 @@ async fn cleanup(
     environment_ids: &[EnvironmentId],
     credential_ids: &[CredentialId],
     group_ids: &[CredentialGroupId],
-    projects: &[(&str, &str)],
+    projects: &[(&ProjectId, &OrganizationId)],
 ) {
     for session_id in session_ids {
         let _ = sqlx::query("DELETE FROM joysafeter_tasks WHERE chat_session_id = $1")
@@ -349,11 +354,11 @@ fn only_an_absent_optional_binding_is_not_bound() {
 }
 
 #[tokio::test]
-async fn harness_builder_rejects_missing_archived_cross_project_and_null_project_bindings() {
+async fn model_credential_fk_and_harness_builder_reject_invalid_bindings() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_a = format!("proj-{unique}-a");
-    let project_b = format!("proj-{unique}-b");
+    let project_a = ProjectId::new();
+    let project_b = ProjectId::new();
     let org_a = insert_project(&pool, &format!("{unique}-a"), &project_a).await;
     let org_b = insert_project(&pool, &format!("{unique}-b"), &project_b).await;
     let active_id = CredentialId::from_uuid(Uuid::now_v7());
@@ -381,23 +386,48 @@ async fn harness_builder_rejects_missing_archived_cross_project_and_null_project
     )
     .await;
 
+    let missing_agent_id = AgentId::from_uuid(Uuid::now_v7());
+    let missing_credential_id = CredentialId::from_uuid(Uuid::now_v7());
+    let missing_error = sqlx::query(
+        r#"
+        INSERT INTO joysafeter_agents (
+            id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
+            skills, tools, agents, commands, permission_mode, metadata, version,
+            model_credential_id
+        )
+        VALUES (
+            $1, $2, $3, 'claude', '{}'::jsonb, '', '{}'::jsonb, '[]'::jsonb,
+            '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+            'bypassPermissions', '{}'::jsonb, 1, $4
+        )
+        "#,
+    )
+    .bind(missing_agent_id)
+    .bind(project_a)
+    .bind(format!("runtime-missing-agent-{missing_agent_id}"))
+    .bind(missing_credential_id)
+    .execute(&pool)
+    .await
+    .expect_err("native model credential foreign key must reject missing credentials");
+    assert_eq!(
+        missing_error
+            .as_database_error()
+            .and_then(|database_error| database_error.code().map(|code| code.into_owned()))
+            .as_deref(),
+        Some("23503")
+    );
+
     let cases = [
-        (
-            "missing",
-            CredentialId::from_uuid(Uuid::now_v7()),
-            Some(project_a.as_str()),
-            CredentialRuntimeError::NotFound,
-        ),
         (
             "archived",
             archived_id,
-            Some(project_a.as_str()),
+            Some(&project_a),
             CredentialRuntimeError::Archived,
         ),
         (
             "cross-project",
             active_id,
-            Some(project_a.as_str()),
+            Some(&project_a),
             CredentialRuntimeError::ProjectMismatch,
         ),
         (
@@ -413,19 +443,17 @@ async fn harness_builder_rejects_missing_archived_cross_project_and_null_project
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let session_id = SessionId::from_uuid(Uuid::now_v7());
         let task_id = TaskId::from_uuid(Uuid::now_v7());
-        insert_agent(&pool, agent_id, project_id, "claude", None, None, json!([])).await;
-        insert_session(
+        insert_agent(
             &pool,
-            session_id,
             agent_id,
             project_id,
-            Some(json!({
-                "engine_kind": "claude",
-                "model_credential_id": credential_id.to_string()
-            })),
+            "claude",
+            Some(credential_id),
             None,
+            json!([]),
         )
         .await;
+        insert_session(&pool, session_id, agent_id, project_id, None, None).await;
         insert_task(&pool, task_id, agent_id, Some(session_id)).await;
 
         let error = build_harness_error(&pool, task_id).await;
@@ -450,7 +478,7 @@ async fn harness_builder_rejects_missing_archived_cross_project_and_null_project
 async fn production_builders_reject_missing_model_profile_material() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_id = format!("proj-{unique}");
+    let project_id = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_id).await;
     let credential_id = CredentialId::from_uuid(Uuid::now_v7());
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
@@ -510,8 +538,8 @@ async fn production_builders_reject_missing_model_profile_material() {
 async fn recovery_rejects_cross_project_environment_instead_of_suppressing_lookup() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_a = format!("proj-{unique}-a");
-    let project_b = format!("proj-{unique}-b");
+    let project_a = ProjectId::new();
+    let project_b = ProjectId::new();
     let org_a = insert_project(&pool, &format!("{unique}-a"), &project_a).await;
     let org_b = insert_project(&pool, &format!("{unique}-b"), &project_b).await;
     let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
@@ -530,11 +558,19 @@ async fn recovery_rejects_cross_project_environment_instead_of_suppressing_looku
         Some(&project_a),
         "claude",
         None,
-        Some(&environment_id.to_string()),
+        Some(environment_id),
         json!([]),
     )
     .await;
-    insert_session(&pool, session_id, agent_id, Some(&project_a), None, None).await;
+    insert_session(
+        &pool,
+        session_id,
+        agent_id,
+        Some(&project_a),
+        None,
+        Some(environment_id),
+    )
+    .await;
 
     let error = rebuild_sandbox_credentials(&pool, &sandbox_for(session_id), &[])
         .await
@@ -560,7 +596,7 @@ async fn recovery_rejects_cross_project_environment_instead_of_suppressing_looku
 async fn recovery_rejects_present_non_array_egress_services() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_id = format!("proj-{unique}");
+    let project_id = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_id).await;
     let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
@@ -578,11 +614,19 @@ async fn recovery_rejects_present_non_array_egress_services() {
         Some(&project_id),
         "claude",
         None,
-        Some(&environment_id.to_string()),
+        Some(environment_id),
         json!([]),
     )
     .await;
-    insert_session(&pool, session_id, agent_id, Some(&project_id), None, None).await;
+    insert_session(
+        &pool,
+        session_id,
+        agent_id,
+        Some(&project_id),
+        None,
+        Some(environment_id),
+    )
+    .await;
 
     let error = rebuild_sandbox_credentials(&pool, &sandbox_for(session_id), &[])
         .await
@@ -605,23 +649,28 @@ async fn recovery_rejects_present_non_array_egress_services() {
 }
 
 #[tokio::test]
-async fn recovery_preserves_name_based_environment_lookup() {
+async fn recovery_does_not_inherit_agent_environment_for_unbound_session() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_id = format!("proj-{unique}");
+    let project_id = ProjectId::new();
     let organization_id = insert_project(&pool, &unique, &project_id).await;
     let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
-    let environment_name = format!("runtime-environment-{environment_id}");
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
     let session_id = SessionId::from_uuid(Uuid::now_v7());
-    insert_environment(&pool, environment_id, &project_id, json!({})).await;
+    insert_environment(
+        &pool,
+        environment_id,
+        &project_id,
+        json!({"egress_services": {"invalid": true}}),
+    )
+    .await;
     insert_agent(
         &pool,
         agent_id,
         Some(&project_id),
         "claude",
         None,
-        Some(&environment_name),
+        Some(environment_id),
         json!([]),
     )
     .await;
@@ -629,7 +678,7 @@ async fn recovery_preserves_name_based_environment_lookup() {
 
     rebuild_sandbox_credentials(&pool, &sandbox_for(session_id), &[])
         .await
-        .expect("valid name-based environment lookup must remain supported");
+        .expect("unbound session must not inherit the live agent environment");
 
     cleanup(
         &pool,
@@ -647,8 +696,8 @@ async fn recovery_preserves_name_based_environment_lookup() {
 async fn recovery_propagates_http_and_mcp_credential_failures() {
     let pool = test_pool().await;
     let unique = Uuid::now_v7().simple().to_string();
-    let project_a = format!("proj-{unique}-a");
-    let project_b = format!("proj-{unique}-b");
+    let project_a = ProjectId::new();
+    let project_b = ProjectId::new();
     let org_a = insert_project(&pool, &format!("{unique}-a"), &project_a).await;
     let org_b = insert_project(&pool, &format!("{unique}-b"), &project_b).await;
     let service_id = CredentialId::from_uuid(Uuid::now_v7());
@@ -674,7 +723,7 @@ async fn recovery_propagates_http_and_mcp_credential_failures() {
             "egress_services": [{
                 "name": "cross-project-http",
                 "base_url": "https://api.example.com",
-                "service_credential_id": service_id.to_string(),
+                "credential_ref": service_id.to_string(),
                 "inject": {"type": "bearer", "credential_field": "API_TOKEN"}
             }]
         }),
@@ -686,7 +735,7 @@ async fn recovery_propagates_http_and_mcp_credential_failures() {
         Some(&project_a),
         "claude",
         None,
-        Some(&environment_id.to_string()),
+        Some(environment_id),
         json!([]),
     )
     .await;
@@ -696,7 +745,7 @@ async fn recovery_propagates_http_and_mcp_credential_failures() {
         http_agent_id,
         Some(&project_a),
         None,
-        None,
+        Some(environment_id),
     )
     .await;
     let http_error = rebuild_sandbox_credentials(&pool, &sandbox_for(http_session_id), &[])
@@ -746,7 +795,12 @@ async fn recovery_propagates_http_and_mcp_credential_failures() {
         "claude",
         None,
         None,
-        json!([{"name": "runtime-mcp", "type": "http", "url": mcp_url}]),
+        json!([{
+            "name": "runtime-mcp",
+            "type": "streamable_http",
+            "url": mcp_url,
+            "auth_requirement": "required"
+        }]),
     )
     .await;
     insert_session(

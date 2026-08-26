@@ -6,10 +6,13 @@ import ssl
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    request_counts: dict[str, int] = {}
+    request_counts_lock = threading.Lock()
 
     def log_message(self, _format: str, *_args: object) -> None:
         return
@@ -29,6 +32,26 @@ class Handler(BaseHTTPRequestHandler):
         ).encode()
 
     def _serve(self) -> None:
+        target = urlsplit(self.path)
+        if self.command == "POST" and target.path == "/mcp/":
+            self.send_response(307)
+            self.send_header("location", "http://host.docker.internal:3404/mcp")
+            self.send_header("content-length", "0")
+            self.end_headers()
+            return
+
+        if self.command == "POST" and target.path == "/retry-probe":
+            with self.request_counts_lock:
+                count = self.request_counts.get(target.path, 0) + 1
+                self.request_counts[target.path] = count
+            payload = json.dumps({"path": self.path, "request_count": count}).encode()
+            self.send_response(503)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
         if self.path.startswith("/events/"):
             self.send_response(200)
             self.send_header("content-type", "text/event-stream")
@@ -52,6 +75,7 @@ class Handler(BaseHTTPRequestHandler):
 
     do_GET = _serve
     do_POST = _serve
+    do_DELETE = _serve
 
 
 def serve(port: int, *, tls: bool) -> None:
