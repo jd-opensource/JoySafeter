@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Set
 
 from fastapi import WebSocket
 
+from app.joysafeter_shared.json_boundary import normalize_json_value
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -72,7 +73,7 @@ class NotificationManager:
     async def send_to_connection(self, websocket: WebSocket, message: Dict[str, Any]) -> bool:
         """Send a message to a single connection, disconnecting on failure."""
         try:
-            await websocket.send_text(json.dumps(message, default=str))
+            await websocket.send_text(json.dumps(normalize_json_value(message), allow_nan=False))
             return True
         except Exception:
             self.disconnect(websocket)
@@ -95,7 +96,7 @@ class NotificationManager:
 
         for connection in self.user_connections[user_id]:
             try:
-                await connection.send_text(json.dumps(message, default=str))
+                await connection.send_text(json.dumps(normalize_json_value(message), allow_nan=False))
                 success_count += 1
             except Exception:
                 disconnected.add(connection)

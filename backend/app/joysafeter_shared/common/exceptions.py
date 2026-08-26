@@ -29,7 +29,7 @@ from app.joysafeter_shared.common.app_errors import (
     normalize_app_error,
 )
 from app.joysafeter_shared.common.logging import _get_otel_trace_id
-from app.joysafeter_shared.common.response import error_response
+from app.joysafeter_shared.json_boundary import normalize_json_value
 
 
 def create_error_response(
@@ -44,7 +44,7 @@ def create_error_response(
         payload["trace_id"] = trace_id
     return JSONResponse(
         status_code=status_code,
-        content=error_response(payload),
+        content=normalize_json_value(payload),
         headers=dict(headers) if headers else None,
     )
 

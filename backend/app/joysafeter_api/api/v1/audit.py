@@ -12,6 +12,7 @@ from app.joysafeter_application.credentials.ports import CredentialAuditActor
 from app.joysafeter_domain.services.joysafeter_security_audit_service import SecurityAuditService
 from app.joysafeter_shared.common.async_boundaries import async_boundary_error_payload
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext
+from app.joysafeter_shared.json_boundary import normalize_json_value
 from app.joysafeter_shared.rate_limit import get_client_ip
 
 
@@ -59,6 +60,10 @@ async def audit_joysafeter_event(
     if details:
         payload.update(details)
 
+    serialized_payload = normalize_json_value(payload)
+    if not isinstance(serialized_payload, dict):
+        raise TypeError("audit payload must normalize to an object")
+
     try:
         await SecurityAuditService(db).log_event(
             event_type=event_type,
@@ -67,7 +72,7 @@ async def audit_joysafeter_event(
             commit=commit,
             user_id=auth_ctx.user_id,
             user_agent=request.headers.get("user-agent"),
-            details=payload,
+            details=serialized_payload,
         )
     except Exception as exc:
         error_payload = async_boundary_error_payload(

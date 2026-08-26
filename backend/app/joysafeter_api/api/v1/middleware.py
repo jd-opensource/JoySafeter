@@ -109,7 +109,7 @@ class ApiV1ResponseWrapperMiddleware(BaseHTTPMiddleware):
         else:
             wrapped["data"] = original
 
-        wrapped_body = json.dumps(wrapped, ensure_ascii=False, default=str)
+        wrapped_body = json.dumps(wrapped, ensure_ascii=False, allow_nan=False)
         return _carry_over_headers(
             Response(
                 content=wrapped_body,

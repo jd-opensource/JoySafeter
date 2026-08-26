@@ -33,6 +33,7 @@ from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, 
 from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.ids import CredentialId, SkillId
+from app.joysafeter_shared.json_boundary import normalize_json_value
 from app.joysafeter_shared.llm.base_url import LLMBaseUrlError, validate_llm_base_url
 
 router = APIRouter(tags=["joysafeter-quickstart"])
@@ -104,7 +105,7 @@ def _build_system_prompt(
 
     skill_section = ""
     if step == 2:
-        skill_catalog = [skill.model_dump(mode="json") for skill in available_skills or []]
+        skill_catalog = normalize_json_value([skill.model_dump() for skill in available_skills or []])
         skill_section = (
             "\n\n## Available Skills\n"
             "Only attach Skill IDs from this catalog. If no listed Skill is genuinely useful, return an empty skills array. "
