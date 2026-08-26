@@ -30,21 +30,18 @@ import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { canAdmin, roleLabel } from '@/lib/managed/roles'
+import {
+  parseOrganizationInfo,
+  parseSwitchContextResponse,
+  type OrganizationInfoPayload,
+  type SwitchContextResponsePayload,
+} from '@/lib/managed/tenant-response-parsers'
 import { resetManagedScopeQueries } from '@/lib/query-client-lifecycle'
 import { useProjectStore } from '@/stores/managed/project-store'
-import type { ProjectInfo } from '@/stores/managed/project-store'
+import type { OrgInfo } from '@/stores/managed/project-store'
+import { parseOrganizationId, type OrganizationId } from '@/types/entity-id'
 
-interface OrganizationRecord {
-  id: string
-  name: string
-  slug: string
-  logo?: string | null
-  role: string
-  owner_name?: string | null
-  owner_email?: string | null
-  project_creation_policy?: 'admins_only' | 'all_members'
-  created_at?: string | null
-}
+type OrganizationRecord = OrgInfo
 
 interface CreateOrganizationVariables {
   name: string
@@ -53,7 +50,7 @@ interface CreateOrganizationVariables {
 }
 
 interface SwitchOrganizationVariables {
-  orgId: string
+  orgId: OrganizationId
   requestSeq: number
 }
 
@@ -62,15 +59,17 @@ export default function OrganizationPage() {
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
-  const managedScope = `${currentOrgId ?? ''}:${currentProjectId ?? ''}`
+  const managedScope = JSON.stringify([currentOrgId, currentProjectId])
   const createRunRef = useRef(0)
   const switchRequestSeqRef = useRef(0)
-  const switchInFlightOrgIdRef = useRef<string | null>(null)
+  const switchInFlightOrgIdRef = useRef<OrganizationId | null>(null)
   const [showCreateOrganization, setShowCreateOrganization] = useState(false)
   const [newOrganizationName, setNewOrganizationName] = useState('')
   const [organizationSearch, setOrganizationSearch] = useState('')
   const [organizationCreatedFilter, setOrganizationCreatedFilter] = useState('all')
-  const [switchingOrganizationId, setSwitchingOrganizationId] = useState<string | null>(null)
+  const [switchingOrganizationId, setSwitchingOrganizationId] = useState<OrganizationId | null>(
+    null,
+  )
 
   const {
     data: organizations,
@@ -89,6 +88,8 @@ export default function OrganizationPage() {
   } = usePaginatedList<OrganizationRecord>({
     queryKey: 'organizations-list',
     path: `/organizations${organizationSearch.trim() ? `?q=${encodeURIComponent(organizationSearch.trim())}` : ''}`,
+    parseItem: (item) => parseOrganizationInfo(item as OrganizationInfoPayload),
+    parseCursor: parseOrganizationId,
   })
 
   const filteredOrganizations = organizations.filter(
@@ -106,7 +107,7 @@ export default function OrganizationPage() {
   const createOrganizationMutation = useMutation({
     mutationFn: ({ name, scope }: CreateOrganizationVariables) => {
       const state = useProjectStore.getState()
-      if (`${state.currentOrgId ?? ''}:${state.currentProjectId ?? ''}` !== scope) {
+      if (JSON.stringify([state.currentOrgId, state.currentProjectId]) !== scope) {
         throw new Error('Stale organization creation ignored')
       }
       return managedPost<{ id: string; name: string; slug: string }>('organizations', { name })
@@ -126,36 +127,26 @@ export default function OrganizationPage() {
   })
 
   const switchOrganizationMutation = useMutation({
-    mutationFn: ({ orgId }: SwitchOrganizationVariables) =>
-      managedPost<{
-        org_id?: string
-        project_id?: string
-        project?: ProjectInfo
-        projects?: ProjectInfo[]
-      }>(
-        'auth/switch-context',
-        { org_id: orgId },
-        { skipManagedContext: true, headers: { 'X-Org-Id': orgId } },
+    mutationFn: async ({ orgId }: SwitchOrganizationVariables) =>
+      parseSwitchContextResponse(
+        await managedPost<SwitchContextResponsePayload>(
+          'auth/switch-context',
+          { org_id: orgId },
+          { skipManagedContext: true, headers: { 'X-Org-Id': orgId } },
+        ),
       ),
     onSuccess: (data, variables) => {
       if (variables.requestSeq !== switchRequestSeqRef.current) return
-      const targetOrgId = data.org_id || variables.orgId
-      const targetProjectId = data.project?.id || data.project_id
       const state = useProjectStore.getState()
       switchInFlightOrgIdRef.current = null
       setSwitchingOrganizationId(null)
-      if (targetProjectId && data.project && data.projects) {
-        state.setContext(
-          targetOrgId,
-          targetProjectId,
-          state.organizations.length ? state.organizations : organizations,
-          data.projects,
-          data.project,
-        )
-      } else {
-        state.setCurrentOrg(targetOrgId)
-        if (targetProjectId) state.setCurrentProject(targetProjectId)
-      }
+      state.setContext(
+        data.org_id,
+        data.project_id,
+        state.organizations.length ? state.organizations : organizations,
+        data.projects,
+        data.project,
+      )
       resetManagedScopeQueries(queryClient)
     },
     onError: (error, variables) => {
@@ -166,7 +157,7 @@ export default function OrganizationPage() {
     },
   })
 
-  const switchOrganization = (orgId: string) => {
+  const switchOrganization = (orgId: OrganizationId) => {
     if (orgId === currentOrgId || switchInFlightOrgIdRef.current !== null) return
     switchInFlightOrgIdRef.current = orgId
     setSwitchingOrganizationId(orgId)

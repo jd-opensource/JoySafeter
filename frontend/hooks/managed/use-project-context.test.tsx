@@ -3,6 +3,18 @@ import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { JSDOM } from 'jsdom'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import {
+  AGENT_ID,
+  ORGANIZATION_ID,
+  OTHER_ORGANIZATION_ID,
+  OTHER_PROJECT_ID,
+  PROJECT_ID,
+  THIRD_ORGANIZATION_ID,
+  THIRD_PROJECT_ID,
+  USER_ID,
+} from '@/test-utils/entity-ids'
+import type { OrganizationId, ProjectId } from '@/types/entity-id'
+
 vi.mock('@/lib/api-client', () => ({
   extractErrorFromResponse: vi.fn(async () => new Error('mock api error')),
   managedDelete: vi.fn(),
@@ -24,16 +36,26 @@ let managedPostMock: ReturnType<typeof vi.fn>
 let useProjectContext: typeof import('./use-project-context').useProjectContext
 let useProjectStore: typeof import('@/stores/managed/project-store').useProjectStore
 
-function authContext(orgId: string, projectId: string) {
+function authContext(orgId: OrganizationId, projectId: ProjectId) {
   return {
-    user: { id: 'user-1', email: 'user@example.com', name: 'User' },
+    user: { id: USER_ID, email: 'user@example.com', name: 'User' },
     organization: { id: orgId, name: orgId, slug: orgId, role: 'owner' },
     project: { id: projectId, name: projectId, slug: projectId, is_default: true },
     organizations: [
-      { id: 'org-a', name: 'Org A', slug: 'org-a', role: 'owner' },
-      { id: 'org-b', name: 'Org B', slug: 'org-b', role: 'owner' },
+      { id: ORGANIZATION_ID, name: 'Org A', slug: 'org-a', role: 'owner' },
+      { id: OTHER_ORGANIZATION_ID, name: 'Org B', slug: 'org-b', role: 'owner' },
     ],
     projects: [{ id: projectId, name: projectId, slug: projectId, is_default: true }],
+  }
+}
+
+function switchContext(orgId: OrganizationId, projectId: ProjectId, name: string, slug: string) {
+  const project = { id: projectId, name, slug, is_default: true }
+  return {
+    org_id: orgId,
+    project_id: projectId,
+    project,
+    projects: [project],
   }
 }
 
@@ -41,7 +63,10 @@ function Harness({ onReady }: { onReady: (ctx: ReturnType<typeof useProjectConte
   const ctx = useProjectContext()
   onReady(ctx)
   return (
-    <button type="button" onClick={() => ctx.switchProject('project-b', 'org-b')}>
+    <button
+      type="button"
+      onClick={() => ctx.switchProject(OTHER_PROJECT_ID, OTHER_ORGANIZATION_ID)}
+    >
       switch
     </button>
   )
@@ -95,11 +120,11 @@ describe('useProjectContext managed cache lifecycle', () => {
 
   it('uses existing managed context without bootstrapping auth context again', async () => {
     useProjectStore.setState({
-      currentOrgId: 'org-a',
-      currentProjectId: 'project-a',
-      currentProject: { id: 'project-a', name: 'Project A', slug: 'project-a', is_default: true },
-      organizations: [{ id: 'org-a', name: 'Org A', slug: 'org-a', role: 'owner' }],
-      projects: [{ id: 'project-a', name: 'Project A', slug: 'project-a', is_default: true }],
+      currentOrgId: ORGANIZATION_ID,
+      currentProjectId: PROJECT_ID,
+      currentProject: { id: PROJECT_ID, name: 'Project A', slug: 'project-a', is_default: true },
+      organizations: [{ id: ORGANIZATION_ID, name: 'Org A', slug: 'org-a', role: 'owner' }],
+      projects: [{ id: PROJECT_ID, name: 'Project A', slug: 'project-a', is_default: true }],
     })
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -125,18 +150,16 @@ describe('useProjectContext managed cache lifecycle', () => {
     })
 
     expect(managedGetMock).not.toHaveBeenCalled()
-    expect(currentContext?.orgId).toBe('org-a')
-    expect(currentContext?.projectId).toBe('project-a')
+    expect(currentContext?.orgId).toBe(ORGANIZATION_ID)
+    expect(currentContext?.projectId).toBe(PROJECT_ID)
     expect(currentContext?.isLoading).toBe(false)
   })
 
   it('clears old managed query data immediately after switching project context', async () => {
-    managedGetMock.mockResolvedValue(authContext('org-a', 'project-a'))
-    managedPostMock.mockResolvedValue({
-      org_id: 'org-b',
-      project: { id: 'project-b', name: 'Project B', slug: 'project-b', is_default: true },
-      projects: [{ id: 'project-b', name: 'Project B', slug: 'project-b', is_default: true }],
-    })
+    managedGetMock.mockResolvedValue(authContext(ORGANIZATION_ID, PROJECT_ID))
+    managedPostMock.mockResolvedValue(
+      switchContext(OTHER_ORGANIZATION_ID, OTHER_PROJECT_ID, 'Project B', 'project-b'),
+    )
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -144,8 +167,8 @@ describe('useProjectContext managed cache lifecycle', () => {
         },
       },
     })
-    queryClient.setQueryData(['agents'], [{ id: 'agent-from-project-a' }])
-    queryClient.setQueryData(['agent', 'agent-from-project-a'], { id: 'agent-from-project-a' })
+    queryClient.setQueryData(['agents'], [{ id: AGENT_ID }])
+    queryClient.setQueryData(['agent', AGENT_ID], { id: AGENT_ID })
 
     let currentContext: ReturnType<typeof useProjectContext> | null = null
     const { getByText } = render(
@@ -159,7 +182,7 @@ describe('useProjectContext managed cache lifecycle', () => {
     )
 
     await waitFor(() => {
-      expect(useProjectStore.getState().currentProjectId).toBe('project-a')
+      expect(useProjectStore.getState().currentProjectId).toBe(PROJECT_ID)
     })
 
     await act(async () => {
@@ -167,20 +190,18 @@ describe('useProjectContext managed cache lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(useProjectStore.getState().currentProjectId).toBe('project-b')
-      expect(currentContext?.projectId).toBe('project-b')
+      expect(useProjectStore.getState().currentProjectId).toBe(OTHER_PROJECT_ID)
+      expect(currentContext?.projectId).toBe(OTHER_PROJECT_ID)
     })
     expect(queryClient.getQueryData(['agents'])).toBeUndefined()
-    expect(queryClient.getQueryData(['agent', 'agent-from-project-a'])).toBeUndefined()
+    expect(queryClient.getQueryData(['agent', AGENT_ID])).toBeUndefined()
   })
 
-  it('accepts switch-context responses that only include the top-level project_id', async () => {
-    managedGetMock.mockResolvedValue(authContext('org-a', 'project-a'))
-    managedPostMock.mockResolvedValue({
-      org_id: 'org-b',
-      project_id: 'project-b',
-      projects: [{ id: 'project-b', name: 'Project B', slug: 'project-b', is_default: true }],
-    })
+  it('accepts the complete switch-context response contract', async () => {
+    managedGetMock.mockResolvedValue(authContext(ORGANIZATION_ID, PROJECT_ID))
+    managedPostMock.mockResolvedValue(
+      switchContext(OTHER_ORGANIZATION_ID, OTHER_PROJECT_ID, 'Project B', 'project-b'),
+    )
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -201,25 +222,23 @@ describe('useProjectContext managed cache lifecycle', () => {
     )
 
     await waitFor(() => {
-      expect(useProjectStore.getState().currentProjectId).toBe('project-a')
+      expect(useProjectStore.getState().currentProjectId).toBe(PROJECT_ID)
     })
 
     await act(async () => {
-      await currentContext!.switchProject('project-b', 'org-b')
+      await currentContext!.switchProject(OTHER_PROJECT_ID, OTHER_ORGANIZATION_ID)
     })
 
-    expect(useProjectStore.getState().currentOrgId).toBe('org-b')
-    expect(useProjectStore.getState().currentProjectId).toBe('project-b')
+    expect(useProjectStore.getState().currentOrgId).toBe(OTHER_ORGANIZATION_ID)
+    expect(useProjectStore.getState().currentProjectId).toBe(OTHER_PROJECT_ID)
   })
 
   it('does not let the initial auth context load overwrite a completed project switch', async () => {
     const initialLoad = deferred<ReturnType<typeof authContext>>()
     managedGetMock.mockReturnValue(initialLoad.promise)
-    managedPostMock.mockResolvedValue({
-      org_id: 'org-b',
-      project: { id: 'project-b', name: 'Project B', slug: 'project-b', is_default: true },
-      projects: [{ id: 'project-b', name: 'Project B', slug: 'project-b', is_default: true }],
-    })
+    managedPostMock.mockResolvedValue(
+      switchContext(OTHER_ORGANIZATION_ID, OTHER_PROJECT_ID, 'Project B', 'project-b'),
+    )
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -240,19 +259,19 @@ describe('useProjectContext managed cache lifecycle', () => {
     )
 
     await act(async () => {
-      await currentContext!.switchProject('project-b', 'org-b')
+      await currentContext!.switchProject(OTHER_PROJECT_ID, OTHER_ORGANIZATION_ID)
     })
 
-    expect(useProjectStore.getState().currentOrgId).toBe('org-b')
-    expect(useProjectStore.getState().currentProjectId).toBe('project-b')
+    expect(useProjectStore.getState().currentOrgId).toBe(OTHER_ORGANIZATION_ID)
+    expect(useProjectStore.getState().currentProjectId).toBe(OTHER_PROJECT_ID)
 
     await act(async () => {
-      initialLoad.resolve(authContext('org-a', 'project-a'))
+      initialLoad.resolve(authContext(ORGANIZATION_ID, PROJECT_ID))
       await Promise.resolve()
     })
 
-    expect(useProjectStore.getState().currentOrgId).toBe('org-b')
-    expect(useProjectStore.getState().currentProjectId).toBe('project-b')
+    expect(useProjectStore.getState().currentOrgId).toBe(OTHER_ORGANIZATION_ID)
+    expect(useProjectStore.getState().currentProjectId).toBe(OTHER_PROJECT_ID)
   })
 
   it('does not let an old auth context load overwrite a context changed by another hook instance', async () => {
@@ -278,36 +297,35 @@ describe('useProjectContext managed cache lifecycle', () => {
 
     await act(async () => {
       useProjectStore.setState({
-        currentOrgId: 'org-b',
-        currentProjectId: 'project-b',
-        currentProject: { id: 'project-b', name: 'Project B', slug: 'project-b', is_default: true },
-        organizations: [{ id: 'org-b', name: 'Org B', slug: 'org-b', role: 'owner' }],
-        projects: [{ id: 'project-b', name: 'Project B', slug: 'project-b', is_default: true }],
+        currentOrgId: OTHER_ORGANIZATION_ID,
+        currentProjectId: OTHER_PROJECT_ID,
+        currentProject: {
+          id: OTHER_PROJECT_ID,
+          name: 'Project B',
+          slug: 'project-b',
+          is_default: true,
+        },
+        organizations: [{ id: OTHER_ORGANIZATION_ID, name: 'Org B', slug: 'org-b', role: 'owner' }],
+        projects: [
+          { id: OTHER_PROJECT_ID, name: 'Project B', slug: 'project-b', is_default: true },
+        ],
       })
       await Promise.resolve()
     })
 
     await act(async () => {
-      initialLoad.resolve(authContext('org-a', 'project-a'))
+      initialLoad.resolve(authContext(ORGANIZATION_ID, PROJECT_ID))
       await Promise.resolve()
     })
 
-    expect(useProjectStore.getState().currentOrgId).toBe('org-b')
-    expect(useProjectStore.getState().currentProjectId).toBe('project-b')
+    expect(useProjectStore.getState().currentOrgId).toBe(OTHER_ORGANIZATION_ID)
+    expect(useProjectStore.getState().currentProjectId).toBe(OTHER_PROJECT_ID)
   })
 
   it('ignores an older switch response that resolves after a newer switch', async () => {
-    managedGetMock.mockResolvedValue(authContext('org-a', 'project-a'))
-    const firstSwitch = deferred<{
-      org_id: string
-      project: { id: string; name: string; slug: string; is_default: boolean }
-      projects: Array<{ id: string; name: string; slug: string; is_default: boolean }>
-    }>()
-    const secondSwitch = deferred<{
-      org_id: string
-      project: { id: string; name: string; slug: string; is_default: boolean }
-      projects: Array<{ id: string; name: string; slug: string; is_default: boolean }>
-    }>()
+    managedGetMock.mockResolvedValue(authContext(ORGANIZATION_ID, PROJECT_ID))
+    const firstSwitch = deferred<ReturnType<typeof switchContext>>()
+    const secondSwitch = deferred<ReturnType<typeof switchContext>>()
     managedPostMock
       .mockReturnValueOnce(firstSwitch.promise)
       .mockReturnValueOnce(secondSwitch.promise)
@@ -332,38 +350,34 @@ describe('useProjectContext managed cache lifecycle', () => {
     )
 
     await waitFor(() => {
-      expect(useProjectStore.getState().currentProjectId).toBe('project-a')
+      expect(useProjectStore.getState().currentProjectId).toBe(PROJECT_ID)
     })
 
     let firstPromise!: Promise<void>
     let secondPromise!: Promise<void>
     await act(async () => {
-      firstPromise = currentContext!.switchProject('project-b', 'org-b')
-      secondPromise = currentContext!.switchProject('project-c', 'org-c')
+      firstPromise = currentContext!.switchProject(OTHER_PROJECT_ID, OTHER_ORGANIZATION_ID)
+      secondPromise = currentContext!.switchProject(THIRD_PROJECT_ID, THIRD_ORGANIZATION_ID)
       await Promise.resolve()
     })
 
     await act(async () => {
-      secondSwitch.resolve({
-        org_id: 'org-c',
-        project: { id: 'project-c', name: 'Project C', slug: 'project-c', is_default: true },
-        projects: [{ id: 'project-c', name: 'Project C', slug: 'project-c', is_default: true }],
-      })
+      secondSwitch.resolve(
+        switchContext(THIRD_ORGANIZATION_ID, THIRD_PROJECT_ID, 'Project C', 'project-c'),
+      )
       await secondPromise
     })
 
-    expect(useProjectStore.getState().currentProjectId).toBe('project-c')
+    expect(useProjectStore.getState().currentProjectId).toBe(THIRD_PROJECT_ID)
 
     await act(async () => {
-      firstSwitch.resolve({
-        org_id: 'org-b',
-        project: { id: 'project-b', name: 'Project B', slug: 'project-b', is_default: true },
-        projects: [{ id: 'project-b', name: 'Project B', slug: 'project-b', is_default: true }],
-      })
+      firstSwitch.resolve(
+        switchContext(OTHER_ORGANIZATION_ID, OTHER_PROJECT_ID, 'Project B', 'project-b'),
+      )
       await firstPromise
     })
 
-    expect(useProjectStore.getState().currentOrgId).toBe('org-c')
-    expect(useProjectStore.getState().currentProjectId).toBe('project-c')
+    expect(useProjectStore.getState().currentOrgId).toBe(THIRD_ORGANIZATION_ID)
+    expect(useProjectStore.getState().currentProjectId).toBe(THIRD_PROJECT_ID)
   })
 })

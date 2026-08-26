@@ -56,11 +56,13 @@ import { managedGet } from '@/lib/api-client'
 import { useSession, client } from '@/lib/auth/auth-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
+import { parseProjectInfo, type ProjectInfoPayload } from '@/lib/managed/tenant-response-parsers'
 import { roleLabel } from '@/lib/managed/roles'
 import { cn } from '@/lib/utils'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { OrgInfo, ProjectInfo } from '@/stores/managed/project-store'
 import { useSidebarStore } from '@/stores/sidebar/store'
+import type { OrganizationId, ProjectId } from '@/types/entity-id'
 
 interface NavItem {
   to: string
@@ -134,7 +136,7 @@ const ORGANIZATION_COLORS = [
   'bg-pink-500',
 ]
 
-function organizationColor(organizationId?: string) {
+function organizationColor(organizationId?: OrganizationId) {
   if (!organizationId) return 'bg-primary'
   const hash = Array.from(organizationId).reduce(
     (value, character) => (value * 31 + character.charCodeAt(0)) >>> 0,
@@ -149,14 +151,14 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
   const { currentProjectId, currentOrgId, currentProject: storedCurrentProject } = useProjectStore()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const [allOrgProjects, setAllOrgProjects] = useState<Record<string, ProjectInfo[]>>({})
+  const [allOrgProjects, setAllOrgProjects] = useState<Record<OrganizationId, ProjectInfo[]>>({})
   const [pendingSwitch, setPendingSwitch] = useState<{
-    organizationId: string
-    projectId: string
+    organizationId: OrganizationId
+    projectId: ProjectId
   } | null>(null)
   const pendingSwitchRef = useRef<{
-    organizationId: string
-    projectId: string
+    organizationId: OrganizationId
+    projectId: ProjectId
   } | null>(null)
   const loadSeqRef = useRef(0)
   const switchSeqRef = useRef(0)
@@ -167,7 +169,7 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
   const currentOrg = organizations.find((o) => o.id === (currentOrgId || orgId))
   const activeOrgId = currentOrgId || orgId
 
-  const getProjectsForOrg = (targetOrgId: string) => {
+  const getProjectsForOrg = (targetOrgId: OrganizationId) => {
     const source =
       allOrgProjects[targetOrgId] ||
       (targetOrgId === activeOrgId
@@ -178,8 +180,8 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
   }
 
   const handleSwitchToProject = async (
-    targetOrgId: string,
-    targetProjectId: string,
+    targetOrgId: OrganizationId,
+    targetProjectId: ProjectId,
     organizationName: string,
     projectName: string,
   ) => {
@@ -246,14 +248,14 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
         }
 
         try {
-          const data = await managedGet<ProjectInfo[] | { data: ProjectInfo[] }>(
+          const data = await managedGet<ProjectInfoPayload[] | { data: ProjectInfoPayload[] }>(
             '/auth/projects?include_archived=false&limit=200',
             {
               skipManagedContext: true,
               headers: { 'X-Org-Id': organization.id },
             },
           )
-          const rows = Array.isArray(data) ? data : data?.data || []
+          const rows = (Array.isArray(data) ? data : data?.data || []).map(parseProjectInfo)
           return [
             organization.id,
             rows
@@ -663,11 +665,11 @@ function UserMenu({ collapsed }: { collapsed?: boolean }) {
   const handleLogout = async () => {
     try {
       await client.signOut()
-      useProjectStore.getState().setContext('', '', [], [])
+      useProjectStore.getState().clearContext()
       await new Promise((resolve) => setTimeout(resolve, 100))
       window.location.href = '/signin'
     } catch {
-      useProjectStore.getState().setContext('', '', [], [])
+      useProjectStore.getState().clearContext()
       window.location.href = '/signin'
     }
   }

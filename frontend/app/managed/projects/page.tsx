@@ -33,25 +33,17 @@ import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import { parseProjectInfo, type ProjectInfoPayload } from '@/lib/managed/tenant-response-parsers'
 import { useUserPermissionsContext } from '@/providers/permissions-provider'
 import { useProjectStore } from '@/stores/managed/project-store'
+import type { ProjectInfo } from '@/stores/managed/project-store'
+import { parseProjectId, type OrganizationId, type ProjectId } from '@/types/entity-id'
 
-interface Project {
-  id: string
-  org_id: string
-  name: string
-  slug: string
-  is_default: boolean
-  triggers_paused?: boolean
-  archived_at?: string | null
-  created_at?: string
-  project_role?: string | null
-  capability?: string
-}
+type Project = ProjectInfo
 
 interface ProjectScopedAction {
   runId: number
-  scope: string
+  scope: OrganizationId
 }
 
 function projectSlugFromName(name: string) {
@@ -78,7 +70,7 @@ export default function ProjectsPage() {
   )
   const canCreateProject =
     canAdmin || currentOrganization?.project_creation_policy === 'all_members'
-  const orgScope = currentOrgId ?? ''
+  const orgScope = currentOrgId
   const orgScopeRef = useRef(orgScope)
   const actionRunRef = useRef(0)
   const [showCreate, setShowCreate] = useState(false)
@@ -86,7 +78,7 @@ export default function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
   const [newName, setNewName] = useState('')
-  const [switchingProjectId, setSwitchingProjectId] = useState<string | null>(null)
+  const [switchingProjectId, setSwitchingProjectId] = useState<ProjectId | null>(null)
 
   const {
     data: projects,
@@ -108,6 +100,8 @@ export default function ProjectsPage() {
     queryKey: 'projects-list',
     path: '/auth/projects',
     includeArchived: showArchived,
+    parseItem: (item) => parseProjectInfo(item as ProjectInfoPayload),
+    parseCursor: parseProjectId,
   })
 
   const resetCreateDraft = () => {
@@ -142,21 +136,22 @@ export default function ProjectsPage() {
     [],
   )
 
-  const getCurrentOrgScope = () => useProjectStore.getState().currentOrgId ?? ''
+  const getCurrentOrgScope = () => useProjectStore.getState().currentOrgId
 
   const currentOrgScopeIsActive = (scope = orgScopeRef.current) =>
-    orgScopeRef.current === scope && getCurrentOrgScope() === scope
+    scope !== null && orgScopeRef.current === scope && getCurrentOrgScope() === scope
 
-  const isCurrentAction = (runId: number, scope: string) =>
+  const isCurrentAction = (runId: number, scope: OrganizationId) =>
     actionRunRef.current === runId && currentOrgScopeIsActive(scope)
 
   const nextScopedAction = (): ProjectScopedAction | null => {
-    if (!currentOrgScopeIsActive()) return null
+    const scope = orgScopeRef.current
+    if (!scope || !currentOrgScopeIsActive(scope)) return null
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     return {
       runId,
-      scope: orgScopeRef.current,
+      scope,
     }
   }
 

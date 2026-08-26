@@ -509,7 +509,7 @@ export default function LoginPage() {
       }
 
       logger.info('Login successful, result data:', result.data)
-      useProjectStore.getState().setContext('', '', [], [])
+      useProjectStore.getState().clearContext()
 
       // Check CSRF token (not HttpOnly, can be read)
       const csrfToken = document.cookie

@@ -6,31 +6,19 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { managedGet, managedPost } from '@/lib/api-client'
 import { parseApiError } from '@/lib/managed/errors'
 import { resetManagedScopeQueries } from '@/lib/query-client-lifecycle'
+import {
+  parseAuthContextResponse,
+  parseSwitchContextResponse,
+  type AuthContextResponse,
+  type AuthContextResponsePayload,
+  type SwitchContextResponsePayload,
+} from '@/lib/managed/tenant-response-parsers'
 import { useProjectStore } from '@/stores/managed/project-store'
-import type { OrgInfo, ProjectInfo } from '@/stores/managed/project-store'
+import type { OrganizationId, ProjectId } from '@/types/entity-id'
 
-interface AuthMeResponse {
-  user: {
-    id: string
-    email: string
-    name: string
-  }
-  organization: OrgInfo
-  project: ProjectInfo
-  organizations: OrgInfo[]
-  projects: ProjectInfo[]
-}
-
-interface SwitchContextResponse {
-  org_id?: string
-  project_id?: string
-  project?: ProjectInfo
-  projects?: ProjectInfo[]
-}
-
-async function loadAuthContext(): Promise<AuthMeResponse> {
+async function loadAuthContext(): Promise<AuthContextResponse> {
   try {
-    return await managedGet<AuthMeResponse>('/auth/me')
+    return parseAuthContextResponse(await managedGet<AuthContextResponsePayload>('/auth/me'))
   } catch (error) {
     const { code } = parseApiError(error)
     if (
@@ -42,15 +30,17 @@ async function loadAuthContext(): Promise<AuthMeResponse> {
       code === 'HTTP_401' ||
       code === 'HTTP_403'
     ) {
-      return managedGet<AuthMeResponse>('/auth/me', { skipManagedContext: true })
+      return parseAuthContextResponse(
+        await managedGet<AuthContextResponsePayload>('/auth/me', { skipManagedContext: true }),
+      )
     }
     throw error
   }
 }
 
 function managedContextChangedSinceRequest(
-  requestedOrgId: string | null,
-  requestedProjectId: string | null,
+  requestedOrgId: OrganizationId | null,
+  requestedProjectId: ProjectId | null,
 ): boolean {
   const { currentOrgId, currentProjectId } = useProjectStore.getState()
   const requestStartedWithoutContext = requestedOrgId === null && requestedProjectId === null
@@ -108,30 +98,25 @@ export function useProjectContext() {
   }, [currentOrgId, currentProjectId, setContext])
 
   const switchProject = useCallback(
-    async (projectId: string, orgId?: string) => {
+    async (projectId: ProjectId, orgId?: OrganizationId) => {
       const requestSeq = (switchRequestSeqRef.current += 1)
       try {
-        const data = await managedPost<SwitchContextResponse>(
-          '/auth/switch-context',
-          {
-            org_id: orgId,
-            project_id: projectId,
-          },
-          {
-            skipManagedContext: true,
-            headers: orgId ? { 'X-Org-Id': orgId } : undefined,
-          },
+        const data = parseSwitchContextResponse(
+          await managedPost<SwitchContextResponsePayload>(
+            '/auth/switch-context',
+            {
+              org_id: orgId,
+              project_id: projectId,
+            },
+            {
+              skipManagedContext: true,
+              headers: orgId ? { 'X-Org-Id': orgId } : undefined,
+            },
+          ),
         )
         if (requestSeq !== switchRequestSeqRef.current) return
-        const resolvedProjectId = data.project?.id || data.project_id || projectId
         contextLoadSeqRef.current += 1
-        setContext(
-          data.org_id || orgId || currentOrgId || '',
-          resolvedProjectId,
-          organizations,
-          data.projects || projects,
-          data.project || null,
-        )
+        setContext(data.org_id, data.project_id, organizations, data.projects, data.project)
         setIsLoading(false)
         resetManagedScopeQueries(queryClient)
       } catch (err) {
@@ -143,8 +128,8 @@ export function useProjectContext() {
   )
 
   return {
-    orgId: currentOrgId || '',
-    projectId: currentProjectId || '',
+    orgId: currentOrgId,
+    projectId: currentProjectId,
     organizations,
     projects,
     isLoading,

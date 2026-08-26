@@ -1,41 +1,49 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-import { parseOrganizationId, parseProjectId } from '@/types/entity-id'
+import {
+  parseOrganizationId,
+  parseProjectId,
+  type OrganizationId,
+  type ProjectId,
+} from '@/types/entity-id'
 
 export interface OrgInfo {
-  id: string
+  id: OrganizationId
   name: string
   slug: string
   role: string
   owner_name?: string | null
   owner_email?: string | null
   project_creation_policy?: 'admins_only' | 'all_members'
+  created_at?: string | null
 }
 
 export interface ProjectInfo {
-  id: string
-  org_id?: string
+  id: ProjectId
+  org_id?: OrganizationId
   name: string
   slug: string
   is_default: boolean
   archived_at?: string | null
+  created_at?: string
+  triggers_paused?: boolean
   // Present on the active project returned by /auth/me and switch-context.
   capability?: string
   project_role?: string | null
 }
 
 interface ProjectState {
-  currentOrgId: string | null
-  currentProjectId: string | null
+  currentOrgId: OrganizationId | null
+  currentProjectId: ProjectId | null
   currentProject: ProjectInfo | null
   organizations: OrgInfo[]
   projects: ProjectInfo[]
-  setCurrentOrg: (orgId: string) => void
-  setCurrentProject: (projectId: string) => void
+  setCurrentOrg: (orgId: OrganizationId) => void
+  setCurrentProject: (projectId: ProjectId) => void
   setContext: (
-    orgId: string,
-    projectId: string,
+    orgId: OrganizationId,
+    projectId: ProjectId,
     orgs: OrgInfo[],
     projects: ProjectInfo[],
     currentProject?: ProjectInfo | null,
@@ -43,15 +51,15 @@ interface ProjectState {
   clearContext: () => void
 }
 
-function parsePersistedContext(
-  value: unknown,
-): Pick<ProjectState, 'currentOrgId' | 'currentProjectId'> {
+function parsePersistedContext(value: unknown):
+  | Pick<ProjectState, 'currentOrgId' | 'currentProjectId'>
+  | { currentOrgId: null; currentProjectId: null } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { currentOrgId: null, currentProjectId: null }
   }
 
   const stored = value as Record<string, unknown>
-  let currentOrgId: string | null = null
+  let currentOrgId: OrganizationId | null = null
   if (stored.currentOrgId !== undefined && stored.currentOrgId !== null) {
     if (typeof stored.currentOrgId !== 'string') {
       return { currentOrgId: null, currentProjectId: null }

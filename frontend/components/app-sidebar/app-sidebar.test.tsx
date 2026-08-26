@@ -10,6 +10,17 @@ import { managedGet, managedPost } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { OrgInfo, ProjectInfo } from '@/stores/managed/project-store'
+import {
+  FIFTH_PROJECT_ID,
+  FOURTH_PROJECT_ID,
+  ORGANIZATION_ID,
+  OTHER_ORGANIZATION_ID,
+  OTHER_PROJECT_ID,
+  PROJECT_ID,
+  THIRD_PROJECT_ID,
+  USER_ID,
+} from '@/test-utils/entity-ids'
+import type { OrganizationId, ProjectId } from '@/types/entity-id'
 
 vi.mock('@/lib/api-client', () => ({
   extractErrorFromResponse: vi.fn(async () => new Error('mock api error')),
@@ -142,7 +153,7 @@ Object.defineProperty(globalThis.HTMLElement.prototype, 'detachEvent', {
 
 const organizations: OrgInfo[] = [
   {
-    id: 'org-a',
+    id: ORGANIZATION_ID,
     name: 'Organization Alpha With A Long Name',
     slug: 'org-a',
     role: 'owner',
@@ -150,7 +161,7 @@ const organizations: OrgInfo[] = [
     owner_email: 'user@example.com',
   },
   {
-    id: 'org-b',
+    id: OTHER_ORGANIZATION_ID,
     name: 'Organization Beta',
     slug: 'org-b',
     role: 'member',
@@ -160,20 +171,20 @@ const organizations: OrgInfo[] = [
 ]
 
 const projectA: ProjectInfo = {
-  id: 'project-a-current',
+  id: PROJECT_ID,
   name: 'Project A Current',
   slug: 'project-a-current',
   is_default: true,
-  org_id: 'org-a',
+  org_id: ORGANIZATION_ID,
   capability: 'write',
 }
 
 const projectBCurrent: ProjectInfo = {
-  id: 'project-b-current',
+  id: OTHER_PROJECT_ID,
   name: 'Project B Current',
   slug: 'project-b-current',
   is_default: true,
-  org_id: 'org-b',
+  org_id: OTHER_ORGANIZATION_ID,
   capability: 'write',
 }
 
@@ -187,9 +198,9 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
-function authContext(orgId: string, project: ProjectInfo) {
+function authContext(orgId: OrganizationId, project: ProjectInfo) {
   return {
-    user: { id: 'user-1', email: 'user@example.com', name: 'User' },
+    user: { id: USER_ID, email: 'user@example.com', name: 'User' },
     organization: organizations.find((org) => org.id === orgId) || organizations[0],
     project,
     organizations,
@@ -197,7 +208,7 @@ function authContext(orgId: string, project: ProjectInfo) {
   }
 }
 
-function setProjectContext(orgId: string, project: ProjectInfo) {
+function setProjectContext(orgId: OrganizationId, project: ProjectInfo) {
   useProjectStore.setState({
     currentOrgId: orgId,
     currentProjectId: project.id,
@@ -246,7 +257,7 @@ describe('AppSidebar project switcher lifecycle', () => {
     vi.restoreAllMocks()
     vi.clearAllMocks()
     setCompactViewport(false)
-    setProjectContext('org-a', projectA)
+    setProjectContext(ORGANIZATION_ID, projectA)
   })
 
   afterEach(() => {
@@ -347,7 +358,8 @@ describe('AppSidebar project switcher lifecycle', () => {
 
   it('shows switching progress and prevents duplicate requests', async () => {
     const switchRequest = deferred<{
-      org_id: string
+      org_id: OrganizationId
+      project_id: ProjectId
       project: ProjectInfo
       projects: ProjectInfo[]
     }>()
@@ -371,7 +383,8 @@ describe('AppSidebar project switcher lifecycle', () => {
 
     await act(async () => {
       switchRequest.resolve({
-        org_id: 'org-b',
+        org_id: OTHER_ORGANIZATION_ID,
+        project_id: OTHER_PROJECT_ID,
         project: projectBCurrent,
         projects: [projectBCurrent],
       })
@@ -382,7 +395,8 @@ describe('AppSidebar project switcher lifecycle', () => {
   it('confirms a successful switch and closes the switcher', async () => {
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([projectBCurrent])
     ;(managedPost as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      org_id: 'org-b',
+      org_id: OTHER_ORGANIZATION_ID,
+      project_id: OTHER_PROJECT_ID,
       project: projectBCurrent,
       projects: [projectBCurrent],
     })
@@ -429,16 +443,16 @@ describe('AppSidebar project switcher lifecycle', () => {
 
   it('shows the archived current project even when it is absent from the active project list', async () => {
     const archivedProject: ProjectInfo = {
-      id: 'project-archived',
+      id: THIRD_PROJECT_ID,
       name: 'Archived Project',
       slug: 'project-archived',
       is_default: false,
-      org_id: 'org-a',
+      org_id: ORGANIZATION_ID,
       capability: 'write',
       archived_at: '2026-01-02T00:00:00Z',
     }
     useProjectStore.setState({
-      currentOrgId: 'org-a',
+      currentOrgId: ORGANIZATION_ID,
       currentProjectId: archivedProject.id,
       currentProject: archivedProject,
       organizations,
@@ -447,7 +461,7 @@ describe('AppSidebar project switcher lifecycle', () => {
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
       if (path === '/auth/me') {
         return Promise.resolve({
-          ...authContext('org-a', archivedProject),
+          ...authContext(ORGANIZATION_ID, archivedProject),
           projects: [],
         })
       }
@@ -463,7 +477,7 @@ describe('AppSidebar project switcher lifecycle', () => {
   it('does not let an older all-projects load override the active org project list', async () => {
     const oldOrgBProjects = deferred<ProjectInfo[]>()
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
-      if (path === '/auth/me') return Promise.resolve(authContext('org-a', projectA))
+      if (path === '/auth/me') return Promise.resolve(authContext(ORGANIZATION_ID, projectA))
       if (path === '/auth/projects?include_archived=false&limit=200') return oldOrgBProjects.promise
       return Promise.resolve([])
     })
@@ -480,12 +494,12 @@ describe('AppSidebar project switcher lifecycle', () => {
     await waitFor(() => {
       expect(managedGet).toHaveBeenCalledWith('/auth/projects?include_archived=false&limit=200', {
         skipManagedContext: true,
-        headers: { 'X-Org-Id': 'org-b' },
+        headers: { 'X-Org-Id': OTHER_ORGANIZATION_ID },
       })
     })
 
     await act(async () => {
-      setProjectContext('org-b', projectBCurrent)
+      setProjectContext(OTHER_ORGANIZATION_ID, projectBCurrent)
       view.rerenderSidebar()
       await Promise.resolve()
     })
@@ -494,11 +508,11 @@ describe('AppSidebar project switcher lifecycle', () => {
     await act(async () => {
       oldOrgBProjects.resolve([
         {
-          id: 'project-b-old',
+          id: FOURTH_PROJECT_ID,
           name: 'Project B Old',
           slug: 'project-b-old',
           is_default: true,
-          org_id: 'org-b',
+          org_id: OTHER_ORGANIZATION_ID,
         },
       ])
       await Promise.resolve()
@@ -510,20 +524,21 @@ describe('AppSidebar project switcher lifecycle', () => {
 
   it('does not let an older project switch completion close a reopened switcher', async () => {
     const olderSwitch = deferred<{
-      org_id: string
+      org_id: OrganizationId
+      project_id: ProjectId
       project: ProjectInfo
       projects: ProjectInfo[]
     }>()
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
-      if (path === '/auth/me') return Promise.resolve(authContext('org-a', projectA))
+      if (path === '/auth/me') return Promise.resolve(authContext(ORGANIZATION_ID, projectA))
       if (path === '/auth/projects?include_archived=false&limit=200') {
         return Promise.resolve([
           {
-            id: 'project-b-target',
+            id: FIFTH_PROJECT_ID,
             name: 'Project B Target',
             slug: 'project-b-target',
             is_default: true,
-            org_id: 'org-b',
+            org_id: OTHER_ORGANIZATION_ID,
           },
         ])
       }
@@ -569,22 +584,23 @@ describe('AppSidebar project switcher lifecycle', () => {
 
     await act(async () => {
       olderSwitch.resolve({
-        org_id: 'org-b',
+        org_id: OTHER_ORGANIZATION_ID,
+        project_id: FIFTH_PROJECT_ID,
         project: {
-          id: 'project-b-target',
+          id: FIFTH_PROJECT_ID,
           name: 'Project B Target',
           slug: 'project-b-target',
           is_default: true,
-          org_id: 'org-b',
+          org_id: OTHER_ORGANIZATION_ID,
           capability: 'write',
         },
         projects: [
           {
-            id: 'project-b-target',
+            id: FIFTH_PROJECT_ID,
             name: 'Project B Target',
             slug: 'project-b-target',
             is_default: true,
-            org_id: 'org-b',
+            org_id: OTHER_ORGANIZATION_ID,
           },
         ],
       })

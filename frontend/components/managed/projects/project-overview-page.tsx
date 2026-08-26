@@ -17,26 +17,20 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { managedGet, managedPatch } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
+import { parseProjectInfo, type ProjectInfoPayload } from '@/lib/managed/tenant-response-parsers'
 import { useUserPermissionsContext } from '@/providers/permissions-provider'
 import { useProjectStore } from '@/stores/managed/project-store'
+import type { ProjectInfo } from '@/stores/managed/project-store'
+import type { ProjectId } from '@/types/entity-id'
 
-interface ProjectDetails {
-  id: string
-  org_id: string
-  name: string
-  slug: string
-  is_default: boolean
-  triggers_paused?: boolean
-  archived_at?: string | null
-  capability?: string
-  project_role?: string | null
-}
+type ProjectDetails = ProjectInfo
 
-export function ProjectOverviewPage({ projectId }: { projectId: string }) {
+export function ProjectOverviewPage({ projectId }: { projectId: ProjectId }) {
   const { t } = useTranslation()
   const projectQuery = useQuery({
     queryKey: ['project', projectId],
-    queryFn: () => managedGet<ProjectDetails>(`auth/projects/${projectId}`),
+    queryFn: async () =>
+      parseProjectInfo(await managedGet<ProjectInfoPayload>(`auth/projects/${projectId}`)),
   })
 
   if (projectQuery.isLoading) {

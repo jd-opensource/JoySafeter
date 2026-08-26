@@ -11,11 +11,12 @@ import {
   type AuthContextResponsePayload,
 } from '@/lib/managed/tenant-response-parsers'
 import { useProjectStore } from '@/stores/managed/project-store'
+import type { OrganizationId, ProjectId } from '@/types/entity-id'
 
 interface AuthMeQueryResult {
   data: AuthContextResponse
-  requestedOrgId: string | null
-  requestedProjectId: string | null
+  requestedOrgId: OrganizationId | null
+  requestedProjectId: ProjectId | null
 }
 
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
