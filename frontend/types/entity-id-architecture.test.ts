@@ -953,4 +953,18 @@ function numeric(sessionId) {
     expect(parsers).toContain('id: raw.id ? parseEventId(raw.id) : undefined')
     expect(eventHelpers).not.toContain('replace(/^evt_/')
   })
+
+  it('validates entity creation responses before application use', () => {
+    const productionSources = collectProductionFiles(process.cwd()).map((file) =>
+      readFileSync(file, 'utf8'),
+    )
+
+    expect(productionSources.join('\n')).not.toContain('managedPost<{ id: string }>')
+    expect(readProjectFile('lib/managed/agent-response-parsers.ts')).toContain(
+      'parseAgentCreateResponse',
+    )
+    expect(readProjectFile('lib/managed/session-response-parsers.ts')).toContain(
+      'parseSessionCreateResponse',
+    )
+  })
 })

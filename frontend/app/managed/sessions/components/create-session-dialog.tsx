@@ -50,6 +50,7 @@ import { parseEnvironmentListResponse } from '@/lib/managed/environment-response
 import { toastOperationError } from '@/lib/managed/errors'
 import { parseFileListResponse } from '@/lib/managed/file-response-parsers'
 import { parseMemoryStoreResponse } from '@/lib/managed/memory-response-parsers'
+import { parseSessionCreateResponse } from '@/lib/managed/session-response-parsers'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -59,7 +60,6 @@ import {
 } from '@/lib/managed/request-scope'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
-  parseSessionId,
   type CredentialGroupId,
   type FileId,
   type MemoryStoreId,
@@ -348,8 +348,8 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project session create ignored')
       }
-      return managedPost<{ id: string }>('/sessions', body, managedRequestOptions(scope)).then(
-        (response) => ({ ...response, id: parseSessionId(response.id) }),
+      return managedPost<unknown>('/sessions', body, managedRequestOptions(scope)).then(
+        parseSessionCreateResponse,
       )
     },
     onSuccess: (res, input) => {

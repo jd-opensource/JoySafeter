@@ -110,7 +110,10 @@ import {
   deriveQuickstartTrialStatus,
   type QuickstartTrialStatus,
 } from '@/lib/managed/quickstart-trial-status'
-import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
+import {
+  parseSessionCreateResponse,
+  parseSessionResponse,
+} from '@/lib/managed/session-response-parsers'
 import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
@@ -1818,13 +1821,11 @@ export default function QuickstartPage() {
           currentSelectedEnv?.id || parseEnvironmentId(selectedEnvId),
         )
       }
-      const res = await managedPost<{ id: string }>(
-        '/sessions',
-        body,
-        managedRequestOptions(requestScope),
+      const res = parseSessionCreateResponse(
+        await managedPost<unknown>('/sessions', body, managedRequestOptions(requestScope)),
       )
       if (!isCurrentPageAction(runId, scope)) return
-      setLocalSessionId(parseSessionId(res.id))
+      setLocalSessionId(res.id)
       setRightTab('preview')
     } catch (e) {
       if (!isCurrentPageAction(runId, scope)) return

@@ -33,7 +33,8 @@ import { apiResourceId, apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { isEntityId, parseAgentId, parseSessionId } from '@/types/entity-id'
+import { parseSessionCreateResponse } from '@/lib/managed/session-response-parsers'
+import { isEntityId, parseAgentId } from '@/types/entity-id'
 import type { Agent } from '@/types/managed'
 
 import { CreateAgentDialog } from './components/create-agent-dialog'
@@ -221,13 +222,15 @@ export default function AgentListPage() {
     const { runId, scope, requestScope } = action
     setPendingAction({ agentId: agent.id, type: 'start' })
     try {
-      const response = await managedPost<{ id: string }>(
-        '/sessions',
-        { agent: apiResourceId(agent.id) },
-        managedRequestOptions(requestScope),
+      const response = parseSessionCreateResponse(
+        await managedPost<unknown>(
+          '/sessions',
+          { agent: apiResourceId(agent.id) },
+          managedRequestOptions(requestScope),
+        ),
       )
       if (!isCurrentAction(runId, scope)) return
-      router.push(`/managed/sessions/${parseSessionId(response.id)}`)
+      router.push(`/managed/sessions/${response.id}`)
     } catch (error) {
       if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, error, 'common.operationFailed')

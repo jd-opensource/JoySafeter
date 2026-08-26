@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseAgentResponse } from './agent-response-parsers'
+import { parseAgentCreateResponse, parseAgentResponse } from './agent-response-parsers'
 
 const AGENT_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f001'
 const SKILL_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f002'
@@ -29,6 +29,15 @@ function rawAgent() {
 }
 
 describe('agent response parsers', () => {
+  it('validates agent creation identities', () => {
+    expect(parseAgentCreateResponse({ id: `agent_${AGENT_UUID}` })).toEqual({
+      id: `agent_${AGENT_UUID}`,
+    })
+    expect(() => parseAgentCreateResponse({ id: AGENT_UUID })).toThrow()
+    expect(() => parseAgentCreateResponse({ id: `sess_${AGENT_UUID}` })).toThrow()
+    expect(() => parseAgentCreateResponse({})).toThrow(/agent id/)
+  })
+
   it('validates root and nested skill identities', () => {
     const agent = parseAgentResponse(rawAgent())
     expect(agent.id).toBe(`agent_${AGENT_UUID}`)

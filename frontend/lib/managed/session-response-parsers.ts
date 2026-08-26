@@ -1,4 +1,9 @@
-import { parseAgentId, parseCredentialGroupId, parseSessionId } from '@/types/entity-id'
+import {
+  parseAgentId,
+  parseCredentialGroupId,
+  parseSessionId,
+  type SessionId,
+} from '@/types/entity-id'
 import type { ModelConnectionSummary, Session, SessionAgent } from '@/types/managed'
 
 import { parseAgentModelResponse } from './agent-response-parsers'
@@ -6,6 +11,10 @@ import { parseModelCredentialReference } from './environment-response-parsers'
 import { parseSessionRepoResourceResponse } from './file-response-parsers'
 import { parseModelConnectionSummaryResponse } from './credential-response-parsers'
 import { parseSessionStorageMountResponse } from './storage-mount-response-parsers'
+
+export interface SessionCreateResponse {
+  id: SessionId
+}
 
 type RawSessionAgent = Omit<
   SessionAgent,
@@ -53,6 +62,17 @@ export function parseSessionResponse(response: unknown): Session {
     repo_resources: raw.repo_resources?.map(parseSessionRepoResourceResponse),
     storage_mounts: raw.storage_mounts?.map(parseSessionStorageMountResponse),
   }
+}
+
+export function parseSessionCreateResponse(response: unknown): SessionCreateResponse {
+  if (typeof response !== 'object' || response === null || Array.isArray(response)) {
+    throw new Error('Invalid session create response')
+  }
+  const raw = response as { id?: unknown }
+  if (typeof raw.id !== 'string') {
+    throw new Error('Invalid session id')
+  }
+  return { id: parseSessionId(raw.id) }
 }
 
 export function parseSessionListResponse(response: unknown): Session[] {

@@ -41,6 +41,7 @@ import { toastOperationError } from '@/lib/managed/errors'
 import { getEnabledEngines } from '@/lib/managed/llm-catalog'
 import { serializeMcpServerEntries, type McpServerEntry } from '@/lib/managed/mcp-config'
 import { selectInitialModelConnection } from '@/lib/managed/model-connection-selection'
+import { parseAgentCreateResponse } from '@/lib/managed/agent-response-parsers'
 import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
 import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
 import {
@@ -51,7 +52,6 @@ import {
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import {
-  parseAgentId,
   parseCredentialId,
   parseEnvironmentId,
   type AgentId,
@@ -336,30 +336,34 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
         ),
       )
 
-      const res = await managedPost<{ id: string }>(
-        '/agents',
-        {
-          name: name.trim(),
-          description: description.trim() || null,
-          engine_kind: engineKind,
-          system: systemPrompt || null,
-          metadata: { system_prompt_mode: systemPromptMode },
-          ...(currentSecretRef ? { model_credential_id: parseCredentialId(currentSecretRef) } : {}),
-          ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
-          tools,
-          mcp_servers: serializeMcpServerEntries(mcpServers),
-          skills: currentSelectedSkillIds.map((id) => ({
-            type: 'custom' as const,
-            skill_id: id,
-            version: currentSkillVersions[id] || 'latest',
-          })),
-        },
-        managedRequestOptions(requestScope),
+      const res = parseAgentCreateResponse(
+        await managedPost<unknown>(
+          '/agents',
+          {
+            name: name.trim(),
+            description: description.trim() || null,
+            engine_kind: engineKind,
+            system: systemPrompt || null,
+            metadata: { system_prompt_mode: systemPromptMode },
+            ...(currentSecretRef
+              ? { model_credential_id: parseCredentialId(currentSecretRef) }
+              : {}),
+            ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
+            tools,
+            mcp_servers: serializeMcpServerEntries(mcpServers),
+            skills: currentSelectedSkillIds.map((id) => ({
+              type: 'custom' as const,
+              skill_id: id,
+              version: currentSkillVersions[id] || 'latest',
+            })),
+          },
+          managedRequestOptions(requestScope),
+        ),
       )
       if (!isCurrentCreateRun(runId, scopeAtStart)) return
       reset()
       onOpenChange(false)
-      onCreated(parseAgentId(res.id))
+      onCreated(res.id)
     } catch (e) {
       if (!isCurrentCreateRun(runId, scopeAtStart)) return
       toastOperationError(t, e, 'managed.agents.create.failed')

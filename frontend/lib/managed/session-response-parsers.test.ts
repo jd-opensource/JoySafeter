@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseSessionResponse } from './session-response-parsers'
+import { parseSessionCreateResponse, parseSessionResponse } from './session-response-parsers'
 
 const SESSION_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f001'
 const AGENT_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f002'
@@ -58,6 +58,15 @@ function rawSession() {
 }
 
 describe('session response parsers', () => {
+  it('validates session creation identities', () => {
+    expect(parseSessionCreateResponse({ id: `sess_${SESSION_UUID}` })).toEqual({
+      id: `sess_${SESSION_UUID}`,
+    })
+    expect(() => parseSessionCreateResponse({ id: SESSION_UUID })).toThrow()
+    expect(() => parseSessionCreateResponse({ id: `agent_${SESSION_UUID}` })).toThrow()
+    expect(() => parseSessionCreateResponse({})).toThrow(/session id/)
+  })
+
   it('validates nested session identities', () => {
     const session = parseSessionResponse(rawSession())
     expect(session.id).toBe(`sess_${SESSION_UUID}`)

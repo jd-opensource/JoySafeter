@@ -37,6 +37,7 @@ vi.mock('@/hooks/use-toast', () => ({ toast: (...args: unknown[]) => toast(...ar
 
 vi.mock('@/lib/managed/agent-response-parsers', () => ({ parseAgentResponse: (x: unknown) => x }))
 vi.mock('@/lib/managed/session-response-parsers', () => ({
+  parseSessionCreateResponse: (x: unknown) => x,
   parseSessionListResponse: (x: unknown) => x,
 }))
 vi.mock('@/lib/managed/errors', () => ({

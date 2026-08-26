@@ -30,9 +30,12 @@ import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { VersionDiffView } from '@/components/managed/agent/version-diff-view'
 import { AgentModelSummary } from '@/components/managed/agent/agent-model-summary'
 import type { Agent, AgentTool, McpServer, Session } from '@/types/managed'
-import { parseAgentId, parseSessionId } from '@/types/entity-id'
+import { parseAgentId } from '@/types/entity-id'
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
-import { parseSessionListResponse } from '@/lib/managed/session-response-parsers'
+import {
+  parseSessionCreateResponse,
+  parseSessionListResponse,
+} from '@/lib/managed/session-response-parsers'
 import { getSessionDisplayTitle } from '@/lib/managed/session-display'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -259,13 +262,15 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
     const requestScope = managedRequestScopeRef.current
     if (!currentOperationScopeIsActive(actionScope)) return
     try {
-      const res = await managedPost<{ id: string }>(
-        '/sessions',
-        { agent: apiResourceId(agentId) },
-        managedRequestOptions(requestScope),
+      const res = parseSessionCreateResponse(
+        await managedPost<unknown>(
+          '/sessions',
+          { agent: apiResourceId(agentId) },
+          managedRequestOptions(requestScope),
+        ),
       )
       if (!isCurrentAction(runId, actionScope)) return
-      router.push(`/managed/sessions/${parseSessionId(res.id)}`)
+      router.push(`/managed/sessions/${res.id}`)
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')

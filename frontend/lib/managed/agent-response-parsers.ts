@@ -1,4 +1,4 @@
-import { parseAgentId, parseSkillId } from '@/types/entity-id'
+import { parseAgentId, parseSkillId, type AgentId } from '@/types/entity-id'
 import type {
   Agent,
   AgentModelConfig,
@@ -8,6 +8,10 @@ import type {
 
 import { parseModelConnectionSummaryResponse } from './credential-response-parsers'
 import { parseMcpServerResponseConfigs } from './mcp-config'
+
+export interface AgentCreateResponse {
+  id: AgentId
+}
 
 type RawAgentSkillRef = Omit<AgentSkillRef, 'skill_id'> & { skill_id: string }
 
@@ -54,6 +58,17 @@ export function parseAgentResponse(response: unknown): Agent {
     mcp_servers: parseMcpServerResponseConfigs(raw.mcp_servers),
     skills: raw.skills?.map((skill) => ({ ...skill, skill_id: parseSkillId(skill.skill_id) })),
   }
+}
+
+export function parseAgentCreateResponse(response: unknown): AgentCreateResponse {
+  if (typeof response !== 'object' || response === null || Array.isArray(response)) {
+    throw new Error('Invalid agent create response')
+  }
+  const raw = response as { id?: unknown }
+  if (typeof raw.id !== 'string') {
+    throw new Error('Invalid agent id')
+  }
+  return { id: parseAgentId(raw.id) }
 }
 
 export function parseAgentListResponse(response: unknown): Agent[] {
