@@ -7,6 +7,7 @@ from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
 from app.joysafeter_domain.services.joysafeter_auth_service import AuthService
+from app.joysafeter_shared.ids import OrganizationId, OrganizationMemberId, ProjectId, UserId
 from app.joysafeter_shared.security import decode_token
 
 
@@ -15,7 +16,7 @@ async def test_auto_org_bootstrap_uses_owner_org_wide_project_access(db_session)
     # A user with no membership triggers auto-org bootstrap during JWT issuance.
     # Owners inherit Project Admin across the organization, so bootstrap must not
     # create a redundant project-specific grant that could survive a later demotion.
-    user = AuthUser(id=f"user-{uuid.uuid4()}", name="U", email=f"{uuid.uuid4()}@example.com")
+    user = AuthUser(id=UserId.new(), name="U", email=f"{uuid.uuid4()}@example.com")
     db_session.add(user)
     await db_session.commit()
 
@@ -55,18 +56,18 @@ async def test_auto_org_bootstrap_uses_owner_org_wide_project_access(db_session)
 
 @pytest.mark.asyncio
 async def test_login_context_prefers_owned_organization_over_shared_membership(db_session):
-    user = AuthUser(id=f"user-{uuid.uuid4()}", name="Context Owner", email=f"{uuid.uuid4()}@example.com")
-    shared_org = Organization(id=f"org-{uuid.uuid4()}", name="Shared", slug=f"shared-{uuid.uuid4()}")
-    owned_org = Organization(id=f"org-{uuid.uuid4()}", name="Owned", slug=f"owned-{uuid.uuid4()}")
+    user = AuthUser(id=UserId.new(), name="Context Owner", email=f"{uuid.uuid4()}@example.com")
+    shared_org = Organization(id=OrganizationId.new(), name="Shared", slug=f"shared-{uuid.uuid4()}")
+    owned_org = Organization(id=OrganizationId.new(), name="Owned", slug=f"owned-{uuid.uuid4()}")
     shared_project = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=shared_org.id,
         name="Main",
         slug="main",
         is_default=True,
     )
     owned_project = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=owned_org.id,
         name="Main",
         slug="main",
@@ -76,8 +77,18 @@ async def test_login_context_prefers_owned_organization_over_shared_membership(d
     await db_session.flush()
     db_session.add_all(
         [
-            Member(user_id=user.id, organization_id=shared_org.id, role="member"),
-            Member(user_id=user.id, organization_id=owned_org.id, role="owner"),
+            Member(
+                id=OrganizationMemberId.new(),
+                user_id=user.id,
+                organization_id=shared_org.id,
+                role="member",
+            ),
+            Member(
+                id=OrganizationMemberId.new(),
+                user_id=user.id,
+                organization_id=owned_org.id,
+                role="owner",
+            ),
         ]
     )
     await db_session.commit()

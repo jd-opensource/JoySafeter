@@ -7,11 +7,12 @@ from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Text, UniqueCons
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_domain.models.base import JoySafeterBaseModel
-from app.joysafeter_shared.ids import EntityIdType, SandboxId, SessionId, TaskId
+from app.joysafeter_domain.models.base import JoySafeterModel
+from app.joysafeter_shared.ids import SandboxId, SandboxNetworkPolicyId, SessionId, TaskId
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 
-class JoySafeterSandboxNetworkPolicy(JoySafeterBaseModel):
+class JoySafeterSandboxNetworkPolicy(JoySafeterModel):
     __tablename__ = "joysafeter_sandbox_network_policies"
     __table_args__ = (
         UniqueConstraint("sandbox_id", "policy_version", name="uq_jsnp_sandbox_policy_version"),
@@ -22,6 +23,8 @@ class JoySafeterSandboxNetworkPolicy(JoySafeterBaseModel):
         Index("idx_jsnp_pushed_at", "pushed_at"),
         Index("idx_jsnp_acked_at", "acked_at"),
     )
+
+    id: Mapped[SandboxNetworkPolicyId] = mapped_column(EntityIdType(SandboxNetworkPolicyId), primary_key=True)
 
     sandbox_id: Mapped[SandboxId] = mapped_column(
         EntityIdType(SandboxId), ForeignKey("joysafeter_sandboxes.id", ondelete="CASCADE"), nullable=False

@@ -1,4 +1,3 @@
-import uuid
 from collections.abc import Awaitable, Callable
 
 import pytest
@@ -15,6 +14,7 @@ from app.joysafeter_identity_federation.domain.policies import AccountLinkPolicy
 from app.joysafeter_identity_federation.infrastructure.account_gateway import (
     SqlAlchemyFederatedAccountGateway,
 )
+from app.joysafeter_shared.ids import OAuthAccountId, UserId
 
 
 def _principal(
@@ -44,7 +44,7 @@ async def _create_user(
     hashed_password: str | None = "password-hash",
 ) -> AuthUser:
     user = AuthUser(
-        id=str(uuid.uuid4()),
+        id=UserId.new(),
         email=email,
         name=email.split("@")[0],
         hashed_password=hashed_password,
@@ -58,14 +58,14 @@ async def _create_user(
 
 async def _create_binding(
     db_session: AsyncSession,
-    user_id: str,
+    user_id: UserId,
     *,
     provider: str,
     subject: str,
     email: str | None = None,
 ) -> OAuthAccount:
     binding = OAuthAccount(
-        id=str(uuid.uuid4()),
+        id=OAuthAccountId.new(),
         user_id=user_id,
         provider=provider,
         provider_account_id=subject,
@@ -77,7 +77,7 @@ async def _create_binding(
     return binding
 
 
-async def _oauth_binding_count(db_session: AsyncSession, user_id: str) -> int:
+async def _oauth_binding_count(db_session: AsyncSession, user_id: UserId) -> int:
     result = await db_session.execute(
         select(func.count()).select_from(OAuthAccount).where(OAuthAccount.user_id == user_id)
     )
@@ -85,7 +85,7 @@ async def _oauth_binding_count(db_session: AsyncSession, user_id: str) -> int:
 
 
 def _raise_unique_conflict_after_binding(
-    winner_id: str,
+    winner_id: UserId,
 ) -> Callable[[OAuthAccount], Awaitable[None]]:
     async def flush_with_competing_binding(binding: OAuthAccount) -> None:
         db_session = async_object_session(binding)
@@ -95,7 +95,7 @@ def _raise_unique_conflict_after_binding(
         async with competing_sessions() as competing_session:
             competing_session.add(
                 OAuthAccount(
-                    id=str(uuid.uuid4()),
+                    id=OAuthAccountId.new(),
                     user_id=winner_id,
                     provider=binding.provider,
                     provider_account_id=binding.provider_account_id,

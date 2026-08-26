@@ -3,15 +3,16 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_domain.models.base import JoySafeterBaseModel
-from app.joysafeter_shared.ids import EntityIdType, SandboxId, SessionId, TaskId
+from app.joysafeter_domain.models.base import JoySafeterModel
+from app.joysafeter_shared.ids import ProjectId, SandboxId, SessionId, TaskId
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 
-class JoySafeterSandbox(JoySafeterBaseModel):
+class JoySafeterSandbox(JoySafeterModel):
     __tablename__ = "joysafeter_sandboxes"
     __table_args__ = (
         CheckConstraint(
@@ -46,10 +47,10 @@ class JoySafeterSandbox(JoySafeterBaseModel):
     )
 
     id: Mapped[SandboxId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(SandboxId), primary_key=True, default=SandboxId.new
+        EntityIdType(SandboxId), primary_key=True
     )
-    project_id: Mapped[Optional[str]] = mapped_column(
-        String(255),
+    project_id: Mapped[Optional[ProjectId]] = mapped_column(
+        EntityIdType(ProjectId),
         ForeignKey("joysafeter_organization_projects.id"),
         nullable=True,
         index=True,
@@ -80,6 +81,8 @@ class JoySafeterSandbox(JoySafeterBaseModel):
     networking_status: Mapped[str] = mapped_column(Text, nullable=False, default="disabled", server_default="disabled")
     networking_policy_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     networking_policy_version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    networking_applied_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    networking_applied_version: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     networking_last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     networking_ready_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     runtime_config_status: Mapped[str] = mapped_column(Text, nullable=False, default="ready", server_default="ready")

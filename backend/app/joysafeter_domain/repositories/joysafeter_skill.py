@@ -20,22 +20,22 @@ from app.joysafeter_domain.models.joysafeter_skill import (
 )
 from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterRole
-from app.joysafeter_shared.ids import SkillId, SkillSecurityScanId
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, SkillFileId, SkillId, SkillSecurityScanId, UserId
 
 from .base import BaseRepository
 
 
-class SkillRepository(BaseRepository[JoySafeterSkill]):
+class SkillRepository(BaseRepository[JoySafeterSkill, SkillId]):
     def __init__(self, db: AsyncSession):
         super().__init__(JoySafeterSkill, db)
 
     async def list_by_user(
         self,
-        org_id: str,
-        user_id: str,
+        org_id: OrganizationId,
+        user_id: UserId,
         include_public: bool = True,
         tags: Optional[List[str]] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         caller_org_role: Optional[JoySafeterRole] = None,
         limit: int = 20,
         after_id: Optional[SkillId] = None,
@@ -161,7 +161,7 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def get_by_name_and_project(self, name: str, project_id: Optional[str]) -> Optional[JoySafeterSkill]:
+    async def get_by_name_and_project(self, name: str, project_id: ProjectId | None) -> Optional[JoySafeterSkill]:
         """Get a skill by name within a project.
 
         Skill names are unique per ``(project_id, name)`` — the single-axis
@@ -175,7 +175,7 @@ class SkillRepository(BaseRepository[JoySafeterSkill]):
         return result.scalar_one_or_none()
 
 
-class SkillFileRepository(BaseRepository[JoySafeterSkillFile]):
+class SkillFileRepository(BaseRepository[JoySafeterSkillFile, SkillFileId]):
     def __init__(self, db: AsyncSession):
         super().__init__(JoySafeterSkillFile, db)
 
@@ -193,7 +193,7 @@ class SkillFileRepository(BaseRepository[JoySafeterSkillFile]):
         return result.rowcount if result.rowcount is not None else 0  # type: ignore
 
 
-class SkillSecurityScanRepository(BaseRepository[JoySafeterSkillSecurityScan]):
+class SkillSecurityScanRepository(BaseRepository[JoySafeterSkillSecurityScan, SkillSecurityScanId]):
     def __init__(self, db: AsyncSession):
         super().__init__(JoySafeterSkillSecurityScan, db)
 

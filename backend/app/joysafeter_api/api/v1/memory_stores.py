@@ -420,17 +420,17 @@ async def list_memory_stores(
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> PaginatedResponse[MemoryStoreResponse]:
+) -> PaginatedResponse[MemoryStoreResponse, MemoryStoreId]:
     svc = MemoryService(db)
     stores, has_more = await svc.list_stores(
         limit, after_id, project_id=auth_ctx.project_id, include_archived=include_archived
     )
     data = [_store_to_response(s) for s in stores]
-    return PaginatedResponse(
+    return PaginatedResponse[MemoryStoreResponse, MemoryStoreId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 
@@ -579,7 +579,7 @@ async def list_memories(
     view: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> PaginatedResponse[MemoryResponse]:
+) -> PaginatedResponse[MemoryResponse, MemoryId]:
     # Validate order_by to prevent arbitrary column access
     allowed_order_by = {"path", "created_at", "updated_at"}
     if order_by not in allowed_order_by:
@@ -620,11 +620,11 @@ async def list_memories(
         memories = filtered
 
     data = [_memory_to_response(m, view=view) for m in memories]
-    return PaginatedResponse(
+    return PaginatedResponse[MemoryResponse, MemoryId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 
@@ -775,7 +775,7 @@ async def list_memory_versions(
     view: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> PaginatedResponse[MemoryVersionResponse]:
+) -> PaginatedResponse[MemoryVersionResponse, MemoryVersionId]:
     svc = MemoryService(db)
     await _get_readable_store_or_404(svc, store_id, auth_ctx.project_id)
     versions, has_more = await svc.list_versions(
@@ -788,11 +788,11 @@ async def list_memory_versions(
         project_id=auth_ctx.project_id,
     )
     data = [_version_to_response(v, view=view) for v in versions]
-    return PaginatedResponse(
+    return PaginatedResponse[MemoryVersionResponse, MemoryVersionId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 

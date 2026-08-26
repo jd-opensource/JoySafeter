@@ -1,15 +1,16 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_domain.models.base import JoySafeterBaseModel
-from app.joysafeter_shared.ids import EntityIdType, EnvironmentId
+from app.joysafeter_domain.models.base import JoySafeterModel
+from app.joysafeter_shared.ids import EnvironmentId, ProjectId
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 
-class JoySafeterEnvironment(JoySafeterBaseModel):
+class JoySafeterEnvironment(JoySafeterModel):
     __tablename__ = "joysafeter_environments"
     __table_args__ = (
         Index(
@@ -30,11 +31,11 @@ class JoySafeterEnvironment(JoySafeterBaseModel):
     )
 
     id: Mapped[EnvironmentId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(EnvironmentId), primary_key=True, default=EnvironmentId.new
+        EntityIdType(EnvironmentId), primary_key=True
     )
 
-    project_id: Mapped[Optional[str]] = mapped_column(
-        String(255),
+    project_id: Mapped[Optional[ProjectId]] = mapped_column(
+        EntityIdType(ProjectId),
         ForeignKey("joysafeter_organization_projects.id"),
         nullable=True,
         index=True,

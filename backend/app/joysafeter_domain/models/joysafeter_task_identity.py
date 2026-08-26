@@ -7,7 +7,8 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Tex
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_shared.database import Base
-from app.joysafeter_shared.ids import EntityIdType, TaskId
+from app.joysafeter_shared.ids import ProjectId, TaskId, UserId
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 from .base import TimestampMixin
 
@@ -45,8 +46,8 @@ class JoySafeterTaskIdentityContext(Base, TimestampMixin):
         ForeignKey("joysafeter_tasks.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    project_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    project_id: Mapped[Optional[ProjectId]] = mapped_column(EntityIdType(ProjectId), nullable=True)
+    user_id: Mapped[UserId] = mapped_column(EntityIdType(UserId), nullable=False)
     user_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     credential_kind: Mapped[str] = mapped_column(String(32), nullable=False)
     credential_fingerprint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)

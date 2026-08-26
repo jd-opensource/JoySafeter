@@ -5,19 +5,20 @@ from typing import Optional
 from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_domain.models.base import JoySafeterBaseModel, SoftDeleteMixin
-from app.joysafeter_shared.ids import EntityIdType, FileId, SessionId
+from app.joysafeter_domain.models.base import JoySafeterModel, SoftDeleteMixin
+from app.joysafeter_shared.ids import FileId, ProjectId, SessionId
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 
-class JoySafeterFile(JoySafeterBaseModel, SoftDeleteMixin):
+class JoySafeterFile(JoySafeterModel, SoftDeleteMixin):
     __tablename__ = "joysafeter_files"
 
     id: Mapped[FileId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(FileId), primary_key=True, default=FileId.new
+        EntityIdType(FileId), primary_key=True
     )
 
-    project_id: Mapped[str] = mapped_column(
-        String(255),
+    project_id: Mapped[ProjectId] = mapped_column(
+        EntityIdType(ProjectId),
         ForeignKey("joysafeter_organization_projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

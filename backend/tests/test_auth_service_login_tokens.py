@@ -1,3 +1,4 @@
+from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -5,19 +6,21 @@ import pytest
 
 from app.joysafeter_domain.services import joysafeter_auth_service as auth_service_module
 from app.joysafeter_domain.services.joysafeter_auth_service import AuthService
+from app.joysafeter_shared.ids import UserId
 
 pytestmark = pytest.mark.no_db
 
 _ACCESS_EXPIRES_AT = datetime(2026, 8, 15, 12, 30, tzinfo=timezone.utc)
 _REFRESH_EXPIRES_AT = datetime(2026, 8, 22, 12, 30, tzinfo=timezone.utc)
+TEST_USER_ID = UserId.new()
 
 
 class _TokenIssuingAuthService(AuthService):
     def __init__(self) -> None:
         pass
 
-    async def _issue_jwt_tokens(self, user_id: str) -> tuple[str, str, str, datetime, datetime]:
-        assert user_id == "user-1"
+    async def _issue_jwt_tokens(self, user_id: UserId) -> tuple[str, str, str, datetime, datetime]:
+        assert user_id == TEST_USER_ID
         return "access", "refresh", "csrf", _ACCESS_EXPIRES_AT, _REFRESH_EXPIRES_AT
 
 
@@ -50,7 +53,7 @@ class _SessionService:
 @pytest.mark.asyncio
 async def test_issue_login_tokens_exposes_calculated_timezone_aware_expiries() -> None:
     user = SimpleNamespace(
-        id="user-1",
+        id=TEST_USER_ID,
         email="user@example.com",
         name="User",
         image=None,
@@ -62,11 +65,16 @@ async def test_issue_login_tokens_exposes_calculated_timezone_aware_expiries() -
 
     token_result = await _TokenIssuingAuthService().issue_login_tokens(user)
 
-    assert token_result["access_token"] == "access"
-    assert token_result["refresh_token"] == "refresh"
-    assert token_result["csrf_token"] == "csrf"
-    assert token_result["access_expires_at"] is _ACCESS_EXPIRES_AT
-    assert token_result["refresh_expires_at"] is _REFRESH_EXPIRES_AT
+    assert token_result.user is user
+    assert token_result.access_token == "access"
+    assert token_result.refresh_token == "refresh"
+    assert token_result.csrf_token == "csrf"
+    assert token_result.token_type == "bearer"
+    assert token_result.access_expires_at is _ACCESS_EXPIRES_AT
+    assert token_result.refresh_expires_at is _REFRESH_EXPIRES_AT
+    assert token_result.expires_in == 0
+    with pytest.raises(FrozenInstanceError):
+        token_result.access_token = "changed"
     assert _ACCESS_EXPIRES_AT.utcoffset() is not None
     assert _REFRESH_EXPIRES_AT.utcoffset() is not None
 
@@ -90,7 +98,7 @@ async def test_refresh_token_rotate_failure_logs_structured_boundary_error(monke
     service = object.__new__(AuthService)
     service.session_service = _SessionService()
 
-    await service._rotate_refresh_token("secret-refresh-token", "user-1")
+    await service._rotate_refresh_token("secret-refresh-token", TEST_USER_ID)
 
     assert service.session_service.invalidated == ["refresh:secret-refresh-token"]
     assert fake_logger.messages == [("debug", "Failed to rotate refresh token in Redis")]
@@ -100,6 +108,6 @@ async def test_refresh_token_rotate_failure_logs_structured_boundary_error(monke
     assert error["data"] == {
         "boundary": "auth_service",
         "operation": "rotate_refresh_token",
-        "user_id": "user-1",
+        "user_id": str(TEST_USER_ID),
     }
     assert "secret-refresh-token" not in str(error)

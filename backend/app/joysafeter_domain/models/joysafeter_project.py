@@ -2,7 +2,6 @@
 Project model — scopes joysafeter resources within an organization.
 """
 
-import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
@@ -10,6 +9,8 @@ from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, Str
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, ProjectMemberId, UserId
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 from .base import TimestampMixin
 
@@ -18,33 +19,24 @@ if TYPE_CHECKING:
     from .organization import Organization
 
 
-def _generate_str_id() -> str:
-    """Generate a string UUID compatible with drizzle text primary keys."""
-    return str(uuid.uuid4())
-
-
 class Project(Base, TimestampMixin):
     """
     A project within an organization.
 
     Projects scope joysafeter resources (agents, sessions, etc.) and provide
-    per-project API key isolation.  Uses text primary key for drizzle compatibility.
+    per-project API key isolation.
     """
 
     __tablename__ = "joysafeter_organization_projects"
 
-    id: Mapped[str] = mapped_column(
-        String(255),
-        primary_key=True,
-        default=_generate_str_id,
-    )
-    org_id: Mapped[str] = mapped_column(
-        String(255),
+    id: Mapped[ProjectId] = mapped_column(EntityIdType(ProjectId), primary_key=True)
+    org_id: Mapped[OrganizationId] = mapped_column(
+        EntityIdType(OrganizationId),
         ForeignKey("joysafeter_organizations.id", ondelete="CASCADE"),
         nullable=False,
     )
-    created_by_user_id: Mapped[Optional[str]] = mapped_column(
-        String(255),
+    created_by_user_id: Mapped[Optional[UserId]] = mapped_column(
+        EntityIdType(UserId),
         ForeignKey("joysafeter_users.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -93,18 +85,14 @@ class ProjectMember(Base, TimestampMixin):
 
     __tablename__ = "joysafeter_project_members"
 
-    id: Mapped[str] = mapped_column(
-        String(255),
-        primary_key=True,
-        default=_generate_str_id,
-    )
-    project_id: Mapped[str] = mapped_column(
-        String(255),
+    id: Mapped[ProjectMemberId] = mapped_column(EntityIdType(ProjectMemberId), primary_key=True)
+    project_id: Mapped[ProjectId] = mapped_column(
+        EntityIdType(ProjectId),
         ForeignKey("joysafeter_organization_projects.id", ondelete="CASCADE"),
         nullable=False,
     )
-    user_id: Mapped[str] = mapped_column(
-        String(255),
+    user_id: Mapped[UserId] = mapped_column(
+        EntityIdType(UserId),
         ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )

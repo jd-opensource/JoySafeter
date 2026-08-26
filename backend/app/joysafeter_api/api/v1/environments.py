@@ -237,15 +237,15 @@ async def list_environments(
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> PaginatedResponse[EnvironmentResponse]:
+) -> PaginatedResponse[EnvironmentResponse, EnvironmentId]:
     svc = EnvironmentService(db)
     envs, has_more = await svc.list_environments(limit, after_id, include_archived, project_id=auth_ctx.project_id)
     data = [_env_to_response(e) for e in envs]
-    return PaginatedResponse(
+    return PaginatedResponse[EnvironmentResponse, EnvironmentId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 

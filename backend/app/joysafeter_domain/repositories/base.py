@@ -2,7 +2,6 @@
 Base Repository -- generic CRUD operations
 """
 
-import uuid
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
 
 from sqlalchemy import func, select
@@ -13,14 +12,15 @@ from app.joysafeter_shared.database import Base
 from app.joysafeter_shared.ids import EntityId
 
 T = TypeVar("T", bound=Base)
+IdT = TypeVar("IdT", bound=EntityId)
 
 
-class BaseRepository(Generic[T]):
+class BaseRepository(Generic[T, IdT]):
     """
     Base Repository providing generic CRUD operations.
 
     Usage:
-        class UserRepository(BaseRepository[User]):
+        class UserRepository(BaseRepository[User, UserId]):
             def __init__(self, db: AsyncSession):
                 super().__init__(User, db)
     """
@@ -29,7 +29,7 @@ class BaseRepository(Generic[T]):
         self.model = model
         self.db = db
 
-    async def get(self, id: uuid.UUID | EntityId, relations: Optional[List[str]] = None) -> Optional[T]:
+    async def get(self, id: IdT, relations: Optional[List[str]] = None) -> Optional[T]:
         """Get a record by ID."""
         query = select(self.model).where(self.model.id == id)  # type: ignore[attr-defined]
 
@@ -84,7 +84,7 @@ class BaseRepository(Generic[T]):
         await self.db.refresh(instance)
         return instance
 
-    async def update(self, id: uuid.UUID | EntityId, data: Dict[str, Any]) -> Optional[T]:
+    async def update(self, id: IdT, data: Dict[str, Any]) -> Optional[T]:
         """Update a record."""
         instance = await self.get(id)
         if not instance:
@@ -98,7 +98,7 @@ class BaseRepository(Generic[T]):
         await self.db.refresh(instance)
         return instance
 
-    async def delete(self, id: uuid.UUID | EntityId) -> bool:
+    async def delete(self, id: IdT) -> bool:
         """Delete a record."""
         instance = await self.get(id)
         if not instance:
@@ -108,7 +108,7 @@ class BaseRepository(Generic[T]):
         await self.db.flush()
         return True
 
-    async def soft_delete(self, id: uuid.UUID | EntityId) -> bool:
+    async def soft_delete(self, id: IdT) -> bool:
         """Soft-delete a record."""
         from datetime import datetime, timezone
 

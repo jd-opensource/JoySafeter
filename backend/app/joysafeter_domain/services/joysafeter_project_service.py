@@ -20,7 +20,7 @@ from app.joysafeter_shared.common.joysafeter_auth.context import (
     JoySafeterRole,
     ProjectRole,
 )
-from app.joysafeter_shared.ids import SessionId
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, ProjectMemberId, SessionId, UserId
 from app.joysafeter_shared.orchestrator_bridge.runtime_commands import relay_sandbox_destroy_via_redis
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -88,11 +88,11 @@ class ProjectService:
         return normalized
 
     @staticmethod
-    def _slug_conflict_error(org_id: str, slug: str) -> ResourceConflictError:
+    def _slug_conflict_error(org_id: OrganizationId, slug: str) -> ResourceConflictError:
         return ResourceConflictError(
             code="PROJECT_SLUG_CONFLICT",
             message="Project slug already exists in this organization",
-            data={"organization_id": org_id, "slug": slug},
+            data={"organization_id": str(org_id), "slug": slug},
             user_action="fix_input",
         )
 
@@ -103,7 +103,9 @@ class ProjectService:
             "joysafeter_organization_projects.org_id" in message and "joysafeter_organization_projects.slug" in message
         )
 
-    async def _project_slug_exists(self, org_id: str, slug: str, *, exclude_project_id: str | None = None) -> bool:
+    async def _project_slug_exists(
+        self, org_id: OrganizationId, slug: str, *, exclude_project_id: ProjectId | None = None
+    ) -> bool:
         conditions = [Project.org_id == org_id, Project.slug == slug]
         if exclude_project_id is not None:
             conditions.append(Project.id != exclude_project_id)
@@ -114,7 +116,7 @@ class ProjectService:
     def role_has_org_wide_project_access(role: str | JoySafeterRole) -> bool:
         return JoySafeterRole.normalize(role.value if isinstance(role, JoySafeterRole) else role).can_manage_projects()
 
-    async def _load_project_member(self, project_id: str, user_id: str) -> ProjectMember | None:
+    async def _load_project_member(self, project_id: ProjectId, user_id: UserId) -> ProjectMember | None:
         result = await self.db.execute(
             select(ProjectMember)
             .where(
@@ -128,8 +130,8 @@ class ProjectService:
     async def grant_project_membership(
         self,
         *,
-        project_id: str,
-        user_id: str,
+        project_id: ProjectId,
+        user_id: UserId,
         role: str = "viewer",
         commit: bool = False,
     ) -> ProjectMember:
@@ -147,7 +149,12 @@ class ProjectService:
                     await self.db.flush()
             return existing
 
-        membership = ProjectMember(project_id=project_id, user_id=user_id, role=project_role)
+        membership = ProjectMember(
+            id=ProjectMemberId.new(),
+            project_id=project_id,
+            user_id=user_id,
+            role=project_role,
+        )
         self.db.add(membership)
         if not commit:
             await self.db.flush()
@@ -169,7 +176,7 @@ class ProjectService:
         await self.db.refresh(membership)
         return membership
 
-    async def revoke_org_project_memberships(self, *, org_id: str, user_id: str) -> None:
+    async def revoke_org_project_memberships(self, *, org_id: OrganizationId, user_id: UserId) -> None:
         project_ids = select(Project.id).where(Project.org_id == org_id)
         await self.db.execute(
             delete(ProjectMember).where(
@@ -178,16 +185,16 @@ class ProjectService:
             )
         )
 
-    async def list_project_members(self, project_id: str) -> list[ProjectMember]:
+    async def list_project_members(self, project_id: ProjectId) -> list[ProjectMember]:
         result = await self.db.execute(select(ProjectMember).where(ProjectMember.project_id == project_id))
         return list(result.scalars().all())
 
     async def list_project_members_page(
         self,
-        project_id: str,
+        project_id: ProjectId,
         *,
         limit: int,
-        after_id: str | None = None,
+        after_id: ProjectMemberId | None = None,
     ) -> tuple[list[ProjectMember], bool]:
         query = select(ProjectMember).where(ProjectMember.project_id == project_id)
         query = apply_created_at_desc_cursor(query, ProjectMember, after_id).limit(limit + 1)
@@ -195,7 +202,7 @@ class ProjectService:
         rows = list(result.scalars().all())
         return rows[:limit], len(rows) > limit
 
-    async def get_project_member_role(self, project_id: str, user_id: str) -> str | None:
+    async def get_project_member_role(self, project_id: ProjectId, user_id: UserId) -> str | None:
         """The caller's explicit ProjectMember role for a project, or None if no row.
 
         Feeds JoySafeterAuthContext.project_role; capability is then derived via
@@ -211,7 +218,7 @@ class ProjectService:
         )
         return result.scalar_one_or_none()
 
-    async def revoke_project_membership(self, *, project_id: str, user_id: str, commit: bool = False) -> bool:
+    async def revoke_project_membership(self, *, project_id: ProjectId, user_id: UserId, commit: bool = False) -> bool:
         result = await self.db.execute(
             delete(ProjectMember).where(
                 ProjectMember.project_id == project_id,
@@ -225,8 +232,8 @@ class ProjectService:
     async def user_has_project_access(
         self,
         *,
-        project_id: str,
-        user_id: str,
+        project_id: ProjectId,
+        user_id: UserId,
         org_role: str | JoySafeterRole,
     ) -> bool:
         conditions = [Project.id == project_id]
@@ -239,8 +246,8 @@ class ProjectService:
     async def list_accessible_projects(
         self,
         *,
-        org_id: str,
-        user_id: str,
+        org_id: OrganizationId,
+        user_id: UserId,
         org_role: str | JoySafeterRole,
         include_archived: bool = False,
     ) -> list[Project]:
@@ -256,12 +263,12 @@ class ProjectService:
     async def list_accessible_projects_page(
         self,
         *,
-        org_id: str,
-        user_id: str,
+        org_id: OrganizationId,
+        user_id: UserId,
         org_role: str | JoySafeterRole,
         include_archived: bool = False,
         limit: int,
-        after_id: str | None = None,
+        after_id: ProjectId | None = None,
     ) -> tuple[list[Project], bool]:
         conditions = [Project.org_id == org_id]
         if not include_archived:
@@ -278,9 +285,9 @@ class ProjectService:
     async def get_accessible_project(
         self,
         *,
-        project_id: str,
-        org_id: str,
-        user_id: str,
+        project_id: ProjectId,
+        org_id: OrganizationId,
+        user_id: UserId,
         org_role: str | JoySafeterRole,
         allow_archived: bool = True,
     ) -> Project | None:
@@ -295,11 +302,11 @@ class ProjectService:
 
     async def create_project(
         self,
-        org_id: str,
+        org_id: OrganizationId,
         name: str,
         slug: str,
         is_default: bool = False,
-        created_by_user_id: str | None = None,
+        created_by_user_id: UserId | None = None,
         creator_org_role: str | JoySafeterRole | None = None,
     ) -> Project:
         project_name = self._validate_name(name)
@@ -308,7 +315,7 @@ class ProjectService:
             raise self._slug_conflict_error(org_id, project_slug)
 
         project = Project(
-            id=str(uuid.uuid4()),
+            id=ProjectId.new(),
             org_id=org_id,
             name=project_name,
             slug=project_slug,
@@ -330,11 +337,11 @@ class ProjectService:
         await self.db.refresh(project)
         return project
 
-    async def get_project(self, project_id: str, org_id: str) -> Optional[Project]:
+    async def get_project(self, project_id: ProjectId, org_id: OrganizationId) -> Optional[Project]:
         result = await self.db.execute(select(Project).where(and_(Project.id == project_id, Project.org_id == org_id)))
         return result.scalar_one_or_none()
 
-    async def get_default_project(self, org_id: str) -> Optional[Project]:
+    async def get_default_project(self, org_id: OrganizationId) -> Optional[Project]:
         result = await self.db.execute(
             select(Project)
             .where(
@@ -349,7 +356,7 @@ class ProjectService:
         )
         return result.scalar_one_or_none()
 
-    async def list_projects(self, org_id: str, include_archived: bool = False) -> List[Project]:
+    async def list_projects(self, org_id: OrganizationId, include_archived: bool = False) -> List[Project]:
         conditions = [Project.org_id == org_id]
         if not include_archived:
             conditions.append(Project.archived_at.is_(None))
@@ -358,8 +365,8 @@ class ProjectService:
 
     async def update_project(
         self,
-        project_id: str,
-        org_id: str,
+        project_id: ProjectId,
+        org_id: OrganizationId,
         *,
         name: str | None = None,
         slug: str | None = None,
@@ -407,7 +414,7 @@ class ProjectService:
 
     async def _cleanup_sessions_for_archive(
         self,
-        project_id: str,
+        project_id: ProjectId,
         session_ids: Optional[list[SessionId]] = None,
     ) -> None:
         if session_ids is None:
@@ -506,7 +513,7 @@ class ProjectService:
         )
         return len(result.scalars().all())
 
-    async def archive_project(self, project_id: str, org_id: str) -> None:
+    async def archive_project(self, project_id: ProjectId, org_id: OrganizationId) -> None:
         result = await self.db.execute(select(Project).where(and_(Project.id == project_id, Project.org_id == org_id)))
         project = result.scalar_one_or_none()
         if project is None:
@@ -583,7 +590,7 @@ class ProjectService:
         project.archived_at = archived_at
         await self.db.commit()
 
-    async def set_default_project(self, project_id: str, org_id: str) -> Project:
+    async def set_default_project(self, project_id: ProjectId, org_id: OrganizationId) -> Project:
         result = await self.db.execute(select(Project).where(and_(Project.id == project_id, Project.org_id == org_id)))
         target = result.scalar_one_or_none()
         if target is None:
@@ -608,7 +615,7 @@ class ProjectService:
         await self.db.refresh(target)
         return target
 
-    async def restore_project(self, project_id: str, org_id: str) -> Project:
+    async def restore_project(self, project_id: ProjectId, org_id: OrganizationId) -> Project:
         result = await self.db.execute(select(Project).where(and_(Project.id == project_id, Project.org_id == org_id)))
         target = result.scalar_one_or_none()
         if target is None:
@@ -638,7 +645,7 @@ class ProjectService:
         await self.db.refresh(target)
         return target
 
-    async def ensure_default_project(self, org_id: str) -> Project:
+    async def ensure_default_project(self, org_id: OrganizationId) -> Project:
         existing = await self.get_default_project(org_id)
         if existing:
             return existing

@@ -4,6 +4,9 @@ import json
 from datetime import date, datetime
 from typing import Any
 
+from app.joysafeter_shared.ids import EntityId
+from app.joysafeter_shared.json_boundary import JsonBoundaryTypeError
+
 _MAX_STRING_CHARS = 1024
 _MAX_COLLECTION_ITEMS = 50
 _MAX_DEPTH = 8
@@ -75,7 +78,9 @@ def _sanitize_value(value: Any, *, depth: int) -> Any:
         return value
     if isinstance(value, (datetime, date)):
         return value.isoformat()
-    return _truncate_string(str(value))
+    if isinstance(value, EntityId):
+        return str(value)
+    raise JsonBoundaryTypeError(f"Unsupported trigger payload value: {type(value).__name__}")
 
 
 def _is_sensitive_key(key: str) -> bool:
@@ -91,7 +96,7 @@ def _truncate_string(value: str) -> str:
 
 
 def _safe_json_dump(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
 
 
 def _summarize_oversized_payload(payload: dict[str, Any], *, original_json_chars: int) -> dict[str, Any]:

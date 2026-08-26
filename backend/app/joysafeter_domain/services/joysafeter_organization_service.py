@@ -24,6 +24,7 @@ from app.joysafeter_domain.models.joysafeter_task import JoySafeterTask
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger
 from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ResourceConflictError
+from app.joysafeter_shared.ids import OrganizationId, OrganizationMemberId, ProjectId, UserId
 
 PROJECT_RESOURCE_BLOCKERS = (
     ("agents", JoySafeterAgent),
@@ -80,10 +81,10 @@ class OrganizationService:
         *,
         name: str,
         slug: str | None = None,
-        owner_user_id: str,
-        organization_id: str | None = None,
-        owner_member_id: str | None = None,
-        default_project_id: str | None = None,
+        owner_user_id: UserId,
+        organization_id: OrganizationId | None = None,
+        owner_member_id: OrganizationMemberId | None = None,
+        default_project_id: ProjectId | None = None,
     ) -> CreatedOrganization:
         if not name or not name.strip():
             raise InvalidRequestError(
@@ -94,33 +95,29 @@ class OrganizationService:
             )
 
         org_slug = self.normalize_slug(slug or name)
-        org_kwargs = {"name": name.strip(), "slug": org_slug}
-        if organization_id is not None:
-            org_kwargs["id"] = organization_id
-        org = Organization(**org_kwargs)
+        organization_id = organization_id or OrganizationId.new()
+        owner_member_id = owner_member_id or OrganizationMemberId.new()
+        default_project_id = default_project_id or ProjectId.new()
+        org = Organization(id=organization_id, name=name.strip(), slug=org_slug)
         self.db.add(org)
         await self.db.flush()
 
-        member_kwargs = {
-            "user_id": owner_user_id,
-            "organization_id": org.id,
-            "role": "owner",
-        }
-        if owner_member_id is not None:
-            member_kwargs["id"] = owner_member_id
-        owner_membership = Member(**member_kwargs)
+        owner_membership = Member(
+            id=owner_member_id,
+            user_id=owner_user_id,
+            organization_id=org.id,
+            role="owner",
+        )
         self.db.add(owner_membership)
 
-        project_kwargs = {
-            "org_id": org.id,
-            "name": self.DEFAULT_PROJECT_NAME,
-            "slug": self.DEFAULT_PROJECT_SLUG,
-            "is_default": True,
-            "created_by_user_id": owner_user_id,
-        }
-        if default_project_id is not None:
-            project_kwargs["id"] = default_project_id
-        default_project = Project(**project_kwargs)
+        default_project = Project(
+            id=default_project_id,
+            org_id=org.id,
+            name=self.DEFAULT_PROJECT_NAME,
+            slug=self.DEFAULT_PROJECT_SLUG,
+            is_default=True,
+            created_by_user_id=owner_user_id,
+        )
         self.db.add(default_project)
         await self.db.flush()
 
@@ -135,10 +132,10 @@ class OrganizationService:
         *,
         name: str,
         slug: str | None = None,
-        owner_user_id: str,
-        organization_id: str | None = None,
-        owner_member_id: str | None = None,
-        default_project_id: str | None = None,
+        owner_user_id: UserId,
+        organization_id: OrganizationId | None = None,
+        owner_member_id: OrganizationMemberId | None = None,
+        default_project_id: ProjectId | None = None,
     ) -> CreatedOrganization:
         created = await self.add_with_owner_and_default_project(
             name=name,
@@ -153,7 +150,7 @@ class OrganizationService:
         await self.db.refresh(created.default_project)
         return created
 
-    async def delete_organization(self, *, organization_id: str, actor_user_id: str) -> None:
+    async def delete_organization(self, *, organization_id: OrganizationId, actor_user_id: UserId) -> None:
         await OrganizationMemberService(self.db).require_owner(
             organization_id,
             actor_user_id,

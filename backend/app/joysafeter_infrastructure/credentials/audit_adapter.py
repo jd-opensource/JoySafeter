@@ -12,19 +12,20 @@ class SqlAlchemyCredentialAuditAdapter:
     async def append(self, entry: CredentialAuditEntry) -> None:
         details = {
             **dict(entry.details),
-            "project_id": entry.project_id,
+            "project_id": str(entry.project_id) if entry.project_id is not None else None,
             "target_type": entry.target_type,
             "principal_type": self._actor.principal_type,
             "principal_id": self._actor.principal_id,
         }
         if self._actor.org_id is not None:
-            details["org_id"] = self._actor.org_id
+            details["org_id"] = str(self._actor.org_id)
         if self._actor.role is not None:
             details["role"] = self._actor.role
         if entry.target_id is not None:
             details["target_id"] = entry.target_id
         self._db.add(
             SecurityAuditLog(
+                id=entry.id,
                 user_id=self._actor.user_id,
                 event_type=entry.action,
                 event_status="success",

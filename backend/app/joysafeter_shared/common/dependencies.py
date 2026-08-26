@@ -41,7 +41,7 @@ async def get_current_user(
     if not payload or payload.type != "access":
         raise AuthenticationError("Could not validate credentials", code="INVALID_CREDENTIALS")
 
-    result = await db.execute(select(User).where(User.id == str(payload.sub)))
+    result = await db.execute(select(User).where(User.id == payload.sub))
     user = result.scalar_one_or_none()
     if user is None:
         raise AuthenticationError("User not found", code="USER_NOT_FOUND")
@@ -70,7 +70,7 @@ async def get_current_user_optional(
     if not payload or payload.type != "access":
         return None
 
-    result = await db.execute(select(User).where(User.id == str(payload.sub)))
+    result = await db.execute(select(User).where(User.id == payload.sub))
     user = result.scalar_one_or_none()
     return user if user and user.is_active else None
 

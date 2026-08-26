@@ -4,14 +4,15 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Index, Integer, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.joysafeter_shared.database import Base
-from app.joysafeter_shared.ids import AgentId, EntityIdType, EventId, SandboxId, SessionId
+from app.joysafeter_shared.ids import AgentId, EnvironmentId, EventId, ProjectId, SandboxId, SessionId
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
-from .base import JoySafeterBaseModel
+from .base import JoySafeterModel
 
 
 class SessionStatus(str, enum.Enum):
@@ -28,7 +29,7 @@ class SessionStatus(str, enum.Enum):
             return cls.TERMINATED
 
 
-class JoySafeterSession(JoySafeterBaseModel):
+class JoySafeterSession(JoySafeterModel):
     __tablename__ = "joysafeter_sessions"
     __table_args__ = (
         Index("idx_csess_agent", "agent_id"),
@@ -39,10 +40,10 @@ class JoySafeterSession(JoySafeterBaseModel):
     )
 
     id: Mapped[SessionId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(SessionId), primary_key=True, default=SessionId.new
+        EntityIdType(SessionId), primary_key=True
     )
-    project_id: Mapped[Optional[str]] = mapped_column(
-        String(255),
+    project_id: Mapped[Optional[ProjectId]] = mapped_column(
+        EntityIdType(ProjectId),
         ForeignKey("joysafeter_organization_projects.id"),
         nullable=True,
         index=True,
@@ -65,7 +66,12 @@ class JoySafeterSession(JoySafeterBaseModel):
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default="{}")
     agent_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     agent_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    environment_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    environment_id: Mapped[Optional[EnvironmentId]] = mapped_column(
+        EntityIdType(EnvironmentId),
+        ForeignKey("joysafeter_environments.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     last_harness_session_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_work_dir: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_sandbox_id: Mapped[Optional[SandboxId]] = mapped_column(EntityIdType(SandboxId), nullable=True)
@@ -100,7 +106,7 @@ class JoySafeterSessionEvent(Base):
         Index("idx_cse_session_processed_event", "session_id", "processed_at", "event_type"),
     )
 
-    id: Mapped[EventId] = mapped_column(EntityIdType(EventId), primary_key=True, default=EventId.new)
+    id: Mapped[EventId] = mapped_column(EntityIdType(EventId), primary_key=True)
     session_id: Mapped[SessionId] = mapped_column(
         EntityIdType(SessionId),
         ForeignKey("joysafeter_sessions.id"),

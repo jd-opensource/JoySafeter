@@ -7,6 +7,8 @@ Python equivalent of joysafeter-native's AuthContext.
 from dataclasses import dataclass
 from enum import Enum, IntEnum
 
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, UserId
+
 
 class JoySafeterRole(str, Enum):
     """Organization-level role.
@@ -123,9 +125,9 @@ def effective_project_capability(
 class JoySafeterAuthContext:
     """Resolved auth context for a joysafeter API request."""
 
-    user_id: str
-    org_id: str
-    project_id: str
+    user_id: UserId
+    org_id: OrganizationId
+    project_id: ProjectId | None
     role: JoySafeterRole
     # How the caller authenticated. "user" = a human principal (session/JWT);
     # "api_key" = a service principal. Per-user fairness quotas apply only to
@@ -144,5 +146,11 @@ class JoySafeterAuthContext:
     principal_id: str | None = None
 
     def __post_init__(self) -> None:
+        if type(self.user_id) is not UserId:
+            raise TypeError("user_id must be UserId")
+        if type(self.org_id) is not OrganizationId:
+            raise TypeError("org_id must be OrganizationId")
+        if self.project_id is not None and type(self.project_id) is not ProjectId:
+            raise TypeError("project_id must be ProjectId")
         if self.principal_id is None:
-            self.principal_id = self.user_id
+            self.principal_id = str(self.user_id)

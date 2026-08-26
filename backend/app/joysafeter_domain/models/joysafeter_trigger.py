@@ -8,9 +8,20 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Te
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_shared.ids import AgentId, CredentialId, EntityIdType, SessionId, TaskId, TriggerId
+from app.joysafeter_shared.ids import (
+    AgentId,
+    CredentialId,
+    EnvironmentId,
+    OrganizationId,
+    ProjectId,
+    SessionId,
+    TaskId,
+    TriggerId,
+    UserId,
+)
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
-from .base import JoySafeterBaseModel
+from .base import JoySafeterModel
 
 
 class TriggerConcurrencyPolicy(str, enum.Enum):
@@ -21,7 +32,7 @@ class TriggerConcurrencyPolicy(str, enum.Enum):
     REPLACE = "replace"  # cancel the still-active task(s), then fire
 
 
-class JoySafeterTrigger(JoySafeterBaseModel):
+class JoySafeterTrigger(JoySafeterModel):
     __tablename__ = "joysafeter_triggers"
     __table_args__ = (
         Index(
@@ -54,7 +65,7 @@ class JoySafeterTrigger(JoySafeterBaseModel):
     )
 
     id: Mapped[TriggerId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(TriggerId), primary_key=True, default=TriggerId.new
+        EntityIdType(TriggerId), primary_key=True
     )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -63,7 +74,12 @@ class JoySafeterTrigger(JoySafeterBaseModel):
     agent_id: Mapped[AgentId] = mapped_column(EntityIdType(AgentId), ForeignKey("joysafeter_agents.id"), nullable=False)
     prompt_template: Mapped[str] = mapped_column(Text, nullable=False)
     system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    environment_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    environment_id: Mapped[Optional[EnvironmentId]] = mapped_column(
+        EntityIdType(EnvironmentId),
+        ForeignKey("joysafeter_environments.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
     session_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="fresh", server_default="fresh")
     session_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -88,7 +104,12 @@ class JoySafeterTrigger(JoySafeterBaseModel):
     cron_expr: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     timezone: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    concurrency_policy: Mapped[str] = mapped_column(String(16), nullable=False, default=TriggerConcurrencyPolicy.ALLOW.value, server_default=TriggerConcurrencyPolicy.ALLOW.value)
+    concurrency_policy: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=TriggerConcurrencyPolicy.ALLOW.value,
+        server_default=TriggerConcurrencyPolicy.ALLOW.value,
+    )
     next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_fired_slot: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -106,11 +127,11 @@ class JoySafeterTrigger(JoySafeterBaseModel):
     locked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    project_id: Mapped[Optional[str]] = mapped_column(
-        String(255), ForeignKey("joysafeter_organization_projects.id"), nullable=True
+    project_id: Mapped[Optional[ProjectId]] = mapped_column(
+        EntityIdType(ProjectId), ForeignKey("joysafeter_organization_projects.id"), nullable=True
     )
-    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    org_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    user_id: Mapped[Optional[UserId]] = mapped_column(EntityIdType(UserId), nullable=True)
+    org_id: Mapped[Optional[OrganizationId]] = mapped_column(EntityIdType(OrganizationId), nullable=True)
 
     last_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

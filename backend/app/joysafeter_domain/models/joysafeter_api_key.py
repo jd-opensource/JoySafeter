@@ -5,13 +5,15 @@ JoySafeter API key model — project-scoped API keys for programmatic access.
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, Index, String, Text, text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, Index, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_domain.models.base import JoySafeterBaseModel
+from app.joysafeter_domain.models.base import JoySafeterModel
+from app.joysafeter_shared.ids import ApiKeyId, OrganizationId, ProjectId, UserId
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 
-class JoySafeterApiKey(JoySafeterBaseModel):
+class JoySafeterApiKey(JoySafeterModel):
     """
     API key for authenticating joysafeter API requests.
 
@@ -41,21 +43,23 @@ class JoySafeterApiKey(JoySafeterBaseModel):
         ),
     )
 
-    project_id: Mapped[str] = mapped_column(
-        String(255),
+    id: Mapped[ApiKeyId] = mapped_column(EntityIdType(ApiKeyId), primary_key=True)
+
+    project_id: Mapped[ProjectId] = mapped_column(
+        EntityIdType(ProjectId),
         ForeignKey("joysafeter_organization_projects.id", ondelete="CASCADE"),
         nullable=False,
     )
-    org_id: Mapped[str] = mapped_column(
-        String(255),
+    org_id: Mapped[OrganizationId] = mapped_column(
+        EntityIdType(OrganizationId),
         ForeignKey("joysafeter_organizations.id", ondelete="CASCADE"),
         nullable=False,
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     key_hash: Mapped[str] = mapped_column(Text, nullable=False)
     key_prefix: Mapped[str] = mapped_column(Text, nullable=False)
-    created_by: Mapped[str] = mapped_column(
-        String(255),
+    created_by: Mapped[UserId] = mapped_column(
+        EntityIdType(UserId),
         ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )

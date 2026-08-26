@@ -1,6 +1,5 @@
 """Identity and managed user-context routes under ``/api/v1/auth``."""
 
-import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Annotated, Literal, Optional, cast
@@ -14,13 +13,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.joysafeter_api.api.v1.audit import audit_joysafeter_event
+from app.joysafeter_api.api.v1.tenant_auth_schemas import (
+    ActiveProjectContextResponse,
+    AuthMeResponse,
+    AuthUserSummaryResponse,
+    LoginResponseData,
+    LoginUserResponse,
+    OrganizationContextResponse,
+    ProjectContextResponse,
+    RefreshResponseData,
+    RegistrationResponseData,
+    SwitchContextResponse,
+)
 from app.joysafeter_application.api_keys import ApiKeyRevokeResult, ApiKeyService, api_key_status
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
-from app.joysafeter_domain.services.joysafeter_auth_service import AuthService
+from app.joysafeter_domain.services.joysafeter_auth_service import AuthService, IssuedLoginTokens
 from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
-from app.joysafeter_domain.services.joysafeter_organization_service import OrganizationService
 from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_shared.common.app_errors import (
     AccessDeniedError,
@@ -44,9 +54,16 @@ from app.joysafeter_shared.common.joysafeter_auth.context import (
     ProjectRole,
     effective_project_capability,
 )
-from app.joysafeter_shared.common.response import success_response
+from app.joysafeter_shared.common.response import ApiResponse
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import (
+    ApiKeyId,
+    OrganizationId,
+    OrganizationMemberId,
+    ProjectId,
+    UserId,
+)
 from app.joysafeter_shared.rate_limit import auth_rate_limit, strict_rate_limit
 from app.joysafeter_shared.security import Token, create_access_token, decode_token
 
@@ -58,45 +75,18 @@ router = APIRouter(tags=["joysafeter-auth"])
 # ---------------------------------------------------------------------------
 
 
-class AuthMeResponse(BaseModel):
-    user_id: str
-    org_id: str
-    project_id: str
-    role: str
-    org_name: Optional[str] = None
-    project_name: Optional[str] = None
-
-
 class SwitchContextRequest(BaseModel):
-    org_id: Optional[str] = None
-    project_id: Optional[str] = None
+    org_id: Optional[OrganizationId] = None
+    project_id: Optional[ProjectId] = None
 
 
-class ProjectContextResponse(BaseModel):
-    id: str
-    org_id: str
-    name: str
-    slug: str
-    is_default: bool
-    archived_at: Optional[str] = None
-
-
-class ActiveProjectContextResponse(ProjectContextResponse):
-    project_role: Optional[str] = None
-    capability: str
-
-
-class SwitchContextResponse(BaseModel):
-    org_id: str
-    project_id: str
-    access_token: str
-    project: ActiveProjectContextResponse
-    projects: list[ProjectContextResponse]
+class ProjectArchiveResponse(BaseModel):
+    status: Literal["archived"]
 
 
 class ProjectResponse(BaseModel):
-    id: str
-    org_id: str
+    id: ProjectId
+    org_id: OrganizationId
     name: str
     slug: str
     is_default: bool
@@ -104,7 +94,7 @@ class ProjectResponse(BaseModel):
     archived_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
-    created_by_user_id: Optional[str] = None
+    created_by_user_id: Optional[UserId] = None
     project_role: Optional[str] = None
     capability: str
 
@@ -112,8 +102,8 @@ class ProjectResponse(BaseModel):
 class PaginatedProjectsResponse(BaseModel):
     data: list[ProjectResponse]
     has_more: bool
-    first_id: Optional[str] = None
-    last_id: Optional[str] = None
+    first_id: Optional[ProjectId] = None
+    last_id: Optional[ProjectId] = None
 
 
 class CreateProjectRequest(BaseModel):
@@ -122,8 +112,8 @@ class CreateProjectRequest(BaseModel):
 
 
 class ApiKeyResponse(BaseModel):
-    id: str
-    project_id: str
+    id: ApiKeyId
+    project_id: ProjectId
     name: str
     key_prefix: str
     role: str
@@ -137,8 +127,8 @@ class ApiKeyResponse(BaseModel):
 class PaginatedApiKeysResponse(BaseModel):
     data: list[ApiKeyResponse]
     has_more: bool
-    first_id: Optional[str] = None
-    last_id: Optional[str] = None
+    first_id: Optional[ApiKeyId] = None
+    last_id: Optional[ApiKeyId] = None
 
 
 class ApiKeyCreateResponse(ApiKeyResponse):
@@ -219,9 +209,9 @@ def _effective_project_role_for_response(
 async def _project_roles_for_user(
     db: AsyncSession,
     *,
-    user_id: str,
-    project_ids: list[str],
-) -> dict[str, str]:
+    user_id: UserId,
+    project_ids: list[ProjectId],
+) -> dict[ProjectId, str]:
     if not project_ids:
         return {}
     result = await db.execute(
@@ -233,48 +223,55 @@ async def _project_roles_for_user(
     return {project_id: role for project_id, role in result.all()}
 
 
-def _project_context_payload(project: Project) -> dict[str, object]:
-    return {
-        "id": project.id,
-        "org_id": project.org_id,
-        "name": project.name,
-        "slug": project.slug,
-        "is_default": project.is_default,
-        "archived_at": project.archived_at.isoformat() if project.archived_at else None,
-    }
+def _project_context_response(project: Project) -> ProjectContextResponse:
+    return ProjectContextResponse(
+        id=project.id,
+        org_id=project.org_id,
+        name=project.name,
+        slug=project.slug,
+        is_default=project.is_default,
+        archived_at=project.archived_at.isoformat() if project.archived_at else None,
+    )
 
 
-def _active_project_payload(
-    project: Project | None, *, project_id: str, org_id: str, org_role: JoySafeterRole, project_role: str | None
-) -> dict[str, object]:
+def _active_project_response(
+    project: Project | None,
+    *,
+    project_id: ProjectId,
+    org_id: OrganizationId,
+    org_role: JoySafeterRole,
+    project_role: str | None,
+) -> ActiveProjectContextResponse:
     """Project-context payload enriched with the caller's effective capability.
 
     The frontend gates per-project write/admin UI on `capability`.
     """
     if project is not None:
-        payload = _project_context_payload(project)
+        project_response = _project_context_response(project)
     else:
-        payload = {
-            "id": project_id,
-            "org_id": org_id,
-            "name": "",
-            "slug": "",
-            "is_default": True,
-            "archived_at": None,
-        }
-    payload["project_role"] = project_role
+        project_response = ProjectContextResponse(
+            id=project_id,
+            org_id=org_id,
+            name="",
+            slug="",
+            is_default=True,
+            archived_at=None,
+        )
     effective_role = _effective_project_role_for_response(
-        is_default=bool(payload["is_default"]),
+        is_default=project_response.is_default,
         org_role=org_role,
         project_role=project_role,
     )
-    payload["capability"] = effective_project_capability(org_role, effective_role).name.lower()
-    return payload
+    return ActiveProjectContextResponse(
+        **project_response.model_dump(),
+        project_role=project_role,
+        capability=effective_project_capability(org_role, effective_role).name.lower(),
+    )
 
 
 def _api_key_to_response(key) -> ApiKeyResponse:
     return ApiKeyResponse(
-        id=str(key.id),
+        id=key.id,
         project_id=key.project_id,
         name=key.name,
         key_prefix=key.key_prefix,
@@ -293,7 +290,7 @@ async def _commit_api_key_audit(
     auth_ctx: JoySafeterAuthContext,
     *,
     event_type: str,
-    target_id: str,
+    target_id: ApiKeyId,
     details: dict | None = None,
 ) -> None:
     try:
@@ -318,7 +315,7 @@ def _auth_permission_error(
     *,
     code: str,
     message: str,
-    organization_id: str | None = None,
+    organization_id: OrganizationId | None = None,
     actor_role: str | None = None,
     target_role: str | None = None,
     current_role: str | None = None,
@@ -406,12 +403,12 @@ def _get_samesite_value(value: str) -> Optional[SameSiteType]:
     return None
 
 
-def _set_auth_cookies(response: Response, result: dict) -> None:
+def _set_auth_cookies(response: Response, result: IssuedLoginTokens) -> None:
     """Write auth cookies from a login/refresh result."""
-    access_token = result.get("access_token")
-    refresh_token = result.get("refresh_token")
-    csrf_token = result.get("csrf_token")
-    expires_in = result.get("expires_in", settings.cookie_max_age)
+    access_token = result.access_token
+    refresh_token = result.refresh_token
+    csrf_token = result.csrf_token
+    expires_in = result.expires_in
 
     if access_token:
         response.set_cookie(
@@ -502,7 +499,7 @@ class ChangePasswordRequest(BaseModel):
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
+    id: UserId
     email: str
     name: str
     image: Optional[str]
@@ -510,8 +507,16 @@ class UserResponse(BaseModel):
     is_super_user: bool
 
 
+class AuthSessionResponseData(BaseModel):
+    user: UserResponse | None
+
+
+class WebSocketTokenResponseData(BaseModel):
+    token: str
+
+
 class PlatformUserResponse(BaseModel):
-    id: str
+    id: UserId
     email: str
     name: str
     image: Optional[str] = None
@@ -525,12 +530,12 @@ class PlatformUserResponse(BaseModel):
 class PaginatedPlatformUsersResponse(BaseModel):
     data: list[PlatformUserResponse]
     has_more: bool
-    first_id: Optional[str] = None
-    last_id: Optional[str] = None
+    first_id: Optional[UserId] = None
+    last_id: Optional[UserId] = None
 
 
 class PlatformOrganizationResponse(BaseModel):
-    id: str
+    id: OrganizationId
     name: str
     slug: str
     logo: Optional[str] = None
@@ -549,6 +554,30 @@ class UpdatePlatformUserRequest(BaseModel):
 
 
 # --- Identity-flow helpers --------------------------------------------------
+
+
+def _login_user_to_response(result: IssuedLoginTokens) -> LoginUserResponse:
+    return LoginUserResponse.model_validate(result.user)
+
+
+def _login_response_data(result: IssuedLoginTokens) -> LoginResponseData:
+    return LoginResponseData(
+        user=_login_user_to_response(result),
+        access_token=result.access_token,
+        refresh_token=result.refresh_token,
+        csrf_token=result.csrf_token,
+        token_type=result.token_type,
+        expires_in=result.expires_in,
+    )
+
+
+def _refresh_response_data(result: IssuedLoginTokens) -> RefreshResponseData:
+    return RefreshResponseData(
+        access_token=result.access_token,
+        csrf_token=result.csrf_token,
+        token_type=result.token_type,
+        expires_in=result.expires_in,
+    )
 
 
 def _extract_bearer(auth_header: Optional[str]) -> str:
@@ -596,7 +625,7 @@ async def _get_current_auth_user(
     if not payload or payload.type != "access":
         raise AuthenticationError("Invalid or expired token", code="TOKEN_INVALID")
 
-    user = await user_service.get_user_by_id(str(payload.sub))
+    user = await user_service.get_user_by_id(payload.sub)
     if user and user.is_active:
         return user
     raise AuthenticationError("User not found or inactive", code="USER_INVALID")
@@ -604,7 +633,7 @@ async def _get_current_auth_user(
 
 def _user_to_response(user: AuthUser) -> UserResponse:
     return UserResponse(
-        id=str(user.id),
+        id=user.id,
         email=user.email,
         name=user.name,
         image=user.image,
@@ -637,10 +666,10 @@ async def sign_up_with_email(
     body: RegisterRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
-):
+) -> ApiResponse[RegistrationResponseData]:
     """Email registration endpoint."""
     service = AuthService(db)
-    data = await service.register(
+    result = await service.register(
         email=body.email,
         name=body.name,
         password=body.password,
@@ -649,9 +678,8 @@ async def sign_up_with_email(
     )
 
     # Do not auto-login after signup; no Cookie is set. User must sign in manually.
-    user_data = data.get("user", {})
-    return success_response(
-        data={"user": user_data},
+    return ApiResponse(
+        data=RegistrationResponseData(user=_login_user_to_response(result)),
         message="Registration successful. Please sign in to continue.",
     )
 
@@ -663,12 +691,12 @@ async def sign_in_with_email(
     body: LoginRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
-):
+) -> ApiResponse[LoginResponseData]:
     """Email login endpoint."""
     service = AuthService(db)
     result = await service.login(email=body.email, password=body.password)
     _set_auth_cookies(response, result)
-    return success_response(data=result, message="Login successful")
+    return ApiResponse(data=_login_response_data(result), message="Login successful")
 
 
 @router.post("/login/form", response_model=Token)
@@ -680,9 +708,9 @@ async def login_form(
     service = AuthService(db)
     result = await service.login(email=form_data.username, password=form_data.password)
     return Token(
-        access_token=result["access_token"],
-        token_type=result["token_type"],
-        expires_in=result["expires_in"],
+        access_token=result.access_token,
+        token_type=result.token_type,
+        expires_in=result.expires_in,
     )
 
 
@@ -692,7 +720,7 @@ async def logout(
     response: Response,
     token: Optional[str] = Header(None, alias="Authorization"),
     db: AsyncSession = Depends(get_db),
-):
+) -> ApiResponse[None]:
     """Logout current user by invalidating tokens and clearing cookies."""
     try:
         service = AuthService(db)
@@ -730,14 +758,14 @@ async def logout(
             samesite=_get_samesite_value(settings.cookie_samesite),
         )
 
-        return success_response(message="Logout successful")
+        return ApiResponse(message="Logout successful")
 
     except Exception:
         logger.debug("Failed to perform full logout, clearing cookies anyway", exc_info=True)
         response.delete_cookie(key=settings.cookie_name, domain=settings.cookie_domain, path="/")
         response.delete_cookie(key="refresh_token", domain=settings.cookie_domain, path="/")
         response.delete_cookie(key="csrf_token", domain=settings.cookie_domain, path="/")
-        return success_response(message="Logout successful")
+        return ApiResponse(message="Logout successful")
 
 
 @router.post("/forgot-password")
@@ -746,11 +774,11 @@ async def forgot_password(
     http_request: Request,
     body: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db),
-):
+) -> ApiResponse[None]:
     """Request a password reset email (silent even if email is unknown)."""
     service = AuthService(db)
     await service.request_password_reset(body.email)
-    return success_response(message="If your email is registered, you will receive a password reset link shortly.")
+    return ApiResponse(message="If your email is registered, you will receive a password reset link shortly.")
 
 
 @router.post("/reset-password")
@@ -759,14 +787,14 @@ async def reset_password(
     http_request: Request,
     body: ResetPasswordRequest,
     db: AsyncSession = Depends(get_db),
-):
+) -> ApiResponse[None]:
     """Reset password using a one-time token."""
     service = AuthService(db)
     await service.reset_password(
         token=body.token,
         new_password=body.new_password,
     )
-    return success_response(message="Password reset successful")
+    return ApiResponse(message="Password reset successful")
 
 
 @router.post("/me/reset-password")
@@ -775,7 +803,7 @@ async def reset_password_for_current_user(
     body: ChangePasswordRequest,
     db: AsyncSession = Depends(get_db),
     token: Optional[str] = Header(None, alias="Authorization"),
-):
+) -> ApiResponse[None]:
     """Change password for the current logged-in user."""
     current_user = await _get_current_auth_user(token, db, http_request)
     service = AuthService(db)
@@ -784,7 +812,7 @@ async def reset_password_for_current_user(
         old_password=body.old_password,
         new_password=body.new_password,
     )
-    return success_response(message="Password changed successfully")
+    return ApiResponse(message="Password changed successfully")
 
 
 @router.post("/me/change-password")
@@ -793,7 +821,7 @@ async def change_password_for_current_user(
     body: ChangePasswordRequest,
     db: AsyncSession = Depends(get_db),
     token: Optional[str] = Header(None, alias="Authorization"),
-):
+) -> ApiResponse[None]:
     """Change the current user's password after verifying the old password."""
     return await reset_password_for_current_user(
         http_request=http_request,
@@ -807,23 +835,23 @@ async def change_password_for_current_user(
 async def verify_email(
     token: str = Body(..., embed=True),
     db: AsyncSession = Depends(get_db),
-):
+) -> ApiResponse[None]:
     """Verify email ownership using the provided token."""
     service = AuthService(db)
     await service.verify_email(token)
-    return success_response(message="Email verified successfully")
+    return ApiResponse(message="Email verified successfully")
 
 
 @router.post("/resend-verification")
 async def resend_verification(
     db: AsyncSession = Depends(get_db),
     token: Optional[str] = Header(None, alias="Authorization"),
-):
+) -> ApiResponse[None]:
     """Resend a verification email to the current user."""
     current_user = await _get_current_auth_user(token, db)
     service = AuthService(db)
     await service.resend_verification_email(current_user)
-    return success_response(message="Verification email sent")
+    return ApiResponse(message="Verification email sent")
 
 
 @router.get("/session")
@@ -831,16 +859,16 @@ async def get_session(
     request: Request,
     db: AsyncSession = Depends(get_db),
     token: Optional[str] = Header(None, alias="Authorization"),
-):
+) -> ApiResponse[AuthSessionResponseData]:
     """Get current user session (JWT mode: returns user info from token)."""
     try:
         current_user = await _get_current_auth_user(token, db, request)
-        return success_response(data={"user": _user_to_response(current_user)})
+        return ApiResponse(data=AuthSessionResponseData(user=_user_to_response(current_user)))
     except AppError:
         if _has_auth_credentials(request, token):
             raise
         # Return null user only when no auth credential was provided.
-        return success_response(data={"user": None})
+        return ApiResponse(data=AuthSessionResponseData(user=None))
 
 
 @router.get("/ws-token")
@@ -848,11 +876,11 @@ async def get_ws_token(
     request: Request,
     db: AsyncSession = Depends(get_db),
     token: Optional[str] = Header(None, alias="Authorization"),
-):
+) -> ApiResponse[WebSocketTokenResponseData]:
     """Return a short-lived token for WebSocket authentication (60 s)."""
     current_user = await _get_current_auth_user(token, db, request)
-    ws_token = create_access_token(str(current_user.id), expires_delta=timedelta(seconds=60))
-    return success_response(data={"token": ws_token})
+    ws_token = create_access_token(current_user.id, expires_delta=timedelta(seconds=60))
+    return ApiResponse(data=WebSocketTokenResponseData(token=ws_token))
 
 
 @router.post("/refresh")
@@ -861,7 +889,7 @@ async def refresh_token(
     response: Response,
     db: AsyncSession = Depends(get_db),
     token: Optional[str] = Header(None, alias="Authorization"),
-):
+) -> ApiResponse[RefreshResponseData]:
     """Refresh access token using refresh token from Cookie or Authorization header."""
 
     service = AuthService(db)
@@ -879,31 +907,11 @@ async def refresh_token(
             payload = decode_token(bearer_token)
             if payload and getattr(payload, "type", None) == "refresh":
                 user_id = payload.sub
-                user = await service.get_user_by_id(str(user_id))
+                user = await service.get_user_by_id(user_id)
                 if user and user.is_active:
-                    (
-                        access_token,
-                        new_refresh_token,
-                        csrf_token,
-                        access_expires,
-                        refresh_expires,
-                    ) = await service._issue_jwt_tokens(user.id)
-                    result = {
-                        "access_token": access_token,
-                        "refresh_token": new_refresh_token,
-                        "csrf_token": csrf_token,
-                        "token_type": "bearer",
-                        "expires_in": int((access_expires - datetime.now(timezone.utc)).total_seconds()),
-                    }
+                    result = await service.issue_login_tokens(user)
                     _set_auth_cookies(response, result)
-                    return success_response(
-                        data={
-                            "access_token": result["access_token"],
-                            "csrf_token": result["csrf_token"],
-                            "token_type": result["token_type"],
-                            "expires_in": result["expires_in"],
-                        }
-                    )
+                    return ApiResponse(data=_refresh_response_data(result))
         except Exception:
             logger.debug("Failed to refresh token via Authorization header", exc_info=True)
 
@@ -911,14 +919,7 @@ async def refresh_token(
         try:
             result = await service.refresh_token(refresh_token_value)
             _set_auth_cookies(response, result)
-            return success_response(
-                data={
-                    "access_token": result["access_token"],
-                    "csrf_token": result["csrf_token"],
-                    "token_type": result["token_type"],
-                    "expires_in": result["expires_in"],
-                }
-            )
+            return ApiResponse(data=_refresh_response_data(result))
         except Exception:
             logger.debug("Failed to refresh token via cookie refresh_token", exc_info=True)
 
@@ -935,7 +936,7 @@ async def refresh_token(
 async def get_me(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
-):
+) -> AuthMeResponse:
     """Return current user + org + project info in the format expected by the frontend."""
     # Look up user
     user_result = await db.execute(select(AuthUser).where(AuthUser.id == auth_ctx.user_id).limit(1))
@@ -972,19 +973,19 @@ async def get_me(
     )
     all_memberships = all_members_result.all()
     organizations = [
-        {
-            "id": o.id,
-            "name": o.name,
-            "slug": o.slug,
-            "role": m.role,
-            "owner_name": owner.name if owner else None,
-            "owner_email": owner.email if owner else None,
-            "project_creation_policy": o.project_creation_policy,
-            "created_at": o.created_at.isoformat() if o.created_at else None,
-        }
-        for m, o, owner in all_memberships
+        OrganizationContextResponse(
+            id=organization.id,
+            name=organization.name,
+            slug=organization.slug,
+            role=membership.role,
+            owner_name=owner.name if owner else None,
+            owner_email=owner.email if owner else None,
+            project_creation_policy=organization.project_creation_policy,
+            created_at=organization.created_at.isoformat() if organization.created_at else None,
+        )
+        for membership, organization, owner in all_memberships
     ]
-    current_organization = next((item for item in organizations if item["id"] == auth_ctx.org_id), None)
+    current_organization = next((item for item in organizations if item.id == auth_ctx.org_id), None)
 
     # List projects accessible in current org
     all_projects = await project_svc.list_accessible_projects(
@@ -992,33 +993,33 @@ async def get_me(
         user_id=auth_ctx.user_id,
         org_role=auth_ctx.role,
     )
-    projects = [_project_context_payload(p) for p in all_projects]
+    projects = [_project_context_response(project) for project in all_projects]
 
-    return {
-        "user": {
-            "id": user.id if user else auth_ctx.user_id,
-            "email": user.email if user else "",
-            "name": user.name if user else "",
-        },
-        "organization": {
-            "id": org.id if org else auth_ctx.org_id,
-            "name": org.name if org else "",
-            "slug": org.slug if org else "",
-            "role": auth_ctx.role.value,
-            "owner_name": current_organization["owner_name"] if current_organization else None,
-            "owner_email": current_organization["owner_email"] if current_organization else None,
-            "project_creation_policy": org.project_creation_policy if org else "admins_only",
-        },
-        "project": _active_project_payload(
+    return AuthMeResponse(
+        user=AuthUserSummaryResponse(
+            id=user.id if user else auth_ctx.user_id,
+            email=user.email if user else "",
+            name=user.name if user else "",
+        ),
+        organization=OrganizationContextResponse(
+            id=org.id if org else auth_ctx.org_id,
+            name=org.name if org else "",
+            slug=org.slug if org else "",
+            role=auth_ctx.role.value,
+            owner_name=current_organization.owner_name if current_organization else None,
+            owner_email=current_organization.owner_email if current_organization else None,
+            project_creation_policy=org.project_creation_policy if org else "admins_only",
+        ),
+        project=_active_project_response(
             proj,
             project_id=auth_ctx.project_id,
             org_id=auth_ctx.org_id,
             org_role=auth_ctx.role,
             project_role=auth_ctx.project_role,
         ),
-        "organizations": organizations,
-        "projects": projects,
-    }
+        organizations=organizations,
+        projects=projects,
+    )
 
 
 @router.post("/switch-context")
@@ -1108,26 +1109,26 @@ async def switch_context(
     )
 
     target_project_role = await project_svc.get_project_member_role(target_project_id, auth_ctx.user_id)
-    return {
-        "org_id": target_org_id,
-        "project_id": target_project_id,
-        "access_token": new_access_token,
-        "project": _active_project_payload(
+    return SwitchContextResponse(
+        org_id=target_org_id,
+        project_id=target_project_id,
+        access_token=new_access_token,
+        project=_active_project_response(
             resolved_project,
             project_id=target_project_id,
             org_id=target_org_id,
             org_role=JoySafeterRole.normalize(member.role),
             project_role=target_project_role,
         ),
-        "projects": [_project_context_payload(p) for p in all_projects],
-    }
+        projects=[_project_context_response(project) for project in all_projects],
+    )
 
 
 @router.get("/projects")
 async def list_projects(
     include_archived: bool = Query(False),
     limit: int = Query(50, ge=1, le=200),
-    after_id: Optional[str] = Query(None),
+    after_id: Optional[ProjectId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> PaginatedProjectsResponse:
@@ -1201,7 +1202,7 @@ async def create_project(
 @router.get("/api-keys")
 async def list_api_keys(
     limit: int = Query(50, ge=1, le=200),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[ApiKeyId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> PaginatedApiKeysResponse:
@@ -1212,8 +1213,8 @@ async def list_api_keys(
     return PaginatedApiKeysResponse(
         data=data,
         has_more=has_more,
-        first_id=str(keys[0].id) if keys else None,
-        last_id=str(keys[-1].id) if keys else None,
+        first_id=keys[0].id if keys else None,
+        last_id=keys[-1].id if keys else None,
     )
 
 
@@ -1241,11 +1242,11 @@ async def create_api_key(
         request,
         auth_ctx,
         event_type="api_key.created",
-        target_id=str(api_key.id),
+        target_id=api_key.id,
         details={"name": api_key.name, "key_prefix": api_key.key_prefix, "assigned_role": api_key.role},
     )
     return ApiKeyCreateResponse(
-        id=str(api_key.id),
+        id=api_key.id,
         project_id=api_key.project_id,
         name=api_key.name,
         key_prefix=api_key.key_prefix,
@@ -1261,7 +1262,7 @@ async def create_api_key(
 
 @router.delete("/api-keys/{key_id}", status_code=204)
 async def revoke_api_key(
-    key_id: uuid.UUID,
+    key_id: ApiKeyId,
     request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_write),
@@ -1282,15 +1283,15 @@ async def revoke_api_key(
             request,
             auth_ctx,
             event_type="api_key.revoked",
-            target_id=str(key_id),
+            target_id=key_id,
         )
 
 
 @router.get("/projects/{project_id}/api-keys")
 async def list_project_api_keys(
-    project_id: str,
+    project_id: ProjectId,
     limit: int = Query(50, ge=1, le=200),
-    after_id: Optional[uuid.UUID] = Query(None),
+    after_id: Optional[ApiKeyId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_project_admin),
 ) -> PaginatedApiKeysResponse:
@@ -1303,14 +1304,14 @@ async def list_project_api_keys(
     return PaginatedApiKeysResponse(
         data=[_api_key_to_response(key) for key in keys],
         has_more=has_more,
-        first_id=str(keys[0].id) if keys else None,
-        last_id=str(keys[-1].id) if keys else None,
+        first_id=keys[0].id if keys else None,
+        last_id=keys[-1].id if keys else None,
     )
 
 
 @router.post("/projects/{project_id}/api-keys", status_code=201)
 async def create_project_api_key(
-    project_id: str,
+    project_id: ProjectId,
     req: CreateApiKeyRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -1332,11 +1333,11 @@ async def create_project_api_key(
         request,
         auth_ctx,
         event_type="api_key.created",
-        target_id=str(api_key.id),
+        target_id=api_key.id,
         details={"name": api_key.name, "key_prefix": api_key.key_prefix, "assigned_role": api_key.role},
     )
     return ApiKeyCreateResponse(
-        id=str(api_key.id),
+        id=api_key.id,
         project_id=api_key.project_id,
         name=api_key.name,
         key_prefix=api_key.key_prefix,
@@ -1352,8 +1353,8 @@ async def create_project_api_key(
 
 @router.delete("/projects/{project_id}/api-keys/{key_id}", status_code=204)
 async def revoke_project_api_key(
-    project_id: str,
-    key_id: uuid.UUID,
+    project_id: ProjectId,
+    key_id: ApiKeyId,
     request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_project_admin),
@@ -1373,7 +1374,7 @@ async def revoke_project_api_key(
             request,
             auth_ctx,
             event_type="api_key.revoked",
-            target_id=str(key_id),
+            target_id=key_id,
         )
 
 
@@ -1384,7 +1385,7 @@ async def revoke_project_api_key(
 
 @router.get("/projects/{project_id}")
 async def get_project(
-    project_id: str,
+    project_id: ProjectId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
 ) -> ProjectResponse:
@@ -1409,7 +1410,7 @@ class UpdateProjectRequest(BaseModel):
 
 @router.patch("/projects/{project_id}")
 async def update_project(
-    project_id: str,
+    project_id: ProjectId,
     req: UpdateProjectRequest,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
@@ -1442,20 +1443,20 @@ async def update_project(
 
 @router.delete("/projects/{project_id}")
 async def archive_project(
-    project_id: str,
+    project_id: ProjectId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
-) -> dict:
+) -> ProjectArchiveResponse:
     try:
         await ProjectService(db).archive_project(project_id, auth_ctx.org_id)
     except ValueError:
         raise _project_not_found_error(project_id, organization_id=auth_ctx.org_id)
-    return {"status": "archived"}
+    return ProjectArchiveResponse(status="archived")
 
 
 @router.post("/projects/{project_id}/set-default")
 async def set_default_project(
-    project_id: str,
+    project_id: ProjectId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> ProjectResponse:
@@ -1469,7 +1470,7 @@ async def set_default_project(
 
 @router.post("/projects/{project_id}/restore")
 async def restore_project(
-    project_id: str,
+    project_id: ProjectId,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_admin),
 ) -> ProjectResponse:
@@ -1500,8 +1501,8 @@ class ProjectAccess(str, Enum):
 
 
 class ProjectMemberResponse(BaseModel):
-    id: Optional[str] = None
-    user_id: str
+    id: Optional[OrganizationMemberId] = None
+    user_id: UserId
     email: str
     display_name: str
     org_role: str
@@ -1513,12 +1514,12 @@ class ProjectMemberResponse(BaseModel):
 class PaginatedProjectMembersResponse(BaseModel):
     data: list[ProjectMemberResponse]
     has_more: bool
-    first_id: Optional[str] = None
-    last_id: Optional[str] = None
+    first_id: Optional[OrganizationMemberId] = None
+    last_id: Optional[OrganizationMemberId] = None
 
 
 class AddProjectMemberRequest(BaseModel):
-    user_id: str
+    user_id: UserId
     # Project role: admin / editor / viewer. Normalized on grant; drives the
     # member's effective capability in this project. Defaults to viewer (least
     # privilege); the management UI always sends an explicit role.
@@ -1536,7 +1537,7 @@ def _project_member_access(org_role: str, *, has_explicit_row: bool, is_default:
 async def _require_target_project_admin(
     svc: ProjectService,
     *,
-    project_id: str,
+    project_id: ProjectId,
     auth_ctx: JoySafeterAuthContext,
 ) -> None:
     project_role = await svc.get_project_member_role(project_id, auth_ctx.user_id)
@@ -1549,10 +1550,10 @@ async def _require_target_project_admin(
 
 @router.get("/projects/{project_id}/members")
 async def list_project_members(
-    project_id: str,
+    project_id: ProjectId,
     q: str = Query("", max_length=100),
     limit: int = Query(50, ge=1, le=200),
-    after_id: Optional[str] = Query(None),
+    after_id: Optional[OrganizationMemberId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_project_admin),
 ) -> PaginatedProjectMembersResponse:
@@ -1597,7 +1598,7 @@ async def list_project_members(
 
 @router.post("/projects/{project_id}/members", status_code=201)
 async def add_project_member(
-    project_id: str,
+    project_id: ProjectId,
     req: AddProjectMemberRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -1643,8 +1644,8 @@ async def add_project_member(
 
 @router.delete("/projects/{project_id}/members/{user_id}", status_code=204)
 async def remove_project_member(
-    project_id: str,
-    user_id: str,
+    project_id: ProjectId,
+    user_id: UserId,
     request: Request,
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_project_admin),
@@ -1679,7 +1680,7 @@ async def remove_project_member(
 async def list_platform_users(
     q: str = Query("", max_length=100),
     limit: int = Query(50, ge=1, le=200),
-    after_id: Optional[str] = Query(None),
+    after_id: Optional[UserId] = Query(None),
     db: AsyncSession = Depends(get_db),
     _auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
 ) -> PaginatedPlatformUsersResponse:
@@ -1763,7 +1764,7 @@ async def list_platform_organizations(
 
 @router.put("/platform/users/{user_id}")
 async def update_platform_user(
-    user_id: str,
+    user_id: UserId,
     req: UpdatePlatformUserRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -1795,28 +1796,10 @@ async def update_platform_user(
     return _platform_user_to_response(user)
 
 
-# ---------------------------------------------------------------------------
-# Organization Management
-# ---------------------------------------------------------------------------
-
-
-class CreateOrganizationRequest(BaseModel):
-    name: str
-
-
-class OrganizationResponse(BaseModel):
-    id: str
-    name: str
-    slug: str
-    project_id: Optional[str] = None
-    project_creation_policy: str = "admins_only"
-    created_at: Optional[str] = None
-
-
 def _project_not_found_error(
-    project_id: str,
+    project_id: ProjectId,
     *,
-    organization_id: str | None = None,
+    organization_id: OrganizationId | None = None,
     message: str = "Project not found",
 ) -> AppError:
     data = {"project_id": project_id}
@@ -1827,27 +1810,4 @@ def _project_not_found_error(
         message=message,
         data=data,
         user_action="refresh",
-    )
-
-
-@router.post("/organizations", status_code=201)
-async def create_organization(
-    req: CreateOrganizationRequest,
-    db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_user_context),
-) -> OrganizationResponse:
-    """Create a new organization. The current user becomes the owner."""
-    created = await OrganizationService(db).create_with_owner_and_default_project(
-        name=req.name,
-        owner_user_id=auth_ctx.user_id,
-    )
-    org = created.organization
-
-    return OrganizationResponse(
-        id=org.id,
-        name=org.name,
-        slug=org.slug,
-        project_id=created.default_project.id,
-        project_creation_policy=org.project_creation_policy,
-        created_at=str(org.created_at) if org.created_at else None,
     )

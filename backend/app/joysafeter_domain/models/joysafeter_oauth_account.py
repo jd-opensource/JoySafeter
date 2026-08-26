@@ -4,7 +4,6 @@ OAuth account model
 Store user-to-OAuth-provider bindings (GitHub, Google, custom OIDC, etc.).
 """
 
-import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
@@ -14,14 +13,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.joysafeter_domain.models.base import TimestampMixin
 from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.ids import OAuthAccountId, UserId
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 if TYPE_CHECKING:
     from app.joysafeter_domain.models.joysafeter_auth import AuthUser  # pragma: no cover
-
-
-def _generate_uuid() -> str:
-    """Generate a UUID string."""
-    return str(uuid.uuid4())
 
 
 class OAuthAccount(Base, TimestampMixin):
@@ -44,15 +40,11 @@ class OAuthAccount(Base, TimestampMixin):
         Index("ix_joysafeter_oauth_account_user_id", "user_id"),
     )
 
-    id: Mapped[str] = mapped_column(
-        String(255),
-        primary_key=True,
-        default=_generate_uuid,
-    )
+    id: Mapped[OAuthAccountId] = mapped_column(EntityIdType(OAuthAccountId), primary_key=True)
 
     # associated user ID
-    user_id: Mapped[str] = mapped_column(
-        String(255),
+    user_id: Mapped[UserId] = mapped_column(
+        EntityIdType(UserId),
         ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )

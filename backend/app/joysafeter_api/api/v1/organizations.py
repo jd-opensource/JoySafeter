@@ -4,6 +4,7 @@ Provides CRUD for organizations and member management,
 aligned with the unified Organization + Project model.
 """
 
+from datetime import datetime
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -25,6 +26,7 @@ from app.joysafeter_shared.common.app_errors import (
 from app.joysafeter_shared.common.dependencies import CurrentUser
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import OrganizationId, OrganizationMemberId, ProjectId, UserId
 
 router = APIRouter(tags=["joysafeter-organizations"])
 
@@ -50,21 +52,49 @@ class UpdateMemberRoleRequest(BaseModel):
 
 
 class TransferOwnershipRequest(BaseModel):
-    new_owner_user_id: str
+    new_owner_user_id: UserId
 
 
 class OrganizationResponse(BaseModel):
-    id: str
+    id: OrganizationId
     name: str
     slug: str
     logo: Optional[str] = None
-    project_id: Optional[str] = None
-    project_creation_policy: str = "admins_only"
-    created_at: str
+    project_id: Optional[ProjectId] = None
+    project_creation_policy: Literal["admins_only", "all_members"] = "admins_only"
+    created_at: datetime | None = None
+
+
+class OrganizationDetailResponse(BaseModel):
+    id: OrganizationId
+    name: str
+    slug: str
+    logo: str | None = None
+    project_creation_policy: Literal["admins_only", "all_members"]
+    role: str
+    owner_name: str | None = None
+    owner_email: str | None = None
+    created_at: datetime | None = None
+
+
+class OrganizationUpdateResponse(BaseModel):
+    id: OrganizationId
+    name: str
+    slug: str
+    logo: str | None = None
+    project_creation_policy: Literal["admins_only", "all_members"]
+
+
+class OrganizationOwnershipTransferResponse(BaseModel):
+    organization_id: OrganizationId
+    previous_owner_user_id: UserId
+    previous_owner_role: str
+    new_owner_user_id: UserId
+    new_owner_role: str
 
 
 class OrganizationListItem(BaseModel):
-    id: str
+    id: OrganizationId
     name: str
     slug: str
     logo: Optional[str] = None
@@ -78,14 +108,14 @@ class OrganizationListItem(BaseModel):
 class PaginatedOrganizationsResponse(BaseModel):
     data: list[OrganizationListItem]
     has_more: bool
-    first_id: Optional[str] = None
-    last_id: Optional[str] = None
+    first_id: Optional[OrganizationId] = None
+    last_id: Optional[OrganizationId] = None
 
 
 class MemberResponse(BaseModel):
-    id: str
-    user_id: str
-    organization_id: str
+    id: OrganizationMemberId
+    user_id: UserId
+    organization_id: OrganizationId
     role: str
     user_name: Optional[str] = None
     user_email: Optional[str] = None
@@ -95,19 +125,19 @@ class MemberResponse(BaseModel):
 class PaginatedMembersResponse(BaseModel):
     data: list[MemberResponse]
     has_more: bool
-    first_id: Optional[str] = None
-    last_id: Optional[str] = None
+    first_id: Optional[OrganizationMemberId] = None
+    last_id: Optional[OrganizationMemberId] = None
 
 
 class MemberCandidateResponse(BaseModel):
-    id: str
+    id: UserId
     email: str
     name: str
     image: Optional[str] = None
     already_member: bool
 
 
-def _organization_not_found_error(organization_id: str) -> AppError:
+def _organization_not_found_error(organization_id: OrganizationId) -> AppError:
     return NotFoundError(
         code="ORGANIZATION_NOT_FOUND",
         message="Organization not found",
@@ -121,7 +151,7 @@ async def list_organizations(
     current_user: CurrentUser,
     q: str = Query("", max_length=100),
     limit: int = Query(50, ge=1, le=200),
-    after_id: Optional[str] = Query(None),
+    after_id: Optional[OrganizationId] = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedOrganizationsResponse:
     owner_membership = aliased(Member)
@@ -180,7 +210,7 @@ async def create_organization(
     req: CreateOrganizationRequest,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-):
+) -> OrganizationResponse:
     created = await OrganizationService(db).create_with_owner_and_default_project(
         name=req.name,
         slug=req.slug,
@@ -188,22 +218,22 @@ async def create_organization(
     )
     org = created.organization
 
-    return {
-        "id": org.id,
-        "name": org.name,
-        "slug": org.slug,
-        "project_id": created.default_project.id,
-        "project_creation_policy": org.project_creation_policy,
-        "created_at": org.created_at.isoformat() if org.created_at else None,
-    }
+    return OrganizationResponse(
+        id=org.id,
+        name=org.name,
+        slug=org.slug,
+        project_id=created.default_project.id,
+        project_creation_policy=org.project_creation_policy,
+        created_at=org.created_at,
+    )
 
 
 @router.get("/{organization_id}")
 async def get_organization(
-    organization_id: str,
+    organization_id: OrganizationId,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-):
+) -> OrganizationDetailResponse:
     membership = await OrganizationMemberService(db).require_membership(organization_id, current_user.id)
 
     owner_membership = aliased(Member)
@@ -225,26 +255,26 @@ async def get_organization(
         raise _organization_not_found_error(organization_id)
     org, owner = row
 
-    return {
-        "id": org.id,
-        "name": org.name,
-        "slug": org.slug,
-        "logo": org.logo,
-        "project_creation_policy": org.project_creation_policy,
-        "role": JoySafeterRole.normalize(membership.role).value,
-        "owner_name": owner.name if owner else None,
-        "owner_email": owner.email if owner else None,
-        "created_at": org.created_at.isoformat() if org.created_at else None,
-    }
+    return OrganizationDetailResponse(
+        id=org.id,
+        name=org.name,
+        slug=org.slug,
+        logo=org.logo,
+        project_creation_policy=org.project_creation_policy,
+        role=JoySafeterRole.normalize(membership.role).value,
+        owner_name=owner.name if owner else None,
+        owner_email=owner.email if owner else None,
+        created_at=org.created_at,
+    )
 
 
 @router.put("/{organization_id}")
 async def update_organization(
-    organization_id: str,
+    organization_id: OrganizationId,
     req: UpdateOrganizationRequest,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-):
+) -> OrganizationUpdateResponse:
     await OrganizationMemberService(db).require_member_manager(organization_id, current_user.id)
 
     org_result = await db.execute(select(Organization).where(Organization.id == organization_id))
@@ -261,18 +291,18 @@ async def update_organization(
 
     await db.commit()
     await db.refresh(org)
-    return {
-        "id": org.id,
-        "name": org.name,
-        "slug": org.slug,
-        "logo": org.logo,
-        "project_creation_policy": org.project_creation_policy,
-    }
+    return OrganizationUpdateResponse(
+        id=org.id,
+        name=org.name,
+        slug=org.slug,
+        logo=org.logo,
+        project_creation_policy=org.project_creation_policy,
+    )
 
 
 @router.delete("/{organization_id}", status_code=204)
 async def delete_organization(
-    organization_id: str,
+    organization_id: OrganizationId,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
@@ -282,24 +312,24 @@ async def delete_organization(
 
 @router.post("/{organization_id}/transfer-ownership")
 async def transfer_ownership(
-    organization_id: str,
+    organization_id: OrganizationId,
     req: TransferOwnershipRequest,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-):
+) -> OrganizationOwnershipTransferResponse:
     current_owner, new_owner = await OrganizationMemberService(db).transfer_ownership(
         organization_id=organization_id,
         current_owner_user_id=current_user.id,
         new_owner_user_id=req.new_owner_user_id,
     )
 
-    return {
-        "organization_id": organization_id,
-        "previous_owner_user_id": current_user.id,
-        "previous_owner_role": current_owner.role,
-        "new_owner_user_id": new_owner.user_id,
-        "new_owner_role": new_owner.role,
-    }
+    return OrganizationOwnershipTransferResponse(
+        organization_id=organization_id,
+        previous_owner_user_id=current_user.id,
+        previous_owner_role=current_owner.role,
+        new_owner_user_id=new_owner.user_id,
+        new_owner_role=new_owner.role,
+    )
 
 
 # ── Members ──────────────────────────────────────────────────────────
@@ -307,11 +337,11 @@ async def transfer_ownership(
 
 @router.get("/{organization_id}/members")
 async def list_members(
-    organization_id: str,
+    organization_id: OrganizationId,
     current_user: CurrentUser,
     q: str = Query("", max_length=100),
     limit: int = Query(50, ge=1, le=200),
-    after_id: Optional[str] = Query(None),
+    after_id: Optional[OrganizationMemberId] = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedMembersResponse:
     member_svc = OrganizationMemberService(db)
@@ -343,7 +373,7 @@ async def list_members(
 
 @router.get("/{organization_id}/member-candidates")
 async def search_member_candidates(
-    organization_id: str,
+    organization_id: OrganizationId,
     current_user: CurrentUser,
     q: str = Query(..., min_length=1, max_length=100),
     limit: int = Query(10, ge=1, le=20),
@@ -372,7 +402,7 @@ async def search_member_candidates(
 
 @router.post("/{organization_id}/members", status_code=201)
 async def add_member(
-    organization_id: str,
+    organization_id: OrganizationId,
     req: AddMemberRequest,
     request: Request,
     current_user: CurrentUser,
@@ -392,7 +422,7 @@ async def add_member(
         JoySafeterAuthContext(
             user_id=current_user.id,
             org_id=organization_id,
-            project_id=None,  # type: ignore[arg-type]
+            project_id=None,
             role=JoySafeterRole.normalize(actor.role),
         ),
         event_type="member.added",
@@ -413,8 +443,8 @@ async def add_member(
 
 @router.put("/{organization_id}/members/{user_id}")
 async def update_member_role(
-    organization_id: str,
-    user_id: str,
+    organization_id: OrganizationId,
+    user_id: UserId,
     req: UpdateMemberRoleRequest,
     request: Request,
     current_user: CurrentUser,
@@ -438,7 +468,7 @@ async def update_member_role(
         JoySafeterAuthContext(
             user_id=current_user.id,
             org_id=organization_id,
-            project_id=None,  # type: ignore[arg-type]
+            project_id=None,
             role=JoySafeterRole.normalize(actor.role),
         ),
         event_type="member.role_updated",
@@ -459,8 +489,8 @@ async def update_member_role(
 
 @router.delete("/{organization_id}/members/{user_id}", status_code=204)
 async def remove_member(
-    organization_id: str,
-    user_id: str,
+    organization_id: OrganizationId,
+    user_id: UserId,
     request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
@@ -479,7 +509,7 @@ async def remove_member(
         JoySafeterAuthContext(
             user_id=current_user.id,
             org_id=organization_id,
-            project_id=None,  # type: ignore[arg-type]
+            project_id=None,
             role=JoySafeterRole.normalize(actor.role),
         ),
         event_type="member.removed",

@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import uuid
 from typing import Any, TypedDict, cast
 
 from app.joysafeter_shared.cache.redis import RedisClient
@@ -20,17 +19,20 @@ from app.joysafeter_shared.ids import (
     AgentId,
     CredentialGroupId,
     EventId,
+    ProjectId,
     SandboxId,
     SessionId,
+    SessionResourceId,
     TaskId,
     as_uuid,
 )
+from app.joysafeter_shared.json_boundary import normalize_json_value
 
 logger = logging.getLogger(__name__)
 
 
 class SessionEventBatchItem(TypedDict):
-    session_id: SessionId | uuid.UUID
+    session_id: SessionId
     event_type: str
     payload: dict[str, Any]
 
@@ -44,7 +46,7 @@ def build_session_event_payload(
 ) -> dict[str, Any]:
     event: dict[str, Any] = {"type": event_type}
     if event_id:
-        event["id"] = str(event_id)
+        event["id"] = event_id
     if seq:
         event["seq"] = seq
     if isinstance(payload, dict):
@@ -71,12 +73,14 @@ async def publish_session_event_realtime(
         payload=payload,
     )
     wrapper = json.dumps(
-        {
-            "source_instance": f"{joysafeter_config.instance_id}:{current_role().value}:{os.getpid()}",
-            "event": event,
-        },
+        normalize_json_value(
+            {
+                "source_instance": f"{joysafeter_config.instance_id}:{current_role().value}:{os.getpid()}",
+                "event": event,
+            }
+        ),
         ensure_ascii=False,
-        default=str,
+        allow_nan=False,
     )
     channel = f"joysafeter:session_events:{as_uuid(session_id)}"
     try:
@@ -222,6 +226,7 @@ class JoySafeterSessionLifecycleService:
             )
         )
         event = JoySafeterSessionEvent(
+            id=EventId.new(),
             session_id=session_id,
             event_type=event_type,
             payload=payload,
@@ -326,7 +331,7 @@ class SessionService:
     async def get_session(
         self,
         session_id: SessionId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[JoySafeterSession]:
         conditions = [JoySafeterSession.id == session_id]
         if project_id is not None:
@@ -338,7 +343,7 @@ class SessionService:
         self,
         limit: int = 20,
         after_id: Optional[SessionId] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         include_archived: bool = False,
     ) -> tuple[list[JoySafeterSession], bool]:
         q = select(JoySafeterSession)
@@ -357,7 +362,7 @@ class SessionService:
         agent_id: AgentId,
         limit: int = 20,
         after_id: Optional[SessionId] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         include_archived: bool = False,
     ) -> tuple[list[JoySafeterSession], bool]:
         q = select(JoySafeterSession).where(JoySafeterSession.agent_id == agent_id)
@@ -371,7 +376,7 @@ class SessionService:
         has_more = len(sessions) > limit
         return sessions[:limit], has_more
 
-    async def delete_session(self, session_id: SessionId, project_id: Optional[str] = None) -> bool:
+    async def delete_session(self, session_id: SessionId, project_id: ProjectId | None = None) -> bool:
         session = await self.get_session(session_id, project_id=project_id)
         if not session:
             return False
@@ -404,7 +409,7 @@ class SessionService:
         await self.db.commit()
         return True
 
-    async def archive_session(self, session_id: SessionId, project_id: Optional[str] = None) -> bool:
+    async def archive_session(self, session_id: SessionId, project_id: ProjectId | None = None) -> bool:
         session = await self.get_session(session_id, project_id=project_id)
         if not session:
             return False
@@ -444,7 +449,7 @@ class SessionService:
         session_id: SessionId,
         status: str,
         stop_reason: Optional[dict] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         require_no_active_tasks: bool = False,
     ) -> bool:
         # CRITICAL FIX: Acquire advisory lock BEFORE row lock to prevent deadlocks.
@@ -678,6 +683,7 @@ class SessionService:
 
         next_seq = await self._next_seq_locked(session_id)
         event = JoySafeterSessionEvent(
+            id=EventId.new(),
             session_id=session_id,
             event_type=event_type,
             payload=payload,
@@ -702,7 +708,7 @@ class SessionService:
         session_id: SessionId,
         limit: int = 50,
         after_seq: Optional[int] = None,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
         before_seq: Optional[int] = None,
         order: str = "asc",
     ) -> tuple[list[JoySafeterSessionEvent], bool]:
@@ -735,7 +741,7 @@ class SessionService:
         self,
         session_id: SessionId,
         idempotency_key: str,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[JoySafeterSessionEvent]:
         conditions: list[Any] = [
             JoySafeterSessionEvent.session_id == session_id,
@@ -764,7 +770,7 @@ class SessionService:
         self,
         session_id: SessionId,
         task_id: TaskId,
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> Optional[JoySafeterSessionEvent]:
         conditions: list[Any] = [
             JoySafeterSessionEvent.session_id == session_id,
@@ -885,7 +891,7 @@ class SessionService:
         self,
         session_id: SessionId,
         resources: list[dict],
-        project_id: Optional[str] = None,
+        project_id: ProjectId | None = None,
     ) -> list:
         from app.joysafeter_domain.models.joysafeter_memory import JoySafeterMemoryStore, JoySafeterSessionMemoryStore
 
@@ -979,6 +985,7 @@ class SessionService:
         created = []
         for res in validated_resources:
             row = JoySafeterSessionMemoryStore(
+                id=SessionResourceId.new(),
                 session_id=session_id,
                 store_id=res["memory_store_id"],
                 access=res.get("access", "read_write"),
@@ -1035,10 +1042,8 @@ class SessionService:
         groups: dict[SessionId, list[SessionEventBatchItem]] = defaultdict(list)
         for ev in events:
             session_id = ev["session_id"]
-            if isinstance(session_id, uuid.UUID):
-                session_id = SessionId.from_uuid(session_id)
-            if not isinstance(session_id, SessionId):
-                raise TypeError("session_id must be a SessionId or UUID")
+            if type(session_id) is not SessionId:
+                raise TypeError("session_id must be a SessionId")
             groups[session_id].append(ev)
 
         created = []
@@ -1050,6 +1055,7 @@ class SessionService:
             # Assign sequential seq numbers and bulk insert
             for i, ev in enumerate(group, start=1):
                 event = JoySafeterSessionEvent(
+                    id=EventId.new(),
                     session_id=session_id,
                     event_type=ev["event_type"],
                     payload=ev["payload"],

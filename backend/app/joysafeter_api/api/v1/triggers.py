@@ -223,14 +223,14 @@ async def run_trigger_now(
     )
 
 
-@router.get("/{trigger_id}/runs", response_model=PaginatedResponse[TriggerRunResponse])
+@router.get("/{trigger_id}/runs", response_model=PaginatedResponse[TriggerRunResponse, TaskId])
 async def list_trigger_runs(
     trigger_id: TriggerId,
     limit: int = Query(50, ge=1, le=500),
     after_id: Optional[TaskId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> PaginatedResponse[TriggerRunResponse]:
+) -> PaginatedResponse[TriggerRunResponse, TaskId]:
     page = await JoySafeterTriggerService(db).list_runs_page(
         trigger_id,
         project_id=auth_ctx.project_id,
@@ -246,11 +246,11 @@ async def list_trigger_runs(
         )
     runs, has_more = page
     data = [TriggerRunResponse.model_validate(task) for task in runs]
-    return PaginatedResponse(
+    return PaginatedResponse[TriggerRunResponse, TaskId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 

@@ -11,7 +11,6 @@ from app.joysafeter_application.credentials.ports import (
 from app.joysafeter_domain.models.joysafeter_credential_access_audit import (
     JoySafeterCredentialAccessAudit,
 )
-from app.joysafeter_shared.ids import CredentialId as SqlCredentialId
 
 
 class SqlAlchemyCredentialAccessAuditAdapter:
@@ -20,8 +19,9 @@ class SqlAlchemyCredentialAccessAuditAdapter:
 
     async def append(self, entry: CredentialAccessAuditEntry) -> bool:
         values = {
-            "project_id": str(entry.project_id),
-            "credential_id": SqlCredentialId.from_public(str(entry.credential_id)),
+            "id": entry.id,
+            "project_id": entry.project_id,
+            "credential_id": entry.credential_id,
             "credential_kind": entry.credential_kind,
             "usage": entry.usage.value,
             "consumer_type": entry.consumer_type,

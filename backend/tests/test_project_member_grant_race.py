@@ -6,12 +6,13 @@ from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
 from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, ProjectMemberId, UserId
 
 
 async def _org_project_user(db_session):
-    org = Organization(id=f"org-{uuid.uuid4()}", name="Org", slug=f"org-{uuid.uuid4()}")
-    project = Project(id=f"proj-{uuid.uuid4()}", org_id=org.id, name="P", slug="default", is_default=True)
-    user = AuthUser(id=f"user-{uuid.uuid4()}", name="U", email=f"{uuid.uuid4()}@example.com")
+    org = Organization(id=OrganizationId.new(), name="Org", slug=f"org-{uuid.uuid4()}")
+    project = Project(id=ProjectId.new(), org_id=org.id, name="P", slug="default", is_default=True)
+    user = AuthUser(id=UserId.new(), name="U", email=f"{uuid.uuid4()}@example.com")
     db_session.add_all([org, project, user])
     await db_session.flush()
     return org, project, user
@@ -25,14 +26,14 @@ async def test_concurrent_grant_converges_instead_of_erroring(db_session, monkey
     # converge on the winning row and apply the requested role, not surface a 500.
     org, project, user = await _org_project_user(db_session)
     # The row a concurrent request already committed.
-    db_session.add(ProjectMember(project_id=project.id, user_id=user.id, role="viewer"))
+    db_session.add(ProjectMember(id=ProjectMemberId.new(), project_id=project.id, user_id=user.id, role="viewer"))
     await db_session.commit()
 
     svc = ProjectService(db_session)
     real_load = svc._load_project_member
     calls = {"n": 0}
 
-    async def _miss_first(project_id: str, user_id: str):
+    async def _miss_first(project_id: ProjectId, user_id: UserId):
         calls["n"] += 1
         if calls["n"] == 1:
             return None  # racing existence check does not see the committed row
@@ -49,7 +50,7 @@ async def test_concurrent_grant_converges_instead_of_erroring(db_session, monkey
 async def test_grant_updates_role_when_row_exists(db_session):
     # Non-race happy path stays intact: an existing row's role is updated.
     org, project, user = await _org_project_user(db_session)
-    db_session.add(ProjectMember(project_id=project.id, user_id=user.id, role="viewer"))
+    db_session.add(ProjectMember(id=ProjectMemberId.new(), project_id=project.id, user_id=user.id, role="viewer"))
     await db_session.commit()
 
     membership = await ProjectService(db_session).grant_project_membership(

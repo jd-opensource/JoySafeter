@@ -75,6 +75,7 @@ from app.joysafeter_shared.ids import (
     SandboxId,
     SessionId,
     SessionResourceId,
+    SkillUsageId,
     TaskId,
     registered_entity_id_prefix,
 )
@@ -488,7 +489,7 @@ async def list_sessions(
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> PaginatedResponse[SessionResponse]:
+) -> PaginatedResponse[SessionResponse, SessionId]:
     svc = SessionService(db)
     if agent_id:
         agent_svc = compose_agent_application(db).queries
@@ -544,11 +545,11 @@ async def list_sessions(
         )
         for s in sessions
     ]
-    return PaginatedResponse(
+    return PaginatedResponse[SessionResponse, SessionId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 
@@ -597,7 +598,7 @@ async def list_session_skill_usage(
     limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> PaginatedResponse[SessionSkillUsageResponse]:
+) -> PaginatedResponse[SessionSkillUsageResponse, SkillUsageId]:
     svc = SessionService(db)
     session = await svc.get_session(session_id, project_id=auth_ctx.project_id)
     if not session:
@@ -621,11 +622,11 @@ async def list_session_skill_usage(
     rows = list(result.scalars().all())
     has_more = len(rows) > limit
     data = [SessionSkillUsageResponse.model_validate(row) for row in rows[:limit]]
-    return PaginatedResponse(
+    return PaginatedResponse[SessionSkillUsageResponse, SkillUsageId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 
@@ -1866,7 +1867,7 @@ async def list_events(
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
     before_seq: Optional[int] = Query(None),
     order: Literal["asc", "desc"] = Query("asc"),
-) -> PaginatedResponse[SessionEventResponse]:
+) -> PaginatedResponse[SessionEventResponse, EventId]:
     if after_seq is not None and before_seq is not None:
         raise InvalidRequestError(
             code="SESSION_EVENT_CURSOR_CONFLICT",
@@ -1893,11 +1894,11 @@ async def list_events(
         project_id=auth_ctx.project_id,
     )
     data = [SessionEventResponse.model_validate(e) for e in events]
-    return PaginatedResponse(
+    return PaginatedResponse[SessionEventResponse, EventId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 

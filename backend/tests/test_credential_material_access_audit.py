@@ -11,34 +11,39 @@ from app.joysafeter_application.credentials.ports import (
 )
 from app.joysafeter_domain.credentials import (
     CredentialFieldName,
+    CredentialId,
     CredentialUsage,
     ProjectId,
 )
-from app.joysafeter_domain.credentials import CredentialId as DomainCredentialId
 from app.joysafeter_domain.models.joysafeter_credential_access_audit import JoySafeterCredentialAccessAudit
 from app.joysafeter_infrastructure.credentials.access_audit_adapter import (
     SqlAlchemyCredentialAccessAuditAdapter,
 )
-from app.joysafeter_shared.ids import CredentialId as SqlCredentialId
-from app.joysafeter_shared.ids import SessionId, TaskId
+from app.joysafeter_shared.ids import CredentialAccessAuditId, OrganizationId, SessionId, TaskId, UserId
 
 
-def _entry(*, result: CredentialAccessResult, error_code: str | None = None) -> CredentialAccessAuditEntry:
-    credential_id = SqlCredentialId.new()
+def _entry(
+    *,
+    result: CredentialAccessResult,
+    error_code: str | None = None,
+    credential_id: CredentialId | None = None,
+) -> CredentialAccessAuditEntry:
+    resolved_credential_id = credential_id or CredentialId.new()
     return CredentialAccessAuditEntry(
-        project_id=ProjectId("project-1"),
-        credential_id=DomainCredentialId(str(credential_id)),
+        id=CredentialAccessAuditId.new(),
+        project_id=ProjectId.new(),
+        credential_id=resolved_credential_id,
         credential_kind="service",
         usage=CredentialUsage.HTTP_EGRESS,
         consumer_type="sandbox",
         consumer_id=None,
         actor=CredentialAuditActor(
-            user_id="user-1",
+            user_id=UserId.new(),
             principal_type="api_key",
             principal_id="key-1",
             ip_address="203.0.113.10",
             user_agent="credential-runtime/1.0",
-            org_id="org-1",
+            org_id=OrganizationId.new(),
             role="member",
         ),
         session_id=SessionId.new(),
@@ -70,14 +75,22 @@ async def test_access_audit_writer_keeps_each_failure(db_session) -> None:
     entry = _entry(result=CredentialAccessResult.FAILED, error_code="decrypt_failed")
 
     assert await adapter.append(entry) is True
-    assert await adapter.append(entry) is True
+    assert (
+        await adapter.append(
+            _entry(
+                result=CredentialAccessResult.FAILED,
+                error_code="decrypt_failed",
+                credential_id=entry.credential_id,
+            )
+        )
+        is True
+    )
 
     rows = (
         (
             await db_session.execute(
                 select(JoySafeterCredentialAccessAudit).where(
-                    JoySafeterCredentialAccessAudit.credential_id
-                    == SqlCredentialId.from_public(str(entry.credential_id))
+                    JoySafeterCredentialAccessAudit.credential_id == entry.credential_id
                 )
             )
         )
@@ -87,8 +100,8 @@ async def test_access_audit_writer_keeps_each_failure(db_session) -> None:
     assert len(rows) == 2
     assert all(row.field_names == ["TOKEN"] for row in rows)
     assert all(row.error_code == "decrypt_failed" for row in rows)
-    assert all(row.user_id == "user-1" for row in rows)
-    assert all(row.org_id == "org-1" for row in rows)
+    assert all(type(row.user_id) is UserId for row in rows)
+    assert all(type(row.org_id) is OrganizationId for row in rows)
     assert all(row.role == "member" for row in rows)
     assert all(row.ip_address == "203.0.113.10" for row in rows)
     assert all(row.user_agent == "credential-runtime/1.0" for row in rows)

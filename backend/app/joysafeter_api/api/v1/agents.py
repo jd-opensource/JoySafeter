@@ -39,7 +39,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_write,
 )
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import AgentId, SessionId
+from app.joysafeter_shared.ids import AgentId, AgentVersionId, SessionId
 
 router = APIRouter(tags=["joysafeter-agents"])
 
@@ -116,7 +116,7 @@ async def list_agents(
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> PaginatedResponse[AgentResponse]:
+) -> PaginatedResponse[AgentResponse, AgentId]:
     agents, has_more = await compose_agent_application(db).queries.list_agents(
         limit, after_id, include_archived=include_archived, project_id=auth_ctx.project_id
     )
@@ -129,11 +129,11 @@ async def list_agents(
     data = [
         _agent_to_response(agent, model_connection=model_connections.get(agent.model_credential_id)) for agent in agents
     ]
-    return PaginatedResponse(
+    return PaginatedResponse[AgentResponse, AgentId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 
@@ -278,7 +278,7 @@ async def list_agent_sessions(
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> PaginatedResponse[SessionResponse]:
+) -> PaginatedResponse[SessionResponse, SessionId]:
     agent = await compose_agent_application(db).queries.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
         raise _agent_not_found_error(agent_id)
@@ -304,11 +304,11 @@ async def list_agent_sessions(
         return _s2r(session, agent, model_connection=model_connection)
 
     data = [_session_to_response(s) for s in sessions]
-    return PaginatedResponse(
+    return PaginatedResponse[SessionResponse, SessionId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 
@@ -319,7 +319,7 @@ async def list_agent_versions(
     before_version: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> PaginatedResponse[AgentVersionResponse]:
+) -> PaginatedResponse[AgentVersionResponse, AgentVersionId]:
     queries = compose_agent_application(db).queries
     agent = await queries.get_agent(agent_id, project_id=auth_ctx.project_id)
     if not agent:
@@ -350,9 +350,9 @@ async def list_agent_versions(
             snapshot["model_connection"] = model_connection.model_dump(mode="json")
         item.snapshot = snapshot
         data.append(item)
-    return PaginatedResponse(
+    return PaginatedResponse[AgentVersionResponse, AgentVersionId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )

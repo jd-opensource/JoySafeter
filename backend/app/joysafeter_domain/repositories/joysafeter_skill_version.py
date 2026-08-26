@@ -10,12 +10,12 @@ from sqlalchemy.orm import selectinload
 
 from app.joysafeter_domain.models.joysafeter_skill import JoySafeterSkillVersion, JoySafeterSkillVersionFile
 from app.joysafeter_domain.pagination import apply_ordered_cursor
-from app.joysafeter_shared.ids import SkillId, SkillVersionId
+from app.joysafeter_shared.ids import SkillId, SkillVersionFileId, SkillVersionId
 
 from .base import BaseRepository
 
 
-class SkillVersionRepository(BaseRepository[JoySafeterSkillVersion]):
+class SkillVersionRepository(BaseRepository[JoySafeterSkillVersion, SkillVersionId]):
     def __init__(self, db: AsyncSession):
         super().__init__(JoySafeterSkillVersion, db)
 
@@ -159,7 +159,7 @@ class SkillVersionRepository(BaseRepository[JoySafeterSkillVersion]):
         return version_strs[0]
 
 
-class SkillVersionFileRepository(BaseRepository[JoySafeterSkillVersionFile]):
+class SkillVersionFileRepository(BaseRepository[JoySafeterSkillVersionFile, SkillVersionFileId]):
     def __init__(self, db: AsyncSession):
         super().__init__(JoySafeterSkillVersionFile, db)
 

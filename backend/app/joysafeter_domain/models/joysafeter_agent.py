@@ -1,21 +1,20 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from uuid_utils import uuid7
 
 from app.joysafeter_shared.database import Base
-from app.joysafeter_shared.ids import AgentId, CredentialId, EntityIdType
+from app.joysafeter_shared.ids import AgentId, AgentVersionId, CredentialId, EnvironmentId, ProjectId
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
-from .base import JoySafeterBaseModel, TimestampMixin
+from .base import JoySafeterModel, TimestampMixin
 
 
-class JoySafeterAgent(JoySafeterBaseModel):
+class JoySafeterAgent(JoySafeterModel):
     __tablename__ = "joysafeter_agents"
     __table_args__ = (
         Index(
@@ -38,11 +37,11 @@ class JoySafeterAgent(JoySafeterBaseModel):
     )
 
     id: Mapped[AgentId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(AgentId), primary_key=True, default=AgentId.new
+        EntityIdType(AgentId), primary_key=True
     )
 
-    project_id: Mapped[Optional[str]] = mapped_column(
-        String(255),
+    project_id: Mapped[Optional[ProjectId]] = mapped_column(
+        EntityIdType(ProjectId),
         ForeignKey("joysafeter_organization_projects.id"),
         nullable=True,
         index=True,
@@ -62,7 +61,12 @@ class JoySafeterAgent(JoySafeterBaseModel):
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default="{}")
     multiagent: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    environment_ref: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    environment_id: Mapped[Optional[EnvironmentId]] = mapped_column(
+        EntityIdType(EnvironmentId),
+        ForeignKey("joysafeter_environments.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     model_credential_id: Mapped[Optional[CredentialId]] = mapped_column(
         EntityIdType(CredentialId),
         ForeignKey("joysafeter_credentials.id", ondelete="RESTRICT"),
@@ -79,7 +83,7 @@ class JoySafeterAgentVersion(Base, TimestampMixin):
     __tablename__ = "joysafeter_agent_versions"
     __table_args__ = (UniqueConstraint("agent_id", "version"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7())
+    id: Mapped[AgentVersionId] = mapped_column(EntityIdType(AgentVersionId), primary_key=True)
     agent_id: Mapped[AgentId] = mapped_column(
         EntityIdType(AgentId),
         ForeignKey("joysafeter_agents.id"),

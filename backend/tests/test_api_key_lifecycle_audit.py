@@ -16,6 +16,14 @@ from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMemb
 from app.joysafeter_domain.models.joysafeter_security_audit_log import SecurityAuditLog
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.common.joysafeter_auth import dependencies as auth_dependencies
+from app.joysafeter_shared.ids import (
+    ApiKeyId,
+    OrganizationId,
+    OrganizationMemberId,
+    ProjectId,
+    ProjectMemberId,
+    UserId,
+)
 
 APP_ROOT = Path(__file__).resolve().parents[1] / "app"
 
@@ -33,17 +41,19 @@ def _request(method: str = "POST") -> Request:
 
 
 @pytest.mark.no_db
-def test_api_key_persistence_service_lives_outside_domain_layer():
-    assert (APP_ROOT / "joysafeter_application/api_keys/service.py").exists()
-    assert not (APP_ROOT / "joysafeter_domain/services/joysafeter_api_key_service.py").exists()
+def test_api_key_api_depends_on_the_application_service():
+    api_source = (APP_ROOT / "joysafeter_api/api/v1/auth.py").read_text()
+
+    assert "from app.joysafeter_application.api_keys import" in api_source
+    assert "ApiKeyService(db)" in api_source
 
 
 async def _seed_project(db_session):
     suffix = uuid.uuid4().hex
-    user = AuthUser(id=f"user-{suffix}", name="Owner", email=f"{suffix}@example.com")
-    organization = Organization(id=f"org-{suffix}", name="Org", slug=f"org-{suffix}")
+    user = AuthUser(id=UserId.new(), name="Owner", email=f"{suffix}@example.com")
+    organization = Organization(id=OrganizationId.new(), name="Org", slug=f"org-{suffix}")
     project = Project(
-        id=f"project-{suffix}",
+        id=ProjectId.new(),
         org_id=organization.id,
         created_by_user_id=user.id,
         name="Project",
@@ -54,8 +64,13 @@ async def _seed_project(db_session):
     await db_session.flush()
     db_session.add_all(
         [
-            Member(user_id=user.id, organization_id=organization.id, role="owner"),
-            ProjectMember(project_id=project.id, user_id=user.id, role="admin"),
+            Member(
+                id=OrganizationMemberId.new(),
+                user_id=user.id,
+                organization_id=organization.id,
+                role="owner",
+            ),
+            ProjectMember(id=ProjectMemberId.new(), project_id=project.id, user_id=user.id, role="admin"),
         ]
     )
     await db_session.commit()
@@ -109,7 +124,7 @@ async def test_api_key_creation_uses_uuid7(db_session):
         _auth_context(user, organization, project),
     )
 
-    assert uuid.UUID(created.id).version == 7
+    assert created.id.uuid.version == 7
 
 
 @pytest.mark.asyncio
@@ -173,6 +188,7 @@ async def test_api_key_revoke_rolls_back_when_audit_write_fails(db_session, monk
     user, organization, project = await _seed_project(db_session)
     raw_key = f"existing-{uuid.uuid4().hex}"
     api_key = JoySafeterApiKey(
+        id=ApiKeyId.new(),
         project_id=project.id,
         org_id=organization.id,
         name="deploy",
@@ -233,7 +249,7 @@ async def test_repeated_api_key_revoke_preserves_timestamp_and_single_audit(db_s
 @pytest.mark.asyncio
 async def test_audit_event_records_api_key_principal_identity(db_session):
     user, organization, project = await _seed_project(db_session)
-    key_id = uuid.uuid4()
+    key_id = ApiKeyId.new()
     context = JoySafeterAuthContext(
         user_id=user.id,
         org_id=organization.id,
@@ -264,6 +280,7 @@ async def _seed_api_key(db_session, user: AuthUser, organization: Organization, 
     raw_key = f"existing-{uuid.uuid4().hex}"
     name = values.pop("name", "runtime")
     api_key = JoySafeterApiKey(
+        id=ApiKeyId.new(),
         project_id=project.id,
         org_id=organization.id,
         name=name,

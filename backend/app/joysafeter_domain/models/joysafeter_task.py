@@ -10,7 +10,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    String,
     Text,
     UniqueConstraint,
     text,
@@ -18,9 +17,19 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_shared.ids import AgentId, EntityIdType, SandboxId, SessionId, TaskId, TriggerId
+from app.joysafeter_shared.ids import (
+    AgentId,
+    OrganizationId,
+    ProjectId,
+    SandboxId,
+    SessionId,
+    TaskId,
+    TriggerId,
+    UserId,
+)
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
-from .base import JoySafeterBaseModel
+from .base import JoySafeterModel
 
 # ---------------------------------------------------------------------------
 # JoySafeter Task models
@@ -57,7 +66,7 @@ class JoySafeterTaskStatus(str, enum.Enum):
 JOYSAFETER_TERMINAL_STATUSES = frozenset(s for s in JoySafeterTaskStatus if s.is_terminal())
 
 
-class JoySafeterTask(JoySafeterBaseModel):
+class JoySafeterTask(JoySafeterModel):
     __tablename__ = "joysafeter_tasks"
     __table_args__ = (
         UniqueConstraint("idempotency_key", name="uq_joysafeter_tasks_idempotency_key"),
@@ -86,11 +95,11 @@ class JoySafeterTask(JoySafeterBaseModel):
     )
 
     id: Mapped[TaskId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(TaskId), primary_key=True, default=TaskId.new
+        EntityIdType(TaskId), primary_key=True
     )
 
-    project_id: Mapped[Optional[str]] = mapped_column(
-        String(255),
+    project_id: Mapped[Optional[ProjectId]] = mapped_column(
+        EntityIdType(ProjectId),
         ForeignKey("joysafeter_organization_projects.id"),
         nullable=True,
         index=True,
@@ -98,8 +107,8 @@ class JoySafeterTask(JoySafeterBaseModel):
     # Tenant identity of the submitter, denormalized onto the task for
     # attribution/audit and per-user admission control. Deliberately NOT
     # FK-constrained so a task's audit record survives user/org deletion.
-    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    org_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    user_id: Mapped[Optional[UserId]] = mapped_column(EntityIdType(UserId), nullable=True)
+    org_id: Mapped[Optional[OrganizationId]] = mapped_column(EntityIdType(OrganizationId), nullable=True)
     agent_id: Mapped[AgentId] = mapped_column(
         EntityIdType(AgentId),
         ForeignKey("joysafeter_agents.id"),

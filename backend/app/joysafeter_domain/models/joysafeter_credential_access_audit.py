@@ -1,16 +1,23 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import BigInteger, CheckConstraint, DateTime, Index, String, func, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from uuid_utils import uuid7
 
 from app.joysafeter_shared.database import Base
-from app.joysafeter_shared.ids import CredentialId, EntityIdType, SessionId, TaskId
+from app.joysafeter_shared.ids import (
+    CredentialAccessAuditId,
+    CredentialId,
+    OrganizationId,
+    ProjectId,
+    SessionId,
+    TaskId,
+    UserId,
+)
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 
 class JoySafeterCredentialAccessAudit(Base):
@@ -52,8 +59,8 @@ class JoySafeterCredentialAccessAudit(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=lambda: uuid7())
-    project_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    id: Mapped[CredentialAccessAuditId] = mapped_column(EntityIdType(CredentialAccessAuditId), primary_key=True)
+    project_id: Mapped[ProjectId] = mapped_column(EntityIdType(ProjectId), nullable=False)
     credential_id: Mapped[CredentialId] = mapped_column(EntityIdType(CredentialId), nullable=False)
     credential_kind: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     usage: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -61,8 +68,8 @@ class JoySafeterCredentialAccessAudit(Base):
     consumer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     principal_type: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     principal_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    org_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    user_id: Mapped[Optional[UserId]] = mapped_column(EntityIdType(UserId), nullable=True)
+    org_id: Mapped[Optional[OrganizationId]] = mapped_column(EntityIdType(OrganizationId), nullable=True)
     role: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     user_agent: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)

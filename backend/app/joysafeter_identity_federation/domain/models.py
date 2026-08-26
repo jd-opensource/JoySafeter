@@ -5,6 +5,8 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Mapping, TypeAlias
 
+from app.joysafeter_shared.ids import OAuthAccountId, UserId
+
 
 class ProtocolId(StrEnum):
     OAUTH2 = "oauth2"
@@ -180,7 +182,7 @@ class RestartAuthorization:
 
 @dataclass(frozen=True, slots=True)
 class FederatedUser:
-    user_id: str
+    user_id: UserId
     email: str | None
     is_new_user: bool
 
@@ -190,7 +192,7 @@ class FederatedUser:
 
 @dataclass(frozen=True, slots=True)
 class FederatedAccountView:
-    id: str
+    id: OAuthAccountId
     provider_id: ProviderId
     subject: str
     email: str | None

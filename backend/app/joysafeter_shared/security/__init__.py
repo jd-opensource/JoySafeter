@@ -9,20 +9,21 @@ from typing import Any, Optional
 
 import bcrypt
 from jose import JWTError, jwt
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.joysafeter_shared.config.settings import settings
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, UserId
 
 _BCRYPT_ROUNDS = 12
 
 
 class TokenPayload(BaseModel):
-    sub: str
+    sub: UserId
     exp: datetime
     iat: datetime
     type: str = "access"
-    org_id: Optional[str] = None
-    project_id: Optional[str] = None
+    org_id: Optional[OrganizationId] = None
+    project_id: Optional[ProjectId] = None
     role: Optional[str] = None
 
 
@@ -75,12 +76,18 @@ def get_password_hash(password: str) -> str:
 
 
 def create_access_token(
-    subject: str | Any,
+    subject: UserId,
     expires_delta: Optional[timedelta] = None,
-    org_id: Optional[str] = None,
-    project_id: Optional[str] = None,
+    org_id: Optional[OrganizationId] = None,
+    project_id: Optional[ProjectId] = None,
     role: Optional[str] = None,
 ) -> str:
+    if type(subject) is not UserId:
+        raise TypeError("subject must be UserId")
+    if org_id is not None and type(org_id) is not OrganizationId:
+        raise TypeError("org_id must be OrganizationId")
+    if project_id is not None and type(project_id) is not ProjectId:
+        raise TypeError("project_id must be ProjectId")
     expire = datetime.now(timezone.utc) + (
         expires_delta if expires_delta else timedelta(minutes=settings.access_token_expire_minutes)
     )
@@ -91,9 +98,9 @@ def create_access_token(
         "type": "access",
     }
     if org_id:
-        to_encode["org_id"] = org_id
+        to_encode["org_id"] = str(org_id)
     if project_id:
-        to_encode["project_id"] = project_id
+        to_encode["project_id"] = str(project_id)
     if role:
         to_encode["role"] = role
     return str(jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm))
@@ -103,7 +110,9 @@ def generate_refresh_token(length: int = 64) -> str:
     return secrets.token_hex(length)
 
 
-def create_csrf_token(user_id: str) -> str:
+def create_csrf_token(user_id: UserId) -> str:
+    if type(user_id) is not UserId:
+        raise TypeError("user_id must be UserId")
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
     to_encode = {
         "sub": str(user_id),
@@ -118,7 +127,7 @@ def decode_token(token: str) -> Optional[TokenPayload]:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         return TokenPayload(**payload)
-    except JWTError:
+    except (JWTError, ValidationError, TypeError, ValueError):
         return None
 
 

@@ -7,19 +7,22 @@ from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String,
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_domain.models.base import JoySafeterBaseModel
+from app.joysafeter_domain.models.base import JoySafeterModel
 from app.joysafeter_shared.ids import (
-    EntityIdType,
     EnvironmentId,
+    OrganizationId,
+    ProjectId,
     SessionId,
     SessionResourceId,
     StorageGrantId,
     StorageMountAuditId,
     StorageVolumeId,
+    UserId,
 )
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 
-class JoySafeterStorageVolume(JoySafeterBaseModel):
+class JoySafeterStorageVolume(JoySafeterModel):
     __tablename__ = "joysafeter_storage_volumes"
     __table_args__ = (
         Index(
@@ -33,7 +36,7 @@ class JoySafeterStorageVolume(JoySafeterBaseModel):
     )
 
     id: Mapped[StorageVolumeId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(StorageVolumeId), primary_key=True, default=StorageVolumeId.new
+        EntityIdType(StorageVolumeId), primary_key=True
     )
 
     volume_ref: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -51,7 +54,7 @@ class JoySafeterStorageVolume(JoySafeterBaseModel):
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-class JoySafeterStorageProjectGrant(JoySafeterBaseModel):
+class JoySafeterStorageProjectGrant(JoySafeterModel):
     __tablename__ = "joysafeter_storage_project_grants"
     __table_args__ = (
         UniqueConstraint("volume_id", "project_id", name="uq_joysafeter_storage_grants_volume_project"),
@@ -60,15 +63,15 @@ class JoySafeterStorageProjectGrant(JoySafeterBaseModel):
     )
 
     id: Mapped[StorageGrantId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(StorageGrantId), primary_key=True, default=StorageGrantId.new
+        EntityIdType(StorageGrantId), primary_key=True
     )
     volume_id: Mapped[StorageVolumeId] = mapped_column(
         EntityIdType(StorageVolumeId),
         ForeignKey("joysafeter_storage_volumes.id", ondelete="CASCADE"),
         nullable=False,
     )
-    project_id: Mapped[str] = mapped_column(
-        String(255),
+    project_id: Mapped[ProjectId] = mapped_column(
+        EntityIdType(ProjectId),
         ForeignKey("joysafeter_organization_projects.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -78,7 +81,7 @@ class JoySafeterStorageProjectGrant(JoySafeterBaseModel):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
 
 
-class JoySafeterStorageOrganizationGrant(JoySafeterBaseModel):
+class JoySafeterStorageOrganizationGrant(JoySafeterModel):
     __tablename__ = "joysafeter_storage_organization_grants"
     __table_args__ = (
         UniqueConstraint("volume_id", "org_id", name="uq_joysafeter_storage_org_grants_volume_org"),
@@ -87,15 +90,15 @@ class JoySafeterStorageOrganizationGrant(JoySafeterBaseModel):
     )
 
     id: Mapped[StorageGrantId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(StorageGrantId), primary_key=True, default=StorageGrantId.new
+        EntityIdType(StorageGrantId), primary_key=True
     )
     volume_id: Mapped[StorageVolumeId] = mapped_column(
         EntityIdType(StorageVolumeId),
         ForeignKey("joysafeter_storage_volumes.id", ondelete="CASCADE"),
         nullable=False,
     )
-    org_id: Mapped[str] = mapped_column(
-        String(255),
+    org_id: Mapped[OrganizationId] = mapped_column(
+        EntityIdType(OrganizationId),
         ForeignKey("joysafeter_organizations.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -105,7 +108,7 @@ class JoySafeterStorageOrganizationGrant(JoySafeterBaseModel):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
 
 
-class JoySafeterSessionStorageMount(JoySafeterBaseModel):
+class JoySafeterSessionStorageMount(JoySafeterModel):
     __tablename__ = "joysafeter_session_storage_mounts"
     __table_args__ = (
         Index("idx_joysafeter_session_storage_mounts_session", "session_id"),
@@ -117,7 +120,7 @@ class JoySafeterSessionStorageMount(JoySafeterBaseModel):
     )
 
     id: Mapped[SessionResourceId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(SessionResourceId), primary_key=True, default=SessionResourceId.new
+        EntityIdType(SessionResourceId), primary_key=True
     )
     session_id: Mapped[SessionId] = mapped_column(
         EntityIdType(SessionId),
@@ -129,8 +132,8 @@ class JoySafeterSessionStorageMount(JoySafeterBaseModel):
         ForeignKey("joysafeter_storage_volumes.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    project_id: Mapped[Optional[str]] = mapped_column(
-        String(255),
+    project_id: Mapped[Optional[ProjectId]] = mapped_column(
+        EntityIdType(ProjectId),
         ForeignKey("joysafeter_organization_projects.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
@@ -144,7 +147,7 @@ class JoySafeterSessionStorageMount(JoySafeterBaseModel):
     detached_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-class JoySafeterStorageMountAudit(JoySafeterBaseModel):
+class JoySafeterStorageMountAudit(JoySafeterModel):
     __tablename__ = "joysafeter_storage_mount_audit"
     __table_args__ = (
         Index("idx_joysafeter_storage_audit_project_created", "project_id", "created_at"),
@@ -156,17 +159,17 @@ class JoySafeterStorageMountAudit(JoySafeterBaseModel):
     )
 
     id: Mapped[StorageMountAuditId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(StorageMountAuditId), primary_key=True, default=StorageMountAuditId.new
+        EntityIdType(StorageMountAuditId), primary_key=True
     )
     volume_id: Mapped[Optional[StorageVolumeId]] = mapped_column(
         EntityIdType(StorageVolumeId),
         ForeignKey("joysafeter_storage_volumes.id", ondelete="SET NULL"),
         nullable=True,
     )
-    project_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    project_id: Mapped[Optional[ProjectId]] = mapped_column(EntityIdType(ProjectId), nullable=True)
     session_id: Mapped[Optional[SessionId]] = mapped_column(EntityIdType(SessionId), nullable=True)
     environment_id: Mapped[Optional[EnvironmentId]] = mapped_column(EntityIdType(EnvironmentId), nullable=True)
-    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    user_id: Mapped[Optional[UserId]] = mapped_column(EntityIdType(UserId), nullable=True)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     volume_ref: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     mount_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

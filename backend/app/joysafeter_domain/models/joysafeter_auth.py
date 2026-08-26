@@ -2,7 +2,6 @@
 Auth user and session table models
 """
 
-import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional
 
@@ -11,31 +10,20 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.joysafeter_domain.models.base import TimestampMixin
 from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.ids import AuthSessionId, OrganizationId, UserId
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 if TYPE_CHECKING:
     from app.joysafeter_domain.models.joysafeter_oauth_account import OAuthAccount  # pragma: no cover
     from app.joysafeter_domain.models.joysafeter_organization import Organization  # pragma: no cover
 
 
-def _generate_str_id() -> str:
-    """Generate a string UUID compatible with drizzle text primary keys."""
-    return str(uuid.uuid4())
-
-
 class AuthUser(Base, TimestampMixin):
-    """
-    Correspond to the original project's `user` table.
-
-    Use text primary key for drizzle compatibility, with base timestamp columns.
-    """
+    """Authenticated platform user."""
 
     __tablename__ = "joysafeter_users"
 
-    id: Mapped[str] = mapped_column(
-        String(255),
-        primary_key=True,
-        default=_generate_str_id,
-    )
+    id: Mapped[UserId] = mapped_column(EntityIdType(UserId), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -70,21 +58,6 @@ class AuthUser(Base, TimestampMixin):
         cascade="all, delete-orphan",
     )
 
-    @property
-    def full_name(self) -> str:
-        """Return user full name (compatibility property)."""
-        return self.name
-
-    @property
-    def is_superuser(self) -> bool:
-        """Compatibility property: map to is_super_user."""
-        return self.is_super_user
-
-    @is_superuser.setter
-    def is_superuser(self, value: bool) -> None:
-        """Compatibility property setter."""
-        self.is_super_user = value
-
     def is_locked(self) -> bool:
         """Check whether the account is locked."""
         if not self.locked_until:
@@ -99,13 +72,7 @@ class AuthUser(Base, TimestampMixin):
 
 
 class AuthSession(Base, TimestampMixin):
-    """
-    Correspond to the original project's `session` table.
-
-    Fully aligned with the original drizzle schema:
-    - table: session
-    - columns: id, expires_at, token, created_at, updated_at, ip_address, user_agent, user_id, active_organization_id
-    """
+    """Durable authenticated browser session."""
 
     __tablename__ = "joysafeter_auth_sessions"
     __table_args__ = (
@@ -115,22 +82,18 @@ class AuthSession(Base, TimestampMixin):
         Index("idx_joysafeter_auth_sessions_last_activity", "last_activity_at"),
     )
 
-    id: Mapped[str] = mapped_column(
-        String(255),
-        primary_key=True,
-        default=_generate_str_id,
-    )
+    id: Mapped[AuthSessionId] = mapped_column(EntityIdType(AuthSessionId), primary_key=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     token: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     user_agent: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
-    user_id: Mapped[str] = mapped_column(
-        String(255),
+    user_id: Mapped[UserId] = mapped_column(
+        EntityIdType(UserId),
         ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    active_organization_id: Mapped[Optional[str]] = mapped_column(
-        String(255),
+    active_organization_id: Mapped[Optional[OrganizationId]] = mapped_column(
+        EntityIdType(OrganizationId),
         ForeignKey("joysafeter_organizations.id", ondelete="SET NULL"),
         nullable=True,
     )

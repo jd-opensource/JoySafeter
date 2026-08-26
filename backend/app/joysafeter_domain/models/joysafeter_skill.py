@@ -23,7 +23,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.joysafeter_shared.database import Base
 from app.joysafeter_shared.ids import (
     AgentId,
-    EntityIdType,
+    ProjectId,
     SessionId,
     SkillFileId,
     SkillId,
@@ -31,9 +31,11 @@ from app.joysafeter_shared.ids import (
     SkillUsageId,
     SkillVersionFileId,
     SkillVersionId,
+    UserId,
 )
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
-from .base import BaseModel, TimestampMixin
+from .base import JoySafeterModel, TimestampMixin
 
 if TYPE_CHECKING:
     from .joysafeter_auth import AuthUser
@@ -121,7 +123,7 @@ class JoySafeterSkillSecurityStatus(str, enum.Enum):
     BLOCKED = "blocked"
 
 
-class JoySafeterSkill(BaseModel):
+class JoySafeterSkill(JoySafeterModel):
     """Skill table."""
 
     __tablename__ = "joysafeter_skills"
@@ -129,7 +131,6 @@ class JoySafeterSkill(BaseModel):
     id: Mapped[SkillId] = mapped_column(  # type: ignore[assignment]
         EntityIdType(SkillId),
         primary_key=True,
-        default=SkillId.new,
     )
 
     name: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -138,13 +139,13 @@ class JoySafeterSkill(BaseModel):
     tags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="local")
     source_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
-    owner_id: Mapped[Optional[str]] = mapped_column(
-        String(255),
+    owner_id: Mapped[Optional[UserId]] = mapped_column(
+        EntityIdType(UserId),
         ForeignKey("joysafeter_users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    created_by_id: Mapped[str] = mapped_column(
-        String(255),
+    created_by_id: Mapped[UserId] = mapped_column(
+        EntityIdType(UserId),
         ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -153,8 +154,8 @@ class JoySafeterSkill(BaseModel):
     # and ``public`` are only ever set through the version-level promotion
     # approval flow.
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, default=JoySafeterSkillVisibility.PROJECT.value)
-    project_id: Mapped[str] = mapped_column(
-        String(255), ForeignKey("joysafeter_organization_projects.id", ondelete="CASCADE"), nullable=False
+    project_id: Mapped[ProjectId] = mapped_column(
+        EntityIdType(ProjectId), ForeignKey("joysafeter_organization_projects.id", ondelete="CASCADE"), nullable=False
     )
     license: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     compatibility: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -224,7 +225,7 @@ class JoySafeterSkill(BaseModel):
 
     __table_args__ = (
         # Skill names are unique per PROJECT (single-axis model), matching how
-        # agents/environments/secrets/vaults are already scoped. ``owner_id`` is
+        # agents/environments/credentials/credential groups are already scoped. ``owner_id`` is
         # no longer part of the identity key — it only records attribution and
         # the ownership-transfer principal.
         UniqueConstraint("project_id", "name", name="skills_project_name_unique"),
@@ -258,7 +259,7 @@ class JoySafeterSkill(BaseModel):
         }
 
 
-class JoySafeterSkillFile(BaseModel):
+class JoySafeterSkillFile(JoySafeterModel):
     """Skill file table."""
 
     __tablename__ = "joysafeter_skill_files"
@@ -266,7 +267,6 @@ class JoySafeterSkillFile(BaseModel):
     id: Mapped[SkillFileId] = mapped_column(  # type: ignore[assignment]
         EntityIdType(SkillFileId),
         primary_key=True,
-        default=SkillFileId.new,
     )
 
     skill_id: Mapped[SkillId] = mapped_column(
@@ -291,7 +291,7 @@ class JoySafeterSkillFile(BaseModel):
     )
 
 
-class JoySafeterSkillSecurityScan(BaseModel):
+class JoySafeterSkillSecurityScan(JoySafeterModel):
     """Security scan history for Skill content."""
 
     __tablename__ = "joysafeter_skill_security_scans"
@@ -299,7 +299,6 @@ class JoySafeterSkillSecurityScan(BaseModel):
     id: Mapped[SkillSecurityScanId] = mapped_column(  # type: ignore[assignment]
         EntityIdType(SkillSecurityScanId),
         primary_key=True,
-        default=SkillSecurityScanId.new,
     )
 
     skill_id: Mapped[Optional[SkillId]] = mapped_column(
@@ -307,18 +306,18 @@ class JoySafeterSkillSecurityScan(BaseModel):
         ForeignKey("joysafeter_skills.id", ondelete="SET NULL"),
         nullable=True,
     )
-    project_id: Mapped[Optional[str]] = mapped_column(
-        String(255),
+    project_id: Mapped[Optional[ProjectId]] = mapped_column(
+        EntityIdType(ProjectId),
         ForeignKey("joysafeter_organization_projects.id", ondelete="SET NULL"),
         nullable=True,
     )
-    owner_id: Mapped[Optional[str]] = mapped_column(
-        String(255),
+    owner_id: Mapped[Optional[UserId]] = mapped_column(
+        EntityIdType(UserId),
         ForeignKey("joysafeter_users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    created_by_id: Mapped[str] = mapped_column(
-        String(255),
+    created_by_id: Mapped[UserId] = mapped_column(
+        EntityIdType(UserId),
         ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -358,7 +357,7 @@ class JoySafeterSkillSecurityScan(BaseModel):
     # ---------------------------------------------------------------------------
 
 
-class JoySafeterSkillVersion(BaseModel):
+class JoySafeterSkillVersion(JoySafeterModel):
     """Published immutable version snapshot of a Skill."""
 
     __tablename__ = "joysafeter_skill_versions"
@@ -366,7 +365,6 @@ class JoySafeterSkillVersion(BaseModel):
     id: Mapped[SkillVersionId] = mapped_column(  # type: ignore[assignment]
         EntityIdType(SkillVersionId),
         primary_key=True,
-        default=SkillVersionId.new,
     )
 
     skill_id: Mapped[SkillId] = mapped_column(
@@ -387,8 +385,8 @@ class JoySafeterSkillVersion(BaseModel):
     compatibility: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     license: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
-    published_by_id: Mapped[str] = mapped_column(
-        String(255),
+    published_by_id: Mapped[UserId] = mapped_column(
+        EntityIdType(UserId),
         ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -413,8 +411,8 @@ class JoySafeterSkillVersion(BaseModel):
         nullable=False,
         default="approved",  # versions are typically created from an approved skill
     )
-    approved_by_id: Mapped[Optional[str]] = mapped_column(
-        String(255),
+    approved_by_id: Mapped[Optional[UserId]] = mapped_column(
+        EntityIdType(UserId),
         ForeignKey("joysafeter_users.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -447,7 +445,7 @@ class JoySafeterSkillVersion(BaseModel):
     )
 
 
-class JoySafeterSkillVersionFile(BaseModel):
+class JoySafeterSkillVersionFile(JoySafeterModel):
     """File snapshot belonging to a published version."""
 
     __tablename__ = "joysafeter_skill_version_files"
@@ -455,7 +453,6 @@ class JoySafeterSkillVersionFile(BaseModel):
     id: Mapped[SkillVersionFileId] = mapped_column(  # type: ignore[assignment]
         EntityIdType(SkillVersionFileId),
         primary_key=True,
-        default=SkillVersionFileId.new,
     )
 
     version_id: Mapped[SkillVersionId] = mapped_column(
@@ -500,7 +497,6 @@ class JoySafeterSkillUsageLog(Base, TimestampMixin):
     id: Mapped[SkillUsageId] = mapped_column(
         EntityIdType(SkillUsageId),
         primary_key=True,
-        default=SkillUsageId.new,
     )
 
     # The skill that was loaded. ON DELETE SET NULL so the audit trail
@@ -539,10 +535,10 @@ class JoySafeterSkillUsageLog(Base, TimestampMixin):
     agent_id: Mapped[Optional[AgentId]] = mapped_column(EntityIdType(AgentId), nullable=True)
     # Project the session belonged to — useful for org-level audit
     # queries ("everything our project loaded yesterday").
-    project_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    project_id: Mapped[Optional[ProjectId]] = mapped_column(EntityIdType(ProjectId), nullable=True)
     # The user whose actions triggered the load. Distinct from the
     # skill's owner — a viewer with project access can trigger a load.
-    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    user_id: Mapped[Optional[UserId]] = mapped_column(EntityIdType(UserId), nullable=True)
 
     __table_args__ = (
         # Hot query: "what did session X load?" — covers the

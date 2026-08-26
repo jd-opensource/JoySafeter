@@ -1,4 +1,3 @@
-import uuid
 from collections.abc import Mapping
 
 from sqlalchemy import func, select
@@ -8,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_oauth_account import OAuthAccount
 from app.joysafeter_domain.repositories.joysafeter_auth_user import AuthUserRepository
+from app.joysafeter_shared.ids import OAuthAccountId, UserId
 
 from ..domain.errors import FederationError
 from ..domain.models import FederatedAccountView, FederatedPrincipal, FederatedUser, ProviderId
@@ -64,7 +64,7 @@ class SqlAlchemyFederatedAccountGateway:
             )
 
         new_user = AuthUser(
-            id=str(uuid.uuid4()),
+            id=UserId.new(),
             email=principal.email,
             name=principal.display_name or principal.email.split("@")[0],
             image=principal.avatar_url,
@@ -78,7 +78,7 @@ class SqlAlchemyFederatedAccountGateway:
             is_new_user=True,
         )
 
-    async def list_accounts(self, user_id: str) -> tuple[FederatedAccountView, ...]:
+    async def list_accounts(self, user_id: UserId) -> tuple[FederatedAccountView, ...]:
         result = await self._db_session.execute(
             select(OAuthAccount)
             .where(OAuthAccount.user_id == user_id)
@@ -86,7 +86,7 @@ class SqlAlchemyFederatedAccountGateway:
         )
         return tuple(self._account_view(account) for account in result.scalars())
 
-    async def unlink(self, user_id: str, provider_id: ProviderId) -> bool:
+    async def unlink(self, user_id: UserId, provider_id: ProviderId) -> bool:
         user_result = await self._db_session.execute(select(AuthUser).where(AuthUser.id == user_id).with_for_update())
         user = user_result.scalar_one_or_none()
         if user is None:
@@ -179,9 +179,9 @@ class SqlAlchemyFederatedAccountGateway:
         await self._db_session.flush()
 
     @staticmethod
-    def _new_binding(user_id: str, principal: FederatedPrincipal) -> OAuthAccount:
+    def _new_binding(user_id: UserId, principal: FederatedPrincipal) -> OAuthAccount:
         return OAuthAccount(
-            id=str(uuid.uuid4()),
+            id=OAuthAccountId.new(),
             user_id=user_id,
             provider=principal.provider_id.value,
             provider_account_id=principal.subject,

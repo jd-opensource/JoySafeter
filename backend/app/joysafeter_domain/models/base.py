@@ -2,15 +2,12 @@
 Base models
 """
 
-import uuid
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import DateTime, func
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import UserDefinedType
-from uuid_utils import uuid7
 
 from app.joysafeter_shared.database import Base
 from app.joysafeter_shared.utils.datetime import utc_now
@@ -69,25 +66,7 @@ class SoftDeleteMixin:
         return self.deleted_at is not None
 
 
-class BaseModel(Base, TimestampMixin):
-    """Base model."""
+class JoySafeterModel(Base, TimestampMixin):
+    """Base for persisted JoySafeter models; aggregates own their typed IDs."""
 
     __abstract__ = True
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-    )
-
-
-class JoySafeterBaseModel(BaseModel):
-    """JoySafeter-specific base model using UUID v7 (matching Rust's Uuid::now_v7)."""
-
-    __abstract__ = True
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=lambda ctx=None: uuid7(),
-    )

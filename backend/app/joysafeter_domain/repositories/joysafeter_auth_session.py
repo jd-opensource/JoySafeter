@@ -11,11 +11,12 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_auth import AuthSession
+from app.joysafeter_shared.ids import AuthSessionId, UserId
 
 from .base import BaseRepository
 
 
-class AuthSessionRepository(BaseRepository[AuthSession]):
+class AuthSessionRepository(BaseRepository[AuthSession, AuthSessionId]):
     """AuthSession data access."""
 
     def __init__(self, db: AsyncSession):
@@ -31,7 +32,7 @@ class AuthSessionRepository(BaseRepository[AuthSession]):
         await self.db.flush()
         return getattr(result, "rowcount", 0) or 0
 
-    async def delete_by_user_id(self, user_id: str) -> int:
+    async def delete_by_user_id(self, user_id: UserId) -> int:
         """Delete every session for a user; return the number of deleted rows."""
         result = await self.db.execute(delete(AuthSession).where(AuthSession.user_id == user_id))
         await self.db.flush()

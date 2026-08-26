@@ -13,6 +13,7 @@ from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_shared.common.app_errors import AccessDeniedError, AuthenticationError, ResourceConflictError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
 from app.joysafeter_shared.common.joysafeter_auth import dependencies as auth_deps
+from app.joysafeter_shared.ids import OrganizationId, OrganizationMemberId, ProjectId, UserId
 from app.joysafeter_shared.security import create_access_token
 from app.joysafeter_shared.utils.datetime import utc_now
 
@@ -28,20 +29,60 @@ def _request_with_headers(headers: dict[str, str]) -> Request:
     )
 
 
+@pytest.mark.no_db
+def test_auth_context_rejects_string_identity_bridges():
+    with pytest.raises(TypeError, match="user_id must be UserId"):
+        JoySafeterAuthContext(
+            user_id=str(UserId.new()),
+            org_id=OrganizationId.new(),
+            project_id=ProjectId.new(),
+            role=JoySafeterRole.ADMIN,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_db
+async def test_jwt_auth_rejects_invalid_project_header_before_database_access():
+    user_id = UserId.new()
+    organization_id = OrganizationId.new()
+    project_id = ProjectId.new()
+    token = create_access_token(
+        subject=user_id,
+        org_id=organization_id,
+        project_id=project_id,
+        role="admin",
+    )
+    request = _request_with_headers(
+        {
+            "Authorization": f"Bearer {token}",
+            "X-Project-Id": str(project_id.uuid),
+        }
+    )
+
+    class NoDatabaseAccess:
+        async def execute(self, *args, **kwargs):
+            raise AssertionError("invalid path ID reached the repository boundary")
+
+    with pytest.raises(AuthenticationError) as exc_info:
+        await auth_deps._auth_via_jwt_claims(request, NoDatabaseAccess())
+
+    assert exc_info.value.code == "INVALID_PROJECT_ID"
+
+
 @pytest.mark.asyncio
 async def test_jwt_auth_rejects_explicit_unknown_project_instead_of_falling_back(db_session):
     user = AuthUser(
-        id=f"user-{uuid.uuid4()}",
+        id=UserId.new(),
         email=f"user-{uuid.uuid4()}@example.com",
         name="Project User",
     )
     org = Organization(
-        id=f"org-{uuid.uuid4()}",
+        id=OrganizationId.new(),
         name="Org",
         slug=f"org-{uuid.uuid4()}",
     )
     default_project = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Default",
         slug="default",
@@ -51,7 +92,12 @@ async def test_jwt_auth_rejects_explicit_unknown_project_instead_of_falling_back
         [
             user,
             org,
-            Member(user_id=user.id, organization_id=org.id, role="admin"),
+            Member(
+                id=OrganizationMemberId.new(),
+                user_id=user.id,
+                organization_id=org.id,
+                role="admin",
+            ),
             default_project,
         ],
     )
@@ -67,8 +113,8 @@ async def test_jwt_auth_rejects_explicit_unknown_project_instead_of_falling_back
     request = _request_with_headers(
         {
             "Authorization": f"Bearer {token}",
-            "X-Org-Id": org.id,
-            "X-Project-Id": f"project-{uuid.uuid4()}",
+            "X-Org-Id": str(org.id),
+            "X-Project-Id": str(ProjectId.new()),
         },
     )
 
@@ -81,24 +127,24 @@ async def test_jwt_auth_rejects_explicit_unknown_project_instead_of_falling_back
 @pytest.mark.asyncio
 async def test_jwt_auth_keeps_explicit_archived_project_for_read_context(db_session):
     user = AuthUser(
-        id=f"user-{uuid.uuid4()}",
+        id=UserId.new(),
         email=f"user-{uuid.uuid4()}@example.com",
         name="Project User",
     )
     org = Organization(
-        id=f"org-{uuid.uuid4()}",
+        id=OrganizationId.new(),
         name="Org",
         slug=f"org-{uuid.uuid4()}",
     )
     default_project = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Default",
         slug="default",
         is_default=True,
     )
     archived_project = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Archived",
         slug="archived",
@@ -108,7 +154,12 @@ async def test_jwt_auth_keeps_explicit_archived_project_for_read_context(db_sess
         [
             user,
             org,
-            Member(user_id=user.id, organization_id=org.id, role="admin"),
+            Member(
+                id=OrganizationMemberId.new(),
+                user_id=user.id,
+                organization_id=org.id,
+                role="admin",
+            ),
             default_project,
             archived_project,
         ],
@@ -125,8 +176,8 @@ async def test_jwt_auth_keeps_explicit_archived_project_for_read_context(db_sess
     request = _request_with_headers(
         {
             "Authorization": f"Bearer {token}",
-            "X-Org-Id": org.id,
-            "X-Project-Id": archived_project.id,
+            "X-Org-Id": str(org.id),
+            "X-Project-Id": str(archived_project.id),
         },
     )
 
@@ -135,9 +186,9 @@ async def test_jwt_auth_keeps_explicit_archived_project_for_read_context(db_sess
     assert ctx is not None
     assert ctx.project_id == archived_project.id
     me = await get_me(db_session, ctx)
-    assert me["project"]["id"] == archived_project.id
-    assert me["project"]["archived_at"] is not None
-    assert archived_project.id not in {project["id"] for project in me["projects"]}
+    assert me.project.id == archived_project.id
+    assert me.project.archived_at is not None
+    assert archived_project.id not in {project.id for project in me.projects}
 
     with pytest.raises(ResourceConflictError) as exc_info:
         await auth_deps.require_joysafeter_write(request, db_session, ctx)
@@ -155,9 +206,9 @@ async def test_jwt_auth_keeps_explicit_archived_project_for_read_context(db_sess
 @pytest.mark.asyncio
 async def test_user_context_dependency_rejects_project_scoped_api_keys():
     ctx = JoySafeterAuthContext(
-        user_id="user-api-key-owner",
-        org_id="org-a",
-        project_id="project-a",
+        user_id=UserId.new(),
+        org_id=OrganizationId.new(),
+        project_id=ProjectId.new(),
         role=JoySafeterRole.ADMIN,
         principal_type="api_key",
     )

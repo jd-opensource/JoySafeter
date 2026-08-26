@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.joysafeter_domain.models.enums import SecurityAuditEventType
 from app.joysafeter_domain.models.joysafeter_security_audit_log import SecurityAuditLog
 from app.joysafeter_domain.services.base import BaseService
+from app.joysafeter_shared.ids import SecurityAuditId, UserId
 
 
 class SecurityAuditService(BaseService):
@@ -26,7 +27,7 @@ class SecurityAuditService(BaseService):
         event_status: str,
         ip_address: str,
         commit: bool = True,
-        user_id: Optional[str] = None,
+        user_id: UserId | None = None,
         user_email: Optional[str] = None,
         user_agent: Optional[str] = None,
         device_fingerprint: Optional[str] = None,
@@ -48,6 +49,7 @@ class SecurityAuditService(BaseService):
         - permission_change
         """
         log_entry = SecurityAuditLog(
+            id=SecurityAuditId.new(),
             user_id=user_id,
             user_email=user_email,
             event_type=event_type,
@@ -71,7 +73,7 @@ class SecurityAuditService(BaseService):
 
     async def get_user_audit_logs(
         self,
-        user_id: str,
+        user_id: UserId,
         limit: int = 100,
         event_type: Optional[str] = None,
     ) -> list[SecurityAuditLog]:
@@ -88,7 +90,7 @@ class SecurityAuditService(BaseService):
 
     async def detect_anomalies(
         self,
-        user_id: str,
+        user_id: UserId,
         hours: int = 24,
     ) -> list[Dict[str, Any]]:
         """

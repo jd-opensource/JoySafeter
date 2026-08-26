@@ -6,16 +6,15 @@ from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_shared.database import Base
-from app.joysafeter_shared.ids import EntityIdType, FileId, SessionId, SessionResourceId
+from app.joysafeter_shared.ids import FileId, SessionId, SessionResourceId
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
 class JoySafeterSessionFile(Base):
     __tablename__ = "joysafeter_session_files"
 
-    id: Mapped[SessionResourceId] = mapped_column(
-        EntityIdType(SessionResourceId), primary_key=True, default=SessionResourceId.new
-    )
+    id: Mapped[SessionResourceId] = mapped_column(EntityIdType(SessionResourceId), primary_key=True)
     session_id: Mapped[SessionId] = mapped_column(
         EntityIdType(SessionId),
         ForeignKey("joysafeter_sessions.id", ondelete="CASCADE"),

@@ -20,6 +20,7 @@ from app.joysafeter_domain.models.joysafeter_organization import Member
 from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_shared.common.app_errors import AccessDeniedError, AuthenticationError, ResourceConflictError
 from app.joysafeter_shared.database import get_db
+from app.joysafeter_shared.ids import OrganizationId, ProjectId, UserId
 
 from .context import (
     JoySafeterAuthContext,
@@ -118,28 +119,45 @@ async def _auth_via_jwt_claims(request: Request, db: AsyncSession) -> JoySafeter
     if not payload.org_id or not payload.project_id or not payload.role:
         return None
 
-    target_org_id = str(payload.org_id)
-    target_project_id = str(payload.project_id)
+    target_org_id = payload.org_id
+    target_project_id = payload.project_id
     preferred_org_id = request.headers.get("X-Org-Id")
     preferred_project_id = request.headers.get("X-Project-Id")
 
     if preferred_org_id:
-        target_org_id = preferred_org_id
+        try:
+            target_org_id = OrganizationId.from_public(preferred_org_id)
+        except (TypeError, ValueError) as exc:
+            raise AuthenticationError(
+                "Invalid organization ID",
+                code="INVALID_ORGANIZATION_ID",
+            ) from exc
     if preferred_project_id:
-        target_project_id = preferred_project_id
-    elif target_org_id != str(payload.org_id):
-        target_project_id = await _resolve_default_project_id(db, target_org_id, user_id=str(payload.sub))
+        try:
+            target_project_id = ProjectId.from_public(preferred_project_id)
+        except (TypeError, ValueError) as exc:
+            raise AuthenticationError(
+                "Invalid project ID",
+                code="INVALID_PROJECT_ID",
+            ) from exc
+    elif target_org_id != payload.org_id:
+        target_project_id = await _resolve_default_project_id(db, target_org_id, user_id=payload.sub)
 
     return await _verify_joysafeter_context(
         db,
-        user_id=str(payload.sub),
+        user_id=payload.sub,
         org_id=target_org_id,
         project_id=target_project_id,
         allow_archived_project=True,
     )
 
 
-async def _resolve_default_project_id(db: AsyncSession, org_id: str, *, user_id: str) -> str:
+async def _resolve_default_project_id(
+    db: AsyncSession,
+    org_id: OrganizationId,
+    *,
+    user_id: UserId,
+) -> ProjectId:
     """Resolve a usable project when the request switches org via header."""
     member_result = await db.execute(
         select(Member)
@@ -176,9 +194,9 @@ async def _resolve_default_project_id(db: AsyncSession, org_id: str, *, user_id:
 async def _verify_joysafeter_context(
     db: AsyncSession,
     *,
-    user_id: str,
-    org_id: str,
-    project_id: str,
+    user_id: UserId,
+    org_id: OrganizationId,
+    project_id: ProjectId,
     allow_archived_project: bool,
 ) -> JoySafeterAuthContext:
     """Verify current org membership and project ownership against the DB."""
@@ -232,7 +250,7 @@ async def _verify_joysafeter_context(
     )
 
 
-async def _is_platform_super_user(db: AsyncSession, user_id: str) -> bool:
+async def _is_platform_super_user(db: AsyncSession, user_id: UserId) -> bool:
     result = await db.execute(select(AuthUser.is_super_user).where(AuthUser.id == user_id).limit(1))
     return bool(result.scalar_one_or_none())
 
@@ -487,7 +505,7 @@ async def require_joysafeter_platform_admin(
 
 
 async def require_joysafeter_project_admin(
-    project_id: str,
+    project_id: ProjectId,
     db: AsyncSession = Depends(get_db),
     ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> JoySafeterAuthContext:

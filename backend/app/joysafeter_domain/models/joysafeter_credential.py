@@ -16,17 +16,18 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.joysafeter_domain.models.base import JoySafeterBaseModel, TimestampMixin
+from app.joysafeter_domain.models.base import JoySafeterModel, TimestampMixin
 from app.joysafeter_shared.database import Base
 from app.joysafeter_shared.ids import (
     CredentialGroupId,
     CredentialId,
-    EntityIdType,
+    ProjectId,
     SessionId,
 )
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 
-class JoySafeterCredential(JoySafeterBaseModel):
+class JoySafeterCredential(JoySafeterModel):
     __tablename__ = "joysafeter_credentials"
     __table_args__ = (
         CheckConstraint(
@@ -94,11 +95,11 @@ class JoySafeterCredential(JoySafeterBaseModel):
     )
 
     id: Mapped[CredentialId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(CredentialId), primary_key=True, default=CredentialId.new
+        EntityIdType(CredentialId), primary_key=True
     )
 
-    project_id: Mapped[str] = mapped_column(
-        String(255),
+    project_id: Mapped[ProjectId] = mapped_column(
+        EntityIdType(ProjectId),
         ForeignKey("joysafeter_organization_projects.id"),
         nullable=False,
         index=True,
@@ -119,7 +120,7 @@ class JoySafeterCredential(JoySafeterBaseModel):
     material_erased_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-class JoySafeterCredentialGroup(JoySafeterBaseModel):
+class JoySafeterCredentialGroup(JoySafeterModel):
     __tablename__ = "joysafeter_credential_groups"
     __table_args__ = (
         Index(
@@ -135,11 +136,11 @@ class JoySafeterCredentialGroup(JoySafeterBaseModel):
     )
 
     id: Mapped[CredentialGroupId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(CredentialGroupId), primary_key=True, default=CredentialGroupId.new
+        EntityIdType(CredentialGroupId), primary_key=True
     )
 
-    project_id: Mapped[str] = mapped_column(
-        String(255),
+    project_id: Mapped[ProjectId] = mapped_column(
+        EntityIdType(ProjectId),
         ForeignKey("joysafeter_organization_projects.id"),
         nullable=False,
         index=True,
@@ -154,9 +155,8 @@ class JoySafeterCredentialGroup(JoySafeterBaseModel):
 class JoySafeterSessionCredentialGroup(Base, TimestampMixin):
     __tablename__ = "joysafeter_session_credential_groups"
 
-    # Association row with a true composite PK; no surrogate id column, so it
-    # extends Base + TimestampMixin (rather than JoySafeterBaseModel, which would
-    # inject an `id` primary key).
+    # Association row with a true composite PK, so it intentionally uses
+    # Base + TimestampMixin instead of the aggregate model base.
     session_id: Mapped[SessionId] = mapped_column(
         EntityIdType(SessionId),
         ForeignKey("joysafeter_sessions.id", ondelete="CASCADE"),

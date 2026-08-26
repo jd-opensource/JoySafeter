@@ -17,6 +17,7 @@ from app.joysafeter_shared.common.app_errors import (
     ResourceConflictError,
 )
 from app.joysafeter_shared.common.joysafeter_auth.context import JoySafeterRole
+from app.joysafeter_shared.ids import OrganizationId, OrganizationMemberId, UserId
 
 # Org roles are the 3-tier vocabulary (owner/admin/member); derive the valid and
 # assignable sets from the enum so there is one source of truth.
@@ -34,15 +35,15 @@ def _permission_error(
     *,
     code: str,
     message: str,
-    organization_id: str | None = None,
+    organization_id: OrganizationId | None = None,
     actor_role: str | None = None,
     target_role: str | None = None,
     current_role: str | None = None,
-    member_id: str | None = None,
+    member_id: OrganizationMemberId | None = None,
 ) -> AccessDeniedError:
     data: dict[str, object] = {}
     if organization_id is not None:
-        data["organization_id"] = organization_id
+        data["organization_id"] = str(organization_id)
     if actor_role is not None:
         data["actor_role"] = actor_role
     if target_role is not None:
@@ -50,7 +51,7 @@ def _permission_error(
     if current_role is not None:
         data["current_role"] = current_role
     if member_id is not None:
-        data["member_id"] = member_id
+        data["member_id"] = str(member_id)
     return AccessDeniedError(
         code=code,
         message=message,
@@ -148,7 +149,9 @@ def ensure_can_modify_auth_member(actor_role: JoySafeterRole, current_role: str,
         )
 
 
-def ensure_not_self_management(*, organization_id: str, actor_user_id: str, target_user_id: str) -> None:
+def ensure_not_self_management(
+    *, organization_id: OrganizationId, actor_user_id: UserId, target_user_id: UserId
+) -> None:
     if actor_user_id == target_user_id:
         raise _permission_error(
             code="AUTH_MEMBER_SELF_MANAGEMENT_FORBIDDEN",
@@ -162,7 +165,7 @@ class OrganizationMemberService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def get_member_by_user_id(self, organization_id: str, user_id: str) -> Member | None:
+    async def get_member_by_user_id(self, organization_id: OrganizationId, user_id: UserId) -> Member | None:
         result = await self.db.execute(
             select(Member)
             .where(
@@ -173,7 +176,7 @@ class OrganizationMemberService:
         )
         return result.scalar_one_or_none()
 
-    async def list_members_with_users(self, organization_id: str) -> list[tuple[Member, AuthUser]]:
+    async def list_members_with_users(self, organization_id: OrganizationId) -> list[tuple[Member, AuthUser]]:
         result = await self.db.execute(
             select(Member, AuthUser)
             .join(AuthUser, Member.user_id == AuthUser.id)
@@ -181,7 +184,7 @@ class OrganizationMemberService:
         )
         return [(member, user) for member, user in result.all()]
 
-    async def require_membership(self, organization_id: str, user_id: str) -> Member:
+    async def require_membership(self, organization_id: OrganizationId, user_id: UserId) -> Member:
         member = await self.get_member_by_user_id(organization_id, user_id)
         if member is None:
             raise _permission_error(
@@ -191,7 +194,7 @@ class OrganizationMemberService:
             )
         return member
 
-    async def require_member_manager(self, organization_id: str, user_id: str) -> Member:
+    async def require_member_manager(self, organization_id: OrganizationId, user_id: UserId) -> Member:
         actor = await self.get_member_by_user_id(organization_id, user_id)
         if actor is None or JoySafeterRole.normalize(actor.role) not in (JoySafeterRole.OWNER, JoySafeterRole.ADMIN):
             raise _permission_error(
@@ -201,7 +204,7 @@ class OrganizationMemberService:
             )
         return actor
 
-    async def require_owner(self, organization_id: str, user_id: str, *, message: str) -> Member:
+    async def require_owner(self, organization_id: OrganizationId, user_id: UserId, *, message: str) -> Member:
         actor = await self.get_member_by_user_id(organization_id, user_id)
         if actor is None or JoySafeterRole.normalize(actor.role) != JoySafeterRole.OWNER:
             raise _permission_error(
@@ -211,7 +214,7 @@ class OrganizationMemberService:
             )
         return actor
 
-    async def list_members(self, organization_id: str) -> list[MemberWithUser]:
+    async def list_members(self, organization_id: OrganizationId) -> list[MemberWithUser]:
         result = await self.db.execute(
             select(Member, AuthUser)
             .join(AuthUser, Member.user_id == AuthUser.id)
@@ -222,10 +225,10 @@ class OrganizationMemberService:
 
     async def list_members_page(
         self,
-        organization_id: str,
+        organization_id: OrganizationId,
         *,
         limit: int,
-        after_id: str | None = None,
+        after_id: OrganizationMemberId | None = None,
         q: str = "",
     ) -> tuple[list[MemberWithUser], bool]:
         query = (
@@ -250,9 +253,9 @@ class OrganizationMemberService:
     async def add_member(
         self,
         *,
-        organization_id: str,
-        user_id: str,
-        actor_user_id: str,
+        organization_id: OrganizationId,
+        user_id: UserId,
+        actor_user_id: UserId,
         role: str,
         allow_owner_role: bool = True,
         duplicate_message: str = "User is already a member",
@@ -271,6 +274,7 @@ class OrganizationMemberService:
             )
 
         member = Member(
+            id=OrganizationMemberId.new(),
             user_id=user_id,
             organization_id=organization_id,
             role=normalized_role,
@@ -295,7 +299,7 @@ class OrganizationMemberService:
     async def add_existing_member_by_email(
         self,
         *,
-        organization_id: str,
+        organization_id: OrganizationId,
         actor_role: JoySafeterRole,
         email: str,
         role: str,
@@ -331,7 +335,12 @@ class OrganizationMemberService:
                 user_action="refresh",
             )
 
-        member = Member(user_id=user.id, organization_id=organization_id, role=normalized_role.value)
+        member = Member(
+            id=OrganizationMemberId.new(),
+            user_id=user.id,
+            organization_id=organization_id,
+            role=normalized_role.value,
+        )
         self.db.add(member)
         try:
             await self.db.commit()
@@ -349,8 +358,8 @@ class OrganizationMemberService:
     async def _normalize_project_access_after_role_change(
         self,
         *,
-        organization_id: str,
-        user_id: str,
+        organization_id: OrganizationId,
+        user_id: UserId,
         new_role: str,
     ) -> None:
         await ProjectService(self.db).revoke_org_project_memberships(
@@ -361,9 +370,9 @@ class OrganizationMemberService:
     async def update_member_role_by_user_id(
         self,
         *,
-        organization_id: str,
-        user_id: str,
-        actor_user_id: str,
+        organization_id: OrganizationId,
+        user_id: UserId,
+        actor_user_id: UserId,
         actor_role: JoySafeterRole,
         role: str,
     ) -> Member:
@@ -399,9 +408,9 @@ class OrganizationMemberService:
     async def remove_member_by_user_id(
         self,
         *,
-        organization_id: str,
-        user_id: str,
-        actor_user_id: str,
+        organization_id: OrganizationId,
+        user_id: UserId,
+        actor_user_id: UserId,
         actor_role: JoySafeterRole,
     ) -> Member:
         member = await self.get_member_by_user_id(organization_id, user_id)
@@ -430,9 +439,9 @@ class OrganizationMemberService:
     async def transfer_ownership(
         self,
         *,
-        organization_id: str,
-        current_owner_user_id: str,
-        new_owner_user_id: str,
+        organization_id: OrganizationId,
+        current_owner_user_id: UserId,
+        new_owner_user_id: UserId,
     ) -> tuple[Member, Member]:
         current_owner = await self.require_owner(
             organization_id,

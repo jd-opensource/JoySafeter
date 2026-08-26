@@ -2,15 +2,16 @@
 Security audit log model
 """
 
-import uuid
 from typing import Optional
 
 from sqlalchemy import Index, String
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_domain.models.base import TimestampMixin
 from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.ids import SecurityAuditId, UserId
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 
 class SecurityAuditLog(Base, TimestampMixin):
@@ -32,14 +33,10 @@ class SecurityAuditLog(Base, TimestampMixin):
         Index("ix_joysafeter_security_audit_logs_user_event", "user_id", "event_type"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-    )
+    id: Mapped[SecurityAuditId] = mapped_column(EntityIdType(SecurityAuditId), primary_key=True)
 
     # user info (optional; unauthenticated operations may lack user_id)
-    user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    user_id: Mapped[Optional[UserId]] = mapped_column(EntityIdType(UserId), nullable=True)
     user_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # event info

@@ -10,10 +10,6 @@ from __future__ import annotations
 import uuid
 from typing import Any, ClassVar, Self
 
-from pydantic import GetCoreSchemaHandler
-from pydantic_core import core_schema
-from sqlalchemy.dialects.postgresql import UUID as _PgUUID
-from sqlalchemy.types import TypeDecorator
 from uuid_utils import uuid7
 
 
@@ -84,16 +80,16 @@ class EntityId:
         return hash((type(self), self._uuid))
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+        from pydantic_core import core_schema
+
         def validate(value: Any) -> "EntityId":
             if isinstance(value, cls):
                 return value
             try:
                 if isinstance(value, str):
                     return cls.from_public(value)
-                if isinstance(value, uuid.UUID):
-                    return cls.from_uuid(value)
-                return cls(value)
+                raise TypeError(f"cannot validate {type(value).__name__} as {cls.__name__}")
             except (ValueError, TypeError):
                 raise ValueError(f"__entity_id__:{cls.__name__}")  # marker for the handler
 
@@ -107,6 +103,42 @@ class EntityId:
 
 class AgentId(EntityId):
     prefix = "agent_"
+
+
+class AgentVersionId(EntityId):
+    prefix = "agentver_"
+
+
+class ApiKeyId(EntityId):
+    prefix = "apikey_"
+
+
+class UserId(EntityId):
+    prefix = "user_"
+
+
+class OrganizationId(EntityId):
+    prefix = "org_"
+
+
+class OrganizationMemberId(EntityId):
+    prefix = "orgmem_"
+
+
+class ProjectId(EntityId):
+    prefix = "proj_"
+
+
+class ProjectMemberId(EntityId):
+    prefix = "projmem_"
+
+
+class OAuthAccountId(EntityId):
+    prefix = "oauthacct_"
+
+
+class AuthSessionId(EntityId):
+    prefix = "authsess_"
 
 
 class SessionId(EntityId):
@@ -197,6 +229,18 @@ class StorageMountAuditId(EntityId):
     prefix = "staudit_"
 
 
+class CredentialAccessAuditId(EntityId):
+    prefix = "credaudit_"
+
+
+class SecurityAuditId(EntityId):
+    prefix = "secaudit_"
+
+
+class SandboxNetworkPolicyId(EntityId):
+    prefix = "sbxnetpol_"
+
+
 REGISTERED_ENTITY_ID_PREFIXES: tuple[str, ...] = tuple(id_type.prefix for id_type in EntityId.__subclasses__())
 
 
@@ -207,38 +251,13 @@ def registered_entity_id_prefix(value: str) -> str | None:
     )
 
 
-def as_uuid(value: "uuid.UUID | EntityId") -> uuid.UUID:
+def as_uuid(value: EntityId) -> uuid.UUID:
     """Return the bare UUID for a typed entity or native UUID.
 
     Physical-boundary helpers (advisory-lock keys, cross-language Redis channel
     names) need the raw UUID. String parsing belongs at an explicit public or
     persistence boundary and must not leak through this adapter.
     """
-    if isinstance(value, EntityId):
-        return value.uuid
-    if isinstance(value, uuid.UUID):
-        return value
-    raise TypeError(f"cannot unwrap {type(value).__name__} as UUID")
-
-
-class EntityIdType(TypeDecorator):
-    """Store an EntityId as a native UUID column; hydrate back to the typed id."""
-
-    impl = _PgUUID(as_uuid=True)
-    cache_ok = True
-
-    def __init__(self, id_cls: type[EntityId]) -> None:
-        self.id_cls = id_cls
-        super().__init__()
-
-    def process_bind_param(self, value, dialect):
-        if value is None:
-            return None
-        if type(value) is self.id_cls:
-            return value.uuid
-        if isinstance(value, uuid.UUID):
-            return value
-        raise TypeError(f"cannot bind {type(value).__name__} as {self.id_cls.__name__}")
-
-    def process_result_value(self, value, dialect):
-        return None if value is None else self.id_cls.from_uuid(value)
+    if not isinstance(value, EntityId):
+        raise TypeError(f"cannot unwrap {type(value).__name__} as UUID")
+    return value.uuid

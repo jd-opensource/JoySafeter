@@ -126,7 +126,7 @@ REVIEWED_ENTITY_UUID_ADAPTERS = {
     "python:app/joysafeter_shared/ids.py::EntityId::_coerce::uuid_attr": (("typed_id_codec",), 1),
     "python:app/joysafeter_shared/ids.py::EntityId::from_public::uuid_parse": (("typed_id_codec",), 1),
     "python:app/joysafeter_shared/ids.py::EntityId::new::uuid_parse": (("typed_id_codec",), 1),
-    "python:app/joysafeter_shared/ids.py::EntityIdType::process_bind_param::uuid_attr": (
+    "python:app/joysafeter_shared/sqlalchemy_ids.py::EntityIdType::process_bind_param::uuid_attr": (
         ("typed_id_codec", "sql_uuid_bind_result"),
         1,
     ),
@@ -1277,7 +1277,8 @@ def test_event_public_and_physical_boundaries_use_typed_ids():
     assert 'entity_id!(EventId, "evt_");' in rust_ids
     assert "pub event_id: Option<EventId>" in rust_envelope
     assert "id.to_public()" in rust_realtime
-    assert 'event["id"] = str(event_id)' in python_session
+    assert 'event["id"] = event_id' in python_session
+    assert "normalize_json_value" in python_session
 
 
 def test_credential_group_id_roundtrip():
@@ -1293,3 +1294,79 @@ def test_secret_and_vault_ids_removed():
 
     assert not hasattr(ids, "SecretId")
     assert not hasattr(ids, "VaultId")
+
+
+def test_tenant_ids_have_one_canonical_python_definition():
+    governed = {
+        "UserId", "OrganizationId", "OrganizationMemberId",
+        "ProjectMemberId", "OAuthAccountId", "AuthSessionId",
+        "CredentialAccessAuditId", "SecurityAuditId",
+    }
+    canonical = BACKEND_ROOT / "app/joysafeter_shared/ids.py"
+    duplicates = []
+    for path in sorted((BACKEND_ROOT / "app").rglob("*.py")):
+        if path == canonical:
+            continue
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef) and node.name in governed:
+                duplicates.append(f"{path.relative_to(BACKEND_ROOT)}:{node.lineno}:{node.name}")
+            if isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(node.value, ast.Call):
+                function = node.value.func
+                if isinstance(function, ast.Name) and function.id == "NewType":
+                    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                    duplicates.extend(
+                        f"{path.relative_to(BACKEND_ROOT)}:{target.lineno}:{target.id}"
+                        for target in targets
+                        if isinstance(target, ast.Name) and target.id in governed
+                    )
+    assert duplicates == []
+
+
+def test_tenant_identity_is_not_created_by_orm_defaults():
+    governed = re.compile(
+        r"default\s*=\s*(?:User|Organization|OrganizationMember|Project|ProjectMember|OAuthAccount|AuthSession|CredentialAccessAudit|SecurityAudit)Id\.new"
+    )
+    violations = []
+    for path in sorted((BACKEND_ROOT / "app/joysafeter_domain/models").rglob("*.py")):
+        for match in governed.finditer(path.read_text()):
+            violations.append(f"{path.relative_to(BACKEND_ROOT)}:{match.group(0)}")
+    assert violations == []
+
+
+def test_tenant_auth_boundaries_do_not_reintroduce_string_id_channels():
+    paths = (
+        "app/joysafeter_api/api/v1/auth.py",
+        "app/joysafeter_api/api/v1/organizations.py",
+        "app/joysafeter_api/api/v1/oauth.py",
+        "app/joysafeter_shared/common/joysafeter_auth/context.py",
+        "app/joysafeter_shared/common/joysafeter_auth/dependencies.py",
+        "app/joysafeter_domain/services/joysafeter_auth_service.py",
+        "app/joysafeter_domain/services/joysafeter_organization_service.py",
+        "app/joysafeter_domain/services/joysafeter_project_service.py",
+    )
+    forbidden = re.compile(
+        r"\b(?:user_id|org_id|organization_id|project_id|member_id|oauth_account_id|auth_session_id)\s*:\s*(?:Optional\[)?(?:str|Any|uuid\.UUID|UUID)"
+    )
+    violations = []
+    for relative_path in paths:
+        if forbidden.search((BACKEND_ROOT / relative_path).read_text()):
+            violations.append(relative_path)
+    assert violations == []
+
+
+def test_json_boundaries_do_not_use_permissive_default_stringification():
+    roots = (
+        BACKEND_ROOT / "app/joysafeter_api",
+        BACKEND_ROOT / "app/joysafeter_application",
+        BACKEND_ROOT / "app/joysafeter_domain",
+        BACKEND_ROOT / "app/joysafeter_shared/common",
+        BACKEND_ROOT / "app/joysafeter_worker",
+    )
+    offenders = [
+        str(path.relative_to(BACKEND_ROOT))
+        for root in roots
+        for path in root.rglob("*.py")
+        if "default=str" in path.read_text()
+    ]
+    assert offenders == []

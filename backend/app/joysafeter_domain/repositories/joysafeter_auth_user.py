@@ -8,19 +8,20 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
+from app.joysafeter_shared.ids import UserId
 from app.joysafeter_shared.security import hash_security_token
 
 from .base import BaseRepository
 
 
-class AuthUserRepository(BaseRepository[AuthUser]):
+class AuthUserRepository(BaseRepository[AuthUser, UserId]):
     """AuthUser data access."""
 
     def __init__(self, db: AsyncSession):
         super().__init__(AuthUser, db)
 
-    async def get_by_id(self, user_id: str) -> Optional[AuthUser]:
-        """Get a user by ID (AuthUser primary key is str)."""
+    async def get_by_id(self, user_id: UserId) -> Optional[AuthUser]:
+        """Get a user by ID."""
         return await self.get_by(id=user_id)
 
     async def get_by_email(self, email: str) -> Optional[AuthUser]:

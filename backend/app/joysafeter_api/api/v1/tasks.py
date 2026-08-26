@@ -35,7 +35,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 )
 from app.joysafeter_shared.common.stream_errors import async_error_payload
 from app.joysafeter_shared.database import get_db
-from app.joysafeter_shared.ids import AgentId, SessionId, TaskId, as_uuid
+from app.joysafeter_shared.ids import AgentId, ProjectId, SessionId, TaskId, as_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +212,7 @@ def _validate_idempotent_task_replay(req: CreateTaskRequest, existing) -> None:
 async def _load_task_environment_or_raise(
     db: AsyncSession,
     environment_ref: str,
-    project_id: Optional[str],
+    project_id: ProjectId | None,
 ) -> Any:
     env = await EnvironmentService(db).get_environment_by_ref(environment_ref, project_id=project_id)
     if not env:
@@ -239,7 +239,7 @@ async def _validate_task_environment_matches_existing_session(
     agent,
     requested_environment_ref: str,
     requested_environment,
-    project_id: Optional[str],
+    project_id: ProjectId | None,
 ) -> None:
     effective_ref = session.environment_ref or getattr(agent, "environment_ref", None)
     if effective_ref:
@@ -265,7 +265,7 @@ async def _task_environment_refs_match_for_replay(
     db: AsyncSession,
     requested_environment_ref: str,
     effective_environment_ref: str | None,
-    project_id: Optional[str],
+    project_id: ProjectId | None,
 ) -> bool:
     if not effective_environment_ref:
         return False
@@ -285,7 +285,7 @@ async def _validate_idempotent_task_environment_replay(
     db: AsyncSession,
     req: CreateTaskRequest,
     existing,
-    project_id: Optional[str],
+    project_id: ProjectId | None,
 ) -> None:
     if not req.environment_ref:
         return
@@ -523,7 +523,7 @@ async def list_tasks(
     status: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> PaginatedResponse[TaskResponse]:
+) -> PaginatedResponse[TaskResponse, TaskId]:
     svc = TaskService(db)
     tasks, has_more = await svc.list_tasks(
         limit=limit,
@@ -534,11 +534,11 @@ async def list_tasks(
         project_id=auth_ctx.project_id,
     )
     data = [TaskResponse.model_validate(t) for t in tasks]
-    return PaginatedResponse(
+    return PaginatedResponse[TaskResponse, TaskId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 

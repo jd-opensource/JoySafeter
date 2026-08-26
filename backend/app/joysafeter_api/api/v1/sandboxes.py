@@ -33,15 +33,15 @@ async def list_sandboxes(
     after_id: Optional[SandboxId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> PaginatedResponse[SandboxResponse]:
+) -> PaginatedResponse[SandboxResponse, SandboxId]:
     svc = SandboxService(db)
     sandboxes, has_more = await svc.list_sandboxes(limit, after_id, project_id=auth_ctx.project_id)
     data = [SandboxResponse.model_validate(s) for s in sandboxes]
-    return PaginatedResponse(
+    return PaginatedResponse[SandboxResponse, SandboxId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 

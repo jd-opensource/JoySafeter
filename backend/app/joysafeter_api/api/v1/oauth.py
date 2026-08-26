@@ -28,8 +28,10 @@ from app.joysafeter_identity_federation.domain.models import (
 )
 from app.joysafeter_shared.common.app_errors import InvalidRequestError, NotFoundError, ServiceUnavailableError
 from app.joysafeter_shared.common.dependencies import get_current_user, get_db
-from app.joysafeter_shared.common.response import success_response
+from app.joysafeter_shared.common.response import ApiResponse
 from app.joysafeter_shared.config.settings import settings
+from app.joysafeter_shared.ids import OAuthAccountId
+from app.joysafeter_shared.json_boundary import normalize_json_value
 from app.joysafeter_shared.rate_limit import get_client_ip
 
 router = APIRouter(tags=["joysafeter-oauth"])
@@ -70,8 +72,13 @@ class OAuthProvidersResponse(BaseModel):
     login_mode: str
 
 
+class OAuthAuthorizationResponseData(BaseModel):
+    authorization_url: str
+    state: str
+
+
 class UserOAuthAccount(BaseModel):
-    id: str
+    id: OAuthAccountId
     provider: str
     provider_account_id: str
     email: str | None
@@ -80,6 +87,11 @@ class UserOAuthAccount(BaseModel):
 
 class UserOAuthAccountsResponse(BaseModel):
     accounts: list[UserOAuthAccount]
+
+
+class OAuthAccountUnlinkResponse(BaseModel):
+    success: bool
+    provider: str
 
 
 @router.get("/providers", response_model=OAuthProvidersResponse)
@@ -122,12 +134,14 @@ async def oauth_authorize(
             user_action="retry",
         ) from unexpected_error
 
-    response = JSONResponse(
-        content=success_response(
-            data={"authorization_url": result.authorization_url, "state": result.state},
-            message="OAuth authorization URL generated",
-        )
+    payload = ApiResponse(
+        data=OAuthAuthorizationResponseData(
+            authorization_url=result.authorization_url,
+            state=result.state,
+        ),
+        message="OAuth authorization URL generated",
     )
+    response = JSONResponse(content=normalize_json_value(payload.model_dump()))
     _set_correlation_cookie(response, result.correlation_cookie)
     return response
 
@@ -205,7 +219,7 @@ async def unlink_oauth_account(
     provider: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
+) -> OAuthAccountUnlinkResponse:
     current_user = await get_current_user(None, request, db)
     try:
         provider_id = ProviderId(provider)
@@ -221,7 +235,7 @@ async def unlink_oauth_account(
         if error.code == "FEDERATION_USER_NOT_FOUND":
             raise InvalidRequestError("User not found", code="USER_NOT_FOUND") from error
         raise
-    return {"success": success, "provider": provider}
+    return OAuthAccountUnlinkResponse(success=success, provider=provider)
 
 
 def _request_context(request: Request, *, callback: bool = False) -> RequestContext | CallbackContext:

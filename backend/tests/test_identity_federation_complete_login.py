@@ -29,12 +29,14 @@ from app.joysafeter_identity_federation.domain.models import (
 )
 from app.joysafeter_identity_federation.domain.policies import AccountLinkPolicy
 from app.joysafeter_identity_federation.infrastructure.registry import ProviderRegistry
+from app.joysafeter_shared.ids import UserId
 
 pytestmark = pytest.mark.no_db
 
 _NOW = datetime(2026, 8, 15, 12, 0, tzinfo=UTC)
 _ACCESS_EXPIRES_AT = _NOW + timedelta(minutes=15)
 _REFRESH_EXPIRES_AT = _NOW + timedelta(days=7)
+_USER_ID = UserId.from_public("user_00000000-0000-0000-0000-000000000001")
 
 
 class _RecordingAdapter:
@@ -162,12 +164,12 @@ class _RecordingAccountGateway:
         self.calls.append((principal, policy))
         if self.error is not None:
             raise self.error
-        return FederatedUser(user_id="user-1", email=principal.email, is_new_user=False)
+        return FederatedUser(user_id=_USER_ID, email=principal.email, is_new_user=False)
 
-    async def list_accounts(self, user_id: str) -> tuple[object, ...]:
+    async def list_accounts(self, user_id: UserId) -> tuple[object, ...]:
         raise AssertionError(f"unexpected account listing: {user_id}")
 
-    async def unlink(self, user_id: str, provider_id: ProviderId) -> bool:
+    async def unlink(self, user_id: UserId, provider_id: ProviderId) -> bool:
         raise AssertionError(f"unexpected account unlink: {user_id}, {provider_id}")
 
 
@@ -180,9 +182,9 @@ class _RecordingSessionGateway:
     ) -> None:
         self.events = events
         self.error = error
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[tuple[UserId, str]] = []
 
-    async def issue(self, user_id: str, ip_address: str) -> IssuedAuthSession:
+    async def issue(self, user_id: UserId, ip_address: str) -> IssuedAuthSession:
         self.events.append("session")
         self.calls.append((user_id, ip_address))
         if self.error is not None:
@@ -411,7 +413,7 @@ async def test_complete_login_consumes_attempt_before_adapter_account_and_sessio
             AccountLinkPolicy(allow_registration=True, auto_link_by_email=True),
         )
     ]
-    assert session_gateway.calls == [("user-1", "203.0.113.10")]
+    assert session_gateway.calls == [(_USER_ID, "203.0.113.10")]
     assert result == LoginSucceeded(
         callback_url="/managed/dashboard",
         access_token="access-token",

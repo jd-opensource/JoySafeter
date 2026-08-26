@@ -8,25 +8,26 @@ from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
 from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
+from app.joysafeter_shared.ids import OrganizationId, ProjectId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
 @pytest.mark.asyncio
 async def test_database_rejects_multiple_active_default_projects_for_same_org(db_session):
     org = Organization(
-        id=f"org-{uuid.uuid4()}",
+        id=OrganizationId.new(),
         name="Unique Default Org",
         slug=f"unique-default-{uuid.uuid4()}",
     )
     first_default = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="First Default",
         slug="first-default",
         is_default=True,
     )
     second_default = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Second Default",
         slug="second-default",
@@ -43,19 +44,19 @@ async def test_database_rejects_multiple_active_default_projects_for_same_org(db
 @pytest.mark.asyncio
 async def test_database_allows_archived_legacy_default_next_to_active_default(db_session):
     org = Organization(
-        id=f"org-{uuid.uuid4()}",
+        id=OrganizationId.new(),
         name="Archived Legacy Default Org",
         slug=f"archived-legacy-default-{uuid.uuid4()}",
     )
     active_default = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Active Default",
         slug="active-default",
         is_default=True,
     )
     archived_default = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Archived Default",
         slug="archived-default",
@@ -80,12 +81,12 @@ async def test_database_allows_archived_legacy_default_next_to_active_default(db
 @pytest.mark.asyncio
 async def test_get_default_project_ignores_archived_default(db_session):
     org = Organization(
-        id=f"org-{uuid.uuid4()}",
+        id=OrganizationId.new(),
         name="Archived Default Org",
         slug=f"archived-default-{uuid.uuid4()}",
     )
     archived_default = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Old Default",
         slug="default",
@@ -93,7 +94,7 @@ async def test_get_default_project_ignores_archived_default(db_session):
         archived_at=utc_now(),
     )
     active_project = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Active",
         slug=f"active-{uuid.uuid4()}",
@@ -108,19 +109,19 @@ async def test_get_default_project_ignores_archived_default(db_session):
 @pytest.mark.asyncio
 async def test_service_set_default_project_rejects_archived_target_without_mutating_current_default(db_session):
     org = Organization(
-        id=f"org-{uuid.uuid4()}",
+        id=OrganizationId.new(),
         name="Set Default Org",
         slug=f"set-default-{uuid.uuid4()}",
     )
     active_default = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Active Default",
         slug="active-default",
         is_default=True,
     )
     archived_target = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Archived Target",
         slug="archived-target",
@@ -147,12 +148,12 @@ async def test_service_set_default_project_rejects_archived_target_without_mutat
 @pytest.mark.asyncio
 async def test_ensure_default_project_promotes_existing_active_project_when_archived_default_exists(db_session):
     org = Organization(
-        id=f"org-{uuid.uuid4()}",
+        id=OrganizationId.new(),
         name="Ensure Default Org",
         slug=f"ensure-default-{uuid.uuid4()}",
     )
     archived_default = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Archived Default",
         slug="default",
@@ -160,7 +161,7 @@ async def test_ensure_default_project_promotes_existing_active_project_when_arch
         archived_at=utc_now(),
     )
     active_project = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Active Candidate",
         slug=f"active-candidate-{uuid.uuid4()}",
@@ -184,7 +185,7 @@ async def test_ensure_default_project_promotes_existing_active_project_when_arch
 @pytest.mark.asyncio
 async def test_ensure_default_project_creates_main_identity_when_organization_has_no_projects(db_session):
     org = Organization(
-        id=f"org-{uuid.uuid4()}",
+        id=OrganizationId.new(),
         name="Empty Organization",
         slug=f"empty-org-{uuid.uuid4()}",
     )
@@ -201,19 +202,19 @@ async def test_ensure_default_project_creates_main_identity_when_organization_ha
 @pytest.mark.asyncio
 async def test_restore_project_unarchives_without_changing_active_default(db_session):
     org = Organization(
-        id=f"org-{uuid.uuid4()}",
+        id=OrganizationId.new(),
         name="Restore Org",
         slug=f"restore-org-{uuid.uuid4()}",
     )
     active_default = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Active Default",
         slug="active-default",
         is_default=True,
     )
     archived_project = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Archived Project",
         slug="archived-project",
@@ -239,19 +240,19 @@ async def test_restore_project_unarchives_without_changing_active_default(db_ses
 @pytest.mark.asyncio
 async def test_restore_archived_legacy_default_demotes_when_active_default_exists(db_session):
     org = Organization(
-        id=f"org-{uuid.uuid4()}",
+        id=OrganizationId.new(),
         name="Legacy Restore Org",
         slug=f"legacy-restore-org-{uuid.uuid4()}",
     )
     active_default = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Active Default",
         slug="active-default",
         is_default=True,
     )
     archived_default = Project(
-        id=f"project-{uuid.uuid4()}",
+        id=ProjectId.new(),
         org_id=org.id,
         name="Archived Legacy Default",
         slug="legacy-default",

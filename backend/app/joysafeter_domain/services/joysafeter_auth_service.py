@@ -2,6 +2,7 @@
 
 # ruff: noqa: E402 — sections merged verbatim; imports intentionally follow their banners
 
+from dataclasses import dataclass
 
 # ============================================================================
 # auth_session_service.py
@@ -9,7 +10,6 @@
 
 """Auth session service — manage user session lifecycle."""
 
-import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -21,6 +21,7 @@ from app.joysafeter_domain.models.joysafeter_organization import Member
 from app.joysafeter_domain.repositories.joysafeter_auth_session import AuthSessionRepository
 from app.joysafeter_domain.repositories.joysafeter_auth_user import AuthUserRepository
 from app.joysafeter_domain.services.base import BaseService
+from app.joysafeter_shared.ids import AuthSessionId, OrganizationId, UserId
 from app.joysafeter_shared.utils.datetime import utc_now
 
 
@@ -49,7 +50,7 @@ class AuthSessionService(BaseService):
         *,
         email: str,
         name: str,
-        user_id: Optional[str] = None,
+        user_id: Optional[UserId] = None,
         email_verified: bool = False,
         image: Optional[str] = None,
         stripe_customer_id: Optional[str] = None,
@@ -81,7 +82,7 @@ class AuthSessionService(BaseService):
 
         user = await self.user_repo.create(
             {
-                "id": user_id or str(uuid.uuid4()),
+                "id": user_id or UserId.new(),
                 "name": name,
                 "email": email,
                 "email_verified": email_verified,
@@ -113,6 +114,7 @@ class AuthSessionService(BaseService):
         active_org_id = await self._resolve_active_org(user.id)
         session = await self.session_repo.create(
             {
+                "id": AuthSessionId.new(),
                 "user_id": user.id,
                 "token": token,
                 "expires_at": expires_at,
@@ -182,7 +184,7 @@ class AuthSessionService(BaseService):
         await self.commit()
         return deleted
 
-    async def list_user_sessions(self, user_id: str) -> list[AuthSession]:
+    async def list_user_sessions(self, user_id: UserId) -> list[AuthSession]:
         """List all sessions for a user."""
         result = await self.db.execute(
             select(AuthSession).where(AuthSession.user_id == user_id).order_by(AuthSession.updated_at.desc())
@@ -199,13 +201,10 @@ class AuthSessionService(BaseService):
         await self.db.refresh(session)
         return session
 
-    async def _resolve_active_org(self, user_id: str) -> Optional[str]:
+    async def _resolve_active_org(self, user_id: UserId) -> Optional[OrganizationId]:
         """Choose a deterministic initial organization, preferring ownership."""
         result = await self.db.execute(
-            select(Member.organization_id)
-            .where(Member.user_id == user_id)
-            .order_by(*_membership_order())
-            .limit(1)
+            select(Member.organization_id).where(Member.user_id == user_id).order_by(*_membership_order()).limit(1)
         )
         return result.scalar_one_or_none()
 
@@ -270,6 +269,21 @@ def _auth_service_error_payload(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class IssuedLoginTokens:
+    user: AuthUser
+    access_token: str
+    refresh_token: str
+    csrf_token: str
+    access_expires_at: datetime
+    refresh_expires_at: datetime
+    token_type: str = "bearer"
+
+    @property
+    def expires_in(self) -> int:
+        return max(0, int((self.access_expires_at - datetime.now(timezone.utc)).total_seconds()))
+
+
 class AuthService(BaseService):
     """User authentication service."""
 
@@ -288,7 +302,7 @@ class AuthService(BaseService):
         self.session_service = AuthSessionService(db)
         self.audit_service = SecurityAuditService(db)
 
-    async def _issue_jwt_tokens(self, user_id: str) -> tuple[str, str, str, datetime, datetime]:
+    async def _issue_jwt_tokens(self, user_id: UserId) -> tuple[str, str, str, datetime, datetime]:
         """Generate JWT access token, refresh token, and CSRF token."""
         from app.joysafeter_shared.cache.redis import RedisClient
         from app.joysafeter_shared.security import create_access_token, create_csrf_token, generate_refresh_token
@@ -301,10 +315,9 @@ class AuthService(BaseService):
         project_id = None
         role = None
         try:
-            import uuid as _uuid
-
             from app.joysafeter_domain.models.joysafeter_organization import Member
             from app.joysafeter_domain.models.joysafeter_project import Project
+
             result = await self.db.execute(
                 select(Member).where(Member.user_id == user_id).order_by(*_membership_order()).limit(1)
             )
@@ -312,12 +325,12 @@ class AuthService(BaseService):
 
             # Auto-create org + project for users who don't have one yet
             if not membership:
-                user = await self.user_repo.get_by(id=user_id)  # type: ignore[arg-type]
+                user = await self.user_repo.get_by(id=user_id)
                 if user is None:
                     raise InternalServiceError(
                         "Authentication user not found",
                         code="AUTH_USER_NOT_FOUND",
-                        data={"user_id": user_id},
+                        data={"user_id": str(user_id)},
                     )
                 organization_service = OrganizationService(self.db)
                 created = await organization_service.add_with_owner_and_default_project(
@@ -326,9 +339,6 @@ class AuthService(BaseService):
                         user_email=user.email,
                     ),
                     owner_user_id=user_id,
-                    organization_id=str(_uuid.uuid4()),
-                    owner_member_id=str(_uuid.uuid4()),
-                    default_project_id=str(_uuid.uuid4()),
                 )
                 membership = created.owner_membership
 
@@ -358,7 +368,7 @@ class AuthService(BaseService):
                     message="Failed to resolve org/project for JWT claims",
                     operation="resolve_jwt_context",
                     boundary="auth_service",
-                    data={"user_id": user_id},
+                    data={"user_id": str(user_id)},
                     detail=exc.__class__.__name__,
                 ),
             ) from exc
@@ -367,7 +377,7 @@ class AuthService(BaseService):
             raise InternalServiceError(
                 "Authentication context is incomplete",
                 code="AUTH_JWT_CONTEXT_INCOMPLETE",
-                data={"user_id": user_id},
+                data={"user_id": str(user_id)},
             )
 
         # generate access token (JWT) with org/project context
@@ -388,7 +398,7 @@ class AuthService(BaseService):
         if RedisClient.is_available():
             try:
                 refresh_expire_seconds = int(refresh_expires.timestamp() - datetime.now(timezone.utc).timestamp())
-                await RedisClient.set(refresh_token_key, user_id, expire=refresh_expire_seconds)
+                await RedisClient.set(refresh_token_key, str(user_id), expire=refresh_expire_seconds)
                 await RedisClient.set(refresh_token_user_key, refresh_token, expire=refresh_expire_seconds)
             except Exception as exc:
                 logger.bind(
@@ -397,7 +407,7 @@ class AuthService(BaseService):
                         message="Failed to store refresh token in Redis",
                         operation="store_refresh_token",
                         boundary="auth_service",
-                        data={"user_id": user_id},
+                        data={"user_id": str(user_id)},
                         detail=exc.__class__.__name__,
                     )
                 ).debug("Failed to store refresh token in Redis")
@@ -416,11 +426,11 @@ class AuthService(BaseService):
     async def _store_refresh_session(
         self,
         refresh_token: str,
-        user_id: str,
+        user_id: UserId,
         refresh_expires: datetime,
     ) -> None:
         """Persist refresh token in DB as a durable fallback to Redis."""
-        user = await self.user_repo.get_by(id=user_id)  # type: ignore[arg-type]
+        user = await self.user_repo.get_by(id=user_id)
         if not user:
             logger.warning(f"Cannot persist refresh session: user not found user_id={user_id}")
             return
@@ -431,7 +441,7 @@ class AuthService(BaseService):
             expires_at=refresh_expires,
         )
 
-    async def _get_refresh_session_user_id(self, refresh_token: str) -> Optional[str]:
+    async def _get_refresh_session_user_id(self, refresh_token: str) -> Optional[UserId]:
         """Resolve a refresh token from the durable DB session store."""
         session_token = self._refresh_session_token(refresh_token)
         session = await self.session_service.session_repo.get_by_token(session_token)
@@ -451,7 +461,7 @@ class AuthService(BaseService):
         await self.commit()
         return session.user_id
 
-    async def _delete_refresh_token(self, refresh_token: str, user_id: str) -> None:
+    async def _delete_refresh_token(self, refresh_token: str, user_id: UserId) -> None:
         """Delete the refresh token from Redis and the durable DB session store."""
         from app.joysafeter_shared.cache.redis import RedisClient
 
@@ -464,7 +474,7 @@ class AuthService(BaseService):
 
         await self.session_service.invalidate_session(self._refresh_session_token(refresh_token))
 
-    async def _revoke_user_sessions(self, user_id: str) -> None:
+    async def _revoke_user_sessions(self, user_id: UserId) -> None:
         """Revoke all durable and Redis-backed sessions for a user."""
         sessions = await self.session_service.list_user_sessions(user_id)
         for session in sessions:
@@ -475,7 +485,7 @@ class AuthService(BaseService):
         await self.session_service.session_repo.delete_by_user_id(user_id)
         await self.commit()
 
-    async def _rotate_refresh_token(self, refresh_token: str, user_id: str) -> None:
+    async def _rotate_refresh_token(self, refresh_token: str, user_id: UserId) -> None:
         """Retire a rotated refresh token, keeping a short grace pointer.
 
         The old token is removed from the live store but a
@@ -495,7 +505,7 @@ class AuthService(BaseService):
             try:
                 await redis_client.delete(refresh_token_key)
                 await redis_client.delete(refresh_token_user_key)
-                await RedisClient.set(grace_key, user_id, expire=self._REFRESH_GRACE_SECONDS)
+                await RedisClient.set(grace_key, str(user_id), expire=self._REFRESH_GRACE_SECONDS)
             except Exception as exc:
                 logger.bind(
                     error=_auth_service_error_payload(
@@ -503,7 +513,7 @@ class AuthService(BaseService):
                         message="Failed to rotate refresh token in Redis",
                         operation="rotate_refresh_token",
                         boundary="auth_service",
-                        data={"user_id": user_id},
+                        data={"user_id": str(user_id)},
                         detail=exc.__class__.__name__,
                     )
                 ).debug("Failed to rotate refresh token in Redis")
@@ -513,7 +523,7 @@ class AuthService(BaseService):
 
         await self.session_service.invalidate_session(self._refresh_session_token(refresh_token))
 
-    def _build_jwt_login_response(
+    def _build_issued_login_tokens(
         self,
         user: AuthUser,
         access_token: str,
@@ -521,36 +531,22 @@ class AuthService(BaseService):
         csrf_token: str,
         access_expires: datetime,
         refresh_expires: datetime,
-    ) -> dict:
-        """Build login response (JWT mode)."""
-        response = {
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "name": user.name,
-                "image": user.image,
-                "emailVerified": user.email_verified,
-                "isSuperUser": user.is_super_user,
-                "createdAt": user.created_at.isoformat() if user.created_at else None,
-                "updatedAt": user.updated_at.isoformat() if user.updated_at else None,
-            },
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "csrf_token": csrf_token,
-            "token_type": "bearer",
-            "expires_in": int((access_expires - datetime.now(timezone.utc)).total_seconds()),
-        }
-        return response
+    ) -> IssuedLoginTokens:
+        return IssuedLoginTokens(
+            user=user,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            csrf_token=csrf_token,
+            access_expires_at=access_expires,
+            refresh_expires_at=refresh_expires,
+        )
 
-    async def issue_login_tokens(self, user: AuthUser) -> dict:
+    async def issue_login_tokens(self, user: AuthUser) -> IssuedLoginTokens:
         """Issue access/refresh/csrf tokens for an already authenticated user."""
         access_token, refresh_token, csrf_token, access_expires, refresh_expires = await self._issue_jwt_tokens(user.id)
-        response = self._build_jwt_login_response(
+        return self._build_issued_login_tokens(
             user, access_token, refresh_token, csrf_token, access_expires, refresh_expires
         )
-        response["access_expires_at"] = access_expires
-        response["refresh_expires_at"] = refresh_expires
-        return response
 
     # ---------------------------------------------------------------- register/login
     async def register(
@@ -561,7 +557,7 @@ class AuthService(BaseService):
         password: str,
         image: Optional[str] = None,
         is_super_user: bool = False,
-    ) -> dict:
+    ) -> IssuedLoginTokens:
         """Register a new user account, send a verification email, and return JWT tokens.
 
         Creates the user record and issues JWT access/refresh tokens so the user
@@ -590,6 +586,7 @@ class AuthService(BaseService):
 
         user = await self.user_repo.create(
             {
+                "id": UserId.new(),
                 "name": name,
                 "email": email,
                 "hashed_password": get_password_hash(password),
@@ -614,7 +611,7 @@ class AuthService(BaseService):
         # Note: workspace provisioning removed — new users get org + project via joysafeter auth.
 
         access_token, refresh_token, csrf_token, access_expires, refresh_expires = await self._issue_jwt_tokens(user.id)
-        return self._build_jwt_login_response(
+        return self._build_issued_login_tokens(
             user, access_token, refresh_token, csrf_token, access_expires, refresh_expires
         )
 
@@ -625,7 +622,7 @@ class AuthService(BaseService):
         password: Optional[str] = None,
         skip_password_check: bool = False,
         ip_address: Optional[str] = None,
-    ) -> dict:
+    ) -> IssuedLoginTokens:
         """Authenticate a user by email and password, then return JWT tokens.
 
         Validates the password format, verifies credentials, checks account
@@ -706,7 +703,7 @@ class AuthService(BaseService):
             await run_post_login_init(self.db, user, ip_address or "unknown")
 
         access_token, refresh_token, csrf_token, access_expires, refresh_expires = await self._issue_jwt_tokens(user.id)
-        return self._build_jwt_login_response(
+        return self._build_issued_login_tokens(
             user, access_token, refresh_token, csrf_token, access_expires, refresh_expires
         )
 
@@ -827,7 +824,7 @@ class AuthService(BaseService):
         return True
 
     # ---------------------------------------------------------------- refresh token
-    async def refresh_token(self, refresh_token: str) -> dict:
+    async def refresh_token(self, refresh_token: str) -> IssuedLoginTokens:
         """Refresh the access token.
 
         Uses rotation with a short grace window (``_REFRESH_GRACE_SECONDS``):
@@ -839,21 +836,29 @@ class AuthService(BaseService):
         from app.joysafeter_shared.cache.redis import RedisClient
 
         try:
-            user_id = None
+            user_id: UserId | None = None
             redis_client = RedisClient.get_client() if RedisClient.is_available() else None
             if redis_client:
                 refresh_token_key = f"refresh_token:{refresh_token}"
-                user_id = await redis_client.get(refresh_token_key)
-                if isinstance(user_id, bytes):
-                    user_id = user_id.decode()
+                stored_user_id = await redis_client.get(refresh_token_key)
+                if isinstance(stored_user_id, bytes):
+                    stored_user_id = stored_user_id.decode()
 
                 # Grace window: token was rotated within the last
                 # _REFRESH_GRACE_SECONDS by a concurrent / earlier refresh.
-                if not user_id:
+                if not stored_user_id:
                     grace_key = f"refresh_token_grace:{refresh_token}"
-                    user_id = await redis_client.get(grace_key)
-                    if isinstance(user_id, bytes):
-                        user_id = user_id.decode()
+                    stored_user_id = await redis_client.get(grace_key)
+                    if isinstance(stored_user_id, bytes):
+                        stored_user_id = stored_user_id.decode()
+                if stored_user_id:
+                    try:
+                        user_id = UserId.from_public(stored_user_id)
+                    except (TypeError, ValueError) as exc:
+                        raise AuthenticationError(
+                            "Invalid or expired refresh token",
+                            code="REFRESH_TOKEN_INVALID",
+                        ) from exc
 
             if not user_id:
                 user_id = await self._get_refresh_session_user_id(refresh_token)
@@ -861,9 +866,7 @@ class AuthService(BaseService):
             if not user_id:
                 raise AuthenticationError("Invalid or expired refresh token", code="REFRESH_TOKEN_INVALID")
 
-            # user_id from redis is a string, but AuthUser.id is also string
-            # Use get_by method with id parameter
-            user = await self.user_repo.get_by(id=user_id)  # type: ignore[arg-type]
+            user = await self.user_repo.get_by(id=user_id)
             if not user or not user.is_active:
                 await self._delete_refresh_token(refresh_token, user_id)
                 raise AuthenticationError("Invalid user", code="USER_INVALID")
@@ -876,7 +879,7 @@ class AuthService(BaseService):
             # instead of deleting it outright (kills the concurrent-refresh race).
             await self._rotate_refresh_token(refresh_token, user_id)
 
-            return self._build_jwt_login_response(
+            return self._build_issued_login_tokens(
                 user, access_token, new_refresh_token, csrf_token, access_expires, refresh_expires
             )
         except AuthenticationError:
@@ -888,7 +891,7 @@ class AuthService(BaseService):
             )
 
     # ---------------------------------------------------------------- misc
-    async def get_user_by_id(self, user_id: str) -> Optional[AuthUser]:
+    async def get_user_by_id(self, user_id: UserId) -> Optional[AuthUser]:
         """Fetch a user by their unique ID.
 
         Args:
@@ -922,7 +925,7 @@ class AuthService(BaseService):
         """
         return await self.user_repo.search(keyword, limit)
 
-    async def deactivate_user(self, user_id: str) -> bool:
+    async def deactivate_user(self, user_id: UserId) -> bool:
         """Deactivate a user account, preventing future logins.
 
         Args:
@@ -938,7 +941,7 @@ class AuthService(BaseService):
         await self.commit()
         return True
 
-    async def delete_user(self, user_id: str) -> bool:
+    async def delete_user(self, user_id: UserId) -> bool:
         """Permanently delete a user account and all associated data.
 
         Args:

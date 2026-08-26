@@ -138,7 +138,7 @@ async def list_files(
     limit: int = Query(default=20, ge=1, le=100),
     after_id: Optional[FileId] = Query(default=None),
     scope_id: Optional[str] = Query(default=None, description="Filter by session id (sess_xxx)"),
-) -> CursorPaginatedResponse[FileResponse]:
+) -> CursorPaginatedResponse[FileResponse, FileId]:
     svc = _get_service()
     session_filter = _parse_session_scope(scope_id)
 
@@ -151,11 +151,11 @@ async def list_files(
     )
 
     data = [FileResponse.from_model(f) for f in files]
-    return CursorPaginatedResponse(
+    return CursorPaginatedResponse[FileResponse, FileId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 

@@ -9,6 +9,7 @@ from app.joysafeter_domain.services.joysafeter_organization_member_service impor
     OrganizationMemberService,
 )
 from app.joysafeter_shared.common.app_errors import ResourceConflictError
+from app.joysafeter_shared.ids import OrganizationId, OrganizationMemberId, UserId
 
 
 @pytest.mark.asyncio
@@ -17,13 +18,13 @@ async def test_duplicate_org_membership_is_rejected_by_db(db_session):
     # (organization_id, user_id). Without the unique constraint a race in
     # add_member could create duplicates, making the per-request org role
     # (resolved via .limit(1) with no ordering) nondeterministic.
-    org = Organization(id=f"org-{uuid.uuid4()}", name="Org", slug=f"org-{uuid.uuid4()}")
-    user = AuthUser(id=f"user-{uuid.uuid4()}", name="U", email=f"{uuid.uuid4()}@example.com")
+    org = Organization(id=OrganizationId.new(), name="Org", slug=f"org-{uuid.uuid4()}")
+    user = AuthUser(id=UserId.new(), name="U", email=f"{uuid.uuid4()}@example.com")
     db_session.add_all([org, user])
     await db_session.flush()
 
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="admin"))
-    db_session.add(Member(user_id=user.id, organization_id=org.id, role="member"))
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org.id, role="admin"))
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=user.id, organization_id=org.id, role="member"))
 
     with pytest.raises(IntegrityError):
         await db_session.flush()
@@ -35,14 +36,14 @@ async def test_add_member_race_converts_integrity_error_to_conflict(db_session, 
     # concurrent request already committed, so the insert reaches the DB and trips
     # the unique constraint. The service must surface a clean 409 conflict, not a
     # raw IntegrityError (500).
-    org = Organization(id=f"org-{uuid.uuid4()}", name="Org", slug=f"org-{uuid.uuid4()}")
-    actor = AuthUser(id=f"user-{uuid.uuid4()}", name="Actor", email=f"{uuid.uuid4()}@example.com")
-    target = AuthUser(id=f"user-{uuid.uuid4()}", name="Target", email=f"{uuid.uuid4()}@example.com")
+    org = Organization(id=OrganizationId.new(), name="Org", slug=f"org-{uuid.uuid4()}")
+    actor = AuthUser(id=UserId.new(), name="Actor", email=f"{uuid.uuid4()}@example.com")
+    target = AuthUser(id=UserId.new(), name="Target", email=f"{uuid.uuid4()}@example.com")
     db_session.add_all([org, actor, target])
     await db_session.flush()
-    db_session.add(Member(user_id=actor.id, organization_id=org.id, role="owner"))
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=actor.id, organization_id=org.id, role="owner"))
     # The row a concurrent request "just committed" for the target.
-    db_session.add(Member(user_id=target.id, organization_id=org.id, role="member"))
+    db_session.add(Member(id=OrganizationMemberId.new(), user_id=target.id, organization_id=org.id, role="member"))
     await db_session.commit()
 
     svc = OrganizationMemberService(db_session)

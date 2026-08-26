@@ -50,6 +50,7 @@ from app.joysafeter_shared.ids import (
     SkillFileId,
     SkillId,
     SkillSecurityScanId,
+    SkillUsageId,
     SkillVersionId,
 )
 from app.joysafeter_shared.skill.yaml_parser import extract_metadata_from_frontmatter, parse_skill_md
@@ -522,7 +523,7 @@ async def search_skill_usage(
     security_scan_id: Optional[SkillSecurityScanId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> PaginatedResponse[SkillUsageResponse]:
+) -> PaginatedResponse[SkillUsageResponse, SkillUsageId]:
     artifact_hash = _validate_sha256_hex(artifact_hash, "artifact_hash")
     target_hash = _validate_sha256_hex(target_hash, "target_hash")
 
@@ -549,11 +550,11 @@ async def search_skill_usage(
     rows = list(result.scalars().all())
     has_more = len(rows) > limit
     data = [SkillUsageResponse.model_validate(row) for row in rows[:limit]]
-    return PaginatedResponse(
+    return PaginatedResponse[SkillUsageResponse, SkillUsageId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 
@@ -566,7 +567,7 @@ async def list_skill_usage(
     security_scan_id: Optional[SkillSecurityScanId] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> PaginatedResponse[SkillUsageResponse]:
+) -> PaginatedResponse[SkillUsageResponse, SkillUsageId]:
     artifact_hash = _validate_sha256_hex(artifact_hash, "artifact_hash")
     target_hash = _validate_sha256_hex(target_hash, "target_hash")
 
@@ -588,11 +589,11 @@ async def list_skill_usage(
     rows = list(result.scalars().all())
     has_more = len(rows) > limit
     data = [SkillUsageResponse.model_validate(row) for row in rows[:limit]]
-    return PaginatedResponse(
+    return PaginatedResponse[SkillUsageResponse, SkillUsageId](
         data=data,
         has_more=has_more,
-        first_id=str(data[0].id) if data else None,
-        last_id=str(data[-1].id) if data else None,
+        first_id=data[0].id if data else None,
+        last_id=data[-1].id if data else None,
     )
 
 

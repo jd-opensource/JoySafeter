@@ -2,7 +2,6 @@
 Organization and member models
 """
 
-import uuid
 from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import BigInteger, ForeignKey, Index, Numeric, String, UniqueConstraint
@@ -10,6 +9,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.joysafeter_shared.database import Base
+from app.joysafeter_shared.ids import OrganizationId, OrganizationMemberId, UserId
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 from .base import TimestampMixin
 
@@ -18,26 +19,12 @@ if TYPE_CHECKING:
     from .joysafeter_project import Project
 
 
-def _generate_str_id() -> str:
-    """Generate a string UUID compatible with drizzle text primary keys."""
-    return str(uuid.uuid4())
-
-
 class Organization(Base, TimestampMixin):
-    """
-    Organization (aligned with the original drizzle `organization` table).
-
-    Use text primary key for drizzle compatibility.
-    """
+    """Organization aggregate root."""
 
     __tablename__ = "joysafeter_organizations"
 
-    # primary key (text type to match original project)
-    id: Mapped[str] = mapped_column(
-        String(255),
-        primary_key=True,
-        default=_generate_str_id,
-    )
+    id: Mapped[OrganizationId] = mapped_column(EntityIdType(OrganizationId), primary_key=True)
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -73,28 +60,19 @@ class Organization(Base, TimestampMixin):
 
 
 class Member(Base, TimestampMixin):
-    """
-    Organization member (aligned with the original drizzle `member` table).
-
-    Use text primary key for drizzle compatibility.
-    """
+    """Organization membership row."""
 
     __tablename__ = "joysafeter_organization_members"
 
-    # primary key (text type to match original project)
-    id: Mapped[str] = mapped_column(
-        String(255),
-        primary_key=True,
-        default=_generate_str_id,
-    )
+    id: Mapped[OrganizationMemberId] = mapped_column(EntityIdType(OrganizationMemberId), primary_key=True)
 
-    user_id: Mapped[str] = mapped_column(
-        String(255),
+    user_id: Mapped[UserId] = mapped_column(
+        EntityIdType(UserId),
         ForeignKey("joysafeter_users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    organization_id: Mapped[str] = mapped_column(
-        String(255),
+    organization_id: Mapped[OrganizationId] = mapped_column(
+        EntityIdType(OrganizationId),
         ForeignKey("joysafeter_organizations.id", ondelete="CASCADE"),
         nullable=False,
     )

@@ -1,32 +1,33 @@
-import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-from uuid_utils import uuid7
 
-from app.joysafeter_domain.models.base import JoySafeterBaseModel
+from app.joysafeter_domain.models.base import JoySafeterModel
 from app.joysafeter_shared.database import Base
 from app.joysafeter_shared.ids import (
-    EntityIdType,
+    ApiKeyId,
     MemoryId,
     MemoryStoreId,
     MemoryVersionId,
+    ProjectId,
     SessionId,
+    SessionResourceId,
 )
+from app.joysafeter_shared.sqlalchemy_ids import EntityIdType
 
 
-class JoySafeterMemoryStore(JoySafeterBaseModel):
+class JoySafeterMemoryStore(JoySafeterModel):
     __tablename__ = "joysafeter_memory_stores"
 
     id: Mapped[MemoryStoreId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(MemoryStoreId), primary_key=True, default=MemoryStoreId.new
+        EntityIdType(MemoryStoreId), primary_key=True
     )
 
-    project_id: Mapped[Optional[str]] = mapped_column(
-        String(255),
+    project_id: Mapped[Optional[ProjectId]] = mapped_column(
+        EntityIdType(ProjectId),
         ForeignKey("joysafeter_organization_projects.id"),
         nullable=True,
         index=True,
@@ -37,12 +38,12 @@ class JoySafeterMemoryStore(JoySafeterBaseModel):
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-class JoySafeterMemory(JoySafeterBaseModel):
+class JoySafeterMemory(JoySafeterModel):
     __tablename__ = "joysafeter_memories"
     __table_args__ = (UniqueConstraint("store_id", "path"),)
 
     id: Mapped[MemoryId] = mapped_column(  # type: ignore[assignment]
-        EntityIdType(MemoryId), primary_key=True, default=MemoryId.new
+        EntityIdType(MemoryId), primary_key=True
     )
     store_id: Mapped[MemoryStoreId] = mapped_column(
         EntityIdType(MemoryStoreId),
@@ -54,9 +55,7 @@ class JoySafeterMemory(JoySafeterBaseModel):
     content_sha256: Mapped[str] = mapped_column(Text, nullable=False, default="")
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    current_version_id: Mapped[Optional[MemoryVersionId]] = mapped_column(
-        EntityIdType(MemoryVersionId), nullable=True
-    )
+    current_version_id: Mapped[Optional[MemoryVersionId]] = mapped_column(EntityIdType(MemoryVersionId), nullable=True)
 
 
 class JoySafeterMemoryVersion(Base):
@@ -66,9 +65,7 @@ class JoySafeterMemoryVersion(Base):
         Index("idx_joysafeter_memory_versions_session_created", "session_id", "created_at"),
     )
 
-    id: Mapped[MemoryVersionId] = mapped_column(
-        EntityIdType(MemoryVersionId), primary_key=True, default=MemoryVersionId.new
-    )
+    id: Mapped[MemoryVersionId] = mapped_column(EntityIdType(MemoryVersionId), primary_key=True)
     store_id: Mapped[MemoryStoreId] = mapped_column(
         EntityIdType(MemoryStoreId),
         ForeignKey("joysafeter_memory_stores.id", ondelete="CASCADE"),
@@ -81,7 +78,7 @@ class JoySafeterMemoryVersion(Base):
     content_sha256: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     content_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     session_id: Mapped[Optional[SessionId]] = mapped_column(EntityIdType(SessionId), nullable=True)
-    api_key_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    api_key_id: Mapped[Optional[ApiKeyId]] = mapped_column(EntityIdType(ApiKeyId), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     redacted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     redacted_by: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
@@ -94,7 +91,7 @@ class JoySafeterSessionMemoryStore(Base):
         Index("idx_joysafeter_session_memory_stores_created", "created_at"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=lambda ctx=None: uuid7())
+    id: Mapped[SessionResourceId] = mapped_column(EntityIdType(SessionResourceId), primary_key=True)
     session_id: Mapped[SessionId] = mapped_column(
         EntityIdType(SessionId),
         ForeignKey("joysafeter_sessions.id"),
