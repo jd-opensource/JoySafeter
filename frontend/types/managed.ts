@@ -1,11 +1,13 @@
 import type {
   AgentId,
+  ApiKeyId,
   CredentialGroupId,
   CredentialId,
   EnvironmentId,
   EventId,
   FileId,
   MemoryStoreId,
+  ProjectId,
   SandboxId,
   SessionId,
   SessionResourceId,
@@ -40,6 +42,23 @@ export interface Agent {
   created_at: string
   updated_at: string
   archived_at?: string | null
+}
+
+export interface ApiKey {
+  id: ApiKeyId
+  project_id: ProjectId
+  name: string
+  key_prefix: string
+  role: string
+  status: 'active' | 'expired' | 'revoked'
+  created_at?: string
+  expires_at?: string | null
+  revoked_at?: string | null
+  last_used_at?: string | null
+}
+
+export interface ApiKeyCreateResponse extends ApiKey {
+  raw_key: string
 }
 
 export interface AgentSkillRef {

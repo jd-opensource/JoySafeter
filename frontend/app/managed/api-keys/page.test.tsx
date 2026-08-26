@@ -114,7 +114,19 @@ describe('ApiKeysPage route scope', () => {
       capability: 'admin',
       archived_at: null,
     })
-    ;(managedPost as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ raw_key: 'secret' })
+    ;(managedPost as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'apikey_018f6f42-0a51-7cc4-98c8-4f6f0ca5f030',
+      project_id: 'proj_018f6f42-0a51-7cc4-98c8-4f6f0ca5f024',
+      name: 'Deploy key',
+      key_prefix: 'jsk_live_1234',
+      role: 'viewer',
+      status: 'active',
+      created_at: '2026-08-26T00:00:00Z',
+      expires_at: null,
+      revoked_at: null,
+      last_used_at: null,
+      raw_key: 'secret',
+    })
     const { default: ApiKeysPage } = await import('./page')
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const view = render(

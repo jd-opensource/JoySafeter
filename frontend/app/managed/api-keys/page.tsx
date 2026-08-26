@@ -37,28 +37,20 @@ import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { managedDelete, managedGet, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import {
+  parseApiKeyCreateResponse,
+  parseApiKeyResponse,
+} from '@/lib/managed/api-key-response-parsers'
+import {
   apiKeyStatusLabelKey,
   buildApiKeyCreatePayload,
   canRevokeApiKey,
-  type ApiKeyStatus,
 } from '@/lib/managed/api-key-lifecycle'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { projectRoleLabel, projectRoleOptions } from '@/lib/managed/roles'
 import { useProjectStore } from '@/stores/managed/project-store'
-
-interface ApiKey {
-  id: string
-  project_id: string
-  name: string
-  key_prefix: string
-  role: string
-  status: ApiKeyStatus
-  created_at?: string
-  expires_at?: string | null
-  revoked_at?: string | null
-  last_used_at?: string
-}
+import { parseApiKeyId, type ApiKeyId } from '@/types/entity-id'
+import type { ApiKey } from '@/types/managed'
 
 interface ProjectSummary {
   id: string
@@ -68,7 +60,7 @@ interface ProjectSummary {
 }
 
 interface RevokeKeyVariables {
-  id: string
+  id: ApiKeyId
   scope: string
   runId: number
 }
@@ -132,6 +124,8 @@ export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) 
     queryKey: 'api-keys',
     path: apiKeysPath,
     enabled: Boolean(targetProjectId),
+    parseItem: parseApiKeyResponse,
+    parseCursor: parseApiKeyId,
   })
 
   useEffect(
@@ -274,10 +268,12 @@ export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) 
       if (!currentManagedScopeAllowsWrite(data.scope) || data.runId !== createKeyRunRef.current) {
         throw new Error('Stale api key create ignored')
       }
-      return managedPost<{ raw_key: string }>(
+      return managedPost<unknown>(
         apiKeysPath,
         buildApiKeyCreatePayload(data.name, data.role, data.expiresAt),
-      ).then((res) => ({ res, runId: data.runId, scope: data.scope, name: data.name }))
+      )
+        .then(parseApiKeyCreateResponse)
+        .then((res) => ({ res, runId: data.runId, scope: data.scope, name: data.name }))
     },
     onSuccess: ({ res, runId, scope, name }) => {
       if (!currentManagedScopeAllowsWrite(scope)) return
