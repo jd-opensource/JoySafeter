@@ -30,7 +30,7 @@ pub struct SessionConfig {
 
 pub struct TaskMetadata {
     pub work_dir: String,
-    pub session_id: Option<String>,
+    pub harness_session_id: Option<String>,
 }
 
 pub enum RunnerControl {
@@ -156,7 +156,7 @@ pub async fn handle_task(
             .system_prompt_mode
             .clone()
             .unwrap_or_else(|| "append".to_string()),
-        session_id: task.session_id.clone(),
+        harness_session_id: task.harness_session_id.clone(),
         model,
         max_turns: task.max_turns,
         timeout: Duration::from_secs(task.timeout_seconds),
@@ -281,7 +281,7 @@ pub async fn handle_task(
             status: "aborted".into(),
             output: String::new(),
             error: Some("Task cancelled".into()),
-            session_id: task.session_id.clone(),
+            harness_session_id: task.harness_session_id.clone(),
             usage: Some(proto::TokenUsage {
                 input_tokens: 0,
                 output_tokens: 0,
@@ -300,7 +300,7 @@ pub async fn handle_task(
 
         return Ok(TaskMetadata {
             work_dir: work_dir_str,
-            session_id: task.session_id,
+            harness_session_id: task.harness_session_id,
         });
     }
 
@@ -312,20 +312,20 @@ pub async fn handle_task(
                 status: joysafeter_types::harness::HarnessResultStatus::Failed,
                 output: String::new(),
                 error: Some("Failed to receive result".into()),
-                session_id: None,
+                harness_session_id: None,
                 usage: Default::default(),
                 duration: Duration::ZERO,
             });
 
     info!(status = %result.status, "Task completed");
 
-    let result_session_id = result.session_id.clone();
+    let result_harness_session_id = result.harness_session_id.clone();
 
     let proto_result = RunnerHarnessResult {
         status: result.status.to_string(),
         output: result.output,
         error: result.error,
-        session_id: result.session_id,
+        harness_session_id: result.harness_session_id,
         usage: Some(proto::TokenUsage {
             input_tokens: result.usage.input_tokens,
             output_tokens: result.usage.output_tokens,
@@ -357,7 +357,7 @@ pub async fn handle_task(
 
     Ok(TaskMetadata {
         work_dir: work_dir_str,
-        session_id: result_session_id,
+        harness_session_id: result_harness_session_id,
     })
 }
 

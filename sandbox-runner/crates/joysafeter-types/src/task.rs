@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::{AgentId, SandboxId, SessionId, TaskId};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
@@ -54,13 +56,13 @@ impl TaskStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
-    pub id: uuid::Uuid,
-    pub agent_id: uuid::Uuid,
-    pub chat_session_id: Option<uuid::Uuid>,
+    pub id: TaskId,
+    pub agent_id: AgentId,
+    pub chat_session_id: Option<SessionId>,
     pub status: TaskStatus,
     pub prompt: String,
     pub system_prompt: Option<String>,
-    pub sandbox_id: Option<uuid::Uuid>,
+    pub sandbox_id: Option<SandboxId>,
     pub output: String,
     pub error: Option<String>,
     pub usage: Option<serde_json::Value>,

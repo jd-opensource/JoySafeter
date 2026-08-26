@@ -1,17 +1,29 @@
 use crate::client::JoysafeterClient;
 use anyhow::{bail, Context};
 use dialoguer::{Input, Select};
+use joysafeter_entity_id::{AgentId, CredentialGroupId, EnvironmentId, SessionId};
 use std::collections::HashSet;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::time::Duration;
+
+use super::mcp_authorization::{
+    authorize_session_interactively, build_session_body, validate_session_authorization,
+    SessionAuthorization,
+};
 
 pub async fn run(
     client: &JoysafeterClient,
-    session_arg: Option<String>,
+    session_arg: Option<SessionId>,
     agent_arg: Option<String>,
+    credential_group_ids: &[CredentialGroupId],
     interval: u64,
 ) -> anyhow::Result<()> {
-    let session_id = resolve_session(client, session_arg, agent_arg).await?;
+    let Some(session_id) =
+        resolve_session(client, session_arg, agent_arg, credential_group_ids).await?
+    else {
+        println!("Cancelled.");
+        return Ok(());
+    };
 
     println!();
     println!(
@@ -21,7 +33,7 @@ pub async fn run(
     println!("Type a message and press Enter. /quit to exit, /help for commands.");
     println!();
 
-    let (mut seen_ids, mut last_seq) = collect_event_ids(client, &session_id).await;
+    let (mut seen_ids, mut last_seq) = collect_event_ids(client, session_id).await;
     loop {
         print!("\x1b[1;32myou>\x1b[0m ");
         io::stdout().flush()?;
@@ -46,11 +58,11 @@ pub async fn run(
                     .strip_prefix("/events")
                     .and_then(|s| s.trim().parse::<i64>().ok())
                     .unwrap_or(20);
-                show_events(client, &session_id, n).await?;
+                show_events(client, session_id, n).await?;
                 continue;
             }
             "/status" | "/s" => {
-                show_status(client, &session_id).await?;
+                show_status(client, session_id).await?;
                 continue;
             }
             _ => {}
@@ -60,9 +72,9 @@ pub async fn run(
             "type": "user.message",
             "content": [{"type": "text", "text": input}],
         });
-        client.send_event(&session_id, &body).await?;
+        client.send_event(session_id, &body).await?;
 
-        poll_until_idle(client, &session_id, interval, &mut seen_ids, &mut last_seq).await?;
+        poll_until_idle(client, session_id, interval, &mut seen_ids, &mut last_seq).await?;
     }
 
     println!("\nBye.");
@@ -71,15 +83,23 @@ pub async fn run(
 
 async fn resolve_session(
     client: &JoysafeterClient,
-    session_arg: Option<String>,
+    session_arg: Option<SessionId>,
     agent_arg: Option<String>,
-) -> anyhow::Result<String> {
+    credential_group_ids: &[CredentialGroupId],
+) -> anyhow::Result<Option<SessionId>> {
+    if session_arg.is_some() && agent_arg.is_some() {
+        bail!("Use either --session or --agent, not both");
+    }
+    if session_arg.is_some() && !credential_group_ids.is_empty() {
+        bail!("--credential-group applies only when --agent creates a new session");
+    }
+    if agent_arg.is_none() && !credential_group_ids.is_empty() {
+        bail!("--credential-group requires --agent");
+    }
+
     if let Some(sid) = session_arg {
-        client
-            .get_session(&sid)
-            .await
-            .context("Session not found")?;
-        return Ok(sid);
+        client.get_session(sid).await.context("Session not found")?;
+        return Ok(Some(sid));
     }
 
     if let Some(agent_name) = agent_arg {
@@ -87,21 +107,43 @@ async fn resolve_session(
             .get_agent_by_name(&agent_name)
             .await?
             .ok_or_else(|| anyhow::anyhow!("Agent '{}' not found", agent_name))?;
-        let agent_id = agent["id"].as_str().unwrap();
-        let env_ref = agent.get("environment_ref").and_then(|v| v.as_str());
+        let agent_id = agent["id"]
+            .as_str()
+            .context("agent response missing id")?
+            .parse::<AgentId>()
+            .context("agent response contained a non-canonical id")?;
+        let environment_id = agent
+            .get("environment_id")
+            .and_then(|value| value.as_str())
+            .map(str::parse::<EnvironmentId>)
+            .transpose()
+            .context("agent response contained a non-canonical environment id")?;
 
-        let mut body = serde_json::json!({ "agent_id": agent_id });
-        if let Some(env_name) = env_ref {
-            if let Some(env) = client.get_environment_by_name(env_name).await? {
-                if let Some(eid) = env["id"].as_str() {
-                    body["environment_id"] = serde_json::Value::String(eid.to_string());
-                }
+        let mut authorization = SessionAuthorization::from_group_ids(credential_group_ids);
+        if credential_group_ids.is_empty() && io::stdin().is_terminal() {
+            if !authorize_session_interactively(client, &agent, &mut authorization).await? {
+                return Ok(None);
             }
+        } else {
+            validate_session_authorization(client, &agent, &mut authorization).await?;
         }
-        let resp = client.create_session(&body).await?;
-        let sid = resp["id"].as_str().unwrap().to_string();
+        let body = build_session_body(
+            agent_id,
+            environment_id,
+            None,
+            &[],
+            &authorization.credential_group_ids,
+        );
+        let resp = authorization
+            .create_session_with_rollback(client, &body)
+            .await?;
+        let sid = resp["id"]
+            .as_str()
+            .context("create session response missing id")?
+            .parse::<SessionId>()
+            .context("create session response returned a non-canonical session id")?;
         println!("Created new session: {}", sid);
-        return Ok(sid);
+        return Ok(Some(sid));
     }
 
     let all_sessions = client.list_sessions(Some(100), None).await?;
@@ -154,10 +196,18 @@ async fn resolve_session(
         .items(&labels)
         .default(0)
         .interact()?;
-    Ok(filtered[idx]["id"].as_str().unwrap().to_string())
+    let session_id = filtered[idx]["id"]
+        .as_str()
+        .context("selected session missing id")?
+        .parse::<SessionId>()
+        .context("selected session returned a non-canonical session id")?;
+    Ok(Some(session_id))
 }
 
-async fn collect_event_ids(client: &JoysafeterClient, session_id: &str) -> (HashSet<String>, i64) {
+async fn collect_event_ids(
+    client: &JoysafeterClient,
+    session_id: SessionId,
+) -> (HashSet<String>, i64) {
     let events = client
         .list_events(session_id, Some(1000))
         .await
@@ -179,7 +229,7 @@ async fn collect_event_ids(client: &JoysafeterClient, session_id: &str) -> (Hash
 
 async fn poll_until_idle(
     client: &JoysafeterClient,
-    session_id: &str,
+    session_id: SessionId,
     interval: u64,
     seen_ids: &mut HashSet<String>,
     last_seq: &mut i64,
@@ -320,7 +370,7 @@ fn extract_content_text(event: &serde_json::Value) -> String {
 
 async fn handle_tool_approval(
     client: &JoysafeterClient,
-    session_id: &str,
+    session_id: SessionId,
     event_id: &str,
     event: Option<&serde_json::Value>,
 ) -> anyhow::Result<()> {
@@ -373,7 +423,7 @@ async fn handle_tool_approval(
 
 async fn handle_custom_tool(
     client: &JoysafeterClient,
-    session_id: &str,
+    session_id: SessionId,
     event_id: &str,
     event: Option<&serde_json::Value>,
 ) -> anyhow::Result<()> {
@@ -405,7 +455,7 @@ async fn handle_custom_tool(
 
 async fn show_events(
     client: &JoysafeterClient,
-    session_id: &str,
+    session_id: SessionId,
     limit: i64,
 ) -> anyhow::Result<()> {
     let events = client.list_events(session_id, Some(limit)).await?;
@@ -441,7 +491,7 @@ async fn show_events(
     Ok(())
 }
 
-async fn show_status(client: &JoysafeterClient, session_id: &str) -> anyhow::Result<()> {
+async fn show_status(client: &JoysafeterClient, session_id: SessionId) -> anyhow::Result<()> {
     let session = client.get_session(session_id).await?;
     println!("  ID:      {}", session["id"].as_str().unwrap_or("-"));
     println!("  Status:  {}", session["status"].as_str().unwrap_or("-"));

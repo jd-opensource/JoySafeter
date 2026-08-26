@@ -2,19 +2,18 @@ use crate::client::JoysafeterClient;
 use crate::manifest::{self, parse_duration, Resource};
 use anyhow::Context;
 use base64::Engine;
+use joysafeter_entity_id::{AgentId, EnvironmentId, MemoryStoreId};
 use std::path::Path;
 
 pub async fn run(client: &JoysafeterClient, file: &str) -> anyhow::Result<()> {
     let resources = manifest::parse_manifests(file)?;
 
-    let mut secrets = Vec::new();
     let mut agents = Vec::new();
     let mut tasks = Vec::new();
     let mut environments = Vec::new();
     let mut memory_stores = Vec::new();
     for r in resources {
         match r {
-            Resource::Secret(s) => secrets.push(s),
             Resource::Agent(a) => agents.push(a),
             Resource::Task(t) => tasks.push(t),
             Resource::Environment(e) => environments.push(e),
@@ -22,9 +21,6 @@ pub async fn run(client: &JoysafeterClient, file: &str) -> anyhow::Result<()> {
         }
     }
 
-    for manifest in &secrets {
-        apply_secret(client, manifest).await?;
-    }
     for manifest in &environments {
         apply_environment(client, manifest).await?;
     }
@@ -38,34 +34,6 @@ pub async fn run(client: &JoysafeterClient, file: &str) -> anyhow::Result<()> {
         apply_task(client, manifest).await?;
     }
 
-    Ok(())
-}
-
-async fn apply_secret(
-    client: &JoysafeterClient,
-    manifest: &manifest::SecretManifest,
-) -> anyhow::Result<()> {
-    let name = &manifest.metadata.name;
-    let existing = client.get_secret_by_name(name).await?;
-
-    match existing {
-        Some(secret) => {
-            let id = secret["id"].as_str().unwrap();
-            let body = serde_json::json!({
-                "data": manifest.spec.data,
-            });
-            client.update_secret(id, &body).await?;
-            println!("secret/{name} configured (updated)");
-        }
-        None => {
-            let body = serde_json::json!({
-                "name": name,
-                "data": manifest.spec.data,
-            });
-            client.create_secret(&body).await?;
-            println!("secret/{name} created");
-        }
-    }
     Ok(())
 }
 
@@ -117,7 +85,7 @@ async fn apply_agent(
                     "type": "streamable_http",
                     "name": name,
                     "url": url,
-                    "auth_requirement": auth_requirement,
+                    "auth_requirement": auth_requirement.as_str(),
                 })
             }
             manifest::McpServerSpec::Sse {
@@ -129,7 +97,7 @@ async fn apply_agent(
                     "type": "sse",
                     "name": name,
                     "url": url,
-                    "auth_requirement": auth_requirement,
+                    "auth_requirement": auth_requirement.as_str(),
                 })
             }
         })
@@ -231,7 +199,11 @@ async fn apply_agent(
 
     match existing {
         Some(agent) => {
-            let id = agent["id"].as_str().unwrap();
+            let id = agent["id"]
+                .as_str()
+                .context("agent response missing id")?
+                .parse::<AgentId>()
+                .context("agent response contained a non-canonical id")?;
             let version = agent["version"].as_i64();
             let mut body = serde_json::json!({
                 "engine_kind": manifest.spec.engine_kind,
@@ -244,13 +216,13 @@ async fn apply_agent(
                 "agents": agents_packed,
                 "commands": commands_packed,
                 "tools": tools,
-                "secret_ref": manifest.spec.secret_ref,
+                "model_credential_id": manifest.spec.model_credential_id,
             });
             if let Some(v) = version {
                 body["version"] = serde_json::Value::Number(v.into());
             }
-            if let Some(ref er) = manifest.spec.environment_ref {
-                body["environment_ref"] = serde_json::Value::String(er.clone());
+            if let Some(environment_id) = manifest.spec.environment_id {
+                body["environment_id"] = serde_json::json!(environment_id);
             }
             client.update_agent(id, &body).await?;
             println!("agent/{name} configured (updated)");
@@ -268,10 +240,10 @@ async fn apply_agent(
                 "agents": agents_packed,
                 "commands": commands_packed,
                 "tools": tools,
-                "secret_ref": manifest.spec.secret_ref,
+                "model_credential_id": manifest.spec.model_credential_id,
             });
-            if let Some(ref er) = manifest.spec.environment_ref {
-                body["environment_ref"] = serde_json::Value::String(er.clone());
+            if let Some(environment_id) = manifest.spec.environment_id {
+                body["environment_id"] = serde_json::json!(environment_id);
             }
             client.create_agent(&body).await?;
             println!("agent/{name} created");
@@ -291,7 +263,11 @@ async fn apply_environment(
 
     match existing {
         Some(env) => {
-            let id = env["id"].as_str().unwrap();
+            let id = env["id"]
+                .as_str()
+                .context("environment response missing id")?
+                .parse::<EnvironmentId>()
+                .context("environment response contained a non-canonical id")?;
             let body = serde_json::json!({
                 "config": config,
             });
@@ -381,8 +357,8 @@ async fn apply_task(
         "max_retries": manifest.spec.max_retries,
     });
 
-    if let Some(ref env_ref) = manifest.spec.environment_ref {
-        body["environment_ref"] = serde_json::Value::String(env_ref.clone());
+    if let Some(environment_id) = manifest.spec.environment_id {
+        body["environment_id"] = serde_json::json!(environment_id);
     }
 
     let resp = client.create_task(&body).await?;
@@ -402,7 +378,11 @@ async fn apply_memory_store(
 
     match found {
         Some(store) => {
-            let id = store["id"].as_str().unwrap();
+            let id = store["id"]
+                .as_str()
+                .context("memory store response missing id")?
+                .parse::<MemoryStoreId>()
+                .context("memory store response returned a non-canonical id")?;
             let mut body = serde_json::json!({ "name": name });
             if let Some(ref desc) = manifest.spec.description {
                 body["description"] = serde_json::Value::String(desc.clone());

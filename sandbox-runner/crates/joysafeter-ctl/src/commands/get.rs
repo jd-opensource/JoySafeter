@@ -2,6 +2,8 @@ use crate::client::JoysafeterClient;
 use crate::output::print_table;
 use crate::GetResource;
 use crate::OutputFormat;
+use anyhow::Context;
+use joysafeter_entity_id::AgentId;
 
 pub async fn run(
     client: &JoysafeterClient,
@@ -26,7 +28,7 @@ pub async fn run(
                                 a["name"].as_str().unwrap_or("-").to_string(),
                                 a["engine_kind"].as_str().unwrap_or("-").to_string(),
                                 model,
-                                a["secret_ref"].as_str().unwrap_or("-").to_string(),
+                                a["model_credential_id"].as_str().unwrap_or("-").to_string(),
                                 a["created_at"]
                                     .as_str()
                                     .unwrap_or("-")
@@ -36,7 +38,10 @@ pub async fn run(
                             ]
                         })
                         .collect();
-                    print_table(&["NAME", "ENGINE", "MODEL", "SECRET_REF", "CREATED"], &rows);
+                    print_table(
+                        &["NAME", "ENGINE", "MODEL", "MODEL_CREDENTIAL_ID", "CREATED"],
+                        &rows,
+                    );
                 }
             }
         }
@@ -60,12 +65,12 @@ pub async fn run(
                     };
                     println!("Model:         {}", model);
                     println!(
-                        "Secret Ref:    {}",
-                        agent["secret_ref"].as_str().unwrap_or("-")
+                        "Model Credential ID: {}",
+                        agent["model_credential_id"].as_str().unwrap_or("-")
                     );
                     println!(
-                        "Env Ref:       {}",
-                        agent["environment_ref"].as_str().unwrap_or("-")
+                        "Environment ID: {}",
+                        agent["environment_id"].as_str().unwrap_or("-")
                     );
                     println!(
                         "System Prompt: {}",
@@ -149,13 +154,17 @@ pub async fn run(
                     .get_agent_by_name(agent_name)
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("Agent '{}' not found", agent_name))?;
-                let id_str = a["id"].as_str().unwrap_or("");
-                let raw = id_str.strip_prefix("agent_").unwrap_or(id_str);
-                Some(raw.to_string())
+                Some(
+                    a["id"]
+                        .as_str()
+                        .context("agent response missing id")?
+                        .parse::<AgentId>()
+                        .context("agent response returned a non-canonical agent id")?,
+                )
             } else {
                 None
             };
-            let sessions = client.list_sessions(*limit, agent_id.as_deref()).await?;
+            let sessions = client.list_sessions(*limit, agent_id).await?;
             match format {
                 OutputFormat::Json => {
                     println!("{}", serde_json::to_string_pretty(&sessions)?)
@@ -187,7 +196,7 @@ pub async fn run(
             }
         }
         GetResource::Session { id } => {
-            let session = client.get_session(id).await?;
+            let session = client.get_session(*id).await?;
             match format {
                 OutputFormat::Json => {
                     println!("{}", serde_json::to_string_pretty(&session)?)
@@ -234,7 +243,7 @@ pub async fn run(
             }
         }
         GetResource::Events { session, limit } => {
-            let events = client.list_events(session, *limit).await?;
+            let events = client.list_events(*session, *limit).await?;
             match format {
                 OutputFormat::Json => {
                     println!("{}", serde_json::to_string_pretty(&events)?)
@@ -294,7 +303,11 @@ pub async fn run(
                 .get_agent_by_name(agent_name)
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("Agent '{}' not found", agent_name))?;
-            let agent_id = agent_json["id"].as_str().unwrap();
+            let agent_id = agent_json["id"]
+                .as_str()
+                .context("agent response missing id")?
+                .parse::<AgentId>()
+                .context("agent response returned a non-canonical agent id")?;
             let tasks = client.list_tasks_by_agent(agent_id).await?;
             match format {
                 OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&tasks)?),
@@ -325,7 +338,7 @@ pub async fn run(
             }
         }
         GetResource::Task { id } => {
-            let task = client.get_task(id).await?;
+            let task = client.get_task(*id).await?;
             match format {
                 OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&task)?),
                 OutputFormat::Table => {
@@ -358,27 +371,20 @@ pub async fn run(
                 }
             }
         }
-        GetResource::Secrets => {
-            let secrets = client.list_secrets().await?;
+        GetResource::Credentials => {
+            let credentials = client.list_credentials().await?;
             match format {
-                OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&secrets)?),
+                OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&credentials)?),
                 OutputFormat::Table => {
-                    let rows: Vec<Vec<String>> = secrets
+                    let rows: Vec<Vec<String>> = credentials
                         .iter()
-                        .map(|s| {
-                            let keys = s["keys"]
-                                .as_array()
-                                .map(|arr| {
-                                    arr.iter()
-                                        .filter_map(|v| v.as_str())
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
-                                })
-                                .unwrap_or_else(|| "-".to_string());
+                        .map(|credential| {
                             vec![
-                                s["name"].as_str().unwrap_or("-").to_string(),
-                                keys,
-                                s["created_at"]
+                                credential["id"].as_str().unwrap_or("-").to_string(),
+                                credential["kind"].as_str().unwrap_or("-").to_string(),
+                                credential["name"].as_str().unwrap_or("-").to_string(),
+                                credential["provider"].as_str().unwrap_or("-").to_string(),
+                                credential["created_at"]
                                     .as_str()
                                     .unwrap_or("-")
                                     .chars()
@@ -387,7 +393,7 @@ pub async fn run(
                             ]
                         })
                         .collect();
-                    print_table(&["NAME", "KEYS", "CREATED"], &rows);
+                    print_table(&["ID", "KIND", "NAME", "PROVIDER", "CREATED"], &rows);
                 }
             }
         }
@@ -422,7 +428,7 @@ pub async fn run(
             }
         }
         GetResource::MemoryStore { id } => {
-            let store = client.get_memory_store(id).await?;
+            let store = client.get_memory_store(*id).await?;
             match format {
                 OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&store)?),
                 OutputFormat::Table => {
@@ -448,7 +454,7 @@ pub async fn run(
                     if let Some(archived) = store["archived_at"].as_str() {
                         println!("Archived:    {}", archived);
                     }
-                    let memories = client.list_memories(id).await?;
+                    let memories = client.list_memories(*id).await?;
                     if !memories.is_empty() {
                         println!("\n─── Memories ({}) ───", memories.len());
                         let rows: Vec<Vec<String>> = memories
@@ -479,7 +485,7 @@ pub async fn run(
             }
         }
         GetResource::Memories { store } => {
-            let memories = client.list_memories(store).await?;
+            let memories = client.list_memories(*store).await?;
             match format {
                 OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&memories)?),
                 OutputFormat::Table => {
@@ -510,7 +516,7 @@ pub async fn run(
             }
         }
         GetResource::Memory { store, id } => {
-            let memory = client.get_memory(store, id).await?;
+            let memory = client.get_memory(*store, *id).await?;
             match format {
                 OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&memory)?),
                 OutputFormat::Table => {
@@ -551,7 +557,7 @@ pub async fn run(
             }
         }
         GetResource::MemoryVersions { store } => {
-            let versions = client.list_memory_versions(store).await?;
+            let versions = client.list_memory_versions(*store).await?;
             match format {
                 OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&versions)?),
                 OutputFormat::Table => {
@@ -576,36 +582,35 @@ pub async fn run(
                 }
             }
         }
-        GetResource::Secret { name } => {
-            let secret = client
-                .get_secret_by_name(name)
-                .await?
-                .ok_or_else(|| anyhow::anyhow!("Secret '{}' not found", name))?;
+        GetResource::Credential { id } => {
+            let credential = client.get_credential(*id).await?;
             match format {
-                OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&secret)?),
+                OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&credential)?),
                 OutputFormat::Table => {
-                    println!("Name:    {}", secret["name"].as_str().unwrap_or("-"));
-                    let keys = secret["keys"]
-                        .as_array()
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        })
-                        .unwrap_or_else(|| "-".to_string());
-                    println!("Keys:    {}", keys);
-                    println!("ID:      {}", secret["id"].as_str().unwrap_or("-"));
-                    println!("Created: {}", secret["created_at"].as_str().unwrap_or("-"));
+                    println!("ID:       {}", credential["id"].as_str().unwrap_or("-"));
+                    println!("Kind:     {}", credential["kind"].as_str().unwrap_or("-"));
+                    println!("Name:     {}", credential["name"].as_str().unwrap_or("-"));
+                    println!(
+                        "Provider: {}",
+                        credential["provider"].as_str().unwrap_or("-")
+                    );
+                    println!(
+                        "Protocol: {}",
+                        credential["protocol"].as_str().unwrap_or("-")
+                    );
+                    println!(
+                        "Created:  {}",
+                        credential["created_at"].as_str().unwrap_or("-")
+                    );
                 }
             }
         }
-        GetResource::Vaults => {
-            let vaults = client.list_vaults().await?;
+        GetResource::CredentialGroups => {
+            let groups = client.list_credential_groups().await?;
             match format {
-                OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&vaults)?),
+                OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&groups)?),
                 OutputFormat::Table => {
-                    let rows = vaults
+                    let rows = groups
                         .iter()
                         .map(|v| {
                             vec![
@@ -630,40 +635,40 @@ pub async fn run(
                 }
             }
         }
-        GetResource::Vault { id } => {
-            let vault = client.get_vault(id).await?;
+        GetResource::CredentialGroup { id } => {
+            let group = client.get_credential_group(*id).await?;
             match format {
-                OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&vault)?),
+                OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&group)?),
                 OutputFormat::Table => {
-                    println!("ID:          {}", vault["id"].as_str().unwrap_or("-"));
-                    println!("Name:        {}", vault["name"].as_str().unwrap_or("-"));
+                    println!("ID:          {}", group["id"].as_str().unwrap_or("-"));
+                    println!("Name:        {}", group["name"].as_str().unwrap_or("-"));
                     println!(
                         "Description: {}",
-                        vault["description"].as_str().unwrap_or("-")
+                        group["description"].as_str().unwrap_or("-")
                     );
                     println!(
                         "Created:     {}",
-                        vault["created_at"].as_str().unwrap_or("-")
+                        group["created_at"].as_str().unwrap_or("-")
                     );
                     println!(
                         "Updated:     {}",
-                        vault["updated_at"].as_str().unwrap_or("-")
+                        group["updated_at"].as_str().unwrap_or("-")
                     );
                 }
             }
         }
-        GetResource::VaultCredentials { vault } => {
-            let creds = client.list_vault_credentials(vault).await?;
+        GetResource::CredentialGroupMembers { group } => {
+            let credentials = client.list_credential_group_members(*group).await?;
             match format {
-                OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&creds)?),
+                OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&credentials)?),
                 OutputFormat::Table => {
-                    let rows = creds
+                    let rows = credentials
                         .iter()
                         .map(|c| {
                             vec![
                                 c["id"].as_str().unwrap_or("-").to_string(),
                                 c["name"].as_str().unwrap_or("-").to_string(),
-                                c["credential_type"].as_str().unwrap_or("-").to_string(),
+                                c["auth_scheme"].as_str().unwrap_or("-").to_string(),
                                 c["mcp_server_url"].as_str().unwrap_or("-").to_string(),
                                 c["created_at"]
                                     .as_str()
@@ -674,7 +679,7 @@ pub async fn run(
                             ]
                         })
                         .collect::<Vec<_>>();
-                    print_table(&["ID", "NAME", "TYPE", "MCP URL", "CREATED"], &rows);
+                    print_table(&["ID", "NAME", "AUTH", "MCP URL", "CREATED"], &rows);
                 }
             }
         }

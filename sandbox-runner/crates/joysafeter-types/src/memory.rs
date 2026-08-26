@@ -1,37 +1,6 @@
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
-// --- ID serialization helpers ---
-
-pub fn serialize_memory_store_id<S: Serializer>(id: &uuid::Uuid, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&format!("memstore_{id}"))
-}
-
-pub fn serialize_memory_id<S: Serializer>(id: &uuid::Uuid, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&format!("mem_{id}"))
-}
-
-fn serialize_memory_version_id<S: Serializer>(id: &uuid::Uuid, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&format!("memver_{id}"))
-}
-
-fn serialize_session_resource_id<S: Serializer>(id: &uuid::Uuid, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&format!("sesrsc_{id}"))
-}
-
-pub fn parse_memory_store_id(s: &str) -> Option<uuid::Uuid> {
-    let s = s.strip_prefix("memstore_").unwrap_or(s);
-    uuid::Uuid::parse_str(s).ok()
-}
-
-pub fn parse_memory_id(s: &str) -> Option<uuid::Uuid> {
-    let s = s.strip_prefix("mem_").unwrap_or(s);
-    uuid::Uuid::parse_str(s).ok()
-}
-
-pub fn parse_memory_version_id(s: &str) -> Option<uuid::Uuid> {
-    let s = s.strip_prefix("memver_").unwrap_or(s);
-    uuid::Uuid::parse_str(s).ok()
-}
+use crate::{ApiKeyId, MemoryId, MemoryStoreId, MemoryVersionId, SessionId, SessionResourceId};
 
 // --- Enums ---
 
@@ -96,9 +65,9 @@ impl MemoryAccess {
 #[serde(tag = "type")]
 pub enum Actor {
     #[serde(rename = "session_actor")]
-    SessionActor { session_id: String },
+    SessionActor { session_id: SessionId },
     #[serde(rename = "api_actor")]
-    ApiActor { api_key_id: String },
+    ApiActor { api_key_id: ApiKeyId },
     #[serde(rename = "user_actor")]
     UserActor { user_id: String },
 }
@@ -111,8 +80,7 @@ fn default_memory_store_type() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryStore {
-    #[serde(serialize_with = "serialize_memory_store_id")]
-    pub id: uuid::Uuid,
+    pub id: MemoryStoreId,
     #[serde(rename = "type", default = "default_memory_store_type")]
     pub object_type: String,
     pub name: String,
@@ -136,26 +104,19 @@ fn default_memory_type() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Memory {
-    #[serde(serialize_with = "serialize_memory_id")]
-    pub id: uuid::Uuid,
+    pub id: MemoryId,
     #[serde(rename = "type", default = "default_memory_type")]
     pub object_type: String,
-    #[serde(
-        rename = "memory_store_id",
-        serialize_with = "serialize_memory_store_id"
-    )]
-    pub store_id: uuid::Uuid,
+    #[serde(rename = "memory_store_id")]
+    pub store_id: MemoryStoreId,
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     pub content_sha256: String,
     #[serde(rename = "content_size_bytes")]
     pub size_bytes: i32,
-    #[serde(
-        rename = "memory_version_id",
-        serialize_with = "serialize_memory_version_id"
-    )]
-    pub current_version_id: uuid::Uuid,
+    #[serde(rename = "memory_version_id")]
+    pub current_version_id: MemoryVersionId,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -166,17 +127,12 @@ fn default_memory_version_type() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryVersion {
-    #[serde(serialize_with = "serialize_memory_version_id")]
-    pub id: uuid::Uuid,
+    pub id: MemoryVersionId,
     #[serde(rename = "type", default = "default_memory_version_type")]
     pub object_type: String,
-    #[serde(
-        rename = "memory_store_id",
-        serialize_with = "serialize_memory_store_id"
-    )]
-    pub store_id: uuid::Uuid,
-    #[serde(serialize_with = "serialize_memory_id")]
-    pub memory_id: uuid::Uuid,
+    #[serde(rename = "memory_store_id")]
+    pub store_id: MemoryStoreId,
+    pub memory_id: MemoryId,
     pub operation: MemoryOperation,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
@@ -201,13 +157,11 @@ fn default_session_memory_store_type() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMemoryStore {
-    #[serde(serialize_with = "serialize_session_resource_id")]
-    pub id: uuid::Uuid,
+    pub id: SessionResourceId,
     #[serde(rename = "type", default = "default_session_memory_store_type")]
     pub object_type: String,
-    pub session_id: uuid::Uuid,
-    #[serde(serialize_with = "serialize_memory_store_id")]
-    pub store_id: uuid::Uuid,
+    pub session_id: SessionId,
+    pub store_id: MemoryStoreId,
     pub access: MemoryAccess,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,

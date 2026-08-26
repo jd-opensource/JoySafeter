@@ -329,6 +329,7 @@ dependencies = [
  "console",
  "shell-words",
  "thiserror 1.0.69",
+ "zeroize",
 ]
 
 [[package]]
@@ -930,6 +931,7 @@ dependencies = [
  "clap",
  "dialoguer",
  "flate2",
+ "joysafeter-entity-id",
  "reqwest",
  "serde",
  "serde_json",
@@ -937,6 +939,16 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "url",
+]
+
+[[package]]
+name = "joysafeter-entity-id"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+ "uuid",
 ]
 
 [[package]]
@@ -991,6 +1003,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "joysafeter-entity-id",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

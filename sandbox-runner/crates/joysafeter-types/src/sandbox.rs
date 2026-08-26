@@ -5,6 +5,7 @@ use std::time::Duration;
 use thiserror::Error;
 
 use crate::environment::Networking;
+use crate::{MemoryStoreId, SandboxId};
 
 #[derive(Debug, Error)]
 pub enum SandboxError {
@@ -88,7 +89,7 @@ pub struct SandboxProvisionStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryMount {
-    pub store_id: uuid::Uuid,
+    pub store_id: MemoryStoreId,
     pub mount_name: String,
     pub host_path: String,
     pub access: String,
@@ -128,7 +129,7 @@ pub trait SandboxProvider: Send + Sync {
 
     async fn setup_networking(
         &self,
-        _sandbox_id: uuid::Uuid,
+        _sandbox_id: SandboxId,
         networking: &Networking,
     ) -> Result<(), SandboxError> {
         if networking.network_type == "limited" {
@@ -140,7 +141,7 @@ pub trait SandboxProvider: Send + Sync {
         Ok(())
     }
 
-    async fn teardown_networking(&self, _sandbox_id: uuid::Uuid) -> Result<(), SandboxError> {
+    async fn teardown_networking(&self, _sandbox_id: SandboxId) -> Result<(), SandboxError> {
         Ok(())
     }
 }

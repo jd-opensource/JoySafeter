@@ -157,7 +157,7 @@ impl HarnessAdapter for PiAdapter {
         });
 
         let current_turn = session.current_turn.clone();
-        let session_id = input.session_id.clone();
+        let harness_session_id = input.harness_session_id.clone();
         let shared_stdin_for_harness = session.stdin.clone();
         let stderr_tail_for_result = session.stderr_tail.clone();
         drop(guard);
@@ -190,7 +190,7 @@ impl HarnessAdapter for PiAdapter {
                 status,
                 output: final_output,
                 error,
-                session_id,
+                harness_session_id,
                 usage: final_usage,
                 duration: start.elapsed(),
             });

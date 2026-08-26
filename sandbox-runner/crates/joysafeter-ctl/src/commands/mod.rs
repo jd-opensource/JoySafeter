@@ -7,3 +7,4 @@ pub mod edit;
 pub mod get;
 pub mod init;
 pub mod logs;
+pub mod mcp_authorization;

@@ -1,5 +1,9 @@
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use crate::{
+    AgentId, CredentialGroupId, CredentialId, EnvironmentId, SandboxId, SessionId, TaskId,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -29,10 +33,6 @@ impl EngineKind {
     }
 }
 
-pub fn serialize_agent_id<S: Serializer>(id: &uuid::Uuid, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&format!("agent_{id}"))
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelConfig {
     pub id: String,
@@ -51,11 +51,6 @@ impl ModelConfig {
             speed: default_model_speed(),
         }
     }
-}
-
-pub fn parse_agent_id(s: &str) -> Option<uuid::Uuid> {
-    let s = s.strip_prefix("agent_").unwrap_or(s);
-    uuid::Uuid::parse_str(s).ok()
 }
 
 fn default_object_type() -> String {
@@ -186,8 +181,7 @@ pub struct PackedItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
-    #[serde(serialize_with = "serialize_agent_id")]
-    pub id: uuid::Uuid,
+    pub id: AgentId,
     #[serde(rename = "type", default = "default_object_type")]
     pub object_type: String,
     pub name: String,
@@ -212,9 +206,9 @@ pub struct Agent {
     pub multiagent: Option<serde_json::Value>,
     pub version: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub environment_ref: Option<String>,
+    pub environment_id: Option<EnvironmentId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub secret_ref: Option<String>,
+    pub model_credential_id: Option<CredentialId>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub archived_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -305,34 +299,34 @@ mod mcp_server_config_tests {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatSession {
-    pub id: uuid::Uuid,
-    pub agent_id: uuid::Uuid,
+    pub id: SessionId,
+    pub agent_id: AgentId,
     pub title: Option<String>,
     pub status: String,
-    pub environment_ref: Option<String>,
+    pub environment_id: Option<EnvironmentId>,
     pub last_harness_session_id: Option<String>,
     pub last_work_dir: Option<String>,
-    pub last_sandbox_id: Option<uuid::Uuid>,
+    pub last_sandbox_id: Option<SandboxId>,
     #[serde(default)]
     pub agent_version: Option<i32>,
     #[serde(default)]
     pub agent_snapshot: Option<serde_json::Value>,
     #[serde(default)]
-    pub vault_ids: Vec<String>,
+    pub credential_group_ids: Vec<CredentialGroupId>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SandboxRecord {
-    pub id: uuid::Uuid,
+    pub id: SandboxId,
     pub external_id: String,
     pub provider: String,
     pub status: String,
     pub config: serde_json::Value,
-    pub chat_session_id: Option<uuid::Uuid>,
+    pub chat_session_id: Option<SessionId>,
     pub image: String,
-    pub last_task_id: Option<uuid::Uuid>,
+    pub last_task_id: Option<TaskId>,
     pub last_used_at: chrono::DateTime<chrono::Utc>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub destroyed_at: Option<chrono::DateTime<chrono::Utc>>,

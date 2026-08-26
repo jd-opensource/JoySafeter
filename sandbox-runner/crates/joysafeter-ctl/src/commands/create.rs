@@ -1,20 +1,26 @@
 use crate::client::JoysafeterClient;
 use crate::editor::open_in_editor;
 use crate::CreateResource;
-use anyhow::bail;
+use anyhow::{bail, Context};
 use dialoguer::{Confirm, Input, Select};
+use joysafeter_entity_id::{AgentId, CredentialGroupId, EnvironmentId, MemoryStoreId, SessionId};
+
+use super::mcp_authorization::{
+    authorize_session_interactively, build_session_body,
+    create_credential_group_member_interactively, SessionAuthorization,
+};
 
 pub async fn run(client: &JoysafeterClient, resource: &CreateResource) -> anyhow::Result<()> {
     match resource {
-        CreateResource::Secret => create_secret(client).await,
+        CreateResource::Credential => create_credential(client).await,
         CreateResource::Environment => create_environment(client).await,
         CreateResource::Agent => create_agent(client).await,
         CreateResource::Session => create_session(client).await,
         CreateResource::Event => send_event(client).await,
         CreateResource::MemoryStore => create_memory_store(client).await,
         CreateResource::Memory => create_memory(client).await,
-        CreateResource::Vault => create_vault(client).await,
-        CreateResource::VaultCredential => create_vault_credential(client).await,
+        CreateResource::CredentialGroup => create_credential_group(client).await,
+        CreateResource::CredentialGroupMember => create_credential_group_member(client).await,
     }
 }
 
@@ -24,13 +30,6 @@ fn input_required(prompt: &str) -> anyhow::Result<String> {
         bail!("{} cannot be empty", prompt);
     }
     Ok(val.trim().to_string())
-}
-
-fn normalize_resource_id(id: &str) -> String {
-    id.split_once('_')
-        .map(|(_, rest)| rest)
-        .unwrap_or(id)
-        .to_string()
 }
 
 fn input_optional(prompt: &str) -> anyhow::Result<Option<String>> {
@@ -76,12 +75,18 @@ fn select_from_list(
     }
 }
 
-// ── Secret ────────────────────────────────────────────
+// ── Credential ────────────────────────────────────────
 
-async fn create_secret(client: &JoysafeterClient) -> anyhow::Result<()> {
-    println!("\n── Create Secret ──\n");
+async fn create_credential(client: &JoysafeterClient) -> anyhow::Result<()> {
+    println!("\n── Create Credential ──\n");
 
-    let name = input_required("Secret name")?;
+    let kinds = ["model", "service"];
+    let kind = kinds[Select::new()
+        .with_prompt("Credential kind")
+        .items(&kinds)
+        .default(0)
+        .interact()?];
+    let name = input_required("Credential name")?;
 
     let mut data = serde_json::Map::new();
     loop {
@@ -101,11 +106,12 @@ async fn create_secret(client: &JoysafeterClient) -> anyhow::Result<()> {
     }
 
     if data.is_empty() {
-        bail!("Secret must have at least one key-value pair");
+        bail!("Credential must have at least one key-value pair");
     }
 
     let keys: Vec<&String> = data.keys().collect();
     println!("\n── Summary ──");
+    println!("  Kind: {}", kind);
     println!("  Name: {}", name);
     println!(
         "  Keys: {}",
@@ -116,7 +122,7 @@ async fn create_secret(client: &JoysafeterClient) -> anyhow::Result<()> {
     );
 
     if !Confirm::new()
-        .with_prompt("Create this secret?")
+        .with_prompt("Create this credential?")
         .default(true)
         .interact()?
     {
@@ -124,12 +130,26 @@ async fn create_secret(client: &JoysafeterClient) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
+        "kind": kind,
         "name": name,
         "data": serde_json::Value::Object(data),
     });
-    client.create_secret(&body).await?;
-    println!("\nsecret/{} created", name);
+    if kind == "model" {
+        body["provider"] = serde_json::Value::String(input_required("Provider")?);
+        body["protocol"] = serde_json::Value::String(input_required("Protocol")?);
+        body["is_default"] = serde_json::Value::Bool(
+            Confirm::new()
+                .with_prompt("Set as default model credential?")
+                .default(false)
+                .interact()?,
+        );
+    }
+    let response = client.create_credential(&body).await?;
+    println!(
+        "\ncredential/{} created",
+        response["id"].as_str().unwrap_or("?")
+    );
     Ok(())
 }
 
@@ -224,27 +244,37 @@ async fn create_agent(client: &JoysafeterClient) -> anyhow::Result<()> {
         }
     };
 
-    let secret_ref = {
-        let secrets = client.list_secrets().await.unwrap_or_default();
-        if secrets.is_empty() {
-            println!("  (No secrets found, skipping secret_ref)");
+    let model_credential_id = {
+        let credentials = client.list_credentials().await.unwrap_or_default();
+        let model_credentials = credentials
+            .into_iter()
+            .filter(|credential| credential["kind"].as_str() == Some("model"))
+            .collect::<Vec<_>>();
+        if model_credentials.is_empty() {
+            println!("  (No model credentials found, skipping model_credential_id)");
             None
         } else {
-            match select_from_list(&secrets, "name", "Secret ref", true)? {
-                Some(idx) => secrets[idx]["name"].as_str().map(|s| s.to_string()),
+            match select_from_list(&model_credentials, "name", "Model credential", true)? {
+                Some(idx) => model_credentials[idx]["id"].as_str().map(str::to_string),
                 None => None,
             }
         }
     };
 
-    let environment_ref = {
+    let environment_id = {
         let envs = client.list_environments().await.unwrap_or_default();
         if envs.is_empty() {
-            println!("  (No environments found, skipping environment_ref)");
+            println!("  (No environments found, skipping environment_id)");
             None
         } else {
-            match select_from_list(&envs, "name", "Environment ref", true)? {
-                Some(idx) => envs[idx]["name"].as_str().map(|s| s.to_string()),
+            match select_from_list(&envs, "name", "Environment", true)? {
+                Some(idx) => Some(
+                    envs[idx]["id"]
+                        .as_str()
+                        .context("environment response missing id")?
+                        .parse::<EnvironmentId>()
+                        .context("environment response contained a non-canonical id")?,
+                ),
                 None => None,
             }
         }
@@ -272,10 +302,16 @@ async fn create_agent(client: &JoysafeterClient) -> anyhow::Result<()> {
     } else {
         println!("  System Prompt: -");
     }
-    println!("  Secret Ref:    {}", secret_ref.as_deref().unwrap_or("-"));
+    println!(
+        "  Model Credential ID: {}",
+        model_credential_id.as_deref().unwrap_or("-")
+    );
     println!(
         "  Environment:   {}",
-        environment_ref.as_deref().unwrap_or("-")
+        environment_id
+            .map(|id| id.to_string())
+            .as_deref()
+            .unwrap_or("-")
     );
     println!("  Tool Policy:   {}", policy);
     if !mcp_servers.is_empty() {
@@ -321,11 +357,11 @@ async fn create_agent(client: &JoysafeterClient) -> anyhow::Result<()> {
     if let Some(sp) = system_prompt {
         body["system"] = serde_json::Value::String(sp);
     }
-    if let Some(sr) = secret_ref {
-        body["secret_ref"] = serde_json::Value::String(sr);
+    if let Some(credential_id) = model_credential_id {
+        body["model_credential_id"] = serde_json::Value::String(credential_id);
     }
-    if let Some(er) = environment_ref {
-        body["environment_ref"] = serde_json::Value::String(er);
+    if let Some(environment_id) = environment_id {
+        body["environment_id"] = serde_json::json!(environment_id);
     }
     if !mcp_servers.is_empty() {
         body["mcp_servers"] = serde_json::json!(mcp_servers);
@@ -361,7 +397,11 @@ async fn create_session(client: &JoysafeterClient) -> anyhow::Result<()> {
     }
     let agent_idx = select_from_list(&agents, "name", "Select agent", false)?
         .expect("agent selection required");
-    let agent_id = normalize_resource_id(agents[agent_idx]["id"].as_str().unwrap());
+    let agent_id = agents[agent_idx]["id"]
+        .as_str()
+        .context("agent response missing id")?
+        .parse::<AgentId>()
+        .context("agent response contained a non-canonical id")?;
     let agent_name = agents[agent_idx]["name"].as_str().unwrap_or("?");
 
     let envs = client.list_environments().await?;
@@ -372,7 +412,11 @@ async fn create_session(client: &JoysafeterClient) -> anyhow::Result<()> {
     }
     let env_idx = select_from_list(&envs, "name", "Select environment", false)?
         .expect("environment selection required");
-    let env_id = normalize_resource_id(envs[env_idx]["id"].as_str().unwrap());
+    let env_id = envs[env_idx]["id"]
+        .as_str()
+        .context("environment response missing id")?
+        .parse::<EnvironmentId>()
+        .context("environment response contained a non-canonical id")?;
     let env_name = envs[env_idx]["name"].as_str().unwrap_or("?");
 
     let title = input_optional("Session title (optional)")?;
@@ -391,15 +435,21 @@ async fn create_session(client: &JoysafeterClient) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let mut body = serde_json::json!({
-        "agent_id": agent_id,
-        "environment_id": env_id,
-    });
-    if let Some(t) = title {
-        body["title"] = serde_json::Value::String(t);
+    let mut authorization = SessionAuthorization::default();
+    if !authorize_session_interactively(client, &agents[agent_idx], &mut authorization).await? {
+        println!("Cancelled.");
+        return Ok(());
     }
-
-    let resp = client.create_session(&body).await?;
+    let body = build_session_body(
+        agent_id,
+        Some(env_id),
+        title.as_deref(),
+        &[],
+        &authorization.credential_group_ids,
+    );
+    let resp = authorization
+        .create_session_with_rollback(client, &body)
+        .await?;
     let session_id = resp["id"].as_str().unwrap_or("?");
     println!("\nsession/{} created", session_id);
     Ok(())
@@ -430,7 +480,11 @@ async fn send_event(client: &JoysafeterClient) -> anyhow::Result<()> {
         .items(&session_labels)
         .default(0)
         .interact()?;
-    let session_id = sessions[session_idx]["id"].as_str().unwrap().to_string();
+    let session_id = sessions[session_idx]["id"]
+        .as_str()
+        .context("selected session missing id")?
+        .parse::<SessionId>()
+        .context("selected session returned a non-canonical session id")?;
 
     let event_types = vec!["user.message", "user.interrupt"];
     let type_idx = Select::new()
@@ -474,7 +528,7 @@ async fn send_event(client: &JoysafeterClient) -> anyhow::Result<()> {
         })
     };
 
-    client.send_event(&session_id, &body).await?;
+    client.send_event(session_id, &body).await?;
     println!("\nevent sent to session/{}", session_id);
     Ok(())
 }
@@ -537,7 +591,11 @@ async fn create_memory(client: &JoysafeterClient) -> anyhow::Result<()> {
         .items(&store_labels)
         .default(0)
         .interact()?;
-    let store_id = stores[store_idx]["id"].as_str().unwrap().to_string();
+    let store_id = stores[store_idx]["id"]
+        .as_str()
+        .context("selected memory store missing id")?
+        .parse::<MemoryStoreId>()
+        .context("selected memory store returned a non-canonical id")?;
 
     let path = input_required("Memory path (e.g. /preferences/formatting.md)")?;
 
@@ -583,18 +641,18 @@ async fn create_memory(client: &JoysafeterClient) -> anyhow::Result<()> {
         body["content"] = serde_json::Value::String(c);
     }
 
-    let resp = client.create_memory(&store_id, &body).await?;
+    let resp = client.create_memory(store_id, &body).await?;
     let mem_id = resp["id"].as_str().unwrap_or("?");
     println!("\nmemory/{} created at {}", mem_id, path);
     Ok(())
 }
 
-// ── Vault ────────────────────────────────────────────
+// ── Credential group ─────────────────────────────────
 
-async fn create_vault(client: &JoysafeterClient) -> anyhow::Result<()> {
-    println!("\n── Create Vault ──\n");
+async fn create_credential_group(client: &JoysafeterClient) -> anyhow::Result<()> {
+    println!("\n── Create Credential Group ──\n");
 
-    let name = input_required("Vault name")?;
+    let name = input_required("Credential group name")?;
     let description = input_optional("Description (optional)")?;
 
     let mut body = serde_json::json!({ "name": name });
@@ -602,9 +660,9 @@ async fn create_vault(client: &JoysafeterClient) -> anyhow::Result<()> {
         body["description"] = serde_json::Value::String(description);
     }
 
-    let resp = client.create_vault(&body).await?;
+    let resp = client.create_credential_group(&body).await?;
     println!(
-        "\nvault/{} created",
+        "\ncredential-group/{} created",
         resp["id"]
             .as_str()
             .unwrap_or(resp["name"].as_str().unwrap_or("?"))
@@ -612,14 +670,16 @@ async fn create_vault(client: &JoysafeterClient) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn create_vault_credential(client: &JoysafeterClient) -> anyhow::Result<()> {
-    println!("\n── Create Vault Credential ──\n");
+async fn create_credential_group_member(client: &JoysafeterClient) -> anyhow::Result<()> {
+    println!("\n── Create Credential Group Member ──\n");
 
-    let vaults = client.list_vaults().await?;
-    if vaults.is_empty() {
-        bail!("No vaults found. Create one first: joysafeterctl create vault");
+    let groups = client.list_credential_groups().await?;
+    if groups.is_empty() {
+        bail!(
+            "No credential groups found. Create one first: joysafeterctl create credential-group"
+        );
     }
-    let labels = vaults
+    let labels = groups
         .iter()
         .map(|v| {
             format!(
@@ -630,23 +690,17 @@ async fn create_vault_credential(client: &JoysafeterClient) -> anyhow::Result<()
         })
         .collect::<Vec<_>>();
     let idx = Select::new()
-        .with_prompt("Select vault")
+        .with_prompt("Select credential group")
         .items(&labels)
         .default(0)
         .interact()?;
-    let vault_id = vaults[idx]["id"].as_str().unwrap().to_string();
+    let group_id = groups[idx]["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Credential group response has no id"))?
+        .parse::<CredentialGroupId>()
+        .context("server returned a non-canonical credential group id")?;
 
-    let name = input_required("Credential name")?;
-    let mcp_server_url = input_required("MCP server URL")?;
-    let token_value = input_required("Bearer token value")?;
-
-    let body = serde_json::json!({
-        "name": name,
-        "credential_type": "static_bearer",
-        "mcp_server_url": mcp_server_url,
-        "token_value": token_value,
-    });
-    let resp = client.create_vault_credential(&vault_id, &body).await?;
+    let resp = create_credential_group_member_interactively(client, group_id, None, None).await?;
     println!(
         "\ncredential/{} created",
         resp["id"].as_str().unwrap_or("?")
@@ -688,11 +742,26 @@ pub fn collect_mcp_servers() -> anyhow::Result<Vec<serde_json::Value>> {
             if url.is_empty() {
                 bail!("Server URL cannot be empty");
             }
+            let auth_requirement = if idx == 0 {
+                let requirements = [
+                    "required (Session must select one matching credential)",
+                    "optional (use a matching credential when selected)",
+                    "none (never inject managed credentials)",
+                ];
+                let requirement_idx = Select::new()
+                    .with_prompt("MCP authentication requirement")
+                    .items(&requirements)
+                    .default(0)
+                    .interact()?;
+                ["required", "optional", "none"][requirement_idx]
+            } else {
+                "none"
+            };
             serde_json::json!({
                 "type": if idx == 0 { "streamable_http" } else { "sse" },
                 "name": name,
                 "url": url,
-                "auth_requirement": "required"
+                "auth_requirement": auth_requirement
             })
         } else {
             let command: String = Input::new().with_prompt("Command").interact_text()?;

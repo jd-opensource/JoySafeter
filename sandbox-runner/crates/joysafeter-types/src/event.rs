@@ -1,10 +1,7 @@
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize, Serializer};
 
-pub fn parse_event_id(s: &str) -> Option<uuid::Uuid> {
-    let s = s.strip_prefix("evt_").unwrap_or(s);
-    uuid::Uuid::parse_str(s).ok()
-}
+use crate::{EventId, SessionId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -22,9 +19,9 @@ impl ContentBlock {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SessionEvent {
-    pub id: uuid::Uuid,
+    pub id: EventId,
     pub event_type: String,
-    pub session_id: uuid::Uuid,
+    pub session_id: SessionId,
     #[serde(default)]
     pub payload: serde_json::Value,
     pub seq: i64,
@@ -39,7 +36,7 @@ impl Serialize for SessionEvent {
         let extra_count = payload_fields.map(|m| m.len()).unwrap_or(0);
         let mut map = serializer.serialize_map(Some(4 + extra_count))?;
 
-        map.serialize_entry("id", &format!("evt_{}", self.id))?;
+        map.serialize_entry("id", &self.id)?;
         map.serialize_entry("type", &self.event_type)?;
         map.serialize_entry("seq", &self.seq)?;
 
@@ -56,13 +53,13 @@ impl Serialize for SessionEvent {
 
 impl SessionEvent {
     pub fn new(
-        session_id: uuid::Uuid,
+        session_id: SessionId,
         event_type: &str,
         payload: serde_json::Value,
         seq: i64,
     ) -> Self {
         Self {
-            id: uuid::Uuid::now_v7(),
+            id: EventId::new(),
             event_type: event_type.to_string(),
             session_id,
             payload,
@@ -73,14 +70,14 @@ impl SessionEvent {
     }
 
     pub fn new_processed(
-        session_id: uuid::Uuid,
+        session_id: SessionId,
         event_type: &str,
         payload: serde_json::Value,
         seq: i64,
     ) -> Self {
         let now = chrono::Utc::now();
         Self {
-            id: uuid::Uuid::now_v7(),
+            id: EventId::new(),
             event_type: event_type.to_string(),
             session_id,
             payload,

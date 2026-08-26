@@ -13,6 +13,7 @@ tls-rustls = ["reqwest/rustls-tls"]
 tls-native = ["reqwest/native-tls"]
 
 [dependencies]
+joysafeter-entity-id = { workspace = true }
 clap = { version = "4", default-features = false, features = ["derive", "env", "help", "std", "usage"] }
 tokio = { version = "1", default-features = false, features = ["macros", "rt-multi-thread", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
@@ -23,5 +24,6 @@ anyhow = { workspace = true }
 tar = { version = "0.4", default-features = false }
 flate2 = { workspace = true }
 base64 = { workspace = true }
-dialoguer = { version = "0.11", default-features = false }
+dialoguer = { version = "0.11", default-features = false, features = ["password"] }
 tempfile = "3"
+url = "2"

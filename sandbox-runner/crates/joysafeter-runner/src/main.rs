@@ -15,6 +15,7 @@ use proto::agent_bridge_client::AgentBridgeClient;
 use proto::{RunnerHarnessResult, RunnerHeartbeat, RunnerIdle, RunnerMessage};
 
 use joysafeter_runtime::AdapterRegistry;
+use joysafeter_types::TaskId;
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -34,8 +35,8 @@ enum ConnectionResult {
 }
 
 struct SurvivingTask {
-    task_id: String,
-    session_id: Option<String>,
+    task_id: TaskId,
+    harness_session_id: Option<String>,
     work_dir: Option<String>,
     handle: JoinHandle<Result<runner::TaskMetadata, Box<dyn std::error::Error + Send + Sync>>>,
     cancel_tx: Option<oneshot::Sender<()>>,
@@ -50,8 +51,8 @@ struct SurvivingTask {
 #[derive(Clone, Default)]
 struct HeartbeatRuntimeState {
     runtime_state: String,
-    active_task_id: Option<String>,
-    session_id: Option<String>,
+    active_task_id: Option<TaskId>,
+    harness_session_id: Option<String>,
 }
 
 impl HeartbeatRuntimeState {
@@ -59,17 +60,22 @@ impl HeartbeatRuntimeState {
         Self {
             runtime_state: "idle".to_string(),
             active_task_id: None,
-            session_id: None,
+            harness_session_id: None,
         }
     }
 
-    fn busy(task_id: String, session_id: Option<String>) -> Self {
+    fn busy(task_id: TaskId, harness_session_id: Option<String>) -> Self {
         Self {
             runtime_state: "busy".to_string(),
             active_task_id: Some(task_id),
-            session_id,
+            harness_session_id,
         }
     }
+}
+
+fn parse_start_task_id(value: &str) -> anyhow::Result<TaskId> {
+    TaskId::from_public(value)
+        .map_err(|error| anyhow::anyhow!("invalid StartTask.task_id: {error}"))
 }
 
 fn set_heartbeat_runtime_state(
@@ -341,7 +347,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let inbound = response.into_inner();
 
         let is_reconnect = !is_first_connect;
-        let active_task_id = surviving_task.as_ref().map(|t| t.task_id.clone());
+        let active_task_id = surviving_task.as_ref().map(|task| task.task_id.to_string());
 
         let ready = RunnerMessage {
             payload: Some(proto::runner_message::Payload::Ready(proto::RunnerReady {
@@ -503,16 +509,41 @@ async fn send_setup_failure_result(
 async fn send_task_failure_result(
     runner_tx: &mpsc::Sender<RunnerMessage>,
     error: String,
-    session_id: Option<String>,
+    harness_session_id: Option<String>,
     work_dir: Option<String>,
 ) -> Result<(), mpsc::error::SendError<RunnerMessage>> {
-    send_failure_result(runner_tx, error, session_id, work_dir).await
+    send_failure_result(runner_tx, error, harness_session_id, work_dir).await
+}
+
+async fn send_rejected_start_task_result_and_idle(
+    runner_tx: &mpsc::Sender<RunnerMessage>,
+    sandbox_id: &str,
+    error: String,
+    harness_session_id: Option<String>,
+    work_dir: Option<String>,
+) -> Result<(), mpsc::error::SendError<RunnerMessage>> {
+    send_task_failure_result(
+        runner_tx,
+        error,
+        harness_session_id.clone(),
+        work_dir.clone(),
+    )
+    .await?;
+    runner_tx
+        .send(RunnerMessage {
+            payload: Some(proto::runner_message::Payload::Idle(RunnerIdle {
+                sandbox_id: sandbox_id.to_string(),
+                work_dir,
+                harness_session_id,
+            })),
+        })
+        .await
 }
 
 async fn send_failure_result(
     runner_tx: &mpsc::Sender<RunnerMessage>,
     error: String,
-    session_id: Option<String>,
+    harness_session_id: Option<String>,
     work_dir: Option<String>,
 ) -> Result<(), mpsc::error::SendError<RunnerMessage>> {
     runner_tx
@@ -522,7 +553,7 @@ async fn send_failure_result(
                     status: "failed".to_string(),
                     output: String::new(),
                     error: Some(error),
-                    session_id,
+                    harness_session_id,
                     work_dir,
                     ..Default::default()
                 },
@@ -552,8 +583,8 @@ async fn run_session(
                 payload: Some(proto::runner_message::Payload::Heartbeat(RunnerHeartbeat {
                     timestamp_ms: chrono::Utc::now().timestamp_millis(),
                     runtime_state: state.runtime_state,
-                    active_task_id: state.active_task_id,
-                    session_id: state.session_id,
+                    active_task_id: state.active_task_id.map(|task_id| task_id.to_string()),
+                    harness_session_id: state.harness_session_id,
                 })),
             };
             if heartbeat_tx.send(hb).await.is_err() {
@@ -568,7 +599,7 @@ async fn run_session(
         info!(task_id = %task.task_id, "Resuming surviving task on new connection");
         set_heartbeat_runtime_state(
             &heartbeat_state,
-            HeartbeatRuntimeState::busy(task.task_id.clone(), task.session_id.clone()),
+            HeartbeatRuntimeState::busy(task.task_id, task.harness_session_id.clone()),
         );
 
         let metadata = loop {
@@ -589,7 +620,7 @@ async fn run_session(
                             if let Err(send_err) = send_task_failure_result(
                                 &runner_tx,
                                 error,
-                                task.session_id.clone(),
+                                task.harness_session_id.clone(),
                                 task.work_dir.clone(),
                             )
                             .await
@@ -600,7 +631,7 @@ async fn run_session(
                             }
                             break runner::TaskMetadata {
                                 work_dir: task.work_dir.clone().unwrap_or_default(),
-                                session_id: task.session_id.clone(),
+                                harness_session_id: task.harness_session_id.clone(),
                             };
                         }
                         Err(e) => {
@@ -609,7 +640,7 @@ async fn run_session(
                             if let Err(send_err) = send_task_failure_result(
                                 &runner_tx,
                                 error,
-                                task.session_id.clone(),
+                                task.harness_session_id.clone(),
                                 task.work_dir.clone(),
                             )
                             .await
@@ -620,7 +651,7 @@ async fn run_session(
                             }
                             break runner::TaskMetadata {
                                 work_dir: task.work_dir.clone().unwrap_or_default(),
-                                session_id: task.session_id.clone(),
+                                harness_session_id: task.harness_session_id.clone(),
                             };
                         }
                     }
@@ -694,7 +725,7 @@ async fn run_session(
                 } else {
                     Some(metadata.work_dir)
                 },
-                session_id: metadata.session_id,
+                harness_session_id: metadata.harness_session_id,
             })),
         };
         if runner_tx.send(idle).await.is_err() {
@@ -721,17 +752,36 @@ async fn run_session(
 
         match msg.payload {
             Some(proto::orchestrator_message::Payload::Start(start_task)) => {
+                let task_id = match parse_start_task_id(&start_task.task_id) {
+                    Ok(task_id) => task_id,
+                    Err(error) => {
+                        error!(task_id = %start_task.task_id, error = %error, "Rejected invalid StartTask task id");
+                        if send_rejected_start_task_result_and_idle(
+                            &runner_tx,
+                            sandbox_id,
+                            error.to_string(),
+                            start_task.harness_session_id.clone(),
+                            start_task.work_dir.clone(),
+                        )
+                        .await
+                        .is_err()
+                        {
+                            heartbeat_handle.abort();
+                            return ConnectionResult::Disconnected;
+                        }
+                        continue;
+                    }
+                };
                 info!(
-                    task_id = %start_task.task_id,
+                    task_id = %task_id,
                     provider = %start_task.provider,
                     "Received StartTask"
                 );
 
-                let task_id_str = start_task.task_id.clone();
-                let task_session_id = start_task.session_id.clone();
+                let harness_session_id = start_task.harness_session_id.clone();
                 set_heartbeat_runtime_state(
                     &heartbeat_state,
-                    HeartbeatRuntimeState::busy(task_id_str.clone(), task_session_id.clone()),
+                    HeartbeatRuntimeState::busy(task_id, harness_session_id.clone()),
                 );
                 let task_work_dir = session_config
                     .work_dir
@@ -783,7 +833,7 @@ async fn run_session(
                                     if let Err(send_err) = send_task_failure_result(
                                         &runner_tx,
                                         error,
-                                        task_session_id.clone(),
+                                        harness_session_id.clone(),
                                         task_work_dir.clone(),
                                     )
                                     .await
@@ -794,7 +844,7 @@ async fn run_session(
                                     }
                                     break runner::TaskMetadata {
                                         work_dir: task_work_dir.clone().unwrap_or_default(),
-                                        session_id: task_session_id.clone(),
+                                        harness_session_id: harness_session_id.clone(),
                                     };
                                 }
                                 Err(e) => {
@@ -803,7 +853,7 @@ async fn run_session(
                                     if let Err(send_err) = send_task_failure_result(
                                         &runner_tx,
                                         error,
-                                        task_session_id.clone(),
+                                        harness_session_id.clone(),
                                         task_work_dir.clone(),
                                     )
                                     .await
@@ -814,7 +864,7 @@ async fn run_session(
                                     }
                                     break runner::TaskMetadata {
                                         work_dir: task_work_dir.clone().unwrap_or_default(),
-                                        session_id: task_session_id.clone(),
+                                        harness_session_id: harness_session_id.clone(),
                                     };
                                 }
                             }
@@ -824,8 +874,8 @@ async fn run_session(
                             if runner_tx.send(msg.clone()).await.is_err() {
                                 warn!("gRPC channel dead during event forward — preserving task for reconnect");
                                 *surviving_task = Some(SurvivingTask {
-                                    task_id: task_id_str.clone(),
-                                    session_id: task_session_id.clone(),
+                                    task_id,
+                                    harness_session_id: harness_session_id.clone(),
                                     work_dir: task_work_dir.clone(),
                                     handle: task_handle,
                                     cancel_tx,
@@ -876,8 +926,8 @@ async fn run_session(
                                 Ok(None) => {
                                     warn!("Orchestrator stream closed during task — task continues running");
                                     *surviving_task = Some(SurvivingTask {
-                                        task_id: task_id_str.clone(),
-                                        session_id: task_session_id.clone(),
+                                        task_id,
+                                        harness_session_id: harness_session_id.clone(),
                                         work_dir: task_work_dir.clone(),
                                         handle: task_handle,
                                         cancel_tx,
@@ -891,8 +941,8 @@ async fn run_session(
                                 Err(e) => {
                                     error!(error = %e, "Error reading orchestrator stream during task — task continues running");
                                     *surviving_task = Some(SurvivingTask {
-                                        task_id: task_id_str.clone(),
-                                        session_id: task_session_id.clone(),
+                                        task_id,
+                                        harness_session_id: harness_session_id.clone(),
                                         work_dir: task_work_dir.clone(),
                                         handle: task_handle,
                                         cancel_tx,
@@ -923,7 +973,7 @@ async fn run_session(
                         } else {
                             Some(metadata.work_dir)
                         },
-                        session_id: metadata.session_id,
+                        harness_session_id: metadata.harness_session_id,
                     })),
                 };
                 if let Err(e) = runner_tx.send(idle).await {
@@ -944,7 +994,7 @@ async fn run_session(
                             payload: Some(proto::runner_message::Payload::Idle(RunnerIdle {
                                 sandbox_id: sandbox_id.to_string(),
                                 work_dir: Some(wd.to_string_lossy().to_string()),
-                                session_id: None,
+                                harness_session_id: None,
                             })),
                         };
                         if let Err(e) = runner_tx.send(idle).await {
@@ -1000,6 +1050,15 @@ async fn run_session(
 mod tests {
     use super::*;
 
+    #[test]
+    fn start_task_id_requires_canonical_platform_task_id() {
+        let task_id = joysafeter_types::TaskId::new();
+
+        assert_eq!(parse_start_task_id(&task_id.to_string()).unwrap(), task_id);
+        assert!(parse_start_task_id(&task_id.as_uuid().to_string()).is_err());
+        assert!(parse_start_task_id(&joysafeter_types::SessionId::new().to_string()).is_err());
+    }
+
     #[tokio::test]
     async fn setup_failure_result_reports_failed_setup_with_work_dir() {
         let (tx, mut rx) = mpsc::channel(1);
@@ -1047,8 +1106,50 @@ mod tests {
                     result.error.as_deref(),
                     Some("Task execution failed: StartTask setup command #1 failed")
                 );
-                assert_eq!(result.session_id.as_deref(), Some("harness-session-1"));
+                assert_eq!(
+                    result.harness_session_id.as_deref(),
+                    Some("harness-session-1")
+                );
                 assert_eq!(result.work_dir.as_deref(), Some("/workspace/project"));
+            }
+            other => panic!("unexpected runner message: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn rejected_start_task_reports_failure_then_idle() {
+        let (tx, mut rx) = mpsc::channel(2);
+
+        send_rejected_start_task_result_and_idle(
+            &tx,
+            "sbx_test",
+            "invalid StartTask.task_id".to_string(),
+            Some("harness-session-1".to_string()),
+            Some("/workspace/project".to_string()),
+        )
+        .await
+        .expect("send rejected task result and idle");
+
+        match rx.recv().await.expect("failure result message").payload {
+            Some(proto::runner_message::Payload::Result(result)) => {
+                assert_eq!(result.status, "failed");
+                assert_eq!(result.error.as_deref(), Some("invalid StartTask.task_id"));
+                assert_eq!(
+                    result.harness_session_id.as_deref(),
+                    Some("harness-session-1")
+                );
+                assert_eq!(result.work_dir.as_deref(), Some("/workspace/project"));
+            }
+            other => panic!("unexpected runner message: {other:?}"),
+        }
+
+        match rx.recv().await.expect("idle message").payload {
+            Some(proto::runner_message::Payload::Idle(idle)) => {
+                assert_eq!(
+                    idle.harness_session_id.as_deref(),
+                    Some("harness-session-1")
+                );
+                assert_eq!(idle.work_dir.as_deref(), Some("/workspace/project"));
             }
             other => panic!("unexpected runner message: {other:?}"),
         }

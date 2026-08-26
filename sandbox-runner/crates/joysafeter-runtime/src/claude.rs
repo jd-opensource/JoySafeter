@@ -27,7 +27,7 @@ struct TurnState {
     usage: Arc<std::sync::Mutex<TokenUsage>>,
     output: Arc<std::sync::Mutex<String>>,
     error: Arc<std::sync::Mutex<Option<String>>>,
-    session_id: Arc<std::sync::Mutex<Option<String>>>,
+    harness_session_id: Arc<std::sync::Mutex<Option<String>>>,
     call_id_to_tool: Arc<std::sync::Mutex<HashMap<String, String>>>,
 }
 
@@ -42,7 +42,7 @@ struct PersistentClaude {
     current_turn: Arc<Mutex<Option<TurnState>>>,
     child: tokio::process::Child,
     config_fingerprint: u64,
-    last_session_id: Arc<std::sync::Mutex<Option<String>>>,
+    last_harness_session_id: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -126,9 +126,7 @@ impl ClaudeAdapter {
             let _ = old.child.wait().await;
         }
 
-        // Determine session_id for --resume: prefer input.session_id (from orchestrator DB),
-        // fall back to last_session_id from previous turn (for crash recovery within same adapter).
-        let resume_session_id = input.session_id.clone();
+        let resume_harness_session_id = input.harness_session_id.clone();
 
         let mut args = vec![
             "-p".to_string(),
@@ -146,8 +144,8 @@ impl ClaudeAdapter {
         if let Some(model) = &input.model {
             args.extend(["--model".to_string(), model.clone()]);
         }
-        if let Some(session_id) = &resume_session_id {
-            args.extend(["--resume".to_string(), session_id.clone()]);
+        if let Some(harness_session_id) = &resume_harness_session_id {
+            args.extend(["--resume".to_string(), harness_session_id.clone()]);
         }
         if let Some(system_prompt) = &input.system_prompt {
             let flag = if input.system_prompt_mode == "replace" {
@@ -215,13 +213,14 @@ impl ClaudeAdapter {
             .ok_or_else(|| HarnessError::StartFailed("failed to open stdout".into()))?;
 
         let current_turn: Arc<Mutex<Option<TurnState>>> = Arc::new(Mutex::new(None));
-        let last_session_id: Arc<std::sync::Mutex<Option<String>>> =
-            Arc::new(std::sync::Mutex::new(resume_session_id));
+        let last_harness_session_id: Arc<std::sync::Mutex<Option<String>>> =
+            Arc::new(std::sync::Mutex::new(resume_harness_session_id));
 
         let reader_current_turn = current_turn.clone();
-        let reader_last_session_id = last_session_id.clone();
+        let reader_last_harness_session_id = last_harness_session_id.clone();
         let reader_handle = tokio::spawn(async move {
-            persistent_claude_reader(stdout, reader_current_turn, reader_last_session_id).await;
+            persistent_claude_reader(stdout, reader_current_turn, reader_last_harness_session_id)
+                .await;
         });
 
         info!("Started persistent claude process");
@@ -232,7 +231,7 @@ impl ClaudeAdapter {
             current_turn,
             child,
             config_fingerprint: fp,
-            last_session_id,
+            last_harness_session_id,
         });
 
         Ok(())
@@ -285,7 +284,7 @@ impl HarnessAdapter for ClaudeAdapter {
             .ok_or_else(|| HarnessError::StartFailed("session disappeared after ensure".into()))?;
 
         let (td_tx, td_rx) = oneshot::channel::<bool>();
-        let session_id_arc = Arc::new(std::sync::Mutex::new(None::<String>));
+        let harness_session_id = Arc::new(std::sync::Mutex::new(None::<String>));
         {
             let mut ct = session.current_turn.lock().await;
             *ct = Some(TurnState {
@@ -294,7 +293,7 @@ impl HarnessAdapter for ClaudeAdapter {
                 usage: Arc::new(std::sync::Mutex::new(TokenUsage::default())),
                 output: Arc::new(std::sync::Mutex::new(String::new())),
                 error: Arc::new(std::sync::Mutex::new(None)),
-                session_id: session_id_arc.clone(),
+                harness_session_id: harness_session_id.clone(),
                 call_id_to_tool: Arc::new(std::sync::Mutex::new(HashMap::new())),
             });
         }
@@ -320,7 +319,7 @@ impl HarnessAdapter for ClaudeAdapter {
         });
 
         let current_turn = session.current_turn.clone();
-        let last_session_id = session.last_session_id.clone();
+        let last_harness_session_id = session.last_harness_session_id.clone();
         let shared_stdin_for_harness = session.stdin.clone();
         drop(guard);
 
@@ -328,23 +327,22 @@ impl HarnessAdapter for ClaudeAdapter {
         tokio::spawn(async move {
             let aborted = td_rx.await.unwrap_or(true);
 
-            let (final_output, final_usage, final_error, final_session_id) = {
+            let (final_output, final_usage, final_error, final_harness_session_id) = {
                 let ct = current_turn.lock().await;
                 if let Some(ref turn) = *ct {
                     (
                         turn.output.lock().unwrap().clone(),
                         turn.usage.lock().unwrap().clone(),
                         turn.error.lock().unwrap().clone(),
-                        turn.session_id.lock().unwrap().clone(),
+                        turn.harness_session_id.lock().unwrap().clone(),
                     )
                 } else {
                     (String::new(), TokenUsage::default(), None, None)
                 }
             };
 
-            // Update last_session_id for crash recovery
-            if final_session_id.is_some() {
-                *last_session_id.lock().unwrap() = final_session_id.clone();
+            if final_harness_session_id.is_some() {
+                *last_harness_session_id.lock().unwrap() = final_harness_session_id.clone();
             }
 
             {
@@ -358,7 +356,7 @@ impl HarnessAdapter for ClaudeAdapter {
                 status,
                 output: final_output,
                 error,
-                session_id: final_session_id,
+                harness_session_id: final_harness_session_id,
                 usage: final_usage,
                 duration: start.elapsed(),
             });
@@ -599,7 +597,7 @@ struct TaskUsage {
 async fn persistent_claude_reader(
     stdout: tokio::process::ChildStdout,
     current_turn: Arc<Mutex<Option<TurnState>>>,
-    last_session_id: Arc<std::sync::Mutex<Option<String>>>,
+    last_harness_session_id: Arc<std::sync::Mutex<Option<String>>>,
 ) {
     let reader = BufReader::new(stdout);
     let mut lines = reader.lines();
@@ -627,13 +625,14 @@ async fn persistent_claude_reader(
                     turn.usage.clone(),
                     turn.output.clone(),
                     turn.error.clone(),
-                    turn.session_id.clone(),
+                    turn.harness_session_id.clone(),
                     turn.call_id_to_tool.clone(),
                 )
             })
         };
 
-        let Some((event_tx, usage, output, turn_error, session_id, call_id_to_tool)) = turn_refs
+        let Some((event_tx, usage, output, turn_error, harness_session_id, call_id_to_tool)) =
+            turn_refs
         else {
             continue;
         };
@@ -797,8 +796,8 @@ async fn persistent_claude_reader(
             }
             "system" => {
                 if let Some(sid) = &msg.session_id {
-                    *session_id.lock().unwrap() = Some(sid.clone());
-                    *last_session_id.lock().unwrap() = Some(sid.clone());
+                    *harness_session_id.lock().unwrap() = Some(sid.clone());
+                    *last_harness_session_id.lock().unwrap() = Some(sid.clone());
                 }
                 // Background sub-agent lifecycle SDK events (task_started /
                 // task_progress / task_notification) carry rich payload — extract
@@ -820,7 +819,7 @@ async fn persistent_claude_reader(
                 };
 
                 if let Some(phase) = phase {
-                    if let Some(task_id) = msg.task_id.clone() {
+                    if let Some(subagent_task_id) = msg.task_id.clone() {
                         let (total_tokens, tool_uses, duration_ms) = match msg.usage {
                             Some(u) => (u.total_tokens, u.tool_uses, u.duration_ms),
                             None => (None, None, None),
@@ -828,7 +827,7 @@ async fn persistent_claude_reader(
                         let _ = event_tx
                             .send(HarnessEvent::TaskNotification {
                                 phase: phase.to_string(),
-                                task_id,
+                                subagent_task_id,
                                 tool_use_id: msg.tool_use_id,
                                 description: msg.description,
                                 status: msg.status,
@@ -1082,7 +1081,7 @@ mod tests {
             prompt: "hello".into(),
             system_prompt: Some("sys".into()),
             system_prompt_mode: "append".into(),
-            session_id: None,
+            harness_session_id: None,
             model: Some("opus".into()),
             max_turns: Some(10),
             timeout: Duration::from_secs(60),
@@ -1104,7 +1103,7 @@ mod tests {
             prompt: "hello".into(),
             system_prompt: None,
             system_prompt_mode: "append".into(),
-            session_id: Some("abc".into()),
+            harness_session_id: Some("abc".into()),
             model: Some("opus".into()),
             max_turns: Some(5),
             timeout: Duration::from_secs(30),
@@ -1119,7 +1118,7 @@ mod tests {
             prompt: "different prompt".into(),
             system_prompt: None,
             system_prompt_mode: "append".into(),
-            session_id: Some("xyz".into()),
+            harness_session_id: Some("xyz".into()),
             model: Some("opus".into()),
             max_turns: Some(100),
             timeout: Duration::from_secs(999),
@@ -1142,7 +1141,7 @@ mod tests {
             prompt: "hello".into(),
             system_prompt: None,
             system_prompt_mode: "append".into(),
-            session_id: None,
+            harness_session_id: None,
             model: Some("opus".into()),
             max_turns: None,
             timeout: Duration::from_secs(60),
@@ -1169,7 +1168,7 @@ mod tests {
             prompt: "hello".into(),
             system_prompt: None,
             system_prompt_mode: "append".into(),
-            session_id: None,
+            harness_session_id: None,
             model: Some("opus".into()),
             max_turns: None,
             timeout: Duration::from_secs(60),

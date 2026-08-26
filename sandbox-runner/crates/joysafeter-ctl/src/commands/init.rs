@@ -2,13 +2,18 @@ use crate::client::JoysafeterClient;
 use anyhow::{bail, Context};
 use base64::Engine as _;
 use dialoguer::{Confirm, Input, Select};
+use joysafeter_entity_id::{AgentId, CredentialId, EnvironmentId, MemoryStoreId, SessionId};
 use std::path::Path;
 
+use super::mcp_authorization::{
+    authorize_session_interactively, build_session_body, SessionAuthorization,
+};
+
 #[derive(Default)]
-enum StepResult {
+enum StepResult<T> {
     UsedExisting,
     Created {
-        id: String,
+        id: T,
         name: String,
     },
     #[default]
@@ -17,22 +22,26 @@ enum StepResult {
 
 #[derive(Default)]
 struct WizardState {
-    secret_name: String,
-    secret_result: StepResult,
+    credential_name: String,
+    credential_id: Option<CredentialId>,
+    credential_result: StepResult<CredentialId>,
 
     env_name: String,
-    env_id: String,
-    env_result: StepResult,
+    env_id: Option<EnvironmentId>,
+    env_result: StepResult<EnvironmentId>,
 
-    agent_id: String,
-    agent_result: StepResult,
+    agent_id: Option<AgentId>,
+    agent: Option<serde_json::Value>,
+    agent_result: StepResult<AgentId>,
+
+    mcp_authorization: SessionAuthorization,
 
     memory_store_resources: Vec<serde_json::Value>,
-    memory_store_id: Option<String>,
-    memory_store_result: StepResult,
+    memory_store_id: Option<MemoryStoreId>,
+    memory_store_result: StepResult<MemoryStoreId>,
 
-    session_id: String,
-    session_result: StepResult,
+    session_id: Option<SessionId>,
+    session_result: StepResult<SessionId>,
 }
 
 #[derive(PartialEq)]
@@ -46,12 +55,13 @@ pub async fn run(client: &JoysafeterClient) -> anyhow::Result<()> {
     println!("║     joysafeterctl init — Full Setup Wizard        ║");
     println!("╠═══════════════════════════════════════════════════╣");
     println!("║  This wizard will guide you through creating:    ║");
-    println!("║    1. Secret       (API credentials)             ║");
+    println!("║    1. Credential   (model API access)            ║");
     println!("║    2. Environment  (sandbox config)              ║");
     println!("║    3. Agent        (model + tools)               ║");
-    println!("║    4. Memory Store (persistent memory, optional) ║");
-    println!("║    5. Session      (conversation)                ║");
-    println!("║    6. Event        (first message)               ║");
+    println!("║    4. MCP Access   (per-session authorization)   ║");
+    println!("║    5. Memory Store (persistent memory, optional) ║");
+    println!("║    6. Session      (conversation)                ║");
+    println!("║    7. Event        (first message)               ║");
     println!("╚═══════════════════════════════════════════════════╝");
     println!();
 
@@ -60,12 +70,13 @@ pub async fn run(client: &JoysafeterClient) -> anyhow::Result<()> {
 
     loop {
         let action = match step {
-            1 => run_step_secret(client, &mut state, true).await?,
+            1 => run_step_credential(client, &mut state, true).await?,
             2 => run_step_environment(client, &mut state, true).await?,
             3 => run_step_agent(client, &mut state, true).await?,
-            4 => run_step_memory_store(client, &mut state, true).await?,
-            5 => run_step_session(client, &mut state, true).await?,
-            6 => {
+            4 => run_step_mcp_authorization(client, &mut state, true).await?,
+            5 => run_step_memory_store(client, &mut state, true).await?,
+            6 => run_step_session(client, &mut state, true).await?,
+            7 => {
                 let action = run_step_event(client, &mut state, true).await?;
                 if action == StepAction::Completed {
                     break;
@@ -93,18 +104,32 @@ pub async fn run(client: &JoysafeterClient) -> anyhow::Result<()> {
     println!("╔═══════════════════════════════════════════════════╗");
     println!("║                  Setup Complete                   ║");
     println!("╠═══════════════════════════════════════════════════╣");
-    if !state.secret_name.is_empty() {
-        println!("║  Secret:      {:<36} ║", state.secret_name);
+    if !state.credential_name.is_empty() {
+        println!("║  Credential:  {:<36} ║", state.credential_name);
     }
     println!("║  Environment: {:<36} ║", state.env_name);
-    println!("║  Agent ID:    {:<36} ║", state.agent_id);
-    println!("║  Session ID:  {:<36} ║", state.session_id);
+    println!(
+        "║  Agent ID:    {:<36} ║",
+        state.agent_id.map(|id| id.to_string()).unwrap_or_default()
+    );
+    println!(
+        "║  MCP groups:  {:<36} ║",
+        state.mcp_authorization.credential_group_ids.len()
+    );
+    println!(
+        "║  Session ID:  {:<36} ║",
+        state
+            .session_id
+            .map(|id| id.to_string())
+            .unwrap_or_default()
+    );
     println!("╚═══════════════════════════════════════════════════╝");
 
     // ── Enter chat mode ────────────────────────────────
     println!();
     println!("Entering chat mode...");
-    super::chat::run(client, Some(state.session_id), None, 2).await
+    let session_id = state.session_id.context("setup did not create a session")?;
+    super::chat::run(client, Some(session_id), None, &[], 2).await
 }
 
 async fn rollback_step(
@@ -114,32 +139,37 @@ async fn rollback_step(
 ) -> anyhow::Result<()> {
     match step {
         1 => {
-            if let StepResult::Created { ref id, ref name } = state.secret_result {
-                println!("  \u{21a9} Deleting secret/{} ...", name);
-                client.delete_secret(id, true).await.ok();
+            if let StepResult::Created { id, ref name } = state.credential_result {
+                println!("  \u{21a9} Deleting credential/{} ...", name);
+                client.delete_credential(id).await.ok();
             }
-            state.secret_name.clear();
-            state.secret_result = StepResult::Skipped;
+            state.credential_name.clear();
+            state.credential_id = None;
+            state.credential_result = StepResult::Skipped;
         }
         2 => {
-            if let StepResult::Created { ref id, ref name } = state.env_result {
+            if let StepResult::Created { id, ref name } = state.env_result {
                 println!("  \u{21a9} Deleting environment/{} ...", name);
                 client.delete_environment(id).await.ok();
             }
             state.env_name.clear();
-            state.env_id.clear();
+            state.env_id = None;
             state.env_result = StepResult::Skipped;
         }
         3 => {
-            if let StepResult::Created { ref id, .. } = state.agent_result {
+            if let StepResult::Created { id, .. } = state.agent_result {
                 println!("  \u{21a9} Deleting agent/{} ...", id);
                 client.delete_agent(id, true).await.ok();
             }
-            state.agent_id.clear();
+            state.agent_id = None;
+            state.agent = None;
             state.agent_result = StepResult::Skipped;
         }
         4 => {
-            if let StepResult::Created { ref id, ref name } = state.memory_store_result {
+            state.mcp_authorization.rollback_created(client).await;
+        }
+        5 => {
+            if let StepResult::Created { id, ref name } = state.memory_store_result {
                 println!("  \u{21a9} Deleting memorystore/{} ...", name);
                 client.delete_memory_store(id).await.ok();
             }
@@ -147,41 +177,55 @@ async fn rollback_step(
             state.memory_store_id = None;
             state.memory_store_result = StepResult::Skipped;
         }
-        5 => {
-            if let StepResult::Created { ref id, .. } = state.session_result {
+        6 => {
+            if let StepResult::Created { id, .. } = state.session_result {
                 println!("  \u{21a9} Deleting session/{} ...", id);
                 client.delete_session(id).await.ok();
             }
-            state.session_id.clear();
+            state.session_id = None;
             state.session_result = StepResult::Skipped;
         }
+        // Step 7 (first event) only appends an append-only session event; it
+        // creates nothing deletable, so navigating Back must NOT touch the
+        // session created in step 6.
+        7 => {}
         _ => {}
     }
     Ok(())
 }
 
-// ── Step 1: Secret ──────────────────────────────────────────────
+// ── Step 1: Credential ──────────────────────────────────────────
 
-async fn run_step_secret(
+async fn run_step_credential(
     client: &JoysafeterClient,
     state: &mut WizardState,
     allow_back: bool,
 ) -> anyhow::Result<StepAction> {
-    println!("\x1b[1;36m━━━ Step 1/6: Secret ━━━\x1b[0m\n");
+    println!("\x1b[1;36m━━━ Step 1/7: Model Credential ━━━\x1b[0m\n");
 
-    let existing = client.list_secrets().await.unwrap_or_default();
-    let choice = pick_or_create("secret", &existing, "name", allow_back, true)?;
+    let existing = client
+        .list_credentials()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|credential| credential["kind"].as_str() == Some("model"))
+        .collect::<Vec<_>>();
+    let choice = pick_or_create("model credential", &existing, "name", allow_back, true)?;
     match choice {
-        PickResult::Existing(name) => {
-            println!("  Using existing secret: {}", name);
-            state.secret_name = name;
-            state.secret_result = StepResult::UsedExisting;
+        PickResult::Existing { id, name } => {
+            let credential_id = id
+                .parse::<CredentialId>()
+                .context("credential response contained a non-canonical id")?;
+            println!("  Using existing credential: {} ({})", name, credential_id);
+            state.credential_name = name;
+            state.credential_id = Some(credential_id);
+            state.credential_result = StepResult::UsedExisting;
         }
         PickResult::Create => {
-            let name = input_required("Secret name")?;
+            let name = input_required("Credential name")?;
             let mut data = serde_json::Map::new();
 
-            let providers = vec![
+            let providers = [
                 "Claude (Anthropic)",
                 "Codex (OpenAI)",
                 "Custom (manual key-value pairs)",
@@ -192,9 +236,9 @@ async fn run_step_secret(
                 .default(0)
                 .interact()?;
 
-            match provider_idx {
+            let (provider, protocol) = match provider_idx {
                 0 => {
-                    let auth_types = vec![
+                    let auth_types = [
                         "ANTHROPIC_API_KEY (x-api-key header, recommended for most proxies)",
                         "ANTHROPIC_AUTH_TOKEN (Authorization: Bearer header)",
                     ];
@@ -225,6 +269,7 @@ async fn run_step_secret(
                             serde_json::Value::String(base_url.trim().to_string()),
                         );
                     }
+                    ("anthropic".to_string(), "anthropic_messages".to_string())
                 }
                 1 => {
                     let api_key: String =
@@ -265,9 +310,13 @@ async fn run_step_secret(
                             serde_json::Value::String(effort.trim().to_string()),
                         );
                     }
+                    ("openai".to_string(), "openai_responses".to_string())
                 }
-                _ => {}
-            }
+                _ => (
+                    input_required("Provider ID")?,
+                    input_required("Protocol ID")?,
+                ),
+            };
 
             if Confirm::new()
                 .with_prompt("Add more key-value pairs?")
@@ -290,19 +339,35 @@ async fn run_step_secret(
                 }
             }
             if data.is_empty() {
-                bail!("Secret must have at least one key-value pair");
+                bail!("Credential must have at least one key-value pair");
             }
-            let body = serde_json::json!({ "name": name, "data": serde_json::Value::Object(data) });
-            let resp = client.create_secret(&body).await?;
-            let id = resp["id"].as_str().unwrap_or("").to_string();
-            println!("  \x1b[0;32m✓\x1b[0m secret/{} created", name);
-            state.secret_name = name.clone();
-            state.secret_result = StepResult::Created { id, name };
+            let body = serde_json::json!({
+                "kind": "model",
+                "name": name,
+                "provider": provider,
+                "protocol": protocol,
+                "is_default": Confirm::new()
+                    .with_prompt("Set as default model credential?")
+                    .default(false)
+                    .interact()?,
+                "data": serde_json::Value::Object(data),
+            });
+            let resp = client.create_credential(&body).await?;
+            let id = resp["id"]
+                .as_str()
+                .context("credential response missing id")?
+                .parse::<CredentialId>()
+                .context("credential response contained a non-canonical id")?;
+            println!("  \x1b[0;32m✓\x1b[0m credential/{} created ({})", name, id);
+            state.credential_name = name.clone();
+            state.credential_id = Some(id);
+            state.credential_result = StepResult::Created { id, name };
         }
         PickResult::Skip => {
             println!("  Skipped.");
-            state.secret_name.clear();
-            state.secret_result = StepResult::Skipped;
+            state.credential_name.clear();
+            state.credential_id = None;
+            state.credential_result = StepResult::Skipped;
         }
         PickResult::Back => return Ok(StepAction::Back),
     }
@@ -316,19 +381,17 @@ async fn run_step_environment(
     state: &mut WizardState,
     allow_back: bool,
 ) -> anyhow::Result<StepAction> {
-    println!("\n\x1b[1;36m━━━ Step 2/6: Environment ━━━\x1b[0m\n");
+    println!("\n\x1b[1;36m━━━ Step 2/7: Environment ━━━\x1b[0m\n");
 
     let existing = client.list_environments().await.unwrap_or_default();
     let choice = pick_or_create("environment", &existing, "name", allow_back, true)?;
     match choice {
         PickResult::Back => return Ok(StepAction::Back),
-        PickResult::Existing(name) => {
-            let envs = client.list_environments().await?;
-            let found = envs.iter().find(|e| e["name"].as_str() == Some(&name));
-            state.env_id = found
-                .and_then(|e| e["id"].as_str())
-                .map(normalize_resource_id)
-                .unwrap_or_default();
+        PickResult::Existing { id, name } => {
+            state.env_id = Some(
+                id.parse::<EnvironmentId>()
+                    .context("environment response contained a non-canonical id")?,
+            );
             state.env_name = name;
             state.env_result = StepResult::UsedExisting;
             println!("  Using existing environment: {}", state.env_name);
@@ -368,10 +431,11 @@ async fn run_step_environment(
             let resp = client.create_environment(&body).await?;
             let id = resp["id"]
                 .as_str()
-                .map(normalize_resource_id)
-                .unwrap_or_default();
+                .context("environment response missing id")?
+                .parse::<EnvironmentId>()
+                .context("environment response contained a non-canonical id")?;
             println!("  \x1b[0;32m✓\x1b[0m environment/{} created", name);
-            state.env_id = id.clone();
+            state.env_id = Some(id);
             state.env_name = name.clone();
             state.env_result = StepResult::Created { id, name };
         }
@@ -390,21 +454,23 @@ async fn run_step_agent(
     state: &mut WizardState,
     allow_back: bool,
 ) -> anyhow::Result<StepAction> {
-    println!("\n\x1b[1;36m━━━ Step 3/6: Agent ━━━\x1b[0m\n");
+    println!("\n\x1b[1;36m━━━ Step 3/7: Agent ━━━\x1b[0m\n");
 
-    let existing = client.list_agents().await.unwrap_or_default();
-    let choice = pick_or_create("agent", &existing, "name", allow_back, true)?;
+    let existing = client.list_agents().await?;
+    let choice = pick_or_create("agent", &existing, "name", allow_back, false)?;
     match choice {
         PickResult::Back => return Ok(StepAction::Back),
-        PickResult::Existing(name) => {
-            let agents = client.list_agents().await?;
-            let found = agents.iter().find(|a| a["name"].as_str() == Some(&name));
-            state.agent_id = found
-                .and_then(|a| a["id"].as_str())
-                .map(normalize_resource_id)
-                .unwrap_or_default();
+        PickResult::Existing { id, name } => {
+            let agent_id = id
+                .parse::<AgentId>()
+                .context("agent response contained a non-canonical id")?;
+            state.agent_id = Some(agent_id);
+            state.agent = existing
+                .iter()
+                .find(|agent| agent.get("id").and_then(serde_json::Value::as_str) == Some(&id))
+                .cloned();
             state.agent_result = StepResult::UsedExisting;
-            println!("  Using existing agent: {} ({})", name, state.agent_id);
+            println!("  Using existing agent: {} ({})", name, agent_id);
         }
         PickResult::Create => {
             let name = input_required("Agent name")?;
@@ -460,13 +526,13 @@ async fn run_step_agent(
             if !commands_packed.is_empty() {
                 body["commands"] = serde_json::json!(commands_packed);
             }
-            if !state.secret_name.is_empty() {
-                body["secret_ref"] = serde_json::Value::String(state.secret_name.clone());
-                println!("  Auto-linking secret: {}", state.secret_name);
+            if let Some(credential_id) = state.credential_id {
+                body["model_credential_id"] = serde_json::json!(credential_id);
+                println!("  Auto-linking credential: {}", credential_id);
             }
-            if !state.env_name.is_empty() {
-                body["environment_ref"] = serde_json::Value::String(state.env_name.clone());
-                println!("  Auto-linking environment: {}", state.env_name);
+            if let Some(environment_id) = state.env_id {
+                body["environment_id"] = serde_json::json!(environment_id);
+                println!("  Auto-linking environment: {}", environment_id);
             }
             if !mcp_servers.is_empty() {
                 body["mcp_servers"] = serde_json::json!(mcp_servers);
@@ -489,10 +555,12 @@ async fn run_step_agent(
             let resp = client.create_agent(&body).await?;
             let id = resp["id"]
                 .as_str()
-                .map(normalize_resource_id)
-                .unwrap_or_default();
+                .context("agent response missing id")?
+                .parse::<AgentId>()
+                .context("agent response contained a non-canonical id")?;
             println!("  \x1b[0;32m✓\x1b[0m agent/{} created ({})", name, id);
-            state.agent_id = id.clone();
+            state.agent_id = Some(id);
+            state.agent = Some(resp);
             state.agent_result = StepResult::Created { id, name };
         }
         PickResult::Skip => {
@@ -503,45 +571,67 @@ async fn run_step_agent(
     Ok(StepAction::Completed)
 }
 
-// ── Step 4: Memory Store ────────────────────────────────────────
+// ── Step 4: MCP Authorization ───────────────────────────────────
+
+async fn run_step_mcp_authorization(
+    client: &JoysafeterClient,
+    state: &mut WizardState,
+    allow_back: bool,
+) -> anyhow::Result<StepAction> {
+    println!("\n\x1b[1;36m━━━ Step 4/7: MCP Authorization ━━━\x1b[0m\n");
+    if allow_back {
+        let options = ["Review MCP authorization", "\u{2190} Back to Agent"];
+        let index = Select::new()
+            .with_prompt("MCP authorization")
+            .items(&options)
+            .default(0)
+            .interact()?;
+        if index == 1 {
+            return Ok(StepAction::Back);
+        }
+    }
+
+    let agent = state.agent.as_ref().context("setup requires an agent")?;
+    if !authorize_session_interactively(client, agent, &mut state.mcp_authorization).await? {
+        return Ok(StepAction::Back);
+    }
+    Ok(StepAction::Completed)
+}
+
+// ── Step 5: Memory Store ────────────────────────────────────────
 
 async fn run_step_memory_store(
     client: &JoysafeterClient,
     state: &mut WizardState,
     allow_back: bool,
 ) -> anyhow::Result<StepAction> {
-    println!("\n\x1b[1;36m━━━ Step 4/6: Memory Store (optional) ━━━\x1b[0m\n");
+    println!("\n\x1b[1;36m━━━ Step 5/7: Memory Store (optional) ━━━\x1b[0m\n");
 
     let existing = client.list_memory_stores().await.unwrap_or_default();
     let choice = pick_or_create("memory store", &existing, "name", allow_back, true)?;
     match choice {
         PickResult::Back => return Ok(StepAction::Back),
-        PickResult::Existing(name) => {
-            let stores = client.list_memory_stores().await?;
-            let found = stores.iter().find(|s| s["name"].as_str() == Some(&name));
-            if let Some(store) = found {
-                let store_id = store["id"]
-                    .as_str()
-                    .map(normalize_resource_id)
-                    .unwrap_or_default();
-                let access_opts = vec!["read_write", "read_only"];
-                let access_idx = Select::new()
-                    .with_prompt("Access mode")
-                    .items(&access_opts)
-                    .default(0)
-                    .interact()?;
-                state.memory_store_resources = vec![serde_json::json!({
-                    "type": "memory_store",
-                    "memory_store_id": store_id,
-                    "access": access_opts[access_idx],
-                })];
-                println!(
-                    "  Using memory store: {} ({})",
-                    name, access_opts[access_idx]
-                );
-                state.memory_store_id = Some(store_id);
-                state.memory_store_result = StepResult::UsedExisting;
-            }
+        PickResult::Existing { id, name } => {
+            let store_id = id
+                .parse::<MemoryStoreId>()
+                .context("memory store response contained a non-canonical id")?;
+            let access_opts = ["read_write", "read_only"];
+            let access_idx = Select::new()
+                .with_prompt("Access mode")
+                .items(&access_opts)
+                .default(0)
+                .interact()?;
+            state.memory_store_resources = vec![serde_json::json!({
+                "type": "memory_store",
+                "memory_store_id": store_id,
+                "access": access_opts[access_idx],
+            })];
+            println!(
+                "  Using memory store: {} ({})",
+                name, access_opts[access_idx]
+            );
+            state.memory_store_id = Some(store_id);
+            state.memory_store_result = StepResult::UsedExisting;
         }
         PickResult::Create => {
             let name = input_required("Memory store name")?;
@@ -553,15 +643,16 @@ async fn run_step_memory_store(
             let resp = client.create_memory_store(&body).await?;
             let id = resp["id"]
                 .as_str()
-                .map(normalize_resource_id)
-                .unwrap_or_default();
+                .context("memory store response missing id")?
+                .parse::<MemoryStoreId>()
+                .context("memory store response contained a non-canonical id")?;
             println!("  \x1b[0;32m✓\x1b[0m memorystore/{} created", name);
             state.memory_store_resources = vec![serde_json::json!({
                 "type": "memory_store",
                 "memory_store_id": id,
                 "access": "read_write",
             })];
-            state.memory_store_id = Some(id.clone());
+            state.memory_store_id = Some(id);
             state.memory_store_result = StepResult::Created { id, name };
         }
         PickResult::Skip => {
@@ -574,14 +665,14 @@ async fn run_step_memory_store(
     Ok(StepAction::Completed)
 }
 
-// ── Step 5: Session ─────────────────────────────────────────────
+// ── Step 6: Session ─────────────────────────────────────────────
 
 async fn run_step_session(
     client: &JoysafeterClient,
     state: &mut WizardState,
     allow_back: bool,
 ) -> anyhow::Result<StepAction> {
-    println!("\n\x1b[1;36m━━━ Step 5/6: Session ━━━\x1b[0m\n");
+    println!("\n\x1b[1;36m━━━ Step 6/7: Session ━━━\x1b[0m\n");
 
     if allow_back {
         let options = vec![
@@ -600,21 +691,26 @@ async fn run_step_session(
 
     let title = input_optional("Session title (optional)")?;
 
-    let mut session_body = serde_json::json!({
-        "agent_id": state.agent_id,
-        "environment_id": state.env_id,
-    });
-    if let Some(t) = &title {
-        session_body["title"] = serde_json::Value::String(t.clone());
-    }
-    if !state.memory_store_resources.is_empty() {
-        session_body["resources"] = serde_json::json!(state.memory_store_resources);
-    }
+    let agent_id = state.agent_id.context("setup requires an agent")?;
+    let session_body = build_session_body(
+        agent_id,
+        state.env_id,
+        title.as_deref(),
+        &state.memory_store_resources,
+        &state.mcp_authorization.credential_group_ids,
+    );
 
-    let resp = client.create_session(&session_body).await?;
-    let id = resp["id"].as_str().unwrap_or("?").to_string();
+    let resp = state
+        .mcp_authorization
+        .create_session_with_rollback(client, &session_body)
+        .await?;
+    let id = resp["id"]
+        .as_str()
+        .context("session response missing id")?
+        .parse::<SessionId>()
+        .context("session response contained a non-canonical id")?;
     println!("  \x1b[0;32m✓\x1b[0m session/{} created", id);
-    state.session_id = id.clone();
+    state.session_id = Some(id);
     state.session_result = StepResult::Created {
         id,
         name: String::new(),
@@ -622,14 +718,14 @@ async fn run_step_session(
     Ok(StepAction::Completed)
 }
 
-// ── Step 6: First Event ─────────────────────────────────────────
+// ── Step 7: First Event ─────────────────────────────────────────
 
 async fn run_step_event(
     client: &JoysafeterClient,
     state: &mut WizardState,
     allow_back: bool,
 ) -> anyhow::Result<StepAction> {
-    println!("\n\x1b[1;36m━━━ Step 6/6: Send First Message ━━━\x1b[0m\n");
+    println!("\n\x1b[1;36m━━━ Step 7/7: Send First Message ━━━\x1b[0m\n");
 
     if allow_back {
         let options = vec![
@@ -657,11 +753,9 @@ async fn run_step_event(
             "type": "user.message",
             "content": [{"type": "text", "text": content}],
         });
-        client.send_event(&state.session_id, &event_body).await?;
-        println!(
-            "  \x1b[0;32m✓\x1b[0m event sent to session/{}",
-            state.session_id
-        );
+        let session_id = state.session_id.context("setup did not create a session")?;
+        client.send_event(session_id, &event_body).await?;
+        println!("  \x1b[0;32m✓\x1b[0m event sent to session/{}", session_id);
     } else {
         println!("  Skipped. You can send events later:");
         println!("    joysafeterctl create event");
@@ -672,7 +766,7 @@ async fn run_step_event(
 // ── Helpers ─────────────────────────────────────────────────────
 
 enum PickResult {
-    Existing(String),
+    Existing { id: String, name: String },
     Create,
     Skip,
     Back,
@@ -742,11 +836,16 @@ fn pick_or_create(
     } else if idx == create_idx {
         Ok(PickResult::Create)
     } else {
-        let name = existing[idx - existing_offset][name_field]
+        let selected = &existing[idx - existing_offset];
+        let id = selected["id"]
             .as_str()
-            .unwrap_or("?")
+            .context("selected resource response missing id")?
             .to_string();
-        Ok(PickResult::Existing(name))
+        let name = selected[name_field]
+            .as_str()
+            .context("selected resource response missing display name")?
+            .to_string();
+        Ok(PickResult::Existing { id, name })
     }
 }
 
@@ -756,13 +855,6 @@ fn input_required(prompt: &str) -> anyhow::Result<String> {
         bail!("{} cannot be empty", prompt);
     }
     Ok(val.trim().to_string())
-}
-
-fn normalize_resource_id(id: &str) -> String {
-    id.split_once('_')
-        .map(|(_, rest)| rest)
-        .unwrap_or(id)
-        .to_string()
 }
 
 fn input_optional(prompt: &str) -> anyhow::Result<Option<String>> {

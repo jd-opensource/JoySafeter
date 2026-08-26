@@ -1,4 +1,8 @@
 use anyhow::{bail, Context};
+use joysafeter_entity_id::{
+    AgentId, CredentialGroupId, CredentialId, EnvironmentId, MemoryId, MemoryStoreId, SessionId,
+    TaskId,
+};
 use reqwest::{Method, StatusCode};
 
 pub struct JoysafeterClient {
@@ -112,14 +116,14 @@ impl JoysafeterClient {
 
     pub async fn update_agent(
         &self,
-        id: &str,
+        id: AgentId,
         body: &serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
         self.send_json(Method::POST, &format!("/agents/{}", id), Some(body))
             .await
     }
 
-    pub async fn delete_agent(&self, id: &str, force: bool) -> anyhow::Result<()> {
+    pub async fn delete_agent(&self, id: AgentId, force: bool) -> anyhow::Result<()> {
         let path = if force {
             format!("/agents/{}?force=true", id)
         } else {
@@ -135,63 +139,55 @@ impl JoysafeterClient {
         self.send_json(Method::POST, "/tasks", Some(body)).await
     }
 
-    pub async fn get_task(&self, id: &str) -> anyhow::Result<serde_json::Value> {
+    pub async fn get_task(&self, id: TaskId) -> anyhow::Result<serde_json::Value> {
         self.send_json(Method::GET, &format!("/tasks/{}", id), None)
             .await
     }
 
     pub async fn list_tasks_by_agent(
         &self,
-        agent_id: &str,
+        agent_id: AgentId,
     ) -> anyhow::Result<Vec<serde_json::Value>> {
         self.get_array(&format!("/agents/{}/tasks", agent_id)).await
     }
 
-    pub async fn cancel_task(&self, id: &str) -> anyhow::Result<()> {
+    pub async fn cancel_task(&self, id: TaskId) -> anyhow::Result<()> {
         self.send_json(Method::POST, &format!("/tasks/{}/cancel", id), None)
             .await?;
         Ok(())
     }
 
-    // --- Secrets ---
+    // --- Credentials ---
 
-    pub async fn list_secrets(&self) -> anyhow::Result<Vec<serde_json::Value>> {
-        self.get_array("/secrets?limit=100").await
+    pub async fn list_credentials(&self) -> anyhow::Result<Vec<serde_json::Value>> {
+        self.get_array("/credentials?limit=100").await
     }
 
-    pub async fn get_secret_by_name(
-        &self,
-        name: &str,
-    ) -> anyhow::Result<Option<serde_json::Value>> {
-        let secrets = self.list_secrets().await?;
-        Ok(secrets
-            .into_iter()
-            .find(|s| s["name"].as_str() == Some(name)))
-    }
-
-    pub async fn create_secret(
-        &self,
-        body: &serde_json::Value,
-    ) -> anyhow::Result<serde_json::Value> {
-        self.send_json(Method::POST, "/secrets", Some(body)).await
-    }
-
-    pub async fn update_secret(
-        &self,
-        id: &str,
-        body: &serde_json::Value,
-    ) -> anyhow::Result<serde_json::Value> {
-        self.send_json(Method::PUT, &format!("/secrets/{}", id), Some(body))
+    pub async fn get_credential(&self, id: CredentialId) -> anyhow::Result<serde_json::Value> {
+        self.send_json(Method::GET, &format!("/credentials/{}", id), None)
             .await
     }
 
-    pub async fn delete_secret(&self, id: &str, force: bool) -> anyhow::Result<()> {
-        let path = if force {
-            format!("/secrets/{}?force=true", id)
-        } else {
-            format!("/secrets/{}", id)
-        };
-        self.send_json(Method::DELETE, &path, None).await?;
+    pub async fn create_credential(
+        &self,
+        body: &serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        self.send_json(Method::POST, "/credentials", Some(body))
+            .await
+    }
+
+    pub async fn update_credential(
+        &self,
+        id: CredentialId,
+        body: &serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        self.send_json(Method::PATCH, &format!("/credentials/{}", id), Some(body))
+            .await
+    }
+
+    pub async fn delete_credential(&self, id: CredentialId) -> anyhow::Result<()> {
+        self.send_json(Method::DELETE, &format!("/credentials/{}", id), None)
+            .await?;
         Ok(())
     }
 
@@ -219,14 +215,14 @@ impl JoysafeterClient {
 
     pub async fn update_environment(
         &self,
-        id: &str,
+        id: EnvironmentId,
         body: &serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
         self.send_json(Method::POST, &format!("/environments/{}", id), Some(body))
             .await
     }
 
-    pub async fn delete_environment(&self, id: &str) -> anyhow::Result<()> {
+    pub async fn delete_environment(&self, id: EnvironmentId) -> anyhow::Result<()> {
         self.send_json(Method::DELETE, &format!("/environments/{}", id), None)
             .await?;
         Ok(())
@@ -237,7 +233,7 @@ impl JoysafeterClient {
     pub async fn list_sessions(
         &self,
         limit: Option<i64>,
-        agent_id: Option<&str>,
+        agent_id: Option<AgentId>,
     ) -> anyhow::Result<Vec<serde_json::Value>> {
         if let Some(agent_id) = agent_id {
             return self
@@ -252,12 +248,12 @@ impl JoysafeterClient {
             .await
     }
 
-    pub async fn get_session(&self, id: &str) -> anyhow::Result<serde_json::Value> {
+    pub async fn get_session(&self, id: SessionId) -> anyhow::Result<serde_json::Value> {
         self.send_json(Method::GET, &format!("/sessions/{}", id), None)
             .await
     }
 
-    pub async fn delete_session(&self, id: &str) -> anyhow::Result<()> {
+    pub async fn delete_session(&self, id: SessionId) -> anyhow::Result<()> {
         self.send_json(Method::DELETE, &format!("/sessions/{}", id), None)
             .await?;
         Ok(())
@@ -272,7 +268,7 @@ impl JoysafeterClient {
 
     pub async fn send_event(
         &self,
-        session_id: &str,
+        session_id: SessionId,
         body: &serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
         self.send_json(
@@ -285,7 +281,7 @@ impl JoysafeterClient {
 
     pub async fn list_events(
         &self,
-        session_id: &str,
+        session_id: SessionId,
         limit: Option<i64>,
     ) -> anyhow::Result<Vec<serde_json::Value>> {
         self.list_events_after(session_id, None, limit).await
@@ -293,7 +289,7 @@ impl JoysafeterClient {
 
     pub async fn list_events_after(
         &self,
-        session_id: &str,
+        session_id: SessionId,
         after_seq: Option<i64>,
         limit: Option<i64>,
     ) -> anyhow::Result<Vec<serde_json::Value>> {
@@ -314,7 +310,7 @@ impl JoysafeterClient {
         self.get_array("/memory_stores?limit=100").await
     }
 
-    pub async fn get_memory_store(&self, id: &str) -> anyhow::Result<serde_json::Value> {
+    pub async fn get_memory_store(&self, id: MemoryStoreId) -> anyhow::Result<serde_json::Value> {
         self.send_json(Method::GET, &format!("/memory_stores/{}", id), None)
             .await
     }
@@ -327,7 +323,7 @@ impl JoysafeterClient {
             .await
     }
 
-    pub async fn delete_memory_store(&self, id: &str) -> anyhow::Result<()> {
+    pub async fn delete_memory_store(&self, id: MemoryStoreId) -> anyhow::Result<()> {
         self.send_json(Method::DELETE, &format!("/memory_stores/{}", id), None)
             .await?;
         Ok(())
@@ -335,7 +331,7 @@ impl JoysafeterClient {
 
     pub async fn update_memory_store(
         &self,
-        id: &str,
+        id: MemoryStoreId,
         body: &serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
         self.send_json(Method::POST, &format!("/memory_stores/{}", id), Some(body))
@@ -343,7 +339,10 @@ impl JoysafeterClient {
     }
 
     #[allow(dead_code)]
-    pub async fn archive_memory_store(&self, id: &str) -> anyhow::Result<serde_json::Value> {
+    pub async fn archive_memory_store(
+        &self,
+        id: MemoryStoreId,
+    ) -> anyhow::Result<serde_json::Value> {
         self.send_json(
             Method::POST,
             &format!("/memory_stores/{}/archive", id),
@@ -352,15 +351,18 @@ impl JoysafeterClient {
         .await
     }
 
-    pub async fn list_memories(&self, store_id: &str) -> anyhow::Result<Vec<serde_json::Value>> {
+    pub async fn list_memories(
+        &self,
+        store_id: MemoryStoreId,
+    ) -> anyhow::Result<Vec<serde_json::Value>> {
         self.get_array(&format!("/memory_stores/{}/memories?limit=100", store_id))
             .await
     }
 
     pub async fn get_memory(
         &self,
-        store_id: &str,
-        memory_id: &str,
+        store_id: MemoryStoreId,
+        memory_id: MemoryId,
     ) -> anyhow::Result<serde_json::Value> {
         self.send_json(
             Method::GET,
@@ -372,7 +374,7 @@ impl JoysafeterClient {
 
     pub async fn create_memory(
         &self,
-        store_id: &str,
+        store_id: MemoryStoreId,
         body: &serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
         self.send_json(
@@ -386,8 +388,8 @@ impl JoysafeterClient {
     #[allow(dead_code)]
     pub async fn update_memory(
         &self,
-        store_id: &str,
-        memory_id: &str,
+        store_id: MemoryStoreId,
+        memory_id: MemoryId,
         body: &serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
         self.send_json(
@@ -398,7 +400,11 @@ impl JoysafeterClient {
         .await
     }
 
-    pub async fn delete_memory(&self, store_id: &str, memory_id: &str) -> anyhow::Result<()> {
+    pub async fn delete_memory(
+        &self,
+        store_id: MemoryStoreId,
+        memory_id: MemoryId,
+    ) -> anyhow::Result<()> {
         self.send_json(
             Method::DELETE,
             &format!("/memory_stores/{}/memories/{}", store_id, memory_id),
@@ -410,7 +416,7 @@ impl JoysafeterClient {
 
     pub async fn list_memory_versions(
         &self,
-        store_id: &str,
+        store_id: MemoryStoreId,
     ) -> anyhow::Result<Vec<serde_json::Value>> {
         self.get_array(&format!(
             "/memory_stores/{}/memory_versions?limit=100",
@@ -419,59 +425,79 @@ impl JoysafeterClient {
         .await
     }
 
-    // --- Vaults ---
+    // --- Credential groups ---
 
-    pub async fn list_vaults(&self) -> anyhow::Result<Vec<serde_json::Value>> {
-        self.get_array("/vaults?limit=100").await
+    pub async fn list_credential_groups(&self) -> anyhow::Result<Vec<serde_json::Value>> {
+        self.get_array("/credential-groups?limit=100").await
     }
 
-    pub async fn get_vault(&self, id: &str) -> anyhow::Result<serde_json::Value> {
-        self.send_json(Method::GET, &format!("/vaults/{}", id), None)
+    pub async fn get_credential_group(
+        &self,
+        id: CredentialGroupId,
+    ) -> anyhow::Result<serde_json::Value> {
+        self.send_json(Method::GET, &format!("/credential-groups/{}", id), None)
             .await
     }
 
-    pub async fn create_vault(
+    pub async fn create_credential_group(
         &self,
         body: &serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
-        self.send_json(Method::POST, "/vaults", Some(body)).await
-    }
-
-    pub async fn delete_vault(&self, id: &str) -> anyhow::Result<()> {
-        self.send_json(Method::DELETE, &format!("/vaults/{}", id), None)
-            .await?;
-        Ok(())
-    }
-
-    pub async fn list_vault_credentials(
-        &self,
-        vault_id: &str,
-    ) -> anyhow::Result<Vec<serde_json::Value>> {
-        self.get_array(&format!("/vaults/{}/credentials?limit=100", vault_id))
+        self.send_json(Method::POST, "/credential-groups", Some(body))
             .await
     }
 
-    pub async fn create_vault_credential(
+    pub async fn update_credential_group(
         &self,
-        vault_id: &str,
+        id: CredentialGroupId,
         body: &serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
         self.send_json(
-            Method::POST,
-            &format!("/vaults/{}/credentials", vault_id),
+            Method::PATCH,
+            &format!("/credential-groups/{}", id),
             Some(body),
         )
         .await
     }
 
-    pub async fn delete_vault_credential(
+    pub async fn delete_credential_group(&self, id: CredentialGroupId) -> anyhow::Result<()> {
+        self.send_json(Method::DELETE, &format!("/credential-groups/{}", id), None)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_credential_group_members(
         &self,
-        vault_id: &str,
-        cred_id: &str,
+        group_id: CredentialGroupId,
+    ) -> anyhow::Result<Vec<serde_json::Value>> {
+        self.get_array(&format!(
+            "/credential-groups/{}/members?include_archived=true",
+            group_id
+        ))
+        .await
+    }
+
+    pub async fn create_credential_group_member(
+        &self,
+        group_id: CredentialGroupId,
+        body: &serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        self.send_json(
+            Method::POST,
+            &format!("/credential-groups/{}/members", group_id),
+            Some(body),
+        )
+        .await
+    }
+
+    pub async fn delete_credential_group_member(
+        &self,
+        group_id: CredentialGroupId,
+        credential_id: CredentialId,
     ) -> anyhow::Result<()> {
         self.send_json(
             Method::DELETE,
-            &format!("/vaults/{}/credentials/{}", vault_id, cred_id),
+            &format!("/credential-groups/{}/members/{}", group_id, credential_id),
             None,
         )
         .await?;

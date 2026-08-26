@@ -5,6 +5,9 @@ mod manifest;
 mod output;
 
 use clap::{Parser, Subcommand};
+use joysafeter_entity_id::{
+    CredentialGroupId, CredentialId, MemoryId, MemoryStoreId, SessionId, TaskId,
+};
 
 #[derive(Parser)]
 #[command(name = "joysafeterctl", about = "Declarative CLI for joysafeter")]
@@ -50,11 +53,14 @@ enum Cmd {
     /// Interactive chat with an agent session
     Chat {
         /// Session ID to resume
-        #[arg(long)]
-        session: Option<String>,
+        #[arg(long, conflicts_with = "agent")]
+        session: Option<SessionId>,
         /// Agent name — creates a new session automatically
-        #[arg(long)]
+        #[arg(long, conflicts_with = "session")]
         agent: Option<String>,
+        /// Credential group to authorize for a new --agent session (repeatable)
+        #[arg(long = "credential-group", requires = "agent")]
+        credential_groups: Vec<CredentialGroupId>,
         /// Polling interval in seconds
         #[arg(long, default_value = "2")]
         interval: u64,
@@ -62,13 +68,13 @@ enum Cmd {
     /// Stream task output
     Logs {
         /// Task ID
-        task: String,
+        task: TaskId,
         #[arg(short, long)]
         follow: bool,
         #[arg(long, default_value = "2")]
         interval: u64,
     },
-    /// Full interactive setup: Secret → Environment → Agent → Session → Event
+    /// Full interactive setup with per-session MCP authorization
     Init,
     /// Delete resources
     Delete {
@@ -99,11 +105,11 @@ enum GetResource {
         limit: Option<i64>,
     },
     Session {
-        id: String,
+        id: SessionId,
     },
     Events {
         #[arg(long)]
-        session: String,
+        session: SessionId,
         #[arg(long)]
         limit: Option<i64>,
     },
@@ -112,46 +118,46 @@ enum GetResource {
         agent: Option<String>,
     },
     Task {
-        id: String,
+        id: TaskId,
     },
-    Secrets,
-    Secret {
-        name: String,
+    Credentials,
+    Credential {
+        id: CredentialId,
     },
     MemoryStores,
     MemoryStore {
-        id: String,
+        id: MemoryStoreId,
     },
     /// List memories in a memory store
     Memories {
         #[arg(long)]
-        store: String,
+        store: MemoryStoreId,
     },
     /// Get a single memory
     Memory {
         #[arg(long)]
-        store: String,
-        id: String,
+        store: MemoryStoreId,
+        id: MemoryId,
     },
     /// List memory versions for a store
     MemoryVersions {
         #[arg(long)]
-        store: String,
+        store: MemoryStoreId,
     },
-    Vaults,
-    Vault {
-        id: String,
+    CredentialGroups,
+    CredentialGroup {
+        id: CredentialGroupId,
     },
-    VaultCredentials {
+    CredentialGroupMembers {
         #[arg(long)]
-        vault: String,
+        group: CredentialGroupId,
     },
 }
 
 #[derive(Subcommand)]
 enum CreateResource {
-    /// Create a secret interactively
-    Secret,
+    /// Create a credential interactively
+    Credential,
     /// Create an environment interactively
     Environment,
     /// Create an agent interactively
@@ -164,10 +170,10 @@ enum CreateResource {
     MemoryStore,
     /// Create a memory in a store interactively
     Memory,
-    /// Create a vault interactively
-    Vault,
-    /// Create a credential in a vault interactively
-    VaultCredential,
+    /// Create a credential group interactively
+    CredentialGroup,
+    /// Create a credential-group member interactively
+    CredentialGroupMember,
 }
 
 #[derive(Subcommand)]
@@ -181,32 +187,30 @@ enum DeleteResource {
         name: String,
     },
     Session {
-        id: String,
+        id: SessionId,
     },
     Task {
-        id: String,
+        id: TaskId,
     },
-    Secret {
-        name: String,
-        #[arg(long)]
-        force: bool,
+    Credential {
+        id: CredentialId,
     },
     MemoryStore {
-        id: String,
+        id: MemoryStoreId,
     },
     /// Delete a memory from a store
     Memory {
         #[arg(long)]
-        store: String,
-        id: String,
+        store: MemoryStoreId,
+        id: MemoryId,
     },
-    Vault {
-        id: String,
+    CredentialGroup {
+        id: CredentialGroupId,
     },
-    VaultCredential {
+    CredentialGroupMember {
         #[arg(long)]
-        vault: String,
-        id: String,
+        group: CredentialGroupId,
+        id: CredentialId,
     },
 }
 
@@ -216,10 +220,12 @@ enum EditResource {
     Agent { name: String },
     /// Edit an environment
     Environment { name: String },
-    /// Edit a secret
-    Secret { name: String },
+    /// Edit a credential
+    Credential { id: CredentialId },
+    /// Edit a credential group
+    CredentialGroup { id: CredentialGroupId },
     /// Edit a memory store
-    MemoryStore { id: String },
+    MemoryStore { id: MemoryStoreId },
 }
 
 #[tokio::main]
@@ -236,16 +242,150 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Chat {
             session,
             agent,
+            credential_groups,
             interval,
-        } => commands::chat::run(&client, session, agent, interval).await?,
+        } => commands::chat::run(&client, session, agent, &credential_groups, interval).await?,
         Cmd::Logs {
             task,
             follow,
             interval,
-        } => commands::logs::run(&client, &task, follow, interval).await?,
+        } => commands::logs::run(&client, task, follow, interval).await?,
         Cmd::Delete { resource } => commands::delete::run(&client, &resource).await?,
         Cmd::Edit { resource } => commands::edit::run(&client, &resource).await?,
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod typed_id_cli_tests {
+    use super::{Cli, Cmd};
+    use clap::Parser;
+    use joysafeter_entity_id::{
+        CredentialGroupId, CredentialId, MemoryId, MemoryStoreId, SessionId, TaskId,
+    };
+
+    #[test]
+    fn canonical_entity_ids_are_accepted() {
+        let session_id = SessionId::new().to_string();
+        let task_id = TaskId::new().to_string();
+        let store_id = MemoryStoreId::new().to_string();
+        let memory_id = MemoryId::new().to_string();
+        let credential_id = CredentialId::new().to_string();
+        let credential_group_id = CredentialGroupId::new().to_string();
+        let cases = [
+            vec!["joysafeterctl", "get", "session", session_id.as_str()],
+            vec!["joysafeterctl", "logs", task_id.as_str()],
+            vec![
+                "joysafeterctl",
+                "get",
+                "memory",
+                "--store",
+                store_id.as_str(),
+                memory_id.as_str(),
+            ],
+            vec!["joysafeterctl", "get", "credential", credential_id.as_str()],
+            vec![
+                "joysafeterctl",
+                "get",
+                "credential-group",
+                credential_group_id.as_str(),
+            ],
+            vec![
+                "joysafeterctl",
+                "get",
+                "credential-group-members",
+                "--group",
+                credential_group_id.as_str(),
+            ],
+        ];
+
+        for args in cases {
+            assert!(Cli::try_parse_from(args).is_ok());
+        }
+    }
+
+    #[test]
+    fn bare_uuids_are_rejected_for_entity_id_arguments() {
+        let raw = SessionId::new().as_uuid().to_string();
+        for args in [
+            vec!["joysafeterctl", "get", "session", raw.as_str()],
+            vec!["joysafeterctl", "logs", raw.as_str()],
+            vec!["joysafeterctl", "get", "memory-store", raw.as_str()],
+        ] {
+            assert!(Cli::try_parse_from(args).is_err());
+        }
+    }
+
+    #[test]
+    fn cross_entity_ids_are_rejected_for_credential_arguments() {
+        let credential_id = CredentialId::new().to_string();
+        let credential_group_id = CredentialGroupId::new().to_string();
+
+        assert!(Cli::try_parse_from([
+            "joysafeterctl",
+            "get",
+            "credential",
+            credential_group_id.as_str(),
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from([
+            "joysafeterctl",
+            "get",
+            "credential-group",
+            credential_id.as_str(),
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn chat_accepts_repeatable_credential_groups_for_new_sessions() {
+        let first_group_id = CredentialGroupId::new().to_string();
+        let second_group_id = CredentialGroupId::new().to_string();
+        let cli = Cli::try_parse_from([
+            "joysafeterctl",
+            "chat",
+            "--agent",
+            "researcher",
+            "--credential-group",
+            first_group_id.as_str(),
+            "--credential-group",
+            second_group_id.as_str(),
+        ])
+        .unwrap();
+
+        let Cmd::Chat {
+            credential_groups, ..
+        } = cli.command
+        else {
+            panic!("expected chat command");
+        };
+        assert_eq!(credential_groups.len(), 2);
+    }
+
+    #[test]
+    fn chat_rejects_credential_groups_without_agent() {
+        let group_id = CredentialGroupId::new().to_string();
+        assert!(Cli::try_parse_from([
+            "joysafeterctl",
+            "chat",
+            "--credential-group",
+            group_id.as_str(),
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn chat_rejects_session_and_agent_together() {
+        let session_id = SessionId::new().to_string();
+        assert!(Cli::try_parse_from([
+            "joysafeterctl",
+            "chat",
+            "--session",
+            session_id.as_str(),
+            "--agent",
+            "researcher",
+        ])
+        .is_err());
+    }
 }

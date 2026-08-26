@@ -1,5 +1,7 @@
 use anyhow::{bail, Context};
-use serde::Deserialize;
+use joysafeter_entity_id::{CredentialId, EnvironmentId};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -24,7 +26,6 @@ pub struct Metadata {
 pub enum Resource {
     Agent(AgentManifest),
     Task(TaskManifest),
-    Secret(SecretManifest),
     Environment(EnvironmentManifest),
     MemoryStore(MemoryStoreManifest),
 }
@@ -37,7 +38,7 @@ pub struct AgentManifest {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentSpec {
     pub engine_kind: String,
     #[serde(default)]
@@ -59,9 +60,9 @@ pub struct AgentSpec {
     #[serde(default)]
     pub tools: Vec<AgentToolSpec>,
     #[serde(default)]
-    pub environment_ref: Option<String>,
+    pub environment_id: Option<EnvironmentId>,
     #[serde(default)]
-    pub secret_ref: Option<String>,
+    pub model_credential_id: Option<CredentialId>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -131,15 +132,24 @@ pub enum McpServerSpec {
     StreamableHttp {
         name: String,
         url: String,
-        #[serde(default = "default_mcp_auth_requirement")]
-        auth_requirement: String,
+        #[serde(
+            default = "default_mcp_auth_requirement",
+            rename = "authRequirement",
+            alias = "auth_requirement"
+        )]
+        auth_requirement: McpAuthRequirement,
     },
     #[serde(rename = "sse")]
     Sse {
         name: String,
         url: String,
-        #[serde(default = "default_mcp_auth_requirement")]
-        auth_requirement: String,
+        #[serde(
+            default = "default_sse_auth_requirement",
+            rename = "authRequirement",
+            alias = "auth_requirement",
+            deserialize_with = "deserialize_sse_auth_requirement"
+        )]
+        auth_requirement: McpAuthRequirement,
     },
     #[serde(rename = "local_stdio")]
     LocalStdio {
@@ -152,20 +162,43 @@ pub enum McpServerSpec {
     },
 }
 
-fn default_mcp_auth_requirement() -> String {
-    "required".to_string()
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum McpAuthRequirement {
+    Required,
+    Optional,
+    None,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SecretManifest {
-    pub metadata: Metadata,
-    pub spec: SecretSpec,
+impl McpAuthRequirement {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Required => "required",
+            Self::Optional => "optional",
+            Self::None => "none",
+        }
+    }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct SecretSpec {
-    pub data: HashMap<String, String>,
+fn default_mcp_auth_requirement() -> McpAuthRequirement {
+    McpAuthRequirement::Required
+}
+
+fn default_sse_auth_requirement() -> McpAuthRequirement {
+    McpAuthRequirement::None
+}
+
+fn deserialize_sse_auth_requirement<'de, D>(deserializer: D) -> Result<McpAuthRequirement, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let requirement = McpAuthRequirement::deserialize(deserializer)?;
+    if requirement != McpAuthRequirement::None {
+        return Err(D::Error::custom(
+            "SSE MCP servers require authRequirement: none",
+        ));
+    }
+    Ok(requirement)
 }
 
 #[derive(Debug, Deserialize)]
@@ -238,7 +271,7 @@ pub struct MemoryStoreSpec {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskSpec {
     pub agent: String,
     pub prompt: String,
@@ -248,7 +281,7 @@ pub struct TaskSpec {
     #[allow(dead_code)]
     pub session: Option<String>,
     #[serde(default)]
-    pub environment_ref: Option<String>,
+    pub environment_id: Option<EnvironmentId>,
     #[serde(default)]
     pub timeout: Option<String>,
     #[serde(default = "default_max_retries")]
@@ -351,10 +384,6 @@ fn parse_file(path: &Path) -> anyhow::Result<Vec<Resource>> {
                 let manifest: TaskManifest = serde_yaml::from_str(trimmed)?;
                 Resource::Task(manifest)
             }
-            "Secret" => {
-                let manifest: SecretManifest = serde_yaml::from_str(trimmed)?;
-                Resource::Secret(manifest)
-            }
             "Environment" => {
                 let manifest: EnvironmentManifest = serde_yaml::from_str(trimmed)?;
                 Resource::Environment(manifest)
@@ -424,6 +453,102 @@ spec:
         );
         assert_eq!(manifest.spec.env.get("KEY").unwrap(), "value");
         assert_eq!(manifest.spec.mcp_servers.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_agent_yaml_requires_canonical_environment_id() {
+        let yaml = r#"
+apiVersion: joysafeter/v1
+kind: Agent
+metadata:
+  name: test-agent
+spec:
+  engineKind: claude
+  environmentId: env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f011
+"#;
+
+        let manifest: AgentManifest = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            manifest.spec.environment_id,
+            Some("env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f011".parse().unwrap())
+        );
+
+        let legacy_key = ["environment", "Ref"].concat();
+        let legacy = yaml.replace("environmentId", &legacy_key);
+        assert!(serde_yaml::from_str::<AgentManifest>(&legacy).is_err());
+    }
+
+    #[test]
+    fn test_parse_agent_yaml_rejects_sse_managed_auth() {
+        for auth_requirement in ["required", "optional"] {
+            let yaml = format!(
+                r#"
+apiVersion: joysafeter/v1
+kind: Agent
+metadata:
+  name: test-agent
+spec:
+  engineKind: claude
+  mcpServers:
+    - type: sse
+      name: events
+      url: https://example.com/sse
+      authRequirement: {auth_requirement}
+"#
+            );
+
+            let error = serde_yaml::from_str::<AgentManifest>(&yaml).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("SSE MCP servers require authRequirement: none"),
+                "unexpected error: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_agent_yaml_rejects_unknown_mcp_auth_requirement() {
+        let yaml = r#"
+apiVersion: joysafeter/v1
+kind: Agent
+metadata:
+  name: test-agent
+spec:
+  engineKind: claude
+  mcpServers:
+    - type: streamable_http
+      name: tools
+      url: https://example.com/mcp
+      authRequirement: sometimes
+"#;
+
+        assert!(serde_yaml::from_str::<AgentManifest>(yaml).is_err());
+    }
+
+    #[test]
+    fn test_parse_agent_yaml_defaults_sse_auth_to_none() {
+        let yaml = r#"
+apiVersion: joysafeter/v1
+kind: Agent
+metadata:
+  name: test-agent
+spec:
+  engineKind: claude
+  mcpServers:
+    - type: sse
+      name: events
+      url: https://example.com/sse
+"#;
+
+        let manifest: AgentManifest = serde_yaml::from_str(yaml).unwrap();
+        let McpServerSpec::Sse {
+            auth_requirement, ..
+        } = manifest.spec.mcp_servers.first().unwrap()
+        else {
+            panic!("expected SSE server");
+        };
+        assert_eq!(*auth_requirement, McpAuthRequirement::None);
     }
 
     #[test]

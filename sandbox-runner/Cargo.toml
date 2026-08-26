@@ -16,6 +16,7 @@ license = "Apache-2.0"
 joysafeter-types = { path = "crates/joysafeter-types" }
 joysafeter-runtime = { path = "crates/joysafeter-runtime" }
 joysafeter-runner = { path = "crates/joysafeter-runner" }
+joysafeter-entity-id = { path = "../shared/rust/joysafeter-entity-id" }
 
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }

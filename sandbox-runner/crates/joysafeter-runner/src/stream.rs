@@ -72,7 +72,7 @@ pub fn harness_event_to_proto(seq: u64, event: &HarnessEvent) -> proto::RunnerHa
         }),
         HarnessEvent::TaskNotification {
             phase,
-            task_id,
+            subagent_task_id,
             tool_use_id,
             description,
             status,
@@ -85,7 +85,7 @@ pub fn harness_event_to_proto(seq: u64, event: &HarnessEvent) -> proto::RunnerHa
             duration_ms,
         } => proto::runner_harness_event::Event::TaskNotification(proto::TaskNotificationEvent {
             phase: phase.clone(),
-            task_id: task_id.clone(),
+            subagent_task_id: subagent_task_id.clone(),
             tool_use_id: tool_use_id.clone(),
             description: description.clone(),
             status: status.clone(),

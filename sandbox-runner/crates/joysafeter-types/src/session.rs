@@ -1,14 +1,7 @@
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-fn serialize_session_id<S: Serializer>(id: &uuid::Uuid, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&format!("sess_{id}"))
-}
-
-pub fn parse_session_id(s: &str) -> Option<uuid::Uuid> {
-    let s = s.strip_prefix("sess_").unwrap_or(s);
-    uuid::Uuid::parse_str(s).ok()
-}
+use crate::{AgentId, CredentialGroupId, EnvironmentId, SandboxId, SessionId};
 
 fn default_session_type() -> String {
     "session".to_string()
@@ -16,13 +9,12 @@ fn default_session_type() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
-    #[serde(serialize_with = "serialize_session_id")]
-    pub id: uuid::Uuid,
+    pub id: SessionId,
     #[serde(rename = "type", default = "default_session_type")]
     pub object_type: String,
     pub agent: SessionAgent,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub environment_id: Option<String>,
+    pub environment_id: Option<EnvironmentId>,
     pub status: SessionStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<StopReason>,
@@ -31,7 +23,7 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub vault_ids: Vec<String>,
+    pub credential_group_ids: Vec<CredentialGroupId>,
     #[serde(default)]
     pub usage: SessionUsage,
     #[serde(default)]
@@ -46,8 +38,7 @@ pub struct Session {
 pub struct SessionAgent {
     #[serde(rename = "type")]
     pub object_type: String,
-    #[serde(serialize_with = "crate::agent::serialize_agent_id")]
-    pub id: uuid::Uuid,
+    pub id: AgentId,
     pub version: i32,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -151,11 +142,11 @@ pub struct SessionUsage {
 /// Kept in the DB alongside Session fields but excluded from serialization.
 #[derive(Debug, Clone)]
 pub struct SessionInternal {
-    pub agent_id: uuid::Uuid,
-    pub environment_ref: Option<String>,
+    pub agent_id: AgentId,
+    pub environment_id: Option<EnvironmentId>,
     pub last_harness_session_id: Option<String>,
     pub last_work_dir: Option<String>,
-    pub last_sandbox_id: Option<uuid::Uuid>,
+    pub last_sandbox_id: Option<SandboxId>,
 }
 
 /// Full session including internal fields, used by kernel/dispatcher.

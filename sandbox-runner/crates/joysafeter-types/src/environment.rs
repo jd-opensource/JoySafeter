@@ -1,15 +1,8 @@
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 
-fn serialize_environment_id<S: Serializer>(id: &uuid::Uuid, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&format!("env_{id}"))
-}
-
-pub fn parse_environment_id(s: &str) -> Option<uuid::Uuid> {
-    let s = s.strip_prefix("env_").unwrap_or(s);
-    uuid::Uuid::parse_str(s).ok()
-}
+use crate::EnvironmentId;
 
 fn default_object_type() -> String {
     "environment".to_string()
@@ -17,8 +10,7 @@ fn default_object_type() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Environment {
-    #[serde(serialize_with = "serialize_environment_id")]
-    pub id: uuid::Uuid,
+    pub id: EnvironmentId,
     #[serde(rename = "type", default = "default_object_type")]
     pub object_type: String,
     pub name: String,

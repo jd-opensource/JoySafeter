@@ -1,9 +1,10 @@
 use crate::client::JoysafeterClient;
+use joysafeter_entity_id::TaskId;
 use std::time::Duration;
 
 pub async fn run(
     client: &JoysafeterClient,
-    task_id: &str,
+    task_id: TaskId,
     follow: bool,
     interval: u64,
 ) -> anyhow::Result<()> {

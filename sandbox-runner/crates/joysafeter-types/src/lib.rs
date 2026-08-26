@@ -6,7 +6,13 @@ pub mod harness;
 pub mod memory;
 pub mod runtime_config;
 pub mod sandbox;
-pub mod secret;
 pub mod session;
 pub mod task;
 pub mod token_usage;
+
+pub use joysafeter_entity_id::{
+    AgentId, AgentVersionId, ApiKeyId, CredentialGroupId, CredentialId, EnvironmentId, EventId,
+    FileId, MemoryId, MemoryStoreId, MemoryVersionId, SandboxId, SessionId, SessionResourceId,
+    SkillFileId, SkillId, SkillSecurityScanId, SkillUsageId, SkillVersionFileId, SkillVersionId,
+    StorageGrantId, StorageMountAuditId, StorageVolumeId, TaskId, TriggerId,
+};

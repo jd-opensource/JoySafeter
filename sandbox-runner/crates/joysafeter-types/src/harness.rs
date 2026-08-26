@@ -32,7 +32,7 @@ pub struct HarnessInput {
     pub system_prompt: Option<String>,
     /// "append" (default) → --append-system-prompt; "replace" → --system-prompt
     pub system_prompt_mode: String,
-    pub session_id: Option<String>,
+    pub harness_session_id: Option<String>,
     pub model: Option<String>,
     pub max_turns: Option<u32>,
     pub timeout: Duration,
@@ -96,7 +96,7 @@ pub enum HarnessEvent {
         /// "started" | "progress" | "completed" | "failed" | "stopped"
         phase: String,
         /// claude-code's internal task id (also used as agentId for SendMessage routing)
-        task_id: String,
+        subagent_task_id: String,
         /// Tool-use id of the Agent/Task tool call that launched this sub-agent
         tool_use_id: Option<String>,
         /// Short label (e.g. "Audit auth code")
@@ -123,7 +123,7 @@ pub struct HarnessResult {
     pub status: HarnessResultStatus,
     pub output: String,
     pub error: Option<String>,
-    pub session_id: Option<String>,
+    pub harness_session_id: Option<String>,
     pub usage: TokenUsage,
     pub duration: Duration,
 }

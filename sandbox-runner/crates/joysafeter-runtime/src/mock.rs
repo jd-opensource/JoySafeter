@@ -38,7 +38,7 @@ impl HarnessAdapter for MockAdapter {
         let (cancel_tx, mut cancel_rx) = watch::channel(false);
 
         let prompt = input.prompt;
-        let session_id = input.session_id;
+        let harness_session_id = input.harness_session_id;
         let provider = self.provider.clone();
         tokio::spawn(async move {
             let start = std::time::Instant::now();
@@ -60,7 +60,7 @@ impl HarnessAdapter for MockAdapter {
                     status: HarnessResultStatus::Completed,
                     output: "MOCK_RESUMED".to_string(),
                     error: None,
-                    session_id,
+                    harness_session_id,
                     usage,
                     duration: start.elapsed(),
                 });
@@ -105,7 +105,7 @@ impl HarnessAdapter for MockAdapter {
                         status: HarnessResultStatus::Completed,
                         output: format!("MOCK_COMPLETED: {content}"),
                         error: None,
-                        session_id,
+                        harness_session_id,
                         usage,
                         duration: start.elapsed(),
                     });
@@ -115,7 +115,7 @@ impl HarnessAdapter for MockAdapter {
                         status: HarnessResultStatus::Aborted,
                         output: String::new(),
                         error: Some("mock cancelled".to_string()),
-                        session_id,
+                        harness_session_id,
                         usage,
                         duration: start.elapsed(),
                     });
@@ -187,7 +187,7 @@ mod tests {
             prompt: prompt.to_string(),
             system_prompt: None,
             system_prompt_mode: "append".to_string(),
-            session_id: Some("mock_session".to_string()),
+            harness_session_id: Some("mock_session".to_string()),
             model: None,
             max_turns: None,
             timeout: Duration::from_secs(30),

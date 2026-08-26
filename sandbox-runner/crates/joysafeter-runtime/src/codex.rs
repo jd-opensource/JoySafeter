@@ -651,7 +651,7 @@ impl HarnessAdapter for CodexAdapter {
                 status,
                 output: final_output,
                 error,
-                session_id: None,
+                harness_session_id: None,
                 usage: final_usage,
                 duration,
             });
@@ -1470,8 +1470,7 @@ fn truncate_chars(s: &str, max: usize) -> String {
 /// `completed=true` for `item/completed` (status=failed → "failed" else "completed").
 fn collab_agent_to_task_event(item: &Value, completed: bool) -> Option<HarnessEvent> {
     let tool = item.get("tool").and_then(|t| t.as_str()).unwrap_or("");
-    // task_id: prefer the spawned receiver thread, fall back to sender thread.
-    let task_id = item
+    let subagent_task_id = item
         .get("receiverThreadIds")
         .and_then(|r| r.as_array())
         .and_then(|a| a.first())
@@ -1479,7 +1478,7 @@ fn collab_agent_to_task_event(item: &Value, completed: bool) -> Option<HarnessEv
         .or_else(|| item.get("senderThreadId").and_then(|s| s.as_str()))
         .unwrap_or("")
         .to_string();
-    if task_id.is_empty() {
+    if subagent_task_id.is_empty() {
         return None;
     }
     let description = item
@@ -1519,7 +1518,7 @@ fn collab_agent_to_task_event(item: &Value, completed: bool) -> Option<HarnessEv
 
     Some(HarnessEvent::TaskNotification {
         phase,
-        task_id,
+        subagent_task_id,
         tool_use_id,
         description: Some(description),
         status,
@@ -1535,12 +1534,12 @@ fn collab_agent_to_task_event(item: &Value, completed: bool) -> Option<HarnessEv
 
 /// Map a codex `subAgentActivity` item to a background-task notification.
 fn sub_agent_activity_to_task_event(item: &Value) -> Option<HarnessEvent> {
-    let task_id = item
+    let subagent_task_id = item
         .get("agentThreadId")
         .and_then(|s| s.as_str())
         .unwrap_or("")
         .to_string();
-    if task_id.is_empty() {
+    if subagent_task_id.is_empty() {
         return None;
     }
     let description = item
@@ -1568,7 +1567,7 @@ fn sub_agent_activity_to_task_event(item: &Value) -> Option<HarnessEvent> {
 
     Some(HarnessEvent::TaskNotification {
         phase,
-        task_id,
+        subagent_task_id,
         tool_use_id,
         description,
         status,
@@ -1869,7 +1868,7 @@ async fn merge_codex_mcp_servers(
                 if !env.is_empty() {
                     block.push_str(&format!("[mcp_servers.\"{}\".env]\n", toml_escape(name)));
                     let mut entries = env.iter().collect::<Vec<_>>();
-                    entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+                    entries.sort_by_key(|(left, _)| *left);
                     for (key, value) in entries {
                         block.push_str(&format!(
                             "\"{}\" = \"{}\"\n",
