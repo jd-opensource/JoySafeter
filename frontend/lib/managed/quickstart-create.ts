@@ -2,12 +2,13 @@ import { normalizeMcpServerConfigs } from '@/lib/managed/mcp-config'
 import { quickstartBlueprintMetadata } from '@/lib/managed/quickstart-agent-blueprint'
 import { filterQuickstartSkillReferences } from '@/lib/managed/quickstart-capabilities'
 import { objectValue } from '@/lib/managed/quickstart-value-coercion'
+import type { CredentialId, SkillId } from '@/types/entity-id'
 
 type AgentCreateOptions = {
   engineKind: string
-  secretRef: string
+  modelCredentialId: CredentialId
   suffix: string
-  allowedSkillIds?: ReadonlySet<string>
+  allowedSkillIds?: ReadonlySet<SkillId>
 }
 
 function nonEmptyString(value: unknown): string | undefined {
@@ -67,7 +68,7 @@ export function buildQuickstartAgentCreateBody(
     name: `${name}${options.suffix}`,
     engine_kind: options.engineKind,
     system: systemPrompt || null,
-    model_credential_id: options.secretRef,
+    model_credential_id: options.modelCredentialId,
     tools: arrayValue(agentConfig.tools) || [],
   }
 

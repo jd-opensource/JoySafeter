@@ -27,11 +27,13 @@ import { generateUUID } from '@/lib/utils/uuid'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
   parseAgentId,
+  type CredentialId,
   parseEnvironmentId,
   parseSessionId,
   parseCredentialGroupId,
   type EnvironmentId,
   type CredentialGroupId,
+  type SkillId,
 } from '@/types/entity-id'
 
 import { currentProjectAllowsWrite } from './use-current-project-read-only'
@@ -49,7 +51,7 @@ export interface ChatMessage {
 export interface QuickstartConfig {
   agent?: Record<string, unknown>
   environment?: Record<string, unknown>
-  vault?: Record<string, unknown>
+  credentialGroup?: Record<string, unknown>
 }
 
 export interface QuickstartTemplateConfig {
@@ -71,7 +73,7 @@ interface SendMessageOptions {
   stepOverride?: StepId
   hidden?: boolean
   engineKindOverride?: QuickstartEngine
-  secretRefOverride?: string
+  modelCredentialIdOverride?: CredentialId
 }
 
 interface CreateSessionOptions {
@@ -127,7 +129,7 @@ function getCreatedResourceId(payload: unknown): string | null {
   const id = data?.id
   if (typeof id === 'string') return id
 
-  for (const key of ['agent', 'environment', 'vault', 'session']) {
+  for (const key of ['agent', 'environment', 'credential_group', 'session']) {
     const nested = data?.[key]
     if (
       nested &&
@@ -157,7 +159,7 @@ function toApiStatusError(error: unknown): Error {
 }
 
 export function useQuickstartChat(
-  agentSecretRef: string,
+  modelCredentialId: CredentialId | '',
   { availableSkills = [] }: QuickstartChatOptions = {},
 ) {
   const { t } = useTranslation()
@@ -309,7 +311,7 @@ export function useQuickstartChat(
       const hidden = options?.hidden ?? false
       const engineKind = options?.engineKindOverride ?? selectedEngine
       if (!engineKind) return
-      const requestSecretRef = options?.secretRefOverride ?? agentSecretRef
+      const requestModelCredentialId = options?.modelCredentialIdOverride ?? modelCredentialId
       const requestScope = managedRequestScopeRef.current
       const scopeAtStart = requestScope.key
       if (!isCurrentWritableManagedScope(scopeAtStart)) return
@@ -369,7 +371,7 @@ export function useQuickstartChat(
             messages: historyForApi,
             current_step: apiStepForUiStep(step),
             engine_kind: engineKind,
-            model_credential_id: requestSecretRef,
+            model_credential_id: requestModelCredentialId,
             agent_context: step === 4 || step === 5 ? configRef.current.agent : undefined,
             available_skills: step === 3 ? availableSkills : undefined,
           },
@@ -427,7 +429,7 @@ export function useQuickstartChat(
                       return { ...prev, agent: nextAgent }
                     }
                     if (event.step === 3) return { ...prev, environment: event.config }
-                    if (event.step === 4) return { ...prev, vault: event.config }
+                    if (event.step === 4) return { ...prev, credentialGroup: event.config }
                     return prev
                   })
                   if (tracksAgentGeneration && event.step === 2) {
@@ -557,7 +559,7 @@ export function useQuickstartChat(
       messages,
       currentStep,
       selectedEngine,
-      agentSecretRef,
+      modelCredentialId,
       availableSkills,
       allowedSkillIds,
       isCurrentWritableManagedScope,
@@ -757,21 +759,21 @@ export function useQuickstartChat(
               },
             ]
           : []
-        const vaultBody =
+        const credentialGroupBody =
           initialMembers.length > 0 ? { name, initial_members: initialMembers } : { name }
-        const maskedVaultBody =
+        const maskedCredentialGroupBody =
           initialMembers.length > 0
             ? {
-                ...vaultBody,
+                ...credentialGroupBody,
                 initial_members: initialMembers.map((member) => ({
                   ...member,
                   data: { token_value: '$MCP_TOKEN' },
                 })),
               }
-            : vaultBody
+            : credentialGroupBody
         const result = await managedPost(
           'credential-groups',
-          vaultBody,
+          credentialGroupBody,
           managedRequestOptions(requestScope),
         ).catch((error) => {
           throw toApiStatusError(error)
@@ -790,10 +792,10 @@ export function useQuickstartChat(
         })
         setCreatedResourceIds((prev) => new Set([...prev, credentialGroupId]))
 
-        const vaultCurl = `curl -X POST ${API_BASE}/credential-groups \
+        const credentialGroupCurl = `curl -X POST ${API_BASE}/credential-groups \
   -H "Content-Type: application/json" \
   -H "x-api-key: $API_KEY" \
-  -d '${JSON.stringify(maskedVaultBody, null, 2)}'`
+  -d '${JSON.stringify(maskedCredentialGroupBody, null, 2)}'`
 
         setCompletedSteps((prev) => new Set([...prev, 5]))
         setSkippedSteps((prev) => {
@@ -801,7 +803,7 @@ export function useQuickstartChat(
           next.delete(5)
           return next
         })
-        setCurls((prev) => ({ ...prev, [5]: vaultCurl }))
+        setCurls((prev) => ({ ...prev, [5]: credentialGroupCurl }))
         return true
       } catch (err) {
         if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return false
@@ -833,8 +835,8 @@ export function useQuickstartChat(
     setCurrentStep(2)
   }, [])
 
-  const selectAgentSecret = useCallback(
-    (credentialId?: string) => {
+  const selectModelCredential = useCallback(
+    (credentialId?: CredentialId) => {
       setCompletedSteps((prev) => new Set([...prev, 2]))
       setCurrentStep(3)
       const lastUserMessage = [...messagesRef.current]
@@ -844,7 +846,7 @@ export function useQuickstartChat(
         void sendMessage(lastUserMessage.content, {
           stepOverride: 3,
           hidden: true,
-          secretRefOverride: credentialId,
+          modelCredentialIdOverride: credentialId,
         })
       }
     },
@@ -900,7 +902,7 @@ export function useQuickstartChat(
   }, [])
 
   const setAgentSkills = useCallback(
-    (skillIds: string[]) => {
+    (skillIds: SkillId[]) => {
       const selectedIds = new Set(skillIds)
       const skills = availableSkills
         .filter((skill) => selectedIds.has(skill.id))
@@ -934,11 +936,12 @@ export function useQuickstartChat(
         if (!a) throw new Error(t('managed.quickstart.errors.agentConfigMissing'))
         const engine = selectedEngine
         if (!engine) throw new Error(t('managed.quickstart.errors.engineMissing'))
+        if (!modelCredentialId) throw new Error(t('managed.quickstart.errors.credentialMissing'))
         result = await managedPost(
           'agents',
           buildQuickstartAgentCreateBody(a, {
             engineKind: engine,
-            secretRef: agentSecretRef,
+            modelCredentialId,
             suffix,
             allowedSkillIds,
           }),
@@ -970,13 +973,14 @@ export function useQuickstartChat(
           throw toApiStatusError(error)
         })
       } else if (step === 5) {
-        const v = latestConfig.vault
-        if (!v) throw new Error(t('managed.quickstart.errors.vaultConfigMissing'))
+        const credentialGroupConfig = latestConfig.credentialGroup
+        if (!credentialGroupConfig)
+          throw new Error(t('managed.quickstart.errors.credentialGroupConfigMissing'))
         result = await managedPost(
           'credential-groups',
           {
-            name: (v.name || 'quickstart-vault') + suffix,
-            description: v.description || '',
+            name: (credentialGroupConfig.name || 'quickstart-credential-group') + suffix,
+            description: credentialGroupConfig.description || '',
           },
           managedRequestOptions(requestScope),
         ).catch((error) => {
@@ -1052,7 +1056,7 @@ export function useQuickstartChat(
   }, [
     pendingConfirmation,
     isCreating,
-    agentSecretRef,
+    modelCredentialId,
     allowedSkillIds,
     selectedEngine,
     isCurrentLifecycleRun,
@@ -1144,7 +1148,7 @@ export function useQuickstartChat(
     setConfig((prev) => ({
       ...(step > 3 && prev.agent ? { agent: prev.agent } : {}),
       ...(step > 4 && prev.environment ? { environment: prev.environment } : {}),
-      ...(step > 5 && prev.vault ? { vault: prev.vault } : {}),
+      ...(step > 5 && prev.credentialGroup ? { credentialGroup: prev.credentialGroup } : {}),
     }))
     if (step === 1) setSelectedEngine(null)
   }, [])
@@ -1200,7 +1204,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
           messages: [{ role: 'user', content: prompt }],
           current_step: 5,
           engine_kind: selectedEngine,
-          model_credential_id: agentSecretRef,
+          model_credential_id: modelCredentialId,
           agent_context: agent,
         },
         managedRequestOptions(requestScope),
@@ -1246,7 +1250,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
     } catch {
       return t('managed.quickstart.trialRun.defaultPrompt', { agentName })
     }
-  }, [agentSecretRef, selectedEngine, isCurrentWritableManagedScope, t])
+  }, [modelCredentialId, selectedEngine, isCurrentWritableManagedScope, t])
 
   return {
     messages,
@@ -1267,7 +1271,7 @@ ${tools.length > 0 ? `Tools: ${JSON.stringify(tools).slice(0, 200)}` : ''}`
     retryGeneration,
     applyTemplate,
     selectEngine,
-    selectAgentSecret,
+    selectModelCredential,
     advanceStep,
     skipStep,
     setAgentSkills,

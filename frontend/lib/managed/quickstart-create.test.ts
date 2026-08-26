@@ -30,7 +30,7 @@ describe('buildQuickstartAgentCreateBody', () => {
       },
       {
         engineKind: 'claude',
-        secretRef: CRED_ID,
+        modelCredentialId: CRED_ID,
         suffix: '-abcd',
       },
     )
@@ -65,10 +65,51 @@ describe('buildQuickstartAgentCreateBody', () => {
           name: 'Legacy MCP Agent',
           mcp_servers: [{ type: 'url', name: 'docs', url: 'https://docs.example.com/mcp' }],
         },
-        { engineKind: 'claude', secretRef: CRED_ID, suffix: '' },
+        { engineKind: 'claude', modelCredentialId: CRED_ID, suffix: '' },
       ),
     ).toThrow('Invalid MCP transport')
   })
+
+  it('defaults generated SSE MCP authentication to none', () => {
+    const body = buildQuickstartAgentCreateBody(
+      {
+        name: 'Events Agent',
+        mcp_servers: [{ type: 'sse', name: 'events', url: 'https://events.example.com/sse' }],
+      },
+      { engineKind: 'claude', modelCredentialId: CRED_ID, suffix: '' },
+    )
+
+    expect(body.mcp_servers).toEqual([
+      {
+        type: 'sse',
+        name: 'events',
+        url: 'https://events.example.com/sse',
+        auth_requirement: 'none',
+      },
+    ])
+  })
+
+  it.each(['required', 'optional'])(
+    'rejects generated SSE MCP authentication %s',
+    (requirement) => {
+      expect(() =>
+        buildQuickstartAgentCreateBody(
+          {
+            name: 'Events Agent',
+            mcp_servers: [
+              {
+                type: 'sse',
+                name: 'events',
+                url: 'https://events.example.com/sse',
+                auth_requirement: requirement,
+              },
+            ],
+          },
+          { engineKind: 'claude', modelCredentialId: CRED_ID, suffix: '' },
+        ),
+      ).toThrow('Invalid MCP SSE auth requirement')
+    },
+  )
 
   it('filters generated Skill references against the real available catalog', () => {
     const body = buildQuickstartAgentCreateBody(
@@ -85,7 +126,7 @@ describe('buildQuickstartAgentCreateBody', () => {
       },
       {
         engineKind: 'claude',
-        secretRef: CRED_ID,
+        modelCredentialId: CRED_ID,
         suffix: '',
         allowedSkillIds: new Set([SKILL_ID]),
       },
@@ -98,7 +139,7 @@ describe('buildQuickstartAgentCreateBody', () => {
     expect(
       buildQuickstartAgentCreateBody(
         { name: 'Minimal', system: 'Do the task.' },
-        { engineKind: 'codex', secretRef: CRED_ID_2, suffix: '' },
+        { engineKind: 'codex', modelCredentialId: CRED_ID_2, suffix: '' },
       ),
     ).toEqual({
       name: 'Minimal',
@@ -125,7 +166,7 @@ describe('buildQuickstartAgentCreateBody', () => {
           },
         },
       },
-      { engineKind: 'claude_code', secretRef: CRED_ID, suffix: '' },
+      { engineKind: 'claude_code', modelCredentialId: CRED_ID, suffix: '' },
     )
 
     expect(body.metadata).toMatchObject({
@@ -143,7 +184,7 @@ describe('buildQuickstartAgentCreateBody', () => {
 })
 
 describe('buildQuickstartAgentCreateBody with malformed generated config', () => {
-  const opts = { engineKind: 'claude', secretRef: CRED_ID, suffix: '' }
+  const opts = { engineKind: 'claude', modelCredentialId: CRED_ID, suffix: '' }
 
   it('drops a model object that is missing the required id', () => {
     const body = buildQuickstartAgentCreateBody(

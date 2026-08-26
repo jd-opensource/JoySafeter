@@ -12,7 +12,7 @@ function CredentialDetailPageInner({ params }: { params: Promise<{ credentialId:
 }
 
 export default withEntityRouteGuard(CredentialDetailPageInner, {
-  kind: 'secret',
+  kind: 'credential',
   idKind: 'credential',
   paramKey: 'credentialId',
   backTo: '/managed/credentials',

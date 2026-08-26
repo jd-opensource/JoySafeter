@@ -115,7 +115,7 @@ vi.mock('./service-credential-list', () => ({
 }))
 vi.mock('./mcp-credential-group-list', () => ({
   McpCredentialGroupList: ({ onCreate }: { onCreate: () => void }) => (
-    <button onClick={onCreate}>vault-add</button>
+    <button onClick={onCreate}>credential-group-add</button>
   ),
 }))
 vi.mock('./credential-kind-chooser', () => ({
@@ -130,11 +130,11 @@ vi.mock('./create-standalone-credential-dialog', () => ({
     open: boolean
     initialKind?: string
     lockKind?: boolean
-  }) => (open ? <div>{`secret-dialog:${initialKind}:${String(lockKind)}`}</div> : null),
+  }) => (open ? <div>{`credential-dialog:${initialKind}:${String(lockKind)}`}</div> : null),
 }))
 vi.mock('./create-credential-group-dialog', () => ({
   CreateCredentialGroupDialog: ({ open }: { open: boolean }) =>
-    open ? <div>vault-dialog</div> : null,
+    open ? <div>credential-group-dialog</div> : null,
 }))
 vi.mock('@/components/ui/tabs', () => ({
   Tabs: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -202,20 +202,7 @@ describe('CredentialManagementShell', () => {
         <CredentialManagementShell />
       </Wrap>,
     )
-    await waitFor(() => expect(getByText('vault-dialog')).toBeTruthy())
-    const url = replaceMock.mock.calls.at(-1)![0] as string
-    expect(url).toContain('tab=mcp')
-    expect(url).not.toContain('create=')
-  })
-
-  it('accepts legacy create=vault only as an input compatibility alias', async () => {
-    searchParamsValue = new URLSearchParams('tab=models&create=vault')
-    const { getByText } = render(
-      <Wrap>
-        <CredentialManagementShell />
-      </Wrap>,
-    )
-    await waitFor(() => expect(getByText('vault-dialog')).toBeTruthy())
+    await waitFor(() => expect(getByText('credential-group-dialog')).toBeTruthy())
     const url = replaceMock.mock.calls.at(-1)![0] as string
     expect(url).toContain('tab=mcp')
     expect(url).not.toContain('create=')
@@ -228,7 +215,7 @@ describe('CredentialManagementShell', () => {
         <CredentialManagementShell />
       </Wrap>,
     )
-    await waitFor(() => expect(getByText('secret-dialog:generic:true')).toBeTruthy())
+    await waitFor(() => expect(getByText('credential-dialog:generic:true')).toBeTruthy())
   })
 
   it('opens a create flow when create=* appears after the shell is already mounted', async () => {
@@ -246,7 +233,9 @@ describe('CredentialManagementShell', () => {
       </Wrap>,
     )
 
-    await waitFor(() => expect(screen.getByText('secret-dialog:generic:true')).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByText('credential-dialog:generic:true')).toBeInTheDocument(),
+    )
     const url = replaceMock.mock.calls.at(-1)![0] as string
     expect(url).toContain('tab=services')
     expect(url).not.toContain('create=')
@@ -261,7 +250,7 @@ describe('CredentialManagementShell', () => {
       </Wrap>,
     )
     await waitFor(() => expect(replaceMock).toHaveBeenCalled())
-    expect(queryByText('secret-dialog:generic:true')).toBeNull()
+    expect(queryByText('credential-dialog:generic:true')).toBeNull()
     expect(replaceMock.mock.calls.at(-1)![0] as string).not.toContain('create=')
   })
 
@@ -283,7 +272,7 @@ describe('CredentialManagementShell', () => {
       </Wrap>,
     )
     fireEvent.click(getByText('service-add'))
-    await waitFor(() => expect(getByText('secret-dialog:generic:true')).toBeTruthy())
+    await waitFor(() => expect(getByText('credential-dialog:generic:true')).toBeTruthy())
   })
 
   it('preserves each tab search and page size when the list unmounts', () => {

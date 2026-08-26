@@ -2,17 +2,8 @@
 /**
  * Shared skill workspace + file tree primitives.
  *
- * Extracted from ``app/managed/skills/page.tsx`` so the AI authoring page
- * (``app/managed/skills/new-ai/page.tsx``) can render the same left-side
- * file tree it does on the detail page. No behavior change — these are the
- * same components, just exported from a stable module path.
- *
- * Components / helpers:
- *   - ``TreeNode``        — folder + file tree model
- *   - ``buildFileTree``   — turn flat workspace files into a TreeNode
- *   - ``FileTreeNode``    — recursive renderer for one tree node
- *   - ``SkillWorkspace``  — the full 260px left panel (SKILL.md + tree)
- *   - ``formatBytes``     — pretty file size
+ * This module is the single owner of the skill file-tree UI used by both
+ * persisted skills and the AI-authoring draft workspace.
  */
 import { useState } from 'react'
 
@@ -28,12 +19,20 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
+import type { SkillFileId } from '@/types/entity-id'
 import type { SkillFileRecord } from '@/types/managed'
 
-export type SkillWorkspaceFile = Pick<SkillFileRecord, 'path' | 'file_name'> & {
-  id: string
+export type SkillWorkspaceFile<FileKey extends string = SkillFileId> = Pick<
+  SkillFileRecord,
+  'path' | 'file_name'
+> & {
+  key: FileKey
   size: number
 }
+
+export type SkillWorkspaceMoveSource<FileKey extends string = SkillFileId> =
+  | { kind: 'file'; fileKey: FileKey; path: string }
+  | { kind: 'folder'; path: string }
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -41,15 +40,17 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export interface TreeNode {
+export interface TreeNode<FileKey extends string = SkillFileId> {
   name: string
   fullPath: string
-  file?: SkillWorkspaceFile
-  children: TreeNode[]
+  file?: SkillWorkspaceFile<FileKey>
+  children: TreeNode<FileKey>[]
 }
 
-export function buildFileTree(files: SkillWorkspaceFile[]): TreeNode {
-  const root: TreeNode = { name: '', fullPath: '', children: [] }
+export function buildFileTree<FileKey extends string>(
+  files: SkillWorkspaceFile<FileKey>[],
+): TreeNode<FileKey> {
+  const root: TreeNode<FileKey> = { name: '', fullPath: '', children: [] }
 
   for (const f of files) {
     const parts = f.path.split('/').filter(Boolean)
@@ -72,7 +73,7 @@ export function buildFileTree(files: SkillWorkspaceFile[]): TreeNode {
     })
   }
 
-  const sortTree = (node: TreeNode) => {
+  const sortTree = (node: TreeNode<FileKey>) => {
     node.children.sort((a, b) => {
       if (a.file && !b.file) return 1
       if (!a.file && b.file) return -1
@@ -84,30 +85,29 @@ export function buildFileTree(files: SkillWorkspaceFile[]): TreeNode {
   return root
 }
 
-export function FileTreeNode({
+interface FileTreeNodeProps<FileKey extends string> {
+  node: TreeNode<FileKey>
+  depth: number
+  selectedFileKey: FileKey | null
+  onSelectFile: (fileKey: FileKey) => void
+  onDeleteFile: (fileKey: FileKey) => void
+  onDeleteFolder: (folderPath: string) => void
+  onAddToFolder: (folderPath: string) => void
+  onMove?: (source: SkillWorkspaceMoveSource<FileKey>, destFolderPath: string) => void
+  canEdit?: boolean
+}
+
+export function FileTreeNode<FileKey extends string>({
   node,
   depth,
-  selectedFileId,
+  selectedFileKey,
   onSelectFile,
   onDeleteFile,
   onDeleteFolder,
   onAddToFolder,
   onMove,
   canEdit = true,
-}: {
-  node: TreeNode
-  depth: number
-  selectedFileId: string | null
-  onSelectFile: (id: string) => void
-  onDeleteFile: (id: string) => void
-  onDeleteFolder: (folderPath: string) => void
-  onAddToFolder: (folderPath: string) => void
-  /** When provided, nodes become draggable and folders accept drops.
-   * ``sourcePath`` is a file's full path or a folder's ``fullPath`` (trailing
-   * ``/``); ``destFolderPath`` is the target folder's ``fullPath`` or ``''``. */
-  onMove?: (sourcePath: string, destFolderPath: string) => void
-  canEdit?: boolean
-}) {
+}: FileTreeNodeProps<FileKey>) {
   const [open, setOpen] = useState(true)
   const [dragOver, setDragOver] = useState(false)
   const paddingLeft = 12 + depth * 16
@@ -117,18 +117,25 @@ export function FileTreeNode({
     if (node.name === '.gitkeep') return null
     return (
       <div
-        onClick={() => onSelectFile(node.file!.id)}
+        onClick={() => onSelectFile(node.file!.key)}
         draggable={dndEnabled}
         onDragStart={
           dndEnabled
             ? (e) => {
-                e.dataTransfer.setData('text/plain', node.file!.id)
+                e.dataTransfer.setData(
+                  'text/plain',
+                  JSON.stringify({
+                    kind: 'file',
+                    fileKey: node.file!.key,
+                    path: node.file!.path,
+                  } satisfies SkillWorkspaceMoveSource<FileKey>),
+                )
                 e.dataTransfer.effectAllowed = 'move'
               }
             : undefined
         }
         className={`group flex cursor-pointer items-center gap-2 py-1.5 pr-3 transition-colors hover:bg-muted/50 ${
-          selectedFileId === node.file!.id ? 'bg-muted font-medium' : ''
+          selectedFileKey === node.file!.key ? 'bg-muted font-medium' : ''
         }`}
         style={{ paddingLeft }}
       >
@@ -141,7 +148,7 @@ export function FileTreeNode({
           <button
             onClick={(e) => {
               e.stopPropagation()
-              onDeleteFile(node.file!.id)
+              onDeleteFile(node.file!.key)
             }}
             className="hidden shrink-0 text-muted-foreground hover:text-destructive group-hover:block"
           >
@@ -161,7 +168,13 @@ export function FileTreeNode({
           dndEnabled
             ? (e) => {
                 e.stopPropagation()
-                e.dataTransfer.setData('text/plain', node.fullPath)
+                e.dataTransfer.setData(
+                  'text/plain',
+                  JSON.stringify({
+                    kind: 'folder',
+                    path: node.fullPath,
+                  } satisfies SkillWorkspaceMoveSource<FileKey>),
+                )
                 e.dataTransfer.effectAllowed = 'move'
               }
             : undefined
@@ -182,7 +195,9 @@ export function FileTreeNode({
                 e.preventDefault()
                 e.stopPropagation()
                 setDragOver(false)
-                const source = e.dataTransfer.getData('text/plain')
+                const source = parseSkillWorkspaceMoveSource<FileKey>(
+                  e.dataTransfer.getData('text/plain'),
+                )
                 if (source) onMove!(source, node.fullPath)
               }
             : undefined
@@ -221,10 +236,10 @@ export function FileTreeNode({
       {open &&
         node.children.map((child, i) => (
           <FileTreeNode
-            key={child.file?.id ?? child.fullPath + i}
+            key={child.file?.key ?? child.fullPath + i}
             node={child}
             depth={depth + 1}
-            selectedFileId={selectedFileId}
+            selectedFileKey={selectedFileKey}
             onSelectFile={onSelectFile}
             onDeleteFile={onDeleteFile}
             onDeleteFolder={onDeleteFolder}
@@ -238,6 +253,7 @@ export function FileTreeNode({
 }
 
 export function SkillWorkspace({
+  skillName,
   files,
   selectedFileId,
   onSelectFile,
@@ -246,24 +262,33 @@ export function SkillWorkspace({
   onAddToFolder,
   onDeleteFile,
   onDeleteFolder,
+  onMove,
   isMainSelected,
   canEdit = true,
 }: {
-  files: SkillWorkspaceFile[]
-  selectedFileId: string | null
-  onSelectFile: (id: string) => void
+  skillName: string
+  files: Array<Pick<SkillFileRecord, 'id' | 'path' | 'file_name' | 'size'>>
+  selectedFileId: SkillFileId | null
+  onSelectFile: (id: SkillFileId) => void
   onSelectMain: () => void
   onAddFolder: () => void
   onAddToFolder: (folderPath: string) => void
-  onDeleteFile: (id: string) => void
+  onDeleteFile: (id: SkillFileId) => void
   onDeleteFolder: (folderPath: string) => void
+  onMove?: (source: SkillWorkspaceMoveSource<SkillFileId>, destFolderPath: string) => void
   isMainSelected: boolean
   canEdit?: boolean
 }) {
   const { t } = useTranslation()
-  const filteredFiles = files.filter(
-    (f) => !(f.path === '' && f.file_name.toLowerCase() === 'skill.md'),
-  )
+  const [rootOpen, setRootOpen] = useState(true)
+  const filteredFiles = files
+    .filter((file) => !(file.path === '' && file.file_name.toLowerCase() === 'skill.md'))
+    .map((file) => ({
+      key: file.id,
+      path: file.path,
+      file_name: file.file_name,
+      size: file.size,
+    }))
   const tree = buildFileTree(filteredFiles)
 
   return (
@@ -282,39 +307,95 @@ export function SkillWorkspace({
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto text-sm">
-        {/* SKILL.md -- always first */}
+      <div
+        className="flex-1 overflow-y-auto py-1 text-sm"
+        onDragOver={canEdit && onMove ? (event) => event.preventDefault() : undefined}
+        onDrop={
+          canEdit && onMove
+            ? (event) => {
+                const source = parseSkillWorkspaceMoveSource<SkillFileId>(
+                  event.dataTransfer.getData('text/plain'),
+                )
+                if (source) onMove(source, '')
+              }
+            : undefined
+        }
+      >
         <div
-          onClick={onSelectMain}
-          className={`flex cursor-pointer items-center gap-2 px-3 py-1.5 transition-colors hover:bg-muted/50 ${
-            isMainSelected ? 'bg-muted font-medium' : ''
-          }`}
+          onClick={() => setRootOpen((value) => !value)}
+          className="flex cursor-pointer items-center gap-1.5 px-2 py-1.5 font-medium text-foreground transition-colors hover:bg-muted/50"
         >
-          <FileText className="h-4 w-4 text-blue-500" />
-          <span>SKILL.md</span>
+          {rootOpen ? (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="truncate">{skillName}</span>
         </div>
 
-        {/* File tree */}
-        {tree.children.length > 0 ? (
-          tree.children.map((child, i) => (
-            <FileTreeNode
-              key={child.file?.id ?? child.fullPath + i}
-              node={child}
-              depth={0}
-              selectedFileId={selectedFileId}
-              onSelectFile={onSelectFile}
-              onDeleteFile={onDeleteFile}
-              onDeleteFolder={onDeleteFolder}
-              onAddToFolder={onAddToFolder}
-              canEdit={canEdit}
-            />
-          ))
-        ) : (
-          <div className="px-3 py-4 text-center text-xs text-muted-foreground/60">
-            {t('managed.skills.emptyWorkspace')}
-          </div>
+        {rootOpen && (
+          <>
+            <div
+              onClick={onSelectMain}
+              className={`flex cursor-pointer items-center gap-2 py-1.5 pr-3 transition-colors hover:bg-muted/50 ${
+                isMainSelected ? 'bg-muted font-medium' : ''
+              }`}
+              style={{ paddingLeft: 28 }}
+            >
+              <FileText className="h-4 w-4 shrink-0 text-blue-500" />
+              <span>SKILL.md</span>
+            </div>
+            {tree.children.length > 0 ? (
+              tree.children.map((child, index) => (
+                <FileTreeNode
+                  key={child.file?.key ?? child.fullPath + index}
+                  node={child}
+                  depth={1}
+                  selectedFileKey={selectedFileId}
+                  onSelectFile={onSelectFile}
+                  onDeleteFile={onDeleteFile}
+                  onDeleteFolder={onDeleteFolder}
+                  onAddToFolder={onAddToFolder}
+                  onMove={onMove}
+                  canEdit={canEdit}
+                />
+              ))
+            ) : (
+              <div className="px-3 py-4 text-center text-xs text-muted-foreground/60">
+                {t('managed.skills.emptyWorkspace')}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
   )
+}
+
+export function parseSkillWorkspaceMoveSource<FileKey extends string>(
+  raw: string,
+): SkillWorkspaceMoveSource<FileKey> | null {
+  try {
+    const value: unknown = JSON.parse(raw)
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+    const source = value as Record<string, unknown>
+    if (source.kind === 'folder' && typeof source.path === 'string') {
+      return { kind: 'folder', path: source.path }
+    }
+    if (
+      source.kind === 'file' &&
+      typeof source.fileKey === 'string' &&
+      typeof source.path === 'string'
+    ) {
+      return {
+        kind: 'file',
+        fileKey: source.fileKey as FileKey,
+        path: source.path,
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
 }

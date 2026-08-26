@@ -80,7 +80,7 @@ const en = {
       sessions: 'Sessions',
       triggers: 'Triggers',
       environments: 'Environments',
-      vaults: 'MCP Credential Groups',
+      credentialGroups: 'MCP Credential Groups',
       build: 'Managed Agents',
       automation: 'Automation',
       resources: 'Resources',
@@ -168,20 +168,20 @@ const en = {
         mcpServers: 'MCP Servers',
         tools: 'Tool Configuration',
         skills: 'Skills',
-        secretRef: 'Model Connection',
+        modelCredentialId: 'Model Connection',
         selectModelConnection: 'Select a Model Connection',
         searchModelConnections: 'Search Model Connections',
         noModelConnectionMatch: 'No matching Model Connections',
         createModelConnection: 'Create Model Connection…',
         clearSearch: 'Clear search',
-        environmentRef: 'Default Runtime Environment',
+        environmentId: 'Default Runtime Environment',
         selectEnvironment: 'Do not set; choose when creating a session',
         searchEnvironment: 'Search runtime environments',
         noEnvironmentMatch: 'No matching runtime environments',
         createEnvironment: 'Create runtime environment…',
         noEnvironments: 'No environments yet; create one if this agent needs a fixed runtime',
         noSelection: 'Not set; choose when creating a session',
-        environmentRefHint:
+        environmentIdHint:
           'Optional. If unset, choose an environment when creating a session. If set, sessions use this by default unless overridden.',
         permissionMode: 'Permission Mode',
         permBypass: 'Always allow (bypass permissions)',
@@ -533,7 +533,7 @@ const en = {
               'We could not load projects right now. Please retry or check your connection.',
           },
         },
-        secret: {
+        credential: {
           forbidden: {
             title: 'No access to this connection or credential',
             description:
@@ -583,7 +583,7 @@ const en = {
               'We could not load skills right now. Please retry or check your connection.',
           },
         },
-        vault: {
+        credentialGroup: {
           forbidden: {
             title: 'No access to this MCP credential group',
             description:
@@ -699,13 +699,13 @@ const en = {
           mcpServers: 'MCP Servers',
           tools: 'Tool Configuration',
           skills: 'Skills',
-          secretRef: 'Model Connection',
+          modelCredentialId: 'Model Connection',
           selectModelConnection: 'Select a Model Connection',
           searchModelConnections: 'Search Model Connections',
           noModelConnectionMatch: 'No matching Model Connections',
           createModelConnection: 'Create Model Connection…',
           clearSearch: 'Clear search',
-          environmentRef: 'Default Runtime Environment',
+          environmentId: 'Default Runtime Environment',
           selectEnvironment: 'Do not set; choose when creating a session',
           searchEnvironment: 'Search runtime environments',
           noEnvironmentMatch: 'No matching runtime environments',
@@ -713,7 +713,7 @@ const en = {
           noEnvironments:
             'No environments available; create one if this agent needs a fixed runtime',
           noSelection: 'Not set; choose when creating a session',
-          environmentRefHint:
+          environmentIdHint:
             'Optional. If unset, choose an environment when creating a session. If set, sessions use this by default unless overridden.',
           permissionMode: 'Permission Mode',
           permissionModeHint:
@@ -762,6 +762,14 @@ const en = {
           mcpEnv: 'Environment (KEY=VALUE, one per line)',
           mcpEnvPlaceholder: 'MODE=safe',
           mcpPolicyHint: 'Permission policy for this MCP server’s tools',
+          mcpConnectionBoundary:
+            'Configure the MCP connection here. Store secrets in an MCP credential group and select that group when creating a Session.',
+          mcpUrlMatchHint:
+            'The normalized server URL is the key used to match Session credential groups.',
+          mcpSseAuthLimitation:
+            'SSE currently runs without managed credential injection, so its requirement is fixed to None.',
+          mcpLocalEnvWarning:
+            'Local stdio environment values are Agent configuration. Do not place secrets here.',
           advancedOptions: 'Advanced Options',
           advancedSummary: 'MCP, tools, skills',
           add: 'Add',
@@ -906,13 +914,25 @@ const en = {
           searchEnv: 'Search environments by name or ID',
           noEnvs: 'No environments available',
           noEnvMatch: 'No matching environments',
-          vaults: 'MCP Credential Groups',
-          selectCredentialGroups: 'Optional, multi-select',
+          credentialGroups: 'MCP Credential Groups',
+          selectCredentialGroups: 'Per-Session authorization, multi-select',
           manageCredentialGroups: 'Manage MCP Credential Groups',
           createCredentialGroup: 'Create MCP credential group…',
           searchCredentialGroups: 'Search MCP credential groups by name or ID',
           noCredentialGroups: 'No MCP credential groups available',
           noCredentialGroupMatch: 'No matching MCP credential groups',
+          mcpCoverage: {
+            description:
+              'Credentials are matched to the selected Agent servers by normalized URL for this Session only.',
+            loading: 'Checking selected credential groups…',
+            load_failed:
+              'Could not verify the selected credential groups. Retry before creating the Session.',
+            matched: 'Matching credential selected',
+            optional_anonymous: 'Optional; connects without credentials',
+            not_required: 'Credentials are not used',
+            missing_required: 'Required credential missing',
+            ambiguous: 'Multiple matching credentials selected',
+          },
           resources: 'Resources',
           resourcesDesc: 'Attach files or other resources to this session.',
           addResource: 'Add Resource',
@@ -1247,8 +1267,8 @@ const en = {
         signed: 'Signed',
         unsigned: 'Unsigned',
         signedVia: 'Signed via {{secret}}',
-        secretRef: 'Signing secret',
-        secretRefPlaceholder: 'Select the vault key that stores the signing secret',
+        webhookCredential: 'Signing credential',
+        webhookCredentialPlaceholder: 'Select the credential that stores the signing secret',
         secretKey: 'Secret key',
         serviceCredential: 'Service Credential',
         serviceCredentialPlaceholder: 'Select a service credential',
@@ -1814,20 +1834,20 @@ const en = {
               'You can still launch, but JoySafeter recommends adding a security environment for stronger network control.',
           },
         },
-        vaultIntro:
+        credentialGroupIntro:
           'Authorize external tools only when this agent needs MCP servers with credentials. JoySafeter stores those MCP credentials in a credential group and attaches the group by ID at launch.',
-        vaultReuseOrCreate:
+        credentialGroupReuseOrCreate:
           'Which MCP credential group should JoySafeter authorize for this agent?',
-        vaultCreateNew: 'Authorize New MCP Credential Group',
-        vaultSomethingElse: 'Something Else',
-        vaultNameQuestion: 'What should we call this external tool authorization group?',
-        vaultNamePlaceholder: 'e.g. production-mcp-credential-vault',
-        vaultCredentialTitle: 'Add the MCP credential now',
-        vaultCredentialHint:
+        credentialGroupCreateNew: 'Authorize New MCP Credential Group',
+        credentialGroupSomethingElse: 'Something Else',
+        credentialGroupNameQuestion: 'What should we call this external tool authorization group?',
+        credentialGroupNamePlaceholder: 'e.g. production-mcp-credential-group',
+        credentialGroupCredentialTitle: 'Add the MCP credential now',
+        credentialGroupCredentialHint:
           'Quickstart will create the credential group and add one MCP credential member so the launch can actually use it.',
-        vaultMcpServerUrlPlaceholder: 'MCP server URL, e.g. https://api.github.com/mcp',
-        vaultCredentialNamePlaceholder: 'Credential name (optional)',
-        vaultTokenPlaceholder: 'MCP bearer token',
+        credentialGroupMcpServerUrlPlaceholder: 'MCP server URL, e.g. https://api.github.com/mcp',
+        credentialGroupCredentialNamePlaceholder: 'Credential name (optional)',
+        credentialGroupTokenPlaceholder: 'MCP bearer token',
         createCredentialGroup: 'Authorize External Tools',
         trialRun: {
           testing: 'Testing agent...',
@@ -1877,8 +1897,9 @@ const en = {
           createResourceFailed: 'Failed to create resource',
           agentConfigMissing: 'Agent configuration not found',
           engineMissing: 'Select an engine before creating the agent.',
+          credentialMissing: 'Select a model connection before creating the agent.',
           environmentConfigMissing: 'Environment configuration not found',
-          vaultConfigMissing: 'MCP credential group configuration not found',
+          credentialGroupConfigMissing: 'MCP credential group configuration not found',
           unexpectedStep: 'Unexpected step: {{step}}',
         },
         autoIntro: {
@@ -1886,10 +1907,10 @@ const en = {
             'What MCP credential group does my agent need for MCP server credentials?',
         },
         stepComplete: {
-          secretSelected: 'Model Connection Selected',
+          modelCredentialSelected: 'Model Connection Selected',
           agentCreated: 'Agent Created',
           envCreated: 'Environment Created',
-          vaultCreated: 'MCP Credential Group Configured',
+          credentialGroupCreated: 'MCP Credential Group Configured',
           sessionStarted: 'Session Started',
         },
         stepDesc: {
@@ -1920,9 +1941,9 @@ const en = {
         agents: 'Search agents by name, ID, or model',
         sessions: 'Search sessions by title, ID, agent, or status',
         environments: 'Search environments by name, ID, type, or status',
-        vaults: 'Search MCP credential groups by name, ID, or status',
+        credentialGroups: 'Search MCP credential groups by name, ID, or status',
         triggers: 'Search triggers by name, description, or ID',
-        secrets: 'Search credentials by name or ID',
+        credentials: 'Search credentials by name or ID',
         memoryStores: 'Search memory stores by name, ID, or description',
         files: 'Search files by name, ID, or type',
         apiKeys: 'Search project access tokens by name, prefix, or role',
@@ -2487,6 +2508,8 @@ const en = {
             createTitle: 'Add MCP Credential',
             createDescription:
               'Store one server-scoped MCP credential. The secret is injected only by the controlled egress proxy.',
+            mcpServerMatchHint:
+              'This URL must match an Agent MCP server URL after normalization. Creating a credential does not create or attach a server.',
             adding: 'Adding…',
             add: 'Add Credential',
             connecting: 'Connecting...',
@@ -2942,10 +2965,6 @@ const en = {
         thu: 'Thu',
         fri: 'Fri',
         sat: 'Sat',
-      },
-      observations: {
-        title: 'Execution Timeline',
-        noData: 'No observations available',
       },
       agentComparison: {
         title: 'Agent Comparison',

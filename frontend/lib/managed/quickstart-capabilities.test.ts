@@ -58,7 +58,9 @@ describe('filterQuickstartSkillReferences', () => {
 
 describe('normalizeMcpServerUrl', () => {
   it('trims whitespace and a single trailing slash so equivalent URLs match', () => {
-    expect(normalizeMcpServerUrl('  https://mcp.example.com/  ')).toBe('https://mcp.example.com')
+    expect(normalizeMcpServerUrl('  HTTPS://MCP.example.com:443/  ')).toBe(
+      'https://mcp.example.com',
+    )
     expect(normalizeMcpServerUrl('https://mcp.example.com')).toBe('https://mcp.example.com')
   })
 

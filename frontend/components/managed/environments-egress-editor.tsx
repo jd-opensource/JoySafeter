@@ -100,7 +100,7 @@ export const serviceToForm = (service: EnvironmentEgressService): EgressServiceF
   return {
     name: service.name || '',
     baseUrl: service.base_url || '',
-    credentialRef: service.service_credential_id || '',
+    credentialRef: service.credential_ref || '',
     authType,
     secretKey:
       inject.credential_field ||
@@ -137,7 +137,7 @@ export const buildEgressServices = (forms: EgressServiceForm[]): EnvironmentEgre
         kind: 'external',
         exposure: 'placeholder',
         base_url: baseUrl,
-        service_credential_id: parseCredentialId(credentialRef),
+        credential_ref: parseCredentialId(credentialRef),
         inject,
       }
       const allowedPaths = service.allowedPaths
@@ -314,8 +314,10 @@ export function EgressServicesEditor({
   return (
     <div className="space-y-3">
       {services.map((service, index) => {
-        const selectedSecret = customSecrets.find((secret) => secret.id === service.credentialRef)
-        const selectedSecretKeys = secretKeysFor(selectedSecret)
+        const selectedCredential = customSecrets.find(
+          (secret) => secret.id === service.credentialRef,
+        )
+        const selectedCredentialFields = secretKeysFor(selectedCredential)
         const isCollapsed = collapsed.has(index)
         return (
           <div key={index} className="overflow-hidden rounded-xl border bg-card shadow-sm">
@@ -447,7 +449,7 @@ export function EgressServicesEditor({
                           const authType = value as EgressServiceForm['authType']
                           changeService(index, {
                             ...defaultsForAuthType(authType),
-                            secretKey: preferredSecretKey(selectedSecretKeys, authType),
+                            secretKey: preferredSecretKey(selectedCredentialFields, authType),
                           })
                         }}
                       >
@@ -492,7 +494,7 @@ export function EgressServicesEditor({
                           </span>
                         )}
                       </Label>
-                      {selectedSecretKeys.length > 0 ? (
+                      {selectedCredentialFields.length > 0 ? (
                         <Select
                           value={service.secretKey}
                           onValueChange={(value) =>
@@ -505,7 +507,7 @@ export function EgressServicesEditor({
                             />
                           </SelectTrigger>
                           <SelectContent>
-                            {selectedSecretKeys.map((key) => (
+                            {selectedCredentialFields.map((key) => (
                               <SelectItem key={key} value={key}>
                                 {key}
                               </SelectItem>

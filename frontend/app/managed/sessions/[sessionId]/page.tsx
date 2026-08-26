@@ -70,7 +70,10 @@ import {
 } from '@/lib/managed/credential-group-response-parsers'
 import { parseSkillUsageListResponse } from '@/lib/managed/skill-response-parsers'
 import { parseSessionEventListResponse } from '@/lib/managed/event-response-parsers'
-import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
+import {
+  parseAgentResponse,
+  parseAgentVersionListResponse,
+} from '@/lib/managed/agent-response-parsers'
 import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
 import { getSessionDisplayTitle } from '@/lib/managed/session-display'
 import { AgentModelSummary } from '@/components/managed/agent/agent-model-summary'
@@ -86,6 +89,7 @@ import {
 } from '@/lib/managed/session-event-cache'
 import type {
   Agent,
+  AgentVersion,
   Environment,
   CredentialGroup,
   CredentialGroupCredential,
@@ -1526,12 +1530,6 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
   )
 }
 
-interface AgentVersionEntry {
-  version: number
-  snapshot: Agent
-  created_at: string
-}
-
 function AgentDrawer({
   session,
   agent,
@@ -1559,10 +1557,13 @@ function AgentDrawer({
   const { data: versionsData } = useQuery({
     queryKey: ['agent-versions', queryScope, agentId],
     queryFn: () =>
-      managedGet<{ data: AgentVersionEntry[] }>(
+      managedGet<{ data: unknown[] }>(
         apiResourcePath('agents', agentId!, 'versions'),
         managedRequestOptions(requestScope),
-      ),
+      ).then((response) => ({
+        ...response,
+        data: parseAgentVersionListResponse(response.data),
+      })),
     enabled: !!agentId && hasManagedRequestScope(requestScope),
   })
 
@@ -1572,7 +1573,7 @@ function AgentDrawer({
   const versions = useMemo(() => {
     if (!currentVersion) return rawVersions
     const snapshotMap = new Map(rawVersions.map((v) => [v.version, v]))
-    const all: AgentVersionEntry[] = []
+    const all: Array<Pick<AgentVersion, 'version' | 'created_at'> & { snapshot: Agent }> = []
     for (let i = currentVersion; i >= 1; i--) {
       const existing = snapshotMap.get(i)
       if (existing) {

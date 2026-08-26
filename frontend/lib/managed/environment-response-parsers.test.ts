@@ -6,7 +6,6 @@ import {
   CREDENTIAL_REFERENCE_KEYS,
   CREDENTIAL_REFERENCE_NORMALIZATION,
   CREDENTIAL_SNAPSHOT_SCHEMAS,
-  LEGACY_SNAPSHOT_REFERENCE_PATHS,
 } from './credential-reference-contract'
 import {
   CredentialReferenceCodec,
@@ -32,11 +31,12 @@ function liveDocumentForPath(entry: (typeof referenceContract.reference_paths)[n
   const document = build(segments)
   if (entry.path.includes('egress_services')) {
     const service = (document.egress_services as Record<string, unknown>[])[0]
+    service.name = 'crm'
     service.base_url = 'https://crm.example.com'
-    service.service_credential_id ??= fixture.credential_id
+    service.credential_ref ??= fixture.credential_id
     const inject = (service.inject ??= {}) as Record<string, unknown>
     inject.type ??= fixture.inject_type
-    inject.secret_key ??= fixture.credential_field
+    inject.credential_field ??= fixture.credential_field
   }
   return document
 }
@@ -51,26 +51,19 @@ function rawEnvironment() {
 }
 
 describe('environment response parsers', () => {
-  it('keeps the production contract projection aligned with the normative machine contract', () => {
-    const registeredKeys = new Set([
-      ...referenceContract.canonical_reference_keys,
-      ...referenceContract.legacy_decoder_keys,
-    ])
-    expect(Object.values(CREDENTIAL_REFERENCE_KEYS).sort()).toEqual([...registeredKeys].sort())
+  it('keeps the production contract projection canonical', () => {
+    expect(Object.values(CREDENTIAL_REFERENCE_KEYS)).toEqual(
+      referenceContract.canonical_reference_keys,
+    )
     expect(CREDENTIAL_REFERENCE_NORMALIZATION.injectType).toBe(
       referenceContract.normalization.inject_type,
     )
     expect(CREDENTIAL_SNAPSHOT_SCHEMAS).toEqual(referenceContract.snapshot_schemas)
-
-    const legacySnapshotPaths = new Set(
-      referenceContract.reference_paths
-        .filter((entry) => entry.document !== 'environment_config' && !entry.schemas.includes('v2'))
-        .map((entry) => entry.path),
-    )
-    expect([...LEGACY_SNAPSHOT_REFERENCE_PATHS].sort()).toEqual([...legacySnapshotPaths].sort())
+    expect(referenceContract.legacy_aliases).toEqual({})
+    expect(referenceContract.legacy_decoder_keys).toEqual([])
   })
 
-  it('brands canonical environment ids at the API boundary', () => {
+  it('brands canonical environment and storage volume ids', () => {
     const environment = parseEnvironmentResponse({
       ...rawEnvironment(),
       config: {
@@ -92,51 +85,68 @@ describe('environment response parsers', () => {
   it('rejects bare and cross-entity ids', () => {
     expect(() => parseEnvironmentResponse({ ...rawEnvironment(), id: UUID })).toThrow()
     expect(() => parseEnvironmentResponse({ ...rawEnvironment(), id: `agent_${UUID}` })).toThrow()
+    expect(() =>
+      parseEnvironmentResponse({
+        ...rawEnvironment(),
+        config: { storage_volumes: [{ volume_id: UUID }] },
+      }),
+    ).toThrow(TypeError)
   })
 
-  it.each([UUID, `staudit_${UUID}`])(
-    'rejects invalid persisted environment storage volume id %s',
-    (volumeId) => {
-      expect(() =>
-        parseEnvironmentResponse({
-          ...rawEnvironment(),
-          config: {
-            storage_volumes: [{ volume_id: volumeId }],
-          },
-        }),
-      ).toThrow(TypeError)
-    },
-  )
-
-  it('brands nested credential ids at the API boundary', () => {
+  it('brands canonical nested credential ids', () => {
     const environment = parseEnvironmentResponse({
       ...rawEnvironment(),
       config: {
-        secret_refs: [`cred_${UUID}`],
+        environment_credential_ids: [`cred_${UUID}`],
         egress_services: [
           {
             name: 'secocean',
             base_url: 'https://secocean.example.com',
-            exposure: 'placeholder',
-            inject: { type: 'cookie', secret_key: 'COOKIE_HEADER' },
-            service_credential_id: `cred_${UUID}`,
+            credential_ref: `cred_${UUID}`,
+            inject: { type: 'cookie', credential_field: 'COOKIE_HEADER' },
           },
         ],
       },
     })
 
     expect(environment.config?.environment_credential_ids?.[0]).toBe(`cred_${UUID}`)
-    expect(environment.config?.egress_services?.[0].service_credential_id).toBe(`cred_${UUID}`)
+    expect(environment.config?.egress_services?.[0].credential_ref).toBe(`cred_${UUID}`)
+    expect(environment.config?.egress_services?.[0].inject?.credential_field).toBe('COOKIE_HEADER')
   })
 
-  it.each([UUID, `agent_${UUID}`])('rejects invalid nested credential id %s', (credentialId) => {
+  it.each([
+    { secret_refs: [`cred_${UUID}`] },
+    { service_credential_id: `cred_${UUID}` },
+    {
+      egress_services: [
+        {
+          name: 'secocean',
+          base_url: 'https://secocean.example.com',
+          service_credential_id: `cred_${UUID}`,
+        },
+      ],
+    },
+    {
+      egress_services: [
+        {
+          name: 'secocean',
+          base_url: 'https://secocean.example.com',
+          credential_ref: `cred_${UUID}`,
+          inject: { secret_key: 'TOKEN' },
+        },
+      ],
+    },
+  ])('rejects legacy environment credential aliases', (config) => {
+    expect(() => parseEnvironmentResponse({ ...rawEnvironment(), config })).toThrow(TypeError)
+  })
+
+  it('fails closed for malformed canonical references', () => {
     expect(() =>
       parseEnvironmentResponse({
         ...rawEnvironment(),
-        config: { secret_refs: [credentialId] },
+        config: { environment_credential_ids: [7] },
       }),
     ).toThrow(TypeError)
-
     expect(() =>
       parseEnvironmentResponse({
         ...rawEnvironment(),
@@ -145,97 +155,7 @@ describe('environment response parsers', () => {
             {
               name: 'secocean',
               base_url: 'https://secocean.example.com',
-              exposure: 'placeholder',
-              inject: { type: 'cookie', secret_key: 'COOKIE_HEADER' },
-              service_credential_id: credentialId,
-            },
-          ],
-        },
-      }),
-    ).toThrow(TypeError)
-  })
-
-  it('dual-reads canonical and legacy fields into the canonical application shape', () => {
-    const environment = parseEnvironmentResponse({
-      ...rawEnvironment(),
-      config: {
-        environment_credential_ids: [`cred_${UUID}`],
-        egress_services: [
-          {
-            name: 'secocean',
-            base_url: 'https://secocean.example.com',
-            exposure: 'placeholder',
-            service_credential_id: `cred_${UUID}`,
-            inject: { type: 'raw_header', credential_field: 'TOKEN', header: 'x-token' },
-          },
-        ],
-      },
-    })
-
-    expect(referenceContract.canonical_reference_keys).toContain('environment_credential_ids')
-    expect(environment.config?.environment_credential_ids).toEqual([`cred_${UUID}`])
-    expect(environment.config?.egress_services?.[0].inject?.credential_field).toBe('TOKEN')
-    expect(environment.config).not.toHaveProperty('secret_refs')
-    expect(environment.config?.egress_services?.[0].inject).not.toHaveProperty('secret_key')
-  })
-
-  it('dual-reads legacy credential_ref and mixed duplicate aliases deterministically', () => {
-    const environment = parseEnvironmentResponse({
-      ...rawEnvironment(),
-      config: {
-        environment_credential_ids: [`cred_${UUID}`],
-        secret_refs: [`cred_${UUID}`],
-        service_credential_id: `cred_${UUID}`,
-        egress_services: [
-          {
-            name: 'secocean',
-            base_url: 'https://secocean.example.com',
-            exposure: 'placeholder',
-            service_credential_id: `cred_${UUID}`,
-            credential_ref: `cred_${UUID}`,
-            inject: { credential_field: 'TOKEN', secret_key: 'TOKEN' },
-          },
-        ],
-      },
-    })
-
-    expect(environment.config?.environment_credential_ids).toEqual([`cred_${UUID}`])
-    expect(environment.config?.egress_services).toHaveLength(1)
-    expect(environment.config?.egress_services?.[0].service_credential_id).toBe(`cred_${UUID}`)
-  })
-
-  it('fails closed for conflicting aliases, malformed fields, and non-string ids', () => {
-    expect(() =>
-      parseEnvironmentResponse({
-        ...rawEnvironment(),
-        config: {
-          egress_services: [
-            {
-              base_url: 'https://secocean.example.com',
-              service_credential_id: `cred_${UUID}`,
-              credential_ref: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f011',
-              inject: { secret_key: 'TOKEN' },
-            },
-          ],
-        },
-      }),
-    ).toThrow(TypeError)
-
-    expect(() =>
-      parseEnvironmentResponse({
-        ...rawEnvironment(),
-        config: { secret_refs: [7] },
-      }),
-    ).toThrow(TypeError)
-
-    expect(() =>
-      parseEnvironmentResponse({
-        ...rawEnvironment(),
-        config: {
-          egress_services: [
-            {
-              base_url: 'https://secocean.example.com',
-              service_credential_id: `cred_${UUID}`,
+              credential_ref: `cred_${UUID}`,
               inject: { credential_field: '' },
             },
           ],
@@ -251,8 +171,9 @@ describe('environment response parsers', () => {
       config: {
         egress_services: [
           {
+            name: 'secocean',
             base_url: 'https://secocean.example.com',
-            service_credential_id: `cred_${UUID}`,
+            credential_ref: `cred_${UUID}`,
             inject: { credential_field: acceptedField },
           },
         ],
@@ -266,8 +187,9 @@ describe('environment response parsers', () => {
         config: {
           egress_services: [
             {
+              name: 'secocean',
               base_url: 'https://secocean.example.com',
-              service_credential_id: `cred_${UUID}`,
+              credential_ref: `cred_${UUID}`,
               inject: { credential_field: '🔐'.repeat(129) },
             },
           ],
@@ -276,13 +198,11 @@ describe('environment response parsers', () => {
     ).toThrow(TypeError)
   })
 
-  it('treats null and empty compatible reference collections as empty', () => {
+  it('treats null canonical reference collections as empty', () => {
     const environment = parseEnvironmentResponse({
       ...rawEnvironment(),
       config: {
         environment_credential_ids: null,
-        secret_refs: [],
-        service_credential_id: null,
         egress_services: null,
       },
     })
@@ -291,17 +211,17 @@ describe('environment response parsers', () => {
     expect(environment.config?.egress_services).toEqual([])
   })
 
-  it('executes every live Environment contract path fixture', () => {
+  it('executes every live environment contract path fixture', () => {
     const liveCases = referenceContract.reference_paths.filter(
       (entry) => entry.document === 'environment_config' && entry.schemas.includes('live'),
     )
-    expect(liveCases).toHaveLength(7)
+    expect(liveCases).toHaveLength(3)
     for (const entry of liveCases) {
       const decoded = referenceCodec.decodeEnvironment(liveDocumentForPath(entry))
       if (entry.value_kind === 'credential_id') {
         const credentialIds = [
           ...decoded.direct_credential_ids,
-          ...decoded.egress_services.map((service) => service.service_credential_id),
+          ...decoded.egress_services.map((service) => service.credential_ref),
         ]
         expect(credentialIds).toContain(referenceContract.fixture_matrix.credential_id)
       } else {
@@ -312,18 +232,15 @@ describe('environment response parsers', () => {
     }
   })
 
-  it('executes shared contract parity vectors', () => {
-    expect(typeof referenceCodec.decodeSnapshot).toBe('function')
-    for (const vector of referenceContract.parity_vectors) {
+  it('executes shared live-environment parity vectors', () => {
+    for (const vector of referenceContract.parity_vectors.filter(
+      (entry) => entry.document === 'environment_config',
+    )) {
       const decode = () => {
-        if (vector.document !== 'environment_config') {
-          referenceCodec.decodeSnapshot(vector.input)
-          return
-        }
         const decoded = referenceCodec.decodeEnvironment(vector.input)
         const credentialIds = [
           ...decoded.direct_credential_ids,
-          ...decoded.egress_services.map((service) => service.service_credential_id),
+          ...decoded.egress_services.map((service) => service.credential_ref),
         ].sort()
         if ('expected_credential_ids' in vector) {
           expect(credentialIds).toEqual(vector.expected_credential_ids)
@@ -336,9 +253,9 @@ describe('environment response parsers', () => {
       }
       if (vector.result === 'corrupt_record') {
         expect(decode).toThrow(TypeError)
-        continue
+      } else {
+        decode()
       }
-      decode()
     }
   })
 })

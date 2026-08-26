@@ -12,11 +12,11 @@ export type ManagedResourceKind =
   | 'file'
   | 'memoryStore'
   | 'project'
-  | 'secret'
+  | 'credential'
   | 'session'
   | 'skill'
   | 'trigger'
-  | 'vault'
+  | 'credentialGroup'
 
 export type ErrorReason = 'forbidden' | 'notFound' | 'unknown'
 

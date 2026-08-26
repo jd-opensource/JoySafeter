@@ -1,8 +1,10 @@
+import type { CredentialId } from '@/types/entity-id'
+
 interface QuickstartInputPlaceholderOptions {
   selectedEngine: string
-  secretRef: string
+  modelCredentialId: CredentialId | ''
   currentStep: number
-  selectedSecretCompatible: boolean
+  selectedCredentialCompatible: boolean
   isSessionRunning: boolean
   isStreaming: boolean
   readyKey: string
@@ -10,9 +12,9 @@ interface QuickstartInputPlaceholderOptions {
 
 export function quickstartInputPlaceholderKey({
   selectedEngine,
-  secretRef,
+  modelCredentialId,
   currentStep,
-  selectedSecretCompatible,
+  selectedCredentialCompatible,
   isSessionRunning,
   isStreaming,
   readyKey,
@@ -22,8 +24,8 @@ export function quickstartInputPlaceholderKey({
   if (!selectedEngine && currentStep > 1) return 'managed.quickstart.selectEngineFirst'
   if (currentStep === 1) return readyKey
   if (currentStep === 2) return 'managed.quickstart.chooseModelConnection'
-  if (!secretRef) return 'managed.quickstart.noApiKey'
-  if (currentStep >= 3 && !selectedSecretCompatible) {
+  if (!modelCredentialId) return 'managed.quickstart.noApiKey'
+  if (currentStep >= 3 && !selectedCredentialCompatible) {
     return 'managed.quickstart.noCompatibleModelConnection'
   }
   return readyKey

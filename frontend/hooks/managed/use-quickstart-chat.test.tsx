@@ -263,7 +263,7 @@ describe('useQuickstartChat resource creation', () => {
     expect(result.current.completedSteps.has(4)).toBe(false)
   })
 
-  it('uses the translated MCP Credential Vault prompt for the step 5 auto intro', async () => {
+  it('uses the translated MCP Credential Group prompt for the step 5 auto intro', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(quickstartResponseText(''))
     globalThis.fetch = fetchMock as typeof fetch
     const { result } = renderHook(() => useQuickstartChat('openai-prod'))
@@ -344,19 +344,19 @@ describe('useQuickstartChat resource creation', () => {
     const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
 
     let environmentCreated: boolean | undefined
-    let vaultCreated: boolean | undefined
+    let credentialGroupCreated: boolean | undefined
     let generated = ''
 
     await act(async () => {
       await result.current.sendMessage('make an agent', { stepOverride: 3 })
       environmentCreated = await result.current.createEnvironment('limited', ['api.example.com'])
-      vaultCreated = await result.current.createCredentialGroup('prod-secrets')
+      credentialGroupCreated = await result.current.createCredentialGroup('prod-secrets')
       generated = await result.current.generateTestMessage()
     })
 
     expect(fetchMock).not.toHaveBeenCalled()
     expect(environmentCreated).toBe(false)
-    expect(vaultCreated).toBe(false)
+    expect(credentialGroupCreated).toBe(false)
     expect(generated).toBe('managed.quickstart.trialRun.defaultPrompt')
     expect(result.current.messages).toEqual([])
     expect(result.current.resourceIds).toEqual({})
@@ -400,7 +400,7 @@ describe('useQuickstartChat resource creation', () => {
     expect(result.current.completedSteps.has(4)).toBe(false)
   })
 
-  it('marks a vault created only after the create API returns an id', async () => {
+  it('marks a credential group created only after the create API returns an id', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       Response.json({
         success: true,
@@ -506,7 +506,7 @@ describe('useQuickstartChat resource creation', () => {
 
     const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
 
-    act(() => result.current.selectAgentSecret('anthropic-prod'))
+    act(() => result.current.selectModelCredential('anthropic-prod'))
     await act(async () => {
       await result.current.createEnvironment('limited', ['api.example.com'])
     })
@@ -559,7 +559,7 @@ describe('useQuickstartChat resource creation', () => {
     expect(created).toBe(false)
   })
 
-  it('does not mark a vault created after the hook unmounts', async () => {
+  it('does not mark a credential group created after the hook unmounts', async () => {
     const createVaultResponse = deferred<Response>()
     const fetchMock = vi.fn().mockReturnValueOnce(createVaultResponse.promise)
     globalThis.fetch = fetchMock as typeof fetch
@@ -706,7 +706,7 @@ describe('useQuickstartChat resource creation', () => {
     )
   })
 
-  it('uses validated session resource overrides instead of stale stored environment and vault ids', async () => {
+  it('uses validated session resource overrides instead of stale stored environment and credential-group ids', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(quickstartAgentConfigResponse(AGENT_ID))

@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 
 import { NotificationWsClient } from '@/lib/ws/notifications/NotificationWsClient'
 import type { NotificationMessage } from '@/lib/ws/notifications/NotificationWsClient'
+import type { UserId } from '@/types/entity-id'
 
 export type { NotificationMessage } from '@/lib/ws/notifications/NotificationWsClient'
 
@@ -14,7 +15,7 @@ export enum NotificationType {
 }
 
 export interface UseNotificationWebSocketOptions {
-  userId: string | null | undefined
+  userId: UserId | null | undefined
   onNotification?: (notification: NotificationMessage) => void
   autoReconnect?: boolean
   reconnectInterval?: number

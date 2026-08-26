@@ -7,11 +7,11 @@ import { describe, expect, it } from 'vitest'
 const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:ts|tsx)$/
 const SOURCE_FILE_PATTERN = /\.(?:ts|tsx)$/
 const QUOTED_CORE_ID_PATTERN =
-  /["'`]((?:agent_|sess_|task_|trig_|env_|secret_|vault_|cred_|sbx_|memstore_|memver_|mem_|skill_|sklfile_|sklscan_|sklver_|sklvfile_|skluse_|file_|sesrsc_|evt_|vol_|stgrant_|staudit_)[^"'`\s]*)["'`]/g
+  /["'`]((?:agentver_|agent_|apikey_|sess_|task_|trig_|env_|credgrp_|cred_|sbx_|memstore_|memver_|mem_|skill_|sklfile_|sklscan_|sklver_|sklvfile_|skluse_|file_|sesrsc_|evt_|vol_|stgrant_|staudit_)[^"'`\s]*)["'`]/g
 const CANONICAL_CORE_ID_PATTERN =
-  /^(?:agent_|sess_|task_|trig_|env_|secret_|vault_|cred_|sbx_|memstore_|memver_|mem_|skill_|sklfile_|sklscan_|sklver_|sklvfile_|skluse_|file_|sesrsc_|evt_|vol_|stgrant_|staudit_)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+  /^(?:agentver_|agent_|apikey_|sess_|task_|trig_|env_|credgrp_|cred_|sbx_|memstore_|memver_|mem_|skill_|sklfile_|sklscan_|sklver_|sklvfile_|skluse_|file_|sesrsc_|evt_|vol_|stgrant_|staudit_)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const ENTITY_PREFIX_ALTERNATION =
-  'agent_|sess_|task_|trig_|env_|secret_|vault_|cred_|sbx_|memstore_|memver_|mem_|skill_|sklfile_|sklscan_|sklver_|sklvfile_|skluse_|file_|sesrsc_|evt_|vol_|stgrant_|staudit_'
+  'agentver_|agent_|apikey_|sess_|task_|trig_|env_|credgrp_|cred_|sbx_|memstore_|memver_|mem_|skill_|sklfile_|sklscan_|sklver_|sklvfile_|skluse_|file_|sesrsc_|evt_|vol_|stgrant_|staudit_'
 const REGISTERED_ENTITY_PREFIXES = ENTITY_PREFIX_ALTERNATION.split('|')
 const REGISTERED_ENTITY_PREFIX_LENGTHS = new Set(
   REGISTERED_ENTITY_PREFIXES.map((prefix) => prefix.length),
@@ -382,7 +382,7 @@ function prefixRemovalKind(
     ts.isNumericLiteral(node.arguments[0]) &&
     REGISTERED_ENTITY_PREFIX_LENGTHS.has(Number(node.arguments[0].text)) &&
     (idLikeExpression(node.expression.expression) ||
-      relativePath.replaceAll('\\', '/').endsWith('lib/managed/id.ts'))
+      relativePath.replaceAll('\\', '/').endsWith('lib/managed/entity-id-display.ts'))
   ) {
     return 'prefix_numeric_offset'
   }
@@ -437,7 +437,7 @@ function manualEntityIdRemovalLines(source: string, relativePath?: string): numb
   return analyzePrefixRemovals(source, relativePath).lines
 }
 
-function removedHelperLines(source: string): number[] {
+function forbiddenEntityIdHelperLines(source: string): number[] {
   const sourceFile = sourceFileFor(source)
   const lines = new Set<number>()
   const record = (node: ts.Node): void => {
@@ -473,9 +473,9 @@ describe('typed entity id architecture', () => {
     expect(managedTypes).toContain('id: AgentId')
   })
 
-  it('does not import or call legacy prefix helpers in production code', () => {
+  it('forbids entity ID prefix rewrite helpers in production code', () => {
     const violations = collectProductionFiles(process.cwd()).flatMap((file) =>
-      removedHelperLines(readFileSync(file, 'utf8')).map(
+      forbiddenEntityIdHelperLines(readFileSync(file, 'utf8')).map(
         (line) => `${path.relative(process.cwd(), file)}:${line}`,
       ),
     )
@@ -525,7 +525,7 @@ describe('typed entity id architecture', () => {
     expect(forbiddenDisplayHelperLines('managedGet(\n  shortEntityId(id, kind),\n)')).toEqual([2])
     expect(forbiddenDisplayHelperLines('const cacheKey = shortEntityId(id, kind)')).toEqual([1])
     expect(
-      removedHelperLines("import { stripIdPrefix as strip } from './id'\nstrip(value)"),
+      forbiddenEntityIdHelperLines("import { stripIdPrefix as strip } from './id'\nstrip(value)"),
     ).toEqual([1])
     expect(forbiddenDisplayHelperLines("const label = shortEntityId(id, 'agent')")).toEqual([])
   })
@@ -875,21 +875,6 @@ function numeric(sessionId) {
     expect(listPage).not.toContain('vault-response-parsers')
     expect(detailComponent).not.toContain('vault-response-parsers')
     expect(readProjectFile('lib/managed/api-paths.ts')).toContain('parseAnyEntityId')
-  })
-
-  it('keeps active environment types canonical while legacy keys stay decoder-only', () => {
-    const managedTypes = readProjectFile('types/managed.ts')
-    const editor = readProjectFile('components/managed/environments-egress-editor.tsx')
-    const parser = readProjectFile('lib/managed/environment-response-parsers.ts')
-    const parserTest = readProjectFile('lib/managed/environment-response-parsers.test.ts')
-
-    expect(managedTypes).toContain('environment_credential_ids?: CredentialId[]')
-    expect(managedTypes).toContain('credential_field?: string')
-    expect(managedTypes).not.toContain('secret_refs?: CredentialId[]')
-    expect(managedTypes).not.toContain('secret_key?: string')
-    expect(editor).not.toContain('.secret_key')
-    expect(parser).not.toContain('backend/contracts/credential_reference_contract.json')
-    expect(parserTest).toContain('backend/contracts/credential_reference_contract.json')
   })
 
   it('keeps sandbox diagnostics typed at the API boundary', () => {

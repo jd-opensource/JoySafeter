@@ -24,7 +24,7 @@ const quickstartState = vi.hoisted(() => ({
   sendMessage: vi.fn(),
   applyTemplate: vi.fn(),
   selectEngine: vi.fn(),
-  selectAgentSecret: vi.fn(),
+  selectModelCredential: vi.fn(),
   reopenStep: vi.fn(),
   enabledEngines: [] as Array<{
     id: string
@@ -33,7 +33,7 @@ const quickstartState = vi.hoisted(() => ({
     supported_protocol_ids: string[]
     preferred_protocol_ids: string[]
   }>,
-  compatibleSecrets: [
+  compatibleCredentials: [
     {
       id: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
       name: 'model-prod',
@@ -79,7 +79,7 @@ vi.mock('@/hooks/managed/use-compatible-credentials', () => ({
     isSuccess: true,
   }),
   useCompatibleCredentials: () => ({
-    data: quickstartState.compatibleSecrets,
+    data: quickstartState.compatibleCredentials,
     isSuccess: true,
   }),
 }))
@@ -104,7 +104,7 @@ vi.mock('@/hooks/managed/use-quickstart-chat', () => ({
     retryGeneration: vi.fn(),
     applyTemplate: quickstartState.applyTemplate,
     selectEngine: quickstartState.selectEngine,
-    selectAgentSecret: quickstartState.selectAgentSecret,
+    selectModelCredential: quickstartState.selectModelCredential,
     advanceStep: vi.fn(),
     skipStep: vi.fn(),
     setAgentSkills: vi.fn(),
@@ -161,7 +161,7 @@ describe('Quickstart page Model Connection completion', () => {
     quickstartState.createCredentialGroup.mockReset()
     quickstartState.reopenStep.mockReset()
     quickstartState.enabledEngines = []
-    quickstartState.compatibleSecrets = [
+    quickstartState.compatibleCredentials = [
       {
         id: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
         name: 'model-prod',
@@ -177,7 +177,7 @@ describe('Quickstart page Model Connection completion', () => {
         updated_at: '2030-01-01T00:00:00Z',
       },
     ]
-    quickstartState.activeModelConnections = [...quickstartState.compatibleSecrets]
+    quickstartState.activeModelConnections = [...quickstartState.compatibleCredentials]
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
@@ -405,7 +405,7 @@ describe('Quickstart page Model Connection completion', () => {
     ]
     quickstartState.activeModelConnections = [
       {
-        ...quickstartState.compatibleSecrets[0],
+        ...quickstartState.compatibleCredentials[0],
         compatible_engine_ids: ['native'],
       },
     ]
@@ -435,7 +435,7 @@ describe('Quickstart page Model Connection completion', () => {
         preferred_protocol_ids: ['openai_responses'],
       },
     ]
-    quickstartState.compatibleSecrets = [
+    quickstartState.compatibleCredentials = [
       {
         id: 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021',
         name: 'anthropic-default',
@@ -469,7 +469,7 @@ describe('Quickstart page Model Connection completion', () => {
     render(<QuickstartPage />, { wrapper })
 
     await waitFor(() =>
-      expect(quickstartState.selectAgentSecret).toHaveBeenCalledWith(
+      expect(quickstartState.selectModelCredential).toHaveBeenCalledWith(
         'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f022',
       ),
     )
@@ -623,7 +623,7 @@ describe('Quickstart page Model Connection completion', () => {
         name: 'MCP Agent',
         mcp_servers: [{ type: 'url', name: 'GitHub', url: 'https://api.github.com/mcp' }],
       },
-      vault: {
+      credentialGroup: {
         name: 'GitHub tools',
         description: 'Authorize GitHub MCP',
         mcp_server_url: 'https://api.github.com/mcp',

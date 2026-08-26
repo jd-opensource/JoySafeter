@@ -14,6 +14,7 @@ import {
   filterSelectableCredentials,
   parseCredentialListResponse,
 } from '@/lib/managed/credential-response-parsers'
+import { parseCredentialId, type CredentialId } from '@/types/entity-id'
 import type { Credential } from '@/types/managed'
 
 interface CredentialPage {
@@ -32,8 +33,8 @@ export async function fetchAllServiceCredentials(
   scope: ManagedRequestScope,
 ): Promise<Credential[]> {
   const credentials: Credential[] = []
-  const seenCursors = new Set<string>()
-  let afterId: string | undefined
+  const seenCursors = new Set<CredentialId>()
+  let afterId: CredentialId | undefined
 
   for (;;) {
     const page = await managedGet<CredentialPage>(
@@ -45,12 +46,13 @@ export async function fetchAllServiceCredentials(
       }),
       managedRequestOptions(scope),
     )
+    const lastId = page.last_id == null ? null : parseCredentialId(page.last_id)
     if (page.has_more) {
-      if (!page.last_id || seenCursors.has(page.last_id)) {
+      if (!lastId || seenCursors.has(lastId)) {
         throw new Error('Service Credential pagination returned an invalid cursor')
       }
-      seenCursors.add(page.last_id)
-      afterId = page.last_id
+      seenCursors.add(lastId)
+      afterId = lastId
     }
     credentials.push(...filterSelectableCredentials(parseCredentialListResponse(page.data)))
     if (!page.has_more) return credentials

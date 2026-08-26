@@ -87,7 +87,7 @@ export function CreateMcpMemberDialog({
       requestScope,
     }: CreateCredentialVariables) => {
       if (!isCurrentAction(runId, scope)) {
-        throw new Error('Stale vault credential create ignored')
+        throw new Error('Stale credential-group member create ignored')
       }
       const payload = pendingPayloadRef.current
       if (!payload) throw new Error('MCP credential payload is unavailable')
@@ -208,6 +208,9 @@ export function CreateMcpMemberDialog({
               disabled={readOnly}
               onChange={(e) => setMcpServerUrl(e.target.value)}
             />
+            <p className="text-xs text-muted-foreground">
+              {t('managed.credentials.groups.members.mcpServerMatchHint')}
+            </p>
           </div>
 
           <div className="space-y-1.5">

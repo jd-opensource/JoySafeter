@@ -9,21 +9,24 @@ export type QuickstartModelRecommendationReason =
   | 'recentCompatible'
 
 export interface QuickstartModelRecommendation {
-  secret: Credential
+  credential: Credential
   reason: QuickstartModelRecommendationReason
   autoContinue: boolean
 }
 
-function createdTime(secret: Credential): number {
-  const time = Date.parse(secret.created_at)
+function createdTime(credential: Credential): number {
+  const time = Date.parse(credential.created_at)
   return Number.isFinite(time) ? time : 0
 }
 
-function protocolRank(engine: LlmEngineCapability | null | undefined, secret: Credential): number {
-  if (!engine || !secret.protocol) return Number.MAX_SAFE_INTEGER
-  const preferredIndex = engine.preferred_protocol_ids.indexOf(secret.protocol)
+function protocolRank(
+  engine: LlmEngineCapability | null | undefined,
+  credential: Credential,
+): number {
+  if (!engine || !credential.protocol) return Number.MAX_SAFE_INTEGER
+  const preferredIndex = engine.preferred_protocol_ids.indexOf(credential.protocol)
   if (preferredIndex >= 0) return preferredIndex
-  const supportedIndex = engine.supported_protocol_ids.indexOf(secret.protocol)
+  const supportedIndex = engine.supported_protocol_ids.indexOf(credential.protocol)
   if (supportedIndex >= 0) return engine.preferred_protocol_ids.length + supportedIndex
   return Number.MAX_SAFE_INTEGER
 }
@@ -42,10 +45,10 @@ function compareRecommended(
 
 function isPreferredProtocol(
   engine: LlmEngineCapability | null | undefined,
-  secret: Credential,
+  credential: Credential,
 ): boolean {
   return Boolean(
-    engine && secret.protocol && engine.preferred_protocol_ids.includes(secret.protocol),
+    engine && credential.protocol && engine.preferred_protocol_ids.includes(credential.protocol),
   )
 }
 
@@ -57,7 +60,7 @@ export function recommendQuickstartModelConnection(
   if (activeOptions.length === 0) return null
   if (activeOptions.length === 1) {
     return {
-      secret: activeOptions[0],
+      credential: activeOptions[0],
       reason: 'onlyCompatible',
       autoContinue: true,
     }
@@ -65,26 +68,28 @@ export function recommendQuickstartModelConnection(
 
   const defaultOptions = activeOptions.filter((option) => option.is_default)
   if (defaultOptions.length > 0) {
-    const secret = [...defaultOptions].sort((a, b) => compareRecommended(engine, a, b))[0]
+    const credential = [...defaultOptions].sort((a, b) => compareRecommended(engine, a, b))[0]
     return {
-      secret,
-      reason: isPreferredProtocol(engine, secret) ? 'preferredProtocolDefault' : 'protocolDefault',
+      credential,
+      reason: isPreferredProtocol(engine, credential)
+        ? 'preferredProtocolDefault'
+        : 'protocolDefault',
       autoContinue: true,
     }
   }
 
   const preferredOptions = activeOptions.filter((option) => isPreferredProtocol(engine, option))
   if (preferredOptions.length > 0) {
-    const secret = [...preferredOptions].sort((a, b) => compareRecommended(engine, a, b))[0]
+    const credential = [...preferredOptions].sort((a, b) => compareRecommended(engine, a, b))[0]
     return {
-      secret,
+      credential,
       reason: 'preferredProtocol',
       autoContinue: false,
     }
   }
 
   return {
-    secret: [...activeOptions].sort((a, b) => compareRecommended(engine, a, b))[0],
+    credential: [...activeOptions].sort((a, b) => compareRecommended(engine, a, b))[0],
     reason: 'recentCompatible',
     autoContinue: false,
   }

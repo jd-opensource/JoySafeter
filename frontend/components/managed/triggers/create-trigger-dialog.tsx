@@ -170,7 +170,7 @@ function usableCredentialFields(fields: readonly string[] | undefined): string[]
 }
 
 // Sentinel Select value for "no explicit environment" — radix Select cannot use
-// an empty-string item value, so we map this to `environment_ref = null`.
+// an empty-string item value, so we map this to `environment_id = null`.
 const FOLLOW_AGENT_ENV = '__agent_default__'
 
 interface FilterRow {
@@ -183,7 +183,7 @@ interface TriggerFormState {
   name: string
   description: string
   agentId: AgentId | ''
-  environmentRef: string
+  environmentId: EnvironmentId | ''
   prompt: string
   agentSearch: string
   envSearch: string
@@ -198,7 +198,7 @@ interface TriggerFormState {
   tz: string
   runAt: string
   policy: TriggerConcurrencyPolicy
-  secretRef: string
+  webhookCredentialId: string
   secretKey: string
   authMethods: WebhookAuthMethod[]
   dedupeHeader: string
@@ -242,7 +242,7 @@ function triggerToFormState(trigger?: AgentTrigger | null): TriggerFormState {
       name: '',
       description: '',
       agentId: '',
-      environmentRef: '',
+      environmentId: '',
       prompt: '',
       agentSearch: '',
       envSearch: '',
@@ -257,7 +257,7 @@ function triggerToFormState(trigger?: AgentTrigger | null): TriggerFormState {
       tz: detectBrowserTimezone(),
       runAt: '',
       policy: 'allow',
-      secretRef: '',
+      webhookCredentialId: '',
       secretKey: DEFAULT_SECRET_KEY,
       authMethods: [...AUTH_METHODS],
       dedupeHeader: DEFAULT_DEDUPE_HEADER,
@@ -271,7 +271,7 @@ function triggerToFormState(trigger?: AgentTrigger | null): TriggerFormState {
     name: trigger.name,
     description: trigger.description ?? '',
     agentId: trigger.agent_id,
-    environmentRef: trigger.environment_ref ?? '',
+    environmentId: trigger.environment_id ?? '',
     prompt: trigger.prompt_template,
     agentSearch: '',
     envSearch: '',
@@ -286,7 +286,7 @@ function triggerToFormState(trigger?: AgentTrigger | null): TriggerFormState {
     tz: trigger.timezone || 'UTC',
     runAt: isoToLocalInput(trigger.run_at),
     policy: (trigger.concurrency_policy ?? 'allow') as TriggerConcurrencyPolicy,
-    secretRef: trigger.webhook_auth_credential_id ?? '',
+    webhookCredentialId: trigger.webhook_auth_credential_id ?? '',
     secretKey: trigger.webhook_auth_field ?? DEFAULT_SECRET_KEY,
     authMethods: Array.isArray(cfgAuth) ? cfgAuth.filter(isWebhookAuthMethod) : [...AUTH_METHODS],
     dedupeHeader: (trigger.config?.dedupe_header as string) ?? DEFAULT_DEDUPE_HEADER,
@@ -319,7 +319,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
   const [name, setName] = useState(initialForm.name)
   const [description, setDescription] = useState(initialForm.description)
   const [agentId, setAgentId] = useState(initialForm.agentId)
-  const [environmentRef, setEnvironmentRef] = useState(initialForm.environmentRef)
+  const [environmentId, setEnvironmentId] = useState(initialForm.environmentId)
   const [prompt, setPrompt] = useState(initialForm.prompt)
   const [agentSearch, setAgentSearch] = useState(initialForm.agentSearch)
   const [envSearch, setEnvSearch] = useState(initialForm.envSearch)
@@ -339,7 +339,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
   const [policy, setPolicy] = useState<TriggerConcurrencyPolicy>(initialForm.policy)
 
   // Webhook
-  const [secretRef, setSecretRef] = useState(initialForm.secretRef)
+  const [webhookCredentialId, setWebhookCredentialId] = useState(initialForm.webhookCredentialId)
   const [secretKey, setSecretKey] = useState(initialForm.secretKey)
   const [authMethods, setAuthMethods] = useState<WebhookAuthMethod[]>(initialForm.authMethods)
   const [dedupeHeader, setDedupeHeader] = useState(initialForm.dedupeHeader)
@@ -351,8 +351,8 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
     [serviceCredentialsQuery.data],
   )
   const selectedCredential = useMemo(
-    () => serviceCredentials.find((credential) => credential.id === secretRef),
-    [secretRef, serviceCredentials],
+    () => serviceCredentials.find((credential) => credential.id === webhookCredentialId),
+    [webhookCredentialId, serviceCredentials],
   )
   const credentialFields = useMemo(
     () => usableCredentialFields(Object.keys(selectedCredential?.data ?? {})),
@@ -362,10 +362,10 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
     () =>
       !serviceCredentialsQuery.isLoading &&
       !serviceCredentialsQuery.isError &&
-      Boolean(secretRef) &&
+      Boolean(webhookCredentialId) &&
       !selectedCredential,
     [
-      secretRef,
+      webhookCredentialId,
       selectedCredential,
       serviceCredentialsQuery.isError,
       serviceCredentialsQuery.isLoading,
@@ -532,7 +532,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
       name: name.trim(),
       description: description.trim() || null,
       prompt_template: prompt.trim(),
-      environment_ref: environmentRef || null,
+      environment_id: environmentId || null,
       session_mode: sessionMode,
       pinned_session_id: sessionMode === 'pinned' ? parseSessionId(pinnedSessionId) : null,
       session_key: sessionMode === 'keyed' ? sessionKey.trim() : null,
@@ -560,7 +560,9 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
             }
         : type === 'webhook'
           ? {
-              webhook_auth_credential_id: secretRef ? parseCredentialId(secretRef) : null,
+              webhook_auth_credential_id: webhookCredentialId
+                ? parseCredentialId(webhookCredentialId)
+                : null,
               webhook_auth_field: secretKey,
               auth_methods: authMethods,
               dedupe_header: dedupeHeader.trim() || DEFAULT_DEDUPE_HEADER,
@@ -606,7 +608,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
   const handleServiceCredentialChange = (value: string) => {
     const credential = serviceCredentials.find((item) => item.id === value)
     const fields = usableCredentialFields(Object.keys(credential?.data ?? {}))
-    setSecretRef(value)
+    setWebhookCredentialId(value)
     setSecretKey(fields.includes(DEFAULT_SECRET_KEY) ? DEFAULT_SECRET_KEY : (fields[0] ?? ''))
   }
 
@@ -748,8 +750,10 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
           <div className="space-y-1.5">
             <Label>{t('managed.triggers.runtimeEnvironment')}</Label>
             <Select
-              value={environmentRef || FOLLOW_AGENT_ENV}
-              onValueChange={(v) => setEnvironmentRef(v === FOLLOW_AGENT_ENV ? '' : v)}
+              value={environmentId || FOLLOW_AGENT_ENV}
+              onValueChange={(value) =>
+                setEnvironmentId(value === FOLLOW_AGENT_ENV ? '' : parseEnvironmentId(value))
+              }
             >
               <SelectTrigger>
                 <SelectValue />
@@ -866,7 +870,7 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
                 <div className="space-y-1.5">
                   <Label>{t('managed.triggers.serviceCredential')}</Label>
                   <ServiceCredentialSelect
-                    value={secretRef}
+                    value={webhookCredentialId}
                     onChange={handleServiceCredentialChange}
                     credentials={serviceCredentials}
                     loading={serviceCredentialsQuery.isLoading}

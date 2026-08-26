@@ -11,6 +11,7 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import { parseCredentialListResponse } from '@/lib/managed/credential-response-parsers'
+import { parseCredentialId, type CredentialId } from '@/types/entity-id'
 import type { Credential } from '@/types/managed'
 
 interface CredentialPage {
@@ -46,7 +47,7 @@ async function fetchAllModelConnections(
   errorLabel: string,
 ): Promise<Credential[]> {
   const credentials: Credential[] = []
-  let afterId: string | undefined
+  let afterId: CredentialId | undefined
 
   for (;;) {
     const page = await managedGet<CredentialPage>(
@@ -60,11 +61,12 @@ async function fetchAllModelConnections(
       managedRequestOptions(managedScope),
     )
     credentials.push(...parseCredentialListResponse(page.data))
+    const lastId = page.last_id == null ? null : parseCredentialId(page.last_id)
     if (!page.has_more) return credentials
-    if (!page.last_id || page.last_id === afterId) {
+    if (!lastId || lastId === afterId) {
       throw new Error(`${errorLabel} pagination returned an invalid cursor`)
     }
-    afterId = page.last_id
+    afterId = lastId
   }
 }
 

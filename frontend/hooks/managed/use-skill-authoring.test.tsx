@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { JSDOM } from 'jsdom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 
 vi.mock('@/lib/api-client', () => ({
   ApiError: class ApiError extends Error {
@@ -18,7 +18,7 @@ vi.mock('@/lib/api-client', () => ({
 
 import { ApiError, apiStream, managedGet, managedPost } from '@/lib/api-client'
 import { useProjectStore } from '@/stores/managed/project-store'
-import { parseSkillId, type SkillId } from '@/types/entity-id'
+import { parseSkillId, type CredentialId, type SkillId } from '@/types/entity-id'
 
 import { useSkillAuthoring } from './use-skill-authoring'
 
@@ -100,6 +100,12 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+it('requires a typed model credential id at the authoring boundary', () => {
+  const { result } = renderHook(() => useSkillAuthoring({ startFresh: true }))
+
+  expectTypeOf(result.current.send).parameter(1).toEqualTypeOf<CredentialId>()
+})
+
 function projectInfo(archivedAt: string | null = null) {
   return {
     id: 'project-a',
@@ -141,23 +147,6 @@ describe('useSkillAuthoring stream lifecycle', () => {
     vi.restoreAllMocks()
     useProjectStore.setState({ currentOrgId: null, currentProjectId: null, currentProject: null })
     window.localStorage.clear()
-  })
-
-  it('uses Model Connection terminology when authoring has no selected connection', async () => {
-    const { result } = renderHook(() => useSkillAuthoring({ startFresh: true }))
-
-    await act(async () => {
-      await result.current.send('build a skill', '')
-    })
-
-    expect(apiStreamMock).not.toHaveBeenCalled()
-    expect(result.current.messages).toEqual([
-      { role: 'user', content: 'build a skill' },
-      {
-        role: 'assistant',
-        content: '⚠️ 请先在右上角选择一个包含 OPENAI_API_KEY 的模型接入，才能让我开始创作。',
-      },
-    ])
   })
 
   it('does not hydrate a persisted draft from a different managed project', () => {

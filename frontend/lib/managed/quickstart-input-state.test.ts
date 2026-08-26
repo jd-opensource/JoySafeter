@@ -7,9 +7,9 @@ describe('quickstart input state', () => {
     expect(
       quickstartInputPlaceholderKey({
         selectedEngine: '',
-        secretRef: '',
+        modelCredentialId: '',
         currentStep: 1,
-        selectedSecretCompatible: false,
+        selectedCredentialCompatible: false,
         isSessionRunning: false,
         isStreaming: false,
         readyKey: 'managed.quickstart.describeAgent',
@@ -19,9 +19,9 @@ describe('quickstart input state', () => {
     expect(
       quickstartInputPlaceholderKey({
         selectedEngine: 'codex',
-        secretRef: '',
+        modelCredentialId: '',
         currentStep: 2,
-        selectedSecretCompatible: false,
+        selectedCredentialCompatible: false,
         isSessionRunning: false,
         isStreaming: false,
         readyKey: 'managed.quickstart.describeAgent',

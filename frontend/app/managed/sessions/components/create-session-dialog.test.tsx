@@ -215,6 +215,104 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     })
   })
 
+  it('blocks creation when the selected agent is missing a required MCP credential', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/agents') {
+        return {
+          data: [
+            {
+              id: AGENT_ID,
+              name: 'Agent A',
+              engine_kind: 'claude',
+              mcp_servers: [
+                {
+                  type: 'streamable_http',
+                  name: 'required-tools',
+                  url: 'https://mcp.example.com/mcp',
+                  auth_requirement: 'required',
+                },
+              ],
+            },
+          ],
+        }
+      }
+      if (path === '/environments') return { data: [] }
+      if (path === '/credential-groups') return { data: [] }
+      if (path === '/files?limit=100') return { data: [] }
+      if (path === '/memory_stores?limit=100') return { data: [] }
+      return { data: [] }
+    })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <CreateSessionDialog open onOpenChange={() => {}} onCreated={() => {}} />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => expect(view.getByText('Agent A')).toBeTruthy())
+    fireEvent.click(view.getByText('Agent A'))
+
+    await waitFor(() => {
+      expect(view.getByText('managed.sessions.create.mcpCoverage.missing_required')).toBeTruthy()
+    })
+    expect((view.getByText('managed.sessions.create.submit') as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+  })
+
+  it('blocks creation when selected MCP credential members fail to load', async () => {
+    managedGetMock.mockImplementation(async (path: string) => {
+      if (path === '/agents') {
+        return {
+          data: [
+            {
+              id: AGENT_ID,
+              name: 'Agent A',
+              engine_kind: 'claude',
+              mcp_servers: [
+                {
+                  type: 'streamable_http',
+                  name: 'optional-tools',
+                  url: 'https://mcp.example.com/mcp',
+                  auth_requirement: 'optional',
+                },
+              ],
+            },
+          ],
+        }
+      }
+      if (path === '/environments') return { data: [] }
+      if (path === '/credential-groups') {
+        return { data: [{ id: VAULT_ID, name: 'Credential Group A', archived_at: null }] }
+      }
+      if (path === `/credential-groups/${VAULT_ID}/members?limit=100`) {
+        throw new Error('member load failed')
+      }
+      if (path === '/files?limit=100') return { data: [] }
+      if (path === '/memory_stores?limit=100') return { data: [] }
+      return { data: [] }
+    })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <CreateSessionDialog open onOpenChange={() => {}} onCreated={() => {}} />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => expect(view.getByText('Agent A')).toBeTruthy())
+    fireEvent.click(view.getByText('Agent A'))
+    fireEvent.click(view.getByText('managed.sessions.create.selectCredentialGroups'))
+    await waitFor(() => expect(view.getByText('Credential Group A')).toBeTruthy())
+    fireEvent.click(view.getByText('Credential Group A'))
+
+    await waitFor(() => {
+      expect(view.getByText('managed.sessions.create.mcpCoverage.load_failed')).toBeTruthy()
+    })
+    expect((view.getByText('managed.sessions.create.submit') as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+  })
+
   it('does not submit an agent selected from the previous project after managed context data changes', async () => {
     let projectAgent = { id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }
     managedGetMock.mockImplementation(async (path: string) => {

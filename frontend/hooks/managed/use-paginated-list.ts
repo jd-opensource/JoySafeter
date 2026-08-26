@@ -12,14 +12,17 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 
-interface PageResult<T> {
+interface PageResult<T, CursorId extends string> {
   data: T[]
   has_more: boolean
-  first_id?: string
-  last_id?: string
+  first_id?: CursorId
+  last_id?: CursorId
 }
 
-interface UsePaginatedListOptions<T extends { id?: string }> {
+interface UsePaginatedListOptions<
+  T extends { id?: CursorId },
+  CursorId extends string = Extract<T['id'], string>,
+> {
   queryKey: string
   path: string
   query?: Record<string, string | number | boolean | null | undefined>
@@ -31,8 +34,8 @@ interface UsePaginatedListOptions<T extends { id?: string }> {
   enabled?: boolean
   includeArchived?: boolean
   parseItem?: (item: unknown) => T
-  parseCursor?: (cursor: string) => string
-  refetchInterval?: (page: PageResult<T> | undefined) => number | false
+  parseCursor: (cursor: string) => CursorId
+  refetchInterval?: (page: PageResult<T, CursorId> | undefined) => number | false
 }
 
 interface UsePaginatedListResult<T> {
@@ -53,10 +56,10 @@ interface UsePaginatedListResult<T> {
   reset: () => void
 }
 
-interface CursorState {
+interface CursorState<CursorId extends string> {
   scope: string
-  cursor?: string
-  stack: string[]
+  cursor?: CursorId
+  stack: Array<CursorId | ''>
 }
 
 const STORAGE_PREFIX = 'joysafeter:managed:list-pagination:'
@@ -65,40 +68,48 @@ function storageKey(scope: string) {
   return `${STORAGE_PREFIX}${scope}`
 }
 
-function normalizeStoredCursor(
+function normalizeStoredCursor<CursorId extends string>(
   value: unknown,
-  parseCursor?: (cursor: string) => string,
-): string | undefined {
+  parseCursor: (cursor: string) => CursorId,
+): CursorId | undefined {
   if (typeof value !== 'string' || !value) return undefined
   try {
-    return parseCursor ? parseCursor(value) : value
+    return parseCursor(value)
   } catch {
     return undefined
   }
 }
 
-function normalizeCursorState(
+function normalizeCursorState<CursorId extends string>(
   scope: string,
   value: unknown,
-  parseCursor?: (cursor: string) => string,
-): CursorState {
+  parseCursor: (cursor: string) => CursorId,
+): CursorState<CursorId> {
   if (!value || typeof value !== 'object') return { scope, cursor: undefined, stack: [] }
-  const maybeState = value as Partial<CursorState>
+  const maybeState = value as { scope?: unknown; cursor?: unknown; stack?: unknown }
   if (maybeState.scope !== scope) return { scope, cursor: undefined, stack: [] }
+  const stack: Array<CursorId | ''> = []
+  if (Array.isArray(maybeState.stack)) {
+    for (const item of maybeState.stack) {
+      if (item === '') {
+        stack.push('')
+        continue
+      }
+      const cursor = normalizeStoredCursor(item, parseCursor)
+      if (cursor) stack.push(cursor)
+    }
+  }
   return {
     scope,
     cursor: normalizeStoredCursor(maybeState.cursor, parseCursor),
-    stack: Array.isArray(maybeState.stack)
-      ? maybeState.stack.flatMap((item) => {
-          if (item === '') return ['']
-          const cursor = normalizeStoredCursor(item, parseCursor)
-          return cursor ? [cursor] : []
-        })
-      : [],
+    stack,
   }
 }
 
-function loadCursorState(scope: string, parseCursor?: (cursor: string) => string): CursorState {
+function loadCursorState<CursorId extends string>(
+  scope: string,
+  parseCursor: (cursor: string) => CursorId,
+): CursorState<CursorId> {
   if (typeof window === 'undefined') return { scope, cursor: undefined, stack: [] }
   try {
     const raw = window.sessionStorage.getItem(storageKey(scope))
@@ -108,7 +119,7 @@ function loadCursorState(scope: string, parseCursor?: (cursor: string) => string
   }
 }
 
-function saveCursorState(state: CursorState) {
+function saveCursorState<CursorId extends string>(state: CursorState<CursorId>) {
   if (typeof window === 'undefined') return
   try {
     if (!state.cursor && state.stack.length === 0) {
@@ -121,18 +132,19 @@ function saveCursorState(state: CursorState) {
   }
 }
 
-async function apiPage<T extends { id?: string }>(
+async function apiPage<T extends { id?: CursorId }, CursorId extends string>(
   path: string,
   scope: ManagedRequestScope,
-  cursor?: string,
+  cursor: CursorId | undefined,
   limit = 10,
   includeArchived?: boolean,
   parseItem?: (item: unknown) => T,
-  parseCursor?: (cursor: string) => string,
-): Promise<PageResult<T>> {
+  parseCursor?: (cursor: string) => CursorId,
+): Promise<PageResult<T, CursorId>> {
+  if (!parseCursor) throw new TypeError('parseCursor is required')
   const url = apiCollectionPath(path, {
     limit,
-    after_id: cursor ? (parseCursor ? parseCursor(cursor) : cursor) : undefined,
+    after_id: cursor,
     include_archived: includeArchived,
   })
 
@@ -146,12 +158,15 @@ async function apiPage<T extends { id?: string }>(
   const items = parseItem ? res.data.map(parseItem) : (res.data as T[])
   const firstCursor = res.first_id ?? items[0]?.id
   const lastCursor = res.last_id ?? items[items.length - 1]?.id
-  const firstId = firstCursor ? (parseCursor ? parseCursor(firstCursor) : firstCursor) : undefined
-  const lastId = lastCursor ? (parseCursor ? parseCursor(lastCursor) : lastCursor) : undefined
+  const firstId = firstCursor ? parseCursor(firstCursor) : undefined
+  const lastId = lastCursor ? parseCursor(lastCursor) : undefined
   return { data: items, has_more: res.has_more, first_id: firstId, last_id: lastId }
 }
 
-export function usePaginatedList<T extends { id?: string }>({
+export function usePaginatedList<
+  T extends { id?: CursorId },
+  CursorId extends string = Extract<T['id'], string>,
+>({
   queryKey,
   path,
   query,
@@ -165,7 +180,7 @@ export function usePaginatedList<T extends { id?: string }>({
   parseItem,
   parseCursor,
   refetchInterval,
-}: UsePaginatedListOptions<T>): UsePaginatedListResult<T> {
+}: UsePaginatedListOptions<T, CursorId>): UsePaginatedListResult<T> {
   const queryClient = useQueryClient()
   const managedScope = useManagedRequestScope()
   const queryScope = query ? JSON.stringify(query) : ''
@@ -181,7 +196,7 @@ export function usePaginatedList<T extends { id?: string }>({
     ? requestedPageSize
     : defaultPageSize
   const listScope = `${queryKey}:${scopedPath}:${managedScope.key}:${includeArchived}:${effectivePageSize}:${cacheVersion ?? ''}`
-  const [cursorState, setCursorState] = useState<CursorState>(() =>
+  const [cursorState, setCursorState] = useState<CursorState<CursorId>>(() =>
     loadCursorState(listScope, parseCursor),
   )
   const cursor = cursorState.scope === listScope ? cursorState.cursor : undefined
@@ -214,7 +229,7 @@ export function usePaginatedList<T extends { id?: string }>({
   const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: fullKey,
     queryFn: () =>
-      apiPage<T>(
+      apiPage<T, CursorId>(
         scopedPath,
         managedScope,
         cursor,
@@ -240,12 +255,12 @@ export function usePaginatedList<T extends { id?: string }>({
       return undefined
     },
     refetchInterval: refetchInterval
-      ? (query) => refetchInterval(query.state.data as PageResult<T> | undefined)
+      ? (query) => refetchInterval(query.state.data as PageResult<T, CursorId> | undefined)
       : undefined,
     staleTime: 30_000,
   })
 
-  const page: PageResult<T> = data || { data: [], has_more: false }
+  const page: PageResult<T, CursorId> = data || { data: [], has_more: false }
 
   // Prefetch next page when current page has more
   useEffect(() => {
@@ -262,7 +277,7 @@ export function usePaginatedList<T extends { id?: string }>({
       queryClient.prefetchQuery({
         queryKey: nextKey,
         queryFn: () =>
-          apiPage<T>(
+          apiPage<T, CursorId>(
             scopedPath,
             managedScope,
             page.last_id,

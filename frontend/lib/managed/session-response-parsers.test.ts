@@ -7,6 +7,7 @@ const AGENT_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f002'
 const GROUP_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f003'
 const RESOURCE_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f004'
 const CREDENTIAL_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f005'
+const ENVIRONMENT_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f006'
 
 function rawSession() {
   return {
@@ -27,6 +28,7 @@ function rawSession() {
       },
     },
     status: 'idle' as const,
+    environment_id: `env_${ENVIRONMENT_UUID}`,
     credential_group_ids: [`credgrp_${GROUP_UUID}`],
     repo_resources: [
       {
@@ -73,6 +75,7 @@ describe('session response parsers', () => {
     expect(session.agent?.id).toBe(`agent_${AGENT_UUID}`)
     expect(session.agent?.model_credential_id).toBe(`cred_${CREDENTIAL_UUID}`)
     expect(session.agent?.model_connection?.id).toBe(`cred_${CREDENTIAL_UUID}`)
+    expect(session.environment_id).toBe(`env_${ENVIRONMENT_UUID}`)
     expect(session.credential_group_ids?.[0]).toBe(`credgrp_${GROUP_UUID}`)
     expect(session.repo_resources?.[0].id).toBe(`sesrsc_${RESOURCE_UUID}`)
     expect(session.storage_mounts?.[0].id).toBe(`sesrsc_${RESOURCE_UUID}`)
@@ -89,6 +92,9 @@ describe('session response parsers', () => {
         ...rawSession(),
         storage_mounts: [{ ...rawSession().storage_mounts[0], volume_id: RESOURCE_UUID }],
       }),
+    ).toThrow()
+    expect(() =>
+      parseSessionResponse({ ...rawSession(), environment_id: `agent_${ENVIRONMENT_UUID}` }),
     ).toThrow()
   })
 

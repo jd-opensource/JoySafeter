@@ -6,8 +6,6 @@ import { cn } from '@/lib/utils'
 import { StatusBadge, MonoId } from '@/components/managed/shared'
 import { useTranslation } from '@/lib/i18n'
 import { StatTile } from './stat-tile'
-import { ObservationWaterfall } from './observation-waterfall'
-import { useObservationTree } from '@/lib/managed/analytics/hooks'
 import { formatDuration, formatCompactNumber, formatCost } from '@/lib/managed/analytics/formatters'
 import type { CallRecord } from '@/lib/managed/analytics/types'
 
@@ -28,7 +26,6 @@ function MetadataRow({ label, children }: { label: string; children: React.React
 
 export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps) {
   const { t } = useTranslation()
-  const { data: observations, isLoading: obsLoading } = useObservationTree(call?.trace_id ?? null)
 
   useEffect(() => {
     if (!open) return
@@ -38,8 +35,6 @@ export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps)
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [open, onClose])
-
-  const totalDurationMs = call?.duration_ms ?? 0
 
   return (
     <>
@@ -136,18 +131,6 @@ export function CallDetailDrawer({ call, open, onClose }: CallDetailDrawerProps)
               />
               <StatTile label={t('analytics.calls.columns.cost')} value={formatCost(call.cost)} />
               <StatTile label={t('analytics.callDetail.steps')} value={String(call.agent_steps)} />
-            </div>
-
-            {/* Observation waterfall */}
-            <div className="px-5 py-4">
-              <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {t('analytics.observations.title')}
-              </h3>
-              <ObservationWaterfall
-                nodes={observations ?? []}
-                totalDurationMs={totalDurationMs}
-                loading={obsLoading}
-              />
             </div>
 
             {/* Error */}

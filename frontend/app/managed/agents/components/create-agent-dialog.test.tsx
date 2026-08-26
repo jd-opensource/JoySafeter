@@ -941,14 +941,16 @@ describe('CreateAgentDialog managed object lifecycle', () => {
     fireEvent.change(view.getByLabelText('managed.agents.create.mcpTransport'), {
       target: { value: 'sse' },
     })
+    const authRequirement = view.getByLabelText(
+      'managed.agents.create.mcpAuthRequirement',
+    ) as HTMLSelectElement
+    expect(authRequirement.disabled).toBe(true)
+    expect(authRequirement.value).toBe('none')
     fireEvent.input(view.getByPlaceholderText('managed.agents.create.mcpNamePlaceholder'), {
       target: { value: 'events' },
     })
     fireEvent.input(view.getByPlaceholderText('managed.agents.create.mcpUrlPlaceholder'), {
       target: { value: 'https://events.example.com/sse' },
-    })
-    fireEvent.change(view.getByLabelText('managed.agents.create.mcpAuthRequirement'), {
-      target: { value: 'none' },
     })
     fireEvent.click(view.getByText('managed.agents.create.add'))
     fireEvent.click(view.getByText('managed.agents.create.submit'))

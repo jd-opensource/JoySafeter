@@ -3,10 +3,12 @@ import {
   parseNullableId,
   parseOptionalId,
   parseCredentialId,
+  parseEnvironmentId,
   parseSessionId,
   parseTaskId,
   parseTriggerId,
   type CredentialId,
+  type EnvironmentId,
   type SessionId,
   type TaskId,
   type TriggerId,
@@ -18,6 +20,7 @@ type RawAgentTrigger = Omit<
   AgentTrigger,
   | 'id'
   | 'agent_id'
+  | 'environment_id'
   | 'pinned_session_id'
   | 'reusable_session_id'
   | 'last_task_id'
@@ -26,6 +29,7 @@ type RawAgentTrigger = Omit<
 > & {
   id: string
   agent_id: string
+  environment_id: string | null
   pinned_session_id: string | null
   reusable_session_id: string | null
   last_task_id: string | null
@@ -49,6 +53,7 @@ export function parseAgentTriggerResponse(response: RawAgentTrigger): AgentTrigg
     ...response,
     id: parseTriggerId(response.id),
     agent_id: parseAgentId(response.agent_id),
+    environment_id: parseNullableId<EnvironmentId>(response.environment_id, parseEnvironmentId),
     pinned_session_id: parseNullableId<SessionId>(response.pinned_session_id, parseSessionId),
     reusable_session_id: parseNullableId<SessionId>(response.reusable_session_id, parseSessionId),
     last_task_id: parseNullableId<TaskId>(response.last_task_id, parseTaskId),

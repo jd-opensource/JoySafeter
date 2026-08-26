@@ -16,7 +16,7 @@ function rawTrigger() {
     type: 'webhook' as const,
     agent_id: `agent_${UUID}`,
     prompt_template: 'Run',
-    environment_ref: null,
+    environment_id: `env_${UUID}`,
     enabled: true,
     session_mode: 'fresh' as const,
     pinned_session_id: null,
@@ -62,6 +62,7 @@ describe('trigger response parsers', () => {
 
     expect(trigger.id).toBe(`trig_${UUID}`)
     expect(trigger.agent_id).toBe(`agent_${UUID}`)
+    expect(trigger.environment_id).toBe(`env_${UUID}`)
     expect(trigger.last_task_id).toBe(`task_${UUID}`)
     expect(run.trigger_id).toBe(`trig_${UUID}`)
     expect(run.id).toBe(`task_${UUID}`)
@@ -70,6 +71,9 @@ describe('trigger response parsers', () => {
 
   it('rejects bare and cross-entity trigger ids', () => {
     expect(() => parseAgentTriggerResponse({ ...rawTrigger(), id: UUID })).toThrow()
+    expect(() =>
+      parseAgentTriggerResponse({ ...rawTrigger(), environment_id: `agent_${UUID}` }),
+    ).toThrow()
     expect(() =>
       parseTriggerRunResponse({
         id: `task_${UUID}`,

@@ -8,22 +8,34 @@ import type {
   EnvironmentStorageVolume,
 } from '@/types/managed'
 
-import {
-  CREDENTIAL_REFERENCE_KEYS,
-  CREDENTIAL_SNAPSHOT_SCHEMAS,
-  LEGACY_SNAPSHOT_REFERENCE_PATHS,
-} from './credential-reference-contract'
+import { CREDENTIAL_REFERENCE_KEYS } from './credential-reference-contract'
 
 const SUPPORTED_INJECT_KINDS = new Set(['bearer', 'api_key', 'raw_header', 'cookie'])
 const CREDENTIAL_FIELD_MAX_LENGTH = 128
 const MODEL_CREDENTIAL_ID = CREDENTIAL_REFERENCE_KEYS.modelCredentialId
 const ENVIRONMENT_CREDENTIAL_IDS = CREDENTIAL_REFERENCE_KEYS.environmentCredentialIds
-const SERVICE_CREDENTIAL_ID = CREDENTIAL_REFERENCE_KEYS.serviceCredentialId
 const CREDENTIAL_FIELD = CREDENTIAL_REFERENCE_KEYS.credentialField
-const SECRET_REF = CREDENTIAL_REFERENCE_KEYS.secretRef
-const SECRET_REFS = CREDENTIAL_REFERENCE_KEYS.secretRefs
 const CREDENTIAL_REF = CREDENTIAL_REFERENCE_KEYS.credentialRef
-const SECRET_KEY = CREDENTIAL_REFERENCE_KEYS.secretKey
+const ENVIRONMENT_CONFIG_KEYS = new Set([
+  'type',
+  'packages',
+  'networking',
+  'env_vars',
+  ENVIRONMENT_CREDENTIAL_IDS,
+  'egress_services',
+  'storage_volumes',
+  'mount_resources',
+])
+const EGRESS_SERVICE_KEYS = new Set([
+  'name',
+  'kind',
+  'exposure',
+  'base_url',
+  CREDENTIAL_REF,
+  'inject',
+  'allowed_paths',
+])
+const EGRESS_INJECT_KEYS = new Set(['type', CREDENTIAL_FIELD, 'header', 'cookie_name', 'cookies'])
 
 type RawEnvironmentStorageVolume = Omit<EnvironmentStorageVolume, 'volume_id'> & {
   volume_id?: string
@@ -34,8 +46,6 @@ type RawEnvironmentConfig = Omit<
   'environment_credential_ids' | 'egress_services' | 'storage_volumes'
 > & {
   environment_credential_ids?: unknown
-  secret_refs?: unknown
-  service_credential_id?: unknown
   egress_services?: unknown
   storage_volumes?: RawEnvironmentStorageVolume[]
 }
@@ -61,41 +71,15 @@ function omitKeys(
   return result
 }
 
-function registeredPathKeyCount(document: unknown, path: string): number {
-  const segments = path.replace(/^\$\./, '').split('.')
-  let parents: unknown[] = [document]
-  for (const segment of segments.slice(0, -1)) {
-    const expand = segment.endsWith('[*]')
-    const key = expand ? segment.slice(0, -3) : segment
-    const children: unknown[] = []
-    for (const parent of parents) {
-      if (
-        typeof parent !== 'object' ||
-        parent === null ||
-        Array.isArray(parent) ||
-        !(key in parent)
-      ) {
-        continue
-      }
-      const child = (parent as Record<string, unknown>)[key]
-      if (expand) {
-        if (Array.isArray(child)) children.push(...child)
-      } else {
-        children.push(child)
-      }
-    }
-    parents = children
+function assertAllowedKeys(
+  document: Record<string, unknown>,
+  allowedKeys: ReadonlySet<string>,
+  label: string,
+) {
+  const unexpected = Object.keys(document).filter((key) => !allowedKeys.has(key))
+  if (unexpected.length > 0) {
+    throw new TypeError(`${label} contains unsupported fields: ${unexpected.sort().join(', ')}`)
   }
-  const terminal = segments.at(-1)
-  if (terminal === undefined) return 0
-  const terminalKey = terminal.endsWith('[*]') ? terminal.slice(0, -3) : terminal
-  return parents.filter(
-    (parent) =>
-      typeof parent === 'object' &&
-      parent !== null &&
-      !Array.isArray(parent) &&
-      terminalKey in parent,
-  ).length
 }
 
 function parseReferenceId(value: unknown, label: string) {
@@ -105,15 +89,9 @@ function parseReferenceId(value: unknown, label: string) {
   return parseCredentialId(value)
 }
 
-function parseOptionalAliasId(document: Record<string, unknown>, keys: string[], label: string) {
-  const values = keys
-    .filter((key) => document[key] !== undefined && document[key] !== null)
-    .map((key) => parseReferenceId(document[key], label))
-  if (values.length === 0) return undefined
-  if (new Set(values).size !== 1) {
-    throw new TypeError(`${label} aliases conflict`)
-  }
-  return values[0]
+function parseOptionalReferenceId(document: Record<string, unknown>, key: string, label: string) {
+  if (document[key] === undefined || document[key] === null) return undefined
+  return parseReferenceId(document[key], label)
 }
 
 function parseReferenceList(document: Record<string, unknown>, key: string, label: string) {
@@ -134,14 +112,8 @@ function parseOptionalText(value: unknown, label: string): string | undefined {
 }
 
 function parseCredentialField(inject: Record<string, unknown>, injectKind: string, index: number) {
-  const values = [CREDENTIAL_FIELD, SECRET_KEY]
-    .filter((key) => inject[key] !== undefined && inject[key] !== null)
-    .map((key) => parseOptionalText(inject[key], `HTTP egress credential field[${index}]`))
-  if (new Set(values).size > 1) {
-    throw new TypeError(`HTTP egress credential field[${index}] aliases conflict`)
-  }
   const field =
-    values[0] ??
+    parseOptionalText(inject[CREDENTIAL_FIELD], `HTTP egress credential field[${index}]`) ??
     {
       bearer: 'ACCESS_TOKEN',
       api_key: 'API_KEY',
@@ -161,9 +133,10 @@ function parseEgressServices(value: unknown): EnvironmentEgressService[] {
   }
   return value.map((rawService, index) => {
     const service = requireObject(rawService, `HTTP egress service[${index}]`)
-    const credentialId = parseOptionalAliasId(
+    assertAllowedKeys(service, EGRESS_SERVICE_KEYS, `HTTP egress service[${index}]`)
+    const credentialId = parseOptionalReferenceId(
       service,
-      [SERVICE_CREDENTIAL_ID, CREDENTIAL_REF],
+      CREDENTIAL_REF,
       `HTTP egress credential id[${index}]`,
     )
     if (credentialId === undefined) {
@@ -174,6 +147,7 @@ function parseEgressServices(value: unknown): EnvironmentEgressService[] {
     let inject: EnvironmentEgressServiceInject | undefined
     if (rawInject !== undefined && rawInject !== null) {
       const injectDocument = requireObject(rawInject, `HTTP egress inject[${index}]`)
+      assertAllowedKeys(injectDocument, EGRESS_INJECT_KEYS, `HTTP egress inject[${index}]`)
       const rawKind = injectDocument.type ?? 'bearer'
       const injectKind = parseOptionalText(
         rawKind,
@@ -183,7 +157,7 @@ function parseEgressServices(value: unknown): EnvironmentEgressService[] {
         throw new TypeError(`HTTP egress inject kind[${index}] is unsupported`)
       }
       const credentialField = parseCredentialField(injectDocument, injectKind, index)
-      const injectRest = omitKeys(injectDocument, [CREDENTIAL_FIELD, SECRET_KEY])
+      const injectRest = omitKeys(injectDocument, [CREDENTIAL_FIELD])
       inject = {
         ...injectRest,
         type: injectKind,
@@ -194,7 +168,7 @@ function parseEgressServices(value: unknown): EnvironmentEgressService[] {
     const serviceRest = omitKeys(service, [CREDENTIAL_REF, 'inject'])
     return {
       ...serviceRest,
-      service_credential_id: credentialId,
+      credential_ref: credentialId,
       ...(inject === undefined ? {} : { inject }),
     } as EnvironmentEgressService
   })
@@ -208,73 +182,14 @@ export class CredentialReferenceCodec {
     return parseReferenceId(document[MODEL_CREDENTIAL_ID], 'Model credential id')
   }
 
-  decodeSnapshot(raw: unknown) {
-    const document = requireObject(raw, 'Snapshot')
-    const rawSchema = document.schema ?? null
-    const schema = Object.entries(CREDENTIAL_SNAPSHOT_SCHEMAS).find(
-      ([, value]) => value === rawSchema,
-    )?.[0]
-    if (schema === undefined) {
-      throw new TypeError('Unknown explicit Snapshot schema')
-    }
-    if (
-      schema === 'v2' &&
-      LEGACY_SNAPSHOT_REFERENCE_PATHS.some((path) => registeredPathKeyCount(document, path) > 0)
-    ) {
-      throw new TypeError('Legacy alias is not allowed in explicit v2 Snapshot')
-    }
-
-    const modelCredentialId = parseOptionalAliasId(
-      document,
-      [MODEL_CREDENTIAL_ID, SECRET_REF],
-      'Snapshot model credential id',
-    )
-    if (modelCredentialId !== undefined) {
-      parseOptionalText(document.engine_kind, 'Snapshot engine kind')
-    }
-    const topLevelIds = [
-      ...parseReferenceList(
-        document,
-        ENVIRONMENT_CREDENTIAL_IDS,
-        'Snapshot environment credential ids',
-      ),
-      ...parseReferenceList(document, SECRET_REFS, 'Snapshot legacy secret refs'),
-    ]
-    const environment = document.environment
-    let nested = {
-      direct_credential_ids: [],
-      egress_services: [],
-    } as CanonicalEnvironmentCredentialReferences
-    if (environment !== undefined && environment !== null) {
-      const environmentDocument = requireObject(environment, 'Snapshot environment')
-      const config = environmentDocument.config
-      if (config !== undefined && config !== null) nested = this.decodeEnvironment(config)
-    }
-    const credentialIds = [
-      ...topLevelIds,
-      ...nested.direct_credential_ids,
-      ...nested.egress_services.map((service) => service.service_credential_id),
-      ...(modelCredentialId === undefined ? [] : [modelCredentialId]),
-    ]
-    return {
-      schema,
-      credential_ids: [...new Set(credentialIds)].sort(),
-      egress_services: nested.egress_services,
-    }
-  }
-
   decodeEnvironment(raw: unknown): CanonicalEnvironmentCredentialReferences {
     const document = requireObject(raw, 'Environment config')
-    const directIds = [
-      ...parseReferenceList(document, ENVIRONMENT_CREDENTIAL_IDS, 'Environment credential ids'),
-      ...parseReferenceList(document, SECRET_REFS, 'Environment secret refs'),
-    ]
-    const legacyServiceId = parseOptionalAliasId(
+    assertAllowedKeys(document, ENVIRONMENT_CONFIG_KEYS, 'Environment config')
+    const directIds = parseReferenceList(
       document,
-      [SERVICE_CREDENTIAL_ID],
-      'Environment legacy service credential id',
+      ENVIRONMENT_CREDENTIAL_IDS,
+      'Environment credential ids',
     )
-    if (legacyServiceId !== undefined) directIds.push(legacyServiceId)
 
     return {
       direct_credential_ids: [...new Set(directIds)].sort(),
@@ -284,19 +199,11 @@ export class CredentialReferenceCodec {
 
   canonicalizeEnvironmentForRead(raw: unknown): EnvironmentConfig {
     const document = requireObject(raw, 'Environment config')
+    assertAllowedKeys(document, ENVIRONMENT_CONFIG_KEYS, 'Environment config')
     const decoded = this.decodeEnvironment(document)
-    const hasDirectReferences = [
-      ENVIRONMENT_CREDENTIAL_IDS,
-      SECRET_REFS,
-      SERVICE_CREDENTIAL_ID,
-    ].some((key) => key in document)
+    const hasDirectReferences = ENVIRONMENT_CREDENTIAL_IDS in document
     const hasEgressServices = 'egress_services' in document
-    const rest = omitKeys(document, [
-      ENVIRONMENT_CREDENTIAL_IDS,
-      SECRET_REFS,
-      SERVICE_CREDENTIAL_ID,
-      'egress_services',
-    ])
+    const rest = omitKeys(document, [ENVIRONMENT_CREDENTIAL_IDS, 'egress_services'])
     return {
       ...rest,
       ...(hasDirectReferences ? { environment_credential_ids: decoded.direct_credential_ids } : {}),

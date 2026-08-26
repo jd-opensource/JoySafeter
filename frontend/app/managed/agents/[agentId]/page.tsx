@@ -29,9 +29,12 @@ import {
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { VersionDiffView } from '@/components/managed/agent/version-diff-view'
 import { AgentModelSummary } from '@/components/managed/agent/agent-model-summary'
-import type { Agent, AgentTool, McpServer, Session } from '@/types/managed'
+import type { Agent, AgentTool, AgentVersion, McpServer, Session } from '@/types/managed'
 import { parseAgentId } from '@/types/entity-id'
-import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
+import {
+  parseAgentResponse,
+  parseAgentVersionListResponse,
+} from '@/lib/managed/agent-response-parsers'
 import {
   parseSessionCreateResponse,
   parseSessionListResponse,
@@ -64,12 +67,6 @@ import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
-
-interface AgentVersion {
-  version: number
-  snapshot?: Agent
-  created_at: string
-}
 
 interface DeletePreview {
   sessions: number
@@ -241,14 +238,11 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
   const { data: versions } = useQuery({
     queryKey: ['agent-versions', managedScope.key, agentId],
     queryFn: async () => {
-      const res = await managedGet<{ data: AgentVersion[] }>(
+      const res = await managedGet<{ data: unknown[] }>(
         apiResourcePath('agents', agentId, 'versions'),
         managedRequestOptions(managedScope),
       )
-      return (res.data || []).map((version) => ({
-        ...version,
-        snapshot: version.snapshot ? parseAgentResponse(version.snapshot) : undefined,
-      }))
+      return parseAgentVersionListResponse(res.data || [])
     },
     enabled: !!agentId && hasManagedRequestScope(managedScope),
   })
@@ -643,21 +637,22 @@ function AgentConfig({ agent, versions: apiVersions }: { agent: Agent; versions:
   const [baseVersion, setBaseVersion] = useState<string>(defaultBase)
   const [targetVersion, setTargetVersion] = useState<string>(String(currentVersion))
 
-  const allVersions: AgentVersion[] = (() => {
-    const result: AgentVersion[] = []
-    for (let i = currentVersion; i >= 1; i--) {
-      const existing = apiVersions.find((v) => v.version === i)
-      result.push(
-        existing || { version: i, created_at: i === currentVersion ? agent.created_at : '' },
-      )
-    }
-    return result
-  })()
+  const allVersions: Array<Pick<AgentVersion, 'version' | 'created_at'> & { snapshot?: Agent }> =
+    (() => {
+      const result: Array<Pick<AgentVersion, 'version' | 'created_at'> & { snapshot?: Agent }> = []
+      for (let i = currentVersion; i >= 1; i--) {
+        const existing = apiVersions.find((v) => v.version === i)
+        result.push(
+          existing || { version: i, created_at: i === currentVersion ? agent.created_at : '' },
+        )
+      }
+      return result
+    })()
 
   const resolveAgent = (ver: number): Agent => {
     if (ver === currentVersion) return agent
     const entry = apiVersions.find((v) => v.version === ver)
-    return entry ? (entry as AgentVersion & { snapshot?: Agent }).snapshot || agent : agent
+    return entry?.snapshot || agent
   }
 
   const selectedAgent = resolveAgent(Number(selectedVersion))

@@ -167,7 +167,7 @@ function completedOneOffTrigger(): AgentTrigger {
     type: 'cron',
     agent_id: AGENT_ID,
     prompt_template: 'run once',
-    environment_ref: null,
+    environment_id: null,
     enabled: true,
     session_mode: 'fresh',
     pinned_session_id: null,
@@ -231,10 +231,10 @@ function manualTrigger(): AgentTrigger {
 }
 
 function webhookTrigger({
-  secretRef = null,
+  webhookCredentialId = null,
   secretKey = null,
 }: {
-  secretRef?: AgentTrigger['webhook_auth_credential_id']
+  webhookCredentialId?: AgentTrigger['webhook_auth_credential_id']
   secretKey?: string | null
 } = {}): AgentTrigger {
   return {
@@ -248,7 +248,7 @@ function webhookTrigger({
     run_at: null,
     next_run_at: null,
     last_fired_slot: null,
-    webhook_auth_credential_id: secretRef,
+    webhook_auth_credential_id: webhookCredentialId,
     webhook_auth_field: secretKey,
     config: { auth_methods: ['hmac'] },
   }
@@ -377,7 +377,7 @@ describe('CreateTriggerDialog edit mode', () => {
 
   it('preserves an unavailable historical credential and disables save', async () => {
     const { getAllByText, getByText } = renderDialog(
-      webhookTrigger({ secretRef: MISSING_CREDENTIAL_ID, secretKey: 'WEBHOOK_SECRET' }),
+      webhookTrigger({ webhookCredentialId: MISSING_CREDENTIAL_ID, secretKey: 'WEBHOOK_SECRET' }),
     )
 
     await waitFor(() =>
@@ -390,7 +390,7 @@ describe('CreateTriggerDialog edit mode', () => {
 
   it('preserves an unavailable historical credential field and disables save', async () => {
     const { getByText } = renderDialog(
-      webhookTrigger({ secretRef: SERVICE_CREDENTIAL_ID, secretKey: 'REMOVED_FIELD' }),
+      webhookTrigger({ webhookCredentialId: SERVICE_CREDENTIAL_ID, secretKey: 'REMOVED_FIELD' }),
     )
 
     await waitFor(() =>
@@ -402,7 +402,7 @@ describe('CreateTriggerDialog edit mode', () => {
   it('reports a credential with no metadata fields and disables save', async () => {
     mockManagedApi({ keys: [] })
     const { getByText } = renderDialog(
-      webhookTrigger({ secretRef: SERVICE_CREDENTIAL_ID, secretKey: null }),
+      webhookTrigger({ webhookCredentialId: SERVICE_CREDENTIAL_ID, secretKey: null }),
     )
 
     await waitFor(() => expect(getByText('managed.triggers.credentialFieldEmpty')).toBeTruthy())
@@ -414,7 +414,7 @@ describe('CreateTriggerDialog edit mode', () => {
     mockManagedApi({ keys: ['', '   ', 'WEBHOOK_SECRET'] })
 
     const view = renderDialog(
-      webhookTrigger({ secretRef: SERVICE_CREDENTIAL_ID, secretKey: 'WEBHOOK_SECRET' }),
+      webhookTrigger({ webhookCredentialId: SERVICE_CREDENTIAL_ID, secretKey: 'WEBHOOK_SECRET' }),
     )
 
     await waitFor(() => expect(view.getByText('WEBHOOK_SECRET')).toBeTruthy())
@@ -429,7 +429,7 @@ describe('CreateTriggerDialog edit mode', () => {
   it('reports a failed credential query and disables save', async () => {
     mockManagedApi({ secretError: new Error('secret metadata unavailable') })
     const { getByText } = renderDialog(
-      webhookTrigger({ secretRef: SERVICE_CREDENTIAL_ID, secretKey: 'WEBHOOK_SECRET' }),
+      webhookTrigger({ webhookCredentialId: SERVICE_CREDENTIAL_ID, secretKey: 'WEBHOOK_SECRET' }),
     )
 
     await waitFor(() =>

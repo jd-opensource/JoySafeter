@@ -104,6 +104,24 @@ describe('useCompatibleCredentials', () => {
     ])
   })
 
+  it('rejects a cross-entity pagination cursor before another request', async () => {
+    managedGetMock.mockResolvedValueOnce({
+      data: [],
+      has_more: true,
+      last_id: `agent_${UUID_A}`,
+    })
+
+    const { result } = renderHook(
+      () => useCompatibleCredentials({ engineId: 'codex', enabled: true }),
+      { wrapper },
+    )
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.error).toBeInstanceOf(TypeError)
+    expect((result.current.error as Error).message).toMatch(/Expected cred_/)
+    expect(managedGetMock).toHaveBeenCalledTimes(1)
+  })
+
   it('does not request without an engine', () => {
     const { result } = renderHook(() => useCompatibleCredentials({ engineId: '', enabled: true }), {
       wrapper,

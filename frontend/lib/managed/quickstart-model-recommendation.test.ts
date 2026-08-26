@@ -13,7 +13,7 @@ const engine: LlmEngineCapability = {
   preferred_protocol_ids: ['openai_responses'],
 }
 
-function secret(
+function credential(
   id: string,
   patch: Partial<Pick<Credential, 'protocol' | 'is_default' | 'created_at' | 'archived_at'>> = {},
 ): Credential {
@@ -36,11 +36,11 @@ function secret(
 describe('recommendQuickstartModelConnection', () => {
   it('auto-continues with the only active compatible connection', () => {
     const recommendation = recommendQuickstartModelConnection(
-      [secret('1'), secret('2', { archived_at: '2026-08-02T00:00:00Z' })],
+      [credential('1'), credential('2', { archived_at: '2026-08-02T00:00:00Z' })],
       engine,
     )
 
-    expect(recommendation?.secret.name).toBe('connection-1')
+    expect(recommendation?.credential.name).toBe('connection-1')
     expect(recommendation?.reason).toBe('onlyCompatible')
     expect(recommendation?.autoContinue).toBe(true)
   })
@@ -48,12 +48,12 @@ describe('recommendQuickstartModelConnection', () => {
   it('prefers a default on the engine preferred protocol when multiple defaults exist', () => {
     const recommendation = recommendQuickstartModelConnection(
       [
-        secret('1', {
+        credential('1', {
           protocol: 'anthropic_messages',
           is_default: true,
           created_at: '2026-08-03T00:00:00Z',
         }),
-        secret('2', {
+        credential('2', {
           protocol: 'openai_responses',
           is_default: true,
           created_at: '2026-08-01T00:00:00Z',
@@ -62,7 +62,7 @@ describe('recommendQuickstartModelConnection', () => {
       engine,
     )
 
-    expect(recommendation?.secret.name).toBe('connection-2')
+    expect(recommendation?.credential.name).toBe('connection-2')
     expect(recommendation?.reason).toBe('preferredProtocolDefault')
     expect(recommendation?.autoContinue).toBe(true)
   })
@@ -70,13 +70,19 @@ describe('recommendQuickstartModelConnection', () => {
   it('selects but waits for confirmation when falling back to a non-default preferred protocol', () => {
     const recommendation = recommendQuickstartModelConnection(
       [
-        secret('1', { protocol: 'anthropic_messages', created_at: '2026-08-03T00:00:00Z' }),
-        secret('2', { protocol: 'openai_responses', created_at: '2026-08-01T00:00:00Z' }),
+        credential('1', {
+          protocol: 'anthropic_messages',
+          created_at: '2026-08-03T00:00:00Z',
+        }),
+        credential('2', {
+          protocol: 'openai_responses',
+          created_at: '2026-08-01T00:00:00Z',
+        }),
       ],
       engine,
     )
 
-    expect(recommendation?.secret.name).toBe('connection-2')
+    expect(recommendation?.credential.name).toBe('connection-2')
     expect(recommendation?.reason).toBe('preferredProtocol')
     expect(recommendation?.autoContinue).toBe(false)
   })

@@ -1,5 +1,6 @@
 import type {
   AgentId,
+  AgentVersionId,
   ApiKeyId,
   CredentialGroupId,
   CredentialId,
@@ -22,6 +23,7 @@ import type {
   StorageMountAuditId,
   StorageVolumeId,
   TaskId,
+  TriggerId,
   UserId,
 } from '@/types/entity-id'
 
@@ -37,13 +39,21 @@ export interface Agent {
   version?: number
   metadata?: Record<string, unknown>
   env?: Record<string, string>
-  environment_ref?: string | null
+  environment_id?: EnvironmentId | null
   model_credential_id?: CredentialId | null
   model_connection?: ModelConnectionSummary | null
   engine_kind: string
   created_at: string
   updated_at: string
   archived_at?: string | null
+}
+
+export interface AgentVersion {
+  id: AgentVersionId
+  agent_id: AgentId
+  version: number
+  snapshot: Agent
+  created_at: string
 }
 
 export interface ApiKey {
@@ -125,12 +135,13 @@ export type McpCredentialAuthScheme = 'static_bearer' | 'header_api_key' | 'cust
 export interface Session {
   id: SessionId
   agent?: SessionAgent
-  environment_id?: string
+  environment_id?: EnvironmentId | null
   status: SessionStatus
   stop_reason?: string
   title?: string
   metadata?: Record<string, unknown>
   credential_group_ids?: CredentialGroupId[]
+  resources?: SessionMemoryStore[]
   repo_resources?: SessionRepoResource[]
   storage_mounts?: SessionStorageMount[]
   usage?: SessionUsage
@@ -189,7 +200,7 @@ export interface NetworkPolicyStatus {
   sandbox_id: SandboxId
   session_id?: SessionId | null
   task_id?: TaskId | null
-  project_id?: string | null
+  project_id?: ProjectId | null
   session_title?: string | null
   agent_name?: string | null
   sandbox_status: string
@@ -264,8 +275,8 @@ export interface SessionSkillUsage {
   artifact_hash?: string | null
   session_id?: SessionId | null
   agent_id?: AgentId | null
-  project_id?: string | null
-  user_id?: string | null
+  project_id?: ProjectId | null
+  user_id?: UserId | null
   created_at: string
 }
 
@@ -297,7 +308,7 @@ export interface EnvironmentEgressService {
   kind?: 'external' | string
   exposure?: 'placeholder' | 'transparent' | string
   base_url: string
-  service_credential_id: CredentialId
+  credential_ref: CredentialId
   inject?: EnvironmentEgressServiceInject
   allowed_paths?: string[]
 }
@@ -470,6 +481,15 @@ export interface SessionFileResource {
   created_at: string
 }
 
+export interface SessionMemoryStore {
+  id: SessionResourceId
+  type: 'session_memory_store'
+  memory_store_id: MemoryStoreId
+  access: string
+  instructions: string | null
+  mount_name: string
+}
+
 export interface SessionRepoResource {
   id: SessionResourceId
   type: 'github_repository'
@@ -533,9 +553,9 @@ export interface SkillSecurityScanSummary {
 export interface SkillSecurityScanRecord {
   id: SkillSecurityScanId
   skill_id: SkillId | null
-  project_id: string | null
-  owner_id: string | null
-  created_by_id: string
+  project_id: ProjectId | null
+  owner_id: UserId | null
+  created_by_id: UserId
   trigger: string
   target_name: string | null
   target_hash: string
@@ -564,6 +584,30 @@ export type PromotableTier = Exclude<SkillVisibility, 'project'>
 
 export type SkillLifecycleStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'archived'
 
+export type SkillImpactReference =
+  | { type: 'agent'; id: AgentId; name: string; version?: string | null; status?: string | null }
+  | {
+      type: 'agent_version'
+      id: AgentVersionId
+      name: string
+      version?: string | null
+      status?: string | null
+    }
+  | {
+      type: 'trigger'
+      id: TriggerId
+      name: string
+      version?: string | null
+      status?: string | null
+    }
+  | {
+      type: 'active_task'
+      id: TaskId
+      name: string
+      version?: string | null
+      status?: string | null
+    }
+
 export interface SkillImpactSummary {
   counts: {
     agents: number
@@ -572,13 +616,7 @@ export interface SkillImpactSummary {
     active_tasks: number
     total: number
   }
-  references: Array<{
-    type: string
-    id: string
-    name: string
-    version?: string | null
-    status?: string | null
-  }>
+  references: SkillImpactReference[]
 }
 
 export interface SkillRecord {
@@ -652,7 +690,7 @@ export interface SkillVersionFileRecord {
 }
 
 export interface MemberRecord {
-  user_id: string
+  user_id: UserId
   email: string
   display_name: string
   avatar_url?: string
@@ -683,7 +721,7 @@ export interface CredentialDetail extends Credential {
 }
 
 export interface ApiKeyInfo {
-  id: string
+  id: ApiKeyId
   name: string
   key_prefix: string
   key?: string
@@ -696,7 +734,7 @@ export interface ApiKeyInfo {
 }
 
 export interface ProjectRecord {
-  id: string
+  id: ProjectId
   name: string
   slug: string
   is_default: boolean

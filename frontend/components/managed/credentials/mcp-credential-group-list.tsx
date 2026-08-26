@@ -322,7 +322,7 @@ export function McpCredentialGroupList({
     return (
       <ResourceErrorState
         error={error}
-        resource="vault"
+        resource="credentialGroup"
         onRetry={() =>
           queryClient.invalidateQueries({ queryKey: ['credential-groups', managedScope.key] })
         }

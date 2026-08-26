@@ -47,7 +47,11 @@ export function CredentialDetail({ credentialId }: { credentialId: CredentialId 
 
   if (query.isError) {
     return (
-      <ResourceErrorState error={query.error} resource="secret" onRetry={() => query.refetch()} />
+      <ResourceErrorState
+        error={query.error}
+        resource="credential"
+        onRetry={() => query.refetch()}
+      />
     )
   }
   if (query.isLoading || !credential) {
@@ -79,7 +83,7 @@ export function CredentialDetail({ credentialId }: { credentialId: CredentialId 
   }
   return (
     <ResourceErrorState
-      resource="secret"
+      resource="credential"
       reason="notFound"
       onBack={() => router.push('/managed/credentials')}
     />

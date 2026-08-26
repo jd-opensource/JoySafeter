@@ -33,10 +33,13 @@ interface Item {
   name: string
 }
 
+const parseTestCursor = (cursor: string) => cursor
+
 function Harness() {
   const { data } = usePaginatedList<Item>({
     queryKey: 'items',
     path: '/items',
+    parseCursor: parseTestCursor,
   })
 
   return <div data-testid="items">{data.map((item) => item.name).join(',')}</div>
@@ -46,6 +49,7 @@ function HarnessWithNext() {
   const { data, goNext, goToPage, hasNext, page } = usePaginatedList<Item>({
     queryKey: 'items',
     path: '/items',
+    parseCursor: parseTestCursor,
   })
 
   return (
@@ -66,6 +70,7 @@ function HarnessWithQueryPath() {
   const { data, goNext, hasNext } = usePaginatedList<Item>({
     queryKey: 'files',
     path: `/files?scope_id=${SESSION_ID}`,
+    parseCursor: parseTestCursor,
   })
 
   return (
@@ -86,6 +91,7 @@ function HarnessWithParser() {
       const raw = item as Item
       return { ...raw, name: raw.name.toUpperCase() }
     },
+    parseCursor: parseTestCursor,
   })
 
   return <div data-testid="items">{data.map((item) => item.name).join(',')}</div>
@@ -96,6 +102,7 @@ function HarnessWithCacheVersion({ cacheVersion }: { cacheVersion: string }) {
     queryKey: 'items',
     path: '/items',
     cacheVersion,
+    parseCursor: parseTestCursor,
   })
 
   return <div data-testid="items">{data.map((item) => item.name).join(',')}</div>
@@ -738,6 +745,7 @@ describe('usePaginatedList query option', () => {
           queryKey: 'credentials',
           path: '/credentials',
           query: { kind: 'model' },
+          parseCursor: parseTestCursor,
         }),
       { wrapper: wrap },
     )
@@ -761,6 +769,7 @@ describe('usePaginatedList query option', () => {
           path: '/credentials',
           query: { kind: 'model' },
           includeArchived: false,
+          parseCursor: parseTestCursor,
         }),
       { wrapper: wrap },
     )
@@ -784,6 +793,7 @@ describe('usePaginatedList query option', () => {
           queryKey: 'credentials',
           path: '/credentials',
           query: { kind: 'model' },
+          parseCursor: parseTestCursor,
         }),
       { wrapper: wrap },
     )
@@ -793,6 +803,7 @@ describe('usePaginatedList query option', () => {
           queryKey: 'credentials',
           path: '/credentials',
           query: { kind: 'service' },
+          parseCursor: parseTestCursor,
         }),
       { wrapper: wrap },
     )
@@ -816,6 +827,7 @@ describe('usePaginatedList query option', () => {
           path: '/items',
           pageSize,
           onPageSizeChange,
+          parseCursor: parseTestCursor,
         }),
       { wrapper: wrap, initialProps: { pageSize: 25 } },
     )

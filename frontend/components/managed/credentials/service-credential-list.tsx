@@ -248,7 +248,7 @@ export function ServiceCredentialList({
     return (
       <ResourceErrorState
         error={list.error}
-        resource="secret"
+        resource="credential"
         onRetry={() =>
           queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })
         }

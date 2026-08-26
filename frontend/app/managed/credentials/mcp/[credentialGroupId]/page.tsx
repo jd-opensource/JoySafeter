@@ -32,7 +32,7 @@ function McpCredentialGroupDetailPageInner({
 }
 
 export default withEntityRouteGuard(McpCredentialGroupDetailPageInner, {
-  kind: 'vault',
+  kind: 'credentialGroup',
   idKind: 'credentialGroup',
   paramKey: 'credentialGroupId',
   backTo: '/managed/credentials?tab=mcp',

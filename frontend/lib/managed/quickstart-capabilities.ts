@@ -1,7 +1,12 @@
 import type { SessionEvent } from '@/types/managed'
+import { parseSkillId, type SkillId } from '@/types/entity-id'
+
+import { normalizeMcpServerUrl } from './mcp-credential-coverage'
+
+export { normalizeMcpServerUrl } from './mcp-credential-coverage'
 
 export interface QuickstartSkillCatalogItem {
-  id: string
+  id: SkillId
   name: string
   display_title?: string
   description?: string
@@ -9,7 +14,7 @@ export interface QuickstartSkillCatalogItem {
 }
 
 export interface QuickstartAvailableSkill {
-  id: string
+  id: SkillId
   name: string
   display_title?: string
   description: string
@@ -18,7 +23,7 @@ export interface QuickstartAvailableSkill {
 
 export interface QuickstartSkillReference {
   type: 'custom'
-  skill_id: string
+  skill_id: SkillId
   version: string
 }
 
@@ -34,12 +39,6 @@ export interface QuickstartCapabilityEvidence {
 
 function nonEmptyString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
-}
-
-export function normalizeMcpServerUrl(value: unknown): string {
-  const trimmed = nonEmptyString(value)
-  if (!trimmed) return ''
-  return trimmed.replace(/\/+$/, '')
 }
 
 export function quickstartAuthorizedMcpServerUrls(
@@ -77,7 +76,7 @@ export function toQuickstartAvailableSkills(
 
 export function filterQuickstartSkillReferences(
   value: unknown,
-  allowedSkillIds: ReadonlySet<string>,
+  allowedSkillIds: ReadonlySet<SkillId>,
 ): QuickstartSkillReference[] {
   if (!Array.isArray(value)) return []
 
@@ -86,8 +85,15 @@ export function filterQuickstartSkillReferences(
   for (const item of value) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue
     const record = item as Record<string, unknown>
-    const skillId = nonEmptyString(record.skill_id)
-    if (!skillId || !allowedSkillIds.has(skillId) || seen.has(skillId)) continue
+    const rawSkillId = nonEmptyString(record.skill_id)
+    if (!rawSkillId) continue
+    let skillId: SkillId
+    try {
+      skillId = parseSkillId(rawSkillId)
+    } catch {
+      continue
+    }
+    if (!allowedSkillIds.has(skillId) || seen.has(skillId)) continue
     seen.add(skillId)
     references.push({
       type: 'custom',

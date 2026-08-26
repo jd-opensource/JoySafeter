@@ -55,6 +55,7 @@ import {
   parseCredentialId,
   parseEnvironmentId,
   type AgentId,
+  type CredentialId,
   type EnvironmentId,
   type SkillId,
 } from '@/types/entity-id'
@@ -116,11 +117,14 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const [systemPromptMode, setSystemPromptMode] = useState<'append' | 'replace'>('append')
   const [enabledTools, setEnabledTools] = useState<Set<string>>(new Set(BUILTIN_TOOLS))
   const [mcpServers, setMcpServers] = useState<McpServerEntry[]>([])
-  const [secretRef, setSecretRef] = useState('')
-  const [secretSelectionCleared, setSecretSelectionCleared] = useState(false)
-  const [secretCompatibilityNotice, setSecretCompatibilityNotice] = useState(false)
-  const [dialogView, setDialogView] = useState<'agent_form' | 'create_llm_secret'>('agent_form')
-  const [environmentRef, setEnvironmentRef] = useState('')
+  const [modelCredentialId, setModelCredentialId] = useState<CredentialId | ''>('')
+  const [modelCredentialSelectionCleared, setModelCredentialSelectionCleared] = useState(false)
+  const [modelCredentialCompatibilityNotice, setModelCredentialCompatibilityNotice] =
+    useState(false)
+  const [dialogView, setDialogView] = useState<'agent_form' | 'create_model_connection'>(
+    'agent_form',
+  )
+  const [environmentId, setEnvironmentId] = useState<EnvironmentId | ''>('')
   const [permissionMode, setPermissionMode] = useState('bypassPermissions')
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<SkillId>>(new Set())
   /** skill_id → chosen published version keyword or semver string. */
@@ -130,8 +134,11 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const systemPromptRequired = systemPromptMode === 'replace'
   const systemPromptValid = !systemPromptRequired || systemPrompt.trim().length > 0
 
-  const compatibleSecretsQuery = useCompatibleCredentials({ engineId: engineKind, enabled: open })
-  const secrets = compatibleSecretsQuery.data
+  const compatibleCredentialsQuery = useCompatibleCredentials({
+    engineId: engineKind,
+    enabled: open,
+  })
+  const credentials = compatibleCredentialsQuery.data
   const enabledEngines = useMemo(
     () => (catalogQuery.data ? getEnabledEngines(catalogQuery.data) : []),
     [catalogQuery.data],
@@ -140,8 +147,8 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   useEffect(() => {
     if (!catalogQuery.data || enabledEngines.some((engine) => engine.id === engineKind)) return
     setEngineKind(enabledEngines[0]?.id ?? '')
-    setSecretRef('')
-    setSecretSelectionCleared(false)
+    setModelCredentialId('')
+    setModelCredentialSelectionCleared(false)
   }, [catalogQuery.data, enabledEngines, engineKind])
 
   const { data: skills } = useQuery({
@@ -168,12 +175,10 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     enabled: open && hasManagedRequestScope(managedScope),
   })
 
-  const effectiveEnvironmentRef = useMemo(() => {
-    if (!environmentRef || !environments) return ''
-    return environments.some((environment) => environment.id === environmentRef)
-      ? environmentRef
-      : ''
-  }, [environments, environmentRef])
+  const effectiveEnvironmentId = useMemo(() => {
+    if (!environmentId || !environments) return ''
+    return environments.some((environment) => environment.id === environmentId) ? environmentId : ''
+  }, [environments, environmentId])
 
   const effectiveSelectedSkillIds = useMemo(() => {
     if (!skills) return new Set<SkillId>()
@@ -198,11 +203,11 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     setSystemPrompt('')
     setEnabledTools(new Set(BUILTIN_TOOLS))
     setMcpServers([])
-    setSecretRef('')
-    setSecretSelectionCleared(false)
-    setSecretCompatibilityNotice(false)
+    setModelCredentialId('')
+    setModelCredentialSelectionCleared(false)
+    setModelCredentialCompatibilityNotice(false)
     setDialogView('agent_form')
-    setEnvironmentRef('')
+    setEnvironmentId('')
     setPermissionMode('bypassPermissions')
     setSelectedSkillIds(new Set())
     setSkillVersions({})
@@ -228,19 +233,24 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   )
 
   useEffect(() => {
-    if (!compatibleSecretsQuery.isSuccess || !secrets) return
-    const secretIds = new Set<string>(secrets.map((secret) => secret.id))
-    if (secretRef) {
-      if (secretIds.has(secretRef)) return
-      setSecretRef('')
-      setSecretSelectionCleared(true)
-      setSecretCompatibilityNotice(true)
+    if (!compatibleCredentialsQuery.isSuccess || !credentials) return
+    const credentialIds = new Set(credentials.map((credential) => credential.id))
+    if (modelCredentialId) {
+      if (credentialIds.has(modelCredentialId)) return
+      setModelCredentialId('')
+      setModelCredentialSelectionCleared(true)
+      setModelCredentialCompatibilityNotice(true)
       return
     }
-    if (secretSelectionCleared) return
-    const initialCredentialId = selectInitialModelConnection(secrets)
-    if (initialCredentialId) setSecretRef(initialCredentialId)
-  }, [compatibleSecretsQuery.isSuccess, secrets, secretRef, secretSelectionCleared])
+    if (modelCredentialSelectionCleared) return
+    const initialCredentialId = selectInitialModelConnection(credentials)
+    if (initialCredentialId) setModelCredentialId(initialCredentialId)
+  }, [
+    compatibleCredentialsQuery.isSuccess,
+    credentials,
+    modelCredentialId,
+    modelCredentialSelectionCleared,
+  ])
 
   const toggleTool = (tool: string) => {
     setEnabledTools((prev) => {
@@ -302,29 +312,29 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
         })
       }
 
-      const currentSecrets =
+      const currentCredentials =
         queryClient
           .getQueriesData<Credential[]>({
             queryKey: compatibleCredentialsQueryPrefix(scopeAtStart, engineKind),
           })
-          .at(-1)?.[1] ?? secrets
+          .at(-1)?.[1] ?? credentials
       const currentEnvironments =
         queryClient.getQueryData<Environment[]>(['environments', scopeAtStart]) ?? environments
       const currentSkills =
         queryClient.getQueryData<SkillListItem[]>(['skills', scopeAtStart]) ?? skills
 
-      const currentSecretRef = (() => {
-        if (!currentSecrets) return secretRef
-        if (currentSecrets.length === 0) return ''
-        const secretIds = new Set<string>(currentSecrets.map((secret) => secret.id))
-        if (secretRef && secretIds.has(secretRef)) return secretRef
+      const currentModelCredentialId = (() => {
+        if (!currentCredentials) return modelCredentialId
+        if (currentCredentials.length === 0) return ''
+        const credentialIds = new Set(currentCredentials.map((credential) => credential.id))
+        if (modelCredentialId && credentialIds.has(modelCredentialId)) return modelCredentialId
         return ''
       })()
-      const currentEnvironmentRef =
-        environmentRef &&
+      const currentEnvironmentId =
+        environmentId &&
         (!currentEnvironments ||
-          currentEnvironments.some((environment) => environment.id === environmentRef))
-          ? environmentRef
+          currentEnvironments.some((environment) => environment.id === environmentId))
+          ? environmentId
           : ''
       const currentSkillIds = currentSkills ? new Set(currentSkills.map((skill) => skill.id)) : null
       const currentSelectedSkillIds = currentSkillIds
@@ -345,10 +355,10 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
             engine_kind: engineKind,
             system: systemPrompt || null,
             metadata: { system_prompt_mode: systemPromptMode },
-            ...(currentSecretRef
-              ? { model_credential_id: parseCredentialId(currentSecretRef) }
+            ...(currentModelCredentialId
+              ? { model_credential_id: parseCredentialId(currentModelCredentialId) }
               : {}),
-            ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
+            ...(currentEnvironmentId ? { environment_id: currentEnvironmentId } : {}),
             tools,
             mcp_servers: serializeMcpServerEntries(mcpServers),
             skills: currentSelectedSkillIds.map((id) => ({
@@ -374,7 +384,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     }
   }
 
-  if (dialogView === 'create_llm_secret') {
+  if (dialogView === 'create_model_connection') {
     return (
       <Dialog
         open={open}
@@ -402,9 +412,9 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                   listItem,
                 ],
               )
-              setSecretRef(created.id)
-              setSecretSelectionCleared(false)
-              setSecretCompatibilityNotice(false)
+              setModelCredentialId(created.id)
+              setModelCredentialSelectionCleared(false)
+              setModelCredentialCompatibilityNotice(false)
               setDialogView('agent_form')
             }}
           />
@@ -478,7 +488,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                 value={engineKind}
                 onValueChange={(value) => {
                   setEngineKind(value)
-                  setSecretCompatibilityNotice(false)
+                  setModelCredentialCompatibilityNotice(false)
                 }}
               >
                 <SelectTrigger className="w-full">
@@ -500,20 +510,20 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                 optional={t('managed.agents.formOptionalWithDefault')}
                 className="mb-1.5"
               >
-                {t('managed.agents.edit.secretRef')}
+                {t('managed.agents.edit.modelCredentialId')}
               </FormFieldLabel>
               <CompatibleCredentialPicker
                 engineId={engineKind}
-                value={secretRef}
+                value={modelCredentialId}
                 allowNone
                 onChange={(value) => {
-                  setSecretRef(value)
-                  setSecretSelectionCleared(!value)
-                  setSecretCompatibilityNotice(false)
+                  setModelCredentialId(value)
+                  setModelCredentialSelectionCleared(!value)
+                  setModelCredentialCompatibilityNotice(false)
                 }}
-                onCreateRequested={() => setDialogView('create_llm_secret')}
+                onCreateRequested={() => setDialogView('create_model_connection')}
               />
-              {secretCompatibilityNotice ? (
+              {modelCredentialCompatibilityNotice ? (
                 <p className="mt-2 text-xs text-amber-700">
                   {t('managed.llm.previousConfigurationIncompatible')}
                 </p>
@@ -524,14 +534,14 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
             <div>
               <FormFieldLabel
                 optional={t('managed.agents.formOptional')}
-                tooltip={t('managed.agents.edit.environmentRefHint')}
+                tooltip={t('managed.agents.edit.environmentIdHint')}
                 className="mb-1.5"
               >
-                {t('managed.agents.edit.environmentRef')}
+                {t('managed.agents.edit.environmentId')}
               </FormFieldLabel>
               {environments && environments.length > 0 ? (
                 <SearchableAgentConfigSelect
-                  value={effectiveEnvironmentRef}
+                  value={effectiveEnvironmentId}
                   options={environments.map((env) => ({
                     value: env.id,
                     label: env.name,
@@ -543,7 +553,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
                   emptyText={t('managed.agents.edit.noEnvironmentMatch')}
                   createLabel={t('managed.agents.edit.createEnvironment')}
                   clearSearchLabel={t('managed.agents.edit.clearSearch')}
-                  onChange={setEnvironmentRef}
+                  onChange={(value) => setEnvironmentId(value ? parseEnvironmentId(value) : '')}
                   onCreate={() => router.push('/managed/environments?create=1')}
                 />
               ) : (

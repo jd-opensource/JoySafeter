@@ -1,5 +1,6 @@
 import {
   parseAgentId,
+  parseAgentVersionId,
   parseOptionalId,
   parseSessionId,
   parseSkillFileId,
@@ -8,6 +9,9 @@ import {
   parseSkillUsageId,
   parseSkillVersionFileId,
   parseSkillVersionId,
+  parseTaskId,
+  parseTriggerId,
+  parseUserId,
   type AgentId,
   type SessionId,
   type SkillId,
@@ -18,6 +22,8 @@ import { parseCollection } from './parse-collection'
 import type {
   SessionSkillUsage,
   SkillFileRecord,
+  SkillImpactReference,
+  SkillImpactSummary,
   SkillRecord,
   SkillSecurityScanRecord,
   SkillSecurityScanSummary,
@@ -44,12 +50,13 @@ type RawSkillSecurityScanSummary = Omit<SkillSecurityScanSummary, 'scan_id'> & {
 
 type RawSkillRecord = Omit<
   SkillRecord,
-  'id' | 'org_version_id' | 'public_version_id' | 'security_scan'
+  'id' | 'org_version_id' | 'public_version_id' | 'security_scan' | 'impact'
 > & {
   id: string
   org_version_id?: string | null
   public_version_id?: string | null
   security_scan?: RawSkillSecurityScanSummary
+  impact?: RawSkillImpactSummary | null
 }
 
 type RawSkillFileRecord = Omit<SkillFileRecord, 'id' | 'skill_id' | 'content'> & {
@@ -69,9 +76,22 @@ type RawSkillVersionFileRecord = Omit<SkillVersionFileRecord, 'id' | 'version_id
   content: string | null
 }
 
-type RawSkillSecurityScanRecord = Omit<SkillSecurityScanRecord, 'id' | 'skill_id'> & {
+type RawSkillSecurityScanRecord = Omit<SkillSecurityScanRecord, 'id' | 'skill_id' | 'owner_id'> & {
   id: string
   skill_id: string | null
+  owner_id?: string | null
+}
+
+interface RawSkillImpactReference {
+  type: string
+  id: string
+  name: string
+  version?: string | null
+  status?: string | null
+}
+
+type RawSkillImpactSummary = Omit<SkillImpactSummary, 'references'> & {
+  references: RawSkillImpactReference[]
 }
 
 type RawSessionSkillUsage = Omit<
@@ -102,6 +122,28 @@ function parseSecuritySummary(summary: RawSkillSecurityScanSummary): SkillSecuri
   }
 }
 
+function parseSkillImpactReference(reference: RawSkillImpactReference): SkillImpactReference {
+  switch (reference.type) {
+    case 'agent':
+      return { ...reference, type: reference.type, id: parseAgentId(reference.id) }
+    case 'agent_version':
+      return { ...reference, type: reference.type, id: parseAgentVersionId(reference.id) }
+    case 'trigger':
+      return { ...reference, type: reference.type, id: parseTriggerId(reference.id) }
+    case 'active_task':
+      return { ...reference, type: reference.type, id: parseTaskId(reference.id) }
+    default:
+      throw new TypeError(`Unsupported Skill impact reference type: ${reference.type}`)
+  }
+}
+
+function parseSkillImpactSummary(impact: RawSkillImpactSummary): SkillImpactSummary {
+  return {
+    ...impact,
+    references: impact.references.map(parseSkillImpactReference),
+  }
+}
+
 export function parseSkillResponse(response: unknown): SkillRecord {
   const raw = response as RawSkillRecord
   return {
@@ -110,6 +152,7 @@ export function parseSkillResponse(response: unknown): SkillRecord {
     org_version_id: parseOptionalId<SkillVersionId>(raw.org_version_id, parseSkillVersionId),
     public_version_id: parseOptionalId<SkillVersionId>(raw.public_version_id, parseSkillVersionId),
     security_scan: raw.security_scan ? parseSecuritySummary(raw.security_scan) : raw.security_scan,
+    impact: raw.impact ? parseSkillImpactSummary(raw.impact) : raw.impact,
   }
 }
 
@@ -160,6 +203,7 @@ export function parseSkillSecurityScanResponse(response: unknown): SkillSecurity
     ...raw,
     id: parseSkillSecurityScanId(raw.id),
     skill_id: parseOptionalId<SkillId>(raw.skill_id, parseSkillId) ?? null,
+    owner_id: parseOptionalId(raw.owner_id, parseUserId) ?? null,
   }
 }
 

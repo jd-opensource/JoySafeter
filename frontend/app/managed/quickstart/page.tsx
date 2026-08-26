@@ -89,6 +89,7 @@ import yaml from 'js-yaml'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
   parseAgentId,
+  parseCredentialId,
   parseEnvironmentId,
   parseSessionId,
   tryParseAgentId,
@@ -96,6 +97,7 @@ import {
   tryParseCredentialGroupId,
   type SessionId,
   type CredentialGroupId,
+  type CredentialId,
 } from '@/types/entity-id'
 import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
 import {
@@ -957,8 +959,8 @@ export default function QuickstartPage() {
   )
   const [editorTab, setEditorTab] = useState<'yaml' | 'json'>('yaml')
   const [rightTab, setRightTab] = useState<'blueprint' | 'advanced' | 'preview'>('blueprint')
-  const [secretRef, setSecretRef] = useState('')
-  const [secretSelectionCleared, setSecretSelectionCleared] = useState(false)
+  const [modelCredentialId, setModelCredentialId] = useState<CredentialId | ''>('')
+  const [modelCredentialSelectionCleared, setModelCredentialSelectionCleared] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const configScrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -994,15 +996,18 @@ export default function QuickstartPage() {
   const [envHosts, setEnvHosts] = useState('')
   const [pendingEnvId, setPendingEnvId] = useState<string | null>(null)
 
-  // Sub-step state for the vault inline flow
-  const [vaultSubStep, setVaultSubStep] = useState<'choose' | 'name' | 'selected' | null>('choose')
-  const [vaultUsesAI, setVaultUsesAI] = useState(false)
-  const [vaultAnswers, setVaultAnswers] = useState<{ choiceLabel?: string }>({})
-  const [vaultName, setVaultName] = useState('')
-  const [vaultCredentialName, setVaultCredentialName] = useState('')
-  const [vaultMcpServerUrl, setVaultMcpServerUrl] = useState('')
-  const [vaultTokenValue, setVaultTokenValue] = useState('')
-  const [pendingVaultId, setPendingVaultId] = useState<CredentialGroupId | null>(null)
+  // Sub-step state for the credential-group inline flow
+  const [credentialGroupSubStep, setCredentialGroupSubStep] = useState<
+    'choose' | 'name' | 'selected' | null
+  >('choose')
+  const [credentialGroupUsesAI, setCredentialGroupUsesAI] = useState(false)
+  const [credentialGroupAnswers, setCredentialGroupAnswers] = useState<{ choiceLabel?: string }>({})
+  const [credentialGroupName, setCredentialGroupName] = useState('')
+  const [credentialGroupCredentialName, setCredentialGroupCredentialName] = useState('')
+  const [credentialGroupMcpServerUrl, setCredentialGroupMcpServerUrl] = useState('')
+  const [credentialGroupTokenValue, setCredentialGroupTokenValue] = useState('')
+  const [pendingCredentialGroupId, setPendingCredentialGroupId] =
+    useState<CredentialGroupId | null>(null)
 
   useEffect(() => {
     if (managedScopeRef.current === managedScope.key) return
@@ -1010,8 +1015,8 @@ export default function QuickstartPage() {
     managedRequestScopeRef.current = managedScope
     pageActionRunRef.current += 1
     setSelectedEnvId('')
-    setSecretRef('')
-    setSecretSelectionCleared(false)
+    setModelCredentialId('')
+    setModelCredentialSelectionCleared(false)
     setPendingEngineRecommendation(null)
     setLocalSessionId(null)
     setIsTestRunning(false)
@@ -1025,18 +1030,18 @@ export default function QuickstartPage() {
     setPreviewSearch('')
     setShowPreviewSearch(false)
     setPendingEnvId(null)
-    setPendingVaultId(null)
+    setPendingCredentialGroupId(null)
     setEnvSubStep('choose')
     setEnvUsesAI(false)
     setEnvAnswers({})
     setEnvHosts('')
-    setVaultSubStep('choose')
-    setVaultUsesAI(false)
-    setVaultAnswers({})
-    setVaultName('')
-    setVaultCredentialName('')
-    setVaultMcpServerUrl('')
-    setVaultTokenValue('')
+    setCredentialGroupSubStep('choose')
+    setCredentialGroupUsesAI(false)
+    setCredentialGroupAnswers({})
+    setCredentialGroupName('')
+    setCredentialGroupCredentialName('')
+    setCredentialGroupMcpServerUrl('')
+    setCredentialGroupTokenValue('')
     autoIntroSentRef.current = new Set()
   }, [managedScope.key])
 
@@ -1069,7 +1074,7 @@ export default function QuickstartPage() {
     }),
   )
 
-  const { data: vaultsRes } = useQuery(
+  const { data: credentialGroupsResponse } = useQuery(
     quickstartQueryOptions({
       queryKey: ['credential-groups-active', managedScope.key],
       queryFn: () =>
@@ -1083,7 +1088,7 @@ export default function QuickstartPage() {
       enabled: hasManagedRequestScope(managedScope),
     }),
   )
-  const vaults = vaultsRes?.data
+  const credentialGroups = credentialGroupsResponse?.data
 
   const { data: skillRecords } = useQuery(
     quickstartQueryOptions({
@@ -1122,7 +1127,7 @@ export default function QuickstartPage() {
     retryGeneration,
     applyTemplate,
     selectEngine,
-    selectAgentSecret,
+    selectModelCredential,
     advanceStep,
     skipStep,
     setAgentSkills,
@@ -1137,21 +1142,21 @@ export default function QuickstartPage() {
     reopenStep,
     sendAutoIntro,
     generateTestMessage,
-  } = useQuickstartChat(secretRef, { availableSkills })
+  } = useQuickstartChat(modelCredentialId, { availableSkills })
 
-  const compatibleSecretsQuery = useCompatibleCredentials({
+  const compatibleCredentialsQuery = useCompatibleCredentials({
     engineId: selectedEngine ?? '',
     enabled: Boolean(selectedEngine),
   })
-  const compatibleSecrets = compatibleSecretsQuery.data
+  const compatibleCredentials = compatibleCredentialsQuery.data
   const activeModelConnectionsQuery = useActiveModelConnections()
   const activeModelConnections = activeModelConnectionsQuery.data ?? []
 
-  const selectedSecret = useMemo(() => {
-    return compatibleSecrets?.find((secret) => secret.id === secretRef)
-  }, [compatibleSecrets, secretRef])
+  const selectedCredential = useMemo(() => {
+    return compatibleCredentials?.find((credential) => credential.id === modelCredentialId)
+  }, [compatibleCredentials, modelCredentialId])
 
-  const selectedSecretCompatible = Boolean(selectedSecret)
+  const selectedCredentialCompatible = Boolean(selectedCredential)
   const hasQuickstartIntent = useMemo(
     () => messages.some((message) => message.role === 'user') || Boolean(config.agent),
     [config.agent, messages],
@@ -1161,8 +1166,8 @@ export default function QuickstartPage() {
     [enabledEngines, selectedEngine],
   )
   const modelRecommendation = useMemo(
-    () => recommendQuickstartModelConnection(compatibleSecrets ?? [], selectedEngineCapability),
-    [compatibleSecrets, selectedEngineCapability],
+    () => recommendQuickstartModelConnection(compatibleCredentials ?? [], selectedEngineCapability),
+    [compatibleCredentials, selectedEngineCapability],
   )
   const safetyRecommendation = useMemo(
     () =>
@@ -1176,30 +1181,32 @@ export default function QuickstartPage() {
   const suggestedMcpServerUrl = safetyRecommendation.recommendedMcpServerUrls[0] || ''
 
   useEffect(() => {
-    if (!selectedEngine || !compatibleSecretsQuery.isSuccess || !compatibleSecrets) return
-    const compatibleIds = new Set<string>(compatibleSecrets.map((secret) => secret.id))
-    if (secretRef) {
-      if (compatibleIds.has(secretRef)) return
-      setSecretRef('')
-      setSecretSelectionCleared(true)
+    if (!selectedEngine || !compatibleCredentialsQuery.isSuccess || !compatibleCredentials) return
+    const compatibleIds = new Set<CredentialId>(
+      compatibleCredentials.map((credential) => credential.id),
+    )
+    if (modelCredentialId) {
+      if (compatibleIds.has(modelCredentialId)) return
+      setModelCredentialId('')
+      setModelCredentialSelectionCleared(true)
       return
     }
-    if (secretSelectionCleared) return
+    if (modelCredentialSelectionCleared) return
     if (modelRecommendation) {
-      const recommendedId = modelRecommendation.secret.id
-      setSecretRef(recommendedId)
+      const recommendedId = modelRecommendation.credential.id
+      setModelCredentialId(recommendedId)
       if (hasQuickstartIntent && modelRecommendation.autoContinue) {
-        selectAgentSecret(recommendedId)
+        selectModelCredential(recommendedId)
       }
     }
   }, [
-    compatibleSecrets,
-    compatibleSecretsQuery.isSuccess,
+    compatibleCredentials,
+    compatibleCredentialsQuery.isSuccess,
     hasQuickstartIntent,
     modelRecommendation,
-    secretRef,
-    secretSelectionCleared,
-    selectAgentSecret,
+    modelCredentialId,
+    modelCredentialSelectionCleared,
+    selectModelCredential,
     selectedEngine,
   ])
 
@@ -1210,25 +1217,27 @@ export default function QuickstartPage() {
   const isLanding = messages.length === 0 && !isStreaming
   const quickstartAgentId = tryParseAgentId(resourceIds[3])
   const quickstartEnvironmentId = tryParseEnvironmentId(resourceIds[4])
-  const quickstartVaultId = tryParseCredentialGroupId(resourceIds[5])
+  const quickstartCredentialGroupId = tryParseCredentialGroupId(resourceIds[5])
   const rawSessionId = resourceIds[6] || localSessionId
   const sessionId = rawSessionId ? parseSessionId(rawSessionId) : null
   const isSessionActive = !!sessionId
 
   // Real MCP authorization: a credential group only authorizes an agent's MCP
   // server when it actually holds a member credential for that server URL.
-  const { data: quickstartVaultMembers } = useQuery({
-    queryKey: ['credential-group-members', managedScope.key, quickstartVaultId],
+  const { data: quickstartCredentialGroupMembers } = useQuery({
+    queryKey: ['credential-group-members', managedScope.key, quickstartCredentialGroupId],
     queryFn: () =>
       managedGet<{ data: unknown[] }>(
-        apiResourceSubpath('credential-groups', quickstartVaultId!, ['members'], { limit: 100 }),
+        apiResourceSubpath('credential-groups', quickstartCredentialGroupId!, ['members'], {
+          limit: 100,
+        }),
         managedRequestOptions(managedScope),
       ).then((response) => parseCredentialGroupCredentialListResponse(response.data || [])),
-    enabled: Boolean(quickstartVaultId) && hasManagedRequestScope(managedScope),
+    enabled: Boolean(quickstartCredentialGroupId) && hasManagedRequestScope(managedScope),
   })
   const authorizedMcpServerUrls = useMemo(
-    () => quickstartAuthorizedMcpServerUrls(quickstartVaultMembers ?? []),
-    [quickstartVaultMembers],
+    () => quickstartAuthorizedMcpServerUrls(quickstartCredentialGroupMembers ?? []),
+    [quickstartCredentialGroupMembers],
   )
   const agentMcpServerUrls = useMemo(() => {
     const servers = (config.agent as Record<string, unknown> | undefined)?.mcp_servers
@@ -1245,15 +1254,17 @@ export default function QuickstartPage() {
     () => agentMcpServerUrls.some((url) => isMcpServerAuthorized(url, authorizedMcpServerUrls)),
     [agentMcpServerUrls, authorizedMcpServerUrls],
   )
-  const vaultRecommendation = useMemo(
+  const credentialGroupRecommendation = useMemo(
     () =>
-      quickstartCredentialGroupRecommendation(config.vault as Record<string, unknown> | undefined),
-    [config.vault],
+      quickstartCredentialGroupRecommendation(
+        config.credentialGroup as Record<string, unknown> | undefined,
+      ),
+    [config.credentialGroup],
   )
 
   const launchAssurance = deriveQuickstartLaunchAssurance({
     hasRuntime: Boolean(selectedEngine),
-    hasModelConnection: Boolean(selectedSecret),
+    hasModelConnection: Boolean(selectedCredential),
     hasEnvironment: Boolean(quickstartEnvironmentId),
     hasExternalToolAuthorization: externalToolsAuthorized,
   })
@@ -1522,9 +1533,9 @@ export default function QuickstartPage() {
     return (environments || []).filter((e) => !e.archived_at)
   }, [environments])
 
-  const activeVaults = useMemo(() => {
-    return (vaults || []).filter((v) => !v.archived_at)
-  }, [vaults])
+  const activeCredentialGroups = useMemo(() => {
+    return (credentialGroups || []).filter((v) => !v.archived_at)
+  }, [credentialGroups])
 
   const readCurrentActiveEnvironments = () => {
     const currentEnvironmentData = queryClient.getQueryData<Environment[]>([
@@ -1534,14 +1545,14 @@ export default function QuickstartPage() {
     return (currentEnvironmentData || activeEnvironments).filter((env) => !env.archived_at)
   }
 
-  const readCurrentActiveVaults = () => {
-    const currentVaultData = queryClient.getQueryData<ActiveCredentialGroupsCache>([
+  const readCurrentActiveCredentialGroups = () => {
+    const currentCredentialGroupsData = queryClient.getQueryData<ActiveCredentialGroupsCache>([
       'credential-groups-active',
       managedScope.key,
     ])
-    return (unwrapActiveCredentialGroupsCache(currentVaultData) || activeVaults).filter(
-      (vault) => !vault.archived_at,
-    )
+    return (
+      unwrapActiveCredentialGroupsCache(currentCredentialGroupsData) || activeCredentialGroups
+    ).filter((credentialGroup) => !credentialGroup.archived_at)
   }
 
   const confirmSelectedEnvironment = () => {
@@ -1556,15 +1567,17 @@ export default function QuickstartPage() {
     advanceStep()
   }
 
-  const confirmSelectedVault = () => {
+  const confirmSelectedCredentialGroup = () => {
     if (!currentPageProjectAllowsWrite()) return
-    if (!pendingVaultId) {
+    if (!pendingCredentialGroupId) {
       advanceStep()
       return
     }
-    const currentVault = readCurrentActiveVaults().find((vault) => vault.id === pendingVaultId)
-    if (!currentVault) return
-    selectExistingCredentialGroup(currentVault.id)
+    const currentCredentialGroup = readCurrentActiveCredentialGroups().find(
+      (credentialGroup) => credentialGroup.id === pendingCredentialGroupId,
+    )
+    if (!currentCredentialGroup) return
+    selectExistingCredentialGroup(currentCredentialGroup.id)
     advanceStep()
   }
 
@@ -1593,16 +1606,18 @@ export default function QuickstartPage() {
   const resolveSessionCredentialGroupId = () => {
     const credentialGroupId = tryParseCredentialGroupId(resourceIds[5])
     if (!credentialGroupId) return null
-    const currentVaultData = queryClient.getQueryData<ActiveCredentialGroupsCache>([
+    const currentCredentialGroupsData = queryClient.getQueryData<ActiveCredentialGroupsCache>([
       'credential-groups-active',
       managedScope.key,
     ])
-    const currentVaultRecord = unwrapActiveCredentialGroupsCache(currentVaultData)?.find(
-      (credentialGroup) => credentialGroup.id === credentialGroupId,
-    )
-    if (currentVaultRecord?.archived_at) return null
+    const currentCredentialGroupRecord = unwrapActiveCredentialGroupsCache(
+      currentCredentialGroupsData,
+    )?.find((credentialGroup) => credentialGroup.id === credentialGroupId)
+    if (currentCredentialGroupRecord?.archived_at) return null
     if (
-      readCurrentActiveVaults().some((credentialGroup) => credentialGroup.id === credentialGroupId)
+      readCurrentActiveCredentialGroups().some(
+        (credentialGroup) => credentialGroup.id === credentialGroupId,
+      )
     ) {
       return credentialGroupId
     }
@@ -1643,7 +1658,7 @@ export default function QuickstartPage() {
     if (
       !currentProjectReadOnly &&
       currentStep === 5 &&
-      vaultUsesAI &&
+      credentialGroupUsesAI &&
       !completedSteps.has(5) &&
       !isStreaming
     ) {
@@ -1659,7 +1674,7 @@ export default function QuickstartPage() {
     isStreaming,
     sendAutoIntro,
     envUsesAI,
-    vaultUsesAI,
+    credentialGroupUsesAI,
   ])
 
   // Auto-switch to preview and generate test message when session is created
@@ -1719,7 +1734,7 @@ export default function QuickstartPage() {
     skipStep(4)
   }
 
-  const handleVaultSkip = () => {
+  const handleCredentialGroupSkip = () => {
     skipStep(5)
   }
 
@@ -1730,8 +1745,8 @@ export default function QuickstartPage() {
     setLocalSessionId(null)
     setIsTestRunning(false)
     if (step <= 2) {
-      setSecretRef('')
-      setSecretSelectionCleared(true)
+      setModelCredentialId('')
+      setModelCredentialSelectionCleared(true)
     }
     if (step <= 4) {
       setSelectedEnvId('')
@@ -1742,14 +1757,14 @@ export default function QuickstartPage() {
       setEnvHosts('')
     }
     if (step <= 5) {
-      setPendingVaultId(null)
-      setVaultSubStep('choose')
-      setVaultUsesAI(false)
-      setVaultAnswers({})
-      setVaultName('')
-      setVaultCredentialName('')
-      setVaultMcpServerUrl('')
-      setVaultTokenValue('')
+      setPendingCredentialGroupId(null)
+      setCredentialGroupSubStep('choose')
+      setCredentialGroupUsesAI(false)
+      setCredentialGroupAnswers({})
+      setCredentialGroupName('')
+      setCredentialGroupCredentialName('')
+      setCredentialGroupMcpServerUrl('')
+      setCredentialGroupTokenValue('')
     }
   }
 
@@ -1875,8 +1890,8 @@ export default function QuickstartPage() {
     if (currentStep === 4 && config.environment) {
       return config.environment
     }
-    if (currentStep === 5 && config.vault) {
-      return config.vault
+    if (currentStep === 5 && config.credentialGroup) {
+      return config.credentialGroup
     }
     if (!config.agent) return null
     const a = config.agent
@@ -1967,23 +1982,27 @@ export default function QuickstartPage() {
     selectEngine(engine)
   }
 
-  const handleAgentSecretSelect = (credentialId: string) => {
+  const handleModelCredentialSelect = (credentialId: CredentialId | '') => {
     if (!currentPageProjectAllowsWrite()) return
-    setSecretRef(credentialId)
-    setSecretSelectionCleared(false)
-    selectAgentSecret(credentialId)
+    const parsedCredentialId = credentialId ? parseCredentialId(credentialId) : ''
+    setModelCredentialId(parsedCredentialId)
+    setModelCredentialSelectionCleared(false)
+    selectModelCredential(parsedCredentialId || undefined)
   }
 
-  const handleInlineSecretCreated = (created: CredentialDetail) => {
+  const handleInlineModelCredentialCreated = (created: CredentialDetail) => {
     if (!selectedEngine) return
     const listItem: Credential = created
     queryClient.setQueriesData<Credential[]>(
       { queryKey: compatibleCredentialsQueryPrefix(managedScope.key, selectedEngine) },
-      (current) => [...(current ?? []).filter((secret) => secret.id !== listItem.id), listItem],
+      (current) => [
+        ...(current ?? []).filter((credential) => credential.id !== listItem.id),
+        listItem,
+      ],
     )
-    setSecretRef(created.id)
-    setSecretSelectionCleared(false)
-    selectAgentSecret(created.id)
+    setModelCredentialId(created.id)
+    setModelCredentialSelectionCleared(false)
+    selectModelCredential(created.id)
   }
 
   const inputEngineOptions = engineOptionsForIntent(inputValue)
@@ -2001,8 +2020,8 @@ export default function QuickstartPage() {
     currentStep !== 1 &&
     (!selectedEngine ||
       currentStep === 2 ||
-      !secretRef ||
-      (currentStep >= 3 && (!secretRef || !selectedSecretCompatible)))
+      !modelCredentialId ||
+      (currentStep >= 3 && (!modelCredentialId || !selectedCredentialCompatible)))
   const isMainInputDisabled = currentProjectReadOnly || isStreaming || isMainInputBlockedBySetup
   const isMainSendDisabled =
     isMainInputDisabled ||
@@ -2011,9 +2030,9 @@ export default function QuickstartPage() {
     (!selectedEngine && (!activeModelConnectionsQuery.isSuccess || !recommendedInputEngine))
   const mainInputPlaceholderKey = quickstartInputPlaceholderKey({
     selectedEngine: selectedEngine ?? '',
-    secretRef,
+    modelCredentialId,
     currentStep,
-    selectedSecretCompatible,
+    selectedCredentialCompatible,
     isSessionRunning,
     isStreaming,
     readyKey: isLanding ? 'managed.quickstart.describeAgent' : 'managed.quickstart.reply',
@@ -2303,7 +2322,7 @@ export default function QuickstartPage() {
                           {t('managed.quickstart.modelRecommendation.title')}
                         </div>
                         <div className="mt-2 flex flex-col gap-1 text-sm text-foreground">
-                          <span className="font-medium">{modelRecommendation.secret.name}</span>
+                          <span className="font-medium">{modelRecommendation.credential.name}</span>
                           <span className="text-xs leading-5 text-muted-foreground">
                             {t(MODEL_RECOMMENDATION_REASON_KEYS[modelRecommendation.reason])}
                           </span>
@@ -2313,16 +2332,16 @@ export default function QuickstartPage() {
                     <QuickstartLlmStep
                       key={selectedEngine}
                       engineId={selectedEngine}
-                      value={secretRef}
+                      value={modelCredentialId}
                       disabled={currentProjectReadOnly}
-                      onSelect={handleAgentSecretSelect}
-                      onCreated={handleInlineSecretCreated}
+                      onSelect={handleModelCredentialSelect}
+                      onCreated={handleInlineModelCredentialCreated}
                     />
-                    {secretRef ? (
+                    {modelCredentialId ? (
                       <Button
                         type="button"
                         className="h-10 rounded-xl px-5 text-sm font-semibold"
-                        onClick={() => handleAgentSecretSelect(secretRef)}
+                        onClick={() => handleModelCredentialSelect(modelCredentialId)}
                         disabled={currentProjectReadOnly}
                       >
                         {t('managed.quickstart.useSelectedModelConnection')}
@@ -2331,70 +2350,76 @@ export default function QuickstartPage() {
                   </div>
                 )}
 
-                {/* Step 2 secret: show completed badge before the next step actions */}
-                {currentStep > 2 && completedSteps.has(2) && selectedSecret && (
+                {/* Step 2 model connection: show completed badge before the next step actions */}
+                {currentStep > 2 && completedSteps.has(2) && selectedCredential && (
                   <StepDoneBadge
-                    label={`${t('managed.quickstart.stepComplete.secretSelected')}: ${selectedSecret.name}`}
+                    label={`${t('managed.quickstart.stepComplete.modelCredentialSelected')}: ${selectedCredential.name}`}
                   />
                 )}
 
                 {pendingConfirmation &&
                   pendingConfirmation.step === currentStep &&
-                  (currentStep === 5 && vaultRecommendation.requiresCredential ? (
+                  (currentStep === 5 && credentialGroupRecommendation.requiresCredential ? (
                     <div className="space-y-3 rounded-xl border border-border bg-background p-4">
                       <div className="flex items-start gap-2">
                         <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
                         <div className="space-y-1">
                           <p className="text-sm font-semibold text-foreground">
-                            {t('managed.quickstart.vaultCredentialTitle')}
+                            {t('managed.quickstart.credentialGroupCredentialTitle')}
                           </p>
                           <p className="text-xs leading-5 text-muted-foreground">
-                            {t('managed.quickstart.vaultCredentialHint')}
+                            {t('managed.quickstart.credentialGroupCredentialHint')}
                           </p>
                         </div>
                       </div>
                       <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
                         <p className="font-medium text-foreground">
-                          {vaultRecommendation.name ||
+                          {credentialGroupRecommendation.name ||
                             t('managed.quickstart.resourceKindMcpCredentialSet')}
                         </p>
                         <p className="mt-0.5 break-all text-muted-foreground">
-                          {vaultRecommendation.mcpServerUrl}
+                          {credentialGroupRecommendation.mcpServerUrl}
                         </p>
                       </div>
                       <input
                         type="password"
-                        value={vaultTokenValue}
-                        onChange={(e) => setVaultTokenValue(e.target.value)}
-                        placeholder={t('managed.quickstart.vaultTokenPlaceholder')}
+                        value={credentialGroupTokenValue}
+                        onChange={(e) => setCredentialGroupTokenValue(e.target.value)}
+                        placeholder={t('managed.quickstart.credentialGroupTokenPlaceholder')}
                         className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
                       />
                       <div className="flex items-center gap-3">
                         <Button
                           className="h-10 rounded-xl px-5 text-sm font-semibold"
-                          disabled={isCreating || currentProjectReadOnly || !vaultTokenValue.trim()}
+                          disabled={
+                            isCreating ||
+                            currentProjectReadOnly ||
+                            !credentialGroupTokenValue.trim()
+                          }
                           onClick={async () => {
-                            const urlError = validateUrlScheme(vaultRecommendation.mcpServerUrl)
+                            const urlError = validateUrlScheme(
+                              credentialGroupRecommendation.mcpServerUrl,
+                            )
                             if (urlError) {
                               alert(urlError)
                               return
                             }
                             const created = await createCredentialGroup(
-                              vaultRecommendation.name || 'quickstart-vault',
+                              credentialGroupRecommendation.name || 'quickstart-credential-group',
                               {
                                 credential: {
-                                  name: vaultRecommendation.credentialName,
-                                  mcpServerUrl: vaultRecommendation.mcpServerUrl,
-                                  tokenValue: vaultTokenValue.trim(),
+                                  name: credentialGroupRecommendation.credentialName,
+                                  mcpServerUrl: credentialGroupRecommendation.mcpServerUrl,
+                                  tokenValue: credentialGroupTokenValue.trim(),
                                 },
                               },
                             )
                             if (!created) return
-                            setVaultAnswers((prev) => ({
+                            setCredentialGroupAnswers((prev) => ({
                               ...prev,
-                              choiceLabel: vaultRecommendation.name,
+                              choiceLabel: credentialGroupRecommendation.name,
                             }))
-                            setVaultTokenValue('')
+                            setCredentialGroupTokenValue('')
                             advanceStep()
                           }}
                         >
@@ -2413,7 +2438,7 @@ export default function QuickstartPage() {
                           variant="ghost"
                           size="sm"
                           className="text-xs text-muted-foreground"
-                          onClick={handleVaultSkip}
+                          onClick={handleCredentialGroupSkip}
                           disabled={isCreating}
                         >
                           {t('common.skip')}
@@ -2678,27 +2703,27 @@ export default function QuickstartPage() {
                     </>
                   )}
 
-                {/* Step 5 vault: show completed summary when past step 5, or active UI when on step 5 */}
+                {/* Step 5 credential group: show completed summary when past step 5, or active UI when on step 5 */}
                 {currentStep > 5 &&
                   completedSteps.has(5) &&
-                  !vaultUsesAI &&
-                  vaultAnswers.choiceLabel && (
+                  !credentialGroupUsesAI &&
+                  credentialGroupAnswers.choiceLabel && (
                     <StepDoneBadge
-                      label={`${t('managed.quickstart.stepComplete.vaultCreated')}: ${vaultAnswers.choiceLabel}`}
+                      label={`${t('managed.quickstart.stepComplete.credentialGroupCreated')}: ${credentialGroupAnswers.choiceLabel}`}
                       curl={curls[5]}
                       endpoint={STEP_API_ENDPOINTS[5]}
                     />
                   )}
 
                 {currentStep === 5 &&
-                  (!completedSteps.has(5) || vaultSubStep === 'selected') &&
+                  (!completedSteps.has(5) || credentialGroupSubStep === 'selected') &&
                   !pendingConfirmation &&
-                  !vaultUsesAI && (
+                  !credentialGroupUsesAI && (
                     <>
-                      {vaultSubStep === 'choose' && (
+                      {credentialGroupSubStep === 'choose' && (
                         <div className="space-y-3">
                           <p className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs leading-5 text-muted-foreground">
-                            {t('managed.quickstart.vaultIntro')}
+                            {t('managed.quickstart.credentialGroupIntro')}
                           </p>
                           <div
                             className={cn(
@@ -2730,53 +2755,62 @@ export default function QuickstartPage() {
                             </div>
                           </div>
                           <NumberedChoiceList
-                            question={t('managed.quickstart.vaultReuseOrCreate')}
+                            question={t('managed.quickstart.credentialGroupReuseOrCreate')}
                             choices={[
-                              ...activeVaults.map((v, i) => ({ num: i + 1, label: v.name })),
+                              ...activeCredentialGroups.map((v, i) => ({
+                                num: i + 1,
+                                label: v.name,
+                              })),
                               {
-                                num: activeVaults.length + 1,
-                                label: t('managed.quickstart.vaultCreateNew'),
+                                num: activeCredentialGroups.length + 1,
+                                label: t('managed.quickstart.credentialGroupCreateNew'),
                               },
-                              { num: 0, label: t('managed.quickstart.vaultSomethingElse') },
+                              {
+                                num: 0,
+                                label: t('managed.quickstart.credentialGroupSomethingElse'),
+                              },
                             ]}
                             onSelect={(num) => {
                               if (num === 0) {
-                                setVaultSubStep(null)
-                                setVaultUsesAI(true)
-                              } else if (num <= activeVaults.length) {
-                                const vault = activeVaults[num - 1]
-                                const currentVault = readCurrentActiveVaults().find(
-                                  (current) => current.id === vault.id,
-                                )
-                                if (!currentVault) return
-                                setPendingVaultId(currentVault.id)
-                                setVaultAnswers({ choiceLabel: currentVault.name })
-                                setVaultSubStep('selected')
-                              } else {
-                                setVaultAnswers({
-                                  choiceLabel: t('managed.quickstart.vaultCreateNew'),
+                                setCredentialGroupSubStep(null)
+                                setCredentialGroupUsesAI(true)
+                              } else if (num <= activeCredentialGroups.length) {
+                                const credentialGroup = activeCredentialGroups[num - 1]
+                                const currentCredentialGroup =
+                                  readCurrentActiveCredentialGroups().find(
+                                    (current) => current.id === credentialGroup.id,
+                                  )
+                                if (!currentCredentialGroup) return
+                                setPendingCredentialGroupId(currentCredentialGroup.id)
+                                setCredentialGroupAnswers({
+                                  choiceLabel: currentCredentialGroup.name,
                                 })
-                                if (!vaultMcpServerUrl.trim() && suggestedMcpServerUrl) {
-                                  setVaultMcpServerUrl(suggestedMcpServerUrl)
+                                setCredentialGroupSubStep('selected')
+                              } else {
+                                setCredentialGroupAnswers({
+                                  choiceLabel: t('managed.quickstart.credentialGroupCreateNew'),
+                                })
+                                if (!credentialGroupMcpServerUrl.trim() && suggestedMcpServerUrl) {
+                                  setCredentialGroupMcpServerUrl(suggestedMcpServerUrl)
                                 }
-                                setVaultSubStep('name')
+                                setCredentialGroupSubStep('name')
                               }
                             }}
-                            onSkip={handleVaultSkip}
+                            onSkip={handleCredentialGroupSkip}
                           />
                         </div>
                       )}
 
-                      {vaultSubStep === 'selected' && (
+                      {credentialGroupSubStep === 'selected' && (
                         <>
                           <QADisplay
-                            question={t('managed.quickstart.vaultReuseOrCreate')}
-                            answer={vaultAnswers.choiceLabel || ''}
+                            question={t('managed.quickstart.credentialGroupReuseOrCreate')}
+                            answer={credentialGroupAnswers.choiceLabel || ''}
                           />
                           <div className="flex items-center gap-2 pt-1">
                             <Button
                               className="h-10 rounded-xl px-5 text-sm font-semibold"
-                              onClick={confirmSelectedVault}
+                              onClick={confirmSelectedCredentialGroup}
                             >
                               {t('managed.quickstart.nextStartSession')}
                             </Button>
@@ -2784,21 +2818,21 @@ export default function QuickstartPage() {
                         </>
                       )}
 
-                      {vaultSubStep === 'name' && (
+                      {credentialGroupSubStep === 'name' && (
                         <>
                           <QADisplay
-                            question={t('managed.quickstart.vaultReuseOrCreate')}
-                            answer={vaultAnswers.choiceLabel || ''}
+                            question={t('managed.quickstart.credentialGroupReuseOrCreate')}
+                            answer={credentialGroupAnswers.choiceLabel || ''}
                           />
                           <div className="space-y-3 rounded-xl border border-border bg-background p-4">
                             <p className="text-[14px] font-semibold text-foreground">
-                              {t('managed.quickstart.vaultNameQuestion')}
+                              {t('managed.quickstart.credentialGroupNameQuestion')}
                             </p>
                             <input
                               type="text"
-                              value={vaultName}
-                              onChange={(e) => setVaultName(e.target.value)}
-                              placeholder={t('managed.quickstart.vaultNamePlaceholder')}
+                              value={credentialGroupName}
+                              onChange={(e) => setCredentialGroupName(e.target.value)}
+                              placeholder={t('managed.quickstart.credentialGroupNamePlaceholder')}
                               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
                             />
                             <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs">
@@ -2806,33 +2840,37 @@ export default function QuickstartPage() {
                                 <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
                                 <div className="space-y-1">
                                   <p className="font-semibold text-foreground">
-                                    {t('managed.quickstart.vaultCredentialTitle')}
+                                    {t('managed.quickstart.credentialGroupCredentialTitle')}
                                   </p>
                                   <p className="leading-5 text-muted-foreground">
-                                    {t('managed.quickstart.vaultCredentialHint')}
+                                    {t('managed.quickstart.credentialGroupCredentialHint')}
                                   </p>
                                 </div>
                               </div>
                             </div>
                             <input
                               type="text"
-                              value={vaultMcpServerUrl}
-                              onChange={(e) => setVaultMcpServerUrl(e.target.value)}
-                              placeholder={t('managed.quickstart.vaultMcpServerUrlPlaceholder')}
+                              value={credentialGroupMcpServerUrl}
+                              onChange={(e) => setCredentialGroupMcpServerUrl(e.target.value)}
+                              placeholder={t(
+                                'managed.quickstart.credentialGroupMcpServerUrlPlaceholder',
+                              )}
                               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
                             />
                             <input
                               type="text"
-                              value={vaultCredentialName}
-                              onChange={(e) => setVaultCredentialName(e.target.value)}
-                              placeholder={t('managed.quickstart.vaultCredentialNamePlaceholder')}
+                              value={credentialGroupCredentialName}
+                              onChange={(e) => setCredentialGroupCredentialName(e.target.value)}
+                              placeholder={t(
+                                'managed.quickstart.credentialGroupCredentialNamePlaceholder',
+                              )}
                               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
                             />
                             <input
                               type="password"
-                              value={vaultTokenValue}
-                              onChange={(e) => setVaultTokenValue(e.target.value)}
-                              placeholder={t('managed.quickstart.vaultTokenPlaceholder')}
+                              value={credentialGroupTokenValue}
+                              onChange={(e) => setCredentialGroupTokenValue(e.target.value)}
+                              placeholder={t('managed.quickstart.credentialGroupTokenPlaceholder')}
                               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
                             />
                             <div className="flex items-center justify-between">
@@ -2841,21 +2879,23 @@ export default function QuickstartPage() {
                                 disabled={
                                   isCreating ||
                                   currentProjectReadOnly ||
-                                  !vaultName.trim() ||
+                                  !credentialGroupName.trim() ||
                                   (Boolean(
                                     safetyRecommendation.externalToolsRecommended ||
-                                    vaultMcpServerUrl.trim() ||
-                                    vaultTokenValue.trim(),
+                                    credentialGroupMcpServerUrl.trim() ||
+                                    credentialGroupTokenValue.trim(),
                                   ) &&
-                                    (!vaultMcpServerUrl.trim() || !vaultTokenValue.trim()))
+                                    (!credentialGroupMcpServerUrl.trim() ||
+                                      !credentialGroupTokenValue.trim()))
                                 }
                                 onClick={async () => {
                                   const credential =
-                                    vaultMcpServerUrl.trim() && vaultTokenValue.trim()
+                                    credentialGroupMcpServerUrl.trim() &&
+                                    credentialGroupTokenValue.trim()
                                       ? {
-                                          name: vaultCredentialName.trim(),
-                                          mcpServerUrl: vaultMcpServerUrl.trim(),
-                                          tokenValue: vaultTokenValue.trim(),
+                                          name: credentialGroupCredentialName.trim(),
+                                          mcpServerUrl: credentialGroupMcpServerUrl.trim(),
+                                          tokenValue: credentialGroupTokenValue.trim(),
                                         }
                                       : undefined
                                   if (credential) {
@@ -2865,15 +2905,18 @@ export default function QuickstartPage() {
                                       return
                                     }
                                   }
-                                  const created = await createCredentialGroup(vaultName.trim(), {
-                                    credential,
-                                  })
+                                  const created = await createCredentialGroup(
+                                    credentialGroupName.trim(),
+                                    {
+                                      credential,
+                                    },
+                                  )
                                   if (!created) return
-                                  setVaultAnswers((prev) => ({
+                                  setCredentialGroupAnswers((prev) => ({
                                     ...prev,
-                                    choiceLabel: vaultName.trim(),
+                                    choiceLabel: credentialGroupName.trim(),
                                   }))
-                                  setVaultSubStep('selected')
+                                  setCredentialGroupSubStep('selected')
                                   advanceStep()
                                 }}
                               >
@@ -2886,7 +2929,7 @@ export default function QuickstartPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="text-xs text-muted-foreground"
-                                onClick={handleVaultSkip}
+                                onClick={handleCredentialGroupSkip}
                               >
                                 {t('common.skip')}
                               </Button>
@@ -2990,15 +3033,15 @@ export default function QuickstartPage() {
                             </div>
                             <div className="flex shrink-0 items-center gap-2">
                               <SafetyPlanStatusBadge
-                                tone={selectedSecret ? 'ready' : 'warning'}
+                                tone={selectedCredential ? 'ready' : 'warning'}
                                 label={t(
-                                  selectedSecret
+                                  selectedCredential
                                     ? 'managed.quickstart.safetyPlan.status.ready'
                                     : 'managed.quickstart.safetyPlan.status.required',
                                 )}
                               />
                               <span className="max-w-[180px] truncate text-right font-medium text-foreground">
-                                {selectedSecret?.name ||
+                                {selectedCredential?.name ||
                                   t('managed.quickstart.safetyPlan.notConfigured')}
                               </span>
                               <Button
@@ -3067,23 +3110,23 @@ export default function QuickstartPage() {
                                 {t('managed.quickstart.safetyPlan.externalTools')}
                               </span>
                               <p className="text-[11px] leading-4 text-muted-foreground">
-                                {quickstartVaultId
+                                {quickstartCredentialGroupId
                                   ? t('managed.quickstart.safetyPlan.hint.externalTools')
                                   : t('managed.quickstart.safetyPlan.hint.noExternalTools')}
                               </p>
                             </div>
                             <div className="flex shrink-0 items-center gap-2">
                               <SafetyPlanStatusBadge
-                                tone={quickstartVaultId ? 'primary' : 'muted'}
+                                tone={quickstartCredentialGroupId ? 'primary' : 'muted'}
                                 label={t(
-                                  quickstartVaultId
+                                  quickstartCredentialGroupId
                                     ? 'managed.quickstart.safetyPlan.status.ready'
                                     : 'managed.quickstart.safetyPlan.status.notAuthorized',
                                 )}
                               />
                               <span className="max-w-[180px] truncate text-right font-medium text-foreground">
-                                {quickstartVaultId
-                                  ? shortEntityId(quickstartVaultId, 'credentialGroup')
+                                {quickstartCredentialGroupId
+                                  ? shortEntityId(quickstartCredentialGroupId, 'credentialGroup')
                                   : t('managed.quickstart.safetyPlan.notAuthorized')}
                               </span>
                               <Button
@@ -3093,7 +3136,7 @@ export default function QuickstartPage() {
                                 disabled={currentProjectReadOnly}
                                 onClick={() => handleSafetyPlanEdit(5)}
                               >
-                                {quickstartVaultId
+                                {quickstartCredentialGroupId
                                   ? t('managed.quickstart.safetyPlan.action.changeTools')
                                   : t('managed.quickstart.safetyPlan.action.authorizeTools')}
                               </Button>
@@ -3134,10 +3177,10 @@ export default function QuickstartPage() {
                           {shortEntityId(quickstartEnvironmentId, 'environment')}
                         </div>
                       )}
-                      {quickstartVaultId && (
+                      {quickstartCredentialGroupId && (
                         <div>
                           <span className="text-muted-foreground">credential_group_ids:</span>{' '}
-                          {`["${shortEntityId(quickstartVaultId, 'credentialGroup')}"]`}
+                          {`["${shortEntityId(quickstartCredentialGroupId, 'credentialGroup')}"]`}
                         </div>
                       )}
                     </div>
@@ -3147,7 +3190,7 @@ export default function QuickstartPage() {
                 {completedSteps.has(currentStep) &&
                   curls[currentStep] &&
                   (currentStep >= 5 ||
-                    (envSubStep !== 'selected' && vaultSubStep !== 'selected')) && (
+                    (envSubStep !== 'selected' && credentialGroupSubStep !== 'selected')) && (
                     <>
                       {currentStep === 6 ? (
                         <>

@@ -34,7 +34,6 @@ function normalizeTab(raw: string | null): CredentialTab {
 
 function parseCreateKind(raw: string | null): CredentialKindChoice | null {
   if (raw === 'model' || raw === 'service' || raw === 'credential-group') return raw
-  if (raw === 'vault') return 'credential-group'
   return null
 }
 

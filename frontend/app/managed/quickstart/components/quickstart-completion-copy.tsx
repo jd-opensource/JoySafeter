@@ -27,7 +27,7 @@ export function QuickstartCompletionTitle({ step }: QuickstartCompletionCopyProp
     case 4:
       return t('managed.quickstart.stepComplete.envCreated')
     case 5:
-      return t('managed.quickstart.stepComplete.vaultCreated')
+      return t('managed.quickstart.stepComplete.credentialGroupCreated')
     case 6:
       return t('managed.quickstart.stepComplete.sessionStarted')
   }

@@ -6,7 +6,7 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { managedGet } from '@/lib/api-client'
-import { parseAgentId, type AgentId, type TaskId } from '@/types/entity-id'
+import { parseAgentId, type AgentId } from '@/types/entity-id'
 
 import {
   parseAgentMetricsResponse,
@@ -24,7 +24,6 @@ import type {
   LatencyTimePoint,
   EngineShareItem,
   CallsListResponse,
-  ObservationNode,
   AgentMetrics,
   AgentTrendPoint,
   HealthCheckResponse,
@@ -122,17 +121,6 @@ export function useCallsList(
     queryFn: async () =>
       parseCallsListResponse(await managedGet(`/analytics/calls${toQueryString(params)}`)),
     staleTime: 30_000,
-  })
-}
-
-// --- Observation Tree ---
-
-export function useObservationTree(traceId: TaskId | null) {
-  return useQuery<ObservationNode[]>({
-    queryKey: ['analytics', 'observations', traceId],
-    queryFn: () => managedGet(`/analytics/observations/${traceId}`),
-    enabled: !!traceId,
-    staleTime: 120_000,
   })
 }
 

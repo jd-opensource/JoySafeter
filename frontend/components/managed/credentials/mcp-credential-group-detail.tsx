@@ -559,7 +559,7 @@ export function McpCredentialGroupDetail({
     return (
       <ResourceErrorState
         error={error}
-        resource="vault"
+        resource="credentialGroup"
         backLabel={t('managed.credentials.groups.backToCredentialGroups')}
         onBack={() => router.push('/managed/credentials?tab=mcp')}
       />

@@ -19,6 +19,7 @@ import {
   type QuickstartAgentBlueprint,
 } from '@/lib/managed/quickstart-agent-blueprint'
 import type { QuickstartAvailableSkill } from '@/lib/managed/quickstart-capabilities'
+import type { SkillId } from '@/types/entity-id'
 
 import { QuickstartCapabilityPlan } from './quickstart-capability-plan'
 
@@ -30,7 +31,7 @@ interface QuickstartAgentBlueprintReviewProps {
   disabled?: boolean
   authorizedMcpServerUrls?: ReadonlySet<string>
   isGenericStarter?: boolean
-  onSkillsChange?: (skillIds: string[]) => void
+  onSkillsChange?: (skillIds: SkillId[]) => void
 }
 
 function hasObjectBlueprint(agentConfig?: Record<string, unknown>): boolean {

@@ -40,7 +40,12 @@ import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
-import { tryParseSkillId, type SkillId, type SkillSecurityScanId } from '@/types/entity-id'
+import {
+  tryParseSkillId,
+  type CredentialId,
+  type SkillId,
+  type SkillSecurityScanId,
+} from '@/types/entity-id'
 
 const STORAGE_KEY_PREFIX = 'joysafeter:skill-authoring-state:v2'
 
@@ -257,21 +262,9 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
   }, [])
 
   const send = useCallback(
-    async (userText: string, secretRef: string) => {
+    async (userText: string, modelCredentialId: CredentialId) => {
       const trimmed = userText.trim()
       if (!trimmed || streamInFlightRef.current) return
-      if (!secretRef) {
-        setMessages((prev) => [
-          ...prev,
-          { role: 'user', content: trimmed },
-          {
-            role: 'assistant',
-            content: '⚠️ 请先在右上角选择一个包含 OPENAI_API_KEY 的模型接入，才能让我开始创作。',
-          },
-        ])
-        return
-      }
-
       const requestScope = managedRequestScopeRef.current
       const scopeAtStart = requestScope.key
       if (!isCurrentWritableManagedScope(scopeAtStart)) return
@@ -294,7 +287,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
         const resp = await apiStream(
           'skills/ai-authoring/chat',
           {
-            model_credential_id: secretRef,
+            model_credential_id: modelCredentialId,
             // Send the conversation up to (but not including) the blank
             // assistant placeholder we just appended.
             messages: nextMessages.slice(0, -1),

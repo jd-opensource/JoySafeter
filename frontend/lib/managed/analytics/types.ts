@@ -96,40 +96,6 @@ export interface CallsListResponse {
   total: number
 }
 
-// --- Observations (Waterfall) ---
-
-export type ObservationType =
-  | 'SPAN'
-  | 'EVENT'
-  | 'GENERATION'
-  | 'AGENT'
-  | 'TOOL'
-  | 'CHAIN'
-  | 'RETRIEVER'
-  | 'EMBEDDING'
-  | 'EVALUATOR'
-  | 'GUARDRAIL'
-
-export type ObservationLevel = 'DEBUG' | 'DEFAULT' | 'WARNING' | 'ERROR'
-
-export interface ObservationNode {
-  id: string
-  parent_id: string | null
-  type: ObservationType
-  level: ObservationLevel
-  name: string
-  model: string | null
-  start_time: string
-  end_time: string | null
-  completion_start_time: string | null
-  duration_ms: number
-  input_tokens: number
-  output_tokens: number
-  cost: number
-  tool_calls: unknown[] | null
-  children: ObservationNode[]
-}
-
 // --- Agent Comparison ---
 
 export interface AgentMetrics {

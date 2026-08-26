@@ -14,6 +14,8 @@ import {
   parseTaskId,
   type AgentId,
   type CredentialId,
+  type EnvironmentId,
+  type ProjectId,
   type SessionId,
   type TaskId,
   type TriggerId,
@@ -38,7 +40,7 @@ export interface AgentTrigger {
   type: TriggerType
   agent_id: AgentId
   prompt_template: string
-  environment_ref: string | null
+  environment_id: EnvironmentId | null
   enabled: boolean
   session_mode: TriggerSessionMode
   pinned_session_id: SessionId | null
@@ -56,7 +58,7 @@ export interface AgentTrigger {
   webhook_auth_credential_id?: CredentialId | null
   webhook_auth_field?: string | null
   config?: Record<string, unknown>
-  project_id: string | null
+  project_id: ProjectId | null
   webhook_url: string | null
   last_attempt_at: string | null
   last_success_at: string | null
@@ -78,7 +80,7 @@ export interface AgentTriggerCreate {
   prompt_template: string
   webhook_auth_credential_id?: CredentialId | null
   webhook_auth_field?: string | null
-  environment_ref?: string | null
+  environment_id?: EnvironmentId | null
   description?: string | null
   enabled?: boolean
   session_mode?: TriggerSessionMode
@@ -167,8 +169,8 @@ export function useAgentTrigger(triggerId: TriggerId | undefined) {
   })
 }
 
-/** Normalize legacy references while preserving canonical typed entity IDs. */
-function normalizeTriggerBody(
+/** Serialize typed trigger references for the REST request body. */
+function serializeTriggerBody(
   body: AgentTriggerCreate | AgentTriggerUpdate,
 ): Record<string, unknown> {
   const wire: Record<string, unknown> = { ...body }
@@ -188,7 +190,7 @@ export function useCreateAgentTrigger() {
       managedPost<AgentTrigger>(
         apiCollectionPath('triggers'),
         {
-          ...normalizeTriggerBody(body),
+          ...serializeTriggerBody(body),
           agent_id: apiResourceId(body.agent_id),
         },
         managedRequestOptions(scope),
@@ -204,7 +206,7 @@ export function useUpdateAgentTrigger() {
     mutationFn: ({ id, body }: { id: TriggerId; body: AgentTriggerUpdate }) =>
       managedPatch<AgentTrigger>(
         apiResourcePath('triggers', id),
-        normalizeTriggerBody(body),
+        serializeTriggerBody(body),
         managedRequestOptions(scope),
       ).then(parseAgentTriggerResponse),
     onSuccess: (_data, { id }) => {

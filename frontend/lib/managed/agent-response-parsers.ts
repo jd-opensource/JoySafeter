@@ -1,8 +1,17 @@
-import { parseAgentId, parseSkillId, type AgentId } from '@/types/entity-id'
+import {
+  parseAgentId,
+  parseAgentVersionId,
+  parseEnvironmentId,
+  parseOptionalId,
+  parseSkillId,
+  type AgentId,
+  type EnvironmentId,
+} from '@/types/entity-id'
 import type {
   Agent,
   AgentModelConfig,
   AgentSkillRef,
+  AgentVersion,
   ModelConnectionSummary,
 } from '@/types/managed'
 
@@ -15,8 +24,9 @@ export interface AgentCreateResponse {
 
 type RawAgentSkillRef = Omit<AgentSkillRef, 'skill_id'> & { skill_id: string }
 
-type RawAgent = Omit<Agent, 'id' | 'skills' | 'model' | 'model_connection'> & {
+type RawAgent = Omit<Agent, 'id' | 'skills' | 'model' | 'model_connection' | 'environment_id'> & {
   id: string
+  environment_id?: string | null
   model?: unknown
   skills?: RawAgentSkillRef[]
   model_connection?: (Omit<ModelConnectionSummary, 'id'> & { id: string }) | null
@@ -50,6 +60,7 @@ export function parseAgentResponse(response: unknown): Agent {
   return {
     ...raw,
     id: parseAgentId(raw.id),
+    environment_id: parseOptionalId<EnvironmentId>(raw.environment_id, parseEnvironmentId),
     engine_kind: raw.engine_kind.trim(),
     model: parseAgentModelResponse(raw.model),
     model_connection: raw.model_connection
@@ -73,4 +84,24 @@ export function parseAgentCreateResponse(response: unknown): AgentCreateResponse
 
 export function parseAgentListResponse(response: unknown): Agent[] {
   return (response as RawAgent[]).map(parseAgentResponse)
+}
+
+type RawAgentVersion = Omit<AgentVersion, 'id' | 'agent_id' | 'snapshot'> & {
+  id: string
+  agent_id: string
+  snapshot: unknown
+}
+
+export function parseAgentVersionResponse(response: unknown): AgentVersion {
+  const raw = response as RawAgentVersion
+  return {
+    ...raw,
+    id: parseAgentVersionId(raw.id),
+    agent_id: parseAgentId(raw.agent_id),
+    snapshot: parseAgentResponse(raw.snapshot),
+  }
+}
+
+export function parseAgentVersionListResponse(response: unknown[]): AgentVersion[] {
+  return response.map(parseAgentVersionResponse)
 }

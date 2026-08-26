@@ -122,6 +122,17 @@ describe('useServiceCredentials', () => {
     expect(managedGetMock).toHaveBeenCalledTimes(2)
   })
 
+  it('rejects a cross-entity pagination cursor before another request', async () => {
+    managedGetMock.mockResolvedValueOnce({
+      data: [],
+      has_more: true,
+      last_id: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f099',
+    })
+
+    await expect(fetchAllServiceCredentials(scope)).rejects.toThrow(/Expected cred_/)
+    expect(managedGetMock).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects a multi-page cursor cycle before requesting a duplicate page', async () => {
     managedGetMock
       .mockResolvedValueOnce({ data: [], has_more: true, last_id: SECRET_ID_A })

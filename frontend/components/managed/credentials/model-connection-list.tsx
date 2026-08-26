@@ -356,7 +356,7 @@ export function ModelConnectionList({
     return (
       <ResourceErrorState
         error={list.error}
-        resource="secret"
+        resource="credential"
         onRetry={() =>
           queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })
         }

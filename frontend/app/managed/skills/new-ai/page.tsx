@@ -61,6 +61,8 @@ import { useQuery } from '@tanstack/react-query'
 import {
   FileTreeNode,
   buildFileTree,
+  parseSkillWorkspaceMoveSource,
+  type SkillWorkspaceMoveSource,
   type SkillWorkspaceFile,
 } from '@/components/managed/skills/skill-workspace'
 import { SkillCodeEditor } from '@/components/managed/skills/skill-code-editor'
@@ -75,6 +77,7 @@ import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
+import type { CredentialId } from '@/types/entity-id'
 
 // Sentinel ids used by the tab bar. Preview / Editor / Metadata are pinned
 // pseudo-files; everything else is keyed by its draft path.
@@ -88,13 +91,19 @@ const TAB_METADATA = '__metadata__'
 // ``{path, content}`` pairs. We synthesize the missing fields so the shared
 // tree builder Just Works — the id is the draft path itself so callbacks
 // round-trip cleanly.
-function adaptDraftFiles(files: SkillDraftFile[]): SkillWorkspaceFile[] {
+type DraftFileKey = string & { readonly __draftFileKey: unique symbol }
+
+function draftFileKey(path: string, index: number): DraftFileKey {
+  return (path || `__draft_${index}__`) as DraftFileKey
+}
+
+function adaptDraftFiles(files: SkillDraftFile[]): SkillWorkspaceFile<DraftFileKey>[] {
   return files.map((f, idx) => {
     const slashIdx = f.path.lastIndexOf('/')
     const dir = slashIdx >= 0 ? f.path.slice(0, slashIdx + 1) : ''
     const name = slashIdx >= 0 ? f.path.slice(slashIdx + 1) : f.path
     return {
-      id: f.path || `__draft_${idx}__`,
+      key: draftFileKey(f.path, idx),
       path: dir,
       file_name: name,
       size: f.content?.length || 0,
@@ -149,7 +158,7 @@ export default function SkillAiAuthoringPage() {
   } = useSkillAuthoring({ startFresh: isFresh })
 
   const [input, setInput] = useState('')
-  const [secretRef, setSecretRef] = useState('')
+  const [modelCredentialId, setModelCredentialId] = useState<CredentialId | ''>('')
 
   // Tab state — which "file" is currently open in the workspace. Preview,
   // Editor, and Metadata are pinned tabs; per-file tabs live alongside.
@@ -158,22 +167,22 @@ export default function SkillAiAuthoringPage() {
   const [activeTab, setActiveTab] = useState<string>(TAB_EDITOR)
   const [activeFilePath, setActiveFilePath] = useState<string>('SKILL.md')
 
-  const { data: secrets = [] } = useProtocolCredentials({ protocolId: 'openai_responses' })
+  const { data: credentials = [] } = useProtocolCredentials({ protocolId: 'openai_responses' })
 
-  const effectiveSecretRef = useMemo(() => {
-    if (!secrets.length) return ''
-    const secretIds = new Set<string>(secrets.map((secret) => secret.id))
-    if (secretRef && secretIds.has(secretRef)) return secretRef
-    return (secrets.find((s) => s.is_default) || secrets[0]).id
-  }, [secretRef, secrets])
-
-  useEffect(() => {
-    if (secretRef === effectiveSecretRef) return
-    setSecretRef(effectiveSecretRef)
-  }, [effectiveSecretRef, secretRef])
+  const effectiveModelCredentialId = useMemo(() => {
+    if (!credentials.length) return ''
+    const credentialIds = new Set<CredentialId>(credentials.map((credential) => credential.id))
+    if (modelCredentialId && credentialIds.has(modelCredentialId)) return modelCredentialId
+    return (credentials.find((credential) => credential.is_default) || credentials[0]).id
+  }, [credentials, modelCredentialId])
 
   useEffect(() => {
-    setSecretRef('')
+    if (modelCredentialId === effectiveModelCredentialId) return
+    setModelCredentialId(effectiveModelCredentialId)
+  }, [effectiveModelCredentialId, modelCredentialId])
+
+  useEffect(() => {
+    setModelCredentialId('')
     setActiveTab(TAB_EDITOR)
     setActiveFilePath('SKILL.md')
   }, [managedScope.key])
@@ -195,16 +204,14 @@ export default function SkillAiAuthoringPage() {
   const tree = useMemo(() => buildFileTree(treeFiles), [treeFiles])
 
   // ── file operations ──────────────────────────────────────────────────
-  const onTreeSelectFile = (id: string) => {
-    // The tree passes the SkillFileRecord.id we synthesized above; that id
-    // IS the draft path, so we can route it directly to focus.
-    setActiveFilePath(id)
+  const onTreeSelectFile = (fileKey: DraftFileKey) => {
+    setActiveFilePath(fileKey)
     setActiveTab(TAB_EDITOR)
   }
 
-  const onTreeDeleteFile = (id: string) => {
+  const onTreeDeleteFile = (fileKey: DraftFileKey) => {
     if (!currentProjectAllowsWrite()) return
-    setDraft((prev) => ({ ...prev, files: prev.files.filter((f) => f.path !== id) }))
+    setDraft((prev) => ({ ...prev, files: prev.files.filter((f) => f.path !== fileKey) }))
   }
 
   const onTreeDeleteFolder = (folderPath: string) => {
@@ -216,14 +223,14 @@ export default function SkillAiAuthoringPage() {
   }
 
   // Move a file or folder into another folder by rewriting path prefixes.
-  // ``sourcePath`` is a file's full path or a folder's path (trailing ``/``);
+  // A file source uses its draft-path key; a folder source carries a trailing-slash path.
   // ``destFolder`` is '' (root) or a folder path ending in ``/``.
-  const onMove = (sourcePath: string, destFolder: string) => {
+  const onMove = (source: SkillWorkspaceMoveSource<DraftFileKey>, destFolder: string) => {
     if (!currentProjectAllowsWrite()) return
     const dest = destFolder ? destFolder.replace(/\/*$/, '/') : ''
-    const isFolder = !draft.files.some((f) => f.path === sourcePath)
+    const sourcePath = source.kind === 'file' ? source.fileKey : source.path
 
-    if (isFolder) {
+    if (source.kind === 'folder') {
       const srcFolder = sourcePath.replace(/\/*$/, '/')
       const folderName = srcFolder.replace(/\/$/, '').split('/').pop() || ''
       // No-op if dropped into its own current parent; forbid dropping a folder
@@ -383,9 +390,9 @@ export default function SkillAiAuthoringPage() {
   const onSend = async () => {
     if (!currentProjectAllowsWrite()) return
     const text = input.trim()
-    if (!text || streaming) return
+    if (!text || streaming || !effectiveModelCredentialId) return
     setInput('')
-    await send(text, effectiveSecretRef)
+    await send(text, effectiveModelCredentialId)
   }
 
   // Publish: save → submit → approve → cut first version, so the skill
@@ -450,7 +457,7 @@ export default function SkillAiAuthoringPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {secrets.length === 0 && (
+          {credentials.length === 0 && (
             <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive">
               {t('managed.skills.aiAuthor.noModelConnections')}
             </span>
@@ -513,7 +520,7 @@ export default function SkillAiAuthoringPage() {
             onSend={onSend}
             onCancel={cancel}
             streaming={streaming}
-            readOnly={projectReadOnly}
+            readOnly={projectReadOnly || !effectiveModelCredentialId}
           />
         </div>
 
@@ -771,17 +778,17 @@ function EditorSplitPane({
   canEdit,
 }: {
   draft: SkillDraft
-  tree: ReturnType<typeof buildFileTree>
+  tree: ReturnType<typeof buildFileTree<DraftFileKey>>
   activeFile: SkillDraftFile | null
   activeFilePath: string
   onAddFolder: (name?: string) => void
   onUpload: () => void
   onDownload: () => void
-  onTreeSelectFile: (id: string) => void
+  onTreeSelectFile: (fileKey: DraftFileKey) => void
   onTreeAddToFolder: (folderPath: string, name?: string) => void
-  onTreeDeleteFile: (id: string) => void
+  onTreeDeleteFile: (fileKey: DraftFileKey) => void
   onTreeDeleteFolder: (folderPath: string) => void
-  onMove: (sourcePath: string, destFolderPath: string) => void
+  onMove: (source: SkillWorkspaceMoveSource<DraftFileKey>, destFolderPath: string) => void
   onSelectMain: () => void
   onEditSkillMd: (v: string) => void
   onEditFile: (path: string, v: string) => void
@@ -868,7 +875,9 @@ function EditorSplitPane({
           onDragOver={canEdit ? (e) => e.preventDefault() : undefined}
           onDrop={(e) => {
             if (!canEdit) return
-            const source = e.dataTransfer.getData('text/plain')
+            const source = parseSkillWorkspaceMoveSource<DraftFileKey>(
+              e.dataTransfer.getData('text/plain'),
+            )
             if (source) onMove(source, '')
           }}
         >
@@ -885,10 +894,10 @@ function EditorSplitPane({
           {tree.children.length > 0
             ? tree.children.map((child, i) => (
                 <FileTreeNode
-                  key={child.file?.id ?? child.fullPath + i}
+                  key={child.file?.key ?? child.fullPath + i}
                   node={child}
                   depth={0}
-                  selectedFileId={showingSkillMd ? null : activeFilePath}
+                  selectedFileKey={showingSkillMd ? null : (activeFilePath as DraftFileKey)}
                   onSelectFile={onTreeSelectFile}
                   onDeleteFile={onTreeDeleteFile}
                   onDeleteFolder={onTreeDeleteFolder}

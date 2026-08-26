@@ -71,9 +71,18 @@ function parseMcpServerConfig(
   if (raw.command !== undefined || raw.args !== undefined || raw.env !== undefined) {
     throw new Error('Invalid MCP remote fields')
   }
-  const authRequirement = raw.auth_requirement ?? defaultAuthRequirement
+  const authRequirement =
+    raw.auth_requirement ??
+    (defaultAuthRequirement === undefined
+      ? undefined
+      : type === 'sse'
+        ? 'none'
+        : defaultAuthRequirement)
   if (!AUTH_REQUIREMENTS.has(authRequirement as McpAuthRequirement)) {
     throw new Error('Invalid MCP auth requirement')
+  }
+  if (type === 'sse' && authRequirement !== 'none') {
+    throw new Error('Invalid MCP SSE auth requirement')
   }
   return {
     type: type as McpRemoteTransport,

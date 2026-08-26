@@ -105,7 +105,7 @@ export function McpServerEditor({ value, onChange, disabled = false }: McpServer
         type: transport,
         name: normalizedName,
         url: normalizedUrl,
-        auth_requirement: authRequirement,
+        auth_requirement: transport === 'sse' ? 'none' : authRequirement,
         policy: 'always_ask',
       }
     }
@@ -139,6 +139,9 @@ export function McpServerEditor({ value, onChange, disabled = false }: McpServer
           <Plus className="h-3.5 w-3.5" />
         </button>
       </div>
+      <p className="text-xs text-muted-foreground">
+        {t('managed.agents.create.mcpConnectionBoundary')}
+      </p>
 
       {value.length === 0 && !showForm && (
         <p className="py-2 text-center text-sm text-muted-foreground">
@@ -185,9 +188,11 @@ export function McpServerEditor({ value, onChange, disabled = false }: McpServer
                 id={`${id}-transport`}
                 value={transport}
                 disabled={disabled}
-                onChange={(event) =>
-                  setTransport(event.target.value as McpRemoteTransport | 'local_stdio')
-                }
+                onChange={(event) => {
+                  const nextTransport = event.target.value as McpRemoteTransport | 'local_stdio'
+                  setTransport(nextTransport)
+                  if (nextTransport === 'sse') setAuthRequirement('none')
+                }}
                 className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
               >
                 {TRANSPORTS.map((option) => (
@@ -237,6 +242,9 @@ export function McpServerEditor({ value, onChange, disabled = false }: McpServer
                   onChange={(event) => setArgs(event.target.value)}
                   className="min-h-24 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm"
                 />
+                <p className="text-xs text-muted-foreground">
+                  {t('managed.agents.create.mcpLocalEnvWarning')}
+                </p>
               </div>
               <div className="space-y-1.5">
                 <label htmlFor={`${id}-env`} className="text-sm font-medium">
@@ -273,7 +281,7 @@ export function McpServerEditor({ value, onChange, disabled = false }: McpServer
                 <select
                   id={`${id}-auth`}
                   value={authRequirement}
-                  disabled={disabled}
+                  disabled={disabled || transport === 'sse'}
                   onChange={(event) => setAuthRequirement(event.target.value as McpAuthRequirement)}
                   className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
                 >
@@ -283,6 +291,11 @@ export function McpServerEditor({ value, onChange, disabled = false }: McpServer
                     </option>
                   ))}
                 </select>
+                <p className="text-xs text-muted-foreground">
+                  {transport === 'sse'
+                    ? t('managed.agents.create.mcpSseAuthLimitation')
+                    : t('managed.agents.create.mcpUrlMatchHint')}
+                </p>
               </div>
             </div>
           )}

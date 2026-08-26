@@ -131,11 +131,11 @@ export function CreateCredentialGroupDialog({
 
         <form onSubmit={handleSubmit} className="mt-2 space-y-4">
           <div className="space-y-1.5">
-            <label htmlFor="vault-name" className="text-sm font-medium">
+            <label htmlFor="credential-group-name" className="text-sm font-medium">
               {t('managed.table.name')}
             </label>
             <Input
-              id="vault-name"
+              id="credential-group-name"
               placeholder={t('managed.credentials.groups.namePlaceholder')}
               value={name}
               disabled={readOnly}

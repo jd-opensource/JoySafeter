@@ -11,12 +11,13 @@ import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
 import { useTranslation } from '@/lib/i18n'
 import { findProtocol, findProvider, getProtocol, getProvider } from '@/lib/managed/llm-catalog'
 import { cn } from '@/lib/utils'
+import type { CredentialId } from '@/types/entity-id'
 import type { Credential } from '@/types/managed'
 
 interface CompatibleCredentialPickerProps {
   engineId: string
-  value: string
-  onChange: (value: string) => void
+  value: CredentialId | ''
+  onChange: (value: CredentialId | '') => void
   onCreateRequested: () => void
   allowNone?: boolean
   disabled?: boolean

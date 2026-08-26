@@ -3,14 +3,15 @@
 import { useMemo } from 'react'
 
 import { useProjectStore } from '@/stores/managed/project-store'
+import type { OrganizationId, ProjectId } from '@/types/entity-id'
 
 export interface ManagedRequestScope {
-  orgId: string | null
-  projectId: string | null
+  orgId: OrganizationId | null
+  projectId: ProjectId | null
   key: string
 }
 
-export function managedScopeKey(orgId: string | null, projectId: string | null): string {
+export function managedScopeKey(orgId: OrganizationId | null, projectId: ProjectId | null): string {
   return `${orgId ?? ''}:${projectId ?? ''}`
 }
 

@@ -5,6 +5,7 @@ import { parseAgentCreateResponse, parseAgentResponse } from './agent-response-p
 const AGENT_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f001'
 const SKILL_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f002'
 const CREDENTIAL_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f003'
+const ENVIRONMENT_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f004'
 
 function rawAgent() {
   return {
@@ -12,6 +13,7 @@ function rawAgent() {
     name: 'Agent',
     engine_kind: 'claude',
     model: { id: 'model' },
+    environment_id: `env_${ENVIRONMENT_UUID}`,
     model_credential_id: `cred_${CREDENTIAL_UUID}`,
     model_connection: {
       id: `cred_${CREDENTIAL_UUID}`,
@@ -42,6 +44,7 @@ describe('agent response parsers', () => {
     const agent = parseAgentResponse(rawAgent())
     expect(agent.id).toBe(`agent_${AGENT_UUID}`)
     expect(agent.model_connection?.id).toBe(`cred_${CREDENTIAL_UUID}`)
+    expect(agent.environment_id).toBe(`env_${ENVIRONMENT_UUID}`)
     expect(agent.skills?.[0].skill_id).toBe(`skill_${SKILL_UUID}`)
   })
 
@@ -52,6 +55,9 @@ describe('agent response parsers', () => {
         ...rawAgent(),
         skills: [{ type: 'custom', skill_id: `agent_${SKILL_UUID}`, version: '1.0.0' }],
       }),
+    ).toThrow()
+    expect(() =>
+      parseAgentResponse({ ...rawAgent(), environment_id: `agent_${ENVIRONMENT_UUID}` }),
     ).toThrow()
   })
 
@@ -82,7 +88,7 @@ describe('agent response parsers', () => {
           type: 'sse',
           name: 'events',
           url: 'https://events.example.com/sse',
-          auth_requirement: 'optional',
+          auth_requirement: 'none',
         },
         {
           type: 'local_stdio',
@@ -105,7 +111,7 @@ describe('agent response parsers', () => {
         type: 'sse',
         name: 'events',
         url: 'https://events.example.com/sse',
-        auth_requirement: 'optional',
+        auth_requirement: 'none',
       },
       {
         type: 'local_stdio',
@@ -141,6 +147,22 @@ describe('agent response parsers', () => {
         ],
       }),
     ).toThrow(/auth requirement/)
+  })
+
+  it.each(['required', 'optional'])('rejects SSE MCP response authentication %s', (requirement) => {
+    expect(() =>
+      parseAgentResponse({
+        ...rawAgent(),
+        mcp_servers: [
+          {
+            type: 'sse',
+            name: 'events',
+            url: 'https://events.example.com/sse',
+            auth_requirement: requirement,
+          },
+        ],
+      }),
+    ).toThrow(/SSE auth requirement/)
   })
 
   it('rejects malformed MCP response shapes instead of leaking them into forms', () => {

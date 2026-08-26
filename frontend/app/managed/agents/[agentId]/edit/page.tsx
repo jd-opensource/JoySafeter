@@ -22,7 +22,15 @@ import {
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import type { Agent, Credential, Environment } from '@/types/managed'
-import { parseAgentId, parseCredentialId, type AgentId, type SkillId } from '@/types/entity-id'
+import {
+  parseAgentId,
+  parseCredentialId,
+  parseEnvironmentId,
+  type AgentId,
+  type CredentialId,
+  type EnvironmentId,
+  type SkillId,
+} from '@/types/entity-id'
 import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
 import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
@@ -193,36 +201,36 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
   )
 
   // ── Model Connection reference ──
-  const [secretRef, setSecretRef] = useState('')
+  const [modelCredentialId, setModelCredentialId] = useState<CredentialId | ''>('')
   const enabledEngines = useMemo(
     () => (catalogQuery.data ? getEnabledEngines(catalogQuery.data) : []),
     [catalogQuery.data],
   )
   const engineUnavailable =
     catalogQuery.isSuccess && !enabledEngines.some((engine) => engine.id === engineKind)
-  const compatibleSecretsQuery = useCompatibleCredentials({ engineId: engineKind })
-  const secrets = compatibleSecretsQuery.data
-  const selectedSecretIsCompatible =
-    !secretRef || Boolean(secrets?.some((secret) => secret.id === secretRef))
-  const secretConflict =
-    Boolean(secretRef) && compatibleSecretsQuery.isSuccess && !selectedSecretIsCompatible
-  const conflictSecretQuery = useModelConnectionByName({
-    name: secretRef,
-    enabled: secretConflict,
+  const compatibleCredentialsQuery = useCompatibleCredentials({ engineId: engineKind })
+  const secrets = compatibleCredentialsQuery.data
+  const selectedCredentialIsCompatible =
+    !modelCredentialId || Boolean(secrets?.some((secret) => secret.id === modelCredentialId))
+  const credentialConflict =
+    Boolean(modelCredentialId) &&
+    compatibleCredentialsQuery.isSuccess &&
+    !selectedCredentialIsCompatible
+  const conflictCredentialQuery = useModelConnectionByName({
+    name: modelCredentialId,
+    enabled: credentialConflict,
   })
-  const secretCompatibilityBlocked =
-    Boolean(secretRef) && (!compatibleSecretsQuery.isSuccess || secretConflict)
+  const modelCredentialCompatibilityBlocked =
+    Boolean(modelCredentialId) && (!compatibleCredentialsQuery.isSuccess || credentialConflict)
 
-  // ── Environment ref ──
-  const [environmentRef, setEnvironmentRef] = useState('')
+  // ── Environment ID ──
+  const [environmentId, setEnvironmentId] = useState<EnvironmentId | ''>('')
 
-  const effectiveEnvironmentRef = useMemo(() => {
-    if (!environmentRef) return ''
-    if (!environments) return environmentRef
-    return environments.some((environment) => environment.id === environmentRef)
-      ? environmentRef
-      : ''
-  }, [environmentRef, environments])
+  const effectiveEnvironmentId = useMemo(() => {
+    if (!environmentId) return ''
+    if (!environments) return environmentId
+    return environments.some((environment) => environment.id === environmentId) ? environmentId : ''
+  }, [environmentId, environments])
 
   // ── Permission mode ──
   const [permissionMode, setPermissionMode] = useState('bypassPermissions')
@@ -309,10 +317,10 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
     )
 
     // Model Connection reference
-    setSecretRef(agent.model_credential_id || '')
+    setModelCredentialId(agent.model_credential_id || '')
 
-    // Environment ref
-    setEnvironmentRef(agent.environment_ref || '')
+    // Environment ID
+    setEnvironmentId(agent.environment_id || '')
 
     // Env vars
     hydratedAgentScopeRef.current = operationScope
@@ -380,7 +388,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
     currentAgent = agent,
     scopeKey = managedRequestScopeRef.current.key,
   ): Record<string, unknown> => {
-    const currentSecrets =
+    const currentCredentials =
       queryClient
         .getQueriesData<Credential[]>({
           queryKey: compatibleCredentialsQueryPrefix(scopeKey, engineKind),
@@ -390,15 +398,16 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
       queryClient.getQueryData<Environment[]>(['environments', scopeKey]) ?? environments
     const currentSkills = queryClient.getQueryData<SkillListItem[]>(['skills', scopeKey]) ?? skills
 
-    const currentSecretRef =
-      secretRef && (!currentSecrets || currentSecrets.some((secret) => secret.id === secretRef))
-        ? secretRef
+    const currentModelCredentialId =
+      modelCredentialId &&
+      (!currentCredentials || currentCredentials.some((secret) => secret.id === modelCredentialId))
+        ? modelCredentialId
         : ''
-    const currentEnvironmentRef =
-      environmentRef &&
+    const currentEnvironmentId =
+      environmentId &&
       (!currentEnvironments ||
-        currentEnvironments.some((environment) => environment.id === environmentRef))
-        ? environmentRef
+        currentEnvironments.some((environment) => environment.id === environmentId))
+        ? environmentId
         : ''
     const currentSkillIds = currentSkills ? new Set(currentSkills.map((skill) => skill.id)) : null
     const currentSelectedSkillIds = currentSkillIds
@@ -419,8 +428,10 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
         skill_id: id,
         version: effectiveSkillVersions[id] || 'latest',
       })),
-      model_credential_id: currentSecretRef ? parseCredentialId(currentSecretRef) : null,
-      ...(currentEnvironmentRef ? { environment_ref: currentEnvironmentRef } : {}),
+      model_credential_id: currentModelCredentialId
+        ? parseCredentialId(currentModelCredentialId)
+        : null,
+      ...(currentEnvironmentId ? { environment_id: currentEnvironmentId } : {}),
       metadata: { system_prompt_mode: systemPromptMode },
     }
   }
@@ -576,37 +587,37 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
             {/* ───────── Model Connection Reference ───────── */}
             <section className="space-y-3">
               <h3 className="border-b border-border pb-2 text-sm font-semibold text-foreground">
-                {t('agents.edit.secretRef')}
+                {t('agents.edit.modelCredentialId')}
                 <span className="ml-1 text-xs font-normal text-muted-foreground">
                   {t('managed.agents.formOptional')}
                 </span>
               </h3>
               <CompatibleCredentialPicker
                 engineId={engineKind}
-                value={secretRef}
+                value={modelCredentialId}
                 allowNone
                 disabled={formReadOnly}
-                conflictCredential={conflictSecretQuery.data ?? null}
-                conflictValue={secretConflict ? secretRef : undefined}
+                conflictCredential={conflictCredentialQuery.data ?? null}
+                conflictValue={credentialConflict ? modelCredentialId : undefined}
                 conflictMessage={
-                  secretConflict ? t('managed.llm.incompatibleWithSelectedEngine') : undefined
+                  credentialConflict ? t('managed.llm.incompatibleWithSelectedEngine') : undefined
                 }
                 onChange={(value) => {
-                  setSecretRef(value)
+                  setModelCredentialId(value)
                   markDirty()
                 }}
                 onCreateRequested={() =>
                   window.open('/managed/credentials?tab=models&create=model', '_blank')
                 }
               />
-              {secretConflict ? (
+              {credentialConflict ? (
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="outline"
                     disabled={formReadOnly}
                     onClick={() => {
-                      setSecretRef('')
+                      setModelCredentialId('')
                       markDirty()
                     }}
                   >
@@ -627,20 +638,20 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
               ) : null}
             </section>
 
-            {/* ───────── Environment Reference ───────── */}
+            {/* ───────── Environment ID ───────── */}
             <section className="space-y-3">
               <div className="flex items-center gap-1.5 border-b border-border pb-2">
                 <h3 className="text-sm font-semibold text-foreground">
-                  {t('agents.edit.environmentRef')}
+                  {t('agents.edit.environmentId')}
                   <span className="ml-1 text-xs font-normal text-muted-foreground">
                     {t('managed.agents.formOptional')}
                   </span>
                 </h3>
-                <FieldHelp text={t('agents.edit.environmentRefHint')} />
+                <FieldHelp text={t('agents.edit.environmentIdHint')} />
               </div>
               {environments && environments.length > 0 ? (
                 <SearchableAgentConfigSelect
-                  value={environmentRef || '__none__'}
+                  value={effectiveEnvironmentId}
                   options={environments.map((env) => ({
                     value: env.id,
                     label: env.name,
@@ -653,7 +664,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
                   createLabel={t('agents.edit.createEnvironment')}
                   clearSearchLabel={t('agents.edit.clearSearch')}
                   onChange={(value) => {
-                    setEnvironmentRef(value)
+                    setEnvironmentId(value ? parseEnvironmentId(value) : '')
                     markDirty()
                   }}
                   onCreate={() => window.open('/managed/environments?create=1', '_blank')}
@@ -922,7 +933,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
               mutation.isPending ||
               !name.trim() ||
               !systemPromptValid ||
-              secretCompatibilityBlocked ||
+              modelCredentialCompatibilityBlocked ||
               engineUnavailable ||
               !catalogQuery.isSuccess
             }

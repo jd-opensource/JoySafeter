@@ -1,4 +1,4 @@
-import type { TimeRange, CallStatus, ObservationType } from '@/lib/managed/analytics/types'
+import type { TimeRange, CallStatus } from '@/lib/managed/analytics/types'
 
 export const CHART_COLORS = [
   'var(--chart-1)',
@@ -48,16 +48,3 @@ export const CALL_STATUS_OPTIONS: { value: CallStatus; labelKey: string }[] = [
   { value: 'timeout', labelKey: 'analytics.status.timeout' },
   { value: 'cancelled', labelKey: 'analytics.status.cancelled' },
 ]
-
-export const OBSERVATION_TYPE_COLORS: Record<ObservationType, number> = {
-  SPAN: 0,
-  EVENT: 1,
-  GENERATION: 2,
-  AGENT: 3,
-  TOOL: 4,
-  CHAIN: 5,
-  RETRIEVER: 6,
-  EMBEDDING: 7,
-  EVALUATOR: 0,
-  GUARDRAIL: 1,
-}

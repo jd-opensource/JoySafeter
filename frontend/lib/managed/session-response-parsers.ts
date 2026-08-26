@@ -1,10 +1,20 @@
 import {
   parseAgentId,
   parseCredentialGroupId,
+  parseEnvironmentId,
+  parseMemoryStoreId,
+  parseOptionalId,
   parseSessionId,
+  parseSessionResourceId,
+  type EnvironmentId,
   type SessionId,
 } from '@/types/entity-id'
-import type { ModelConnectionSummary, Session, SessionAgent } from '@/types/managed'
+import type {
+  ModelConnectionSummary,
+  Session,
+  SessionAgent,
+  SessionMemoryStore,
+} from '@/types/managed'
 
 import { parseAgentModelResponse } from './agent-response-parsers'
 import { parseModelCredentialReference } from './environment-response-parsers'
@@ -29,13 +39,33 @@ type RawSessionAgent = Omit<
 
 type RawSession = Omit<
   Session,
-  'id' | 'agent' | 'credential_group_ids' | 'repo_resources' | 'storage_mounts'
+  | 'id'
+  | 'agent'
+  | 'environment_id'
+  | 'credential_group_ids'
+  | 'resources'
+  | 'repo_resources'
+  | 'storage_mounts'
 > & {
   id: string
+  environment_id?: string | null
   agent?: RawSessionAgent
   credential_group_ids?: string[]
+  resources?: unknown[]
   repo_resources?: unknown[]
   storage_mounts?: unknown[]
+}
+
+function parseSessionMemoryStoreResponse(response: unknown): SessionMemoryStore {
+  const raw = response as Omit<SessionMemoryStore, 'id' | 'memory_store_id'> & {
+    id: string
+    memory_store_id: string
+  }
+  return {
+    ...raw,
+    id: parseSessionResourceId(raw.id),
+    memory_store_id: parseMemoryStoreId(raw.memory_store_id),
+  }
 }
 
 function parseSessionAgent(response: RawSessionAgent): SessionAgent {
@@ -57,8 +87,10 @@ export function parseSessionResponse(response: unknown): Session {
   return {
     ...raw,
     id: parseSessionId(raw.id),
+    environment_id: parseOptionalId<EnvironmentId>(raw.environment_id, parseEnvironmentId),
     agent: raw.agent === undefined ? undefined : parseSessionAgent(raw.agent),
     credential_group_ids: raw.credential_group_ids?.map(parseCredentialGroupId),
+    resources: raw.resources?.map(parseSessionMemoryStoreResponse),
     repo_resources: raw.repo_resources?.map(parseSessionRepoResourceResponse),
     storage_mounts: raw.storage_mounts?.map(parseSessionStorageMountResponse),
   }

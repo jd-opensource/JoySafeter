@@ -10,26 +10,30 @@ import {
   type QuickstartAvailableSkill,
 } from '@/lib/managed/quickstart-capabilities'
 import { cn } from '@/lib/utils'
+import { parseSkillId, type SkillId } from '@/types/entity-id'
 
 interface QuickstartCapabilityPlanProps {
   agentConfig?: Record<string, unknown>
   availableSkills: QuickstartAvailableSkill[]
   disabled: boolean
   authorizedMcpServerUrls?: ReadonlySet<string>
-  onSkillsChange: (skillIds: string[]) => void
+  onSkillsChange: (skillIds: SkillId[]) => void
 }
 
 const EMPTY_AUTHORIZED_URLS: ReadonlySet<string> = new Set()
 
-function selectedSkillIds(agentConfig?: Record<string, unknown>): string[] {
+function selectedSkillIds(agentConfig?: Record<string, unknown>): SkillId[] {
   if (!Array.isArray(agentConfig?.skills)) return []
-  return agentConfig.skills
-    .map((item) =>
-      item && typeof item === 'object' && !Array.isArray(item)
-        ? String((item as Record<string, unknown>).skill_id || '')
-        : '',
-    )
-    .filter(Boolean)
+  return agentConfig.skills.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const value = (item as Record<string, unknown>).skill_id
+    if (typeof value !== 'string') return []
+    try {
+      return [parseSkillId(value)]
+    } catch {
+      return []
+    }
+  })
 }
 
 function hasConfiguredTools(agentConfig?: Record<string, unknown>): boolean {
@@ -93,7 +97,7 @@ export function QuickstartCapabilityPlan({
         serverUrl: '',
       }))
 
-  const toggleSkill = (skillId: string) => {
+  const toggleSkill = (skillId: SkillId) => {
     const next = selectedSet.has(skillId)
       ? selectedIds.filter((id) => id !== skillId)
       : [...selectedIds, skillId]
