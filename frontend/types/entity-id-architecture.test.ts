@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
 import ts from 'typescript'
@@ -465,6 +465,14 @@ function removedHelperLines(source: string): number[] {
 }
 
 describe('typed entity id architecture', () => {
+  it('keeps Agent REST contracts in the canonical managed type module', () => {
+    expect(existsSync(path.resolve(process.cwd(), 'types/agent.ts'))).toBe(false)
+
+    const managedTypes = readProjectFile('types/managed.ts')
+    expect(managedTypes).toContain('export interface Agent')
+    expect(managedTypes).toContain('id: AgentId')
+  })
+
   it('does not import or call legacy prefix helpers in production code', () => {
     const violations = collectProductionFiles(process.cwd()).flatMap((file) =>
       removedHelperLines(readFileSync(file, 'utf8')).map(
