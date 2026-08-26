@@ -18,19 +18,12 @@ import {
 } from '@/components/managed/shared'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 import { toastOperationError } from '@/lib/managed/errors'
+import {
+  parsePlatformUserResponse,
+  type PlatformUser,
+} from '@/lib/managed/tenant-response-parsers'
 import { useAuthStore } from '@/stores/auth/store'
-
-interface PlatformUser {
-  id: string
-  email: string
-  name: string
-  image?: string | null
-  email_verified: boolean
-  is_active: boolean
-  is_super_user: boolean
-  created_at: string
-  updated_at: string
-}
+import { parseUserId } from '@/types/entity-id'
 
 export default function PlatformUsersPage() {
   const queryClient = useQueryClient()
@@ -59,6 +52,8 @@ export default function PlatformUsersPage() {
   } = usePaginatedList<PlatformUser>({
     queryKey: 'platform-users',
     path: usersPath,
+    parseItem: parsePlatformUserResponse,
+    parseCursor: parseUserId,
   })
 
   const updateMutation = useMutation({

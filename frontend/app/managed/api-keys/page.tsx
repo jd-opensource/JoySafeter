@@ -48,13 +48,19 @@ import {
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { projectRoleLabel, projectRoleOptions } from '@/lib/managed/roles'
+import { parseProjectSummaryResponse } from '@/lib/managed/tenant-response-parsers'
 import { useProjectStore } from '@/stores/managed/project-store'
-import { parseApiKeyId, type ApiKeyId } from '@/types/entity-id'
+import {
+  parseApiKeyId,
+  type ApiKeyId,
+  type OrganizationId,
+  type ProjectId,
+} from '@/types/entity-id'
 import type { ApiKey } from '@/types/managed'
 
 interface ProjectSummary {
-  id: string
-  org_id: string
+  id: ProjectId
+  org_id: OrganizationId
   capability?: string
   archived_at?: string | null
 }
@@ -73,23 +79,24 @@ interface CreateKeyVariables {
   runId: number
 }
 
-export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) {
+export default function ApiKeysPage({ projectId }: { projectId?: ProjectId } = {}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const currentProject = useProjectStore((state) => state.currentProject)
-  const targetProjectId = projectId || currentProjectId || ''
+  const targetProjectId = projectId ?? currentProjectId
   const targetProjectQuery = useQuery({
     queryKey: ['project', targetProjectId],
-    queryFn: () => managedGet<ProjectSummary>(`auth/projects/${targetProjectId}`),
-    enabled: Boolean(projectId && targetProjectId),
+    queryFn: () =>
+      managedGet<unknown>(`auth/projects/${targetProjectId}`).then(parseProjectSummaryResponse),
+    enabled: projectId !== undefined,
   })
   const targetProject = projectId ? targetProjectQuery.data : currentProject
   const projectReadOnly =
     !targetProject || Boolean(targetProject.archived_at) || targetProject.capability !== 'admin'
-  const apiKeysPath = projectId ? `/auth/projects/${targetProjectId}/api-keys` : '/auth/api-keys'
-  const managedScope = `${currentOrgId ?? ''}:${targetProjectId}`
+  const apiKeysPath = projectId ? `/auth/projects/${projectId}/api-keys` : '/auth/api-keys'
+  const managedScope = JSON.stringify([currentOrgId, targetProjectId])
   const managedScopeRef = useRef(managedScope)
   const createKeyRunRef = useRef(0)
   const revokeKeyRunRef = useRef(0)
@@ -254,7 +261,7 @@ export default function ApiKeysPage({ projectId }: { projectId?: string } = {}) 
 
   const getCurrentManagedScope = () => {
     const { currentOrgId, currentProjectId } = useProjectStore.getState()
-    return `${currentOrgId ?? ''}:${projectId || currentProjectId || ''}`
+    return JSON.stringify([currentOrgId, projectId ?? currentProjectId])
   }
 
   const currentManagedScopeIsActive = (scope = managedScopeRef.current) =>

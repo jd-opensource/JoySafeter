@@ -5,7 +5,6 @@ import { AlertTriangle, Crown, Info, Save, Trash2 } from 'lucide-react'
 import { useParams, useRouter } from 'next/navigation'
 import { useState } from 'react'
 
-import type { OrganizationDetail } from '@/components/managed/settings/organization-detail-shell'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -30,21 +29,13 @@ import { useSession } from '@/lib/auth/auth-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { normalizeManagedRole, roleLabel } from '@/lib/managed/roles'
+import {
+  parseOrganizationDetailResponse,
+  parseOrganizationMemberPageResponse,
+  type OrganizationDetail,
+} from '@/lib/managed/tenant-response-parsers'
 import { useProjectStore } from '@/stores/managed/project-store'
-import { parseOrganizationId, type OrganizationId } from '@/types/entity-id'
-
-interface OrganizationMember {
-  id: string
-  user_id: string
-  organization_id: string
-  role: string
-  user_name?: string | null
-  user_email?: string | null
-}
-
-interface OrganizationMembersResponse {
-  data: OrganizationMember[]
-}
+import { parseOrganizationId, type OrganizationId, type UserId } from '@/types/entity-id'
 
 interface OrganizationDraft {
   organizationId: OrganizationId
@@ -62,12 +53,13 @@ export default function OrganizationOverviewPage() {
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const [draft, setDraft] = useState<OrganizationDraft | null>(null)
   const [showTransfer, setShowTransfer] = useState(false)
-  const [selectedNewOwnerId, setSelectedNewOwnerId] = useState('')
+  const [selectedNewOwnerId, setSelectedNewOwnerId] = useState<UserId | null>(null)
   const [showDelete, setShowDelete] = useState(false)
 
   const organizationQuery = useQuery({
     queryKey: ['organization-detail', organizationId],
-    queryFn: () => managedGet<OrganizationDetail>(`organizations/${organizationId}`),
+    queryFn: () =>
+      managedGet<unknown>(`organizations/${organizationId}`).then(parseOrganizationDetailResponse),
     enabled: Boolean(organizationId),
   })
   const organization = organizationQuery.data
@@ -83,7 +75,9 @@ export default function OrganizationOverviewPage() {
   const membersQuery = useQuery({
     queryKey: ['organization-members', organizationId, 'ownership-transfer'],
     queryFn: () =>
-      managedGet<OrganizationMembersResponse>(`organizations/${organizationId}/members?limit=200`),
+      managedGet<unknown>(`organizations/${organizationId}/members?limit=200`).then(
+        parseOrganizationMemberPageResponse,
+      ),
     enabled: Boolean(organizationId) && isOwner,
   })
   const transferCandidates = (membersQuery.data?.data ?? []).filter(
@@ -106,13 +100,13 @@ export default function OrganizationOverviewPage() {
   })
 
   const transferOwnership = useMutation({
-    mutationFn: (variables: { userId: string }) =>
+    mutationFn: (variables: { userId: UserId }) =>
       managedPost(`organizations/${organizationId}/transfer-ownership`, {
         new_owner_user_id: variables.userId,
       }),
     onSuccess: () => {
       setShowTransfer(false)
-      setSelectedNewOwnerId('')
+      setSelectedNewOwnerId(null)
       queryClient.invalidateQueries({ queryKey: ['organization-detail', organizationId] })
       queryClient.invalidateQueries({ queryKey: ['organization-members', organizationId] })
       queryClient.invalidateQueries({ queryKey: ['organizations-list'] })
@@ -315,7 +309,11 @@ export default function OrganizationOverviewPage() {
             <Button
               variant="destructive"
               disabled={!selectedNewOwnerId || transferOwnership.isPending}
-              onClick={() => transferOwnership.mutate({ userId: selectedNewOwnerId })}
+              onClick={() => {
+                if (selectedNewOwnerId) {
+                  transferOwnership.mutate({ userId: selectedNewOwnerId })
+                }
+              }}
             >
               {t('manage.organization.transferOwnership')}
             </Button>

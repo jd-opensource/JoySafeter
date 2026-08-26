@@ -1,4 +1,5 @@
 import ApiKeysPage from '@/app/managed/api-keys/page'
+import { parseProjectId } from '@/types/entity-id'
 
 export default async function ProjectTokensRoute({
   params,
@@ -6,5 +7,5 @@ export default async function ProjectTokensRoute({
   params: Promise<{ projectId: string }>
 }) {
   const { projectId } = await params
-  return <ApiKeysPage projectId={projectId} />
+  return <ApiKeysPage projectId={parseProjectId(projectId)} />
 }

@@ -12,21 +12,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { managedGet } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { normalizeManagedRole } from '@/lib/managed/roles'
+import { parseOrganizationDetailResponse } from '@/lib/managed/tenant-response-parsers'
 import { cn } from '@/lib/utils'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { OrganizationId } from '@/types/entity-id'
 
-export interface OrganizationDetail {
-  id: string
-  name: string
-  slug: string
-  logo?: string | null
-  role: string
-  owner_name?: string | null
-  owner_email?: string | null
-  project_creation_policy: 'admins_only' | 'all_members'
-  created_at?: string | null
-}
+export type { OrganizationDetail } from '@/lib/managed/tenant-response-parsers'
 
 const tabs = [
   { segment: '', labelKey: 'manage.organization.detail.tabs.overview' },
@@ -45,7 +36,8 @@ export function OrganizationDetailShell({
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const organizationQuery = useQuery({
     queryKey: ['organization-detail', organizationId],
-    queryFn: () => managedGet<OrganizationDetail>(`organizations/${organizationId}`),
+    queryFn: () =>
+      managedGet<unknown>(`organizations/${organizationId}`).then(parseOrganizationDetailResponse),
     enabled: Boolean(organizationId),
   })
   const organization = organizationQuery.data

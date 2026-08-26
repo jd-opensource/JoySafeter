@@ -1,4 +1,5 @@
 import { ProjectLifecyclePage } from '@/components/managed/projects/project-lifecycle-page'
+import { parseProjectId } from '@/types/entity-id'
 
 export default async function ProjectLifecycleRoute({
   params,
@@ -6,5 +7,5 @@ export default async function ProjectLifecycleRoute({
   params: Promise<{ projectId: string }>
 }) {
   const { projectId } = await params
-  return <ProjectLifecyclePage projectId={projectId} />
+  return <ProjectLifecyclePage projectId={parseProjectId(projectId)} />
 }

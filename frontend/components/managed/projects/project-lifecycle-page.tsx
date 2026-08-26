@@ -28,19 +28,14 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { managedDelete, managedGet, managedPatch, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
+import {
+  parseProjectSummaryResponse,
+  type ProjectSummary,
+} from '@/lib/managed/tenant-response-parsers'
 import { useUserPermissionsContext } from '@/providers/permissions-provider'
+import type { ProjectId } from '@/types/entity-id'
 
-interface ProjectDetails {
-  id: string
-  name: string
-  slug: string
-  is_default: boolean
-  triggers_paused?: boolean
-  archived_at?: string | null
-  capability?: string
-}
-
-export function ProjectLifecyclePage({ projectId }: { projectId: string }) {
+export function ProjectLifecyclePage({ projectId }: { projectId: ProjectId }) {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -50,10 +45,11 @@ export function ProjectLifecyclePage({ projectId }: { projectId: string }) {
 
   const projectQuery = useQuery({
     queryKey: ['project', projectId],
-    queryFn: () => managedGet<ProjectDetails>(`auth/projects/${projectId}`),
+    queryFn: () =>
+      managedGet<unknown>(`auth/projects/${projectId}`).then(parseProjectSummaryResponse),
   })
 
-  const refreshProject = (project?: ProjectDetails) => {
+  const refreshProject = (project?: ProjectSummary) => {
     if (project) queryClient.setQueryData(['project', projectId], project)
     queryClient.invalidateQueries({ queryKey: ['project', projectId] })
     queryClient.invalidateQueries({ queryKey: ['projects-list'] })
@@ -61,13 +57,18 @@ export function ProjectLifecyclePage({ projectId }: { projectId: string }) {
   }
 
   const setDefault = useMutation({
-    mutationFn: () => managedPost<ProjectDetails>(`/auth/projects/${projectId}/set-default`, {}),
+    mutationFn: () =>
+      managedPost<unknown>(`/auth/projects/${projectId}/set-default`, {}).then(
+        parseProjectSummaryResponse,
+      ),
     onSuccess: refreshProject,
     onError: (error) => toastOperationError(t, error, 'common.operationFailed'),
   })
   const setTriggersPaused = useMutation({
     mutationFn: (paused: boolean) =>
-      managedPatch<ProjectDetails>(`/auth/projects/${projectId}`, { triggers_paused: paused }),
+      managedPatch<unknown>(`/auth/projects/${projectId}`, { triggers_paused: paused }).then(
+        parseProjectSummaryResponse,
+      ),
     onSuccess: refreshProject,
     onError: (error) => toastOperationError(t, error, 'common.operationFailed'),
   })
@@ -80,7 +81,10 @@ export function ProjectLifecyclePage({ projectId }: { projectId: string }) {
     onError: (error) => toastOperationError(t, error, 'common.operationFailed'),
   })
   const restoreProject = useMutation({
-    mutationFn: () => managedPost<ProjectDetails>(`/auth/projects/${projectId}/restore`, {}),
+    mutationFn: () =>
+      managedPost<unknown>(`/auth/projects/${projectId}/restore`, {}).then(
+        parseProjectSummaryResponse,
+      ),
     onSuccess: (project) => {
       refreshProject(project)
       setArchiveName('')

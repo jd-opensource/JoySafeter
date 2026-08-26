@@ -12,6 +12,8 @@ import { useProjectContext } from '@/hooks/managed/use-project-context'
 import { managedGet } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { parseProjectSummaryResponse } from '@/lib/managed/tenant-response-parsers'
+import type { OrganizationId, ProjectId } from '@/types/entity-id'
 
 const projectTabs = [
   { segment: '', labelKey: 'managed.projectSettings.tabs.overview', requiresAdmin: false },
@@ -20,21 +22,11 @@ const projectTabs = [
   { segment: 'lifecycle', labelKey: 'managed.projectSettings.tabs.lifecycle', requiresAdmin: true },
 ]
 
-interface ProjectSettingsSummary {
-  id: string
-  org_id: string
-  name: string
-  slug: string
-  is_default: boolean
-  archived_at?: string | null
-  capability?: string
-}
-
 export function ProjectSettingsShell({
   projectId,
   children,
 }: {
-  projectId: string
+  projectId: ProjectId
   children: ReactNode
 }) {
   const pathname = usePathname()
@@ -42,11 +34,13 @@ export function ProjectSettingsShell({
   const { orgId, organizations, isLoading: contextLoading } = useProjectContext()
   const projectQuery = useQuery({
     queryKey: ['project', projectId],
-    queryFn: () => managedGet<ProjectSettingsSummary>(`auth/projects/${projectId}`),
+    queryFn: () =>
+      managedGet<unknown>(`auth/projects/${projectId}`).then(parseProjectSummaryResponse),
     enabled: Boolean(projectId),
   })
   const project = projectQuery.data ?? null
-  const organization = organizations.find((org) => org.id === (project?.org_id || orgId))
+  const organizationId: OrganizationId | null = project?.org_id ?? orgId
+  const organization = organizations.find((org) => org.id === organizationId)
 
   if (contextLoading || projectQuery.isLoading) {
     return (

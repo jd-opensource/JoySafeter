@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { managedGet, managedPost } from '@/lib/api-client'
+import { ORGANIZATION_ID, OTHER_PROJECT_ID, PROJECT_ID } from '@/test-utils/entity-ids'
 
 let listPath = ''
 const resetPagination = vi.fn()
@@ -46,15 +47,15 @@ vi.mock('@/hooks/managed/use-paginated-list', () => ({
 const projectStore = Object.assign(
   (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
-      currentOrgId: 'org-a',
-      currentProjectId: 'project-a',
-      currentProject: { id: 'project-a', capability: 'read' },
+      currentOrgId: ORGANIZATION_ID,
+      currentProjectId: PROJECT_ID,
+      currentProject: { id: PROJECT_ID, capability: 'read' },
     }),
   {
     getState: () => ({
-      currentOrgId: 'org-a',
-      currentProjectId: 'project-a',
-      currentProject: { id: 'project-a', capability: 'read' },
+      currentOrgId: ORGANIZATION_ID,
+      currentProjectId: PROJECT_ID,
+      currentProject: { id: PROJECT_ID, capability: 'read' },
     }),
   },
 )
@@ -109,8 +110,11 @@ describe('ApiKeysPage route scope', () => {
 
   it('uses the route project instead of the active work project', async () => {
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: 'project-b',
-      org_id: 'org-a',
+      id: OTHER_PROJECT_ID,
+      org_id: ORGANIZATION_ID,
+      name: 'Project B',
+      slug: 'project-b',
+      is_default: false,
       capability: 'admin',
       archived_at: null,
     })
@@ -131,12 +135,12 @@ describe('ApiKeysPage route scope', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const view = render(
       <QueryClientProvider client={queryClient}>
-        <ApiKeysPage projectId="project-b" />
+        <ApiKeysPage projectId={OTHER_PROJECT_ID} />
       </QueryClientProvider>,
     )
 
     await waitFor(() => expect(view.getByText('manage.apiKeys.create')).toBeTruthy())
-    expect(listPath).toBe('/auth/projects/project-b/api-keys')
+    expect(listPath).toBe(`/auth/projects/${OTHER_PROJECT_ID}/api-keys`)
 
     fireEvent.click(view.getByText('manage.apiKeys.create'))
     fireEvent.change(view.getByPlaceholderText('manage.apiKeys.namePlaceholder'), {
@@ -145,7 +149,7 @@ describe('ApiKeysPage route scope', () => {
     fireEvent.click(view.getAllByRole('button', { name: 'manage.apiKeys.create' })[1])
 
     await waitFor(() =>
-      expect(managedPost).toHaveBeenCalledWith('/auth/projects/project-b/api-keys', {
+      expect(managedPost).toHaveBeenCalledWith(`/auth/projects/${OTHER_PROJECT_ID}/api-keys`, {
         name: 'Deploy key',
         role: 'viewer',
       }),

@@ -6,11 +6,17 @@ import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { managedGet, managedPost } from '@/lib/api-client'
+import {
+  ORGANIZATION_MEMBER_ID,
+  OTHER_ORGANIZATION_ID,
+  PROJECT_ID,
+  USER_ID,
+} from '@/test-utils/entity-ids'
 
 let organizationMembers = [
   {
-    id: 'member-1',
-    user_id: 'user-1',
+    id: ORGANIZATION_MEMBER_ID,
+    user_id: USER_ID,
     email: 'member@example.com',
     display_name: 'Member',
     org_role: 'member',
@@ -146,8 +152,8 @@ describe('ProjectAccessPage', () => {
     cleanup()
     organizationMembers = [
       {
-        id: 'member-1',
-        user_id: 'user-1',
+        id: ORGANIZATION_MEMBER_ID,
+        user_id: USER_ID,
         email: 'member@example.com',
         display_name: 'Member',
         org_role: 'member',
@@ -161,8 +167,8 @@ describe('ProjectAccessPage', () => {
   it('shows default-project guidance and row-level saving feedback', async () => {
     const grant = deferred<unknown>()
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: 'project-a',
-      org_id: 'org-b',
+      id: PROJECT_ID,
+      org_id: OTHER_ORGANIZATION_ID,
       name: 'Project A',
       slug: 'project-a',
       is_default: true,
@@ -172,7 +178,7 @@ describe('ProjectAccessPage', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const view = render(
       <QueryClientProvider client={queryClient}>
-        <ProjectAccessPage projectId="project-a" />
+        <ProjectAccessPage projectId={PROJECT_ID} />
       </QueryClientProvider>,
     )
 
@@ -193,8 +199,8 @@ describe('ProjectAccessPage', () => {
   it('links empty project access to the owning organization member page', async () => {
     organizationMembers = []
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: 'project-a',
-      org_id: 'org-b',
+      id: PROJECT_ID,
+      org_id: OTHER_ORGANIZATION_ID,
       name: 'Project A',
       slug: 'project-a',
       is_default: false,
@@ -203,14 +209,14 @@ describe('ProjectAccessPage', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const view = render(
       <QueryClientProvider client={queryClient}>
-        <ProjectAccessPage projectId="project-a" />
+        <ProjectAccessPage projectId={PROJECT_ID} />
       </QueryClientProvider>,
     )
 
     await waitFor(() =>
       expect(
         view.getByText('manage.projectMembers.manageMembers').closest('a')?.getAttribute('href'),
-      ).toBe('/managed/settings/organizations/org-b/members'),
+      ).toBe(`/managed/settings/organizations/${OTHER_ORGANIZATION_ID}/members`),
     )
   })
 })

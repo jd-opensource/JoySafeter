@@ -799,6 +799,14 @@ function numeric(sessionId) {
       ['app/managed/projects/page.tsx', 'parseCursor: parseProjectId'],
       ['app/managed/settings/page.tsx', 'parseCursor: parseOrganizationId'],
       [
+        'app/managed/settings/organizations/[organizationId]/members/page.tsx',
+        'parseCursor: parseOrganizationMemberId',
+      ],
+      [
+        'components/managed/projects/project-access-page.tsx',
+        'parseCursor: parseOrganizationMemberId',
+      ],
+      [
         'components/managed/credentials/mcp-credential-group-list.tsx',
         'parseCursor: parseCredentialGroupId',
       ],
@@ -807,17 +815,14 @@ function numeric(sessionId) {
         'components/managed/storage-volumes/storage-volumes-page.tsx',
         'parseCursor: parseStorageMountAuditId',
       ],
+      ['app/managed/platform/users/page.tsx', 'parseCursor: parseUserId'],
     ] as const
 
     for (const [file, parser] of typedLists) {
       expect(readProjectFile(file), `${file} must use ${parser}`).toContain(parser)
     }
 
-    const nonEntityLists = [
-      'app/managed/settings/organizations/[organizationId]/members/page.tsx',
-      'app/managed/platform/users/page.tsx',
-      'app/managed/projects/[projectId]/members/page.tsx',
-    ]
+    const nonEntityLists = ['app/managed/projects/[projectId]/members/page.tsx']
 
     for (const file of nonEntityLists) {
       expect(readProjectFile(file), `${file} must preserve opaque cursors`).not.toContain(
@@ -965,6 +970,38 @@ function numeric(sessionId) {
     )
     expect(readProjectFile('lib/managed/session-response-parsers.ts')).toContain(
       'parseSessionCreateResponse',
+    )
+  })
+
+  it('validates tenant route and response identities at ingress', () => {
+    const projectRouteFiles = [
+      'app/managed/projects/[projectId]/access/page.tsx',
+      'app/managed/projects/[projectId]/layout.tsx',
+      'app/managed/projects/[projectId]/lifecycle/page.tsx',
+      'app/managed/projects/[projectId]/members/page.tsx',
+      'app/managed/projects/[projectId]/tokens/page.tsx',
+    ]
+
+    for (const file of projectRouteFiles) {
+      expect(readProjectFile(file), `${file} must validate its route ID`).toContain(
+        'parseProjectId',
+      )
+    }
+
+    expect(readProjectFile('components/managed/projects/project-access-page.tsx')).toContain(
+      'parseProjectAccessRecordResponse',
+    )
+    expect(readProjectFile('components/managed/projects/project-lifecycle-page.tsx')).toContain(
+      'parseProjectSummaryResponse',
+    )
+    expect(readProjectFile('components/managed/projects/project-settings-shell.tsx')).toContain(
+      'parseProjectSummaryResponse',
+    )
+    expect(
+      readProjectFile('app/managed/settings/organizations/[organizationId]/members/page.tsx'),
+    ).toContain('parseOrganizationMemberResponse')
+    expect(readProjectFile('app/managed/platform/users/page.tsx')).toContain(
+      'parseItem: parsePlatformUserResponse',
     )
   })
 })

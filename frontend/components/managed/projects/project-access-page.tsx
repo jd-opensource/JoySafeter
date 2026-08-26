@@ -37,40 +37,28 @@ import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { effectiveProjectAccessValue } from '@/lib/managed/project-access'
 import { projectRoleLabel, roleLabel } from '@/lib/managed/roles'
-
-interface ProjectAccessRecord {
-  id?: string
-  user_id: string
-  email: string
-  display_name: string
-  org_role: string
-  access: 'org_wide' | 'default' | 'explicit' | 'none' | string
-  project_role?: string | null
-  joined_at?: string | null
-}
-
-interface ProjectSummary {
-  id: string
-  org_id: string
-  name: string
-  slug: string
-  is_default: boolean
-}
+import {
+  parseProjectAccessRecordResponse,
+  parseProjectSummaryResponse,
+  type ProjectAccessRecord,
+} from '@/lib/managed/tenant-response-parsers'
+import { parseOrganizationMemberId, type ProjectId, type UserId } from '@/types/entity-id'
 
 const PROJECT_ROLE_VALUES = ['viewer', 'editor', 'admin'] as const
 
-export function ProjectAccessPage({ projectId }: { projectId: string }) {
+export function ProjectAccessPage({ projectId }: { projectId: ProjectId }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [revokeTarget, setRevokeTarget] = useState<ProjectAccessRecord | null>(null)
   const [memberSearch, setMemberSearch] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
-  const [savedUserId, setSavedUserId] = useState<string | null>(null)
+  const [savedUserId, setSavedUserId] = useState<UserId | null>(null)
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
-    queryFn: () => managedGet<ProjectSummary>(`auth/projects/${projectId}`),
+    queryFn: () =>
+      managedGet<unknown>(`auth/projects/${projectId}`).then(parseProjectSummaryResponse),
     enabled: Boolean(projectId),
   })
 
@@ -93,6 +81,8 @@ export function ProjectAccessPage({ projectId }: { projectId: string }) {
     queryKey: 'project-access',
     path: `/auth/projects/${projectId}/members${memberSearch.trim() ? `?q=${encodeURIComponent(memberSearch.trim())}` : ''}`,
     enabled: Boolean(projectId),
+    parseItem: parseProjectAccessRecordResponse,
+    parseCursor: parseOrganizationMemberId,
   })
   const filteredMembers = organizationMembers.filter(
     (member) =>
@@ -100,7 +90,7 @@ export function ProjectAccessPage({ projectId }: { projectId: string }) {
       matchesSearch(memberSearch, [member.user_id, member.display_name, member.email]),
   )
 
-  const showSavedFeedback = (userId: string) => {
+  const showSavedFeedback = (userId: UserId) => {
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
     setSavedUserId(userId)
     savedTimerRef.current = setTimeout(() => setSavedUserId(null), 2400)
@@ -114,7 +104,7 @@ export function ProjectAccessPage({ projectId }: { projectId: string }) {
   )
 
   const grantMut = useMutation({
-    mutationFn: ({ userId, role }: { userId: string; role: string }) =>
+    mutationFn: ({ userId, role }: { userId: UserId; role: string }) =>
       managedPost(`auth/projects/${projectId}/members`, { user_id: userId, role }),
     onMutate: ({ userId }) => {
       if (savedUserId === userId) setSavedUserId(null)
@@ -128,7 +118,7 @@ export function ProjectAccessPage({ projectId }: { projectId: string }) {
   })
 
   const revokeMut = useMutation({
-    mutationFn: ({ userId }: { userId: string }) =>
+    mutationFn: ({ userId }: { userId: UserId }) =>
       managedDelete(`auth/projects/${projectId}/members/${userId}`),
     onSuccess: (_result, variables) => {
       resetAccessPagination()

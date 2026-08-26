@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { managedGet } from '@/lib/api-client'
+import { ORGANIZATION_ID, PROJECT_ID } from '@/test-utils/entity-ids'
 
 vi.mock('@/lib/api-client', () => ({
   managedDelete: vi.fn(),
@@ -54,7 +55,8 @@ describe('ProjectLifecyclePage', () => {
 
   it('requires the exact project name before archive confirmation', async () => {
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: 'project-a',
+      id: PROJECT_ID,
+      org_id: ORGANIZATION_ID,
       name: 'Critical Project',
       slug: 'critical-project',
       is_default: false,
@@ -66,7 +68,7 @@ describe('ProjectLifecyclePage', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const view = render(
       <QueryClientProvider client={queryClient}>
-        <ProjectLifecyclePage projectId="project-a" />
+        <ProjectLifecyclePage projectId={PROJECT_ID} />
       </QueryClientProvider>,
     )
 
@@ -91,7 +93,8 @@ describe('ProjectLifecyclePage', () => {
   it('lets a project admin control triggers without exposing organization lifecycle actions', async () => {
     organizationCanAdmin = false
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: 'project-a',
+      id: PROJECT_ID,
+      org_id: ORGANIZATION_ID,
       name: 'Member Project',
       slug: 'member-project',
       is_default: false,
@@ -103,7 +106,7 @@ describe('ProjectLifecyclePage', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const view = render(
       <QueryClientProvider client={queryClient}>
-        <ProjectLifecyclePage projectId="project-a" />
+        <ProjectLifecyclePage projectId={PROJECT_ID} />
       </QueryClientProvider>,
     )
 

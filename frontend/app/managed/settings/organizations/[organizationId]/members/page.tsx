@@ -5,7 +5,6 @@ import { Info, Search, Settings2, Trash2, UserPlus } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import { useState, useRef, useEffect, type MutableRefObject } from 'react'
 
-import type { OrganizationDetail } from '@/components/managed/settings/organization-detail-shell'
 import {
   DataTable,
   FilterBar,
@@ -44,17 +43,19 @@ import {
   roleLabel,
   roleOptions,
 } from '@/lib/managed/roles'
-import { parseOrganizationId, type OrganizationId } from '@/types/entity-id'
-
-interface MemberRecord {
-  id: string
-  user_id: string
-  organization_id: string
-  user_email: string
-  user_name: string
-  role: string
-  joined_at?: string
-}
+import {
+  parseMemberCandidateListResponse,
+  parseOrganizationDetailResponse,
+  parseOrganizationMemberResponse,
+  type MemberCandidate,
+  type OrganizationMemberRecord,
+} from '@/lib/managed/tenant-response-parsers'
+import {
+  parseOrganizationId,
+  parseOrganizationMemberId,
+  type OrganizationId,
+  type UserId,
+} from '@/types/entity-id'
 
 export default function MembersPage() {
   const { t } = useTranslation()
@@ -64,7 +65,8 @@ export default function MembersPage() {
   const organizationId = parseOrganizationId(params.organizationId)
   const organizationQuery = useQuery({
     queryKey: ['organization-detail', organizationId],
-    queryFn: () => managedGet<OrganizationDetail>(`organizations/${organizationId}`),
+    queryFn: () =>
+      managedGet<unknown>(`organizations/${organizationId}`).then(parseOrganizationDetailResponse),
     enabled: Boolean(organizationId),
   })
   const currentOrganization = organizationQuery.data
@@ -83,19 +85,17 @@ export default function MembersPage() {
   const [memberSearch, setMemberSearch] = useState('')
   const [createdFilter, setCreatedFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<
-    { id: string; email: string; name: string; image?: string; already_member: boolean }[]
-  >([])
+  const [searchResults, setSearchResults] = useState<MemberCandidate[]>([])
   const [showDropdown, setShowDropdown] = useState(false)
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchRequestSeqRef = useRef(0)
 
   // Role change dialog
-  const [roleTarget, setRoleTarget] = useState<MemberRecord | null>(null)
+  const [roleTarget, setRoleTarget] = useState<OrganizationMemberRecord | null>(null)
   const [newRole, setNewRole] = useState<string>(DEFAULT_ORGANIZATION_ROLE)
 
   // Remove confirm
-  const [removeTarget, setRemoveTarget] = useState<MemberRecord | null>(null)
+  const [removeTarget, setRemoveTarget] = useState<OrganizationMemberRecord | null>(null)
 
   // ── Queries ──
   const {
@@ -112,10 +112,12 @@ export default function MembersPage() {
     goToPage,
     setPageSize,
     reset: resetMembersPagination,
-  } = usePaginatedList<MemberRecord>({
+  } = usePaginatedList<OrganizationMemberRecord>({
     queryKey: 'organization-members',
     path: `/organizations/${organizationId}/members${memberSearch.trim() ? `?q=${encodeURIComponent(memberSearch.trim())}` : ''}`,
     enabled: Boolean(organizationId),
+    parseItem: parseOrganizationMemberResponse,
+    parseCursor: parseOrganizationMemberId,
   })
   const filteredMembers = members.filter(
     (member) =>
@@ -125,7 +127,7 @@ export default function MembersPage() {
   const normalizedMemberEmail = email.trim().toLowerCase()
   const emailAlreadyMember =
     !!normalizedMemberEmail &&
-    (members.some((member) => member.user_email.toLowerCase() === normalizedMemberEmail) ||
+    (members.some((member) => (member.user_email ?? '').toLowerCase() === normalizedMemberEmail) ||
       searchResults.some(
         (user) => user.email.toLowerCase() === normalizedMemberEmail && user.already_member,
       ))
@@ -139,7 +141,7 @@ export default function MembersPage() {
     scope: OrganizationId,
   ) => runRef.current === runId && currentOrgScopeIsActive(scope)
 
-  const currentMutableMember = (member: MemberRecord | null) => {
+  const currentMutableMember = (member: OrganizationMemberRecord | null) => {
     if (!member) return null
     if (!currentOrgScopeIsActive()) return null
     const current = members.find((candidate) => candidate.user_id === member.user_id)
@@ -218,10 +220,12 @@ export default function MembersPage() {
       if (!currentOrgScopeIsActive(data.scope) || data.runId !== addMemberRunRef.current) {
         throw new Error('Stale member addition ignored')
       }
-      return managedPost<MemberRecord>(`organizations/${data.scope}/members`, {
+      return managedPost<unknown>(`organizations/${data.scope}/members`, {
         email: data.email,
         role: data.role,
-      }).then((member) => ({ member, runId: data.runId, scope: data.scope }))
+      })
+        .then(parseOrganizationMemberResponse)
+        .then((member) => ({ member, runId: data.runId, scope: data.scope }))
     },
     onSuccess: ({ runId, scope }) => {
       if (!isCurrentScopedRun(addMemberRunRef, runId, scope)) return
@@ -242,7 +246,7 @@ export default function MembersPage() {
       runId,
       scope,
     }: {
-      userId: string
+      userId: UserId
       runId: number
       scope: OrganizationId
     }) => {
@@ -274,7 +278,7 @@ export default function MembersPage() {
       runId,
       scope,
     }: {
-      userId: string
+      userId: UserId
       role: string
       runId: number
       scope: OrganizationId
@@ -282,13 +286,13 @@ export default function MembersPage() {
       if (!currentOrgScopeIsActive(scope) || runId !== roleRunRef.current) {
         throw new Error('Stale member role update ignored')
       }
-      return managedPut<MemberRecord>(`organizations/${scope}/members/${userId}`, { role }).then(
-        (member) => ({
+      return managedPut<unknown>(`organizations/${scope}/members/${userId}`, { role })
+        .then(parseOrganizationMemberResponse)
+        .then((member) => ({
           member,
           runId,
           scope,
-        }),
-      )
+        }))
     },
     onSuccess: ({ runId, scope }) => {
       if (!isCurrentScopedRun(roleRunRef, runId, scope)) return
@@ -334,9 +338,9 @@ export default function MembersPage() {
     searchTimeoutRef.current = setTimeout(async () => {
       if (!currentOrgScopeIsActive(requestScope)) return
       try {
-        const results = await managedGet<
-          { id: string; email: string; name: string; image?: string; already_member: boolean }[]
-        >(`organizations/${requestScope}/member-candidates?q=${encodeURIComponent(value)}&limit=5`)
+        const results = await managedGet<unknown>(
+          `organizations/${requestScope}/member-candidates?q=${encodeURIComponent(value)}&limit=5`,
+        ).then(parseMemberCandidateListResponse)
         if (requestSeq !== searchRequestSeqRef.current || !currentOrgScopeIsActive(requestScope))
           return
         setSearchResults(results)
@@ -349,7 +353,7 @@ export default function MembersPage() {
     }, 300)
   }
 
-  const selectUser = (user: { id: string; email: string; name: string }) => {
+  const selectUser = (user: MemberCandidate) => {
     searchRequestSeqRef.current += 1
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current)
@@ -369,7 +373,7 @@ export default function MembersPage() {
     addMemberMutation.mutate({ email: trimmedEmail, role, runId, scope: orgScopeRef.current })
   }
 
-  const openRoleDialog = (m: MemberRecord) => {
+  const openRoleDialog = (m: OrganizationMemberRecord) => {
     if (!currentOrgScopeIsActive()) return
     const current = currentMutableMember(m)
     if (!current) return
@@ -384,7 +388,7 @@ export default function MembersPage() {
     setRoleTarget(null)
   }
 
-  const openRemoveDialog = (m: MemberRecord) => {
+  const openRemoveDialog = (m: OrganizationMemberRecord) => {
     if (!currentOrgScopeIsActive()) return
     const current = currentMutableMember(m)
     if (!current) return
@@ -442,7 +446,7 @@ export default function MembersPage() {
     })
   }
 
-  const renderMemberManageAction = (member: MemberRecord, fullWidth = false) => {
+  const renderMemberManageAction = (member: OrganizationMemberRecord, fullWidth = false) => {
     if (!canManage) return null
     if (normalizeManagedRole(member.role) === 'owner') {
       return (
@@ -470,7 +474,7 @@ export default function MembersPage() {
     )
   }
 
-  const columns: Column<MemberRecord>[] = [
+  const columns: Column<OrganizationMemberRecord>[] = [
     {
       key: 'name',
       header: t('manage.members.name'),
@@ -521,7 +525,7 @@ export default function MembersPage() {
             header: t('managed.table.actions'),
             align: 'right' as const,
             truncate: false,
-            render: (member: MemberRecord) => renderMemberManageAction(member),
+            render: (member: OrganizationMemberRecord) => renderMemberManageAction(member),
           },
         ]
       : []),
