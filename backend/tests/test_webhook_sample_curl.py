@@ -25,7 +25,7 @@ class _StubService(TriggerApplicationService):
 @pytest.mark.asyncio
 async def test_build_webhook_curl_signs_sample_body():
     svc = _StubService("s3kret")
-    trigger = SimpleNamespace(id="TID", secret_ref="hook", secret_key="WEBHOOK_SECRET")
+    trigger = SimpleNamespace(id="TID")
     url = "https://api.example.com/api/v1/triggers/trig_TID/webhook"
     sample = {"example": "payload"}
 
@@ -41,7 +41,7 @@ async def test_build_webhook_curl_signs_sample_body():
 @pytest.mark.asyncio
 async def test_build_webhook_curl_shell_quotes_body_with_single_quote():
     svc = _StubService("s3kret")
-    trigger = SimpleNamespace(id="TID", secret_ref="hook", secret_key="WEBHOOK_SECRET")
+    trigger = SimpleNamespace(id="TID")
     url = "https://api.example.com/api/v1/triggers/trig_TID/webhook"
     sample = {"customer": "O'Reilly"}
 

@@ -92,7 +92,6 @@ def _agent(agent_id: AgentId | None = None):
         permission_mode="bypassPermissions",
         metadata_={},
         multiagent=None,
-        secret_ref=None,
     )
 
 
