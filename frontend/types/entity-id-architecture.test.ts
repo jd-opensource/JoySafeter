@@ -673,6 +673,8 @@ function numeric(sessionId) {
     const sessionParsers = readProjectFile('lib/managed/session-response-parsers.ts')
     const agentList = readProjectFile('app/managed/agents/page.tsx')
     const agentDetail = readProjectFile('app/managed/agents/[agentId]/page.tsx')
+    const agentEdit = readProjectFile('app/managed/agents/[agentId]/edit/page.tsx')
+    const agentCreate = readProjectFile('app/managed/agents/components/create-agent-dialog.tsx')
     const sessionList = readProjectFile('app/managed/sessions/page.tsx')
     const sessionDetail = readProjectFile('app/managed/sessions/[sessionId]/page.tsx')
 
@@ -684,6 +686,8 @@ function numeric(sessionId) {
     )
     expect(agentList).toContain('parseItem: parseAgentResponse')
     expect(agentDetail).toContain('.then(parseAgentResponse)')
+    expect(agentEdit).toContain('parseEnvironmentListResponse(res.data || [])')
+    expect(agentCreate).toContain('parseEnvironmentListResponse(res.data || [])')
     expect(sessionList).toContain('parseItem: parseSessionResponse')
     expect(sessionDetail).toContain('.then(parseSessionResponse)')
   })

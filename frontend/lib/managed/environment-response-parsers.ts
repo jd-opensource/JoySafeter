@@ -329,6 +329,6 @@ export function parseEnvironmentResponse(response: unknown): Environment {
   }
 }
 
-export function parseEnvironmentListResponse(response: RawEnvironment[]): Environment[] {
+export function parseEnvironmentListResponse(response: unknown[]): Environment[] {
   return response.map(parseEnvironmentResponse)
 }

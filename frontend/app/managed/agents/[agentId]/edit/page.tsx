@@ -21,10 +21,11 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
-import type { Agent, Credential } from '@/types/managed'
+import type { Agent, Credential, Environment } from '@/types/managed'
 import { parseAgentId, parseCredentialId, type AgentId, type SkillId } from '@/types/entity-id'
 import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
+import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -76,11 +77,6 @@ interface SkillListItem {
   display_title?: string
   // Latest published version string, or null/undefined if never published.
   latest_version?: string | null
-}
-
-interface EnvironmentListItem {
-  id: string
-  name: string
 }
 
 interface SaveAgentVariables {
@@ -140,11 +136,11 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
   const { data: environments } = useQuery({
     queryKey: ['environments', managedScope.key],
     queryFn: async () => {
-      const res = await managedGet<ManagedListResponse<EnvironmentListItem>>(
+      const res = await managedGet<ManagedListResponse<unknown>>(
         '/environments',
         managedRequestOptions(managedScope),
       )
-      return res.data || []
+      return parseEnvironmentListResponse(res.data || [])
     },
     enabled: hasManagedRequestScope(managedScope),
   })
@@ -391,8 +387,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
         })
         .at(-1)?.[1] ?? secrets
     const currentEnvironments =
-      queryClient.getQueryData<ManagedListResponse<EnvironmentListItem>>(['environments', scopeKey])
-        ?.data ?? environments
+      queryClient.getQueryData<Environment[]>(['environments', scopeKey]) ?? environments
     const currentSkills = queryClient.getQueryData<SkillListItem[]>(['skills', scopeKey]) ?? skills
 
     const currentSecretRef =

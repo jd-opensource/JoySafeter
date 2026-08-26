@@ -42,6 +42,7 @@ import { getEnabledEngines } from '@/lib/managed/llm-catalog'
 import { serializeMcpServerEntries, type McpServerEntry } from '@/lib/managed/mcp-config'
 import { selectInitialModelConnection } from '@/lib/managed/model-connection-selection'
 import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
+import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -57,7 +58,7 @@ import {
   type EnvironmentId,
   type SkillId,
 } from '@/types/entity-id'
-import type { Credential, CredentialDetail } from '@/types/managed'
+import type { Credential, CredentialDetail, Environment } from '@/types/managed'
 import { eligibilityReasonView, eligibilityActionView } from '@/lib/managed/skill-eligibility'
 import {
   compatibleCredentialsQueryPrefix,
@@ -91,13 +92,6 @@ function skillUnavailableReason(skill: SkillListItem): string | null {
   if (!skill.latest_version) return 'no_published_version'
   return null
 }
-
-interface EnvironmentListItem {
-  id: EnvironmentId
-  name: string
-}
-
-type RawEnvironmentListItem = Omit<EnvironmentListItem, 'id'> & { id: string }
 
 interface CreateAgentDialogProps {
   open: boolean
@@ -165,14 +159,11 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
   const { data: environments } = useQuery({
     queryKey: ['environments', managedScope.key],
     queryFn: async () => {
-      const res = await managedGet<ManagedListResponse<RawEnvironmentListItem>>(
+      const res = await managedGet<ManagedListResponse<unknown>>(
         '/environments',
         managedRequestOptions(managedScope),
       )
-      return (res.data || []).map((environment) => ({
-        ...environment,
-        id: parseEnvironmentId(environment.id),
-      }))
+      return parseEnvironmentListResponse(res.data || [])
     },
     enabled: open && hasManagedRequestScope(managedScope),
   })
@@ -318,10 +309,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           })
           .at(-1)?.[1] ?? secrets
       const currentEnvironments =
-        queryClient.getQueryData<ManagedListResponse<EnvironmentListItem>>([
-          'environments',
-          scopeAtStart,
-        ])?.data ?? environments
+        queryClient.getQueryData<Environment[]>(['environments', scopeAtStart]) ?? environments
       const currentSkills =
         queryClient.getQueryData<SkillListItem[]>(['skills', scopeAtStart]) ?? skills
 
