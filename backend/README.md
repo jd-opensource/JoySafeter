@@ -171,12 +171,13 @@ curl -X POST http://localhost:8000/api/v1/triggers \
     "type": "webhook",
     "agent_id": "agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001",
     "prompt_template": "处理告警：{{ body.alert.name }}",
-    "secret_ref": "<vault-key>",
+    "webhook_auth_credential_id": "cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f002",
+    "webhook_auth_field": "signature",
     "auth_methods": ["hmac"]
   }'
 ```
 
-- 外部系统 `POST /api/v1/triggers/{id}/webhook`，用 `secret_ref` 指向的密钥做 HMAC-SHA256 签名（头 `X-JoySafeter-Signature`）；也支持 `bearer` / `token`。
+- 外部系统 `POST /api/v1/triggers/{id}/webhook`，用 `webhook_auth_credential_id` 指向的服务凭据做 HMAC-SHA256 签名（头 `X-JoySafeter-Signature`）；也支持 `bearer` / `token`。
 - 用 `GET /api/v1/triggers/{id}/webhook-sample` 拿到可直接跑的带签名 cURL 示例；上线前用 `POST /{id}/test` 验证。
 - prompt 模板可引用载荷变量，如 `{{ body.alert.name }}`、`{{ fired_at }}`、`{{ cron.cron_expr }}`。
 

@@ -899,7 +899,7 @@ class JoySafeterConfig(BaseSettings):
 
     # Envoy network isolation
     envoy_enabled: bool = False
-    envoy_image: str = "envoyproxy/envoy:v1.31-latest"
+    envoy_image: str = "envoyproxy/envoy:v1.37.1"
     envoy_socket_volume: str = "joysafeter-sockets"
     envoy_config_dir: str = "/tmp/joysafeter-envoy-config"
     envoy_network: str = "joysafeter-net"

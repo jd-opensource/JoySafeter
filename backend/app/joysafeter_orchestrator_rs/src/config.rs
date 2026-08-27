@@ -285,7 +285,7 @@ impl JoySafeterConfig {
             scheduler_batch_size: env_usize("JOYSAFETER_SCHEDULER_BATCH_SIZE", 10),
 
             envoy_enabled: env_bool("JOYSAFETER_ENVOY_ENABLED", false),
-            envoy_image: env_str("JOYSAFETER_ENVOY_IMAGE", "envoyproxy/envoy:v1.31-latest"),
+            envoy_image: env_str("JOYSAFETER_ENVOY_IMAGE", "envoyproxy/envoy:v1.37.1"),
             envoy_socket_volume: env_str("JOYSAFETER_ENVOY_SOCKET_VOLUME", "joysafeter-sockets"),
             envoy_socket_host_dir: env::var("JOYSAFETER_ENVOY_SOCKET_HOST_DIR")
                 .ok()
