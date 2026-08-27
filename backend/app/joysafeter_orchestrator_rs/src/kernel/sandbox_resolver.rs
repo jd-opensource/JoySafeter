@@ -4499,6 +4499,7 @@ mod egress_tests {
                 has_host_mount: false,
                 has_egress_management: true,
                 network_isolation: crate::sandbox::provider::NetworkIsolation::Envoy,
+                stop_preserves_state: false,
             }
         }
     }

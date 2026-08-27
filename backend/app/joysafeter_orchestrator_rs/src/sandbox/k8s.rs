@@ -775,6 +775,7 @@ impl SandboxProvider for K8sProvider {
             } else {
                 NetworkIsolation::None
             },
+            stop_preserves_state: false,
         }
     }
 

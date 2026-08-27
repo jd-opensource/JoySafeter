@@ -521,6 +521,7 @@ impl SandboxController {
 
         let graceful = current_status == "idle";
         let mut cleanup_claimed_stopping = graceful;
+        let stop_preserves_state = self.provider.capabilities().stop_preserves_state;
 
         if graceful {
             if let Some(bridge) = self.bridge_store.get_by_db_id(sandbox_id) {
@@ -644,7 +645,34 @@ impl SandboxController {
             self.bridge_store.remove(ext_id);
         }
 
-        // Stop the container
+        if !stop_preserves_state {
+            if let Some(ref ext_id) = external_id {
+                if let Err(error) = self.provider.destroy(ext_id).await {
+                    let message = error.to_string();
+                    if !message.contains("No such container")
+                        && !message.contains("not running")
+                        && !message.contains("not found")
+                        && !message.contains("NotFound")
+                        && !message.contains("404")
+                    {
+                        warn!(sandbox_id = %sandbox_id, "Failed to destroy sandbox during reclaim: {error}");
+                        return;
+                    }
+                }
+            }
+            let _ = queries::destroy_sandbox_if_status_and_external_id(
+                &self.pool,
+                sandbox_id,
+                "stopping",
+                external_id.as_deref(),
+            )
+            .await;
+            let _ = self.teardown_networking(sandbox_id).await;
+            info!(sandbox_id = %sandbox_id, graceful, was = %current_status, "Destroyed non-resumable sandbox");
+            return;
+        }
+
+        // Stop the resumable runtime.
         if let Some(ref ext_id) = external_id {
             if let Err(e) = self.provider.stop(ext_id).await {
                 // Check if "no such container" -- mark as stopped anyway
@@ -737,10 +765,16 @@ impl SandboxController {
             }
 
             // Remove bridge (Python L311)
+            let stop_preserves_state = self.provider.capabilities().stop_preserves_state;
             let mut stop_succeeded = false;
             if let Some(ref ext_id) = external_id {
                 self.bridge_store.remove(ext_id);
-                match self.provider.stop(ext_id).await {
+                let stop_result = if stop_preserves_state {
+                    self.provider.stop(ext_id).await
+                } else {
+                    self.provider.destroy(ext_id).await
+                };
+                match stop_result {
                     Ok(_) => stop_succeeded = true,
                     Err(e) => {
                         let err = format!("{e}");
@@ -755,13 +789,23 @@ impl SandboxController {
                 stop_succeeded = true;
             }
             if stop_succeeded {
-                let _ = queries::mark_sandbox_stopped_if_status_and_external_id(
-                    &self.pool,
-                    sandbox_id,
-                    "stopping",
-                    external_id.as_deref(),
-                )
-                .await;
+                if stop_preserves_state {
+                    let _ = queries::mark_sandbox_stopped_if_status_and_external_id(
+                        &self.pool,
+                        sandbox_id,
+                        "stopping",
+                        external_id.as_deref(),
+                    )
+                    .await;
+                } else {
+                    let _ = queries::destroy_sandbox_if_status_and_external_id(
+                        &self.pool,
+                        sandbox_id,
+                        "stopping",
+                        external_id.as_deref(),
+                    )
+                    .await;
+                }
                 // Teardown networking (Python L332)
                 let _ = self.teardown_networking(sandbox_id).await;
             }
@@ -942,9 +986,15 @@ impl SandboxController {
 
         self.requeue_scheduling_tasks(sandbox_id).await?;
 
+        let stop_preserves_state = self.provider.capabilities().stop_preserves_state;
         let mut stop_succeeded = external_id.is_none();
         if let Some(ext_id) = external_id {
-            match self.provider.stop(ext_id).await {
+            let stop_result = if stop_preserves_state {
+                self.provider.stop(ext_id).await
+            } else {
+                self.provider.destroy(ext_id).await
+            };
+            match stop_result {
                 Ok(_) => stop_succeeded = true,
                 Err(e) => {
                     let err = format!("{e}");
@@ -961,13 +1011,23 @@ impl SandboxController {
         }
 
         if stop_succeeded {
-            let _ = queries::mark_sandbox_stopped_if_status_and_external_id(
-                &self.pool,
-                sandbox_id,
-                "stopping",
-                external_id,
-            )
-            .await?;
+            if stop_preserves_state {
+                let _ = queries::mark_sandbox_stopped_if_status_and_external_id(
+                    &self.pool,
+                    sandbox_id,
+                    "stopping",
+                    external_id,
+                )
+                .await?;
+            } else {
+                let _ = queries::destroy_sandbox_if_status_and_external_id(
+                    &self.pool,
+                    sandbox_id,
+                    "stopping",
+                    external_id,
+                )
+                .await?;
+            }
         }
 
         Ok(stop_succeeded)
@@ -1567,6 +1627,15 @@ mod tests {
         fn provider_name(&self) -> &'static str {
             "stop-marks-error"
         }
+
+        fn capabilities(&self) -> crate::sandbox::provider::ProviderCapabilities {
+            crate::sandbox::provider::ProviderCapabilities {
+                has_host_mount: false,
+                has_egress_management: false,
+                network_isolation: crate::sandbox::provider::NetworkIsolation::None,
+                stop_preserves_state: true,
+            }
+        }
     }
 
     struct StopClaimsTaskProvider {
@@ -1632,6 +1701,15 @@ mod tests {
 
         fn provider_name(&self) -> &'static str {
             "stop-claims-task"
+        }
+
+        fn capabilities(&self) -> crate::sandbox::provider::ProviderCapabilities {
+            crate::sandbox::provider::ProviderCapabilities {
+                has_host_mount: false,
+                has_egress_management: false,
+                network_isolation: crate::sandbox::provider::NetworkIsolation::None,
+                stop_preserves_state: true,
+            }
         }
     }
 
@@ -1774,6 +1852,15 @@ mod tests {
         fn provider_name(&self) -> &'static str {
             "stop-observes-db-state"
         }
+
+        fn capabilities(&self) -> crate::sandbox::provider::ProviderCapabilities {
+            crate::sandbox::provider::ProviderCapabilities {
+                has_host_mount: false,
+                has_egress_management: false,
+                network_isolation: crate::sandbox::provider::NetworkIsolation::None,
+                stop_preserves_state: true,
+            }
+        }
     }
 
     #[async_trait]
@@ -1881,6 +1968,15 @@ mod tests {
         fn provider_name(&self) -> &'static str {
             "cleanup-recording"
         }
+
+        fn capabilities(&self) -> crate::sandbox::provider::ProviderCapabilities {
+            crate::sandbox::provider::ProviderCapabilities {
+                has_host_mount: false,
+                has_egress_management: false,
+                network_isolation: crate::sandbox::provider::NetworkIsolation::None,
+                stop_preserves_state: true,
+            }
+        }
     }
 
     fn provider_sandbox_info(
@@ -1899,6 +1995,145 @@ mod tests {
             image: "joysafeter/test:latest".to_string(),
             labels,
         }
+    }
+
+    struct CapabilityRoutingProvider {
+        preserves: bool,
+        stopped: tokio::sync::Mutex<Vec<String>>,
+        destroyed: tokio::sync::Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl SandboxProvider for CapabilityRoutingProvider {
+        async fn create(
+            &self,
+            config: &crate::sandbox::provider::SandboxCreateConfig,
+        ) -> anyhow::Result<String> {
+            Ok(format!("unused-{}", config.sandbox_id))
+        }
+
+        async fn start(&self, _external_id: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn stop(&self, external_id: &str) -> anyhow::Result<()> {
+            self.stopped.lock().await.push(external_id.to_string());
+            Ok(())
+        }
+
+        async fn destroy(&self, external_id: &str) -> anyhow::Result<()> {
+            self.destroyed.lock().await.push(external_id.to_string());
+            Ok(())
+        }
+
+        async fn status(
+            &self,
+            _external_id: &str,
+        ) -> anyhow::Result<crate::sandbox::provider::SandboxStatus> {
+            Ok(crate::sandbox::provider::SandboxStatus::Running)
+        }
+
+        async fn exec(&self, _external_id: &str, _cmd: &[&str]) -> anyhow::Result<String> {
+            Ok(String::new())
+        }
+
+        fn capabilities(&self) -> crate::sandbox::provider::ProviderCapabilities {
+            crate::sandbox::provider::ProviderCapabilities {
+                has_host_mount: false,
+                has_egress_management: false,
+                network_isolation: crate::sandbox::provider::NetworkIsolation::None,
+                stop_preserves_state: self.preserves,
+            }
+        }
+
+        fn provider_name(&self) -> &'static str {
+            "capability-routing"
+        }
+    }
+
+    async fn run_idle_reclaim_with_capability(
+        pool: &PgPool,
+        preserves: bool,
+    ) -> (String, Vec<String>, Vec<String>) {
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let external_id = format!("cap-route-{preserves}-{sandbox_id}");
+
+        queries::create_sandbox(
+            pool,
+            sandbox_id,
+            &external_id,
+            "test",
+            "joysafeter/test:latest",
+            None,
+            None,
+            None,
+            Some(&json!({})),
+        )
+        .await
+        .expect("create idle-reclaim sandbox");
+        queries::transition_sandbox_cas(pool, sandbox_id, "creating", "idle")
+            .await
+            .expect("mark sandbox idle");
+
+        let provider = Arc::new(CapabilityRoutingProvider {
+            preserves,
+            stopped: tokio::sync::Mutex::new(Vec::new()),
+            destroyed: tokio::sync::Mutex::new(Vec::new()),
+        });
+        let queue = TaskQueue::new(
+            redis::Client::open("redis://127.0.0.1:1/").expect("build unreachable redis client"),
+        );
+        let bridge_registry: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
+        let config = JoySafeterConfig::from_env();
+        let runtime_config = Arc::new(RuntimeConfig::from_config(&config));
+        let controller = SandboxController::new(
+            pool.clone(),
+            queue,
+            bridge_registry,
+            provider.clone(),
+            None,
+            config,
+            runtime_config,
+        );
+
+        controller
+            .stop_idle_sandbox(sandbox_id, Some(external_id), "idle".to_string())
+            .await;
+
+        let status = sqlx::query_scalar("SELECT status FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .fetch_one(pool)
+            .await
+            .expect("load idle-reclaim sandbox status");
+        let stopped = provider.stopped.lock().await.clone();
+        let destroyed = provider.destroyed.lock().await.clone();
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(pool)
+            .await;
+        (status, stopped, destroyed)
+    }
+
+    #[tokio::test]
+    async fn idle_reclaim_preserving_provider_stops_not_destroys() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let (status, stopped, destroyed) = run_idle_reclaim_with_capability(&pool, true).await;
+        assert_eq!(status, "stopped");
+        assert_eq!(stopped.len(), 1);
+        assert!(destroyed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn idle_reclaim_destructive_provider_destroys_no_phantom_stopped() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let (status, stopped, destroyed) = run_idle_reclaim_with_capability(&pool, false).await;
+        assert_eq!(status, "destroyed");
+        assert_eq!(destroyed.len(), 1);
+        assert!(stopped.is_empty());
     }
 
     #[tokio::test]

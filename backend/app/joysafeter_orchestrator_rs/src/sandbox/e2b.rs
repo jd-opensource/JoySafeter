@@ -215,6 +215,7 @@ impl SandboxProvider for E2bProvider {
             has_host_mount: false,
             has_egress_management: false,
             network_isolation: NetworkIsolation::Platform,
+            stop_preserves_state: true,
         }
     }
 

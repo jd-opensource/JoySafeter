@@ -1011,6 +1011,7 @@ impl SandboxProvider for DockerProvider {
             } else {
                 NetworkIsolation::None
             },
+            stop_preserves_state: true,
         }
     }
 

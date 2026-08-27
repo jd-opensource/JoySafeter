@@ -41,6 +41,8 @@ pub struct ProviderCapabilities {
     pub has_egress_management: bool,
     /// Network isolation mechanism.
     pub network_isolation: NetworkIsolation,
+    /// Whether `start()` can resume the same runtime after `stop()`.
+    pub stop_preserves_state: bool,
 }
 
 /// Configuration for creating a sandbox container.
@@ -233,6 +235,7 @@ pub trait SandboxProvider: Send + Sync + 'static {
             has_host_mount: false,
             has_egress_management: false,
             network_isolation: NetworkIsolation::None,
+            stop_preserves_state: false,
         }
     }
 
