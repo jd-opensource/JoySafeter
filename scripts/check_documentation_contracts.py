@@ -337,7 +337,167 @@ def _check_forbidden_document_content(repo_root: Path) -> list[Violation]:
     return check_forbidden_document_content(repo_root)
 
 
+_BACKEND_COMMAND_DOCUMENTS: tuple[Path, ...] = (
+    Path("CONTRIBUTING.md"),
+    Path("backend/README.md"),
+)
+# Tools whose command matrix is owned solely by DEVELOPMENT.md. Derived docs must
+# reference it, not duplicate it (single source of truth); bare and `uv run` forms
+# both count as duplication. deploy/README.md is exempt (container-context alembic).
+_BACKEND_COMMAND_TOKENS = re.compile(r"(?:^|[\s;&|(])(pytest|ruff|mypy|alembic)\b")
+
+
+def _iter_fenced_lines(content: str) -> Iterable[tuple[int, str]]:
+    """Yield ``(line_number, line)`` for lines INSIDE fenced code blocks.
+
+    Mirrors the fence semantics of ``_iter_non_fenced_lines``; the opening and
+    closing fence lines themselves are not yielded, so only command bodies match.
+    """
+    fence_char = ""
+    fence_len = 0
+    for line_number, line in enumerate(content.splitlines(), start=1):
+        stripped = line.lstrip()
+        if fence_char:
+            if stripped[:1] == fence_char:
+                run = len(stripped) - len(stripped.lstrip(fence_char))
+                if run >= fence_len and stripped[run:].strip() == "":
+                    fence_char = ""
+                    fence_len = 0
+                    continue
+            yield line_number, line
+            continue
+        if stripped[:1] in ("`", "~"):
+            char = stripped[0]
+            run = len(stripped) - len(stripped.lstrip(char))
+            if run >= 3:
+                fence_char = char
+                fence_len = run
+
+
+def check_backend_command_single_source(
+    repo_root: Path,
+    documents: Sequence[Path] = _BACKEND_COMMAND_DOCUMENTS,
+) -> list[Violation]:
+    """Derived docs must reference DEVELOPMENT.md, not duplicate its backend command matrix."""
+    resolved_root = repo_root.resolve()
+    violations: list[Violation] = []
+    for document in documents:
+        source_path = resolved_root / document
+        relative_document = _relative_path(resolved_root, source_path)
+        if not source_path.is_file():
+            violations.append(
+                Violation("DOC-COMMAND", relative_document, "Document does not exist.")
+            )
+            continue
+        content = source_path.read_text(encoding="utf-8")
+        for line_number, line in _iter_fenced_lines(content):
+            match = _BACKEND_COMMAND_TOKENS.search(line)
+            if match is None:
+                continue
+            tool = match.group(1)
+            violations.append(
+                Violation(
+                    "DOC-COMMAND",
+                    relative_document,
+                    (
+                        f"Backend command {tool!r} is owned by DEVELOPMENT.md; "
+                        "reference it instead of duplicating the command matrix."
+                    ),
+                    line_number,
+                )
+            )
+    return violations
+
+
+def _check_backend_command_single_source(repo_root: Path) -> list[Violation]:
+    return check_backend_command_single_source(repo_root)
+
+
+_ROUTER_SOURCE = Path("backend/app/joysafeter_api/api/v1/router.py")
+_IDS_SOURCE = Path("backend/app/joysafeter_shared/ids.py")
+_ROUTE_INVENTORY_DOCS: tuple[Path, ...] = (
+    Path("docs/ARCHITECTURE.md"),
+    Path("docs/ARCHITECTURE_CN.md"),
+)
+# Mounted API prefixes and typed-ID prefixes are enumerable from source; the
+# architecture route table and typed-ID inventory must list every one, so a new
+# router or ID cannot silently drift out of the docs.
+_MOUNTED_ROUTE_PREFIX = re.compile(r'include_router\([^)]*prefix="(/[A-Za-z0-9/_-]+)"')
+_TYPED_ID_PREFIX = re.compile(r'^\s*prefix\s*=\s*"([a-z][a-z0-9]*_)"', re.MULTILINE)
+
+
+def _read_optional_source(repo_root: Path, relative: Path) -> str | None:
+    path = repo_root.resolve() / relative
+    return path.read_text(encoding="utf-8") if path.is_file() else None
+
+
+def check_route_inventory(repo_root: Path) -> list[Violation]:
+    """Every ``include_router`` prefix must appear in the architecture route tables."""
+    resolved_root = repo_root.resolve()
+    router = _read_optional_source(resolved_root, _ROUTER_SOURCE)
+    violations: list[Violation] = []
+    if router is None:
+        violations.append(Violation("DOC-ROUTE", _ROUTER_SOURCE, "Router source does not exist."))
+        return violations
+    prefixes = sorted(set(_MOUNTED_ROUTE_PREFIX.findall(router)))
+    for document in _ROUTE_INVENTORY_DOCS:
+        content = _read_optional_source(resolved_root, document)
+        if content is None:
+            violations.append(Violation("DOC-ROUTE", document, "Document does not exist."))
+            continue
+        for prefix in prefixes:
+            if f"`{prefix}`" not in content:
+                violations.append(
+                    Violation(
+                        "DOC-ROUTE",
+                        document,
+                        f"Mounted route prefix {prefix!r} is not documented in the route table.",
+                    )
+                )
+    return violations
+
+
+def _check_route_inventory(repo_root: Path) -> list[Violation]:
+    return check_route_inventory(repo_root)
+
+
+def check_typed_id_inventory(repo_root: Path) -> list[Violation]:
+    """Every typed-ID prefix defined in ids.py must appear in the architecture typed-ID inventory."""
+    resolved_root = repo_root.resolve()
+    ids = _read_optional_source(resolved_root, _IDS_SOURCE)
+    violations: list[Violation] = []
+    if ids is None:
+        violations.append(Violation("DOC-ID", _IDS_SOURCE, "IDs source does not exist."))
+        return violations
+    prefixes = sorted(set(_TYPED_ID_PREFIX.findall(ids)))
+    for document in _ROUTE_INVENTORY_DOCS:
+        content = _read_optional_source(resolved_root, document)
+        if content is None:
+            violations.append(Violation("DOC-ID", document, "Document does not exist."))
+            continue
+        for prefix in prefixes:
+            # Anchor to a code span (backtick) so an unrelated prose substring
+            # cannot satisfy the rule; matches both the EN table `pfx_` and the
+            # CN prose `pfx_<uuid>` forms.
+            if f"`{prefix}" not in content:
+                violations.append(
+                    Violation(
+                        "DOC-ID",
+                        document,
+                        f"Typed-ID prefix {prefix!r} is not documented in the typed-ID inventory.",
+                    )
+                )
+    return violations
+
+
+def _check_typed_id_inventory(repo_root: Path) -> list[Violation]:
+    return check_typed_id_inventory(repo_root)
+
+
 CHECKS: dict[str, Callable[[Path], list[Violation]]] = {
+    "commands": _check_backend_command_single_source,
+    "routes": _check_route_inventory,
+    "typed-ids": _check_typed_id_inventory,
     "forbidden-content": _check_forbidden_document_content,
     "links": _check_normative_document_links,
     "content": _check_required_document_content,
