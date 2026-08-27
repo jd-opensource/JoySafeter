@@ -463,12 +463,12 @@ Redis 消息丢失由 PostgreSQL 驱动的 degraded-policy reconcile 和周期 p
 `trig_<uuid>`、`env_<uuid>`、`cred_<uuid>`、`credgrp_<uuid>`、`sbx_<uuid>`、
 `memstore_<uuid>`、`mem_<uuid>`、`memver_<uuid>`、`skill_<uuid>`、`sklfile_<uuid>`、
 `sklscan_<uuid>`、`sklver_<uuid>`、`sklvfile_<uuid>`、`skluse_<uuid>`、`file_<uuid>`、
-`sesrsc_<uuid>`、`evt_<uuid>`、`vol_<uuid>`、`stgrant_<uuid>`、`staudit_<uuid>`）。前缀是语义判别器：让跨实体误传在 UUID 进入领域逻辑前即可被
+`sesrsc_<uuid>`、`evt_<uuid>`、`vol_<uuid>`、`stgrant_<uuid>`、`staudit_<uuid>`、`user_<uuid>`、`org_<uuid>`、`orgmem_<uuid>`、`proj_<uuid>`、`projmem_<uuid>`、`oauthacct_<uuid>`、`authsess_<uuid>`、`credaudit_<uuid>`、`secaudit_<uuid>`、`sbxnetpol_<uuid>`）。前缀是语义判别器：让跨实体误传在 UUID 进入领域逻辑前即可被
 识别并拒绝。应用/领域层使用对应的类型（`AgentId`、`AgentVersionId`、`ApiKeyId`、`SessionId`、`TaskId`、`TriggerId`、
 `EnvironmentId`、`CredentialId`、`CredentialGroupId`、`SandboxId`、`MemoryStoreId`、`MemoryId`、
 `MemoryVersionId`、`SkillId`、`SkillFileId`、`SkillSecurityScanId`、`SkillVersionId`、
 `SkillVersionFileId`、`SkillUsageId`、`FileId`、`SessionResourceId`、`EventId`、`StorageVolumeId`、
-`StorageGrantId`、`StorageMountAuditId`）；PostgreSQL、Redis、protobuf 与明确记录的跨语言适配器使用裸 UUID。因此，
+`StorageGrantId`、`StorageMountAuditId`、`UserId`、`OrganizationId`、`OrganizationMemberId`、`ProjectId`、`ProjectMemberId`、`OAuthAccountId`、`AuthSessionId`、`CredentialAccessAuditId`、`SecurityAuditId`、`SandboxNetworkPolicyId`）；PostgreSQL、Redis、protobuf 与明确记录的跨语言适配器使用裸 UUID。因此，
 使用类型化 ID 并不意味着取消前缀，而是把前缀校验集中到边界，禁止 service、route、前端和
 测试自行拆装前缀。Rust ID newtype 不实现 `Deref<Uuid>`；物理适配器必须显式调用 `.as_uuid()`，
 避免内存中的实体身份静默降级为存储身份。Agent、Session、Trigger 与执行快照中的环境绑定统一使用
@@ -499,15 +499,20 @@ authoring 的草稿文件在持久化前没有实体身份，禁止用空字符�
 | **Agents** | `/agents` | CRUD、archive、versions、`/tasks`、`/sessions` |
 | **Tasks** | `/tasks` | 创建+入队、列表、获取、取消、**WS** `/tasks/{id}/stream` |
 | **Sessions** | `/sessions` | CRUD、archive、stop、`POST /events`（发送）、`GET /events`（历史）、**SSE** `/events/stream`、resources（文件/repo） |
+| **Triggers** | `/triggers` | Cron/webhook 触发器 CRUD、手动 `/run`、运行历史、入站 `/webhook`（含签名 `/webhook-sample`、`/test`） |
 | **Environments** | `/environments` | 沙箱镜像/配置 CRUD |
 | **Credentials** | `/credentials` | 模型连接、服务凭据、MCP 成员、生命周期、连通性测试、引用与默认选择 |
 | **Credential groups** | `/credential-groups` | MCP 凭据分组、生命周期、成员关系与引用 |
+| **LLM** | `/llm` | 模型 `/catalog`（OpenAI 兼容 provider 模型） |
 | **Skills** | `/skills` | CRUD、`import-zip`、files、versions、security-scans、生命周期转移、admin 重扫 |
 | **Skills AI 创作** | `/skills/ai-authoring` | **SSE** `/chat`（LLM 创作回合）、`/save-draft` |
 | **Sandboxes** | `/sandboxes` | 列表、获取、停止 |
+| **Network policies** | `/network-policies` | 出口 `/diagnostics`、按会话策略 `/sessions/{id}` |
 | **Memory stores** | `/memory_stores` | store + memory CRUD、versions、redact；沙箱 memory sync 经 Rust runtime 中继 |
 | **Files** | `/files` | 上传、列表、元数据、下载、删除 |
+| **Storage volumes** | `/storage-volumes` | 卷 `/catalog` + CRUD、项目与组织授权、`/audit/logs` |
 | **Organizations** | `/organizations` | 组织 + 成员 CRUD、transfer-ownership |
+| **Analytics** | `/analytics` | 用量分析：汇总、时序、引擎占比、调用、Agent 对比/排名、时延/错误统计 |
 | **Quickstart** | `/quickstart` | **SSE** `/chat`——引导式 onboarding LLM 代理 |
 | **Health** | `/health` | 就绪（Postgres + Redis）、存活 |
 
@@ -527,7 +532,7 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
 
 ### 9.2 技能——能力层
 
-技能是版本化的插件包（仓库内 30 个：21 个 pentest、约 5 个 utility、约 6 个 planning/meta），每个是一个
+技能是版本化的插件包（仓库内 4 个：`pptx`、`xlsx` 文档工具，加 `skill-creator`、`skill-security-auditor`），每个是一个
 以 `SKILL.md` 打头的目录。流水线横跨三层：
 
 1. **解析与校验**（`joysafeter_shared/skill/`）——SKILL.md YAML frontmatter + Agent-Skills 规范约束
@@ -625,7 +630,7 @@ backend/app/
 
 proto/joysafeter.proto         # AgentBridge gRPC 契约
 sandbox-runner/                # Rust workspace：types / runtime / runner / ctl
-skills/                        # 30 个技能包（pentest / utility / planning）
+skills/                        # 4 个技能包（pptx、xlsx、skill-creator、skill-security-auditor）
 deploy/docker-compose.yml      # 三服务 + 基础设施拓扑（Rust orchestrator profile）
 frontend/                      # Next.js App Router UI
 ```

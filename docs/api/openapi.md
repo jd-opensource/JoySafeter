@@ -52,6 +52,7 @@ All paths are under `/api/v1`.
 | **Agents** | `/agents` | CRUD, archive, versions, `/tasks`, `/sessions` |
 | **Tasks** | `/tasks` | create + enqueue, list, get, cancel, **WS** `/tasks/{id}/stream` |
 | **Sessions** | `/sessions` | CRUD, archive, stop, `POST /events` (send message), `GET /events` (history), **SSE** `/events/stream`, resources (files/repos) |
+| **Triggers** | `/triggers` | Cron/webhook trigger CRUD, manual `/run`, run history, inbound `/webhook` (+ signed `/webhook-sample`, `/test`) |
 | **Environments** | `/environments` | Sandbox image/config CRUD |
 | **LLM Catalog** | `/llm/catalog` | Engine capabilities, Protocol definitions, Provider bindings, Credential Profiles |
 | **Credentials** | `/credentials` | Model connections, service credentials, MCP members, lifecycle, and connectivity tests |
@@ -59,9 +60,12 @@ All paths are under `/api/v1`.
 | **Skills** | `/skills` | CRUD, `import-zip`, files, versions, security-scans, lifecycle transitions, admin `rescan-all` |
 | **Skills AI authoring** | `/skills/ai-authoring` | **SSE** `/chat` (LLM authoring turn), `/save-draft` |
 | **Sandboxes** | `/sandboxes` | list, get, stop |
+| **Network policies** | `/network-policies` | Egress `/diagnostics`, per-session policy `/sessions/{id}` |
 | **Memory stores** | `/memory_stores` | store + memory CRUD, versions, redact; sandbox memory sync is relayed through the Rust runtime |
 | **Files** | `/files` | upload, list, metadata, download, delete |
+| **Storage volumes** | `/storage-volumes` | Volume `/catalog` + CRUD, project & organization grants, `/audit/logs` |
 | **Organizations** | `/organizations` | org + member CRUD, transfer-ownership |
+| **Analytics** | `/analytics` | Usage analytics: summary, timeseries, engine share, calls, agent comparison/ranking, latency/error stats |
 | **Quickstart** | `/quickstart` | **SSE** `/chat` — guided onboarding LLM proxy |
 | **Health** | `/health` | readiness (Postgres + Redis), liveness |
 

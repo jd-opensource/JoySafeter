@@ -558,7 +558,12 @@ This is the authoritative UUID-backed entity inventory:
 | `SkillUsageId` | `skluse_` | `EventId` | `evt_` |
 | `FileId` | `file_` | `SessionResourceId` | `sesrsc_` |
 | `StorageVolumeId` | `vol_` | `StorageGrantId` | `stgrant_` |
-| `StorageMountAuditId` | `staudit_` |  |  |
+| `StorageMountAuditId` | `staudit_` | `UserId` | `user_` |
+| `OrganizationId` | `org_` | `OrganizationMemberId` | `orgmem_` |
+| `ProjectId` | `proj_` | `ProjectMemberId` | `projmem_` |
+| `OAuthAccountId` | `oauthacct_` | `AuthSessionId` | `authsess_` |
+| `CredentialAccessAuditId` | `credaudit_` | `SecurityAuditId` | `secaudit_` |
+| `SandboxNetworkPolicyId` | `sbxnetpol_` |  |  |
 
 Bare UUIDs are retained only at these reviewed physical boundaries:
 
@@ -603,15 +608,20 @@ separate `MemoryStoreId` / `memstore_` identity.
 | **Agents** | `/agents` | CRUD, archive, versions, `/tasks`, `/sessions` |
 | **Tasks** | `/tasks` | create+enqueue, list, get, cancel, **WS** `/tasks/{id}/stream` |
 | **Sessions** | `/sessions` | CRUD, archive, stop, `POST /events` (send), `GET /events` (history), **SSE** `/events/stream`, resources (files/repos) |
+| **Triggers** | `/triggers` | Cron/webhook trigger CRUD, manual `/run`, run history, inbound `/webhook` (+ signed `/webhook-sample`, `/test`) |
 | **Environments** | `/environments` | Sandbox image/config CRUD |
 | **Credentials** | `/credentials` | Model connections, service credentials, MCP members, lifecycle, testing, references, and default selection |
 | **Credential groups** | `/credential-groups` | MCP credential grouping, lifecycle, membership, and references |
+| **LLM** | `/llm` | Model `/catalog` (OpenAI-compatible provider models) |
 | **Skills** | `/skills` | CRUD, `import-zip`, files, versions, security-scans, lifecycle transitions, admin rescan |
 | **Skills AI authoring** | `/skills/ai-authoring` | **SSE** `/chat` (LLM authoring turn), `/save-draft` |
 | **Sandboxes** | `/sandboxes` | list, get, stop |
+| **Network policies** | `/network-policies` | Egress `/diagnostics`, per-session policy `/sessions/{id}` |
 | **Memory stores** | `/memory_stores` | store + memory CRUD, versions, redact; sandbox memory sync is relayed through the Rust runtime |
 | **Files** | `/files` | upload, list, metadata, download, delete |
+| **Storage volumes** | `/storage-volumes` | Volume `/catalog` + CRUD, project & organization grants, `/audit/logs` |
 | **Organizations** | `/organizations` | org + member CRUD, transfer-ownership |
+| **Analytics** | `/analytics` | Usage analytics: summary, timeseries, engine share, calls, agent comparison/ranking, latency/error stats |
 | **Quickstart** | `/quickstart` | **SSE** `/chat` — guided onboarding LLM proxy |
 | **Health** | `/health` | readiness (Postgres + Redis), liveness |
 
@@ -633,7 +643,8 @@ in the runner and the CLIs, not in Python. Model config and credentials are DB-d
 
 ### 9.2 Skills — the capability layer
 
-Skills are versioned plugin packs (30 in-repo: 21 pentest, ~5 utility, ~6 planning/meta), each
+Skills are versioned plugin packs (4 in-repo: `pptx` and `xlsx` document utilities, plus
+`skill-creator` and `skill-security-auditor`), each
 a `SKILL.md`-fronted directory. The pipeline spans three layers:
 
 1. **Parse & validate** (`joysafeter_shared/skill/`) — SKILL.md YAML frontmatter + Agent-Skills
@@ -745,7 +756,7 @@ backend/app/
 
 proto/joysafeter.proto         # AgentBridge gRPC contract
 sandbox-runner/                # Rust workspace: types / runtime / runner / ctl
-skills/                        # 30 skill packs (pentest / utility / planning)
+skills/                        # 4 skill packs (pptx, xlsx, skill-creator, skill-security-auditor)
 deploy/docker-compose.yml      # 3-service + infra topology (Rust orchestrator profile)
 frontend/                      # Next.js App Router UI
 ```

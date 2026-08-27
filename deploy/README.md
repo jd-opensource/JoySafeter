@@ -257,7 +257,7 @@ cd deploy
 2. 保留旧环境的 `JOYSAFETER_VAULT_ENCRYPTION_KEY`，禁止自动生成替代密钥。
 3. 停止 API、worker、orchestrator 和旧 HA 实例的凭据写入。
 4. 使用包含新迁移的 backend 镜像执行 `alembic upgrade head`。
-5. `alembic current` 必须显示 `20260815_000002 (head)`。
+5. `alembic current` 必须已应用 `20260815_000002`（凭据 envelope 与公共 ID 修复迁移生效；镜像更新时 head 可为更晚版本）。
 6. 执行 Helm README 中的密文 envelope 和 credential 公共 ID 两组结构检查，结果都必须为 0 行。
 7. 启动 API/orchestrator，验证 credential 列表和实际 runner 凭据注入后再扩容。
 8. 轮换历史上以明文存储的 API Key 和 Auth Token。

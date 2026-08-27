@@ -145,7 +145,7 @@ Claude Managed Agents, only **self-hosted and security-specialized**:
 
 ### 📚 Skills
 
-- **30 versioned capability packs** — penetration testing, document analysis, planning/meta
+- **Versioned capability packs** — document analysis, skill authoring, and security auditing; extend with user-added skills (e.g. penetration testing) via the MCP protocol
 - **SkillSpector security scanning** with advisory-by-default results and optional fail-closed enforcement only when publishing
 - **AI skill authoring** — draft, edit, version, and diff skills with an LLM-assisted editor
 

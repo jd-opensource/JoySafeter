@@ -95,7 +95,7 @@ Secret 和 Vault Key 执行迁移：
 ```bash
 cd backend
 alembic upgrade head
-alembic current  # 必须显示 20260815_000002 (head)
+alembic current  # 必须已应用 20260815_000002（镜像更新时 head 可为更晚版本）
 ```
 
 迁移会在写入前验证全部 `enc:` / `enc:v1:` 密文；任意错误密钥、损坏密文、
