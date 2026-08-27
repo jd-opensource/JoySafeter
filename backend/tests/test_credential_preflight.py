@@ -1,4 +1,4 @@
-"""Read-only P0.5 credential-domain preflight inventory tests."""
+"""Read-only credential-domain preflight inventory tests."""
 
 from __future__ import annotations
 
@@ -34,16 +34,16 @@ from app.joysafeter_shared.ids import (
     TriggerId,
 )
 
-_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "credential_p0_5_preflight.py"
-_SPEC = importlib.util.spec_from_file_location("credential_p0_5_preflight", _SCRIPT)
+_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "credential_preflight.py"
+_SPEC = importlib.util.spec_from_file_location("credential_preflight", _SCRIPT)
 assert _SPEC is not None and _SPEC.loader is not None
-credential_p0_5_preflight = importlib.util.module_from_spec(_SPEC)
-sys.modules[_SPEC.name] = credential_p0_5_preflight
-_SPEC.loader.exec_module(credential_p0_5_preflight)
+credential_preflight = importlib.util.module_from_spec(_SPEC)
+sys.modules[_SPEC.name] = credential_preflight
+_SPEC.loader.exec_module(credential_preflight)
 
-collect_credential_preflight = credential_p0_5_preflight.collect_credential_preflight
-serialize_report = credential_p0_5_preflight.serialize_report
-validate_report = credential_p0_5_preflight.validate_report
+collect_credential_preflight = credential_preflight.collect_credential_preflight
+serialize_report = credential_preflight.serialize_report
+validate_report = credential_preflight.validate_report
 
 
 def _new_organization(**values: Any) -> Organization:

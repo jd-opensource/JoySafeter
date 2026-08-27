@@ -1,4 +1,4 @@
-"""Foundation 2 (effectively-once) — idempotent session-event insert.
+"""Effectively-once: idempotent session-event insert.
 
 The event pipeline is at-least-once: a Redis-Stream redelivery (after a crash
 between the DB write and the xack) — or, once the outbox is wired in, the

@@ -1,4 +1,4 @@
-"""Foundation 2 (effectively-once) — task submission idempotency.
+"""Effectively-once: task submission idempotency.
 
 Failure scenario: a client (or an HA API replica) retries a task submission.
 Without an idempotency key this creates a *second* task — for a pentest platform

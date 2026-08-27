@@ -1,4 +1,4 @@
-"""Model-level smoke tests for P2 schema additions.
+"""Model-level smoke tests for skill usage-log and version schema.
 
 Verifies SQLAlchemy mapping for the two new shapes:
 
@@ -60,10 +60,10 @@ def test_usage_log_indexes_cover_hot_queries():
     assert "skill_usage_log_project_created_idx" in names
 
 
-# ── SkillVersion P2 fields ────────────────────────────────────
+# ── SkillVersion lifecycle and security fields ────────────────
 
 
-def test_skill_version_has_p2_fields():
+def test_skill_version_has_lifecycle_and_security_fields():
     cols = {c.name for c in SkillVersion.__table__.columns}
     for field in (
         "security_scan_id",
@@ -72,7 +72,7 @@ def test_skill_version_has_p2_fields():
         "approved_by_id",
         "approved_at",
     ):
-        assert field in cols, f"missing P2 field: {field}"
+        assert field in cols, f"missing field: {field}"
 
 
 def test_skill_version_lifecycle_default_is_approved():

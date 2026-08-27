@@ -1,4 +1,4 @@
-"""Foundation 2 — event-stream health exposes backlog and dead-letter risk."""
+"""Event-stream health exposes backlog and dead-letter risk."""
 
 import pytest
 

@@ -1,4 +1,4 @@
-"""Foundation 2 — event batch queue saturation must not drop durable events."""
+"""Event batch queue saturation must not drop durable events."""
 
 import asyncio
 import uuid

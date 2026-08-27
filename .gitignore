@@ -137,7 +137,7 @@ scripts/
 logs/
 backend/scripts/*
 !backend/scripts/
-!backend/scripts/credential_p0_5_preflight.py
+!backend/scripts/credential_preflight.py
 !backend/scripts/credential_encryption_rotation.py
 backend/logs/
 backend/docs/

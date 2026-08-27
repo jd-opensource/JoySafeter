@@ -1,4 +1,4 @@
-"""Read-only P0.5 credential-domain preflight inventory."""
+"""Read-only credential-domain preflight inventory."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pathlib import Path
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
-os.environ.setdefault("SECRET_KEY", "credential-p0-5-preflight-read-only")
+os.environ.setdefault("SECRET_KEY", "credential-preflight-read-only")
 
 from jsonschema import Draft202012Validator  # noqa: E402
 from sqlalchemy import select, text  # noqa: E402
@@ -36,7 +36,7 @@ from app.joysafeter_domain.models.joysafeter_session import (  # noqa: E402
 from app.joysafeter_domain.models.joysafeter_trigger import JoySafeterTrigger  # noqa: E402
 from app.joysafeter_shared.database import async_session_factory, engine  # noqa: E402
 
-_SCHEMA_PATH = BACKEND_ROOT / "contracts" / "credential_p0_5_preflight.schema.json"
+_SCHEMA_PATH = BACKEND_ROOT / "contracts" / "credential_preflight.schema.json"
 _SNAPSHOT_SCHEMA_COUNTS = ("legacy-v0", "v1", "v2", "unknown")
 _REFERENCE_KEYS = frozenset(
     {

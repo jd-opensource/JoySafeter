@@ -1,4 +1,4 @@
-"""Foundation 2 — poison-message dead-letter cap on the event-stream consumer.
+"""Poison-message dead-letter cap on the event-stream consumer.
 
 A message that decodes but can never be persisted is never acked, so the
 worker's ``xautoclaim`` reclaims it forever and starves the head of the queue.

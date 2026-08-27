@@ -1,4 +1,4 @@
-"""P2 trigger config policy: keyed session_key, cron XOR run_at, run_at rules."""
+"""Trigger config policy: keyed session_key, cron XOR run_at, run_at rules."""
 
 from datetime import datetime, timedelta, timezone
 

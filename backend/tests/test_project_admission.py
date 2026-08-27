@@ -1,4 +1,4 @@
-"""Foundation 3 (tenancy) — per-project concurrent-task admission control.
+"""Tenancy: per-project concurrent-task admission control.
 
 A single project (the tenant boundary) must not be able to occupy unbounded
 orchestrator/sandbox capacity: one noisy tenant would starve every other tenant

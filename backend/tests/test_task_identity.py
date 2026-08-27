@@ -1,4 +1,4 @@
-"""Foundation 3 (tenancy) — task submitter identity + per-user admission.
+"""Tenancy: task submitter identity + per-user admission.
 
 Each task records the submitting user's identity (user_id, org_id) for
 attribution/audit, and a single user's live (non-terminal) task count backs
