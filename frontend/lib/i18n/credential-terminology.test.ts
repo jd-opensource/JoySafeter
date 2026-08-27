@@ -372,26 +372,21 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   [
     'environments',
     'managed.environments.egressServicesHint',
-    'Skills call the real service URL directly; authentication values derived from the selected Service Credential are applied automatically and never exposed to the sandbox.',
-    'Skill 直接使用真实服务地址访问；平台会自动应用基于所选服务凭据生成的认证值，且不会将这些值暴露给沙箱。',
+    'Skills call the configured service through the gateway; the selected authentication source is applied automatically and never exposed to the sandbox.',
+    'Skill 通过网关访问所配置的服务；平台会自动应用所选认证来源，且不会将身份材料暴露给沙箱。',
   ],
   [
     'environments',
     'managed.environments.egressBaseUrlHint',
-    'The real third-party endpoint (with https). In your skill use http:// for the same address; the platform authenticates the request at the gateway using the selected Service Credential, then re-originates to https.',
-    '填写第三方接口的真实地址（含 https）。skill 内改用 http 访问同一地址；平台会在网关使用所选服务凭据对请求进行认证，然后回源到 https。',
+    'The real third-party endpoint (http or https). In your skill use http:// for the same address; the gateway applies the selected authentication source, then uses the configured protocol upstream.',
+    '填写第三方接口的真实地址（http 或 https）。Skill 内使用 http 访问同一地址；网关会按所选认证来源自动注入身份，再按配置的协议回源。',
   ],
-  [
-    'environments',
-    'managed.environments.egressSectionCredential',
-    'Service Credential',
-    '服务凭据',
-  ],
+  ['environments', 'managed.environments.egressSectionCredential', 'Authentication', '身份认证'],
   [
     'environments',
     'managed.environments.egressSkillExampleHint',
-    'Use this address in your skill; authentication derived from the selected Service Credential is applied automatically.',
-    '在 skill 中使用此地址访问；平台会自动应用基于所选服务凭据生成的认证信息。',
+    'Use this address in your skill; the selected authentication source is applied automatically.',
+    '在 Skill 中使用此地址访问；平台会自动应用所选的认证来源。',
   ],
   ['environments', 'managed.environments.egressCredential', 'Service Credential', '服务凭据'],
   [
@@ -1011,8 +1006,8 @@ const terminologyExpectations: readonly TerminologyExpectation[] = [
   [
     'service credentials',
     'managed.environments.egressAllowedPathsHint',
-    'One path per line. A trailing / means prefix match (everything under it); otherwise exact match (that endpoint only). Leave empty = allow every endpoint under this address; for high-privilege service credentials, list paths explicitly to prevent unintended access.',
-    '一行一个路径。以 / 结尾为前缀匹配（该目录下全部），否则为精确匹配（仅该接口）。留空 = 放行该地址下所有接口；高权限服务凭据建议逐条列出以防越权。',
+    'One path per line. A trailing / means prefix match (everything under it); otherwise exact match (that endpoint only). Leave empty = allow every path on this upstream host; for high-privilege services, list paths explicitly to prevent unintended access.',
+    '一行一个路径。以 / 结尾为前缀匹配（该目录下全部），否则为精确匹配（仅该接口）。留空 = 放行该上游主机的全部路径；高权限服务建议逐条列出以防越权。',
   ],
   [
     'connections and credentials errors',

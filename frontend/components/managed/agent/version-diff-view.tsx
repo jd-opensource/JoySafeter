@@ -125,6 +125,9 @@ function FieldSection({
 }
 
 function ObjectFieldSection({ title, diff }: { title: string; diff: ObjectFieldDiff }) {
+  const formatValue = (value: Record<string, unknown> | null) =>
+    value == null ? '-' : JSON.stringify(value, null, 2)
+
   return (
     <section>
       <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
@@ -134,15 +137,15 @@ function ObjectFieldSection({ title, diff }: { title: string; diff: ObjectFieldD
       {diff.changed ? (
         <div className="grid grid-cols-2 gap-3 text-xs">
           <pre className="overflow-x-auto whitespace-pre-wrap rounded border border-red-500/20 bg-red-500/5 p-3 font-mono">
-            {JSON.stringify(diff.before, null, 2)}
+            {formatValue(diff.before)}
           </pre>
           <pre className="overflow-x-auto whitespace-pre-wrap rounded border border-green-500/20 bg-green-500/5 p-3 font-mono">
-            {JSON.stringify(diff.after, null, 2)}
+            {formatValue(diff.after)}
           </pre>
         </div>
       ) : (
         <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg bg-muted p-3 font-mono text-xs">
-          {JSON.stringify(diff.before ?? diff.after, null, 2)}
+          {formatValue(diff.before ?? diff.after)}
         </pre>
       )}
     </section>

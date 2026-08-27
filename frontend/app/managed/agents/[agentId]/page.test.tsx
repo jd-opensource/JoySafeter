@@ -109,6 +109,10 @@ vi.mock('@/components/managed/shared', () => ({
 import AgentDetailPage from './page'
 
 async function renderPage(): Promise<RenderResult> {
+  return (await renderPageWithClient()).view
+}
+
+async function renderPageWithClient(): Promise<{ view: RenderResult; queryClient: QueryClient }> {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const params = Promise.resolve({ agentId: AGENT_ID })
   await params
@@ -120,7 +124,7 @@ async function renderPage(): Promise<RenderResult> {
       </QueryClientProvider>,
     )
   })
-  return view
+  return { view, queryClient }
 }
 
 describe('AgentDetailPage action toolbar', () => {
@@ -147,6 +151,30 @@ describe('AgentDetailPage action toolbar', () => {
     expect(screen.getByText('common.archive')).toBeTruthy()
     expect(screen.getByText('common.delete')).toBeTruthy()
     expect(screen.queryByText('common.restore')).toBeNull()
+  })
+
+  it('moves selectors that follow latest when the cached agent advances', async () => {
+    agentPayload = {
+      id: AGENT_ID,
+      name: 'My Agent',
+      engine_kind: 'claude',
+      version: 5,
+      archived_at: null,
+      created_at: '2026-08-07T00:00:00Z',
+      updated_at: '2026-08-07T00:00:00Z',
+    }
+    const { view, queryClient } = await renderPageWithClient()
+    await waitFor(() => expect(view.getByText('managed.agents.detail.version: v5')).toBeTruthy())
+
+    act(() => {
+      queryClient.setQueryData(['agent', 'scope', AGENT_ID], {
+        ...agentPayload,
+        version: 6,
+        updated_at: '2026-08-08T00:00:00Z',
+      })
+    })
+
+    await waitFor(() => expect(view.getByText('managed.agents.detail.version: v6')).toBeTruthy())
   })
 
   it('shows only restore and delete for an archived agent', async () => {

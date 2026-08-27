@@ -95,6 +95,21 @@ const diffObject = (
   return { changed: changedKeys.length > 0, before, after, changedKeys }
 }
 
+const modelDiffValue = (agent: Agent): Record<string, unknown> | null => {
+  const connection = agent.model_connection ?? null
+  const connectionId = agent.model_credential_id ?? connection?.id ?? null
+  if (connectionId || connection) {
+    return {
+      model_credential_id: connectionId,
+      name: connection?.name ?? null,
+      provider: connection?.provider ?? null,
+      protocol: connection?.protocol ?? null,
+      model: connection?.model ?? null,
+    }
+  }
+  return (agent.model as Record<string, unknown> | null | undefined) ?? null
+}
+
 // ---------- Long-text diff (system prompt) ----------
 
 export const diffText = (
@@ -176,10 +191,7 @@ export function diffAgents(
 
   const engine_kind = diffScalar(a.engine_kind, b.engine_kind)
   const description = diffScalar(a.description, b.description)
-  const model = diffObject(
-    a.model as Record<string, unknown> | null,
-    b.model as Record<string, unknown> | null,
-  )
+  const model = diffObject(modelDiffValue(a), modelDiffValue(b))
   const system = diffText(a.system, b.system)
   const tools = diffArray<AgentTool>(a.tools, b.tools, toolKey)
   const mcp_servers = diffArray<McpServer>(a.mcp_servers, b.mcp_servers, mcpKey)

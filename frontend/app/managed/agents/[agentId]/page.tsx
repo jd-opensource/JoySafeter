@@ -20,6 +20,7 @@ import { toast } from '@/hooks/use-toast'
 import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { mcpServerEndpointLabel } from '@/lib/managed/mcp-config'
+import { advanceAgentVersionSelection } from '@/lib/managed/agent-version-selection'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -629,13 +630,29 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
 
 function AgentConfig({ agent, versions: apiVersions }: { agent: Agent; versions: AgentVersion[] }) {
   const { t } = useTranslation()
-  const managedScope = useManagedRequestScope()
   const currentVersion = agent.version || 1
   const [selectedVersion, setSelectedVersion] = useState<string>(String(currentVersion))
   const [compareMode, setCompareMode] = useState(false)
   const defaultBase = String(Math.max(1, currentVersion - 1))
   const [baseVersion, setBaseVersion] = useState<string>(defaultBase)
   const [targetVersion, setTargetVersion] = useState<string>(String(currentVersion))
+  const latestVersionRef = useRef(currentVersion)
+
+  useEffect(() => {
+    const previousLatest = latestVersionRef.current
+    if (previousLatest === currentVersion) return
+    const next = advanceAgentVersionSelection({
+      previousLatest,
+      currentLatest: currentVersion,
+      selectedVersion,
+      baseVersion,
+      targetVersion,
+    })
+    setSelectedVersion(next.selectedVersion)
+    setBaseVersion(next.baseVersion)
+    setTargetVersion(next.targetVersion)
+    latestVersionRef.current = currentVersion
+  }, [baseVersion, currentVersion, selectedVersion, targetVersion])
 
   const allVersions: Array<Pick<AgentVersion, 'version' | 'created_at'> & { snapshot?: Agent }> =
     (() => {

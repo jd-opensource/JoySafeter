@@ -467,16 +467,17 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
     mutationFn: async ({ agentId, body, requestScope, runId, scope }: SaveAgentVariables) => {
       if (!isCurrentSaveRun(runId, scope)) return undefined
       if (!currentProjectAllowsWrite()) return undefined
-      return managedPost(
+      return managedPost<unknown>(
         apiResourcePath('agents', agentId),
         body,
         managedRequestOptions(requestScope),
-      )
+      ).then(parseAgentResponse)
     },
-    onSuccess: (_data, { agentId, requestScope, runId, scope }) => {
-      if (!isCurrentSaveRun(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['agent', requestScope.key, agentId] })
+    onSuccess: (updatedAgent, { agentId, requestScope, runId, scope }) => {
+      if (!isCurrentSaveRun(runId, scope) || !updatedAgent) return
+      queryClient.setQueryData(['agent', requestScope.key, agentId], updatedAgent)
       queryClient.invalidateQueries({ queryKey: ['agents', requestScope.key] })
+      queryClient.invalidateQueries({ queryKey: ['agent-versions', requestScope.key, agentId] })
       router.push(`/managed/agents/${agentId}`)
     },
     onError: (error, { runId, scope }) => {

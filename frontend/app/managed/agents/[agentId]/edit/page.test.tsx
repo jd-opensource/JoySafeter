@@ -423,4 +423,37 @@ describe('AgentEditPage LLM compatibility', () => {
       ],
     })
   })
+
+  it('stores the updated agent before navigating to detail', async () => {
+    managedPostMock.mockResolvedValueOnce({
+      id: AGENT_ID,
+      name: 'Existing Agent',
+      engine_kind: 'claude',
+      model: null,
+      model_credential_id: persistedSecret.id,
+      version: 2,
+      created_at: '2026-08-07T00:00:00Z',
+      updated_at: '2026-08-27T00:00:00Z',
+    })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const params = Promise.resolve({ agentId: AGENT_ID })
+    let view!: RenderResult
+    await act(async () => {
+      view = render(
+        <QueryClientProvider client={queryClient}>
+          <AgentEditPage params={params} />
+        </QueryClientProvider>,
+      )
+    })
+
+    fireEvent.click(await waitFor(() => view.getByText('managed.agents.saveChanges')))
+
+    await waitFor(() =>
+      expect(queryClient.getQueryData(['agent', 'org-a:project-a', AGENT_ID])).toMatchObject({
+        version: 2,
+        updated_at: '2026-08-27T00:00:00Z',
+      }),
+    )
+    expect(pushMock).toHaveBeenCalledWith(`/managed/agents/${AGENT_ID}`)
+  })
 })
