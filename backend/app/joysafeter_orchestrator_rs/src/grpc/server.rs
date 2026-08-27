@@ -5563,6 +5563,22 @@ async fn inject_session_files_before_start(
         }
     }
 
+    if bridge
+        .runner_capabilities
+        .lock()
+        .await
+        .iter()
+        .any(|capability| capability == "start_task_file_mount")
+    {
+        *bridge.injected_session_files_signature.lock().await = Some(signature);
+        info!(
+            session_id = %session_id,
+            sandbox_id = %runner_sandbox_id,
+            "Deferring session file injection to runner StartTask"
+        );
+        return Ok(());
+    }
+
     let provider_external_id =
         resolve_provider_external_id_for_injection(pool, sandbox_db_id, runner_sandbox_id)
             .await

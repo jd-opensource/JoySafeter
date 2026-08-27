@@ -236,6 +236,8 @@ message StartTask {
   // "append" (default): --append-system-prompt (CC keeps its built-in prompt)
   // "replace": --system-prompt (CC built-in prompt is replaced)
   optional string system_prompt_mode = 21;
+  repeated FileMount files = 22;
+  repeated FileRef file_refs = 23;
 }
 
 message CustomTool {

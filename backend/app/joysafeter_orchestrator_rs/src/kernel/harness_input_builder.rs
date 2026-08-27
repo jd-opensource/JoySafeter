@@ -441,6 +441,8 @@ impl HarnessInputBuilder {
             } else {
                 Some(input.system_prompt_mode.clone())
             },
+            files: input.files.clone(),
+            file_refs: input.file_refs.clone(),
         }
     }
 
@@ -1188,7 +1190,7 @@ mod tests {
         apply_runtime_protocol_env, extract_content_text, parse_semver,
         published_version_scan_audit, resolve_skill_version_request, session_container_work_dir,
         should_inject_conversation_history, trim_history_lines_to_budget, HarnessBuildCheckpoint,
-        HarnessInputBuilder, SkillForArchive, SkillVersionForArchive,
+        HarnessInput, HarnessInputBuilder, SkillForArchive, SkillVersionForArchive,
     };
     use crate::ids::{
         AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, OrganizationId, ProjectId,
@@ -1199,6 +1201,57 @@ mod tests {
 
     const ENCRYPTED_HELLO_WORLD: &str =
         "enc:v1:VzniG9ulG62e3VZZD1jujN8lxiW1h/6a0Hdj1jIlJC/Wl9Rvvk7D";
+
+    #[test]
+    fn start_task_preserves_session_file_resources() {
+        let input = HarnessInput {
+            files: vec![crate::grpc::proto::FileMount {
+                path: "/workspace/input.txt".to_string(),
+                content: b"inline".to_vec(),
+                filename: "input.txt".to_string(),
+            }],
+            file_refs: vec![crate::grpc::proto::FileRef {
+                path: "/workspace/large.bin".to_string(),
+                url: "https://files.example.test/large.bin".to_string(),
+                filename: "large.bin".to_string(),
+                size_bytes: 4096,
+            }],
+            ..Default::default()
+        };
+        let now = chrono::Utc::now();
+        let task = crate::db::models::JoySafeterTask {
+            id: TaskId::new(),
+            project_id: None,
+            agent_id: None,
+            session_id: None,
+            sandbox_id: None,
+            status: "running".to_string(),
+            prompt: "run".to_string(),
+            system_prompt: None,
+            output: String::new(),
+            error: None,
+            usage: None,
+            timeout_sec: None,
+            retry_count: 0,
+            max_retries: 0,
+            schedule_attempts: 0,
+            next_schedule_at: None,
+            last_schedule_error: None,
+            last_schedule_error_type: None,
+            scheduling_started_at: None,
+            started_at: None,
+            completed_at: None,
+            duration_ms: None,
+            created_at: now,
+            updated_at: now,
+            owner_epoch: None,
+        };
+
+        let start = HarnessInputBuilder::build_start_task(&input, &task, 60);
+
+        assert_eq!(start.files, input.files);
+        assert_eq!(start.file_refs, input.file_refs);
+    }
 
     fn database_url() -> Option<String> {
         env::var("JOYSAFETER_TEST_DATABASE_URL")

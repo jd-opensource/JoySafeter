@@ -103,6 +103,12 @@ pub async fn handle_task(
     unpack_skills(&work_dir, &task.skills, provider)
         .await
         .map_err(|e| format!("unpack task skills to {}: {e}", work_dir.display()))?;
+    write_files(&work_dir, &task.files)
+        .await
+        .map_err(|e| format!("write task files to {}: {e}", work_dir.display()))?;
+    download_file_refs(&task.file_refs)
+        .await
+        .map_err(|e| format!("download task file_refs: {e}"))?;
 
     run_setup_commands(&work_dir, &task.setup_commands, "StartTask").await?;
 
@@ -1389,6 +1395,49 @@ mod tests {
         assert!(err.contains("exit code 24"));
         assert!(!dir.path().join("should_not_run").exists());
         assert!(runner_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn handle_task_writes_files_before_setup_commands() {
+        std::env::set_var("JOYSAFETER_MOCK_ADAPTER", "1");
+        let dir = tempfile::tempdir().unwrap();
+        let mounted_file = dir.path().join("input.txt");
+        let adapters = Arc::new(AdapterRegistry::discover().await);
+        let task = proto::StartTask {
+            provider: "claude".to_string(),
+            work_dir: Some(dir.path().to_string_lossy().to_string()),
+            files: vec![proto::FileMount {
+                path: mounted_file.to_string_lossy().to_string(),
+                content: b"ready".to_vec(),
+                filename: "input.txt".to_string(),
+            }],
+            setup_commands: vec![format!(
+                "test \"$(cat '{}')\" = ready || exit 31; exit 24",
+                mounted_file.display()
+            )],
+            ..Default::default()
+        };
+        let session_config = SessionConfig::default();
+        let (runner_tx, _runner_rx) = mpsc::channel(1);
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+        let (_control_tx, control_rx) = mpsc::channel(1);
+
+        let error = match handle_task(
+            task,
+            &session_config,
+            adapters,
+            runner_tx,
+            cancel_rx,
+            control_rx,
+        )
+        .await
+        {
+            Ok(_) => panic!("setup command intentionally terminates the task"),
+            Err(error) => error.to_string(),
+        };
+
+        assert!(error.contains("exit code 24"), "{error}");
+        assert_eq!(tokio::fs::read(&mounted_file).await.unwrap(), b"ready");
     }
 
     async fn spawn_single_response_server(

@@ -461,6 +461,10 @@ pub struct StartTask {
     /// "replace": --system-prompt (CC built-in prompt is replaced)
     #[prost(string, optional, tag = "21")]
     pub system_prompt_mode: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "22")]
+    pub files: ::prost::alloc::vec::Vec<FileMount>,
+    #[prost(message, repeated, tag = "23")]
+    pub file_refs: ::prost::alloc::vec::Vec<FileRef>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CustomTool {
