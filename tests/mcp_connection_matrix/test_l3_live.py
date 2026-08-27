@@ -9,7 +9,7 @@ Gated: only runs with ``--live`` AND when a usable model credential exists.
 It costs real LLM tokens and spins up a sandbox, so it is never part of the
 deterministic default run.
 
-Feasibility choices (see the design doc's known risks):
+Feasibility choices and known risks:
   * uses the ``domain`` host form (``host.docker.internal``), which sandboxes
     reach via docker host-gateway;
   * uses ``http`` to avoid the open question of Envoy trusting the generated CA

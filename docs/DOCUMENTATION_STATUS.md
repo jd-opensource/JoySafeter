@@ -25,8 +25,7 @@ current repository, not older design notes.
 | `docs/ARCHITECTURE.md` / `docs/ARCHITECTURE_CN.md` / `docs/*.mmd` | Updated deployment command snippets for the supported Rust orchestrator stack, added collaboration contracts and failure-ownership routing, replaced brittle line-number anchors with stable module references, and corrected SkillSpector failure-mode wording. |
 | `docs/user-journey-quickstart.drawio` | Updated stale `/chat`, `/settings/models`, `/tools`, `/workspace`, `/runs`, and `/ws/executions` labels to the current managed routes and SSE session stream. |
 | `docs/assets/README.md` | Updated committed asset inventory and screenshot TODOs for the current `/managed/**` UI. |
-| `docs/plans/*.md` | Added status banners marking historical implementation plans and the missing Rust orchestrator source directory where relevant. |
-| `docs/production-hardening-plan.md` | Added current implementation status: task lease/fencing/idempotency/dead-letter pieces landed; outbox, durable membership, provider chain, tenant quotas, and full failure matrix remain open. |
+| `docs/plans/**`, `docs/superpowers/**`, and historical top-level docs (`production-hardening-plan.md`, `production-readiness-audit-*.md`, `egress-gateway-redesign.md`, `agent-identity-protocol.md`) | Removed. Completed implementation plans, design specs, and process/audit reports are not retained on the main branch per `docs/README.md`; history remains in git. |
 | Governance docs (`CONTRIBUTING.md`, `SECURITY.md`, `.pre-commit-setup.md`, `.github/*`) | Updated current dependency expectations, Bun commands, pre-commit checks, supported version line, and issue-template version example. |
 
 ## Reviewed, No Code-Dependent Changes Needed

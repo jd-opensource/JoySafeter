@@ -101,10 +101,8 @@ cd tests/mcp_connection_matrix
   be mistaken for the server started by the current test run.
 - **HTTPS on the wire** is proven at L1 (direct, against the generated CA). L3
   uses `http` to sidestep the open question of Envoy trusting the test CA for
-  upstream TLS (see the design doc's known risks).
+  upstream TLS.
 - **L1 host addressing:** `host.docker.internal` is a container-only name and does
   not resolve on the host where L1 runs, so L1's `domain` form maps to loopback
   and its `ip` form uses the LAN IP. The domain/ip distinction against JoySafeter
   is exercised in L2/L3.
-
-Design doc: `docs/superpowers/specs/2026-08-24-fastmcp-connection-matrix-e2e-design.md`.
