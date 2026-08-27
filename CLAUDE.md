@@ -16,6 +16,22 @@ Follow direct user instructions and more specific nested guidance before this
 document. Preserve unrelated user changes and do not expand scope without a clear
 reason.
 
+## Authority Hierarchy
+
+Resolve repository facts in this order; on conflict the earlier source wins and
+the later is corrected in the same change when in scope:
+
+1. Executable source — code, tests, migrations, manifests, CI, `deploy/` scripts.
+2. Normative docs — `DEVELOPMENT.md` (setup, commands, verification);
+   `docs/ARCHITECTURE.md` (service boundaries, state authority, typed-ID rules,
+   route groups, failure ownership); `deploy/README.md` (deployment);
+   `docs/api/openapi.md` (API contracts).
+3. Derived entry points — component READMEs, `docs/DOCUMENTATION_STATUS.md`.
+4. Historical plans and tutorials (lowest).
+
+Do not retain completed plans, coding steps, or one-off audit reports on the main
+branch (`docs/README.md`).
+
 ## Required Workflow
 
 Apply the following workflow before modifying production code.

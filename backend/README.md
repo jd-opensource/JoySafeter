@@ -30,12 +30,8 @@ cd ../deploy
 ./local-test.sh
 ```
 
-如果只想手动启动后端，请先自行准备 PostgreSQL/Redis，然后执行迁移：
-
-```bash
-cd backend
-alembic upgrade head
-```
+如果只想手动启动后端，请先自行准备 PostgreSQL/Redis，并按
+[`DEVELOPMENT.md`](../DEVELOPMENT.md#database-migrations) 执行数据库迁移。
 
 ### 4) 启动后端
 
@@ -185,29 +181,6 @@ curl -X POST http://localhost:8000/api/v1/triggers \
 - prompt 模板可引用载荷变量，如 `{{ body.alert.name }}`、`{{ fired_at }}`、`{{ cron.cron_expr }}`。
 
 > 前端在 `/managed/triggers` 提供统一的 Cron / Webhook 标签页界面。
-
-## 常用命令
-
-### 数据库迁移
-
-```bash
-# 创建迁移
-alembic revision --autogenerate -m "description"
-
-# 应用迁移
-alembic upgrade head
-
-# 回滚 1 个版本
-alembic downgrade -1
-```
-
-### 测试
-
-```bash
-uv sync --dev
-pytest
-pytest --cov=app
-```
 
 ## 构建与部署
 

@@ -83,44 +83,18 @@ Unsure where to begin? Look for issues labeled:
 
 3. **Write/update tests** for your changes
 
-4. **Run the test suite**:
-   ```bash
-   # Backend
-   cd backend && pytest
+4. **Run tests, linters, and pre-commit hooks** — all commands live in
+   [Development Guide – Tests and Quality Checks](DEVELOPMENT.md#tests-and-quality-checks).
+   CI runs the same checks.
 
-   # Frontend
-   cd frontend && bun run test
-   ```
+5. **Commit your changes** following our commit guidelines
 
-5. **Run linters**:
-   ```bash
-   # Backend
-   cd backend && ruff check . && mypy .
-
-   # Frontend
-   cd frontend && bun run lint
-   ```
-
-6. **Set up pre-commit hooks**:
-
-   ```bash
-   cd backend
-   uv sync --dev
-   uv run pre-commit install --install-hooks
-   ```
-
-   手动执行全部检查：`backend/.venv/bin/python -m pre_commit run --all-files`。CI 会执行相同配置。
-
-   更多信息请参考 [Development Guide - Tests and Quality Checks](DEVELOPMENT.md#tests-and-quality-checks)。
-
-7. **Commit your changes** following our commit guidelines
-
-8. **Push to your fork**:
+6. **Push to your fork**:
    ```bash
    git push origin feature/your-feature-name
    ```
 
-9. **Open a Pull Request** with:
+7. **Open a Pull Request** with:
    - Clear description of changes
    - Link to related issue(s)
    - Screenshots for UI changes
