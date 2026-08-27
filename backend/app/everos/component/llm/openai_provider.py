@@ -49,7 +49,7 @@ class OpenAIProvider:
         api_key: str,
         base_url: str | None = None,
         timeout: float = 60.0,
-        temperature: float = 0.0,
+        temperature: float | None = 0.0,
         max_tokens: int | None = None,
     ) -> None:
         self._model = model
@@ -84,10 +84,11 @@ class OpenAIProvider:
         request: dict[str, Any] = {
             "model": model or self._model,
             "messages": [m.model_dump() for m in messages],
-            "temperature": (
-                temperature if temperature is not None else self._temperature
-            ),
         }
+        effective_model = model or self._model
+        effective_temperature = temperature if temperature is not None else self._temperature
+        if effective_temperature is not None and not _model_omits_temperature(effective_model):
+            request["temperature"] = effective_temperature
         effective_max = max_tokens if max_tokens is not None else self._max_tokens
         if effective_max is not None:
             request["max_tokens"] = effective_max
@@ -123,3 +124,7 @@ def _normalise_finish_reason(
     if value in ("stop", "length", "content_filter"):
         return value  # type: ignore[return-value]
     return None
+
+
+def _model_omits_temperature(model: str) -> bool:
+    return model.strip().lower() in {"gpt-5.5"}

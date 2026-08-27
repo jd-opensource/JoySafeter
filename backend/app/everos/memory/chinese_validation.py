@@ -55,9 +55,12 @@ def _looks_like_english_prose(text: str) -> bool:
     if not latin_words:
         return False
     stripped = text.lstrip()
-    if stripped[:1].isascii() and stripped[:1].isalpha() and len(latin_words) >= 3:
+    starts_with_latin = stripped[:1].isascii() and stripped[:1].isalpha()
+    if starts_with_latin and len(latin_words) >= 3 and cjk_count < 12:
         return True
-    return len(latin_words) >= 6 and len(latin_words) > cjk_count / 2
+    if not starts_with_latin and cjk_count >= 8:
+        return False
+    return len(latin_words) >= 12 and len(latin_words) > cjk_count * 2
 
 
 def _is_allowed_latin_token(token: str) -> bool:

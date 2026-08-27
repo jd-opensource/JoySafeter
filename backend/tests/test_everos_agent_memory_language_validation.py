@@ -63,6 +63,26 @@ def test_agent_case_to_entry_body_accepts_chinese_fields_with_agent_id():
     assert sections["TaskIntent"] == "修复记忆聚合失败问题。"
 
 
+def test_agent_case_to_entry_body_accepts_chinese_technical_terms():
+    case = AgentCase(
+        owner_id="agent-1",
+        session_id="session-1",
+        parent_id="mc-1",
+        timestamp=1,
+        task_intent="对InsecureBankv2.apk进行静态安全分析，结合Skill生成结构化漏洞分析报告。",
+        approach=(
+            "使用apktool、jadx、grep、rg、strings分析InsecureBankv2.apk、classes.dex、"
+            "AndroidManifest.xml、SharedPreferences、SQLite、HTTP、token、API endpoint并生成报告。"
+        ),
+        key_insight="中文技术叙事中允许保留APK、Skill、jadx和classes.dex等原始技术名词。",
+        quality_score=0.8,
+    )
+
+    _inline, sections = _agent_case_to_entry_body(case)
+
+    assert sections["TaskIntent"].startswith("对InsecureBankv2.apk")
+
+
 def test_agent_skill_validation_rejects_non_chinese_description():
     skill = AlgoAgentSkill(
         id="skill-1",

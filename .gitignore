@@ -55,6 +55,10 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+evals/locomo_memory/runs/
+evals/locomo_memory/everos-root/
+evals/locomo_memory/isolated-everos.log
+evals/locomo_memory/isolated-everos.pid
 
 # Translations
 *.mo

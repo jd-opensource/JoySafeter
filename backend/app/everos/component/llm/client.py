@@ -16,6 +16,8 @@ from everalgo.llm.protocols import LLMClient
 from app.everos.config import load_settings
 from app.everos.core.observability.logging import get_logger
 
+from .openai_provider import OpenAIProvider
+
 logger = get_logger(__name__)
 
 
@@ -46,14 +48,25 @@ def get_llm_client() -> LLMClient:
         raise LLMNotConfiguredError(
             "LLM is required; set EVEROS_LLM__API_KEY + EVEROS_LLM__BASE_URL"
         )
-    _llm_client = build_client(
-        LLMConfig(
+    if _model_omits_temperature(llm_cfg.model):
+        client = OpenAIProvider(
             model=llm_cfg.model,
             api_key=api_key,
             base_url=llm_cfg.base_url,
+            timeout=llm_cfg.timeout_seconds,
+            temperature=None,
         )
-    )
+    else:
+        client = build_client(
+            LLMConfig(
+                model=llm_cfg.model,
+                api_key=api_key,
+                base_url=llm_cfg.base_url,
+                timeout=llm_cfg.timeout_seconds,
+            )
+        )
     logger.info("llm_client_built", model=llm_cfg.model)
+    _llm_client = client
     return _llm_client
 
 
@@ -87,3 +100,7 @@ def get_multimodal_llm_client() -> LLMClient:
     )
     logger.info("multimodal_llm_client_built", model=cfg.model)
     return _multimodal_client
+
+
+def _model_omits_temperature(model: str) -> bool:
+    return model.strip().lower() in {"gpt-5.5"}

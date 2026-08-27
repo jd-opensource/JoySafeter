@@ -45,7 +45,6 @@ from app.everos.memory.strategies import (
     extract_agent_case,
     extract_agent_skill,
     extract_atomic_facts,
-    extract_foresight,
     extract_user_profile,
     reflect_episodes,
     trigger_profile_clustering,
@@ -96,7 +95,10 @@ def _get_prompt_loader() -> PromptLoader:
 async def _get_llm_client(project_id: str | None = None):
     """Resolve the LLM client for one memorize request."""
     if project_id:
-        return await get_project_llm_client(project_id)
+        return await get_project_llm_client(
+            project_id,
+            default_timeout_seconds=load_settings().llm.timeout_seconds,
+        )
     return get_llm_client()
 
 
