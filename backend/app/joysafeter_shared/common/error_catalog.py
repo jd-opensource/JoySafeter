@@ -42,7 +42,7 @@ CATALOG: dict[str, CatalogEntry] = {
         default_message="Invalid project ID",
         user_action="reauthenticate",
     ),
-    # --- Unified credentials (P0). Flat, stable, actionable codes (design 3.13).
+    # --- Unified credentials. Flat, stable, actionable codes.
     "CREDENTIAL_NOT_FOUND": CatalogEntry(
         code="CREDENTIAL_NOT_FOUND", error_class=NotFoundError, default_message="Credential not found"
     ),

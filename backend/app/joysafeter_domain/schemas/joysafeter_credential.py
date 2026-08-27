@@ -1,4 +1,4 @@
-"""Request/response schemas for the unified CredentialService (P0).
+"""Request/response schemas for the unified CredentialService.
 
 `data` is a flat ``dict[str, str]`` for every credential kind. The service is the
 authoritative validator (it raises the string error codes the API catalog knows

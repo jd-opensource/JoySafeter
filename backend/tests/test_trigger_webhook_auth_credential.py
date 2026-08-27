@@ -1,4 +1,4 @@
-"""Service-level tests for Task 9b: a webhook trigger authenticates the inbound
+"""Service-level tests: a webhook trigger authenticates the inbound
 caller against a stable ``webhook_auth_credential_id`` FK + ``webhook_auth_field``
 (was the name-based ``secret_ref`` / ``secret_key`` pair on the old SecretService).
 

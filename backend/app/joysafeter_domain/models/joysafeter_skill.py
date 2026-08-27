@@ -182,10 +182,10 @@ class JoySafeterSkill(JoySafeterModel):
     lifecycle_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=JoySafeterSkillLifecycleStatus.DRAFT.value
     )
-    # Single-axis redesign (P1): pointers to the last version approved for the
+    # Pointers to the last version approved for the
     # org / public tiers. Nullable FKs onto joysafeter_skill_versions with
     # ondelete SET NULL so deleting a version clears the pointer rather than
-    # cascading into the skill. Populated by later phases; NULL for now.
+    # cascading into the skill. Not yet populated; NULL for now.
     org_version_id: Mapped[Optional[SkillVersionId]] = mapped_column(
         EntityIdType(SkillVersionId),
         ForeignKey("joysafeter_skill_versions.id", ondelete="SET NULL"),
@@ -420,9 +420,9 @@ class JoySafeterSkillVersion(JoySafeterModel):
         DateTime(timezone=True),
         nullable=True,
     )
-    # Single-axis redesign (P1): which visibility tier a pending review
+    # Which visibility tier a pending review
     # targets (e.g. "organization" / "public"). NULL when no review is
-    # pending or for versions predating the redesign.
+    # pending or for older versions that predate this field.
     review_target_visibility: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, default=None)
 
     # Relationships

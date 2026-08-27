@@ -121,7 +121,7 @@ class SkillLifecycleService:
         self.db = db
         self.skill_repo = SkillRepository(db)
         self._active_org_id = active_org_id
-        # Single-axis redesign: the caller's org role is threaded through
+        # The caller's org role is threaded through
         # to ``check_skill_access`` so an org super-user resolves to ADMIN
         # capability. ``MEMBER`` is the safe default for internal callers.
         self._caller_org_role = caller_org_role
@@ -135,7 +135,7 @@ class SkillLifecycleService:
         )
 
     async def approve(self, skill_id: SkillId, current_user_id: UserId) -> LifecycleTransition:
-        """pending_review -> approved (self-review in P1, admin review in P2)."""
+        """pending_review -> approved (self-review for now; admin review is a planned tightening)."""
         return await self._transition(
             skill_id=skill_id,
             current_user_id=current_user_id,
@@ -839,11 +839,11 @@ class SkillService(BaseService[JoySafeterSkill]):
         self.file_repo = SkillFileRepository(db)
         self.security_service = SkillSecurityService(db, active_org_id=active_org_id, caller_org_role=caller_org_role)
         self._active_org_id = active_org_id
-        # Single-axis redesign: the caller's org role, threaded into
+        # The caller's org role, threaded into
         # every ``check_skill_access`` call so an org super-user resolves
         # to ADMIN capability on skills in their own org.
         self._caller_org_role = caller_org_role
-        # P2: BG-task descriptors that the API layer should hand to
+        # BG-task descriptors that the API layer should hand to
         # FastAPI's ``BackgroundTasks`` once the request DB session
         # commits. Each entry is a plain dict of the kwargs that
         # ``run_scan_in_background`` accepts. The service NEVER spawns
@@ -892,7 +892,7 @@ class SkillService(BaseService[JoySafeterSkill]):
 
         The async path is only available when ``skill_id`` is already
         known (i.e. update / file_* paths against an existing row).
-        ``create_skill`` still runs sync — see the P2 plan's followup
+        ``create_skill`` still runs sync — see the followup
         note about reordering the create transaction to enable async
         there too.
         """
@@ -901,12 +901,12 @@ class SkillService(BaseService[JoySafeterSkill]):
         )
         from app.joysafeter_shared.config.settings import settings as _settings
 
-        # P2.17: scanner disabled at deployment level — the inline path
+        # Scanner disabled at deployment level — the inline path
         # below would return ``None`` cleanly, but the async path would
         # still mark the skill ``scanning`` and queue a descriptor that
         # ``run_scan_in_background`` immediately translates back to
         # ``not_scanned`` once it runs. That's wasted work AND a bigger
-        # window where the row looks "in flight" — and pre-P2.16 the BG
+        # window where the row looks "in flight" — and earlier the BG
         # task never even ran (no ``_flush_async_scans`` on create), so
         # the row stayed ``scanning`` forever. Short-circuit here so the
         # disabled-scanner path matches the inline contract: just return
@@ -944,7 +944,7 @@ class SkillService(BaseService[JoySafeterSkill]):
             )
             return None
 
-            # Sync path — pre-P2.7 behavior.
+            # Sync path — the original synchronous behavior.
         return await self.security_service.scan_for_write(
             trigger=trigger,
             created_by_id=created_by_id,
@@ -1761,7 +1761,7 @@ class SkillService(BaseService[JoySafeterSkill]):
         skill.tags = proposed_tags or []
         skill.source_type = proposed_source_type
         skill.source_url = proposed_source_url
-        # The ownership gate ran at the top of the function (P2.13) so we
+        # The ownership gate ran at the top of the function so we
         # don't pay any side effects of an unauthorized call. By the time
         # control reaches here, the mutation is pre-approved. Visibility is
         # NOT written here — a skill's tier is only ever changed through the

@@ -67,7 +67,7 @@ class SessionBroadcaster:
                 try:
                     q.put_nowait(local_event)
                 except asyncio.QueueFull:
-                    # P1 fix: signal the client that events were dropped so it can reconnect
+                    # Signal the client that events were dropped so it can reconnect
                     # and replay from DB. Drain and inject a lagged marker.
                     try:
                         while not q.empty():

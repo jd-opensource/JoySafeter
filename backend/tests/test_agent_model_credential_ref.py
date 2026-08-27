@@ -1,4 +1,4 @@
-"""Service-level tests for Task 9a: Agent references its model connection by a
+"""Service-level tests: an agent references its model connection by a
 stable ``model_credential_id`` FK (was name-based ``secret_ref``).
 
 Real-DB tests via conftest's ``db_session``: the FK to ``joysafeter_credentials``

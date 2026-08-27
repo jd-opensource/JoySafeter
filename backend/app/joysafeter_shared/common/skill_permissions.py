@@ -57,7 +57,7 @@ async def _project_member_role(
     """Return the caller's ``ProjectMember.role`` on ``project_id``.
 
     Single source of the caller's per-project capability under the
-    single-axis model (P2 skills redesign). ``None`` when the caller
+    single-axis model. ``None`` when the caller
     holds no membership row — which ``effective_project_capability``
     then maps to ``ProjectCapability.NONE`` for a non-super-user.
     """

@@ -683,7 +683,7 @@ describe('Quickstart page Model Connection completion', () => {
     expect(await screen.findByText('Response received — review the acceptance checks')).toBeTruthy()
     expect(screen.queryByText('Agent is working correctly!')).not.toBeInTheDocument()
     expect(screen.getByText('Acceptance evidence')).toBeInTheDocument()
-    // P1-b: auto-verified observable checks alongside the manual checklist
+    // Auto-verified observable checks alongside the manual checklist
     expect(screen.getByText('Automatically verified')).toBeInTheDocument()
     expect(screen.getByText('Agent produced a response')).toBeInTheDocument()
     expect(screen.getAllByText('Observed').length).toBeGreaterThan(0)

@@ -679,12 +679,12 @@ class Settings(BaseSettings):
         validation_alias="SKILL_SECURITY_BLOCK_RECOMMENDATIONS",
         description="Scanner recommendations that can reject skill writes when issue details are unavailable.",
     )
-    # P2: scans larger than this run as a FastAPI BackgroundTask instead
+    # Scans larger than this run as a FastAPI BackgroundTask instead
     # of blocking the request. The unit is total scan-input bytes
     # (SKILL.md frontmatter + concatenated file contents); the call site
     # passes ``mode='auto'`` to ``scan_for_write`` and the service
     # decides per-skill. Set to 0 to force every scan async; set very
-    # high to keep the pre-P2 sync-only behavior.
+    # high to keep the original sync-only behavior.
     skill_security_async_threshold_bytes: int = Field(
         default=100 * 1024,
         validation_alias="SKILL_SECURITY_ASYNC_THRESHOLD_BYTES",
@@ -844,7 +844,7 @@ class JoySafeterConfig(BaseSettings):
     sandbox_memory_mb: Optional[int] = 4096
     sandbox_disk_mb: Optional[int] = None
 
-    # -- Sandbox container hardening (P0.1) ------------------------------------
+    # -- Sandbox container hardening ------------------------------------------
     # These default to the values from Anthropic's "Securely deploying AI agents"
     # guide, applied via the docker provider when launching every sandbox
     # container. They tighten the privilege boundary an attacker would need to

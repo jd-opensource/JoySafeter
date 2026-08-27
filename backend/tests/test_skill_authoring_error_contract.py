@@ -1,4 +1,4 @@
-"""Error-contract tests for the Task 7 Skill AI Authoring model consumer.
+"""Error-contract tests for the Skill AI Authoring model consumer.
 
 The request references a model credential by ``model_credential_id`` and the
 endpoint resolves it through canonical ModelInferenceBinding policy/material

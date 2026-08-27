@@ -13,8 +13,8 @@ Targeted fixes:
   - archived skills reject edits/rescans before scan dispatch, while
         delete remains allowed when the capability gate permits it.
 
-(P1's transitions stay self-approvable until P2 introduces the
-admin reviewer gate — that's a documented followup, not a regression.)
+(Transitions stay self-approvable until the admin reviewer gate is
+introduced — that's a documented followup, not a regression.)
 """
 
 from __future__ import annotations
@@ -339,7 +339,7 @@ async def test_non_owner_content_edits_still_allowed(monkeypatch):
 
 
 async def test_non_owner_cannot_transfer_ownership(monkeypatch):
-    """P2.12 — a non-owner cannot set ``owner_id`` to themselves
+    """A non-owner cannot set ``owner_id`` to themselves
     (or anyone else). Ownership transfer is the most privileged
     write on a skill — the new owner gains every owner short-
     circuit on visibility / publish / lifecycle in a single API
@@ -434,7 +434,7 @@ async def test_owner_can_transfer_ownership(monkeypatch):
 
 
 async def test_rejected_put_does_not_leak_via_scan_dispatch(monkeypatch):
-    """P2.13 — privilege gates run BEFORE the security scan
+    """Privilege gates run BEFORE the security scan
     dispatch, so a rejected PUT must not have invoked
     ``scan_for_write``. Without this ordering, an attacker could
     PUT with spoofed owner_id + arbitrary content and trigger a

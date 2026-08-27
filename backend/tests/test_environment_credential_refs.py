@@ -1,4 +1,4 @@
-"""Service-level tests for Task 9c: an Environment references service credentials
+"""Service-level tests: an Environment references service credentials
 by stable id (was name-based ``credential_ref``/``environment_credential_ids``).
 
 Real-DB tests via conftest's ``db_session``: the CredentialService kind check is

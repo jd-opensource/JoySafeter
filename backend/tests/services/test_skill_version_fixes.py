@@ -1,4 +1,4 @@
-"""Unit tests for the Phase-3 correctness fixes on the version stack.
+"""Unit tests for the correctness fixes on the version stack.
 
 1. ``get_highest_version_str`` / the version auto-bump must not raise an
    unhandled 500 when a stored version string is not valid semver — it

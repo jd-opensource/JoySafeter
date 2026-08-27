@@ -47,8 +47,8 @@ def _snapshot_api():
     module = importlib.import_module("app.joysafeter_application.credentials.snapshot_service")
     command_type = getattr(module, "CreateCredentialAwareSession", None)
     create = getattr(module, "create_session_from_source", None)
-    assert command_type is not None, "Task 11 command is missing"
-    assert callable(create), "Task 11 application service is missing"
+    assert command_type is not None, "linearization command is missing"
+    assert callable(create), "linearization application service is missing"
     return command_type, create
 
 

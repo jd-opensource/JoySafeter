@@ -8,7 +8,7 @@ verify:
   - Above threshold + skill_id set: marks scanning, queues descriptor,
     returns None
   - No skill_id (create-time): always sync, even when payload is big
-    (P2.7 carve-out — see ``_dispatch_security_scan`` docstring)
+    (create-time carve-out — see ``_dispatch_security_scan`` docstring)
   - drain_pending_async_scans empties the queue
 """
 
@@ -30,7 +30,7 @@ def _enable_scanner(monkeypatch):
     module. The default in ``settings`` is False (so disabling SkillSpector
     in dev doesn't accidentally trigger scans), but every test here is
     explicitly exercising the dispatch branch that only runs when the
-    scanner is enabled. P2.17 added a short-circuit at the top of
+    scanner is enabled. There's a short-circuit at the top of
     ``_dispatch_security_scan`` that returns None when the scanner is
     disabled — without this fixture each test would hit that and never
     reach ``should_scan_async``.
@@ -124,7 +124,7 @@ async def test_large_payload_with_skill_id_defers_async():
 async def test_large_payload_no_skill_id_falls_back_to_sync():
     """Create-time call has no skill_id yet. Even with a huge payload,
     the dispatcher must run sync because there's no row to flip into
-    ``scanning`` state. This is the P2.7 explicit carve-out."""
+    ``scanning`` state. This is the explicit create-time carve-out."""
     with patch("app.joysafeter_domain.services.joysafeter_skill_security.settings") as s:
         s.skill_security_async_threshold_bytes = 10
         svc = _bare_service()
@@ -185,12 +185,12 @@ async def test_dispatch_threads_trigger_through(trigger):
 
 
 async def test_scanner_disabled_short_circuits_with_no_side_effects(monkeypatch):
-    """P2.17: when ``SKILL_SECURITY_SCAN_ENABLED=false`` the dispatcher
+    """When ``SKILL_SECURITY_SCAN_ENABLED=false`` the dispatcher
     must short-circuit BEFORE deciding sync vs async. Otherwise the
     async branch would flip the skill row to ``security_status='scanning'``
     and queue a descriptor that ``run_scan_in_background`` would just
     translate back to ``not_scanned`` — a useless DB round-trip in the
-    happy case and (pre-P2.16, when create_skill didn't flush BG tasks)
+    happy case and (previously, when create_skill didn't flush BG tasks)
     a permanent stuck-in-scanning state in the bad case.
 
     The disabled-path contract: return None, touch nothing.

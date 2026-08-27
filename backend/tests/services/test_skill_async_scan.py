@@ -1,6 +1,6 @@
-"""P2 unit tests — async informational scan dispatch.
+"""Unit tests — async informational scan dispatch.
 
-Covers the four P2 surfaces that don't touch real DB:
+Covers the four scan surfaces that don't touch real DB:
 
   - ``scan_input_bytes`` size estimation
   - ``SkillSecurityService.should_scan_async`` threshold decision
@@ -94,7 +94,7 @@ def test_should_scan_async_zero_threshold_forces_async():
 
 
 def test_should_scan_async_huge_threshold_keeps_everything_sync():
-    """The opposite knob: a huge threshold keeps the pre-P2 behavior."""
+    """The opposite knob: a huge threshold keeps the original sync-only behavior."""
     with patch("app.joysafeter_domain.services.joysafeter_skill_security.settings") as s:
         s.skill_security_async_threshold_bytes = 10 * 1024 * 1024
         # 1MB content is under a 10MB threshold

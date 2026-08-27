@@ -1,4 +1,4 @@
-"""Error-contract tests for the Task 7 quickstart model consumer.
+"""Error-contract tests for the quickstart model consumer.
 
 The request references a model credential by ``model_credential_id`` and the
 endpoint resolves it through canonical ModelInferenceBinding policy/material

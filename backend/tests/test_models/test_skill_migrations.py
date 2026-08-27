@@ -97,7 +97,7 @@ async def test_insert_skill_with_null_version_pointers(db_session: AsyncSession)
         ),
         {"id": user_id, "name": "migration-test-user", "email": f"{user_id}@example.com"},
     )
-    # project_id is NOT NULL (P4), so seed an org + project to satisfy the FK.
+    # project_id is NOT NULL, so seed an org + project to satisfy the FK.
     org_id = uuid.uuid4()
     project_id = uuid.uuid4()
     await db_session.execute(

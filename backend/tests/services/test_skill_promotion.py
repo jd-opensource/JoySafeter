@@ -1,6 +1,6 @@
 """DB-backed tests for the version-level tiered promotion flow.
 
-Single-axis skill redesign, Phase 3. Skill = project resource. Promotion to
+Single-axis skill model. Skill = project resource. Promotion to
 the ``organization`` / ``public`` visibility tiers is version-level and goes
 through a four-eyes approval by the org OWNER:
 
@@ -471,13 +471,13 @@ async def test_rescan_failed_verdict_does_not_demote_published_version(db_sessio
     assert reloaded.visibility == "organization"
 
 
-# ── adversarial: prove the P7a fixes are REAL, not just "looks fixed" ──
+# ── adversarial: prove the fixes are REAL, not just "looks fixed" ──
 
 
 async def test_delete_org_served_version_actually_drops_visibility(db_session):
     """Deleting the version an org tier POINTS AT must not leave visibility
     stuck at 'organization' with a null pointer. This would have FAILED before
-    P7a (delete_version cleared the FK but never recomputed visibility)."""
+    this fix (delete_version cleared the FK but never recomputed visibility)."""
     org = await _org(db_session)
     proj = await _project(db_session, org_id=org.id)
     admin = await _user(db_session, name="Admin")
@@ -601,7 +601,7 @@ async def test_takedown_cross_tenant_denied(db_session):
 async def test_four_eyes_still_blocks_admin_who_published(db_session):
     """Widening the approver to org admin must NOT defeat four-eyes: an admin who
     is themselves the version's publisher still cannot self-approve. Guards
-    against the P7a widening accidentally opening a self-approval hole."""
+    against the widening accidentally opening a self-approval hole."""
     org = await _org(db_session)
     proj = await _project(db_session, org_id=org.id)
     admin = await _user(db_session, name="AdminAuthor")

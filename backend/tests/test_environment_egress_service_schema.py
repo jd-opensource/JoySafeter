@@ -13,8 +13,8 @@ from app.joysafeter_shared.ids import CredentialId
 pytestmark = pytest.mark.no_db
 
 # Stable service-credential ids used across the schema-level tests. Egress refs
-# and env-var environment_credential_ids are id-based (kind='service' credentials) after the
-# Unified Credential P0 cutover.
+# and env-var environment_credential_ids are id-based (kind='service' credentials) in the
+# unified credential model.
 _CRM_CRED = CredentialId.new()
 _ERP_CRED = CredentialId.new()
 _LEGACY_CRED = CredentialId.new()

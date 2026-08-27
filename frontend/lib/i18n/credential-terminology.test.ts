@@ -1382,7 +1382,7 @@ describe('credential domain terminology', () => {
   })
 })
 
-describe('unified credentials surface vocabulary (P1, §3.12)', () => {
+describe('unified credentials surface vocabulary', () => {
   it('lands the merged menu + tab labels as Model Connection (not 模型接入)', () => {
     expect(en.translation.nav.credentials).toBe('Credentials')
     expect(zh.translation.nav.credentials).toBe('凭据')

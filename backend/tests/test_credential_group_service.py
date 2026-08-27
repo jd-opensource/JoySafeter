@@ -1,4 +1,4 @@
-"""Tests for CredentialGroupService (Task 6).
+"""Tests for CredentialGroupService.
 
 Real-DB tests (Postgres via conftest's ``db_session``): the group service leans
 on the DB's partial unique indexes — ``(project_id, name)`` on groups and

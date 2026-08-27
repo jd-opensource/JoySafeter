@@ -2291,7 +2291,7 @@ const en = {
           latest: 'Latest published',
           draft: 'Draft (working copy)',
         },
-        // Lifecycle (P1)
+        // Lifecycle
         lifecycle: {
           label: 'Status',
           draft: 'Draft',
@@ -2300,7 +2300,7 @@ const en = {
           rejected: 'Rejected',
           archived: 'Archived',
         },
-        // Visibility (P1) — NOTE: agents are project-shared resources.
+        // Visibility — NOTE: agents are project-shared resources.
         // Once a skill is referenced from an agent, ANY user in the
         // same project can indirectly read its contents by running
         // that agent. ``private`` therefore means "only owner +
@@ -2332,7 +2332,7 @@ const en = {
           rejectedDone: 'Promotion rejected.',
           takenDown: 'Skill taken down.',
         },
-        // Security scanning state (P2)
+        // Security scanning state
         security: {
           scanning: 'Scanning',
           scanningHint:
@@ -2343,7 +2343,7 @@ const en = {
           blocked: 'Blocked',
           failed: 'Failed',
         },
-        // Lifecycle transitions (P1)
+        // Lifecycle transitions
         transition: {
           submitForReview: 'Submit for review',
           approve: 'Approve',

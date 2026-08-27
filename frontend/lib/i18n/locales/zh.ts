@@ -2330,7 +2330,7 @@ const zh = {
           latest: '最新发布版',
           draft: '草稿 (工作副本)',
         },
-        // 生命周期(P1)
+        // 生命周期
         lifecycle: {
           label: '状态',
           draft: '草稿',
@@ -2339,7 +2339,7 @@ const zh = {
           rejected: '已拒绝',
           archived: '已归档',
         },
-        // 可见范围(P1)— 注意:由于 agent 是项目共享资源,任何
+        // 可见范围 — 注意:由于 agent 是项目共享资源,任何
         // 可见范围的 skill 一旦被加入 agent,同项目的其他用户在
         // 运行该 agent 时都能间接读到内容。"私有"严格意义是
         // "项目内只有 owner+collaborator 通过 GET API 可见",
@@ -2370,7 +2370,7 @@ const zh = {
           rejectedDone: '晋级已驳回。',
           takenDown: '技能已下架。',
         },
-        // 安全扫描状态(P2)
+        // 安全扫描状态
         security: {
           scanning: '扫描中',
           scanningHint: '后台扫描进行中,完成后才可加载到 Agent',
@@ -2380,7 +2380,7 @@ const zh = {
           blocked: '阻止',
           failed: '失败',
         },
-        // 状态转移动作(P1)
+        // 状态转移动作
         transition: {
           submitForReview: '提交审核',
           approve: '批准',

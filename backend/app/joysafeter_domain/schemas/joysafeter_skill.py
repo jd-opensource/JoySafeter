@@ -203,7 +203,7 @@ class CreateSkillFileRequest(BaseModel):
     def validate_path(cls, v: str) -> str:
         from pathlib import PurePosixPath
 
-        # Normalize Windows-style separators first (P2.14).
+        # Normalize Windows-style separators first.
         normalized = v.replace("\\", "/")
         p = PurePosixPath(normalized)
         if p.is_absolute():
@@ -225,7 +225,7 @@ class UpdateSkillFileRequest(BaseModel):
             return v
         from pathlib import PurePosixPath
 
-        # Normalize Windows-style separators first (P2.14).
+        # Normalize Windows-style separators first.
         normalized = v.replace("\\", "/")
         p = PurePosixPath(normalized)
         if p.is_absolute():

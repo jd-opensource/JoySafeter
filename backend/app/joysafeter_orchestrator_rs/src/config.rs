@@ -42,7 +42,7 @@ pub struct JoySafeterConfig {
     pub sandbox_cpu: Option<f64>,
     pub sandbox_memory_mb: Option<u64>,
     pub sandbox_disk_mb: Option<u64>,
-    // -- Sandbox container hardening (P0.1) -----------------------------------
+    // -- Sandbox container hardening -----------------------------------------
     // Matches the Python `Settings.sandbox_*` block of the same name. See
     // backend/app/joysafeter_shared/config/settings.py for the full rationale.
     // Defaults to the secure values from Anthropic's "Securely deploying AI

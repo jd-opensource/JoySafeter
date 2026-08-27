@@ -598,7 +598,7 @@ impl SandboxProvider for DockerProvider {
         // ExtraHosts: enable host.docker.internal on Linux
         host_config.extra_hosts = Some(vec!["host.docker.internal:host-gateway".to_string()]);
 
-        // -- P0.1 hardening ----------------------------------------------------
+        // -- Container hardening -----------------------------------------------
         // Apply the Anthropic "Securely deploying AI agents" baseline. Coding
         // agents run as a non-root user inside the container and don't need
         // any of these capabilities, so dropping them has no operational

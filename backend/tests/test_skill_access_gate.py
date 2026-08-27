@@ -1,6 +1,6 @@
 """Security tests for the single-axis project-capability skill gate.
 
-Phase 2 of the skills single-axis redesign replaces the per-skill
+The single-axis model replaces the per-skill
 collaborator ACL with a SINGLE-AXIS project-capability gate:
 
   ``check_skill_access(db, skill, user_id, required, *,

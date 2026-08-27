@@ -2054,7 +2054,7 @@ async def session_event_stream(
                     break
                 try:
                     event = await asyncio.wait_for(q.get(), timeout=30)
-                    # P1: broadcaster sends {lagged: True} on queue overflow
+                    # Broadcaster sends {lagged: True} on queue overflow
                     if event.get("lagged"):
                         yield f"data: {json.dumps({'lagged': True})}\n\n"
                         break  # frontend will reconnect and replay from DB

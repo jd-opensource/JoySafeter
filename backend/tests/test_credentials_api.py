@@ -1,7 +1,7 @@
 """Route-level tests for the id-based ``/credentials`` and ``/credential-groups``
-APIs (P0 refactor, Task 8).
+APIs (unified credential refactor).
 
-Task 8 removed the dead ``secrets``/``vaults`` routers that had blocked importing
+Removing the dead ``secrets``/``vaults`` routers that had blocked importing
 ``app.joysafeter_api.api.v1.router``, so this exercises the new routes end-to-end
 through a real ``TestClient``. The full production app has a heavy lifespan and
 is still mid-cutover, so instead of booting it we mount ONLY the two new routers

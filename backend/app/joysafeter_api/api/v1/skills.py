@@ -424,7 +424,7 @@ async def create_skill(
         project_id=auth_ctx.project_id,
     )
     skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id, project_id=auth_ctx.project_id)
-    # P2.16: flush any async scan descriptors the service queued. Without
+    # Flush any async scan descriptors the service queued. Without
     # this, a skill whose total payload exceeds ``skill_security_async_threshold_bytes``
     # would land with ``security_status='scanning'`` and stay stuck forever.
     _flush_async_scans(svc, background_tasks)
@@ -461,7 +461,7 @@ async def import_skill_zip(
         project_id=auth_ctx.project_id,
     )
     skill = await svc.get_skill(skill.id, current_user_id=auth_ctx.user_id, project_id=auth_ctx.project_id)
-    # P2.16: see ``create_skill``; ZIP imports go through the same service path.
+    # See ``create_skill``; ZIP imports go through the same service path.
     _flush_async_scans(svc, background_tasks)
     return SkillResponse.model_validate(skill)
 
@@ -718,7 +718,7 @@ async def approve_skill(
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_write),
 ) -> SkillLifecycleTransitionResponse:
-    """pending_review -> approved (P1: self-approve allowed)."""
+    """pending_review -> approved (self-approve allowed)."""
     svc = SkillLifecycleService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
     return await _run_transition(svc.approve(skill_id, current_user_id=auth_ctx.user_id))
 
@@ -859,7 +859,7 @@ async def admin_rescan_all_skills(
         )
     else:
         # No ruleset filter — pick rows whose latest scan has no
-        # ruleset_version at all, which is "any pre-P0 scan that
+        # ruleset_version at all, which is "any legacy scan that
         # didn't track the ruleset".
         query = (
             _select(JoySafeterSkill)

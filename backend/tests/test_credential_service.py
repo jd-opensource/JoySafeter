@@ -1,4 +1,4 @@
-"""Tests for the unified CredentialService (Task 5).
+"""Tests for the unified CredentialService.
 
 These are real-DB tests (Postgres via conftest's db_session): the service relies
 on the DB's partial unique indexes (project,kind,name), the kind CHECK, and

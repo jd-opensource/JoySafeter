@@ -1,4 +1,4 @@
-"""Regression tests for OAuth material erasure on credential deletion (P0).
+"""Regression tests for OAuth material erasure on credential deletion.
 
 Real-DB tests (Postgres via conftest's ``db_session``): the invariant under test
 is a database CHECK constraint plus the repository delete paths, so sqlite is not

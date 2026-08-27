@@ -1,6 +1,6 @@
 """list_skills / list_by_user must mirror check_skill_access for org super-users.
 
-Single-axis skill redesign: an org owner/admin is ADMIN on every skill in their
+Single-axis skill model: an org owner/admin is ADMIN on every skill in their
 active org (``effective_project_capability``), so ``check_skill_access`` lets
 them GET/edit any skill in the org — even in projects they hold no
 ``ProjectMember`` row for. The listing endpoint must surface those same skills,

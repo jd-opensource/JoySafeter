@@ -295,12 +295,12 @@ class SkillSecurityService:
             settings.skill_security_scanner_url,
             settings.skill_security_timeout_seconds,
         )
-        # P2.9 — see ``SkillService`` for the same field. Used to
+        # See ``SkillService`` for the same field. Used to
         # pass ``active_org_id`` through to ``check_skill_access`` so
         # scan-history reads / rescan triggers also respect the strict
         # cross-org isolation rule.
         self._active_org_id = active_org_id
-        # Single-axis redesign: caller's org role, threaded into
+        # Caller's org role, threaded into
         # ``check_skill_access`` so org super-users resolve to ADMIN.
         self._caller_org_role = caller_org_role
 
@@ -897,7 +897,7 @@ class SkillSecurityService:
         except (TypeError, ValueError):
             return None
 
-            # ── P2: async dispatch decision ────────────────────────────────
+            # ── Async dispatch decision ────────────────────────────────
 
     @staticmethod
     def should_scan_async(
@@ -913,7 +913,7 @@ class SkillSecurityService:
         The threshold lives in ``settings.skill_security_async_threshold_bytes``
         so deployments can tune it without code changes. A non-positive
         threshold forces every scan async; a very large threshold keeps
-        the pre-P2 sync-only behavior.
+        the original sync-only behavior.
         """
 
         threshold = settings.skill_security_async_threshold_bytes
@@ -956,7 +956,7 @@ class SkillSecurityService:
 
 """Background skill security scans.
 
-P2 introduces async scan dispatch for skills whose content is too big
+Async scan dispatch handles skills whose content is too big
 to comfortably block the request — see ``Settings.skill_security_async_threshold_bytes``.
 The async path:
 
