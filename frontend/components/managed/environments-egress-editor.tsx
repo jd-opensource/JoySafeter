@@ -26,6 +26,7 @@ const CREATE_SECRET_OPTION = '__create_secret__'
 export type EgressServiceForm = {
   name: string
   baseUrl: string
+  authSource: 'service_credential' | 'agent_identity'
   credentialRef: string
   authType: 'bearer' | 'api_key' | 'cookie'
   secretKey: string
@@ -33,12 +34,18 @@ export type EgressServiceForm = {
   allowedPaths: string
 }
 
-export type EgressServiceErrorField = 'name' | 'baseUrl' | 'credentialRef' | 'secretKey'
+export type EgressServiceErrorField =
+  | 'name'
+  | 'baseUrl'
+  | 'credentialRef'
+  | 'secretKey'
+  | 'allowedPaths'
 export type EgressServiceErrors = Record<number, Partial<Record<EgressServiceErrorField, string>>>
 
 export const emptyEgressService = (): EgressServiceForm => ({
   name: '',
   baseUrl: '',
+  authSource: 'service_credential',
   credentialRef: '',
   authType: 'bearer',
   secretKey: '',
@@ -46,7 +53,8 @@ export const emptyEgressService = (): EgressServiceForm => ({
   allowedPaths: '',
 })
 
-const egressInjectedHeaderExample = (service: EgressServiceForm) => {
+const egressInjectedHeaderExample = (service: EgressServiceForm, agentIdentityLabel: string) => {
+  if (service.authSource === 'agent_identity') return agentIdentityLabel
   if (service.authType === 'api_key') {
     const header = service.header.trim() || 'x-api-key'
     return `${header}: <value>`
@@ -58,7 +66,7 @@ const egressInjectedHeaderExample = (service: EgressServiceForm) => {
   return `Authorization: Bearer <value>`
 }
 
-// Skill 可直接用 http 真实地址访问（scheme 用 http，Envoy 明文侧注入凭证再 TLS 回源）。
+// Skill 始终通过 Envoy 的 HTTP 入口访问；Envoy 再按配置的 HTTP/HTTPS 协议回源。
 const egressHttpDirectUrl = (baseUrl: string) => {
   const trimmed = baseUrl.trim()
   if (!trimmed) return 'http://crm.example.com/api/'
@@ -100,6 +108,7 @@ export const serviceToForm = (service: EnvironmentEgressService): EgressServiceF
   return {
     name: service.name || '',
     baseUrl: service.base_url || '',
+    authSource: service.auth_source === 'agent_identity' ? 'agent_identity' : 'service_credential',
     credentialRef: service.credential_ref || '',
     authType,
     secretKey:
@@ -115,41 +124,78 @@ export const serviceToForm = (service: EnvironmentEgressService): EgressServiceF
 }
 
 export const buildEgressServices = (forms: EgressServiceForm[]): EnvironmentEgressService[] =>
-  forms
-    .map((service) => {
-      const name = service.name.trim()
-      const baseUrl = service.baseUrl.trim()
-      const credentialRef = service.credentialRef.trim()
-      if (!name || !baseUrl || !credentialRef) return null
+  forms.flatMap((service): EnvironmentEgressService[] => {
+    const name = service.name.trim()
+    const baseUrl = service.baseUrl.trim()
+    const credentialRef = service.credentialRef.trim()
+    if (!name || !baseUrl) return []
 
-      const inject: NonNullable<EnvironmentEgressService['inject']> = { type: service.authType }
-      if (service.authType === 'bearer') {
-        inject.credential_field = service.secretKey.trim() || 'ACCESS_TOKEN'
-      } else if (service.authType === 'api_key') {
-        inject.credential_field = service.secretKey.trim() || 'API_KEY'
-        inject.header = service.header.trim() || 'x-api-key'
-      } else {
-        inject.credential_field = service.secretKey.trim() || 'COOKIE_HEADER'
-      }
+    const allowedPaths = service.allowedPaths
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+    if (service.authSource === 'agent_identity') {
+      return [
+        {
+          name,
+          kind: 'external',
+          exposure: 'placeholder',
+          base_url: baseUrl,
+          auth_source: 'agent_identity',
+          allowed_paths: allowedPaths.length > 0 ? allowedPaths : ['/'],
+        },
+      ]
+    }
+    if (!credentialRef) return []
 
-      const result: EnvironmentEgressService = {
-        name,
-        kind: 'external',
-        exposure: 'placeholder',
-        base_url: baseUrl,
-        credential_ref: parseCredentialId(credentialRef),
-        inject,
-      }
-      const allowedPaths = service.allowedPaths
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean)
-      if (allowedPaths.length > 0) {
-        result.allowed_paths = allowedPaths
-      }
-      return result
-    })
-    .filter((service): service is EnvironmentEgressService => service !== null)
+    const inject: NonNullable<EnvironmentEgressService['inject']> = { type: service.authType }
+    if (service.authType === 'bearer') {
+      inject.credential_field = service.secretKey.trim() || 'ACCESS_TOKEN'
+    } else if (service.authType === 'api_key') {
+      inject.credential_field = service.secretKey.trim() || 'API_KEY'
+      inject.header = service.header.trim() || 'x-api-key'
+    } else {
+      inject.credential_field = service.secretKey.trim() || 'COOKIE_HEADER'
+    }
+
+    const result: EnvironmentEgressService = {
+      name,
+      kind: 'external',
+      exposure: 'placeholder',
+      base_url: baseUrl,
+      auth_source: 'service_credential',
+      credential_ref: parseCredentialId(credentialRef),
+      inject,
+    }
+    if (allowedPaths.length > 0) {
+      result.allowed_paths = allowedPaths
+    }
+    return [result]
+  })
+
+export function validateEgressServiceForms(
+  services: EgressServiceForm[],
+  messages: { required: string; cookieRequired: string },
+): EgressServiceErrors {
+  const errors: EgressServiceErrors = {}
+  services.forEach((service, index) => {
+    const serviceErrors: Partial<Record<EgressServiceErrorField, string>> = {}
+    if (!service.name.trim()) serviceErrors.name = messages.required
+    if (!service.baseUrl.trim()) serviceErrors.baseUrl = messages.required
+    if (service.authSource === 'service_credential' && !service.credentialRef.trim()) {
+      serviceErrors.credentialRef = messages.required
+    }
+    if (
+      service.authSource === 'service_credential' &&
+      service.authType === 'cookie' &&
+      !service.secretKey.trim()
+    ) {
+      serviceErrors.secretKey = messages.cookieRequired
+    }
+    if (Object.keys(serviceErrors).length > 0) errors[index] = serviceErrors
+  })
+  return errors
+}
 
 function updateService(
   setServices: Dispatch<SetStateAction<EgressServiceForm[]>>,
@@ -393,148 +439,191 @@ export function EgressServicesEditor({
                   </div>
                 </div>
 
-                {/* ── 凭证 ── */}
+                {/* ── 身份认证 ── */}
                 <div className="space-y-3 border-t pt-4">
                   <SectionTitle>{t('managed.environments.egressSectionCredential')}</SectionTitle>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">
-                      {t('managed.environments.egressCredential')}
+                      {t('managed.environments.egressAuthSource')}
                       <RequiredMark />
-                      <FieldHelp text={t('managed.environments.egressCredentialTooltip')} />
                     </Label>
-                    <SearchableSecretSelect
-                      value={service.credentialRef}
-                      secrets={customSecrets}
-                      placeholder={t('managed.environments.egressSelectCredential')}
-                      searchPlaceholder={t('managed.environments.egressSearchCredential')}
-                      emptyText={t('managed.environments.egressNoCredentialFound')}
-                      createText={t('managed.environments.egressCreateServiceCredentialOption')}
-                      invalid={Boolean(errors[index]?.credentialRef)}
-                      onCreate={() =>
-                        window.open('/managed/credentials?tab=services&create=service', '_blank')
+                    <Select
+                      value={service.authSource}
+                      onValueChange={(value) =>
+                        changeService(index, {
+                          authSource: value as EgressServiceForm['authSource'],
+                        })
                       }
-                      onChange={(value) => {
-                        const secret = customSecrets.find((item) => item.id === value)
-                        changeService(
-                          index,
-                          {
-                            credentialRef: value,
-                            secretKey: preferredSecretKey(secretKeysFor(secret), service.authType),
-                          },
-                          'credentialRef',
-                        )
-                      }}
-                    />
-                    {errors[index]?.credentialRef && (
-                      <p className="text-xs text-destructive">{errors[index]?.credentialRef}</p>
-                    )}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="service_credential">
+                          {t('managed.environments.egressAuthSourceStatic')}
+                        </SelectItem>
+                        <SelectItem value="agent_identity">
+                          {t('managed.environments.egressAuthSourceAgentIdentity')}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {service.authSource === 'agent_identity'
+                        ? t('managed.environments.egressAgentIdentityHint')
+                        : t('managed.environments.egressStaticCredentialHint')}
+                    </p>
                   </div>
 
-                  <p className="text-xs text-muted-foreground">
-                    {t('managed.environments.egressAuthHint')}
-                  </p>
-                  <div
-                    className={`grid gap-3 ${
-                      service.authType === 'api_key' ? 'md:grid-cols-3' : 'md:grid-cols-2'
-                    }`}
-                  >
+                  {service.authSource === 'service_credential' && (
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">
-                        {t('managed.environments.egressAuthType')}
+                        {t('managed.environments.egressCredential')}
                         <RequiredMark />
+                        <FieldHelp text={t('managed.environments.egressCredentialTooltip')} />
                       </Label>
-                      <Select
-                        value={service.authType}
-                        onValueChange={(value) => {
-                          const authType = value as EgressServiceForm['authType']
-                          changeService(index, {
-                            ...defaultsForAuthType(authType),
-                            secretKey: preferredSecretKey(selectedCredentialFields, authType),
-                          })
+                      <SearchableSecretSelect
+                        value={service.credentialRef}
+                        secrets={customSecrets}
+                        placeholder={t('managed.environments.egressSelectCredential')}
+                        searchPlaceholder={t('managed.environments.egressSearchCredential')}
+                        emptyText={t('managed.environments.egressNoCredentialFound')}
+                        createText={t('managed.environments.egressCreateServiceCredentialOption')}
+                        invalid={Boolean(errors[index]?.credentialRef)}
+                        onCreate={() =>
+                          window.open('/managed/credentials?tab=services&create=service', '_blank')
+                        }
+                        onChange={(value) => {
+                          const credential = customSecrets.find((item) => item.id === value)
+                          changeService(
+                            index,
+                            {
+                              credentialRef: value,
+                              secretKey: preferredSecretKey(
+                                secretKeysFor(credential),
+                                service.authType,
+                              ),
+                            },
+                            'credentialRef',
+                          )
                         }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="bearer">Bearer Token</SelectItem>
-                          <SelectItem value="api_key">API Key</SelectItem>
-                          <SelectItem value="cookie">Cookie</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      />
+                      {errors[index]?.credentialRef && (
+                        <p className="text-xs text-destructive">{errors[index]?.credentialRef}</p>
+                      )}
                     </div>
+                  )}
 
-                    {service.authType === 'api_key' && (
+                  {service.authSource === 'service_credential' && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('managed.environments.egressAuthHint')}
+                    </p>
+                  )}
+                  {service.authSource === 'service_credential' && (
+                    <div
+                      className={`grid gap-3 ${
+                        service.authType === 'api_key' ? 'md:grid-cols-3' : 'md:grid-cols-2'
+                      }`}
+                    >
                       <div className="space-y-1.5">
                         <Label className="text-xs text-muted-foreground">
-                          {t('managed.environments.egressHeader')}
+                          {t('managed.environments.egressAuthType')}
+                          <RequiredMark />
                         </Label>
-                        <Input
-                          placeholder="x-api-key"
-                          value={service.header}
-                          onChange={(event) => changeService(index, { header: event.target.value })}
-                        />
-                      </div>
-                    )}
-
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">
-                        {t('managed.environments.egressCredentialField')}
-                        {service.authType === 'cookie' && <RequiredMark />}
-                        <FieldHelp
-                          text={
-                            service.authType === 'cookie'
-                              ? t('managed.environments.egressCookieCredentialFieldTooltip')
-                              : t('managed.environments.egressCredentialFieldTooltip')
-                          }
-                        />
-                        {service.authType !== 'cookie' && (
-                          <span className="ml-1 font-normal text-muted-foreground/70">
-                            {t('managed.environments.egressOptional')}
-                          </span>
-                        )}
-                      </Label>
-                      {selectedCredentialFields.length > 0 ? (
                         <Select
-                          value={service.secretKey}
-                          onValueChange={(value) =>
-                            changeService(index, { secretKey: value }, 'secretKey')
-                          }
+                          value={service.authType}
+                          onValueChange={(value) => {
+                            const authType = value as EgressServiceForm['authType']
+                            changeService(index, {
+                              ...defaultsForAuthType(authType),
+                              secretKey: preferredSecretKey(selectedCredentialFields, authType),
+                            })
+                          }}
                         >
-                          <SelectTrigger aria-invalid={Boolean(errors[index]?.secretKey)}>
-                            <SelectValue
-                              placeholder={t('managed.environments.egressSelectCredentialField')}
-                            />
+                          <SelectTrigger>
+                            <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {selectedCredentialFields.map((key) => (
-                              <SelectItem key={key} value={key}>
-                                {key}
-                              </SelectItem>
-                            ))}
+                            <SelectItem value="bearer">Bearer Token</SelectItem>
+                            <SelectItem value="api_key">API Key</SelectItem>
+                            <SelectItem value="cookie">Cookie</SelectItem>
                           </SelectContent>
                         </Select>
-                      ) : (
-                        <Input
-                          placeholder={
-                            service.authType === 'cookie'
-                              ? 'COOKIE_HEADER'
-                              : service.authType === 'api_key'
-                                ? 'API_KEY'
-                                : 'ACCESS_TOKEN'
-                          }
-                          value={service.secretKey}
-                          aria-invalid={Boolean(errors[index]?.secretKey)}
-                          onChange={(event) =>
-                            changeService(index, { secretKey: event.target.value }, 'secretKey')
-                          }
-                        />
+                      </div>
+
+                      {service.authType === 'api_key' && (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground">
+                            {t('managed.environments.egressHeader')}
+                          </Label>
+                          <Input
+                            placeholder="x-api-key"
+                            value={service.header}
+                            onChange={(event) =>
+                              changeService(index, { header: event.target.value })
+                            }
+                          />
+                        </div>
                       )}
-                      {errors[index]?.secretKey && (
-                        <p className="text-xs text-destructive">{errors[index]?.secretKey}</p>
-                      )}
+
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">
+                          {t('managed.environments.egressCredentialField')}
+                          {service.authType === 'cookie' && <RequiredMark />}
+                          <FieldHelp
+                            text={
+                              service.authType === 'cookie'
+                                ? t('managed.environments.egressCookieCredentialFieldTooltip')
+                                : t('managed.environments.egressCredentialFieldTooltip')
+                            }
+                          />
+                          {service.authType !== 'cookie' && (
+                            <span className="ml-1 font-normal text-muted-foreground/70">
+                              {t('managed.environments.egressOptional')}
+                            </span>
+                          )}
+                        </Label>
+                        {selectedCredentialFields.length > 0 ? (
+                          <Select
+                            value={service.secretKey}
+                            onValueChange={(value) =>
+                              changeService(index, { secretKey: value }, 'secretKey')
+                            }
+                          >
+                            <SelectTrigger aria-invalid={Boolean(errors[index]?.secretKey)}>
+                              <SelectValue
+                                placeholder={t('managed.environments.egressSelectCredentialField')}
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {selectedCredentialFields.map((key) => (
+                                <SelectItem key={key} value={key}>
+                                  {key}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            placeholder={
+                              service.authType === 'cookie'
+                                ? 'COOKIE_HEADER'
+                                : service.authType === 'api_key'
+                                  ? 'API_KEY'
+                                  : 'ACCESS_TOKEN'
+                            }
+                            value={service.secretKey}
+                            aria-invalid={Boolean(errors[index]?.secretKey)}
+                            onChange={(event) =>
+                              changeService(index, { secretKey: event.target.value }, 'secretKey')
+                            }
+                          />
+                        )}
+                        {errors[index]?.secretKey && (
+                          <p className="text-xs text-destructive">{errors[index]?.secretKey}</p>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* ── 访问控制 ── */}
@@ -553,10 +642,14 @@ export function EgressServicesEditor({
                       className="font-mono text-xs"
                       placeholder={t('managed.environments.egressAllowedPathsPlaceholder')}
                       value={service.allowedPaths}
+                      aria-invalid={Boolean(errors[index]?.allowedPaths)}
                       onChange={(event) =>
-                        changeService(index, { allowedPaths: event.target.value })
+                        changeService(index, { allowedPaths: event.target.value }, 'allowedPaths')
                       }
                     />
+                    {errors[index]?.allowedPaths && (
+                      <p className="text-xs text-destructive">{errors[index]?.allowedPaths}</p>
+                    )}
                   </div>
                 </div>
 
@@ -582,7 +675,10 @@ export function EgressServicesEditor({
                       {t('managed.environments.egressInjectExample')}
                     </p>
                     <code className="block truncate rounded bg-muted px-2 py-1 text-foreground">
-                      {egressInjectedHeaderExample(service)}
+                      {egressInjectedHeaderExample(
+                        service,
+                        t('managed.environments.egressAuthSourceAgentIdentity'),
+                      )}
                     </code>
                   </div>
                 </div>

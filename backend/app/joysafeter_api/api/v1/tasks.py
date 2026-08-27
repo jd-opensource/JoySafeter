@@ -372,6 +372,8 @@ async def create_task(
     if req.environment_id is not None:
         requested_environment = await _load_task_environment_or_raise(db, req.environment_id, auth_ctx.project_id)
 
+    effective_environment = requested_environment
+
     # Auto-create a ChatSession for the task if none provided
     chat_session_id = req.chat_session_id
     auto_created_session_id: SessionId | None = None
@@ -379,7 +381,7 @@ async def create_task(
     if not chat_session_id:
         environment_id = req.environment_id or agent.environment_id
         if environment_id is not None and requested_environment is None:
-            await _load_task_environment_or_raise(db, environment_id, auth_ctx.project_id)
+            effective_environment = await _load_task_environment_or_raise(db, environment_id, auth_ctx.project_id)
         session_svc = SessionService(db)
         session = await SessionCreationService(
             db,
@@ -427,7 +429,11 @@ async def create_task(
             )
         else:
             if existing_session.environment_id is not None:
-                await _load_task_environment_or_raise(db, existing_session.environment_id, auth_ctx.project_id)
+                effective_environment = await _load_task_environment_or_raise(
+                    db,
+                    existing_session.environment_id,
+                    auth_ctx.project_id,
+                )
         if existing_session.archived_at:
             raise ResourceConflictError(
                 code="SESSION_ARCHIVED",
@@ -485,6 +491,7 @@ async def create_task(
         request,
         auth_ctx,
         agent,
+        effective_environment,
         identity_auth_code=req.identity_auth_code,
     )
     submission = TaskSubmissionService(db)

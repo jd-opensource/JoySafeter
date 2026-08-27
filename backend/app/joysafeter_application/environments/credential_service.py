@@ -59,7 +59,6 @@ def _credential_binding_surfaces(
                 kind=EgressInjectKind(reference.inject_kind),
                 credential_field=CredentialFieldName(reference.credential_field),
                 header=reference.header,
-                cookie_name=reference.cookie_name,
             ),
         )
         for reference in decoded.http_egress
@@ -161,7 +160,6 @@ class EnvironmentCredentialService:
                             EgressInjectKind(inject.type),
                             credential_field,
                             header=inject.header,
-                            cookie_name=inject.cookie_name,
                         ),
                     )
                 except (TypeError, ValueError) as exc:

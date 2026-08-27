@@ -1132,19 +1132,25 @@ const en = {
         storageMounts: 'Storage Mounts',
         egressServices: 'Third-party Services',
         egressServicesHint:
-          'Skills call the real service URL directly; authentication values derived from the selected Service Credential are applied automatically and never exposed to the sandbox.',
+          'Skills call the configured service through the gateway; the selected authentication source is applied automatically and never exposed to the sandbox.',
         addEgressService: 'Add Service',
         removeEgressService: 'Remove Service',
         egressName: 'Service name',
         egressBaseUrl: 'Base URL',
         egressBaseUrlHint:
-          'The real third-party endpoint (with https). In your skill use http:// for the same address; the platform authenticates the request at the gateway using the selected Service Credential, then re-originates to https.',
+          'The real third-party endpoint (http or https). In your skill use http:// for the same address; the gateway applies the selected authentication source, then uses the configured protocol upstream.',
         egressAllowedPaths: 'Allowed paths',
         egressAllowedPathsHint:
-          'One path per line. A trailing / means prefix match (everything under it); otherwise exact match (that endpoint only). Leave empty = allow every endpoint under this address; for high-privilege service credentials, list paths explicitly to prevent unintended access.',
+          'One path per line. A trailing / means prefix match (everything under it); otherwise exact match (that endpoint only). Leave empty = allow every path on this upstream host; for high-privilege services, list paths explicitly to prevent unintended access.',
         egressAllowedPathsPlaceholder: '/api/warning/getWarningDetailById\n/api/warning/work/',
         egressSectionBasic: 'Basics',
-        egressSectionCredential: 'Service Credential',
+        egressSectionCredential: 'Authentication',
+        egressAuthSource: 'Authentication source',
+        egressAuthSourceStatic: 'Static service credential',
+        egressAuthSourceAgentIdentity: 'Agent Identity (current executor)',
+        egressStaticCredentialHint: 'The gateway injects the selected saved service credential.',
+        egressAgentIdentityHint:
+          'At task start, the platform exchanges the current executor identity and injects it only for the allowed paths. The agent creator identity is never used as a fallback.',
         egressSectionAccess: 'Access control',
         egressSectionPreview: 'Preview',
         egressNoServiceCredentialHint: 'No third-party secret yet?',
@@ -1176,7 +1182,7 @@ const en = {
         egressCookies: 'Cookie header field',
         egressSkillExample: 'Skill uses',
         egressSkillExampleHint:
-          'Use this address in your skill; authentication derived from the selected Service Credential is applied automatically.',
+          'Use this address in your skill; the selected authentication source is applied automatically.',
         egressInjectExample: 'Injected',
         validation: {
           required: 'This field is required',

@@ -11,6 +11,27 @@ from app.joysafeter_shared.ids import AgentId
 
 logger = logging.getLogger(__name__)
 
+_FORWARDED_HEADER_NAMES = {
+    "accept-language": "Accept-Language",
+    "user-agent": "User-Agent",
+    "x-forwarded-for": "X-Forwarded-For",
+    "x-real-ip": "X-Real-IP",
+}
+
+
+def _capture_headers_map(request: Any | None, *, cookie_name: str, identity_token: str) -> dict[str, str]:
+    raw_headers = getattr(request, "headers", None) if request is not None else None
+    captured: dict[str, str] = {"Cookie": f"{cookie_name}={identity_token}"}
+    if raw_headers is None or not hasattr(raw_headers, "items"):
+        return captured
+    for raw_name, raw_value in raw_headers.items():
+        canonical_name = _FORWARDED_HEADER_NAMES.get(str(raw_name).strip().lower())
+        value = str(raw_value).strip()
+        if canonical_name is None or not value or "\r" in value or "\n" in value:
+            continue
+        captured[canonical_name] = value
+    return captured
+
 
 def validate_configuration() -> None:
     missing = [
@@ -38,6 +59,11 @@ def capture_credential(
     return CapturedIdentityCredential(
         kind="identity_token",
         value=identity_token.strip(),
+        headers_map=_capture_headers_map(
+            request,
+            cookie_name=cookie_name,
+            identity_token=identity_token.strip(),
+        ),
     )
 
 

@@ -57,6 +57,8 @@ use super::llm_providers::{CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OP
 struct LoadedIdentityContext {
     /// User's SSO cookie (Web scenario). Empty if auth_code is used.
     identity_token: String,
+    /// Provider-approved request metadata captured with the identity token.
+    headers_map: HashMap<String, String>,
     /// One-time BotAuthCode (API scenario). None if identity_token is used.
     auth_code: Option<String>,
     /// User name / email for cache keying.
@@ -84,6 +86,62 @@ fn require_identity_material(
     .transpose()
 }
 
+fn decode_revealed_identity_material(
+    credential_kind: &str,
+    credential: String,
+) -> Result<(String, HashMap<String, String>, Option<String>), TaskIdentityContextError> {
+    match credential_kind {
+        "auth_code" => Ok((String::new(), HashMap::new(), Some(credential))),
+        "identity_token" => {
+            let Ok(envelope) = serde_json::from_str::<serde_json::Value>(&credential) else {
+                return Ok((credential, HashMap::new(), None));
+            };
+            let envelope = envelope
+                .as_object()
+                .ok_or(TaskIdentityContextError::ContextInvalid)?;
+            if envelope.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
+                return Err(TaskIdentityContextError::ContextInvalid);
+            }
+            let identity_token = envelope
+                .get("identity_token")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or(TaskIdentityContextError::ContextInvalid)?
+                .to_string();
+            let headers = envelope
+                .get("headers_map")
+                .and_then(serde_json::Value::as_object)
+                .ok_or(TaskIdentityContextError::ContextInvalid)?;
+            if headers.len() > 5 {
+                return Err(TaskIdentityContextError::ContextInvalid);
+            }
+            let allowed_headers = [
+                "Cookie",
+                "Accept-Language",
+                "User-Agent",
+                "X-Forwarded-For",
+                "X-Real-IP",
+            ];
+            let mut headers_map = HashMap::with_capacity(headers.len());
+            for (name, value) in headers {
+                if !allowed_headers.contains(&name.as_str()) {
+                    return Err(TaskIdentityContextError::ContextInvalid);
+                }
+                let value = value
+                    .as_str()
+                    .filter(|value| {
+                        !value.is_empty() && value.len() <= 4096 && !value.contains(['\r', '\n'])
+                    })
+                    .ok_or(TaskIdentityContextError::ContextInvalid)?;
+                headers_map.insert(name.clone(), value.to_string());
+            }
+            Ok((identity_token, headers_map, None))
+        }
+        _ => Err(TaskIdentityContextError::KindInvalid),
+    }
+}
+
 impl std::fmt::Debug for LoadedIdentityContext {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -104,16 +162,24 @@ enum TaskIdentityContextError {
     ProjectMismatch,
     #[error("task identity requires project and session scope")]
     ScopeMissing,
+    #[error("task identity requires an authenticated task actor")]
+    ActorMissing,
     #[error(transparent)]
     Material(#[from] TaskIdentityMaterialError),
     #[error("task identity credential kind is invalid")]
     KindInvalid,
+    #[error("task identity context is invalid")]
+    ContextInvalid,
+    #[error("task identity provider is disabled for a requested route")]
+    ProviderDisabled,
     #[error("task identity has no trusted egress hosts")]
     NoTrustedHosts,
     #[error("task identity provider returned no injection targets")]
     EmptyInjection,
     #[error("task identity provider failed")]
     Provider,
+    #[error("task identity provider returned a mismatched route")]
+    RouteMismatch,
     #[error("task identity claim changed while locked")]
     ClaimConflict,
 }
@@ -310,22 +376,62 @@ impl SandboxResolver {
         &self,
         sandbox_id: SandboxId,
         _external_id: &str,
-        _context: &ResolveContext,
+        context: &ResolveContext,
         generation: &queries::NetworkPolicyGeneration,
         _task_id: Option<TaskId>,
-        _proxy_auth_token: Option<String>,
+        proxy_auth_token: Option<String>,
     ) -> anyhow::Result<()> {
-        crate::kernel::xds_authority::ensure_network_policy_ready(
-            &self.pool,
-            self.provider.as_ref(),
-            self.network_policy_queue.as_deref(),
-            &self.xds_authority,
-            sandbox_id,
-            generation,
-            &self.config.llm_egress_allowed_hosts,
-            SETUP_NETWORKING_TIMEOUT,
-        )
-        .await?;
+        if context.has_task_identity() {
+            if self.network_policy_queue.is_some() {
+                anyhow::bail!(
+                    "task-scoped Agent Identity requires secure ephemeral delivery to the elected xDS authority"
+                );
+            }
+            let _application_lock = self.xds_authority.lock_application().await;
+            let guard = self
+                .xds_authority
+                .ready_guard()
+                .ok_or_else(|| anyhow::anyhow!("local xDS authority is not ready"))?;
+            let mut credentials = context.credentials.clone();
+            credentials.proxy_auth_token = proxy_auth_token;
+            apply_sandbox_networking_generation_with_credentials_as_authority(
+                &self.pool,
+                self.provider.as_ref(),
+                sandbox_id,
+                generation,
+                credentials,
+                &guard,
+            )
+            .await?;
+        } else {
+            crate::kernel::xds_authority::ensure_network_policy_ready(
+                &self.pool,
+                self.provider.as_ref(),
+                self.network_policy_queue.as_deref(),
+                &self.xds_authority,
+                sandbox_id,
+                generation,
+                &self.config.llm_egress_allowed_hosts,
+                SETUP_NETWORKING_TIMEOUT,
+            )
+            .await?;
+        }
+
+        if context.has_task_identity() {
+            let task_id = _task_id.ok_or_else(|| {
+                anyhow::anyhow!("task-scoped Agent Identity requires a task identifier")
+            })?;
+            let lease = identity_lease_metadata(task_id, context.identity_refresh_after_seconds);
+            if !queries::merge_sandbox_config(
+                &self.pool,
+                sandbox_id,
+                &serde_json::json!({"agent_identity_lease": lease}),
+            )
+            .await?
+            {
+                anyhow::bail!("sandbox {sandbox_id} disappeared before identity lease persistence");
+            }
+        }
 
         self.network_policy_ready
             .insert(sandbox_id, generation.policy_hash.clone());
@@ -1183,6 +1289,7 @@ impl SandboxResolver {
         // real key never enters the sandbox. Unrestricted sandboxes keep the
         // key in their environment because they do not route through Envoy.
         let mut credentials = SandboxCredentials::default();
+        let mut identity_refresh_after_seconds = None;
         if network_mode == EffectiveNetworkMode::Limited {
             let mut routes = Vec::new();
             routes.extend(Self::extract_llm_egress(
@@ -1197,38 +1304,38 @@ impl SandboxResolver {
                     .unwrap_or_default(),
             );
             routes.extend(Self::build_git_egress(&self.pool, session_id).await?);
-            routes.extend(
-                Self::build_external_egress(
-                    &credential_access,
-                    &access_context,
-                    environment.as_ref(),
-                    project_id,
-                )
-                .await?,
-            );
+            let (external_routes, identity_targets) = Self::build_external_egress(
+                &credential_access,
+                &access_context,
+                environment.as_ref(),
+                project_id,
+            )
+            .await?;
+            routes.extend(external_routes);
 
             // Agent identity is composed into existing MCP placeholder routes.
             // Never create a transparent HTTPS interception route.
-            if self.identity_provider.enabled() {
-                let identity_hosts: Vec<String> = routes
-                    .iter()
-                    .filter(|route| {
-                        route.kind == EgressKind::Mcp
-                            && route.exposure == EgressExposure::Placeholder
-                    })
-                    .map(|route| route.upstream_host.to_lowercase())
-                    .collect();
+            if !identity_targets.is_empty() {
+                if self.network_policy_queue.is_some() {
+                    anyhow::bail!(
+                        "task-scoped Agent Identity requires secure ephemeral delivery to the elected xDS authority"
+                    );
+                }
+                if !self.identity_provider.enabled() {
+                    return Err(TaskIdentityContextError::ProviderDisabled.into());
+                }
                 if let Some(injection) = self
                     .resolve_identity_injection(
                         agent.as_ref(),
                         task_id,
                         session_id,
                         project_id,
-                        &identity_hosts,
+                        &identity_targets,
                     )
                     .await?
                 {
-                    Self::merge_identity_into_mcp_routes(&mut routes, injection);
+                    identity_refresh_after_seconds = injection.valid_for_seconds;
+                    Self::merge_identity_into_routes(&mut routes, injection)?;
                 }
             }
 
@@ -1264,6 +1371,8 @@ impl SandboxResolver {
             },
             memory_mounts: vec![], // populated by caller when memory stores are resolved
             mounts,
+            credentials,
+            identity_refresh_after_seconds,
         })
     }
 
@@ -1358,6 +1467,142 @@ impl SandboxResolver {
             "Setup networking for pool-claimed sandbox"
         );
         Ok(())
+    }
+
+    pub(crate) async fn task_identity_refresh_delay(
+        &self,
+        sandbox_id: SandboxId,
+        task_id: TaskId,
+    ) -> anyhow::Result<Option<std::time::Duration>> {
+        let Some(sandbox) = queries::get_sandbox(&self.pool, sandbox_id).await? else {
+            return Ok(None);
+        };
+        if !identity_lease_matches(sandbox.config.as_ref(), task_id) {
+            return Ok(None);
+        }
+        let Some(seconds) = identity_lease_refresh_after_seconds(sandbox.config.as_ref()) else {
+            return Ok(None);
+        };
+        Ok(Some(if sandbox.networking_status == "ready" {
+            std::time::Duration::from_secs(seconds.max(1))
+        } else {
+            std::time::Duration::ZERO
+        }))
+    }
+
+    pub(crate) async fn refresh_task_agent_identity_policy(
+        &self,
+        task_id: TaskId,
+        sandbox_id: SandboxId,
+    ) -> anyhow::Result<Option<u64>> {
+        let task = queries::get_task(&self.pool, task_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Agent Identity refresh task no longer exists"))?;
+        if task.sandbox_id != Some(sandbox_id) || task.status != "running" {
+            return Ok(None);
+        }
+        let sandbox = queries::get_sandbox(&self.pool, sandbox_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Agent Identity refresh sandbox no longer exists"))?;
+        if !identity_lease_matches(sandbox.config.as_ref(), task_id) {
+            return Ok(None);
+        }
+        let session_id = task
+            .session_id
+            .ok_or_else(|| anyhow::anyhow!("Agent Identity refresh task has no session"))?;
+        let agent_id = task
+            .agent_id
+            .ok_or_else(|| anyhow::anyhow!("Agent Identity refresh task has no agent"))?;
+        let external_id = sandbox
+            .external_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("Agent Identity refresh sandbox has no external_id"))?;
+        let context = self
+            .build_resolve_context(task_id, Some(session_id), Some(agent_id), task.project_id)
+            .await?;
+        if !context.has_task_identity() {
+            anyhow::bail!("Agent Identity lease exists without a dynamic identity route");
+        }
+        let latest = queries::get_task(&self.pool, task_id).await?;
+        if !matches!(latest, Some(ref current) if current.status == "running" && current.sandbox_id == Some(sandbox_id))
+        {
+            return Ok(None);
+        }
+        self.refresh_reused_sandbox_networking(&sandbox, external_id, &context)
+            .await?;
+        Ok(context.identity_refresh_after_seconds)
+    }
+
+    pub(crate) async fn clear_task_agent_identity_policy(
+        &self,
+        sandbox_id: SandboxId,
+        task_id: TaskId,
+    ) -> anyhow::Result<bool> {
+        let Some(sandbox) = queries::get_sandbox(&self.pool, sandbox_id).await? else {
+            return Ok(false);
+        };
+        if !identity_lease_matches(sandbox.config.as_ref(), task_id) {
+            return Ok(false);
+        }
+
+        let cleanup_result = request_sandbox_networking_reconcile(
+            &self.pool,
+            self.provider.as_ref(),
+            &sandbox,
+            &self.config.llm_egress_allowed_hosts,
+            self.network_policy_queue.as_deref(),
+            &self.xds_authority,
+        )
+        .await;
+        let policy_hash = match cleanup_result {
+            Ok(NetworkingReconcileOutcome::Refreshed { policy_hash })
+            | Ok(NetworkingReconcileOutcome::AlreadyReady { policy_hash }) => policy_hash,
+            Ok(NetworkingReconcileOutcome::NotLimited) => {
+                anyhow::bail!("Agent Identity lease exists on a non-limited sandbox")
+            }
+            Err(error) => {
+                let reason = format!("Agent Identity cleanup failed: {error:#}");
+                let _ = queries::mark_sandbox_error(&self.pool, sandbox_id, Some(&reason)).await;
+                let destroyed = self
+                    .destroy_observed_sandbox(&sandbox, "Agent Identity cleanup failure")
+                    .await
+                    .context("failed to destroy sandbox after Agent Identity cleanup failure")?;
+                if !destroyed {
+                    anyhow::bail!(
+                        "sandbox {sandbox_id} changed state before failed identity cleanup could destroy it"
+                    );
+                }
+                return Err(error);
+            }
+        };
+
+        let mut fingerprint = sandbox
+            .config
+            .as_ref()
+            .and_then(|config| config.get("fingerprint"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        if let Some(object) = fingerprint.as_object_mut() {
+            object.insert(
+                "egress_policy_hash".to_string(),
+                serde_json::Value::String(policy_hash.clone()),
+            );
+        }
+        if !queries::merge_sandbox_config(
+            &self.pool,
+            sandbox_id,
+            &serde_json::json!({
+                "fingerprint": fingerprint,
+                "agent_identity_lease": null,
+            }),
+        )
+        .await?
+        {
+            anyhow::bail!("sandbox {sandbox_id} disappeared before identity cleanup persistence");
+        }
+        self.network_policy_ready.insert(sandbox_id, policy_hash);
+        Ok(true)
     }
 
     async fn load_storage_volume_catalog(
@@ -1762,9 +2007,12 @@ impl SandboxResolver {
         access_context: &CredentialAccessContext,
         environment: Option<&EnvironmentRow>,
         project_id: Option<ProjectId>,
-    ) -> anyhow::Result<Vec<EgressCredentialRoute>> {
+    ) -> anyhow::Result<(
+        Vec<EgressCredentialRoute>,
+        Vec<crate::kernel::agent_identity_provider::IdentityEgressRequestTarget>,
+    )> {
         let Some(environment) = environment else {
-            return Ok(vec![]);
+            return Ok((vec![], vec![]));
         };
         let decoded = decode_environment(&environment.config)?;
 
@@ -1868,7 +2116,101 @@ impl SandboxResolver {
                 }
             }
         }
-        Ok(routes)
+        let mut identity_targets = Vec::new();
+        let services = environment
+            .config
+            .get("egress_services")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for service in services {
+            let service = service
+                .as_object()
+                .ok_or(CredentialRuntimeError::CorruptRecord)?;
+            let auth_source = service
+                .get("auth_source")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("service_credential");
+            if auth_source != "agent_identity" {
+                continue;
+            }
+            if service
+                .get("credential_ref")
+                .is_some_and(|value| !value.is_null())
+                || service.get("inject").is_some_and(|value| !value.is_null())
+            {
+                return Err(CredentialRuntimeError::CorruptRecord.into());
+            }
+            let name = sanitize_external_service_name(
+                service
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or(CredentialRuntimeError::FieldMissing)?,
+            );
+            if name.is_empty() {
+                return Err(CredentialRuntimeError::CorruptRecord.into());
+            }
+            let endpoint = service
+                .get("base_url")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or(CredentialRuntimeError::FieldMissing)?
+                .to_string();
+            let upstream = UpstreamTarget::from_url(&endpoint)
+                .map_err(|_| CredentialRuntimeError::CorruptRecord)?;
+            let upstream_prefix = normalize_external_upstream_prefix(&upstream.prefix);
+            let default_allowed_paths = vec![serde_json::Value::String("/".to_string())];
+            let allowed_paths = match service.get("allowed_paths") {
+                None | Some(serde_json::Value::Null) => &default_allowed_paths,
+                Some(serde_json::Value::Array(paths)) if paths.is_empty() => &default_allowed_paths,
+                Some(serde_json::Value::Array(paths)) => paths,
+                Some(_) => return Err(CredentialRuntimeError::CorruptRecord.into()),
+            };
+            for (index, entry) in allowed_paths.iter().enumerate() {
+                let entry = entry
+                    .as_str()
+                    .filter(|path| path.starts_with('/') && !path.contains(['?', '#']))
+                    .ok_or(CredentialRuntimeError::CorruptRecord)?;
+                let full_path = join_service_path(&upstream_prefix, entry);
+                let route_id = format!("external-identity:{name}:{index}");
+                routes.push(EgressCredentialRoute {
+                    id: route_id.clone(),
+                    kind: EgressKind::External,
+                    exposure: EgressExposure::Transparent,
+                    match_host: upstream.host.clone(),
+                    path_mapping: EgressPathMapping::Passthrough {
+                        matcher: if entry.ends_with('/') {
+                            EgressPathMatcher::Prefix(full_path)
+                        } else {
+                            EgressPathMatcher::Exact(full_path)
+                        },
+                    },
+                    retry_mode: EgressRetryMode::SafeIdempotent,
+                    upstream_host: upstream.host.clone(),
+                    upstream_port: upstream.port,
+                    upstream_tls: upstream.tls,
+                    cluster_name: String::new(),
+                    vetted_addresses: vec![],
+                    inject_headers: vec![],
+                    remove_headers: vec![
+                        "authorization".to_string(),
+                        "cookie".to_string(),
+                        "x-security-agenttoken".to_string(),
+                    ],
+                });
+                identity_targets.push(
+                    crate::kernel::agent_identity_provider::IdentityEgressRequestTarget {
+                        route_id,
+                        endpoint: endpoint.clone(),
+                        host: upstream.host.clone(),
+                        port: upstream.port,
+                        tls: upstream.tls,
+                    },
+                );
+            }
+        }
+        Ok((routes, identity_targets))
     }
 
     /// Resolve task-scoped agent identity via the pluggable provider.
@@ -1878,19 +2220,16 @@ impl SandboxResolver {
         task_id: TaskId,
         session_id: Option<SessionId>,
         project_id: Option<ProjectId>,
-        candidate_hosts: &[String],
+        candidate_targets: &[crate::kernel::agent_identity_provider::IdentityEgressRequestTarget],
     ) -> Result<
         Option<crate::kernel::agent_identity_provider::AgentIdentityInjection>,
         TaskIdentityContextError,
     > {
         use crate::kernel::agent_identity_provider::IdentityResolveContext;
 
-        let Some(agent) = agent else {
-            return Ok(None);
-        };
+        let agent = agent.ok_or(TaskIdentityContextError::ScopeMissing)?;
         if !self.identity_provider.has_config(agent.metadata.as_ref()) {
-            debug!(agent_id = %agent.id, "agent identity: provider disabled, skipping");
-            return Ok(None);
+            return Err(TaskIdentityContextError::ProviderDisabled);
         }
 
         // Provider config is optional (global mode); pass agent_identity block if
@@ -1907,22 +2246,40 @@ impl SandboxResolver {
             .begin()
             .await
             .map_err(|_| TaskIdentityContextError::Database)?;
-        let Some(identity_ctx) = self
+        let captured_identity_ctx = self
             .load_identity_context_for_update(&mut transaction, task_id, project_id)
-            .await?
-        else {
-            debug!(
-                agent_id = %agent.id,
-                task_id = %task_id,
-                "agent identity: no active task identity context, skipping"
-            );
-            return Ok(None);
+            .await?;
+        let has_captured_material = captured_identity_ctx.is_some();
+        let identity_ctx = match captured_identity_ctx {
+            Some(context) => context,
+            None => {
+                self.load_task_actor_context_for_update(&mut transaction, task_id, project_id)
+                    .await?
+            }
         };
+        if candidate_targets.is_empty()
+            || candidate_targets.iter().any(|target| {
+                !Self::identity_host_allowed(&target.host, &self.identity_allowed_hosts)
+            })
+        {
+            return Err(TaskIdentityContextError::NoTrustedHosts);
+        }
+        if has_captured_material
+            && !Self::consume_locked_identity_context(&mut transaction, task_id, project_id).await?
+        {
+            return Err(TaskIdentityContextError::ClaimConflict);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| TaskIdentityContextError::Database)?;
 
-        let mut egress_hosts: Vec<String> = candidate_hosts
+        let mut egress_targets = candidate_targets.to_vec();
+        egress_targets.sort_by(|left, right| left.route_id.cmp(&right.route_id));
+        egress_targets.dedup_by(|left, right| left.route_id == right.route_id);
+        let mut egress_hosts: Vec<String> = egress_targets
             .iter()
-            .cloned()
-            .filter(|host| Self::identity_host_allowed(host, &self.identity_allowed_hosts))
+            .map(|target| target.host.clone())
             .collect();
         egress_hosts.sort();
         egress_hosts.dedup();
@@ -1942,25 +2299,16 @@ impl SandboxResolver {
             session_id: session_id.ok_or(TaskIdentityContextError::ScopeMissing)?,
             task_id,
             identity_token: identity_ctx.identity_token,
+            headers_map: identity_ctx.headers_map,
             auth_code: identity_ctx.auth_code,
             user_name: identity_ctx.user_name,
             provider_config,
             egress_hosts,
+            egress_targets,
         };
 
         match self.identity_provider.resolve(&context).await {
-            Ok(injection) if !injection.targets.is_empty() => {
-                if !Self::consume_locked_identity_context(&mut transaction, task_id, project_id)
-                    .await?
-                {
-                    return Err(TaskIdentityContextError::ClaimConflict);
-                }
-                transaction
-                    .commit()
-                    .await
-                    .map_err(|_| TaskIdentityContextError::Database)?;
-                Ok(Some(injection))
-            }
+            Ok(injection) if !injection.targets.is_empty() => Ok(Some(injection)),
             Ok(_) => Err(TaskIdentityContextError::EmptyInjection),
             Err(e) => {
                 warn!(
@@ -1971,6 +2319,41 @@ impl SandboxResolver {
                 Err(TaskIdentityContextError::Provider)
             }
         }
+    }
+
+    async fn load_task_actor_context_for_update(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        task_id: TaskId,
+        project_id: Option<ProjectId>,
+    ) -> Result<LoadedIdentityContext, TaskIdentityContextError> {
+        let row: Option<(Option<ProjectId>, Option<UserId>, Option<String>)> = sqlx::query_as(
+            r#"
+            SELECT task.project_id, task.user_id, actor.email
+            FROM joysafeter_tasks AS task
+            LEFT JOIN joysafeter_users AS actor ON actor.id = task.user_id
+            WHERE task.id = $1
+            FOR UPDATE OF task
+            "#,
+        )
+        .bind(task_id)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| TaskIdentityContextError::Database)?;
+        let Some((task_project_id, user_id, user_name)) = row else {
+            return Err(TaskIdentityContextError::Database);
+        };
+        if task_project_id != project_id {
+            return Err(TaskIdentityContextError::ProjectMismatch);
+        }
+        let user_id = user_id.ok_or(TaskIdentityContextError::ActorMissing)?;
+        Ok(LoadedIdentityContext {
+            identity_token: String::new(),
+            headers_map: HashMap::new(),
+            auth_code: None,
+            user_name: user_name.unwrap_or_else(|| user_id.to_public()),
+            user_id,
+        })
     }
 
     async fn load_identity_context_for_update(
@@ -2067,14 +2450,12 @@ impl SandboxResolver {
             Some(material) => material.reveal(&encrypted_credential)?,
             None => TaskIdentityMaterialAdapter::from_env().reveal(&encrypted_credential)?,
         };
-        let (identity_token, auth_code) = match credential_kind.as_str() {
-            "auth_code" => (String::new(), Some(credential)),
-            "identity_token" => (credential, None),
-            _ => return Err(TaskIdentityContextError::KindInvalid),
-        };
+        let (identity_token, headers_map, auth_code) =
+            decode_revealed_identity_material(&credential_kind, credential)?;
 
         Ok(Some(LoadedIdentityContext {
             identity_token,
+            headers_map,
             auth_code,
             user_name: user_name.unwrap_or_else(|| user_id.to_public()),
             user_id,
@@ -2125,33 +2506,38 @@ impl SandboxResolver {
         })
     }
 
-    fn merge_identity_into_mcp_routes(
+    fn merge_identity_into_routes(
         routes: &mut [EgressCredentialRoute],
         injection: crate::kernel::agent_identity_provider::AgentIdentityInjection,
-    ) {
+    ) -> Result<(), TaskIdentityContextError> {
         for target in injection.targets {
-            for route in routes.iter_mut().filter(|route| {
-                route.kind == EgressKind::Mcp
-                    && route.exposure == EgressExposure::Placeholder
-                    && route.upstream_host.eq_ignore_ascii_case(&target.host)
-            }) {
-                for (name, value) in &target.inject_headers {
-                    route
-                        .inject_headers
-                        .retain(|(existing, _)| !existing.eq_ignore_ascii_case(name));
-                    route.inject_headers.push((name.clone(), value.clone()));
-                }
-                for header in &target.remove_headers {
-                    if !route
-                        .remove_headers
-                        .iter()
-                        .any(|existing| existing.eq_ignore_ascii_case(header))
-                    {
-                        route.remove_headers.push(header.clone());
-                    }
+            let route = routes
+                .iter_mut()
+                .find(|route| route.id == target.route_id)
+                .ok_or(TaskIdentityContextError::RouteMismatch)?;
+            if !route.upstream_host.eq_ignore_ascii_case(&target.host)
+                || route.upstream_port != target.port
+                || route.upstream_tls != target.tls
+            {
+                return Err(TaskIdentityContextError::RouteMismatch);
+            }
+            for (name, value) in &target.inject_headers {
+                route
+                    .inject_headers
+                    .retain(|(existing, _)| !existing.eq_ignore_ascii_case(name));
+                route.inject_headers.push((name.clone(), value.clone()));
+            }
+            for header in &target.remove_headers {
+                if !route
+                    .remove_headers
+                    .iter()
+                    .any(|existing| existing.eq_ignore_ascii_case(header))
+                {
+                    route.remove_headers.push(header.clone());
                 }
             }
         }
+        Ok(())
     }
 
     async fn load_service_egress_field(
@@ -2819,15 +3205,15 @@ pub(crate) async fn rebuild_sandbox_credentials(
             resolved_env.llm_binding.as_ref(),
             llm_egress_allowed_hosts,
         ));
-        routes.extend(
-            SandboxResolver::build_external_egress(
-                &credential_access,
-                &access_context,
-                environment.as_ref(),
-                session.project_id.or(agent_ref.project_id),
-            )
-            .await?,
-        );
+        let (external_routes, _) = SandboxResolver::build_external_egress(
+            &credential_access,
+            &access_context,
+            environment.as_ref(),
+            session.project_id.or(agent_ref.project_id),
+        )
+        .await?;
+        routes.extend(external_routes);
+        remove_agent_identity_routes(&mut routes);
         let network_mode = effective_network_mode(networking, false)?;
         let mcp_plan = resolve_mcp_runtime_plan_with_access(
             &credential_access,
@@ -2983,6 +3369,29 @@ pub(crate) async fn apply_sandbox_networking_generation_as_authority(
     llm_egress_allowed_hosts: &[String],
     authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
 ) -> anyhow::Result<NetworkingReconcileOutcome> {
+    let sandbox = queries::get_sandbox(pool, sandbox_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("sandbox {sandbox_id} was not found"))?;
+    let credentials = rebuild_sandbox_credentials(pool, &sandbox, llm_egress_allowed_hosts).await?;
+    apply_sandbox_networking_generation_with_credentials_as_authority(
+        pool,
+        provider,
+        sandbox_id,
+        policy_generation,
+        credentials,
+        authority,
+    )
+    .await
+}
+
+async fn apply_sandbox_networking_generation_with_credentials_as_authority(
+    pool: &PgPool,
+    provider: &dyn SandboxProvider,
+    sandbox_id: SandboxId,
+    policy_generation: &queries::NetworkPolicyGeneration,
+    credentials: SandboxCredentials,
+    authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
+) -> anyhow::Result<NetworkingReconcileOutcome> {
     if !authority.is_current() {
         anyhow::bail!("xDS authority changed before policy application");
     }
@@ -3033,7 +3442,6 @@ pub(crate) async fn apply_sandbox_networking_generation_as_authority(
     {
         return Ok(NetworkingReconcileOutcome::NotLimited);
     }
-    let credentials = rebuild_sandbox_credentials(pool, &sandbox, llm_egress_allowed_hosts).await?;
     let desired = DesiredNetworkPolicy::from_inputs(networking, &credentials)?;
     let policy = desired.render_for(sandbox_id);
     crate::sandbox::lds_backend::validate_egress_policy(&sandbox_id, &policy)?;
@@ -3044,16 +3452,15 @@ pub(crate) async fn apply_sandbox_networking_generation_as_authority(
         anyhow::bail!("sandbox {sandbox_id} desired policy changed before authority application");
     }
 
-    let refresh_result = tokio::time::timeout(
-        SETUP_NETWORKING_TIMEOUT,
-        provider.refresh_networking(sandbox_id, external_id, networking, credentials),
+    let refresh_result = apply_ephemeral_networking_to_local_authority(
+        provider,
+        sandbox_id,
+        external_id,
+        networking,
+        credentials,
+        authority,
     )
-    .await
-    .unwrap_or_else(|_| {
-        Err(anyhow::anyhow!(
-            "refresh_networking exceeded {SETUP_NETWORKING_TIMEOUT:?}"
-        ))
-    });
+    .await;
     if let Err(e) = refresh_result {
         let desired_policy = serde_json::json!({
             "fingerprint": sandbox
@@ -3099,6 +3506,61 @@ pub(crate) async fn apply_sandbox_networking_generation_as_authority(
     }
 
     Ok(NetworkingReconcileOutcome::Refreshed { policy_hash })
+}
+
+async fn apply_ephemeral_networking_to_local_authority(
+    provider: &dyn SandboxProvider,
+    sandbox_id: SandboxId,
+    external_id: &str,
+    networking: Option<&serde_json::Value>,
+    credentials: SandboxCredentials,
+    authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
+) -> anyhow::Result<()> {
+    if !authority.is_current() {
+        anyhow::bail!("xDS authority changed before ephemeral policy application");
+    }
+    let policy =
+        DesiredNetworkPolicy::from_inputs(networking, &credentials)?.render_for(sandbox_id);
+    crate::sandbox::lds_backend::validate_egress_policy(&sandbox_id, &policy)?;
+    tokio::time::timeout(
+        SETUP_NETWORKING_TIMEOUT,
+        provider.refresh_networking(sandbox_id, external_id, networking, credentials),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        Err(anyhow::anyhow!(
+            "refresh_networking exceeded {SETUP_NETWORKING_TIMEOUT:?}"
+        ))
+    })
+}
+
+fn remove_agent_identity_routes(routes: &mut Vec<EgressCredentialRoute>) {
+    routes.retain(|route| !route.id.starts_with("external-identity:"));
+}
+
+fn identity_lease_metadata(
+    task_id: TaskId,
+    refresh_after_seconds: Option<u64>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "task_id": task_id.to_string(),
+        "refresh_after_seconds": refresh_after_seconds,
+    })
+}
+
+fn identity_lease_matches(config: Option<&serde_json::Value>, task_id: TaskId) -> bool {
+    config
+        .and_then(|value| value.get("agent_identity_lease"))
+        .and_then(|lease| lease.get("task_id"))
+        .and_then(serde_json::Value::as_str)
+        == Some(task_id.to_string().as_str())
+}
+
+fn identity_lease_refresh_after_seconds(config: Option<&serde_json::Value>) -> Option<u64> {
+    config
+        .and_then(|value| value.get("agent_identity_lease"))
+        .and_then(|lease| lease.get("refresh_after_seconds"))
+        .and_then(serde_json::Value::as_u64)
 }
 
 /// Standalone environment loader for recovery (mirrors `load_environment`).
@@ -3161,6 +3623,11 @@ struct ResolveContext {
     memory_mounts: Vec<(String, String)>,
     /// Platform-resolved sandbox mounts.
     mounts: Vec<SandboxMount>,
+    /// Secret-bearing egress routes resolved for this task. These remain
+    /// process-local and are never serialized into PostgreSQL or Redis.
+    credentials: SandboxCredentials,
+    /// Provider-advertised lifetime for task-scoped identity credentials.
+    identity_refresh_after_seconds: Option<u64>,
 }
 
 impl ResolveContext {
@@ -3173,7 +3640,14 @@ impl ResolveContext {
             sandbox_id,
             external_id,
             runtime_config_generation: self.runtime_config_generation,
+            identity_refresh_after_seconds: self.identity_refresh_after_seconds,
         }
+    }
+
+    fn has_task_identity(&self) -> bool {
+        self.credentials.routes.iter().any(|route| {
+            route.id.starts_with("external-identity:") && !route.inject_headers.is_empty()
+        })
     }
 }
 
@@ -3182,6 +3656,7 @@ pub struct ResolvedSandbox {
     pub sandbox_id: SandboxId,
     pub external_id: String,
     pub runtime_config_generation: i64,
+    pub identity_refresh_after_seconds: Option<u64>,
 }
 
 impl ExpectedFingerprint {
@@ -3671,6 +4146,18 @@ mod egress_tests {
         hosts.iter().map(|host| host.to_string()).collect()
     }
 
+    fn identity_target(
+        host: &str,
+    ) -> crate::kernel::agent_identity_provider::IdentityEgressRequestTarget {
+        crate::kernel::agent_identity_provider::IdentityEgressRequestTarget {
+            route_id: format!("external-identity:{host}:0"),
+            endpoint: format!("https://{host}/"),
+            host: host.to_string(),
+            port: 443,
+            tls: true,
+        }
+    }
+
     #[tokio::test]
     async fn external_egress_rejects_malformed_credential_ref() {
         let pool = PgPoolOptions::new()
@@ -3741,6 +4228,41 @@ mod egress_tests {
         );
     }
 
+    #[tokio::test]
+    async fn external_egress_builds_route_scoped_agent_identity_targets() {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/unused")
+            .expect("create lazy pool");
+        let environment = EnvironmentRow {
+            config: serde_json::json!({
+                "egress_services": [{
+                    "name": "crm-internal",
+                    "base_url": "http://crm.internal:8080/api/",
+                    "auth_source": "agent_identity",
+                    "allowed_paths": ["/customer/"]
+                }]
+            }),
+            image_tag: None,
+        };
+        let access = CredentialMaterialAccessService::new(pool);
+        let context = CredentialAccessContext::runtime(None, None, None);
+
+        let (routes, targets) =
+            SandboxResolver::build_external_egress(&access, &context, Some(&environment), None)
+                .await
+                .expect("build identity egress route");
+
+        assert_eq!(routes.len(), 1);
+        assert_eq!(routes[0].id, "external-identity:crm-internal:0");
+        assert!(routes[0].inject_headers.is_empty());
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].route_id, routes[0].id);
+        assert_eq!(targets[0].endpoint, "http://crm.internal:8080/api/");
+        assert_eq!(targets[0].host, "crm.internal");
+        assert_eq!(targets[0].port, 8080);
+        assert!(!targets[0].tls);
+    }
+
     #[test]
     fn identity_host_allowlist_is_exact_or_dot_boundary_wildcard() {
         let allowed = vec!["api.example.com".to_string(), "*.trusted.test".to_string()];
@@ -3768,6 +4290,75 @@ mod egress_tests {
     }
 
     #[test]
+    fn identity_lease_metadata_uses_canonical_task_id_without_credentials() {
+        let task_id = TaskId::new();
+        let lease = identity_lease_metadata(task_id, Some(120));
+
+        assert_eq!(lease["task_id"], task_id.to_string());
+        assert_eq!(lease["refresh_after_seconds"], 120);
+        assert!(lease.get("credential").is_none());
+        assert!(lease.get("headers").is_none());
+    }
+
+    #[test]
+    fn identity_lease_matches_only_the_owning_task() {
+        let owner = TaskId::new();
+        let other = TaskId::new();
+        let config = serde_json::json!({
+            "agent_identity_lease": identity_lease_metadata(owner, Some(60))
+        });
+
+        assert!(identity_lease_matches(Some(&config), owner));
+        assert!(!identity_lease_matches(Some(&config), other));
+        assert!(!identity_lease_matches(None, owner));
+    }
+
+    #[test]
+    fn static_recovery_removes_agent_identity_routes() {
+        let mut routes = vec![
+            EgressCredentialRoute {
+                id: "external-identity:crm:0".to_string(),
+                kind: EgressKind::External,
+                exposure: EgressExposure::Transparent,
+                match_host: "crm.example.com".to_string(),
+                path_mapping: EgressPathMapping::Passthrough {
+                    matcher: EgressPathMatcher::Prefix("/api/".to_string()),
+                },
+                retry_mode: EgressRetryMode::SafeIdempotent,
+                upstream_host: "crm.example.com".to_string(),
+                upstream_port: 443,
+                upstream_tls: true,
+                cluster_name: String::new(),
+                vetted_addresses: vec![],
+                inject_headers: vec![("authorization".to_string(), "secret".to_string())],
+                remove_headers: vec!["authorization".to_string()],
+            },
+            EgressCredentialRoute {
+                id: "external:static:0".to_string(),
+                kind: EgressKind::External,
+                exposure: EgressExposure::Transparent,
+                match_host: "static.example.com".to_string(),
+                path_mapping: EgressPathMapping::Passthrough {
+                    matcher: EgressPathMatcher::Prefix("/".to_string()),
+                },
+                retry_mode: EgressRetryMode::SafeIdempotent,
+                upstream_host: "static.example.com".to_string(),
+                upstream_port: 443,
+                upstream_tls: true,
+                cluster_name: String::new(),
+                vetted_addresses: vec![],
+                inject_headers: vec![("authorization".to_string(), "static".to_string())],
+                remove_headers: vec!["authorization".to_string()],
+            },
+        ];
+
+        remove_agent_identity_routes(&mut routes);
+
+        assert_eq!(routes.len(), 1);
+        assert_eq!(routes[0].id, "external:static:0");
+    }
+
+    #[test]
     fn identity_headers_merge_only_into_matching_mcp_placeholder_route() {
         let mut routes = vec![EgressCredentialRoute {
             id: "mcp:trusted".to_string(),
@@ -3788,11 +4379,12 @@ mod egress_tests {
             remove_headers: vec!["authorization".to_string()],
         }];
 
-        SandboxResolver::merge_identity_into_mcp_routes(
+        SandboxResolver::merge_identity_into_routes(
             &mut routes,
             crate::kernel::agent_identity_provider::AgentIdentityInjection {
                 targets: vec![
                     crate::kernel::agent_identity_provider::IdentityEgressTarget {
+                        route_id: "mcp:trusted".to_string(),
                         host: "api.example.com".to_string(),
                         port: 443,
                         tls: true,
@@ -3803,8 +4395,10 @@ mod egress_tests {
                         remove_headers: vec!["x-security-agenttoken".to_string()],
                     },
                 ],
+                valid_for_seconds: Some(300),
             },
-        );
+        )
+        .expect("matching route should merge");
 
         assert_eq!(routes[0].inject_headers.len(), 2);
         assert!(routes[0]
@@ -4348,6 +4942,7 @@ mod egress_tests {
         created: Mutex<Vec<SandboxCreateConfig>>,
         create_advances_generation: Mutex<Option<(PgPool, SessionId)>>,
         networking: Mutex<Vec<(SandboxId, Option<serde_json::Value>)>>,
+        networking_credentials: Mutex<Vec<SandboxCredentials>>,
         networking_error: Mutex<Option<String>>,
         networking_teardowns: Mutex<Vec<SandboxId>>,
         start_status_probe: Mutex<Option<(PgPool, SandboxId)>>,
@@ -4473,12 +5068,13 @@ mod egress_tests {
             sandbox_id: SandboxId,
             _sandbox_external_id: &str,
             networking: Option<&serde_json::Value>,
-            _credentials: SandboxCredentials,
+            credentials: SandboxCredentials,
         ) -> anyhow::Result<()> {
             self.networking
                 .lock()
                 .await
                 .push((sandbox_id, networking.cloned()));
+            self.networking_credentials.lock().await.push(credentials);
             if let Some(message) = self.networking_error.lock().await.clone() {
                 anyhow::bail!(message);
             }
@@ -4502,6 +5098,184 @@ mod egress_tests {
                 stop_preserves_state: false,
             }
         }
+    }
+
+    #[tokio::test]
+    async fn local_authority_applies_ephemeral_identity_credentials_without_rebuild() {
+        let provider = RecordingProvider::default();
+        let authority = crate::kernel::xds_authority::XdsAuthorityState::standalone();
+        let guard = authority.ready_guard().expect("standalone authority guard");
+        let sandbox_id = SandboxId::new();
+        let credentials = SandboxCredentials {
+            routes: vec![EgressCredentialRoute {
+                id: "external-identity:crm:0".to_string(),
+                kind: EgressKind::External,
+                exposure: EgressExposure::Transparent,
+                match_host: "crm.example.com".to_string(),
+                path_mapping: EgressPathMapping::Passthrough {
+                    matcher: EgressPathMatcher::Prefix("/api/".to_string()),
+                },
+                retry_mode: EgressRetryMode::SafeIdempotent,
+                upstream_host: "crm.example.com".to_string(),
+                upstream_port: 443,
+                upstream_tls: true,
+                cluster_name: String::new(),
+                vetted_addresses: vec![],
+                inject_headers: vec![(
+                    "X-Security-AgentToken".to_string(),
+                    "ephemeral-token".to_string(),
+                )],
+                remove_headers: vec!["x-security-agenttoken".to_string()],
+            }],
+            proxy_auth_token: Some("runner-token".to_string()),
+        };
+        let networking = serde_json::json!({
+            "type": "limited",
+            "allowed_hosts": []
+        });
+
+        apply_ephemeral_networking_to_local_authority(
+            &provider,
+            sandbox_id,
+            "external-sandbox",
+            Some(&networking),
+            credentials,
+            &guard,
+        )
+        .await
+        .expect("ephemeral credentials should reach local authority");
+
+        let applied = provider.networking_credentials.lock().await;
+        assert_eq!(applied.len(), 1);
+        assert_eq!(
+            applied[0].routes[0].inject_headers,
+            vec![(
+                "X-Security-AgentToken".to_string(),
+                "ephemeral-token".to_string()
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn task_identity_cleanup_replaces_dynamic_policy_and_clears_lease() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+        let sandbox_id = SandboxId::new();
+        let task_id = TaskId::new();
+        let networking = serde_json::json!({"type": "limited", "allowed_hosts": []});
+        let dynamic_credentials = SandboxCredentials {
+            routes: vec![EgressCredentialRoute {
+                id: "external-identity:crm:0".to_string(),
+                kind: EgressKind::External,
+                exposure: EgressExposure::Transparent,
+                match_host: "crm.example.com".to_string(),
+                path_mapping: EgressPathMapping::Passthrough {
+                    matcher: EgressPathMatcher::Prefix("/api/".to_string()),
+                },
+                retry_mode: EgressRetryMode::SafeIdempotent,
+                upstream_host: "crm.example.com".to_string(),
+                upstream_port: 443,
+                upstream_tls: true,
+                cluster_name: String::new(),
+                vetted_addresses: vec![],
+                inject_headers: vec![(
+                    "X-Security-AgentToken".to_string(),
+                    "ephemeral-token".to_string(),
+                )],
+                remove_headers: vec!["x-security-agenttoken".to_string()],
+            }],
+            proxy_auth_token: Some("runner-token".to_string()),
+        };
+        let dynamic_hash =
+            DesiredNetworkPolicy::from_inputs(Some(&networking), &dynamic_credentials)
+                .expect("dynamic policy")
+                .revision()
+                .to_string();
+        let expected = ExpectedFingerprint {
+            image: "identity-cleanup:latest".to_string(),
+            engine_kind: "claude".to_string(),
+            networking: Some(networking),
+            env: HashMap::new(),
+            mounts: vec![],
+            egress_policy_hash: dynamic_hash.clone(),
+        };
+        let mut config =
+            provisioning_config("ready", 100, "Ready", true, &expected, Some("runner-token"));
+        config["agent_identity_lease"] = identity_lease_metadata(task_id, Some(120));
+        queries::create_sandbox(
+            &pool,
+            sandbox_id,
+            "external-identity-cleanup",
+            "recording",
+            "identity-cleanup:latest",
+            None,
+            None,
+            None,
+            Some(&config),
+        )
+        .await
+        .expect("create identity cleanup sandbox");
+        let generation = queries::prepare_desired_network_policy(&pool, sandbox_id, &dynamic_hash)
+            .await
+            .expect("prepare dynamic generation")
+            .into_generation();
+        assert_eq!(
+            queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &generation)
+                .await
+                .expect("mark dynamic policy ready"),
+            queries::NetworkPolicyAckOutcome::Applied
+        );
+        let provider = Arc::new(RecordingProvider::default());
+        let mut resolver_config = JoySafeterConfig::from_env();
+        resolver_config.sandbox_provider = "recording".to_string();
+        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), resolver_config);
+
+        let other_task_id = TaskId::new();
+        assert!(!resolver
+            .clear_task_agent_identity_policy(sandbox_id, other_task_id)
+            .await
+            .expect("foreign task must not clear identity policy"));
+        assert!(provider.networking_credentials.lock().await.is_empty());
+        let sandbox_before_owner_cleanup = queries::get_sandbox(&pool, sandbox_id)
+            .await
+            .expect("load sandbox before owner cleanup")
+            .expect("sandbox exists before owner cleanup");
+        assert!(identity_lease_matches(
+            sandbox_before_owner_cleanup.config.as_ref(),
+            task_id
+        ));
+
+        assert!(resolver
+            .clear_task_agent_identity_policy(sandbox_id, task_id)
+            .await
+            .expect("clear identity policy"));
+
+        let applied = provider.networking_credentials.lock().await;
+        assert_eq!(applied.len(), 1);
+        assert!(applied[0].routes.is_empty());
+        assert_eq!(applied[0].proxy_auth_token.as_deref(), Some("runner-token"));
+        let sandbox = queries::get_sandbox(&pool, sandbox_id)
+            .await
+            .expect("load sandbox")
+            .expect("sandbox exists");
+        assert_eq!(
+            sandbox
+                .config
+                .as_ref()
+                .and_then(|value| value.get("agent_identity_lease")),
+            Some(&serde_json::Value::Null)
+        );
+        assert_eq!(sandbox.networking_status, "ready");
+        assert_ne!(
+            sandbox.networking_applied_hash.as_deref(),
+            Some(dynamic_hash.as_str())
+        );
+
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
     }
 
     struct AckingNetworkPolicyQueue {
@@ -4554,6 +5328,8 @@ mod egress_tests {
             },
             memory_mounts: vec![],
             mounts: vec![],
+            credentials: SandboxCredentials::default(),
+            identity_refresh_after_seconds: None,
         };
         queries::create_sandbox(
             &pool,
@@ -4732,7 +5508,12 @@ mod egress_tests {
         ) -> anyhow::Result<crate::kernel::agent_identity_provider::AgentIdentityInjection>
         {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            Ok(crate::kernel::agent_identity_provider::AgentIdentityInjection { targets: vec![] })
+            Ok(
+                crate::kernel::agent_identity_provider::AgentIdentityInjection {
+                    targets: vec![],
+                    valid_for_seconds: None,
+                },
+            )
         }
 
         async fn cleanup(
@@ -4802,6 +5583,7 @@ mod egress_tests {
                 crate::kernel::agent_identity_provider::AgentIdentityInjection {
                     targets: vec![
                         crate::kernel::agent_identity_provider::IdentityEgressTarget {
+                            route_id: context.egress_targets[0].route_id.clone(),
                             host: context.egress_hosts[0].clone(),
                             port: 443,
                             tls: true,
@@ -4812,6 +5594,7 @@ mod egress_tests {
                             remove_headers: vec!["x-security-agenttoken".to_string()],
                         },
                     ],
+                    valid_for_seconds: Some(120),
                 },
             )
         }
@@ -4977,7 +5760,7 @@ mod egress_tests {
                         task_id,
                         None,
                         Some(project_id),
-                        &["api.example.com".to_string()],
+                        &[identity_target("api.example.com")],
                     )
                     .await
                     .unwrap_err(),
@@ -5021,7 +5804,7 @@ mod egress_tests {
                         malformed_task_id,
                         None,
                         Some(project_id),
-                        &["api.example.com".to_string()],
+                        &[identity_target("api.example.com")],
                     )
                     .await
                     .unwrap_err(),
@@ -5051,7 +5834,7 @@ mod egress_tests {
                         task_id,
                         None,
                         Some(project_id),
-                        &["api.example.com".to_string()],
+                        &[identity_target("api.example.com")],
                     )
                     .await
                     .unwrap_err(),
@@ -5077,7 +5860,7 @@ mod egress_tests {
                         task_id,
                         None,
                         Some(project_id),
-                        &["api.example.com".to_string()],
+                        &[identity_target("api.example.com")],
                     )
                     .await
                     .unwrap_err(),
@@ -5103,7 +5886,7 @@ mod egress_tests {
                         task_id,
                         None,
                         Some(project_id),
-                        &["api.example.com".to_string()],
+                        &[identity_target("api.example.com")],
                     )
                     .await
                     .unwrap_err(),
@@ -5127,7 +5910,7 @@ mod egress_tests {
             );
             assert_eq!(identity_provider.calls.load(Ordering::SeqCst), 0);
 
-            let candidate_hosts = ["api.example.com".to_string()];
+            let candidate_hosts = [identity_target("api.example.com")];
             let first = resolver.resolve_identity_injection(
                 Some(&agent),
                 task_id,

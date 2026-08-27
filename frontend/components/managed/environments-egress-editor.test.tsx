@@ -66,7 +66,13 @@ globalThis.document = dom.window.document
 globalThis.navigator = dom.window.navigator
 globalThis.HTMLElement = dom.window.HTMLElement
 
-import { EgressServicesEditor, emptyEgressService } from './environments-egress-editor'
+import {
+  buildEgressServices,
+  EgressServicesEditor,
+  emptyEgressService,
+  serviceToForm,
+  validateEgressServiceForms,
+} from './environments-egress-editor'
 
 function genericSecret(name: string, id: string): Credential {
   return {
@@ -91,21 +97,97 @@ const CRED_C = 'cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f022'
 describe('EgressServicesEditor terminology', () => {
   afterEach(cleanup)
 
+  it('round-trips Agent Identity without a static credential', () => {
+    const service = buildEgressServices([
+      {
+        ...emptyEgressService(),
+        name: 'crm',
+        baseUrl: 'https://crm.example.com/api/',
+        authSource: 'agent_identity',
+        allowedPaths: '/api/customer/detail\n/api/customer/work/',
+      },
+    ])[0]
+
+    expect(service).toEqual({
+      name: 'crm',
+      kind: 'external',
+      exposure: 'placeholder',
+      base_url: 'https://crm.example.com/api/',
+      auth_source: 'agent_identity',
+      allowed_paths: ['/api/customer/detail', '/api/customer/work/'],
+    })
+    expect(serviceToForm(service).authSource).toBe('agent_identity')
+  })
+
+  it('defaults an empty Agent Identity path list to the service root', () => {
+    const service = buildEgressServices([
+      {
+        ...emptyEgressService(),
+        name: 'crm',
+        baseUrl: 'http://crm.internal:8080/api/',
+        authSource: 'agent_identity',
+      },
+    ])[0]
+
+    expect(service?.allowed_paths).toEqual(['/'])
+  })
+
+  it('keeps static routes on canonical credential_ref', () => {
+    const service = buildEgressServices([
+      {
+        ...emptyEgressService(),
+        name: 'crm',
+        baseUrl: 'https://crm.example.com/api/',
+        credentialRef: CRED_A,
+      },
+    ])[0]
+
+    expect(service).toMatchObject({
+      auth_source: 'service_credential',
+      credential_ref: CRED_A,
+    })
+    expect(service).not.toHaveProperty('service_credential_id')
+  })
+
+  it('requires static credential fields but not Agent Identity credential fields', () => {
+    const errors = validateEgressServiceForms(
+      [
+        {
+          ...emptyEgressService(),
+          name: 'static-cookie',
+          baseUrl: 'https://static.example.com',
+          authType: 'cookie',
+        },
+        {
+          ...emptyEgressService(),
+          name: 'delegated',
+          baseUrl: 'https://identity.example.com',
+          authSource: 'agent_identity',
+        },
+      ],
+      { required: 'required', cookieRequired: 'cookie required' },
+    )
+
+    expect(errors).toEqual({
+      0: { credentialRef: 'required', secretKey: 'cookie required' },
+    })
+  })
+
   it.each([
     {
       locale: 'en' as const,
       baseUrlHint:
-        'The real third-party endpoint (with https). In your skill use http:// for the same address; the platform authenticates the request at the gateway using the selected Service Credential, then re-originates to https.',
-      section: 'Service Credential',
+        'The real third-party endpoint (http or https). In your skill use http:// for the same address; the gateway applies the selected authentication source, then uses the configured protocol upstream.',
+      section: 'Authentication',
       skillHint:
-        'Use this address in your skill; authentication derived from the selected Service Credential is applied automatically.',
+        'Use this address in your skill; the selected authentication source is applied automatically.',
     },
     {
       locale: 'zh' as const,
       baseUrlHint:
-        '填写第三方接口的真实地址（含 https）。skill 内改用 http 访问同一地址；平台会在网关使用所选服务凭据对请求进行认证，然后回源到 https。',
-      section: '服务凭据',
-      skillHint: '在 skill 中使用此地址访问；平台会自动应用基于所选服务凭据生成的认证信息。',
+        '填写第三方接口的真实地址（http 或 https）。Skill 内使用 http 访问同一地址；网关会按所选认证来源自动注入身份，再按配置的协议回源。',
+      section: '身份认证',
+      skillHint: '在 Skill 中使用此地址访问；平台会自动应用所选的认证来源。',
     },
   ])(
     'renders approved $locale Service Credential semantics',
@@ -121,7 +203,7 @@ describe('EgressServicesEditor terminology', () => {
       )
 
       expect(getByText(baseUrlHint)).toBeTruthy()
-      expect(getAllByText(section)).toHaveLength(2)
+      expect(getAllByText(section)).toHaveLength(1)
       expect(getByText(skillHint)).toBeTruthy()
     },
   )

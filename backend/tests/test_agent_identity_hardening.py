@@ -10,6 +10,7 @@ from sqlalchemy import inspect
 
 from app.joysafeter_api.api.v1.agent_identity_capture import (
     _encrypt,
+    environment_uses_agent_identity,
     prepare_agent_identity_capture,
     validate_agent_identity_configuration,
 )
@@ -210,14 +211,33 @@ async def test_prepared_identity_capture_persists_task_scoped_context(
         add=MagicMock(),
         commit=AsyncMock(),
     )
-    request = SimpleNamespace(cookies={"identity": "browser-token"})
+    request = SimpleNamespace(
+        cookies={"identity": "browser-token", "unrelated": "must-not-be-stored"},
+        headers={
+            "cookie": "identity=browser-token; unrelated=must-not-be-stored",
+            "user-agent": "browser-agent",
+            "x-forwarded-for": "10.0.0.8",
+            "authorization": "Bearer platform-session",
+            "x-arbitrary-secret": "must-not-be-stored",
+        },
+    )
     agent = SimpleNamespace(metadata_={})
     user_id = UserId.new()
     project_id = ProjectId.new()
     auth_ctx = SimpleNamespace(user_id=user_id, project_id=project_id)
     monkeypatch.setenv("AGENT_IDENTITY_COOKIE_NAME", "identity")
 
-    hook = await prepare_agent_identity_capture(db, request, auth_ctx, agent)
+    environment = {
+        "config": {
+            "egress_services": [
+                {
+                    "auth_source": "agent_identity",
+                    "base_url": "https://crm.example.com/api/",
+                }
+            ]
+        }
+    }
+    hook = await prepare_agent_identity_capture(db, request, auth_ctx, agent, environment)
     assert hook is not None
     task = SimpleNamespace(id=TaskId.new(), project_id=project_id)
     await hook(task)
@@ -233,8 +253,72 @@ async def test_prepared_identity_capture_persists_task_scoped_context(
     assert context.credential_kind == "identity_token"
     assert context.credential_fingerprint is None
     assert context.encrypted_credential.startswith(f"enc:v2:{TEST_KEY_ID}:")
+    protected = json.loads(
+        CredentialCipher(
+            TEST_KEY,
+            keyring_json=json.dumps({TEST_KEY_ID: TEST_KEY}),
+            write_key_id=TEST_KEY_ID,
+        ).decrypt_stored(context.encrypted_credential)
+    )
+    assert protected == {
+        "headers_map": {
+            "Cookie": "identity=browser-token",
+            "User-Agent": "browser-agent",
+            "X-Forwarded-For": "10.0.0.8",
+        },
+        "identity_token": "browser-token",
+        "version": 1,
+    }
     assert int((context.expires_at - context.captured_at).total_seconds()) == 300
     db.commit.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [
+        None,
+        {"config": {}},
+        {"config": {"egress_services": []}},
+        {"config": {"egress_services": [{"auth_source": "service_credential"}]}},
+    ],
+)
+def test_environment_without_agent_identity_does_not_request_capture(environment: object) -> None:
+    assert environment_uses_agent_identity(environment) is False
+
+
+def test_environment_with_agent_identity_requests_capture() -> None:
+    assert (
+        environment_uses_agent_identity(
+            {"config": {"egress_services": [{"auth_source": "agent_identity"}]}}
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_static_credential_environment_does_not_store_identity_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_IDENTITY_PROVIDER", "jd")
+    monkeypatch.setenv("AGENT_IDENTITY_COOKIE_NAME", "identity")
+    db = SimpleNamespace(execute=AsyncMock(), add=MagicMock(), commit=AsyncMock())
+    request = SimpleNamespace(
+        cookies={"identity": "browser-token"},
+        headers={"cookie": "identity=browser-token"},
+    )
+
+    hook = await prepare_agent_identity_capture(
+        db,
+        request,
+        SimpleNamespace(user_id=UserId.new(), project_id=ProjectId.new()),
+        SimpleNamespace(metadata_={}),
+        {"config": {"egress_services": [{"auth_source": "service_credential"}]}},
+    )
+
+    assert hook is None
+    db.execute.assert_not_awaited()
+    db.add.assert_not_called()
+    db.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio

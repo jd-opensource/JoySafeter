@@ -8,3 +8,4 @@ from typing import Literal
 class CapturedIdentityCredential:
     kind: Literal["auth_code", "identity_token"]
     value: str
+    headers_map: dict[str, str] | None = None

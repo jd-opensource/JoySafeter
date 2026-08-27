@@ -1256,19 +1256,25 @@ const zh = {
         storageMounts: '数据卷挂载',
         egressServices: '第三方服务',
         egressServicesHint:
-          'Skill 直接使用真实服务地址访问；平台会自动应用基于所选服务凭据生成的认证值，且不会将这些值暴露给沙箱。',
+          'Skill 通过网关访问所配置的服务；平台会自动应用所选认证来源，且不会将身份材料暴露给沙箱。',
         addEgressService: '添加服务',
         removeEgressService: '移除服务',
         egressName: '服务名',
         egressBaseUrl: '真实地址',
         egressBaseUrlHint:
-          '填写第三方接口的真实地址（含 https）。skill 内改用 http 访问同一地址；平台会在网关使用所选服务凭据对请求进行认证，然后回源到 https。',
+          '填写第三方接口的真实地址（http 或 https）。Skill 内使用 http 访问同一地址；网关会按所选认证来源自动注入身份，再按配置的协议回源。',
         egressAllowedPaths: '允许的接口路径',
         egressAllowedPathsHint:
-          '一行一个路径。以 / 结尾为前缀匹配（该目录下全部），否则为精确匹配（仅该接口）。留空 = 放行该地址下所有接口；高权限服务凭据建议逐条列出以防越权。',
+          '一行一个路径。以 / 结尾为前缀匹配（该目录下全部），否则为精确匹配（仅该接口）。留空 = 放行该上游主机的全部路径；高权限服务建议逐条列出以防越权。',
         egressAllowedPathsPlaceholder: '/api/warning/getWarningDetailById\n/api/warning/work/',
         egressSectionBasic: '基本信息',
-        egressSectionCredential: '服务凭据',
+        egressSectionCredential: '身份认证',
+        egressAuthSource: '认证来源',
+        egressAuthSourceStatic: '静态服务凭据',
+        egressAuthSourceAgentIdentity: 'Agent Identity（当前执行者）',
+        egressStaticCredentialHint: '网关自动注入所选的静态服务凭据。',
+        egressAgentIdentityHint:
+          'Task 启动时自动兑换当前执行者身份，仅对允许的接口路径注入；绝不会回退使用 Agent 创建者身份。',
         egressSectionAccess: '访问控制',
         egressSectionPreview: '预览',
         egressNoServiceCredentialHint: '还没有第三方密钥？',
@@ -1296,8 +1302,7 @@ const zh = {
         egressCookieNameTooltip: '保存完整 Cookie header 字符串的凭据字段。',
         egressCookies: 'Cookie Header 字段',
         egressSkillExample: 'Skill 使用',
-        egressSkillExampleHint:
-          '在 skill 中使用此地址访问；平台会自动应用基于所选服务凭据生成的认证信息。',
+        egressSkillExampleHint: '在 Skill 中使用此地址访问；平台会自动应用所选的认证来源。',
         egressInjectExample: '动态注入',
         validation: {
           required: '此项为必填项',

@@ -43,7 +43,6 @@ pub struct HttpEgressReference {
     pub inject_kind: String,
     pub credential_field: String,
     pub header: Option<String>,
-    pub cookie_name: Option<String>,
     pub source_paths: Vec<String>,
     pub index: usize,
     pub name: Option<String>,
@@ -354,6 +353,18 @@ fn encode_environment_inner(
                 .ok_or(CredentialRuntimeError::CorruptRecord)?
             {
                 let mut service = object(service)?.clone();
+                let auth_source = service
+                    .get("auth_source")
+                    .map(|value| require_non_empty_string(Some(value)))
+                    .transpose()?
+                    .unwrap_or("service_credential")
+                    .to_ascii_lowercase();
+                if auth_source == "agent_identity" {
+                    service.remove("credential_ref");
+                    service.remove("inject");
+                    encoded_services.push(Value::Object(service));
+                    continue;
+                }
                 let credential_id = optional_credential_id(&service, "credential_ref", "$")?
                     .map(|(credential_id, _)| credential_id);
                 if let Some(credential_id) = credential_id {
@@ -570,6 +581,28 @@ fn decode_http_egress(
     for (index, service) in services.iter().enumerate() {
         let service = object(service)?;
         reject_keys(service, &["service_credential_id"])?;
+        let auth_source = service
+            .get("auth_source")
+            .map(|value| require_non_empty_string(Some(value)))
+            .transpose()?
+            .unwrap_or("service_credential")
+            .to_ascii_lowercase();
+        if !matches!(
+            auth_source.as_str(),
+            "service_credential" | "agent_identity"
+        ) {
+            return Err(CredentialRuntimeError::CorruptRecord);
+        }
+        if auth_source == "agent_identity" {
+            if service
+                .get("credential_ref")
+                .is_some_and(|value| !value.is_null())
+                || service.get("inject").is_some_and(|value| !value.is_null())
+            {
+                return Err(CredentialRuntimeError::CorruptRecord);
+            }
+            continue;
+        }
         let (credential_id, credential_paths) = optional_credential_id(
             service,
             "credential_ref",
@@ -582,7 +615,7 @@ fn decode_http_egress(
             None | Some(Value::Null) => &empty_inject,
             Some(inject) => object(inject)?,
         };
-        reject_keys(inject, &["secret_key"])?;
+        reject_keys(inject, &["secret_key", "cookie_name", "cookies"])?;
         let kind = inject_kind(inject)?;
         let (credential_field, field_keys) = credential_field(inject, default_field(&kind))?;
         let allowed_paths = match service.get("allowed_paths") {
@@ -605,7 +638,6 @@ fn decode_http_egress(
             inject_kind: kind,
             credential_field,
             header: optional_string(inject.get("header"))?,
-            cookie_name: optional_string(inject.get("cookie_name"))?,
             source_paths,
             index,
             name: optional_string(service.get("name"))?,
@@ -980,6 +1012,33 @@ mod tests {
         }))
         .unwrap();
         assert!(empty.credential_ids().is_empty());
+    }
+
+    #[test]
+    fn environment_reader_skips_agent_identity_routes() {
+        let decoded = decode_environment(&json!({
+            "egress_services": [
+                {
+                    "name": "crm",
+                    "base_url": "https://crm.example.com/api/",
+                    "auth_source": "agent_identity",
+                    "allowed_paths": ["/customer/"]
+                },
+                {
+                    "name": "erp",
+                    "base_url": "https://erp.example.com/",
+                    "credential_ref": CREDENTIAL_A,
+                    "inject": {"type": "cookie", "credential_field": "COOKIE_HEADER"}
+                }
+            ]
+        }))
+        .expect("decode mixed egress routes");
+
+        assert_eq!(decoded.http_egress.len(), 1);
+        assert_eq!(
+            decoded.http_egress[0].credential_id.to_string(),
+            CREDENTIAL_A
+        );
     }
 
     #[test]

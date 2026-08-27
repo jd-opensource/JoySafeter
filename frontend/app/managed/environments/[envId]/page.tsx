@@ -56,6 +56,7 @@ import {
   buildEgressServices,
   emptyEgressService,
   serviceToForm,
+  validateEgressServiceForms,
   type EgressServiceErrorField,
   type EgressServiceErrors,
   type EgressServiceForm,
@@ -730,16 +731,9 @@ function EnvironmentDetailPageInner({ params }: { params: Promise<{ envId: strin
             <Button
               onClick={() => {
                 // Validate egress services before save
-                const errors: EgressServiceErrors = {}
-                egressServices.forEach((svc, idx) => {
-                  const e: Record<string, string> = {}
-                  if (!svc.name.trim()) e.name = t('managed.environments.validation.required')
-                  if (!svc.baseUrl.trim()) e.baseUrl = t('managed.environments.validation.required')
-                  if (!svc.credentialRef.trim())
-                    e.credentialRef = t('managed.environments.validation.required')
-                  if (svc.authType === 'cookie' && !svc.secretKey.trim())
-                    e.secretKey = t('managed.environments.validation.cookieRequired')
-                  if (Object.keys(e).length) errors[idx] = e
+                const errors: EgressServiceErrors = validateEgressServiceForms(egressServices, {
+                  required: t('managed.environments.validation.required'),
+                  cookieRequired: t('managed.environments.validation.cookieRequired'),
                 })
                 setEgressErrors(errors)
                 if (Object.keys(errors).length > 0) return

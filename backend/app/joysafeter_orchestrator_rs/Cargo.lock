@@ -2157,6 +2157,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "futures",
  "gethostname",
  "md5",
  "redis",

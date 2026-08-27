@@ -37,6 +37,7 @@ use crate::kernel::harness_input_builder::HarnessInputBuilder;
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_bridge::SandboxBridge;
+use crate::kernel::sandbox_resolver::SandboxResolver;
 use crate::runtime_config::RuntimeConfig;
 use crate::sandbox::provider::SandboxProvider;
 
@@ -54,6 +55,7 @@ pub struct AgentBridgeService {
     pool: PgPool,
     config: JoySafeterConfig,
     sandbox_provider: Arc<dyn SandboxProvider>,
+    sandbox_resolver: Arc<SandboxResolver>,
     runtime_config: Arc<RuntimeConfig>,
     connection_semaphore: Arc<Semaphore>,
     execution_semaphore: Arc<Semaphore>,
@@ -69,6 +71,7 @@ impl AgentBridgeService {
         pool: PgPool,
         config: JoySafeterConfig,
         sandbox_provider: Arc<dyn SandboxProvider>,
+        sandbox_resolver: Arc<SandboxResolver>,
         redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
         memory_subscribers: Arc<MemoryStoreSubscribers>,
         runtime_config: Arc<RuntimeConfig>,
@@ -82,6 +85,7 @@ impl AgentBridgeService {
             pool,
             config,
             sandbox_provider,
+            sandbox_resolver,
             runtime_config,
             connection_semaphore: Arc::new(Semaphore::new(max_connections)),
             execution_semaphore: Arc::new(Semaphore::new(max_executions)),
@@ -117,6 +121,7 @@ impl AgentBridge for AgentBridgeService {
         let pool = self.pool.clone();
         let config = self.config.clone();
         let sandbox_provider = self.sandbox_provider.clone();
+        let sandbox_resolver = self.sandbox_resolver.clone();
         let runtime_config = self.runtime_config.clone();
         let redis_coordinator = self.redis_coordinator.clone();
         let memory_subscribers = self.memory_subscribers.clone();
@@ -327,6 +332,7 @@ impl AgentBridge for AgentBridgeService {
                     memory_subscribers.clone(),
                     registry.clone(),
                     &runtime_config,
+                    sandbox_resolver.clone(),
                 )
                 .await;
             } else if is_reconnect {
@@ -343,6 +349,7 @@ impl AgentBridge for AgentBridgeService {
                 &queue,
                 &config,
                 &sandbox_provider,
+                &sandbox_resolver,
                 sandbox_db_id,
                 &sandbox_external_id,
                 linked_session_id,
@@ -411,6 +418,7 @@ async fn multi_task_loop(
     queue: &TaskQueue,
     config: &JoySafeterConfig,
     sandbox_provider: &Arc<dyn SandboxProvider>,
+    sandbox_resolver: &Arc<SandboxResolver>,
     sandbox_db_id: SandboxId,
     sandbox_external_id: &str,
     linked_session_id: Option<SessionId>,
@@ -841,10 +849,25 @@ async fn multi_task_loop(
             heartbeat_timeout,
             memory_subscribers.clone(),
             bridge_store.clone(),
+            sandbox_resolver,
             &task_cancel,
             Some(queue),
         )
         .await;
+
+        if !matches!(result, TaskResult::Disconnected) {
+            if let Err(error) = sandbox_resolver
+                .clear_task_agent_identity_policy(sandbox_db_id, task_id)
+                .await
+            {
+                error!(
+                    sandbox_id = %sandbox_db_id,
+                    task_id = %task_id,
+                    error = %error,
+                    "Agent Identity policy cleanup failed closed"
+                );
+            }
+        }
 
         // Clear task on bridge
         *bridge.current_task_id.lock().await = None;
@@ -955,6 +978,7 @@ async fn run_single_task(
     heartbeat_timeout: Duration,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
     bridge_store: Arc<dyn BridgeStore>,
+    sandbox_resolver: &SandboxResolver,
     task_cancel: &tokio_util::sync::CancellationToken,
     queue: Option<&TaskQueue>,
 ) -> TaskResult {
@@ -1004,10 +1028,68 @@ async fn run_single_task(
     let mut task_completed = false;
     let mut task_error = false;
     let mut cancel_sent = false;
+    let mut identity_refresh_deadline = sandbox_resolver
+        .task_identity_refresh_delay(sandbox_db_id, task_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|delay| Instant::now() + delay);
 
     loop {
         // Build select branches based on HITL state
         tokio::select! {
+            _ = tokio::time::sleep_until(
+                identity_refresh_deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(86_400))
+            ), if identity_refresh_deadline.is_some() => {
+                match sandbox_resolver
+                    .refresh_task_agent_identity_policy(task_id, sandbox_db_id)
+                    .await
+                {
+                    Ok(Some(seconds)) => {
+                        identity_refresh_deadline =
+                            Some(Instant::now() + Duration::from_secs(seconds.max(1)));
+                    }
+                    Ok(None) => identity_refresh_deadline = None,
+                    Err(error) => {
+                        error!(
+                            sandbox_id = %sandbox_db_id,
+                            task_id = %task_id,
+                            error = %error,
+                            "Agent Identity refresh failed; cancelling task fail-closed"
+                        );
+                        let reason = "Agent Identity credential refresh failed";
+                        let _ = tx
+                            .send(OrchestratorMessage {
+                                payload: Some(orchestrator_message::Payload::Cancel(
+                                    proto::CancelTask { reason: reason.to_string() },
+                                )),
+                            })
+                            .await;
+                        let transitioned = transition_running_task_and_emit_idle(
+                            pool,
+                            event_bus,
+                            task_id,
+                            expected_owner_epoch,
+                            session_id,
+                            sandbox_db_id,
+                            "failed",
+                            Some(reason),
+                            json!({"type": "error", "message": reason, "code": "AGENT_IDENTITY_REFRESH_FAILED"}),
+                            "agent identity refresh",
+                        )
+                        .await;
+                        if transitioned {
+                            return TaskResult::Failed(reason.to_string());
+                        }
+                        if let Some(result) = load_terminal_task_result(pool, task_id).await {
+                            return result;
+                        }
+                        return TaskResult::Failed(reason.to_string());
+                    }
+                }
+                continue;
+            }
+
             // Cancel signal (per-task token — does not poison the bridge)
             // Guard: only fire once to prevent duplicate CancelTask/status_idle events
             _ = task_cancel.cancelled(), if !cancel_sent => {
@@ -5247,6 +5329,7 @@ async fn handle_reconnect_with_event_loop(
     memory_subscribers: Arc<MemoryStoreSubscribers>,
     bridge_store: Arc<dyn BridgeStore>,
     runtime_config: &RuntimeConfig,
+    sandbox_resolver: Arc<SandboxResolver>,
 ) {
     // Verify task exists and belongs to this sandbox
     let task = match queries::get_task(pool, active_task_id).await {
@@ -5344,10 +5427,25 @@ async fn handle_reconnect_with_event_loop(
         heartbeat_timeout,
         memory_subscribers.clone(),
         bridge_store,
+        sandbox_resolver.as_ref(),
         &task_cancel,
         None,
     )
     .await;
+
+    if !matches!(result, TaskResult::Disconnected) {
+        if let Err(error) = sandbox_resolver
+            .clear_task_agent_identity_policy(sandbox_db_id, active_task_id)
+            .await
+        {
+            error!(
+                sandbox_id = %sandbox_db_id,
+                task_id = %active_task_id,
+                error = %error,
+                "Agent Identity policy cleanup failed closed after reconnect"
+            );
+        }
+    }
 
     // Clear task on bridge
     *bridge.current_task_id.lock().await = None;
@@ -7094,6 +7192,7 @@ pub async fn start_grpc_server(
     pool: PgPool,
     config: JoySafeterConfig,
     sandbox_provider: Arc<dyn SandboxProvider>,
+    sandbox_resolver: Arc<SandboxResolver>,
     redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
     runtime_config: Arc<RuntimeConfig>,
@@ -7106,6 +7205,7 @@ pub async fn start_grpc_server(
         pool,
         config.clone(),
         sandbox_provider,
+        sandbox_resolver,
         redis_coordinator,
         memory_subscribers,
         runtime_config,

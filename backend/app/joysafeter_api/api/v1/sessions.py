@@ -50,6 +50,7 @@ from app.joysafeter_domain.schemas.joysafeter_session import (
 from app.joysafeter_domain.schemas.joysafeter_skill import SkillUsageResponse as SessionSkillUsageResponse
 from app.joysafeter_domain.schemas.joysafeter_task import MAX_PROMPT_CHARS
 from app.joysafeter_domain.services.joysafeter_session_service import SessionService
+from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_domain.services.joysafeter_storage_mount_service import StorageMountService
 from app.joysafeter_shared.common.app_errors import (
     InvalidRequestError,
@@ -1656,11 +1657,18 @@ async def send_event(
             )
             identity_hook = None
             if agent_obj is not None:
+                environment = None
+                if session.environment_id is not None:
+                    environment = await EnvironmentService(db).get_environment(
+                        session.environment_id,
+                        project_id=auth_ctx.project_id,
+                    )
                 identity_hook = await prepare_agent_identity_capture(
                     db,
                     request,
                     auth_ctx,
                     agent_obj,
+                    environment,
                 )
             task, _created = await TaskSubmissionService(db).create_and_dispatch(
                 agent_id=session.agent_id,

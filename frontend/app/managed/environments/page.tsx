@@ -60,6 +60,7 @@ import {
   EgressServicesEditor,
   buildEgressServices,
   emptyEgressService,
+  validateEgressServiceForms,
   type EgressServiceErrorField,
   type EgressServiceErrors,
   type EgressServiceForm,
@@ -245,17 +246,9 @@ export default function EnvironmentListPage() {
     if (!name.trim()) {
       errors.name = t('managed.environments.validation.nameRequired')
     }
-    egressServices.forEach((service, index) => {
-      const serviceErrors: CreateEnvironmentErrors['egressServices'][number] = {}
-      if (!service.name.trim()) serviceErrors.name = requiredMessage
-      if (!service.baseUrl.trim()) serviceErrors.baseUrl = requiredMessage
-      if (!service.credentialRef.trim()) serviceErrors.credentialRef = requiredMessage
-      if (service.authType === 'cookie' && !service.secretKey.trim()) {
-        serviceErrors.secretKey = t('managed.environments.validation.cookieRequired')
-      }
-      if (Object.keys(serviceErrors).length > 0) {
-        errors.egressServices[index] = serviceErrors
-      }
+    errors.egressServices = validateEgressServiceForms(egressServices, {
+      required: requiredMessage,
+      cookieRequired: t('managed.environments.validation.cookieRequired'),
     })
     return errors
   }

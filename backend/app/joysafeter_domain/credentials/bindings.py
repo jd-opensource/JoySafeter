@@ -98,7 +98,6 @@ class EgressInjectPolicy:
     kind: EgressInjectKind
     credential_field: CredentialFieldName
     header: str | None = None
-    cookie_name: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, EgressInjectKind):
@@ -107,10 +106,7 @@ class EgressInjectPolicy:
             raise TypeError("egress inject credential field must be a CredentialFieldName")
         if self.header is not None and not isinstance(self.header, str):
             raise TypeError("egress inject header must be a string")
-        if self.cookie_name is not None and not isinstance(self.cookie_name, str):
-            raise TypeError("egress inject cookie name must be a string")
         header = self.header
-        cookie_name = self.cookie_name
         if header is not None and not _HTTP_TOKEN.fullmatch(header):
             raise ValueError("egress inject header must be a single HTTP header name")
         if self.kind in {EgressInjectKind.API_KEY, EgressInjectKind.RAW_HEADER} and not header:
@@ -120,12 +116,7 @@ class EgressInjectPolicy:
         if self.kind is EgressInjectKind.COOKIE:
             if header is not None:
                 raise ValueError("cookie injection does not accept a header")
-            if not cookie_name or _HTTP_TOKEN.fullmatch(cookie_name) is None:
-                raise ValueError("cookie injection requires a valid cookie name")
-        elif cookie_name is not None:
-            raise ValueError("cookie name is only valid for cookie injection")
         object.__setattr__(self, "header", header)
-        object.__setattr__(self, "cookie_name", cookie_name)
 
 
 @dataclass(frozen=True, slots=True)

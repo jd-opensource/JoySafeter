@@ -351,6 +351,15 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Start gRPC server
+    let grpc_sandbox_resolver = Arc::new(
+        kernel::sandbox_resolver::SandboxResolver::new(
+            db_pool.clone(),
+            sandbox_provider.clone(),
+            config.clone(),
+        )
+        .with_network_policy_control(xds_authority.clone(), ha.network_policy_queue.clone())
+        .with_identity_provider(identity_provider.clone()),
+    );
     let grpc_handle = grpc::server::start_grpc_server(
         config.grpc_addr(),
         bridge_store.clone(),
@@ -359,6 +368,7 @@ async fn main() -> anyhow::Result<()> {
         db_pool.clone(),
         config.clone(),
         sandbox_provider.clone(),
+        grpc_sandbox_resolver,
         redis_coordinator.clone(),
         memory_subscribers.clone(),
         runtime_config.clone(),

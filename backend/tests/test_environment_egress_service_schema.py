@@ -114,6 +114,58 @@ def test_environment_egress_service_requires_credential_id():
         )
 
 
+def test_environment_egress_service_accepts_agent_identity_without_static_credential():
+    config = EnvironmentConfig(
+        egress_services=[
+            {
+                "name": "crm",
+                "base_url": "https://crm.example.com/api/",
+                "auth_source": "agent_identity",
+                "allowed_paths": ["/api/customer/detail", "/api/customer/work/"],
+            }
+        ]
+    )
+
+    service = config.egress_services[0]
+    assert service.auth_source == "agent_identity"
+    assert service.credential_ref is None
+    assert service.inject is None
+    assert service.allowed_paths == ["/api/customer/detail", "/api/customer/work/"]
+    assert extract_environment_credential_references(config) == []
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"credential_ref": str(_CRM_CRED)},
+        {"inject": {"type": "bearer", "credential_field": "ACCESS_TOKEN"}},
+    ],
+)
+def test_environment_egress_service_rejects_static_fields_for_agent_identity(patch):
+    service = {
+        "name": "crm",
+        "base_url": "https://crm.example.com/api/",
+        "auth_source": "agent_identity",
+        **patch,
+    }
+
+    with pytest.raises(ValidationError, match="agent_identity"):
+        EnvironmentConfig(egress_services=[service])
+
+
+def test_environment_egress_service_requires_credential_for_static_auth_source():
+    with pytest.raises(ValidationError, match="credential_ref"):
+        EnvironmentConfig(
+            egress_services=[
+                {
+                    "name": "crm",
+                    "base_url": "https://crm.example.com/api/",
+                    "auth_source": "service_credential",
+                }
+            ]
+        )
+
+
 def test_environment_egress_service_rejects_duplicate_names():
     with pytest.raises(ValidationError):
         EnvironmentConfig(

@@ -334,6 +334,9 @@ async fn schedule_single_task(
             if let Some(status) = crate::db::models::TaskStatus::from_str(&task.status) {
                 if status.is_terminal() {
                     info!(task_id = %task_id, "Task became terminal before enqueue, skipping");
+                    let _ = resolver
+                        .clear_task_agent_identity_policy(resolved_sandbox.sandbox_id, task_id)
+                        .await;
                     return Ok(());
                 }
             }
@@ -354,6 +357,9 @@ async fn schedule_single_task(
             Err(error) => {
                 let error = anyhow::Error::new(error);
                 if should_retry_generation_change(&error, generation_retries) {
+                    let _ = resolver
+                        .clear_task_agent_identity_policy(resolved_sandbox.sandbox_id, task_id)
+                        .await;
                     generation_retries += 1;
                     warn!(
                         task_id = %task_id,
@@ -377,13 +383,21 @@ async fn schedule_single_task(
                     }
                 }
 
+                let _ = resolver
+                    .clear_task_agent_identity_policy(resolved_sandbox.sandbox_id, task_id)
+                    .await;
                 return Err(error);
             }
         }
     };
 
     // --- Push sandbox wakeup ---
-    queue.push(sandbox_db_id, task_id).await?;
+    if let Err(error) = queue.push(sandbox_db_id, task_id).await {
+        let _ = resolver
+            .clear_task_agent_identity_policy(sandbox_db_id, task_id)
+            .await;
+        return Err(error);
+    }
 
     // --- Notify bridge if connected ---
     if let Some(bridge) = bridge_store.get_by_db_id(sandbox_db_id) {

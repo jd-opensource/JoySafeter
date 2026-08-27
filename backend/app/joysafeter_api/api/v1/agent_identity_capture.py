@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -30,6 +31,28 @@ from app.joysafeter_shared.common.joysafeter_auth.context import JoySafeterAuthC
 logger = logging.getLogger(__name__)
 
 IdentityCaptureHook = Callable[[JoySafeterTask], Awaitable[None]]
+
+
+def environment_uses_agent_identity(environment: Any | None) -> bool:
+    if environment is None:
+        return False
+    if isinstance(environment, Mapping):
+        config = environment.get("config", environment)
+    else:
+        config = getattr(environment, "config", None)
+    if hasattr(config, "model_dump"):
+        config = config.model_dump(mode="python")
+    if not isinstance(config, Mapping):
+        return False
+    services = config.get("egress_services")
+    if not isinstance(services, list):
+        return False
+    for service in services:
+        if hasattr(service, "model_dump"):
+            service = service.model_dump(mode="python")
+        if isinstance(service, Mapping) and service.get("auth_source") == "agent_identity":
+            return True
+    return False
 
 
 def validate_agent_identity_configuration() -> None:
@@ -75,6 +98,7 @@ async def prepare_agent_identity_capture(
     request: Request | Any | None,
     auth_ctx: JoySafeterAuthContext,
     agent: Any,
+    environment: Any | None,
     identity_auth_code: str | None = None,
 ) -> IdentityCaptureHook | None:
     """Validate and encrypt identity input before a task is created.
@@ -84,12 +108,10 @@ async def prepare_agent_identity_capture(
     """
     if resolve_agent_identity_provider() is AgentIdentityProvider.NONE:
         return None
+    if not environment_uses_agent_identity(environment):
+        return None
 
-    agent_metadata = getattr(agent, "metadata_", None) or getattr(agent, "metadata", None)
-    if isinstance(agent_metadata, dict):
-        identity_config = agent_metadata.get("agent_identity")
-        if isinstance(identity_config, dict) and not identity_config.get("enabled", True):
-            return None
+    _ = agent
 
     captured_credential = capture_identity_credential(request, identity_auth_code)
     if captured_credential is None:
@@ -98,10 +120,19 @@ async def prepare_agent_identity_capture(
     credential_kind = captured_credential.kind
     credential = captured_credential.value
     credential_fingerprint = hashlib.sha256(credential.encode()).hexdigest() if credential_kind == "auth_code" else None
-    encrypted_credential = _encrypt(
-        credential,
-        os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", ""),
-    )
+    protected_material = credential
+    if credential_kind == "identity_token":
+        protected_material = json.dumps(
+            {
+                "version": 1,
+                "identity_token": credential,
+                "headers_map": captured_credential.headers_map or {},
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    encrypted_credential = _encrypt(protected_material, os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", ""))
     captured_at = datetime.now(timezone.utc)
     expires_at = captured_at + _context_ttl()
     project_id = auth_ctx.project_id

@@ -299,19 +299,27 @@ export interface EnvironmentEgressServiceInject {
   type?: 'bearer' | 'api_key' | 'raw_header' | 'cookie' | string
   credential_field?: string
   header?: string
-  cookie_name?: string
-  cookies?: Record<string, string>
 }
 
-export interface EnvironmentEgressService {
+type EnvironmentEgressServiceBase = {
   name: string
   kind?: 'external' | string
   exposure?: 'placeholder' | 'transparent' | string
   base_url: string
-  credential_ref: CredentialId
-  inject?: EnvironmentEgressServiceInject
   allowed_paths?: string[]
 }
+
+export type EnvironmentEgressService =
+  | (EnvironmentEgressServiceBase & {
+      auth_source?: 'service_credential'
+      credential_ref: CredentialId
+      inject?: EnvironmentEgressServiceInject
+    })
+  | (EnvironmentEgressServiceBase & {
+      auth_source: 'agent_identity'
+      credential_ref?: never
+      inject?: never
+    })
 
 export interface CanonicalEnvironmentCredentialReferences {
   direct_credential_ids: CredentialId[]

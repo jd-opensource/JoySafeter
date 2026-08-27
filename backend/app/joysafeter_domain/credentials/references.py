@@ -165,7 +165,6 @@ class SnapshotHttpEgressReference:
     inject_kind: str
     credential_field: str
     header: str | None
-    cookie_name: str | None
     source_paths: tuple[str, ...] = ()
     index: int | None = None
     name: str | None = None
@@ -356,6 +355,16 @@ def _decode_http_egress(
     for index, service in enumerate(raw_services):
         service_mapping = _mapping(service, label=f"HTTP egress service[{index}]")
         _reject_keys(service_mapping, ("service_credential_id",), label=f"HTTP egress service[{index}]")
+        auth_source = _required_text(
+            service_mapping.get("auth_source", "service_credential"),
+            label=f"HTTP egress auth source[{index}]",
+        ).lower()
+        if auth_source not in {"service_credential", "agent_identity"}:
+            raise _corrupt(f"HTTP egress auth source[{index}] is unsupported")
+        if auth_source == "agent_identity":
+            if service_mapping.get("credential_ref") is not None or service_mapping.get("inject") is not None:
+                raise _corrupt(f"HTTP egress service[{index}] agent_identity auth contains static credential fields")
+            continue
         credential_id, credential_paths = _optional_credential_id(
             service_mapping,
             "credential_ref",
@@ -370,7 +379,7 @@ def _decode_http_egress(
         )
         raw_inject = service_mapping.get("inject")
         inject = {} if raw_inject is None else _mapping(raw_inject, label=f"HTTP egress inject[{index}]")
-        _reject_keys(inject, ("secret_key",), label=f"HTTP egress inject[{index}]")
+        _reject_keys(inject, ("secret_key", "cookie_name", "cookies"), label=f"HTTP egress inject[{index}]")
         inject_kind = _required_text(
             inject.get("type", "bearer"),
             label=f"HTTP egress inject kind[{index}]",
@@ -404,10 +413,6 @@ def _decode_http_egress(
                 inject_kind=inject_kind,
                 credential_field=credential_field,
                 header=_optional_text(inject.get("header"), label=f"HTTP egress header[{index}]"),
-                cookie_name=_optional_text(
-                    inject.get("cookie_name"),
-                    label=f"HTTP egress cookie name[{index}]",
-                ),
                 source_paths=(
                     *credential_paths,
                     *(f"{path_prefix}.egress_services[*].inject.{key}" for key in field_keys),

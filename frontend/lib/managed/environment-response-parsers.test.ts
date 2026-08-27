@@ -114,6 +114,102 @@ describe('environment response parsers', () => {
     expect(environment.config?.egress_services?.[0].inject?.credential_field).toBe('COOKIE_HEADER')
   })
 
+  it('defaults omitted auth_source to a static service credential', () => {
+    const environment = parseEnvironmentResponse({
+      ...rawEnvironment(),
+      config: {
+        egress_services: [
+          {
+            name: 'secocean',
+            base_url: 'https://secocean.example.com',
+            credential_ref: `cred_${UUID}`,
+          },
+        ],
+      },
+    })
+
+    expect(environment.config?.egress_services?.[0]).toMatchObject({
+      auth_source: 'service_credential',
+      credential_ref: `cred_${UUID}`,
+    })
+  })
+
+  it('accepts Agent Identity routes without static credential material', () => {
+    const environment = parseEnvironmentResponse({
+      ...rawEnvironment(),
+      config: {
+        egress_services: [
+          {
+            name: 'secocean',
+            base_url: 'https://secocean.example.com',
+            auth_source: 'agent_identity',
+            allowed_paths: ['/api/customer/detail', '/api/customer/work/'],
+          },
+        ],
+      },
+    })
+
+    expect(environment.config?.egress_services?.[0]).toEqual({
+      name: 'secocean',
+      base_url: 'https://secocean.example.com',
+      auth_source: 'agent_identity',
+      allowed_paths: ['/api/customer/detail', '/api/customer/work/'],
+    })
+  })
+
+  it.each([
+    {
+      name: 'secocean',
+      base_url: 'https://secocean.example.com',
+      auth_source: 'agent_identity',
+      credential_ref: `cred_${UUID}`,
+    },
+    {
+      name: 'secocean',
+      base_url: 'https://secocean.example.com',
+      auth_source: 'agent_identity',
+      inject: { type: 'bearer', credential_field: 'ACCESS_TOKEN' },
+    },
+    {
+      name: 'secocean',
+      base_url: 'https://secocean.example.com',
+      auth_source: 'service_credential',
+    },
+    {
+      name: 'secocean',
+      base_url: 'https://secocean.example.com',
+      auth_source: 'delegated_user',
+    },
+  ])('rejects mixed or unsupported auth source shapes', (service) => {
+    expect(() =>
+      parseEnvironmentResponse({
+        ...rawEnvironment(),
+        config: { egress_services: [service] },
+      }),
+    ).toThrow(TypeError)
+  })
+
+  it.each([
+    { type: 'cookie', credential_field: 'COOKIE_HEADER', cookie_name: 'session' },
+    { type: 'cookie', credential_field: 'COOKIE_HEADER', cookies: { session: 'SESSION' } },
+  ])('rejects obsolete cookie injection fields', (inject) => {
+    expect(() =>
+      parseEnvironmentResponse({
+        ...rawEnvironment(),
+        config: {
+          egress_services: [
+            {
+              name: 'secocean',
+              base_url: 'https://secocean.example.com',
+              credential_ref: `cred_${UUID}`,
+              inject,
+            },
+          ],
+        },
+      }),
+    ).toThrow(TypeError)
+  })
+
   it.each([
     { secret_refs: [`cred_${UUID}`] },
     { service_credential_id: `cred_${UUID}` },

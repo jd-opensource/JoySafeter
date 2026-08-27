@@ -14,6 +14,7 @@
 use async_trait::async_trait;
 pub use joysafeter_entity_id::{AgentId, ProjectId, SessionId, TaskId, UserId};
 use serde_json::Value as JsonValue;
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // Public types shared between core and provider implementations
@@ -22,6 +23,8 @@ use serde_json::Value as JsonValue;
 /// A single target host + the headers to inject on outbound requests to it.
 #[derive(Debug, Clone)]
 pub struct IdentityEgressTarget {
+    /// Stable route ID selected by environment policy.
+    pub route_id: String,
     /// Target host that triggers injection (matched by Envoy vhost).
     pub host: String,
     /// Port (default 443).
@@ -36,11 +39,24 @@ pub struct IdentityEgressTarget {
     pub remove_headers: Vec<String>,
 }
 
+/// One environment-owned egress route for which identity must be minted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentityEgressRequestTarget {
+    pub route_id: String,
+    /// Full configured endpoint, including the route-specific base path.
+    pub endpoint: String,
+    pub host: String,
+    pub port: u16,
+    pub tls: bool,
+}
+
 /// Resolved identity injection result for one task execution.
 #[derive(Debug, Clone, Default)]
 pub struct AgentIdentityInjection {
     /// Per-host injection targets. Empty = no identity injection this run.
     pub targets: Vec<IdentityEgressTarget>,
+    /// Shortest lifetime advertised by the provider's injected credentials.
+    pub valid_for_seconds: Option<u64>,
 }
 
 /// Context passed to the provider for token resolution.
@@ -60,6 +76,8 @@ pub struct IdentityResolveContext {
     /// Provider uses this to bootstrap its token exchange flow.
     /// Empty when `auth_code` is provided instead.
     pub identity_token: String,
+    /// Provider-approved request metadata captured with the identity token.
+    pub headers_map: HashMap<String, String>,
     /// One-time authorization code for token exchange (API-key scenario).
     /// When present, the provider should use this to obtain the long-lived
     /// credential instead of `identity_token`.
@@ -71,6 +89,8 @@ pub struct IdentityResolveContext {
     /// Auto-extracted egress hostnames from agent's MCP servers + environment
     /// egress services. Used as the `scope` parameter for identity platform.
     pub egress_hosts: Vec<String>,
+    /// Exact routes selected by the environment policy.
+    pub egress_targets: Vec<IdentityEgressRequestTarget>,
 }
 
 /// Context for cleanup operations.
@@ -167,4 +187,51 @@ impl AgentIdentityProvider for NoopAgentIdentityProvider {
     }
 
     async fn cleanup(&self, _context: &IdentityCleanupContext) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_contract_is_route_scoped_and_typed() {
+        let context = IdentityResolveContext {
+            project_id: ProjectId::new(),
+            user_id: UserId::new(),
+            agent_id: AgentId::new(),
+            session_id: SessionId::new(),
+            task_id: TaskId::new(),
+            identity_token: "identity-token".to_string(),
+            headers_map: std::collections::HashMap::new(),
+            auth_code: None,
+            user_name: "user@example.com".to_string(),
+            provider_config: serde_json::json!({}),
+            egress_hosts: vec!["api.example.com".to_string()],
+            egress_targets: vec![IdentityEgressRequestTarget {
+                route_id: "external-identity:crm:0".to_string(),
+                endpoint: "https://api.example.com/v1/customer".to_string(),
+                host: "api.example.com".to_string(),
+                port: 443,
+                tls: true,
+            }],
+        };
+        let injection = AgentIdentityInjection {
+            targets: vec![IdentityEgressTarget {
+                route_id: context.egress_targets[0].route_id.clone(),
+                host: context.egress_targets[0].host.clone(),
+                port: context.egress_targets[0].port,
+                tls: context.egress_targets[0].tls,
+                inject_headers: vec![],
+                remove_headers: vec![],
+            }],
+            valid_for_seconds: Some(300),
+        };
+
+        assert_eq!(injection.targets[0].route_id, "external-identity:crm:0");
+        assert_eq!(injection.valid_for_seconds, Some(300));
+        assert_eq!(
+            context.project_id.to_string().split('_').next(),
+            Some("proj")
+        );
+    }
 }

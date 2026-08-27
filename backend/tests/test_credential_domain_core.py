@@ -649,36 +649,25 @@ def test_mcp_policy_rejects_archived_or_deleted_groups() -> None:
             validate_mcp_group_binding(binding, groups=(group,), members=())
 
 
-def test_http_injection_shape_is_unambiguous_and_cookie_name_is_a_complete_token() -> None:
+def test_http_injection_shape_treats_cookie_field_as_complete_header_value() -> None:
     cookie_policy = EgressInjectPolicy(
         kind=EgressInjectKind.COOKIE,
-        credential_field=_field("API_KEY"),
-        cookie_name="session-token_1",
+        credential_field=_field("COOKIE_HEADER"),
     )
     header_policy = EgressInjectPolicy(
         kind=EgressInjectKind.API_KEY,
         credential_field=_field("API_KEY"),
         header="X-API-Key",
     )
-    assert cookie_policy.cookie_name == "session-token_1"
     assert header_policy.header == "X-API-Key"
 
     invalid_kwargs = (
         {"kind": EgressInjectKind.BEARER, "header": "Authorization"},
-        {"kind": EgressInjectKind.COOKIE, "cookie_name": "session", "header": "X-Auth"},
-        {"kind": EgressInjectKind.API_KEY, "header": "X-API-Key", "cookie_name": "session"},
+        {"kind": EgressInjectKind.COOKIE, "header": "X-Auth"},
     )
     for kwargs in invalid_kwargs:
         with pytest.raises(ValueError):
             EgressInjectPolicy(credential_field=_field("API_KEY"), **kwargs)
-
-    for invalid_cookie_name in ("bad name", "bad,name", "bad(name)", "密", ""):
-        with pytest.raises(ValueError, match="cookie"):
-            EgressInjectPolicy(
-                kind=EgressInjectKind.COOKIE,
-                credential_field=_field("API_KEY"),
-                cookie_name=invalid_cookie_name,
-            )
 
     for invalid_header in (" X-API-Key", "X-API-Key "):
         with pytest.raises(ValueError, match="header"):
@@ -687,24 +676,11 @@ def test_http_injection_shape_is_unambiguous_and_cookie_name_is_a_complete_token
                 credential_field=_field("API_KEY"),
                 header=invalid_header,
             )
-    for invalid_cookie_name in (" session", "session "):
-        with pytest.raises(ValueError, match="cookie"):
-            EgressInjectPolicy(
-                kind=EgressInjectKind.COOKIE,
-                credential_field=_field("API_KEY"),
-                cookie_name=invalid_cookie_name,
-            )
     with pytest.raises(TypeError, match="header"):
         EgressInjectPolicy(
             kind=EgressInjectKind.API_KEY,
             credential_field=_field("API_KEY"),
             header=123,  # type: ignore[arg-type]
-        )
-    with pytest.raises(TypeError, match="cookie"):
-        EgressInjectPolicy(
-            kind=EgressInjectKind.COOKIE,
-            credential_field=_field("API_KEY"),
-            cookie_name=123,  # type: ignore[arg-type]
         )
 
 

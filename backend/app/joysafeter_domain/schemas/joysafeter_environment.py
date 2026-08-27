@@ -18,6 +18,7 @@ from app.joysafeter_domain.credentials.references import (
 from app.joysafeter_shared.ids import CredentialId, EnvironmentId, registered_entity_id_prefix
 
 SUPPORTED_EGRESS_INJECT_TYPES = {"bearer", "api_key", "raw_header", "cookie"}
+SUPPORTED_EGRESS_AUTH_SOURCES = {"service_credential", "agent_identity"}
 SUPPORTED_EGRESS_EXPOSURES = {"placeholder"}
 SUPPORTED_EGRESS_KINDS = {"external"}
 SUPPORTED_MOUNT_RESOURCE_TYPES = {"storage"}
@@ -149,8 +150,6 @@ class EgressServiceInject(BaseModel):
     type: str = "bearer"
     credential_field: Optional[str] = None
     header: Optional[str] = None
-    cookie_name: Optional[str] = None
-    cookies: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("type", mode="before")
     @classmethod
@@ -160,25 +159,11 @@ class EgressServiceInject(BaseModel):
             raise ValueError(f"unsupported egress inject type: {typ}")
         return typ
 
-    @field_validator("credential_field", "header", "cookie_name", mode="before")
+    @field_validator("credential_field", "header", mode="before")
     @classmethod
     def trim_optional_strings(cls, value: Optional[str]) -> Optional[str]:
         value = _trim_string(value)
         return value or None
-
-    @field_validator("cookies")
-    @classmethod
-    def validate_cookies(cls, value: dict[str, str]) -> dict[str, str]:
-        cleaned: dict[str, str] = {}
-        for cookie_name, credential_field in value.items():
-            name = str(cookie_name).strip()
-            key = str(credential_field).strip()
-            if not name or not key:
-                raise ValueError("cookie mappings require non-empty cookie names and secret keys")
-            if any(ch in name for ch in "=;\r\n\t"):
-                raise ValueError(f"invalid cookie name: {name}")
-            cleaned[name] = key
-        return cleaned
 
     @model_validator(mode="after")
     def validate_shape(self) -> "EgressServiceInject":
@@ -188,9 +173,6 @@ class EgressServiceInject(BaseModel):
         if self.type == "bearer" and self.header:
             if any(ch in self.header for ch in ":\r\n\t"):
                 raise ValueError("header must be a single HTTP header name")
-        if self.type == "cookie":
-            if self.cookie_name or self.cookies:
-                raise ValueError("cookie inject uses credential_field as the full Cookie header")
         return self
 
 
@@ -201,8 +183,10 @@ class EgressService(BaseModel):
     kind: str = "external"
     exposure: str = "placeholder"
     base_url: str
-    credential_ref: CredentialId
-    inject: EgressServiceInject = Field(default_factory=EgressServiceInject)
+    auth_source: Literal["service_credential", "agent_identity"] = "service_credential"
+    credential_ref: Optional[CredentialId] = None
+    inject: Optional[EgressServiceInject] = None
+    allowed_paths: list[str] = Field(default_factory=list)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -240,6 +224,44 @@ class EgressService(BaseModel):
         if parsed.username or parsed.password:
             raise ValueError("egress service base_url must not include credentials")
         return raw
+
+    @field_validator("auth_source", mode="before")
+    @classmethod
+    def validate_auth_source(cls, value: object) -> str:
+        auth_source = str(value or "service_credential").strip().lower()
+        if auth_source not in SUPPORTED_EGRESS_AUTH_SOURCES:
+            raise ValueError(f"unsupported egress auth_source: {auth_source}")
+        return auth_source
+
+    @field_validator("allowed_paths", mode="before")
+    @classmethod
+    def validate_allowed_paths(cls, value: object) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("egress allowed_paths must be a list")
+        paths: list[str] = []
+        for raw_path in value:
+            path = str(raw_path or "").strip()
+            if not path.startswith("/") or "?" in path or "#" in path:
+                raise ValueError("egress allowed_paths entries must be absolute paths without query or fragment")
+            if path not in paths:
+                paths.append(path)
+        return paths
+
+    @model_validator(mode="after")
+    def validate_auth_contract(self) -> "EgressService":
+        if self.auth_source == "service_credential":
+            if self.credential_ref is None:
+                raise ValueError("credential_ref is required for service_credential auth")
+            if self.inject is None:
+                self.inject = EgressServiceInject()
+            return self
+        if self.credential_ref is not None or self.inject is not None:
+            raise ValueError("agent_identity auth must not define credential_ref or inject")
+        if not self.allowed_paths:
+            self.allowed_paths = ["/"]
+        return self
 
 
 class MountResource(BaseModel):

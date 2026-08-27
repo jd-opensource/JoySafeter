@@ -31,11 +31,12 @@ const EGRESS_SERVICE_KEYS = new Set([
   'kind',
   'exposure',
   'base_url',
+  'auth_source',
   CREDENTIAL_REF,
   'inject',
   'allowed_paths',
 ])
-const EGRESS_INJECT_KEYS = new Set(['type', CREDENTIAL_FIELD, 'header', 'cookie_name', 'cookies'])
+const EGRESS_INJECT_KEYS = new Set(['type', CREDENTIAL_FIELD, 'header'])
 
 type RawEnvironmentStorageVolume = Omit<EnvironmentStorageVolume, 'volume_id'> & {
   volume_id?: string
@@ -134,6 +135,25 @@ function parseEgressServices(value: unknown): EnvironmentEgressService[] {
   return value.map((rawService, index) => {
     const service = requireObject(rawService, `HTTP egress service[${index}]`)
     assertAllowedKeys(service, EGRESS_SERVICE_KEYS, `HTTP egress service[${index}]`)
+    const authSource =
+      parseOptionalText(service.auth_source, `HTTP egress auth source[${index}]`) ??
+      'service_credential'
+    if (authSource !== 'service_credential' && authSource !== 'agent_identity') {
+      throw new TypeError(`HTTP egress auth source[${index}] is unsupported`)
+    }
+    if (authSource === 'agent_identity') {
+      if (CREDENTIAL_REF in service || 'inject' in service) {
+        throw new TypeError(
+          `HTTP egress service[${index}] Agent Identity cannot include static credential fields`,
+        )
+      }
+      const serviceRest = omitKeys(service, ['auth_source'])
+      return {
+        ...serviceRest,
+        auth_source: 'agent_identity',
+      } as EnvironmentEgressService
+    }
+
     const credentialId = parseOptionalReferenceId(
       service,
       CREDENTIAL_REF,
@@ -165,9 +185,10 @@ function parseEgressServices(value: unknown): EnvironmentEgressService[] {
       } as EnvironmentEgressServiceInject
     }
 
-    const serviceRest = omitKeys(service, [CREDENTIAL_REF, 'inject'])
+    const serviceRest = omitKeys(service, ['auth_source', CREDENTIAL_REF, 'inject'])
     return {
       ...serviceRest,
+      auth_source: 'service_credential',
       credential_ref: credentialId,
       ...(inject === undefined ? {} : { inject }),
     } as EnvironmentEgressService

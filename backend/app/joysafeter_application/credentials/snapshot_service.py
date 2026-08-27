@@ -183,7 +183,6 @@ async def _validate_resource_references(
                         kind=EgressInjectKind(reference.inject_kind),
                         credential_field=CredentialFieldName(reference.credential_field),
                         header=reference.header,
-                        cookie_name=reference.cookie_name,
                     ),
                 )
             )

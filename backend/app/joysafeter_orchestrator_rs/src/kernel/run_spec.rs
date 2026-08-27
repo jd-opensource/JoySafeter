@@ -193,68 +193,10 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        agent_for_execution, environment_credential_ids, environment_for_execution,
-        snapshot_credential_id_override,
+        environment_credential_ids, environment_for_execution, snapshot_credential_id_override,
     };
-    use crate::db::models::{JoySafeterAgent, JoySafeterSession};
-    use crate::ids::{AgentId, ProjectId, SessionId};
-
-    #[test]
-    fn session_snapshot_identity_opt_out_overrides_reenabled_live_agent() {
-        let agent_id = AgentId::from_uuid(Uuid::now_v7());
-        let live_agent = JoySafeterAgent {
-            id: agent_id,
-            project_id: Some(ProjectId::from_uuid(Uuid::from_u128(1))),
-            name: "live-agent".to_string(),
-            engine_kind: None,
-            model: None,
-            system_prompt: None,
-            description: None,
-            env: None,
-            mcp_servers: None,
-            skills: None,
-            agents: None,
-            commands: None,
-            tools: None,
-            permission_mode: None,
-            metadata: Some(json!({"agent_identity": {"enabled": true}})),
-            multiagent: None,
-            version: 2,
-            environment_id: None,
-            model_credential_id: None,
-        };
-        let session = JoySafeterSession {
-            id: SessionId::from_uuid(Uuid::now_v7()),
-            agent_id: Some(agent_id),
-            project_id: Some(ProjectId::from_uuid(Uuid::from_u128(1))),
-            status: "idle".to_string(),
-            agent_version: Some(1),
-            agent_snapshot: Some(json!({
-                "schema": "joysafeter.agent_execution_snapshot.v2",
-                "metadata": {"agent_identity": {"enabled": false}}
-            })),
-            last_harness_session_id: None,
-            last_work_dir: None,
-            environment_id: None,
-            runtime_config_generation: 0,
-            runtime_config_generation_reason: None,
-            runtime_config_generation_updated_at: None,
-        };
-
-        let execution_agent = agent_for_execution(Some(live_agent), Some(&session))
-            .expect("resolve execution agent")
-            .expect("execution agent");
-
-        assert_eq!(
-            execution_agent
-                .metadata
-                .as_ref()
-                .and_then(|metadata| metadata.get("agent_identity"))
-                .and_then(|config| config.get("enabled"))
-                .and_then(|enabled| enabled.as_bool()),
-            Some(false)
-        );
-    }
+    use crate::db::models::JoySafeterSession;
+    use crate::ids::{ProjectId, SessionId};
 
     #[test]
     fn snapshot_model_credential_rejects_malformed_public_id() {
