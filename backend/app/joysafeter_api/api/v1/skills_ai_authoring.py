@@ -192,8 +192,13 @@ _EXT_TO_TYPE = {
 }
 
 
-def _normalize_draft_files(raw_files: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Split the authoring draft's ``{path, content}`` items into the
+def _normalize_draft_files(
+    raw_files: list[dict[str, Any]],
+    skill_md_content: str,
+) -> list[dict[str, Any]]:
+    """Build the complete persisted file set for an authoring draft.
+
+    Add the canonical root ``SKILL.md`` and split auxiliary ``{path, content}`` items into the
     ``{path, file_name, file_type, content}`` shape the skill store expects.
 
     The AI workspace models each file as a single POSIX ``path`` string
@@ -205,7 +210,14 @@ def _normalize_draft_files(raw_files: list[dict[str, Any]]) -> list[dict[str, An
     single 0-byte blank-named child. Normalize here so a saved draft reads
     back with the same structure the user built.
     """
-    normalized: list[dict[str, Any]] = []
+    normalized: list[dict[str, Any]] = [
+        {
+            "path": "",
+            "file_name": "SKILL.md",
+            "file_type": "markdown",
+            "content": skill_md_content,
+        }
+    ]
     for f in raw_files:
         if not isinstance(f, dict):
             continue
@@ -219,8 +231,7 @@ def _normalize_draft_files(raw_files: list[dict[str, Any]]) -> list[dict[str, An
         file_name = raw_path[slash + 1 :] if slash >= 0 else raw_path
         if not file_name or file_name == ".gitkeep":
             continue
-        # Root SKILL.md is carried by the skill's ``content`` field, not the
-        # files list — skip it here to avoid a duplicate row.
+        # The canonical root above is authoritative; ignore duplicate draft entries.
         if not directory and file_name.lower() == "skill.md":
             continue
         ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
@@ -391,7 +402,7 @@ async def authoring_save_draft(
     existing ``update_skill`` ``files`` path (one shot, replace-all).
     """
     svc = SkillService(db, active_org_id=auth_ctx.org_id, caller_org_role=auth_ctx.role)
-    files = _normalize_draft_files(req.files)
+    files = _normalize_draft_files(req.files, req.content)
 
     if req.draft_skill_id:
         try:
@@ -400,7 +411,7 @@ async def authoring_save_draft(
                 current_user_id=auth_ctx.user_id,
                 name=req.name,
                 description=req.description,
-                content=req.content,
+                content=None,
                 tags=req.tags,
                 files=files or None,
             )

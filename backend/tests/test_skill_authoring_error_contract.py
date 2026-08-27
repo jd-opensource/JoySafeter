@@ -20,6 +20,7 @@ from app.joysafeter_api.api.v1.skills_ai_authoring import (
     AuthoringChatRequest,
     AuthoringMessage,
     SaveDraftRequest,
+    _normalize_draft_files,
     authoring_chat,
     authoring_save_draft,
 )
@@ -31,7 +32,7 @@ from app.joysafeter_domain.schemas.joysafeter_credential import CreateCredential
 from app.joysafeter_domain.services.joysafeter_skill_service import SkillService
 from app.joysafeter_shared.common.app_errors import AppError, ResourceConflictError
 from app.joysafeter_shared.common.joysafeter_auth import JoySafeterAuthContext, JoySafeterRole
-from app.joysafeter_shared.ids import CredentialId, OrganizationId, ProjectId, UserId
+from app.joysafeter_shared.ids import CredentialId, OrganizationId, ProjectId, SkillId, UserId
 
 TEST_USER_ID = UserId.new()
 TEST_ORG_ID = OrganizationId.new()
@@ -114,6 +115,64 @@ def test_authoring_schema_uses_model_credential_id_not_secret_ref():
     fields = AuthoringChatRequest.model_fields
     assert "model_credential_id" in fields
     assert "secret_ref" not in fields
+
+
+@pytest.mark.no_db
+def test_authoring_draft_files_include_exactly_one_root_skill_md():
+    skill_md = "---\nname: schema-search\ndescription: Search schemas\n---\n\n# Search"
+    files = _normalize_draft_files(
+        [
+            {"path": "SKILL.md", "content": "duplicate"},
+            {"path": "scripts/search.py", "content": "print('ok')"},
+        ],
+        skill_md,
+    )
+
+    assert [item for item in files if item["file_name"] == "SKILL.md"] == [
+        {
+            "path": "",
+            "file_name": "SKILL.md",
+            "file_type": "markdown",
+            "content": skill_md,
+        }
+    ]
+    assert files[1]["path"] == "scripts/"
+    assert files[1]["file_name"] == "search.py"
+
+
+@pytest.mark.no_db
+@pytest.mark.asyncio
+async def test_authoring_update_uses_root_skill_md_as_the_only_content_source(monkeypatch):
+    captured: dict[str, object] = {}
+    skill_id = SkillId.new()
+
+    class FakeSkillService:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def update_skill(self, requested_skill_id, **kwargs):
+            captured["skill_id"] = requested_skill_id
+            captured.update(kwargs)
+            return type("Skill", (), {"id": requested_skill_id})()
+
+    monkeypatch.setattr(
+        "app.joysafeter_api.api.v1.skills_ai_authoring.SkillService",
+        FakeSkillService,
+    )
+    request = SaveDraftRequest(
+        draft_skill_id=skill_id,
+        name="schema-search",
+        description="Search schemas",
+        content="---\nname: schema-search\n---\n\n# Search",
+        tags=[],
+        files=[{"path": "SKILL.md", "content": "stale duplicate"}],
+    )
+
+    response = await authoring_save_draft(request, None, _auth_ctx())
+
+    assert response.skill_id == skill_id
+    assert captured["content"] is None
+    assert captured["files"] == _normalize_draft_files(request.files, request.content)
 
 
 @pytest.mark.asyncio

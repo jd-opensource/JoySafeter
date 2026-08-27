@@ -633,13 +633,14 @@ impl HarnessInputBuilder {
                     "skill version not found: skill={skill_id} version={resolved_version}"
                 )
             })?;
-        let files = self
+        let mut files = self
             .load_skill_version_files(skill_id, &resolved_version)
             .await?;
-
-        if files.is_empty() {
-            anyhow::bail!("skill {skill_id} version {resolved_version} has no files");
-        }
+        ensure_skill_entrypoint(&mut files, &version_meta.content).map_err(|error| {
+            anyhow::anyhow!(
+                "skill {skill_id} version {resolved_version} has no usable root SKILL.md: {error}"
+            )
+        })?;
 
         let skill_name = version_meta.skill_name.clone();
         let data = create_targz(&skill_name, &files)?;
@@ -703,7 +704,7 @@ impl HarnessInputBuilder {
     ) -> anyhow::Result<Option<SkillVersionForArchive>> {
         sqlx::query_as::<_, SkillVersionForArchive>(
             r#"
-            SELECT id, skill_name, security_scan_id, target_hash
+            SELECT id, skill_name, content, security_scan_id, target_hash
             FROM joysafeter_skill_versions
             WHERE skill_id = $1 AND version = $2
             "#,
@@ -1187,10 +1188,11 @@ mod tests {
     use tokio::sync::Notify;
 
     use super::{
-        apply_runtime_protocol_env, extract_content_text, parse_semver,
-        published_version_scan_audit, resolve_skill_version_request, session_container_work_dir,
-        should_inject_conversation_history, trim_history_lines_to_budget, HarnessBuildCheckpoint,
-        HarnessInput, HarnessInputBuilder, SkillForArchive, SkillVersionForArchive,
+        apply_runtime_protocol_env, ensure_skill_entrypoint, extract_content_text, parse_semver,
+        published_version_scan_audit, resolve_skill_version_request, safe_archive_path,
+        session_container_work_dir, should_inject_conversation_history,
+        trim_history_lines_to_budget, HarnessBuildCheckpoint, HarnessInput, HarnessInputBuilder,
+        SkillFileForArchive, SkillForArchive, SkillVersionForArchive,
     };
     use crate::ids::{
         AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, OrganizationId, ProjectId,
@@ -1848,11 +1850,42 @@ mod tests {
         let version = SkillVersionForArchive {
             id: SkillVersionId::from_uuid(Uuid::now_v7()),
             skill_name: "published-snapshot".to_string(),
+            content: "# Published snapshot".to_string(),
             security_scan_id: None,
             target_hash: None,
         };
 
         assert_eq!(published_version_scan_audit(&version), (None, None));
+    }
+
+    #[test]
+    fn skill_archive_backfills_missing_root_skill_md_from_version_content() {
+        let skill_md = "---\nname: schema-search\ndescription: Search schemas\n---\n\n# Search";
+        let mut files = vec![SkillFileForArchive {
+            path: Some("scripts/".to_string()),
+            file_name: Some("search.py".to_string()),
+            content: Some("print('ok')".to_string()),
+        }];
+        ensure_skill_entrypoint(&mut files, skill_md).unwrap();
+        assert!(files
+            .iter()
+            .any(|file| safe_archive_path(file).as_deref() == Some("SKILL.md")));
+    }
+
+    #[test]
+    fn skill_archive_rejects_an_empty_existing_root_skill_md() {
+        let mut files = vec![SkillFileForArchive {
+            path: Some(String::new()),
+            file_name: Some("SKILL.md".to_string()),
+            content: Some("   ".to_string()),
+        }];
+        assert!(ensure_skill_entrypoint(&mut files, "fallback").is_err());
+    }
+
+    #[test]
+    fn skill_archive_rejects_missing_root_when_version_content_is_empty() {
+        let mut files = vec![];
+        assert!(ensure_skill_entrypoint(&mut files, " ").is_err());
     }
 
     #[test]
@@ -3111,6 +3144,40 @@ fn create_targz(root_dir: &str, files: &[SkillFileForArchive]) -> anyhow::Result
     Ok(encoder.finish()?)
 }
 
+fn ensure_skill_entrypoint(
+    files: &mut Vec<SkillFileForArchive>,
+    version_content: &str,
+) -> anyhow::Result<()> {
+    let roots = files
+        .iter()
+        .filter(|file| {
+            safe_archive_path(file).is_some_and(|path| path.eq_ignore_ascii_case("SKILL.md"))
+        })
+        .collect::<Vec<_>>();
+    if roots.len() > 1 {
+        anyhow::bail!("multiple root SKILL.md files");
+    }
+    if let Some(root) = roots.first() {
+        if root
+            .content
+            .as_deref()
+            .is_none_or(|content| content.trim().is_empty())
+        {
+            anyhow::bail!("root SKILL.md is empty");
+        }
+        return Ok(());
+    }
+    if version_content.trim().is_empty() {
+        anyhow::bail!("published version content is empty");
+    }
+    files.push(SkillFileForArchive {
+        path: Some(String::new()),
+        file_name: Some("SKILL.md".to_string()),
+        content: Some(version_content.to_string()),
+    });
+    Ok(())
+}
+
 fn safe_archive_component(value: &str) -> Option<String> {
     let normalized = value.replace('\\', "/");
     let component = Path::new(&normalized)
@@ -3235,6 +3302,7 @@ fn resolve_skill_version_request(
 struct SkillVersionForArchive {
     id: SkillVersionId,
     skill_name: String,
+    content: String,
     security_scan_id: Option<SkillSecurityScanId>,
     target_hash: Option<String>,
 }
