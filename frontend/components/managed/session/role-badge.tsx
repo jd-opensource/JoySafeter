@@ -38,7 +38,7 @@ const roleStyles: Record<string, { bg: string; labelKey: string }> = {
     labelKey: 'idle',
   },
   'session.status_terminated': { bg: 'bg-gray-500 text-white', labelKey: 'ended' },
-  'session.status_rescheduled': { bg: 'bg-yellow-500 text-white', labelKey: 'rescheduled' },
+  'session.status_rescheduling': { bg: 'bg-yellow-500 text-white', labelKey: 'rescheduled' },
   'session.error': { bg: 'bg-red-600 text-white', labelKey: 'error' },
   'session.updated': { bg: 'bg-gray-500 text-white', labelKey: 'updated' },
   'session.thread_created': { bg: 'bg-gray-500 text-white', labelKey: 'thread' },

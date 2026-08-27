@@ -156,7 +156,7 @@ function getEventColor(type: string): string {
   if (type === 'session.status_running' || type === 'session.thread_status_running')
     return '#10b981'
   if (type === 'session.status_idle' || type === 'session.thread_status_idle') return '#9ca3af'
-  if (type === 'session.status_rescheduled') return '#eab308'
+  if (type === 'session.status_rescheduling') return '#eab308'
   if (type === 'session.error') return '#dc2626'
   if (type.startsWith('session.')) return '#6b7280'
 

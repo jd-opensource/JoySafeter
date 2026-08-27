@@ -2,7 +2,7 @@ import type { SessionEvent } from '@/types/managed'
 
 const STATUS_EVENT_TYPES = new Set([
   'session.status_idle',
-  'session.status_rescheduled',
+  'session.status_rescheduling',
   'session.status_running',
   'session.status_terminated',
   'session.thread_status_idle',

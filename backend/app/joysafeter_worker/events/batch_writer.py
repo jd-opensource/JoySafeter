@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 DEDUP_EVENT_TYPES = {
     "session.status_idle",
     "session.status_rescheduling",
-    "session.status_rescheduled",
     "session.status_running",
     "session.status_terminated",
     "session.thread_status_idle",
@@ -29,7 +28,6 @@ DEDUP_EVENT_TYPES = {
 SESSION_STATUS_EVENT_TYPES = {
     "session.status_idle",
     "session.status_rescheduling",
-    "session.status_rescheduled",
     "session.status_running",
     "session.status_terminated",
 }

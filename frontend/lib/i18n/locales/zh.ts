@@ -1177,7 +1177,7 @@ const zh = {
           session_status_running: '会话运行中',
           session_status_idle: '会话空闲',
           session_status_terminated: '会话已结束',
-          session_status_rescheduled: '会话已重排',
+          session_status_rescheduling: '会话重新调度中',
           session_error: '会话错误',
           session_updated: '会话已更新',
           session_thread_created: '线程已创建',

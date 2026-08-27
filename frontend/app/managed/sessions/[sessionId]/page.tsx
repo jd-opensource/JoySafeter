@@ -181,7 +181,7 @@ const ALL_EVENT_TYPES = new Set([
   'session.created',
   'session.error',
   'session.status_idle',
-  'session.status_rescheduled',
+  'session.status_rescheduling',
   'session.status_running',
   'session.status_terminated',
   'session.thread_created',

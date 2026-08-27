@@ -51,7 +51,6 @@ fn is_dedup_event_type(event_type: &str) -> bool {
     matches!(
         event_type,
         "session.status_idle"
-            | "session.status_rescheduled"
             | "session.status_rescheduling"
             | "session.status_running"
             | "session.status_terminated"
@@ -67,7 +66,6 @@ fn is_session_status_event(event_type: &str) -> bool {
     matches!(
         event_type,
         "session.status_idle"
-            | "session.status_rescheduled"
             | "session.status_rescheduling"
             | "session.status_running"
             | "session.status_terminated"

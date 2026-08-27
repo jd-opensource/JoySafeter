@@ -1050,7 +1050,7 @@ const en = {
           session_status_running: 'Session running',
           session_status_idle: 'Session idle',
           session_status_terminated: 'Session ended',
-          session_status_rescheduled: 'Session rescheduled',
+          session_status_rescheduling: 'Session rescheduling',
           session_error: 'Session error',
           session_updated: 'Session updated',
           session_thread_created: 'Thread created',
