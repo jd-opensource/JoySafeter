@@ -356,11 +356,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sandbox_id: sandbox_id.clone(),
                 is_reconnect,
                 active_task_id: active_task_id.clone(),
-                capabilities: vec![
-                    "file_mount".to_string(),
-                    "url_download".to_string(),
-                    "start_task_file_mount".to_string(),
-                ],
+                capabilities: vec!["file_mount".to_string(), "url_download".to_string()],
                 runner_token: runner_token.clone(),
             })),
         };

@@ -118,7 +118,7 @@ contracts instead of recreating older in-process shortcuts.
 | Frontend | Product UI state, auth redirects, SSE subscriptions | REST responses, SSE events, notification WS | User commands through REST | Talk to Redis, Postgres, orchestrator gRPC, or sandbox containers directly |
 | API | Auth/RBAC, REST validation, CRUD, task creation, SSE replay/live bridge, skill write-time scan calls | Browser requests, DB state, Redis Pub/Sub for live events | DB rows, Redis task wakeup, Redis command relay | Run agent harnesses, create sandboxes, consume durable event streams |
 | Rust orchestrator | Scheduling, task leases, sandbox lifecycle, runner gRPC, the elected xDS authority, control ACKs, event emission | Pending DB tasks, Redis wakeups/commands, runner gRPC streams, Envoy ACK/NACK | Task/sandbox/session state, Redis Stream events, Redis Pub/Sub broadcasts, leader-owned xDS resources | Serve product REST APIs, own browser auth, batch-persist event logs as the primary path, or let non-authority replicas mutate provider-local xDS state |
-| Sandbox runner | In-container harness execution, tool/MCP invocation, memory/file sync from inside the sandbox | `SetupSandbox` and `StartTask` over gRPC, injected env/secrets/files | Runner events/results over gRPC, memory sync messages | Reach the host network directly, mutate platform DB/Redis, bypass Envoy egress policy |
+| Sandbox runner | In-container harness execution, tool/MCP invocation, memory/file sync from inside the sandbox | `SetupSandbox` and `StartTask` over gRPC, sandbox env, task-scoped files | Runner events/results over gRPC, memory sync messages | Receive generic secret maps or remote MCP authentication material, reach the host network directly, mutate platform DB/Redis, bypass Envoy egress policy |
 | Worker | Durable event persistence, `seq` assignment, Redis Stream recovery/redelivery | Redis Stream consumer group | `joysafeter_session_events`, replay Pub/Sub after DB write | Schedule tasks, create sandboxes, expose user-facing APIs |
 | SkillSpector | Static skill security scanning service | Skill content sent by API/domain service | Advisory verdicts and optional publish-time enforcement | Decide runtime packaging or invalidate already-published versions |
 | PostgreSQL | Source of truth for domain state, task/session/sandbox FSMs, event log | Writes from API/orchestrator/worker/db-init | Durable rows | Act as a queue or live fan-out bus |
@@ -164,8 +164,8 @@ sequenceDiagram
     ORCH->>PG: task pending → scheduling → running
     ORCH->>RUN: provision sandbox (Docker) if needed
     RUN->>ORCH: gRPC AgentBridge: RunnerReady
-    ORCH->>RUN: SetupSandbox (skills, mcp, tools, files, env)
-    ORCH->>RUN: StartTask (prompt, provider, model, ...)
+    ORCH->>RUN: SetupSandbox (stable sandbox config and memory mounts)
+    ORCH->>RUN: StartTask (prompt, task resources, files, ...)
 
     loop harness execution
         RUN->>ORCH: RunnerHarnessEvent (text / thinking / tool_use / tool_result / model_request_* / task_notification)
@@ -356,15 +356,17 @@ result, token/tool metrics).
 
 | Message | Payload |
 |---|---|
-| `SetupSandbox` | One-time prep: `skills[]` (SkillArchive tar.gz), `mcp_servers[]`, `custom_tools[]`, `setup_commands[]`, `memory_mounts[]`, `files[]` (inline) / `file_refs[]` (by URL), `repos[]`, allowed/disallowed/ask tool lists, `provider`, `model`, env |
-| `StartTask` | `task_id`, `provider`, `prompt`, `system_prompt`, `model`, `max_turns`, `timeout_seconds`, env, per-task `mcp_servers`/`repos`/`skills`/`custom_tools`, tool policy lists |
+| `SetupSandbox` | One-time prep: stable sandbox `skills[]`, `mcp_servers[]`, `custom_tools[]`, `setup_commands[]`, `memory_mounts[]`, `repos[]`, tool policy lists, `provider`, `model`, env |
+| `StartTask` | Authoritative task snapshot: `task_id`, prompt/system prompt, provider/model, limits, env, per-task `mcp_servers`/`repos`/`skills`/`custom_tools`, tool policy lists, and `files[]`/`file_refs[]` |
 | `CancelTask` | `reason` |
 | `SendInput` | `content` (control-request reply / interrupt injection) |
 | `Shutdown` | `reason` |
 | `MemoryFileUpdate` | Push a memory-store file change into the sandbox |
 
-> Secrets are deliberately **empty over gRPC** — provider API keys reach the harness via
-> container environment variables injected at sandbox creation, never across the wire.
+> The protocol has no generic `secrets` map. Managed MCP credentials and limited-networking
+> model credentials remain at the Envoy boundary. Unrestricted-network model credentials are
+> supplied only through sandbox creation env, while repository clone credentials use the narrow,
+> clone-only `RepoConfig.authorization_token` field rather than a reusable secret bag.
 
 ---
 
@@ -699,8 +701,8 @@ version rather than the mutable parent Skill draft.
   decrypts only authorized fields, and writes append-only access audit records. Snapshot and Harness MCP
   URL resolution are metadata-only. Sandbox creation owns model/environment material injection, while the
   Harness builder may read only an optional encrypted model-name field when no explicit model is configured.
-  The legacy `SetupSandbox.secrets` and `StartTask.secrets` protobuf fields remain for wire compatibility,
-  but the current orchestrator always sends them empty.
+  The removed `SetupSandbox.secrets` and `StartTask.secrets` field numbers and names are reserved, so the
+  generic secret transport cannot be accidentally reintroduced or reused by a future wire schema.
 - **SSRF guard:** blocks cloud-metadata IPs, resolves DNS to defeat rebinding; private RFC-1918
   allowed by default (internal LLM/MCP endpoints), opt-in hardening flags.
 - **Sandbox isolation:** dropped capabilities, non-root, no-new-privileges, PID limits, and

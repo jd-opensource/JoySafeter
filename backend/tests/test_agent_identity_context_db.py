@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
@@ -44,19 +45,24 @@ async def test_auth_code_replay_is_rejected_and_task_delete_cascades(
 
     auth_ctx = SimpleNamespace(user_id=user.id, project_id=None)
     request = SimpleNamespace(cookies={})
+    environment = {"config": {"egress_services": [{"auth_source": "agent_identity"}]}}
+    auth_code = f"single-use-{uuid.uuid4()}"
+    credential_fingerprint = hashlib.sha256(auth_code.encode()).hexdigest()
     first_hook = await prepare_agent_identity_capture(
         db_session,
         request,
         auth_ctx,
         agent,
-        identity_auth_code="single-use-code",
+        environment,
+        identity_auth_code=auth_code,
     )
     second_hook = await prepare_agent_identity_capture(
         db_session,
         request,
         auth_ctx,
         agent,
-        identity_auth_code="single-use-code",
+        environment,
+        identity_auth_code=auth_code,
     )
     assert first_hook is not None
     assert second_hook is not None
@@ -66,12 +72,20 @@ async def test_auth_code_replay_is_rejected_and_task_delete_cascades(
         await second_hook(task_two)
     await db_session.rollback()
 
-    count = await db_session.scalar(select(func.count()).select_from(JoySafeterTaskIdentityContext))
+    count = await db_session.scalar(
+        select(func.count())
+        .select_from(JoySafeterTaskIdentityContext)
+        .where(JoySafeterTaskIdentityContext.credential_fingerprint == credential_fingerprint)
+    )
     assert count == 1
 
     await db_session.delete(task_one)
     await db_session.commit()
-    count = await db_session.scalar(select(func.count()).select_from(JoySafeterTaskIdentityContext))
+    count = await db_session.scalar(
+        select(func.count())
+        .select_from(JoySafeterTaskIdentityContext)
+        .where(JoySafeterTaskIdentityContext.credential_fingerprint == credential_fingerprint)
+    )
     assert count == 0
 
 

@@ -659,6 +659,8 @@ def test_http_injection_shape_treats_cookie_field_as_complete_header_value() -> 
         credential_field=_field("API_KEY"),
         header="X-API-Key",
     )
+    assert cookie_policy.header is None
+    assert cookie_policy.credential_field == _field("COOKIE_HEADER")
     assert header_policy.header == "X-API-Key"
 
     invalid_kwargs = (

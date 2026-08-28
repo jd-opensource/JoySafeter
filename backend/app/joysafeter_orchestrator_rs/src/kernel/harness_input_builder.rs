@@ -25,6 +25,8 @@ use crate::kernel::credentials::access::{
     CredentialAccessContext, CredentialMaterialAccessService,
 };
 use crate::kernel::credentials::error::{require_bound_credential_id, CredentialRuntimeError};
+#[cfg(test)]
+use crate::kernel::credentials::material::ManagedCredentialMaterialAdapter;
 use crate::kernel::environment_binding::{self, EnvironmentBinding};
 use crate::kernel::mcp_runtime_plan::{
     effective_network_mode, resolve_mcp_runtime_plan_from_metadata,
@@ -66,6 +68,8 @@ const CONVERSATION_HISTORY_MAX_CHARS: usize = 24_000;
 /// and permission mode all flow through one builder.
 pub struct HarnessInputBuilder {
     pool: PgPool,
+    #[cfg(test)]
+    credential_material: Option<ManagedCredentialMaterialAdapter>,
     /// When true, all MCP server URLs are downgraded from https to http before
     /// being sent to the sandbox. In Envoy-limited networking, the sandbox cannot
     /// do end-to-end TLS (no trusted CA store); Envoy does TLS origination to the
@@ -151,10 +155,21 @@ impl HarnessInputBuilder {
     pub fn new(pool: PgPool, envoy_enabled: bool) -> Self {
         Self {
             pool,
+            #[cfg(test)]
+            credential_material: None,
             envoy_enabled,
             #[cfg(test)]
             checkpoint_hook: None,
         }
+    }
+
+    #[cfg(test)]
+    fn with_credential_material_adapter(
+        mut self,
+        credential_material: ManagedCredentialMaterialAdapter,
+    ) -> Self {
+        self.credential_material = Some(credential_material);
+        self
     }
 
     #[cfg(test)]
@@ -206,7 +221,15 @@ impl HarnessInputBuilder {
             Some(task.id),
             initial_fence.as_ref().map(|fence| fence.generation),
         );
+        #[cfg(not(test))]
         let credential_access = CredentialMaterialAccessService::new(self.pool.clone());
+        #[cfg(test)]
+        let credential_access = match self.credential_material.clone() {
+            Some(material) => {
+                CredentialMaterialAccessService::with_material_adapter(self.pool.clone(), material)
+            }
+            None => CredentialMaterialAccessService::new(self.pool.clone()),
+        };
         #[cfg(test)]
         self.pause_at_checkpoint(HarnessBuildCheckpoint::AfterInitialRead)
             .await;
@@ -389,17 +412,11 @@ impl HarnessInputBuilder {
             setup_commands: input.setup_commands.clone(),
             work_dir: input.work_dir.clone(),
             env: input.env.clone(),
-            // Keep the protobuf field for rolling compatibility with runners that
-            // still understand it. Current orchestration injects credential material
-            // at sandbox creation or the Envoy boundary, so it must remain empty.
-            secrets: HashMap::new(),
             permission_mode: input.permission_mode.clone(),
             provider: input.provider.clone(),
             model: input.model.clone(),
             memory_system_prompt: input.memory_system_prompt.clone(),
             memory_mounts: input.memory_mounts.clone(),
-            files: input.files.clone(),
-            file_refs: input.file_refs.clone(),
             allowed_tools: input.allowed_tools.clone(),
             disallowed_tools: vec![],
             ask_tools: input.ask_tools.clone(),
@@ -422,10 +439,6 @@ impl HarnessInputBuilder {
             max_turns: Some(input.max_turns),
             timeout_seconds,
             env: input.env.clone(),
-            // Keep the protobuf field for rolling compatibility with runners that
-            // still understand it. Current orchestration never sends credentials
-            // over the task-control stream.
-            secrets: HashMap::new(),
             mcp_servers: input.mcp_servers.clone(),
             repos: input.repos.clone(),
             work_dir: input.work_dir.clone(),
@@ -1198,11 +1211,16 @@ mod tests {
         AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, OrganizationId, ProjectId,
         SandboxId, SessionId, SessionResourceId, SkillVersionId, TaskId,
     };
+    use crate::kernel::credentials::material::ManagedCredentialMaterialAdapter;
     use crate::kernel::runtime_freshness::RuntimeFreshnessError;
     use uuid::Uuid;
 
     const ENCRYPTED_HELLO_WORLD: &str =
         "enc:v1:VzniG9ulG62e3VZZD1jujN8lxiW1h/6a0Hdj1jIlJC/Wl9Rvvk7D";
+    const TEST_CREDENTIAL_KEY: [u8; 32] = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+        25, 26, 27, 28, 29, 30, 31,
+    ];
 
     #[test]
     fn start_task_preserves_session_file_resources() {
@@ -2181,6 +2199,9 @@ mod tests {
                 .expect("load task")
                 .expect("task exists");
             let input = HarnessInputBuilder::new(pool.clone(), true)
+                .with_credential_material_adapter(ManagedCredentialMaterialAdapter::from_key(
+                    TEST_CREDENTIAL_KEY,
+                ))
                 .build(&task, "sandbox-ext", sandbox_id)
                 .await
                 .expect("build harness input");

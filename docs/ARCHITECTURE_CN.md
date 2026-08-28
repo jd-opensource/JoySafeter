@@ -113,7 +113,7 @@ flowchart TB
 | 前端 | 产品 UI 状态、鉴权跳转、SSE 订阅 | REST 响应、SSE 事件、通知 WS | 通过 REST 发起用户命令 | 直接访问 Redis、Postgres、orchestrator gRPC 或沙箱容器 |
 | API | Auth/RBAC、REST 校验、CRUD、任务创建、SSE 回放/实时桥接、Skill 写入时扫描调用 | 浏览器请求、DB 状态、Redis Pub/Sub 实时事件 | DB 行、Redis 任务唤醒、Redis 命令中继 | 运行 agent harness、创建沙箱、消费可靠事件 Stream |
 | Rust orchestrator | 调度、任务租约、沙箱生命周期、runner gRPC、单一 elected xDS authority、控制命令 ACK、事件发射 | DB pending 任务、Redis 唤醒/命令、runner gRPC 流、Envoy ACK/NACK | task/sandbox/session 状态、网络策略 generation/status、Redis Stream 事件、Redis Pub/Sub 广播、authority 拥有的 xDS 资源 | 承载产品 REST API、拥有浏览器鉴权、作为主路径批量持久化事件日志，或让非 authority 副本修改 xDS |
-| 沙箱 runner | 容器内 harness 执行、工具/MCP 调用、沙箱内 memory/file sync | gRPC `SetupSandbox` / `StartTask`、无 MCP 明文凭据的 runner-safe 配置、注入的普通 env/secrets/files | gRPC runner 事件/结果、memory sync 消息 | 接收远程 MCP 认证头、直连宿主网络、修改平台 DB/Redis、绕过 Envoy 出站策略 |
+| 沙箱 runner | 容器内 harness 执行、工具/MCP 调用、沙箱内 memory/file sync | gRPC `SetupSandbox` / `StartTask`、沙箱 env、任务级 files | gRPC runner 事件/结果、memory sync 消息 | 接收通用 secrets map 或远程 MCP 明文认证材料、直连宿主网络、修改平台 DB/Redis、绕过 Envoy 出站策略 |
 | Worker | 可靠事件持久化、`seq` 分配、Redis Stream 恢复/重投 | Redis Stream 消费组 | `joysafeter_session_events`、DB 写入后再发布 Pub/Sub | 调度任务、创建沙箱、暴露用户 API |
 | SkillSpector | 静态 Skill 安全扫描服务 | API/domain service 发送的 Skill 内容 | 风险提示与可选发布时强制 verdict | 决定运行时打包或使已发布版本失效 |
 | PostgreSQL | 领域状态、task/session/sandbox FSM、MCP runtime generation、网络策略状态、事件日志的权威存储 | API/orchestrator/worker/db-init 写入 | 持久化行 | 充当队列或实时扇出总线 |
@@ -156,8 +156,8 @@ sequenceDiagram
     ORCH->>PG: task pending → scheduling → running
     ORCH->>RUN: provision 沙箱（Docker，如需）
     RUN->>ORCH: gRPC AgentBridge：RunnerReady
-    ORCH->>RUN: SetupSandbox（skills、mcp、tools、files、env）
-    ORCH->>RUN: StartTask（prompt、provider、model...）
+    ORCH->>RUN: SetupSandbox（稳定沙箱配置与 memory mounts）
+    ORCH->>RUN: StartTask（prompt、任务资源、files...）
 
     loop harness 执行
         RUN->>ORCH: RunnerHarnessEvent（text / thinking / tool_use / tool_result / model_request_* / task_notification）
@@ -305,14 +305,16 @@ token/tool 指标）。
 
 | 消息 | 载荷 |
 |---|---|
-| `SetupSandbox` | 一次性准备：`skills[]`（SkillArchive tar.gz）、`mcp_servers[]`、`custom_tools[]`、`setup_commands[]`、`memory_mounts[]`、`files[]`（内联）/ `file_refs[]`（按 URL）、`repos[]`、allowed/disallowed/ask 工具列表、`provider`、`model`、env |
-| `StartTask` | `task_id`、`provider`、`prompt`、`system_prompt`、`model`、`max_turns`、`timeout_seconds`、env、每任务的 `mcp_servers`/`repos`/`skills`/`custom_tools`、工具策略列表 |
+| `SetupSandbox` | 一次性准备稳定沙箱配置：`skills[]`、`mcp_servers[]`、`custom_tools[]`、`setup_commands[]`、`memory_mounts[]`、`repos[]`、工具策略列表、`provider`、`model`、env |
+| `StartTask` | 权威任务快照：`task_id`、prompt/system prompt、provider/model、执行限制、env、任务级 `mcp_servers`/`repos`/`skills`/`custom_tools`、工具策略，以及 `files[]`/`file_refs[]` |
 | `CancelTask` | `reason` |
 | `SendInput` | `content`（控制请求回复 / 中断注入） |
 | `Shutdown` | `reason` |
 | `MemoryFileUpdate` | 把 memory-store 文件变更推入沙箱 |
 
-> 密钥在 gRPC 上刻意**留空**——provider API key 通过沙箱创建时注入的容器环境变量触达 harness，绝不过线传输。
+> 协议不再提供通用 `secrets` map。受管 MCP 凭据与受限网络模式下的模型凭据停留在 Envoy
+> 边界；非受限网络模式的模型凭据只通过沙箱创建 env 提供；仓库克隆凭据使用窄化且仅限 clone 的
+> `RepoConfig.authorization_token`，不再借用可复用的 secrets 容器。
 
 ---
 

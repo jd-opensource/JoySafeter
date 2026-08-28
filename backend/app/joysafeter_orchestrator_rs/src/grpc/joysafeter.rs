@@ -352,11 +352,6 @@ pub struct SetupSandbox {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
-    #[prost(map = "string, string", tag = "7")]
-    pub secrets: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
     #[prost(string, optional, tag = "8")]
     pub permission_mode: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, tag = "9")]
@@ -367,10 +362,6 @@ pub struct SetupSandbox {
     pub memory_system_prompt: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(message, repeated, tag = "12")]
     pub memory_mounts: ::prost::alloc::vec::Vec<MemoryStoreMount>,
-    #[prost(message, repeated, tag = "13")]
-    pub files: ::prost::alloc::vec::Vec<FileMount>,
-    #[prost(message, repeated, tag = "14")]
-    pub file_refs: ::prost::alloc::vec::Vec<FileRef>,
     #[prost(string, repeated, tag = "15")]
     pub allowed_tools: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, repeated, tag = "16")]
@@ -429,11 +420,6 @@ pub struct StartTask {
     pub timeout_seconds: u64,
     #[prost(map = "string, string", tag = "9")]
     pub env: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
-    #[prost(map = "string, string", tag = "10")]
-    pub secrets: ::std::collections::HashMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,

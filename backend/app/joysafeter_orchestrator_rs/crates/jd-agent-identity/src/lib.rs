@@ -156,10 +156,10 @@ struct JdIdentityConfig {
 }
 
 impl JdIdentityConfig {
-    fn from_json(config: &JsonValue) -> Option<Self> {
-        Some(Self {
+    fn from_json(config: &JsonValue) -> Self {
+        Self {
             tenant_code: json_str(config, "tenant_code", ""),
-        })
+        }
     }
 }
 
@@ -940,12 +940,14 @@ impl JdAgentIdentityProvider {
         )
     }
 
-    fn user_identity_request_url(host_or_url: &str) -> String {
-        let value = host_or_url.trim();
-        if value.starts_with("https://") || value.starts_with("http://") {
-            return value.to_string();
-        }
-        format!("https://{}/", value.trim_end_matches('.'))
+    fn egress_scope(targets: &[agent_identity_trait::IdentityEgressRequestTarget]) -> String {
+        let mut hosts = targets
+            .iter()
+            .map(|target| target.host.as_str())
+            .collect::<Vec<_>>();
+        hosts.sort_unstable();
+        hosts.dedup();
+        hosts.join(",")
     }
 
     async fn get_cached_token(&self, key: &str) -> Option<CachedToken> {
@@ -1019,7 +1021,7 @@ impl JdAgentIdentityProvider {
         config: &JdIdentityConfig,
         ctx: &IdentityResolveContext,
     ) -> anyhow::Result<CachedToken> {
-        let scope_str = ctx.egress_hosts.join(",");
+        let scope_str = Self::egress_scope(&ctx.egress_targets);
         let tenant_scope = format!("{}:{}", ctx.project_id, config.tenant_code);
         let agent_id = ctx.agent_id.to_string();
         let user_id = ctx.user_id.to_string();
@@ -1116,7 +1118,7 @@ impl JdAgentIdentityProvider {
         &self,
         bot_token: &str,
         context: &IdentityResolveContext,
-        host: &str,
+        endpoint: &str,
         cached_user_token: Option<CachedToken>,
     ) -> anyhow::Result<CachedToken> {
         if let Some(cached) = cached_user_token {
@@ -1126,7 +1128,7 @@ impl JdAgentIdentityProvider {
                 session_id = %context.session_id,
                 task_id = %context.task_id,
                 project_id = %context.project_id,
-                domain = host,
+                domain = endpoint,
                 cache_status = "hit",
                 "UserToken resolved from server cache"
             );
@@ -1138,12 +1140,11 @@ impl JdAgentIdentityProvider {
         // host is therefore represented by its configured HTTP(S) URL;
         // request-specific paths and query parameters are not available at
         // this stage.
-        let request_url = Self::user_identity_request_url(host);
         let agent_id = context.agent_id.to_string();
         let session_id = context.session_id.to_string();
         let task_id = context.task_id.to_string();
         let data = self
-            .api_exchange_user_token(bot_token, &agent_id, &session_id, &task_id, &request_url)
+            .api_exchange_user_token(bot_token, &agent_id, &session_id, &task_id, endpoint)
             .await?;
         if data.identity_token.trim().is_empty() {
             anyhow::bail!("exchangeUserToken returned an empty identityToken");
@@ -1170,7 +1171,7 @@ impl JdAgentIdentityProvider {
             session_id = %context.session_id,
             task_id = %context.task_id,
             project_id = %context.project_id,
-            domain = %request_url,
+            domain = endpoint,
             cache_status = "miss",
             expires_in = data.expires_in,
             "Exchanged and cached UserToken"
@@ -1195,7 +1196,7 @@ impl JdAgentIdentityProvider {
                 &agent_id,
                 &self.auth_type,
                 &user_id,
-                &context.egress_hosts.join(","),
+                &Self::egress_scope(&context.egress_targets),
             );
             // BotAuthCode is one-time authority supplied for this call. Always
             // exchange it and replace any cached BotToken for this actor/scope.
@@ -1253,20 +1254,12 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
         true
     }
 
-    fn has_config(&self, agent_metadata: Option<&JsonValue>) -> bool {
-        let _ = agent_metadata;
-        true
-    }
-
     async fn resolve(
         &self,
         context: &IdentityResolveContext,
     ) -> anyhow::Result<AgentIdentityInjection> {
         let resolve_started = Instant::now();
-        let Some(config) = JdIdentityConfig::from_json(&context.provider_config) else {
-            debug!(agent_id = %context.agent_id, "Agent identity explicitly disabled");
-            return Ok(AgentIdentityInjection::default());
-        };
+        let config = JdIdentityConfig::from_json(&context.provider_config);
         let user_id = context.user_id.to_string();
         let actor_id_hash = format!("{:x}", md5::compute(user_id.as_bytes()));
         info!(
@@ -1276,7 +1269,7 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
             task_id = %context.task_id,
             project_id = %context.project_id,
             actor_id_hash = %actor_id_hash,
-            targets = context.egress_targets.len().max(context.egress_hosts.len()),
+            targets = context.egress_targets.len(),
             exchange_user_token_enabled = self.exchange_user_token_enabled,
             "Starting Agent Identity resolution"
         );
@@ -1305,21 +1298,7 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
         );
         let bot_token = bot_token?;
 
-        let requested_targets = if context.egress_targets.is_empty() {
-            context
-                .egress_hosts
-                .iter()
-                .map(|host| agent_identity_trait::IdentityEgressRequestTarget {
-                    route_id: host.clone(),
-                    endpoint: Self::user_identity_request_url(host),
-                    host: host.clone(),
-                    port: 443,
-                    tls: true,
-                })
-                .collect::<Vec<_>>()
-        } else {
-            context.egress_targets.clone()
-        };
+        let requested_targets = context.egress_targets.clone();
         let first_target = requested_targets
             .first()
             .ok_or_else(|| anyhow!("agent identity requires at least one egress target"))?;
@@ -1631,36 +1610,45 @@ mod tests {
     }
 
     #[test]
-    fn absent_agent_identity_config_uses_global_default() {
-        let provider = provider_for_config_tests();
-
-        assert!(provider.has_config(None));
-        assert!(provider.has_config(Some(&json!({}))));
-    }
-
-    #[test]
-    fn explicit_enabled_agent_identity_config_is_active() {
-        let provider = provider_for_config_tests();
-
-        assert!(provider.has_config(Some(&json!({"agent_identity": {"enabled": true}}))));
-    }
-
-    #[test]
-    fn legacy_agent_switch_does_not_disable_environment_identity_policy() {
-        let provider = provider_for_config_tests();
-
-        assert!(provider.has_config(Some(&json!({"agent_identity": {"enabled": false}}))));
-    }
-
-    #[test]
-    fn legacy_disabled_config_still_parses_tenant_metadata() {
+    fn provider_config_parses_tenant_metadata_without_enablement_semantics() {
         let config = JdIdentityConfig::from_json(&json!({
             "enabled": false,
             "tenant_code": "tenant"
-        }))
-        .expect("environment policy owns enablement");
+        }));
 
         assert_eq!(config.tenant_code, "tenant");
+    }
+
+    #[test]
+    fn egress_scope_is_stable_and_deduplicated() {
+        let targets = vec![
+            agent_identity_trait::IdentityEgressRequestTarget {
+                route_id: "route-b".to_string(),
+                endpoint: "https://b.example.com/v1".to_string(),
+                host: "b.example.com".to_string(),
+                port: 443,
+                tls: true,
+            },
+            agent_identity_trait::IdentityEgressRequestTarget {
+                route_id: "route-a-2".to_string(),
+                endpoint: "https://a.example.com/v2".to_string(),
+                host: "a.example.com".to_string(),
+                port: 443,
+                tls: true,
+            },
+            agent_identity_trait::IdentityEgressRequestTarget {
+                route_id: "route-a-1".to_string(),
+                endpoint: "https://a.example.com/v1".to_string(),
+                host: "a.example.com".to_string(),
+                port: 443,
+                tls: true,
+            },
+        ];
+
+        assert_eq!(
+            JdAgentIdentityProvider::egress_scope(&targets),
+            "a.example.com,b.example.com"
+        );
     }
 
     #[test]
@@ -1719,22 +1707,6 @@ mod tests {
                 "user@example.com",
             ),
             "joysafeter:user_token:platform:agent:sso:cookie:user@example.com"
-        );
-    }
-
-    #[test]
-    fn user_identity_domain_defaults_to_https_for_legacy_host_input() {
-        assert_eq!(
-            JdAgentIdentityProvider::user_identity_request_url("api.example.com."),
-            "https://api.example.com/"
-        );
-    }
-
-    #[test]
-    fn user_identity_domain_preserves_configured_http_url() {
-        assert_eq!(
-            JdAgentIdentityProvider::user_identity_request_url("http://api.internal:8080/mcp"),
-            "http://api.internal:8080/mcp"
         );
     }
 
@@ -2014,18 +1986,22 @@ mod tests {
             auth_code: Some("one-time-code".to_string()),
             user_name: "user@example.com".to_string(),
             provider_config: json!({"tenant_code": "tenant"}),
-            egress_hosts: vec!["api.example.com".to_string()],
-            egress_targets: vec![],
+            egress_targets: vec![agent_identity_trait::IdentityEgressRequestTarget {
+                route_id: "external-identity:test:0".to_string(),
+                endpoint: "https://api.example.com/".to_string(),
+                host: "api.example.com".to_string(),
+                port: 443,
+                tls: true,
+            }],
         };
-        let config =
-            JdIdentityConfig::from_json(&context.provider_config).expect("identity config");
+        let config = JdIdentityConfig::from_json(&context.provider_config);
         let cache_key = JdAgentIdentityProvider::cache_key(
             &provider.platform_id,
             &format!("{}:{}", context.project_id, config.tenant_code),
             &context.agent_id.to_string(),
             &provider.auth_type,
             &context.user_id.to_string(),
-            &context.egress_hosts.join(","),
+            &JdAgentIdentityProvider::egress_scope(&context.egress_targets),
         );
         let user_token_cache_key = JdAgentIdentityProvider::user_token_cache_key(
             &provider.platform_id,

@@ -53,8 +53,6 @@ pub struct SandboxBridge {
     pub displaced: AtomicBool,
     /// Runner capabilities from RunnerReady.
     pub runner_capabilities: Mutex<Vec<String>>,
-    /// Signature of session file resources already injected into this sandbox.
-    pub injected_session_files_signature: Mutex<Option<String>>,
     /// Last error message.
     pub last_error: Mutex<Option<String>>,
     /// Maps control_request call_id → event_id for HITL tracking.
@@ -89,7 +87,6 @@ impl SandboxBridge {
             setup_done: AtomicBool::new(false),
             displaced: AtomicBool::new(false),
             runner_capabilities: Mutex::new(Vec::new()),
-            injected_session_files_signature: Mutex::new(None),
             last_error: Mutex::new(None),
             pending_control_request_ids: Mutex::new(HashMap::new()),
             last_result_status: Mutex::new(None),

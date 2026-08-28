@@ -86,9 +86,6 @@ pub struct IdentityResolveContext {
     pub user_name: String,
     /// Agent-level identity config parsed from metadata (provider-specific).
     pub provider_config: JsonValue,
-    /// Auto-extracted egress hostnames from agent's MCP servers + environment
-    /// egress services. Used as the `scope` parameter for identity platform.
-    pub egress_hosts: Vec<String>,
     /// Exact routes selected by the environment policy.
     pub egress_targets: Vec<IdentityEgressRequestTarget>,
 }
@@ -124,13 +121,6 @@ pub trait AgentIdentityProvider: Send + Sync + std::fmt::Debug {
     /// Whether this provider is active. Returns false → entire injection
     /// pipeline is skipped (zero overhead when disabled).
     fn enabled(&self) -> bool;
-
-    /// Check if the given agent has identity injection configured.
-    /// Called during `build_resolve_context()` — should be fast (no I/O).
-    ///
-    /// Returns true if `agent_metadata` contains valid identity config
-    /// that this provider can handle.
-    fn has_config(&self, agent_metadata: Option<&JsonValue>) -> bool;
 
     /// Resolve identity tokens and produce injection targets.
     ///
@@ -175,10 +165,6 @@ impl AgentIdentityProvider for NoopAgentIdentityProvider {
         false
     }
 
-    fn has_config(&self, _agent_metadata: Option<&JsonValue>) -> bool {
-        false
-    }
-
     async fn resolve(
         &self,
         _context: &IdentityResolveContext,
@@ -206,7 +192,6 @@ mod tests {
             auth_code: None,
             user_name: "user@example.com".to_string(),
             provider_config: serde_json::json!({}),
-            egress_hosts: vec!["api.example.com".to_string()],
             egress_targets: vec![IdentityEgressRequestTarget {
                 route_id: "external-identity:crm:0".to_string(),
                 endpoint: "https://api.example.com/v1/customer".to_string(),

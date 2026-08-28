@@ -37,6 +37,7 @@ from app.joysafeter_shared.ids import (
     MemoryStoreId,
     OrganizationId,
     ProjectId,
+    SandboxId,
     SessionId,
     SessionResourceId,
     UserId,
@@ -97,12 +98,12 @@ async def _project_store(db_session, project_id: ProjectId) -> JoySafeterMemoryS
 
 
 class _FakeRedis:
-    def __init__(self, owners: dict[uuid.UUID, str]):
+    def __init__(self, owners: dict[SandboxId, str]):
         self.owners = owners
         self.published: list[tuple[str, str]] = []
 
     async def get(self, key: str):
-        sandbox_id = uuid.UUID(key.rsplit(":", 1)[-1])
+        sandbox_id = SandboxId.from_uuid(uuid.UUID(key.rsplit(":", 1)[-1]))
         return self.owners.get(sandbox_id)
 
     async def publish(self, channel: str, payload: str):
@@ -142,8 +143,8 @@ async def _mounted_store_with_active_sandboxes(db_session):
     await db_session.refresh(store)
     await db_session.refresh(agent)
 
-    sandbox_a = uuid.uuid4()
-    sandbox_b = uuid.uuid4()
+    sandbox_a = SandboxId.new()
+    sandbox_b = SandboxId.new()
     session_a = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running", last_sandbox_id=sandbox_a)
     db_session.add(session_a)
     await db_session.commit()

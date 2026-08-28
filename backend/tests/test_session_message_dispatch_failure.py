@@ -820,7 +820,12 @@ async def test_tool_confirmation_event_id_is_resolved_to_runtime_call_id_for_red
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running", last_sandbox_id=uuid.uuid4())
+    session = JoySafeterSession(
+        id=SessionId.new(),
+        agent_id=agent.id,
+        status="running",
+        last_sandbox_id=SandboxId.new(),
+    )
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -897,7 +902,12 @@ async def test_custom_tool_result_event_id_is_resolved_to_runtime_call_id_for_re
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running", last_sandbox_id=uuid.uuid4())
+    session = JoySafeterSession(
+        id=SessionId.new(),
+        agent_id=agent.id,
+        status="running",
+        last_sandbox_id=SandboxId.new(),
+    )
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
@@ -976,7 +986,12 @@ async def test_interrupt_requires_cancel_delivery_for_running_session(
     await db_session.commit()
     await db_session.refresh(agent)
 
-    session = JoySafeterSession(id=SessionId.new(), agent_id=agent.id, status="running", last_sandbox_id=uuid.uuid4())
+    session = JoySafeterSession(
+        id=SessionId.new(),
+        agent_id=agent.id,
+        status="running",
+        last_sandbox_id=SandboxId.new(),
+    )
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)

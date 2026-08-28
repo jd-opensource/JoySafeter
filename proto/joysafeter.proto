@@ -171,20 +171,20 @@ message MemoryFileUpdate {
 }
 
 message SetupSandbox {
+  reserved 7;
+  reserved 13 to 14;
+  reserved "secrets", "files", "file_refs";
   repeated SkillArchive skills = 1;
   repeated McpConfig mcp_servers = 2;
   repeated CustomTool custom_tools = 3;
   repeated string setup_commands = 4;
   optional string work_dir = 5;
   map<string, string> env = 6;
-  map<string, string> secrets = 7;
   optional string permission_mode = 8;
   string provider = 9;
   optional string model = 10;
   optional string memory_system_prompt = 11;
   repeated MemoryStoreMount memory_mounts = 12;
-  repeated FileMount files = 13;
-  repeated FileRef file_refs = 14;
   repeated string allowed_tools = 15;
   repeated string disallowed_tools = 16;
   repeated string ask_tools = 17;
@@ -213,6 +213,8 @@ message MemoryFileSync {
 }
 
 message StartTask {
+  reserved 10;
+  reserved "secrets";
   string task_id = 1;
   string provider = 2;
   string prompt = 3;
@@ -222,7 +224,6 @@ message StartTask {
   optional uint32 max_turns = 7;
   uint64 timeout_seconds = 8;
   map<string, string> env = 9;
-  map<string, string> secrets = 10;
   repeated McpConfig mcp_servers = 11;
   repeated RepoConfig repos = 12;
   optional string work_dir = 13;

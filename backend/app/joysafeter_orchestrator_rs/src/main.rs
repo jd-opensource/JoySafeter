@@ -367,7 +367,6 @@ async fn main() -> anyhow::Result<()> {
         queue.clone(),
         db_pool.clone(),
         config.clone(),
-        sandbox_provider.clone(),
         grpc_sandbox_resolver,
         redis_coordinator.clone(),
         memory_subscribers.clone(),

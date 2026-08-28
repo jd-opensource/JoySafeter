@@ -23,6 +23,51 @@ use crate::ids::SandboxId;
 use crate::kernel::ha::{NetworkPolicyRequest, NetworkPolicyRequestQueue};
 use crate::sandbox::provider::SandboxProvider;
 
+fn provider_runtime_is_absent(message: &str) -> bool {
+    message.contains("No such container") || message.contains("404")
+}
+
+pub(crate) async fn destroy_unpersisted_sandbox(
+    provider: &Arc<dyn SandboxProvider>,
+    network_policy_queue: Option<&dyn NetworkPolicyRequestQueue>,
+    sandbox_id: SandboxId,
+    external_id: &str,
+    reason: &str,
+) -> anyhow::Result<()> {
+    let destroy_error = provider
+        .destroy(external_id)
+        .await
+        .err()
+        .map(|error| error.to_string())
+        .filter(|message| !provider_runtime_is_absent(message));
+    let networking_error = if let Some(queue) = network_policy_queue {
+        queue
+            .publish(NetworkPolicyRequest::remove(sandbox_id))
+            .await
+            .err()
+            .map(|error| error.to_string())
+    } else {
+        provider
+            .teardown_networking(sandbox_id)
+            .await
+            .err()
+            .map(|error| error.to_string())
+    };
+
+    match (destroy_error, networking_error) {
+        (None, None) => Ok(()),
+        (Some(destroy_error), None) => {
+            anyhow::bail!("failed to destroy unpersisted sandbox {sandbox_id} during {reason}: {destroy_error}")
+        }
+        (None, Some(networking_error)) => {
+            anyhow::bail!("failed to tear down networking for unpersisted sandbox {sandbox_id} during {reason}: {networking_error}")
+        }
+        (Some(destroy_error), Some(networking_error)) => anyhow::bail!(
+            "failed to clean up unpersisted sandbox {sandbox_id} during {reason}: provider destroy failed: {destroy_error}; networking teardown failed: {networking_error}"
+        ),
+    }
+}
+
 /// Finalize a sandbox destroy after the caller has already CAS-claimed the row
 /// into `stopping`.
 ///
@@ -52,7 +97,7 @@ pub(crate) async fn finalize_claimed_sandbox_destroy(
     if let Some(ext_id) = external_id {
         if let Err(err) = provider.destroy(ext_id).await {
             let message = err.to_string();
-            if !(message.contains("No such container") || message.contains("404")) {
+            if !provider_runtime_is_absent(&message) {
                 let _ = queries::restore_sandbox_after_passive_destroy_failure(
                     pool,
                     sandbox_id,

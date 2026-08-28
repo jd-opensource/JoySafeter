@@ -287,12 +287,7 @@ def test_environment_without_agent_identity_does_not_request_capture(environment
 
 
 def test_environment_with_agent_identity_requests_capture() -> None:
-    assert (
-        environment_uses_agent_identity(
-            {"config": {"egress_services": [{"auth_source": "agent_identity"}]}}
-        )
-        is True
-    )
+    assert environment_uses_agent_identity({"config": {"egress_services": [{"auth_source": "agent_identity"}]}}) is True
 
 
 @pytest.mark.asyncio

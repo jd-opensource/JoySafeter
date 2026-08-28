@@ -1,11 +1,10 @@
-import uuid
-
 import pytest
 
 from app.joysafeter_domain.services.joysafeter_memory_service import (
     MemoryService,
     MemoryStoreArchived,
 )
+from app.joysafeter_shared.ids import MemoryId, MemoryStoreId
 
 
 @pytest.mark.asyncio
@@ -39,7 +38,7 @@ async def test_memory_writes_to_missing_store_still_return_none(db_session):
     # A genuinely absent store is not the same as an archived one: writes return
     # None/False (not-found), they do not raise MemoryStoreArchived.
     svc = MemoryService(db_session)
-    missing = uuid.uuid4()
+    missing = MemoryStoreId.new()
 
     assert await svc.create_memory(missing, "a.md", "x", project_id=None) is None
-    assert await svc.delete_memory(missing, uuid.uuid4(), project_id=None) is False
+    assert await svc.delete_memory(missing, MemoryId.new(), project_id=None) is False

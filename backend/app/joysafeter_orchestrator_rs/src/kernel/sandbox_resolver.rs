@@ -2228,10 +2228,6 @@ impl SandboxResolver {
         use crate::kernel::agent_identity_provider::IdentityResolveContext;
 
         let agent = agent.ok_or(TaskIdentityContextError::ScopeMissing)?;
-        if !self.identity_provider.has_config(agent.metadata.as_ref()) {
-            return Err(TaskIdentityContextError::ProviderDisabled);
-        }
-
         // Provider config is optional (global mode); pass agent_identity block if
         // present, otherwise an empty object.
         let provider_config = agent
@@ -2277,19 +2273,13 @@ impl SandboxResolver {
         let mut egress_targets = candidate_targets.to_vec();
         egress_targets.sort_by(|left, right| left.route_id.cmp(&right.route_id));
         egress_targets.dedup_by(|left, right| left.route_id == right.route_id);
-        let mut egress_hosts: Vec<String> = egress_targets
-            .iter()
-            .map(|target| target.host.clone())
-            .collect();
-        egress_hosts.sort();
-        egress_hosts.dedup();
-        if egress_hosts.is_empty() {
+        if egress_targets.is_empty() {
             return Err(TaskIdentityContextError::NoTrustedHosts);
         }
         debug!(
             agent_id = %agent.id,
-            egress_hosts = ?egress_hosts,
-            "agent identity: resolving with egress hosts"
+            targets = egress_targets.len(),
+            "agent identity: resolving with environment routes"
         );
 
         let context = IdentityResolveContext {
@@ -2303,7 +2293,6 @@ impl SandboxResolver {
             auth_code: identity_ctx.auth_code,
             user_name: identity_ctx.user_name,
             provider_config,
-            egress_hosts,
             egress_targets,
         };
 
@@ -2666,6 +2655,22 @@ impl SandboxResolver {
                 "failed new-sandbox networking",
             )
             .await;
+        }
+
+        if queries::get_sandbox(&self.pool, sandbox_id)
+            .await?
+            .is_none()
+        {
+            crate::kernel::sandbox_lifecycle::destroy_unpersisted_sandbox(
+                &self.provider,
+                self.network_policy_queue.as_deref(),
+                sandbox_id,
+                external_id,
+                "rejected new sandbox",
+            )
+            .await
+            .map_err(|error| RuntimeFreshnessError::CleanupFailed(error.to_string()))?;
+            return Ok(true);
         }
 
         crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
@@ -4904,6 +4909,7 @@ mod egress_tests {
             }
             assert_eq!(provider.created.lock().await.len(), 1);
             assert_eq!(provider.destroyed.lock().await.len(), 1);
+            assert_eq!(provider.networking_teardowns.lock().await.len(), 1);
             let sandbox_count: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM joysafeter_sandboxes WHERE chat_session_id = $1",
             )
@@ -5481,6 +5487,7 @@ mod egress_tests {
     #[derive(Debug, Default)]
     struct SlowIdentityProvider {
         calls: AtomicUsize,
+        captured_material: Mutex<Vec<bool>>,
     }
 
     #[derive(Debug, Default)]
@@ -5495,10 +5502,6 @@ mod egress_tests {
         }
 
         fn enabled(&self) -> bool {
-            true
-        }
-
-        fn has_config(&self, _agent_metadata: Option<&serde_json::Value>) -> bool {
             true
         }
 
@@ -5538,10 +5541,6 @@ mod egress_tests {
             true
         }
 
-        fn has_config(&self, _agent_metadata: Option<&serde_json::Value>) -> bool {
-            true
-        }
-
         async fn resolve(
             &self,
             _context: &crate::kernel::agent_identity_provider::IdentityResolveContext,
@@ -5568,23 +5567,23 @@ mod egress_tests {
             true
         }
 
-        fn has_config(&self, _agent_metadata: Option<&serde_json::Value>) -> bool {
-            true
-        }
-
         async fn resolve(
             &self,
             context: &crate::kernel::agent_identity_provider::IdentityResolveContext,
         ) -> anyhow::Result<crate::kernel::agent_identity_provider::AgentIdentityInjection>
         {
             self.calls.fetch_add(1, Ordering::SeqCst);
+            self.captured_material
+                .lock()
+                .await
+                .push(!context.identity_token.is_empty() || context.auth_code.is_some());
             tokio::time::sleep(Duration::from_millis(100)).await;
             Ok(
                 crate::kernel::agent_identity_provider::AgentIdentityInjection {
                     targets: vec![
                         crate::kernel::agent_identity_provider::IdentityEgressTarget {
                             route_id: context.egress_targets[0].route_id.clone(),
-                            host: context.egress_hosts[0].clone(),
+                            host: context.egress_targets[0].host.clone(),
                             port: 443,
                             tls: true,
                             inject_headers: vec![(
@@ -5613,9 +5612,12 @@ mod egress_tests {
         };
         let agent_id = AgentId::from_uuid(Uuid::now_v7());
         let task_id = TaskId::from_uuid(Uuid::now_v7());
+        let empty_task_id = TaskId::from_uuid(Uuid::now_v7());
+        let failing_task_id = TaskId::from_uuid(Uuid::now_v7());
         let expired_task_id = TaskId::from_uuid(Uuid::now_v7());
         let malformed_task_id = TaskId::from_uuid(Uuid::now_v7());
         let invalid_kind_task_id = TaskId::from_uuid(Uuid::now_v7());
+        let session_id = SessionId::from_uuid(Uuid::now_v7());
         let unique = Uuid::now_v7().simple().to_string();
         let project_id = ProjectId::new();
         let org_id = OrganizationId::new();
@@ -5670,41 +5672,63 @@ mod egress_tests {
             .execute(&pool)
             .await
             .expect("insert agent");
-            for id in [task_id, expired_task_id, malformed_task_id] {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sessions (id, agent_id, project_id, status)
+                VALUES ($1, $2, $3, 'idle')
+                "#,
+            )
+            .bind(session_id)
+            .bind(agent_id)
+            .bind(&project_id)
+            .execute(&pool)
+            .await
+            .expect("insert identity session");
+            for id in [
+                task_id,
+                empty_task_id,
+                failing_task_id,
+                expired_task_id,
+                malformed_task_id,
+            ] {
                 sqlx::query(
                     r#"
                     INSERT INTO joysafeter_tasks (
-                        id, project_id, agent_id, status, prompt, output,
+                        id, project_id, user_id, agent_id, chat_session_id, status, prompt, output,
                         timeout_sec, retry_count, max_retries
                     )
-                    VALUES ($1, $2, $3, 'pending', 'identity', '', 7200, 0, 2)
+                    VALUES ($1, $2, $3, $4, $5, 'pending', 'identity', '', 7200, 0, 2)
                     "#,
                 )
                 .bind(id)
                 .bind(&project_id)
+                .bind(user_id)
                 .bind(agent_id)
+                .bind(session_id)
                 .execute(&pool)
                 .await
                 .expect("insert task");
             }
             let ciphertext = "enc:v1:VzniG9ulG62e3VZZD1jujN8lxiW1h/6a0Hdj1jIlJC/Wl9Rvvk7D";
-            sqlx::query(
-                r#"
-                INSERT INTO joysafeter_task_identity_contexts (
-                    task_id, project_id, user_id, user_name, credential_kind,
-                    credential_fingerprint, encrypted_credential, captured_at, expires_at
+            for id in [task_id, empty_task_id, failing_task_id] {
+                sqlx::query(
+                    r#"
+                    INSERT INTO joysafeter_task_identity_contexts (
+                        task_id, project_id, user_id, user_name, credential_kind,
+                        credential_fingerprint, encrypted_credential, captured_at, expires_at
+                    )
+                    VALUES ($1, $2, $3, 'user@example.com', 'identity_token',
+                            NULL, $4, NOW(), NOW() + INTERVAL '5 minutes')
+                    "#,
                 )
-                VALUES ($1, $2, $3, 'user@example.com', 'identity_token',
-                        NULL, $4, NOW(), NOW() + INTERVAL '5 minutes')
-                "#,
-            )
-            .bind(task_id)
-            .bind(&project_id)
-            .bind(user_id)
-            .bind(ciphertext)
-            .execute(&pool)
-            .await
-            .expect("insert active identity context");
+                .bind(id)
+                .bind(&project_id)
+                .bind(user_id)
+                .bind(ciphertext)
+                .execute(&pool)
+                .await
+                .expect("insert active identity context");
+            }
             sqlx::query(
                 r#"
                 INSERT INTO joysafeter_task_identity_contexts (
@@ -5802,7 +5826,7 @@ mod egress_tests {
                                 .expect("agent exists"),
                         ),
                         malformed_task_id,
-                        None,
+                        Some(session_id),
                         Some(project_id),
                         &[identity_target("api.example.com")],
                     )
@@ -5831,8 +5855,8 @@ mod egress_tests {
                 no_host_resolver
                     .resolve_identity_injection(
                         Some(&agent),
-                        task_id,
-                        None,
+                        empty_task_id,
+                        Some(session_id),
                         Some(project_id),
                         &[identity_target("api.example.com")],
                     )
@@ -5857,8 +5881,8 @@ mod egress_tests {
                 empty_resolver
                     .resolve_identity_injection(
                         Some(&agent),
-                        task_id,
-                        None,
+                        empty_task_id,
+                        Some(session_id),
                         Some(project_id),
                         &[identity_target("api.example.com")],
                     )
@@ -5883,8 +5907,8 @@ mod egress_tests {
                 failing_resolver
                     .resolve_identity_injection(
                         Some(&agent),
-                        task_id,
-                        None,
+                        failing_task_id,
+                        Some(session_id),
                         Some(project_id),
                         &[identity_target("api.example.com")],
                     )
@@ -5914,25 +5938,28 @@ mod egress_tests {
             let first = resolver.resolve_identity_injection(
                 Some(&agent),
                 task_id,
-                None,
+                Some(session_id),
                 Some(project_id),
                 &candidate_hosts,
             );
             let second = resolver.resolve_identity_injection(
                 Some(&agent),
                 task_id,
-                None,
+                Some(session_id),
                 Some(project_id),
                 &candidate_hosts,
             );
             let (first, second) = tokio::join!(first, second);
             let first = first.expect("first identity claim resolves without error");
             let second = second.expect("second identity claim resolves without error");
-            assert_eq!(identity_provider.calls.load(Ordering::SeqCst), 1);
+            assert_eq!(identity_provider.calls.load(Ordering::SeqCst), 2);
             assert_eq!(
                 usize::from(first.is_some()) + usize::from(second.is_some()),
-                1
+                2
             );
+            let mut captured_material = identity_provider.captured_material.lock().await.clone();
+            captured_material.sort_unstable();
+            assert_eq!(captured_material, vec![false, true]);
             assert!(resolver
                 .load_identity_context(task_id, Some(project_id))
                 .await
@@ -5954,6 +5981,10 @@ mod egress_tests {
 
         let _ = sqlx::query("DELETE FROM joysafeter_tasks WHERE agent_id = $1")
             .bind(agent_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
             .execute(&pool)
             .await;
         let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
@@ -8566,6 +8597,20 @@ mod egress_tests {
         .await
         .expect("mark initial sandbox idle"));
         resolver.network_policy_ready.remove(&resolved.sandbox_id);
+        sqlx::query(
+            r#"
+            UPDATE joysafeter_sandboxes
+            SET networking_status = 'pending',
+                networking_applied_hash = NULL,
+                networking_applied_version = NULL,
+                networking_ready_at = NULL
+            WHERE id = $1
+            "#,
+        )
+        .bind(resolved.sandbox_id)
+        .execute(&pool)
+        .await
+        .expect("mark reused sandbox network policy pending");
         *provider.networking_error.lock().await =
             Some("synthetic Envoy refresh rejection".to_string());
 

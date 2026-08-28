@@ -1524,8 +1524,8 @@ async def test_manual_trigger_run_bounds_oversized_idempotency_header(db_session
     assert response.task_id is not None
     assert response.session_id is not None
     assert response.deduped is False
-    task_uuid = response.task_id.uuid
-    stored_task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_uuid))).scalar_one()
+    task_id = response.task_id
+    stored_task = (await db_session.execute(select(JoySafeterTask).where(JoySafeterTask.id == task_id))).scalar_one()
     assert stored_task.idempotency_key is not None
     assert oversized_header not in stored_task.idempotency_key
     assert ":sha256:" in stored_task.idempotency_key
@@ -1543,7 +1543,7 @@ async def test_manual_trigger_run_bounds_oversized_idempotency_header(db_session
     assert replay.task_id == response.task_id
     assert replay.session_id == response.session_id
     assert replay.deduped is True
-    assert redis.rpushed == [("joysafeter:global_queue", str(task_uuid))]
+    assert redis.rpushed == [("joysafeter:global_queue", str(task_id.uuid))]
 
 
 @pytest.mark.asyncio
@@ -1581,12 +1581,12 @@ async def test_manual_trigger_run_stores_full_execution_snapshot(db_session, mon
 
     assert response.task_id is not None
     assert response.session_id is not None
-    task_uuid = response.task_id.uuid
-    session_uuid = response.session_id.uuid
-    assert redis.rpushed == [("joysafeter:global_queue", str(task_uuid))]
+    task_id = response.task_id
+    session_id = response.session_id
+    assert redis.rpushed == [("joysafeter:global_queue", str(task_id.uuid))]
     db_session.expire_all()
     session = (
-        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_uuid))
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
     ).scalar_one()
     snapshot = session.agent_snapshot
     assert snapshot["schema"] == "joysafeter.agent_execution_snapshot.v2"
@@ -1617,7 +1617,7 @@ async def test_manual_trigger_run_stores_full_execution_snapshot(db_session, mon
 
     db_session.expire_all()
     unchanged = (
-        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_uuid))
+        await db_session.execute(select(JoySafeterSession).where(JoySafeterSession.id == session_id))
     ).scalar_one()
     assert unchanged.agent_snapshot == snapshot
 

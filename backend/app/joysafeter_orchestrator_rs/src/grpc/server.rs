@@ -39,7 +39,6 @@ use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_bridge::SandboxBridge;
 use crate::kernel::sandbox_resolver::SandboxResolver;
 use crate::runtime_config::RuntimeConfig;
-use crate::sandbox::provider::SandboxProvider;
 
 const HEARTBEAT_TIMEOUT_DEFAULT: u64 = 120;
 const GRPC_MAX_RECV_MESSAGE_SIZE: usize = 128 * 1024 * 1024;
@@ -54,7 +53,6 @@ pub struct AgentBridgeService {
     queue: TaskQueue,
     pool: PgPool,
     config: JoySafeterConfig,
-    sandbox_provider: Arc<dyn SandboxProvider>,
     sandbox_resolver: Arc<SandboxResolver>,
     runtime_config: Arc<RuntimeConfig>,
     connection_semaphore: Arc<Semaphore>,
@@ -70,7 +68,6 @@ impl AgentBridgeService {
         queue: TaskQueue,
         pool: PgPool,
         config: JoySafeterConfig,
-        sandbox_provider: Arc<dyn SandboxProvider>,
         sandbox_resolver: Arc<SandboxResolver>,
         redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
         memory_subscribers: Arc<MemoryStoreSubscribers>,
@@ -84,7 +81,6 @@ impl AgentBridgeService {
             queue,
             pool,
             config,
-            sandbox_provider,
             sandbox_resolver,
             runtime_config,
             connection_semaphore: Arc::new(Semaphore::new(max_connections)),
@@ -120,7 +116,6 @@ impl AgentBridge for AgentBridgeService {
         let queue = self.queue.clone();
         let pool = self.pool.clone();
         let config = self.config.clone();
-        let sandbox_provider = self.sandbox_provider.clone();
         let sandbox_resolver = self.sandbox_resolver.clone();
         let runtime_config = self.runtime_config.clone();
         let redis_coordinator = self.redis_coordinator.clone();
@@ -247,9 +242,18 @@ impl AgentBridge for AgentBridgeService {
 
             // Resolve linked session_id
             let linked_session_id = sandbox_rec.as_ref().and_then(|s| s.chat_session_id);
+            let unclaimed_pool_sandbox = should_defer_initial_setup(
+                sandbox_rec.as_ref().map(|sandbox| sandbox.status.as_str()),
+                linked_session_id.is_some(),
+            );
 
-            // Send SetupSandbox if not reconnect
-            if !ready.is_reconnect {
+            if unclaimed_pool_sandbox {
+                bridge.setup_done.store(false, Ordering::Relaxed);
+                debug!(
+                    sandbox_id = %sandbox_db_id,
+                    "Warm-pool sandbox connected; deferring SetupSandbox until session claim"
+                );
+            } else if !ready.is_reconnect {
                 match send_setup(&pool, &bridge, sandbox_db_id, &tx, config.envoy_enabled).await {
                     Ok(true) => bridge.setup_done.store(true, Ordering::Relaxed),
                     Ok(false) => {
@@ -289,7 +293,6 @@ impl AgentBridge for AgentBridgeService {
             let event_bus = event_bus.clone();
             let queue = queue.clone();
             let config = config.clone();
-            let sandbox_provider = sandbox_provider.clone();
             let runtime_config = runtime_config.clone();
             let registry = bridge_store.clone();
             let bridge_clone = bridge.clone();
@@ -348,7 +351,6 @@ impl AgentBridge for AgentBridgeService {
                 &event_bus,
                 &queue,
                 &config,
-                &sandbox_provider,
                 &sandbox_resolver,
                 sandbox_db_id,
                 &sandbox_external_id,
@@ -417,7 +419,6 @@ async fn multi_task_loop(
     event_bus: &EventBus,
     queue: &TaskQueue,
     config: &JoySafeterConfig,
-    sandbox_provider: &Arc<dyn SandboxProvider>,
     sandbox_resolver: &Arc<SandboxResolver>,
     sandbox_db_id: SandboxId,
     sandbox_external_id: &str,
@@ -733,37 +734,6 @@ async fn multi_task_loop(
                     continue;
                 }
             }
-        }
-
-        if let Err(e) = inject_session_files_before_start(
-            pool,
-            sandbox_provider,
-            bridge,
-            sandbox_db_id,
-            sandbox_external_id,
-            session_id,
-        )
-        .await
-        {
-            error!(
-                task_id = %task_id,
-                sandbox_id = %sandbox_db_id,
-                "Failed to inject session files before StartTask, marking task failed: {e}"
-            );
-            let reason = format!("Failed to inject session files before StartTask: {e}");
-            fail_pre_start_task(
-                pool,
-                event_bus,
-                task_id,
-                task_owner_epoch,
-                session_id,
-                sandbox_db_id,
-                &reason,
-            )
-            .await;
-            *bridge.current_task_id.lock().await = None;
-            *bridge.current_task_owner_epoch.lock().await = None;
-            continue;
         }
 
         // Build and send StartTask (full field resolution from DB)
@@ -2132,16 +2102,11 @@ mod tests {
     }
 
     #[test]
-    fn provider_injection_id_prefers_db_external_id_over_runner_sandbox_id() {
-        assert_eq!(
-            choose_provider_external_id(Some("joysafeter-019fc6f8"), "019fc6f8"),
-            "joysafeter-019fc6f8"
-        );
-        assert_eq!(
-            choose_provider_external_id(Some(""), "019fc6f8"),
-            "019fc6f8"
-        );
-        assert_eq!(choose_provider_external_id(None, "019fc6f8"), "019fc6f8");
+    fn initial_setup_is_deferred_only_for_an_unclaimed_pool_sandbox() {
+        assert!(should_defer_initial_setup(Some("pooled"), false));
+        assert!(!should_defer_initial_setup(Some("pooled"), true));
+        assert!(!should_defer_initial_setup(Some("creating"), false));
+        assert!(!should_defer_initial_setup(None, false));
     }
 
     async fn create_mounted_memory_store(pool: &PgPool, session_id: SessionId) -> MemoryStoreId {
@@ -5588,128 +5553,8 @@ async fn rescue_orphaned_tasks(
 // SetupSandbox
 // ---------------------------------------------------------------------------
 
-async fn session_files_signature(pool: &PgPool, session_id: SessionId) -> anyhow::Result<String> {
-    let signature: Option<String> = sqlx::query_scalar(
-        r#"
-        SELECT COALESCE(
-            string_agg(
-                sf.id::text || ':' || sf.mount_path || ':' ||
-                COALESCE(f.storage_key, '') || ':' ||
-                COALESCE(f.size_bytes, 0)::text,
-                ',' ORDER BY sf.created_at, sf.id
-            ),
-            ''
-        )
-        FROM joysafeter_session_files sf
-        JOIN joysafeter_files f ON f.id = sf.file_id
-        WHERE sf.session_id = $1 AND f.deleted_at IS NULL
-        "#,
-    )
-    .bind(session_id)
-    .fetch_one(pool)
-    .await?;
-
-    Ok(signature.unwrap_or_default())
-}
-
-fn choose_provider_external_id(db_external_id: Option<&str>, runner_sandbox_id: &str) -> String {
-    db_external_id
-        .map(str::trim)
-        .filter(|external_id| !external_id.is_empty())
-        .unwrap_or(runner_sandbox_id)
-        .to_string()
-}
-
-async fn resolve_provider_external_id_for_injection(
-    pool: &PgPool,
-    sandbox_db_id: SandboxId,
-    runner_sandbox_id: &str,
-) -> anyhow::Result<String> {
-    let sandbox = queries::get_sandbox(pool, sandbox_db_id).await?;
-    Ok(choose_provider_external_id(
-        sandbox.as_ref().and_then(|row| row.external_id.as_deref()),
-        runner_sandbox_id,
-    ))
-}
-
-async fn inject_session_files_before_start(
-    pool: &PgPool,
-    provider: &Arc<dyn SandboxProvider>,
-    bridge: &Arc<SandboxBridge>,
-    sandbox_db_id: SandboxId,
-    runner_sandbox_id: &str,
-    session_id: Option<SessionId>,
-) -> anyhow::Result<()> {
-    let Some(session_id) = session_id else {
-        return Ok(());
-    };
-
-    let signature = session_files_signature(pool, session_id)
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!("failed to load session file signature for session {session_id}: {e}")
-        })?;
-    if signature.is_empty() {
-        *bridge.injected_session_files_signature.lock().await = Some(signature);
-        return Ok(());
-    }
-
-    {
-        let current = bridge.injected_session_files_signature.lock().await;
-        if current.as_deref() == Some(signature.as_str()) {
-            return Ok(());
-        }
-    }
-
-    if bridge
-        .runner_capabilities
-        .lock()
-        .await
-        .iter()
-        .any(|capability| capability == "start_task_file_mount")
-    {
-        *bridge.injected_session_files_signature.lock().await = Some(signature);
-        info!(
-            session_id = %session_id,
-            sandbox_id = %runner_sandbox_id,
-            "Deferring session file injection to runner StartTask"
-        );
-        return Ok(());
-    }
-
-    let provider_external_id =
-        resolve_provider_external_id_for_injection(pool, sandbox_db_id, runner_sandbox_id)
-            .await
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "failed to resolve provider external_id for sandbox {sandbox_db_id}: {e}"
-                )
-            })?;
-
-    let ctx = crate::sandbox::file_injection::FileInjectionContext {
-        session_id,
-        external_id: provider_external_id.clone(),
-        workspace_path: None,
-        runner_capabilities: vec![],
-        is_pool_sandbox: true,
-    };
-
-    let files = crate::sandbox::file_injection::inject_session_files(pool, &ctx, provider.as_ref())
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "failed to inject updated session files into provider sandbox {provider_external_id} (runner sandbox {runner_sandbox_id}) for session {session_id}: {e}"
-            )
-        })?;
-    *bridge.injected_session_files_signature.lock().await = Some(signature);
-    info!(
-        session_id = %session_id,
-        sandbox_id = %runner_sandbox_id,
-        provider_external_id = %provider_external_id,
-        file_count = files.len(),
-        "Injected updated session files before StartTask"
-    );
-    Ok(())
+fn should_defer_initial_setup(sandbox_status: Option<&str>, has_session_link: bool) -> bool {
+    sandbox_status == Some("pooled") && !has_session_link
 }
 
 async fn handle_task_setup_failure_result(
@@ -5913,24 +5758,15 @@ async fn send_setup(
             sandbox_db_id,
         )
         .await?;
-    let mut setup = HarnessInputBuilder::build_setup_sandbox(&input);
-    let file_count = setup.files.len();
-    let file_ref_count = setup.file_refs.len();
-    setup.files.clear();
-    setup.file_refs.clear();
-
     let msg = OrchestratorMessage {
-        payload: Some(orchestrator_message::Payload::Setup(setup)),
+        payload: Some(orchestrator_message::Payload::Setup(
+            HarnessInputBuilder::build_setup_sandbox(&input),
+        )),
     };
     tx.send(msg)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to send SetupSandbox: {e}"))?;
-    info!(
-        sandbox_id = %sandbox_db_id,
-        omitted_files = file_count,
-        omitted_file_refs = file_ref_count,
-        "SetupSandbox sent"
-    );
+    info!(sandbox_id = %sandbox_db_id, "SetupSandbox sent");
 
     Ok(true)
 }
@@ -7191,7 +7027,6 @@ pub async fn start_grpc_server(
     queue: TaskQueue,
     pool: PgPool,
     config: JoySafeterConfig,
-    sandbox_provider: Arc<dyn SandboxProvider>,
     sandbox_resolver: Arc<SandboxResolver>,
     redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
@@ -7204,7 +7039,6 @@ pub async fn start_grpc_server(
         queue,
         pool,
         config.clone(),
-        sandbox_provider,
         sandbox_resolver,
         redis_coordinator,
         memory_subscribers,

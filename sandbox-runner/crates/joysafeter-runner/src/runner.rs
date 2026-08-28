@@ -16,7 +16,6 @@ use tracing::{debug, error, info, warn};
 #[derive(Clone, Default)]
 pub struct SessionConfig {
     pub env: HashMap<String, String>,
-    pub secrets: HashMap<String, String>,
     pub permission_mode: String,
     pub provider: String,
     pub model: Option<String>,
@@ -96,10 +95,8 @@ pub async fn handle_task(
         tokio::fs::create_dir_all(&work_dir).await?;
     }
 
-    // SetupSandbox is the normal path for skills, but pooled/reconnected
-    // sandboxes can miss setup if the session link is established late.  StartTask
-    // also carries skills, so unpack them here as an idempotent fallback before
-    // the Claude process starts.
+    // Task-scoped resources are materialized immediately before execution so
+    // pooled and reconnected sandboxes always receive the current snapshot.
     unpack_skills(&work_dir, &task.skills, provider)
         .await
         .map_err(|e| format!("unpack task skills to {}: {e}", work_dir.display()))?;
@@ -112,8 +109,6 @@ pub async fn handle_task(
 
     run_setup_commands(&work_dir, &task.setup_commands, "StartTask").await?;
 
-    // Clone configured repos (idempotent fallback for pooled/reconnected sandboxes
-    // that may have missed SetupSandbox).
     crate::repos::clone_repos(&work_dir, &task.repos)
         .await
         .map_err(|e| format!("clone task repos to {}: {e}", work_dir.display()))?;
@@ -137,11 +132,6 @@ pub async fn handle_task(
         session_config.env.clone()
     };
     merge_process_proxy_env(&mut env);
-    let secrets = if session_config.secrets.is_empty() {
-        task.secrets.clone()
-    } else {
-        session_config.secrets.clone()
-    };
     let model = session_config.model.clone().or(task.model.clone());
     let permission_mode = if session_config.permission_mode.is_empty() {
         task.permission_mode
@@ -167,7 +157,7 @@ pub async fn handle_task(
         max_turns: task.max_turns,
         timeout: Duration::from_secs(task.timeout_seconds),
         env,
-        secrets,
+        secrets: HashMap::new(),
         mcp_configs,
         permission_mode,
         allowed_tools: task.allowed_tools.clone(),
@@ -423,12 +413,6 @@ pub async fn handle_setup(
     unpack_skills(&work_dir, &setup.skills, &setup.provider)
         .await
         .map_err(|e| format!("unpack_skills to {}: {e}", work_dir.display()))?;
-    write_files(&work_dir, &setup.files)
-        .await
-        .map_err(|e| format!("write_files to {}: {e}", work_dir.display()))?;
-    download_file_refs(&setup.file_refs)
-        .await
-        .map_err(|e| format!("download_file_refs: {e}"))?;
     crate::repos::clone_repos(&work_dir, &setup.repos)
         .await
         .map_err(|e| format!("clone setup repos to {}: {e}", work_dir.display()))?;
@@ -488,7 +472,6 @@ pub async fn handle_setup(
 
     let config = SessionConfig {
         env: setup.env,
-        secrets: setup.secrets,
         permission_mode: setup
             .permission_mode
             .unwrap_or_else(|| "bypassPermissions".into()),
@@ -1268,11 +1251,35 @@ mod tests {
         assert!(!dir.path().join("memory-blocker/seed.md").exists());
     }
 
+    async fn run_task_for_error(task: proto::StartTask) -> String {
+        std::env::set_var("JOYSAFETER_MOCK_ADAPTER", "1");
+        let adapters = Arc::new(AdapterRegistry::discover().await);
+        let session_config = SessionConfig::default();
+        let (runner_tx, _runner_rx) = mpsc::channel(1);
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+        let (_control_tx, control_rx) = mpsc::channel(1);
+
+        match handle_task(
+            task,
+            &session_config,
+            adapters,
+            runner_tx,
+            cancel_rx,
+            control_rx,
+        )
+        .await
+        {
+            Ok(_) => panic!("task unexpectedly reached the adapter"),
+            Err(error) => error.to_string(),
+        }
+    }
+
     #[tokio::test]
-    async fn handle_setup_fails_when_inline_archive_file_cannot_be_extracted() {
+    async fn handle_task_fails_when_inline_archive_file_cannot_be_extracted() {
         let dir = tempfile::tempdir().unwrap();
         let archive_path = dir.path().join("broken.zip");
-        let setup = proto::SetupSandbox {
+        let task = proto::StartTask {
+            provider: "claude".to_string(),
             work_dir: Some(dir.path().to_string_lossy().to_string()),
             files: vec![proto::FileMount {
                 path: archive_path.to_string_lossy().to_string(),
@@ -1281,28 +1288,24 @@ mod tests {
             }],
             ..Default::default()
         };
-        let (runner_tx, _runner_rx) = mpsc::channel(1);
+        let err = run_task_for_error(task).await;
 
-        let err = match handle_setup(setup, runner_tx).await {
-            Ok(_) => panic!("invalid inline archive must fail sandbox setup"),
-            Err(err) => err.to_string(),
-        };
-
-        assert!(err.contains("write_files"));
+        assert!(err.contains("write task files"));
         assert!(err.contains("auto-extract archive"));
         assert!(err.contains("broken.zip"));
         assert!(archive_path.exists());
     }
 
     #[tokio::test]
-    async fn handle_setup_fails_when_file_ref_download_returns_non_success_status() {
+    async fn handle_task_fails_when_file_ref_download_returns_non_success_status() {
         let dir = tempfile::tempdir().unwrap();
         let (url, server) = spawn_single_response_server(
             b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
         )
         .await;
         let file_path = dir.path().join("missing.bin");
-        let setup = proto::SetupSandbox {
+        let task = proto::StartTask {
+            provider: "claude".to_string(),
             work_dir: Some(dir.path().to_string_lossy().to_string()),
             file_refs: vec![proto::FileRef {
                 path: file_path.to_string_lossy().to_string(),
@@ -1312,21 +1315,16 @@ mod tests {
             }],
             ..Default::default()
         };
-        let (runner_tx, _runner_rx) = mpsc::channel(1);
-
-        let err = match handle_setup(setup, runner_tx).await {
-            Ok(_) => panic!("non-success file ref download must fail sandbox setup"),
-            Err(err) => err.to_string(),
-        };
+        let err = run_task_for_error(task).await;
         server.await.unwrap();
 
-        assert!(err.contains("download_file_refs"));
+        assert!(err.contains("download task file_refs"));
         assert!(err.contains("HTTP 404"));
         assert!(!file_path.exists());
     }
 
     #[tokio::test]
-    async fn handle_setup_fails_when_downloaded_archive_cannot_be_extracted() {
+    async fn handle_task_fails_when_downloaded_archive_cannot_be_extracted() {
         let dir = tempfile::tempdir().unwrap();
         let body = b"not a valid zip";
         let mut response =
@@ -1336,7 +1334,8 @@ mod tests {
         response.extend_from_slice(body);
         let (url, server) = spawn_single_response_server(response).await;
         let archive_path = dir.path().join("downloaded.zip");
-        let setup = proto::SetupSandbox {
+        let task = proto::StartTask {
+            provider: "claude".to_string(),
             work_dir: Some(dir.path().to_string_lossy().to_string()),
             file_refs: vec![proto::FileRef {
                 path: archive_path.to_string_lossy().to_string(),
@@ -1346,22 +1345,17 @@ mod tests {
             }],
             ..Default::default()
         };
-        let (runner_tx, _runner_rx) = mpsc::channel(1);
-
-        let err = match handle_setup(setup, runner_tx).await {
-            Ok(_) => panic!("invalid downloaded archive must fail sandbox setup"),
-            Err(err) => err.to_string(),
-        };
+        let err = run_task_for_error(task).await;
         server.await.unwrap();
 
-        assert!(err.contains("download_file_refs"));
+        assert!(err.contains("download task file_refs"));
         assert!(err.contains("auto-extract archive"));
         assert!(err.contains("downloaded.zip"));
         assert!(archive_path.exists());
     }
 
     #[tokio::test]
-    async fn handle_task_fails_when_fallback_setup_command_exits_before_adapter_run() {
+    async fn handle_task_fails_when_setup_command_exits_before_adapter_run() {
         std::env::set_var("JOYSAFETER_MOCK_ADAPTER", "1");
         let dir = tempfile::tempdir().unwrap();
         let adapters = Arc::new(AdapterRegistry::discover().await);
