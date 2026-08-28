@@ -248,11 +248,11 @@ impl JoySafeterConfig {
             event_stream_enabled: env_bool("JOYSAFETER_EVENT_STREAM_ENABLED", false),
             event_stream_key: env_str(
                 "JOYSAFETER_EVENT_STREAM_KEY",
-                "joysafeter:joysafeter:events",
+                "joysafeter:orchestrator:events",
             ),
             event_stream_group: env_str(
                 "JOYSAFETER_EVENT_STREAM_GROUP",
-                "joysafeter-joysafeter-event-workers",
+                "joysafeter-orchestrator-event-workers",
             ),
             event_stream_max_len: env_usize("JOYSAFETER_EVENT_STREAM_MAX_LEN", 100_000),
             event_stream_batch_size: env_usize("JOYSAFETER_EVENT_STREAM_BATCH_SIZE", 100),
