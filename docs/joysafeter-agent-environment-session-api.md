@@ -1594,7 +1594,6 @@ export JOYSAFETER_DEBUG_EVENTS=1
 | `session.status_running` | server -> client | session 进入 running |
 | `session.status_idle` | server -> client | session 回到 idle，本轮结束 |
 | `session.status_rescheduling` | server -> client | 正在重调度 runner/sandbox |
-| `session.status_rescheduled` | server -> client | 已完成重调度 |
 | `session.status_terminated` | server -> client | session 已终止 |
 | `session.error` | server -> client | 运行失败，错误信息在 `error.message` |
 | `agent.message` | server -> client | Agent 输出消息，第三方主要读取这个事件；文本在 `content[].text` |
