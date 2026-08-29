@@ -19,6 +19,7 @@ image:
     claude: aisec-repo.jd.com/joysafeter/joysafeter-claudecode:latest
     codex: aisec-repo.jd.com/joysafeter/joysafeter-codex:latest
     native: aisec-repo.jd.com/joysafeter/joysafeter-native:latest
+    pi: aisec-repo.jd.com/joysafeter/joysafeter-pi:latest
   pullPolicy: Always
   # 私有仓库拉取凭证名 (被所有 pod 引用)
   imagePullSecrets:
@@ -39,6 +40,10 @@ image:
 # 方式 1: 在 values-{env}.yaml 中配置 database/redis → 自动生成 Secret
 # 方式 2: 手动 kubectl create secret → 只设 externalSecret 名称
 externalSecret: joysafeter-secrets
+
+# ADS authentication token. Prefer provisioning this key in externalSecret.
+# Set only when Helm should generate/update that Secret.
+xdsAuthToken: ""
 
 # ── 数据库 (可选,配了则自动生成 Secret) ──
 # database:
@@ -117,6 +122,10 @@ orchestrator:
     maxConnections: 5000
     maxExecutions: 2000
 
+  # ── ADS/xDS ──
+  xds:
+    port: 19000
+
   # ── 调度 ──
   scheduling:
     maxConcurrentTasks: 500
@@ -167,6 +176,8 @@ orchestrator:
     # images:
     #   - aisec-repo.jd.com/joysafeter/joysafeter-claudecode:latest
     #   - aisec-repo.jd.com/joysafeter/joysafeter-codex:latest
+    #   - aisec-repo.jd.com/joysafeter/joysafeter-native:latest
+    #   - aisec-repo.jd.com/joysafeter/joysafeter-pi:latest
 
   # ── 事件流 ──
   eventStream:

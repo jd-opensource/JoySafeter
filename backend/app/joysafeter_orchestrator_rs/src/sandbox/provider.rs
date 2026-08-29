@@ -1,13 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::ids::SandboxId;
 use crate::sandbox::file_injection::{FileToInject, InjectionStrategy};
-use crate::sandbox::lds_backend::SandboxCredentials;
 use crate::sandbox::mounts::SandboxMount;
 use async_trait::async_trait;
-use sqlx::PgPool;
-
-use crate::kernel::xds_authority::XdsAuthorityGuard;
 
 /// Status of a sandbox container.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,86 +129,6 @@ pub trait SandboxProvider: Send + Sync + 'static {
 
     /// Provider name (e.g., "docker", "daytona", "e2b").
     fn provider_name(&self) -> &'static str;
-
-    // =====================================================================
-    // Startup / Shutdown hooks
-    // =====================================================================
-
-    /// Called once when the orchestrator starts, after DB pool is ready.
-    ///
-    /// Docker: initializes Envoy container, writes bootstrap config, recovers
-    /// LDS state from DB, initializes ImageBuilder.
-    /// Daytona/E2B: no-op or platform health check.
-    async fn on_startup(&self, _pool: &PgPool) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    /// Rebuild provider-local networking state from PostgreSQL after this
-    /// replica becomes the active xDS authority.
-    async fn recover_networking(
-        &self,
-        _pool: &PgPool,
-        _authority: &XdsAuthorityGuard,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    /// Remove provider-local networking state for sandboxes that are no longer
-    /// live according to PostgreSQL. Implementations must not republish or
-    /// otherwise disturb entries present in `live_sandbox_ids`.
-    async fn prune_networking(
-        &self,
-        _live_sandbox_ids: &HashSet<SandboxId>,
-    ) -> anyhow::Result<usize> {
-        Ok(0)
-    }
-
-    /// Called on graceful orchestrator shutdown.
-    async fn on_shutdown(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    // =====================================================================
-    // Networking / Egress
-    // =====================================================================
-
-    /// Configure sandbox egress networking (allowlist + credential injection).
-    ///
-    /// Docker: calls EnvoyManager.setup_for_sandbox() to create per-sandbox
-    /// listeners with credential-injecting routes.
-    /// Daytona/E2B: platform-managed or no-op.
-    async fn setup_networking(
-        &self,
-        _sandbox_id: SandboxId,
-        _sandbox_external_id: &str,
-        _networking: Option<&serde_json::Value>,
-        _credentials: SandboxCredentials,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    /// Refresh an existing sandbox's egress networking policy.
-    ///
-    /// Docker/Envoy can hot-replace listeners and clusters for a sandbox. Other
-    /// providers may keep the default setup implementation if their networking
-    /// API is idempotent, or override this with a cheaper patch call.
-    async fn refresh_networking(
-        &self,
-        sandbox_id: SandboxId,
-        sandbox_external_id: &str,
-        networking: Option<&serde_json::Value>,
-        credentials: SandboxCredentials,
-    ) -> anyhow::Result<()> {
-        self.setup_networking(sandbox_id, sandbox_external_id, networking, credentials)
-            .await
-    }
-
-    /// Tear down sandbox networking configuration.
-    ///
-    /// Docker: calls EnvoyManager.teardown_for_sandbox() to remove listeners.
-    async fn teardown_networking(&self, _sandbox_id: SandboxId) -> anyhow::Result<()> {
-        Ok(())
-    }
 
     // =====================================================================
     // Runtime

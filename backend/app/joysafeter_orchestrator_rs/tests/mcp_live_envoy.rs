@@ -13,11 +13,13 @@ use joysafeter_orchestrator::ids::{AgentId, SandboxId};
 use joysafeter_orchestrator::kernel::mcp_runtime_plan::{
     resolve_mcp_runtime_plan, EffectiveNetworkMode,
 };
-use joysafeter_orchestrator::sandbox::envoy::{EnvoyConfig, EnvoyManager};
-use joysafeter_orchestrator::sandbox::lds_backend::{
-    DeltaXdsServer, EgressCredentialRoute, EgressExposure, EgressKind, EgressPathMapping,
-    EgressRetryMode, GrpcCds, GrpcLds, SandboxCredentials, MCP_EGRESS_HOST,
+use joysafeter_orchestrator::kernel::network_policy::envoy_model::{
+    EgressCredentialRoute, EgressExposure, EgressKind, EgressPathMapping, EgressRetryMode,
+    SandboxCredentials, MCP_EGRESS_HOST,
 };
+use joysafeter_orchestrator::sandbox::envoy::{EnvoyConfig, EnvoyManager};
+use joysafeter_orchestrator::xds::publisher::{GrpcCds, GrpcLds};
+use joysafeter_orchestrator::xds::transport::DeltaXdsServer;
 use serde_json::Value;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
@@ -479,7 +481,7 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
     let retry_url = runner_servers[1].url.clone();
     let exact_route_key = runtime_plan.servers[0].route_key.clone();
 
-    let xds = DeltaXdsServer::new();
+    let xds = DeltaXdsServer::with_static_token("test-xds-token")?;
     let listener = TcpListener::bind("0.0.0.0:0").await?;
     let xds_port = listener.local_addr()?.port();
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -508,6 +510,7 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
             envoy_network: network.clone(),
             grpc_target_host: "host.docker.internal".to_string(),
             grpc_target_port: xds_port,
+            xds_auth_token: "test-xds-token".to_string(),
             container_name: envoy_container.clone(),
             xds_mode: "grpc".to_string(),
             write_debug_entries: false,

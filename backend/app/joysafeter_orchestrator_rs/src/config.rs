@@ -82,6 +82,11 @@ pub struct JoySafeterConfig {
     pub grpc_port: u16,
     pub grpc_public_url: Option<String>,
 
+    // Dedicated Envoy ADS server.
+    pub xds_host: String,
+    pub xds_port: u16,
+    pub xds_auth_token: String,
+
     // gRPC server capacity
     pub grpc_max_connections: usize,
     pub grpc_max_executions: usize,
@@ -263,6 +268,9 @@ impl JoySafeterConfig {
             grpc_host: env_str("JOYSAFETER_GRPC_HOST", "0.0.0.0"),
             grpc_port: env_u16("JOYSAFETER_GRPC_PORT", 9090),
             grpc_public_url: env::var("JOYSAFETER_GRPC_PUBLIC_URL").ok(),
+            xds_host: env_str("JOYSAFETER_XDS_HOST", "0.0.0.0"),
+            xds_port: env_u16("JOYSAFETER_XDS_PORT", 19000),
+            xds_auth_token: env_str("JOYSAFETER_XDS_AUTH_TOKEN", ""),
 
             grpc_max_connections: env_usize("JOYSAFETER_GRPC_MAX_CONNECTIONS", 2000),
             grpc_max_executions: env_usize("JOYSAFETER_GRPC_MAX_EXECUTIONS", 1000),
@@ -296,7 +304,7 @@ impl JoySafeterConfig {
             ),
             envoy_network: env_str("JOYSAFETER_ENVOY_NETWORK", "joysafeter-net"),
             envoy_grpc_host: env_str("JOYSAFETER_ENVOY_GRPC_HOST", "host.docker.internal"),
-            envoy_grpc_port: env_u16("JOYSAFETER_ENVOY_GRPC_PORT", 9090),
+            envoy_grpc_port: env_u16("JOYSAFETER_ENVOY_GRPC_PORT", 19000),
             envoy_container_name: env_str("JOYSAFETER_ENVOY_CONTAINER_NAME", "joysafeter-envoy"),
             envoy_xds_mode: env_str("JOYSAFETER_ENVOY_XDS_MODE", default_envoy_xds_mode()),
             envoy_write_debug_entries: env_bool("JOYSAFETER_ENVOY_WRITE_DEBUG_ENTRIES", false),
@@ -375,6 +383,12 @@ impl JoySafeterConfig {
             .expect("invalid gRPC listen address")
     }
 
+    pub fn xds_addr(&self) -> SocketAddr {
+        format!("{}:{}", self.xds_host, self.xds_port)
+            .parse()
+            .expect("invalid xDS listen address")
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
         if let Some(control_volume) = self.runner_control_socket_volume.as_deref() {
             if control_volume == self.envoy_socket_volume {
@@ -415,6 +429,18 @@ impl JoySafeterConfig {
                 "JOYSAFETER_ENVOY_XDS_MODE must be 'grpc' or 'filesystem', got {:?}",
                 self.envoy_xds_mode
             );
+        }
+        if self.envoy_enabled && self.envoy_xds_mode == "grpc" {
+            if self.xds_auth_token.trim().is_empty() {
+                anyhow::bail!(
+                    "JOYSAFETER_XDS_AUTH_TOKEN is required when Envoy gRPC xDS is enabled"
+                );
+            }
+            if self.xds_addr() == self.grpc_addr() {
+                anyhow::bail!(
+                    "JOYSAFETER_XDS_HOST/PORT must be distinct from the Runner gRPC address"
+                );
+            }
         }
         let uses_k8s_lease = self.leader_election_enabled
             || (self.ha_mode == "multi"
@@ -823,6 +849,7 @@ mod tests {
         cfg.sandbox_provider = "k8s".to_string();
         cfg.envoy_enabled = true;
         cfg.envoy_xds_mode = "grpc".to_string();
+        cfg.xds_auth_token = "test-xds-token".to_string();
         cfg.leader_lease_duration_sec = 3;
         cfg.leader_renew_interval_sec = 3;
 
@@ -845,6 +872,23 @@ mod tests {
 
         cfg.envoy_xds_mode = "polling".to_string();
         assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn grpc_xds_requires_dedicated_port_and_authentication_token() {
+        let mut cfg = JoySafeterConfig::from_env();
+        cfg.envoy_enabled = true;
+        cfg.envoy_xds_mode = "grpc".to_string();
+        cfg.xds_auth_token = String::new();
+        assert!(cfg.validate().is_err());
+
+        cfg.xds_auth_token = "secret".to_string();
+        cfg.xds_port = cfg.grpc_port;
+        assert!(cfg.validate().is_err());
+
+        cfg.xds_port = cfg.grpc_port.saturating_add(1);
+        assert!(cfg.validate().is_ok());
+        assert_ne!(cfg.xds_addr(), cfg.grpc_addr());
     }
 
     #[test]

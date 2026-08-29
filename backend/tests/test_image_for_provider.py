@@ -17,12 +17,31 @@ def test_image_for_provider_pi():
     assert cfg.image_for_provider("pi") == "joysafeter-pi:latest"
 
 
-def test_image_for_provider_pi_no_fallback_to_other_engine_image():
-    # pi must NOT fall back to another engine's image; only the shared
-    # sandbox_image default when image_pi is unset.
+@pytest.mark.parametrize(
+    ("engine_kind", "env_var"),
+    (
+        ("codex", "JOYSAFETER_IMAGE_CODEX"),
+        ("native", "JOYSAFETER_IMAGE_NATIVE"),
+        ("pi", "JOYSAFETER_IMAGE_PI"),
+    ),
+)
+def test_image_for_provider_rejects_missing_engine_image(engine_kind: str, env_var: str):
     cfg = JoySafeterConfig(
+        image_codex="",
+        image_native="",
         image_pi="",
         image_claude="joysafeter-claudecode:latest",
         sandbox_image="joysafeter-default:latest",
     )
-    assert cfg.image_for_provider("pi") == "joysafeter-default:latest"
+
+    with pytest.raises(ValueError, match=env_var):
+        cfg.image_for_provider(engine_kind)
+
+
+def test_image_for_provider_claude_keeps_explicit_legacy_default():
+    cfg = JoySafeterConfig(
+        image_claude="",
+        sandbox_image="joysafeter-default:latest",
+    )
+
+    assert cfg.image_for_provider("claude") == "joysafeter-default:latest"

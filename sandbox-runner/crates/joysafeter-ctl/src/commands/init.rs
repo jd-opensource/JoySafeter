@@ -3,6 +3,7 @@ use anyhow::{bail, Context};
 use base64::Engine as _;
 use dialoguer::{Confirm, Input, Select};
 use joysafeter_entity_id::{AgentId, CredentialId, EnvironmentId, MemoryStoreId, SessionId};
+use joysafeter_types::agent::EngineKind;
 use std::path::Path;
 
 use super::mcp_authorization::{
@@ -474,7 +475,7 @@ async fn run_step_agent(
         }
         PickResult::Create => {
             let name = input_required("Agent name")?;
-            let engines = vec!["claude", "codex", "native"];
+            let engines = EngineKind::ALL.map(|engine| engine.as_str());
             let engine_idx = Select::new()
                 .with_prompt("Engine")
                 .items(&engines)

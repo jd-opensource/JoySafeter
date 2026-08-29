@@ -25,13 +25,14 @@ use tokio::task::JoinHandle;
 use tracing::info;
 
 use crate::config::JoySafeterConfig;
+use crate::kernel::network_policy::ports::NetworkPolicyRequestQueue;
 
 pub use local::{LocalBridgeStore, LocalTaskDispatcher};
-pub use redis_impl::{RedisBridgeStore, RedisNetworkPolicyRequestQueue, RedisTaskDispatcher};
-pub use traits::{
-    BridgeStore, DispatchCommand, NetworkPolicyAction, NetworkPolicyRequest,
-    NetworkPolicyRequestQueue, TaskDispatcher,
+pub use redis_impl::{
+    RedisBridgeStore, RedisNetworkPolicyRequestQueue, RedisNetworkPolicyRequestSource,
+    RedisTaskDispatcher,
 };
+pub use traits::{BridgeStore, DispatchCommand, TaskDispatcher};
 
 // ---------------------------------------------------------------------------
 // HaMode

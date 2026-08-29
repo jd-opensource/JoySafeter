@@ -90,13 +90,14 @@ The entire flow — from upload to report — requires zero manual intervention,
 **How it works:**
 
 1. Open the Workbench and create a new agent
-2. Choose an engine (Claude Code / Codex / native) and select penetration testing skills
+2. Choose an engine (Claude Code / Codex / native / Pi) and select penetration testing skills
 3. Provide an authorized target URL and test requirements
 4. Agent runs autonomously inside an isolated sandbox — if it discovers a login page, it automatically triggers auth bypass testing
 5. Download the final report when the session completes
 
 > **Note:** Requires the matching agent runtime image for the selected engine. Local deployment
-> uses `JOYSAFETER_IMAGE_CLAUDE`, `JOYSAFETER_IMAGE_CODEX`, and `JOYSAFETER_IMAGE_NATIVE` from
+> uses `JOYSAFETER_IMAGE_CLAUDE`, `JOYSAFETER_IMAGE_CODEX`, `JOYSAFETER_IMAGE_NATIVE`, and
+> `JOYSAFETER_IMAGE_PI` from
 > `deploy/.env`; registry deployments can sync those values with `./deploy.sh pull --all`.
 
 This dynamic decision-making — where the agent adapts its next step based on what it finds — is what fixed scripts cannot replicate.
@@ -256,7 +257,7 @@ flowchart LR
 - **Decoupled persistence and live delivery** — a two-phase event bus fans out to Redis Streams (durable, consumed by the Worker → `joysafeter_session_events`) and Redis Pub/Sub (ephemeral, driving the SSE fan-out to the browser)
 - **Live events over SSE** — the browser subscribes to `GET /api/v1/sessions/{id}/events/stream` (DB replay via `?after_seq`, then live); WebSocket is reserved for `/ws/notifications`
 - **Sandboxed execution over gRPC** — agents never run in the orchestrator process; a Rust `sandbox-runner` inside a per-session container speaks the gRPC `AgentBridge` protocol back to the orchestrator
-- **Pluggable engines** — `claude` (Claude Code CLI), `codex` (Codex app-server), and `native` (self-developed `ccb` binary), selected per agent by `engine_kind`
+- **Pluggable engines** — `claude` (Claude Code CLI), `codex` (Codex app-server), `native` (self-developed `ccb` binary), and `pi` (Pi CLI), selected per agent by `engine_kind`
 - **Pluggable sandboxes** — Docker (default, hardened), E2B, and Daytona providers behind one `SandboxProvider` SPI
 - **Centralized state machines** — guarded FSMs for Task, Session, Sandbox, and Skill lifecycle
 - **Normalized error system** — `AppError` produces a canonical `ErrorDescriptor` (`{code, message, data, source, retryable, user_action}`) consumed identically across HTTP and streaming paths

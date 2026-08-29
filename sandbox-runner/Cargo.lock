@@ -932,6 +932,7 @@ dependencies = [
  "dialoguer",
  "flate2",
  "joysafeter-entity-id",
+ "joysafeter-types",
  "reqwest",
  "serde",
  "serde_json",

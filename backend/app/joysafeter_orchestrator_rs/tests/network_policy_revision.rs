@@ -1,5 +1,5 @@
+use joysafeter_orchestrator::kernel::network_policy::envoy_model::SandboxCredentials;
 use joysafeter_orchestrator::kernel::network_policy::DesiredNetworkPolicy;
-use joysafeter_orchestrator::sandbox::lds_backend::SandboxCredentials;
 
 #[test]
 fn sandbox_proxy_auth_token_does_not_change_semantic_policy_revision() {

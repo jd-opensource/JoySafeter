@@ -63,6 +63,7 @@ JOYSAFETER_SANDBOX_IMAGE=your-registry/joysafeter-claudecode:latest
 JOYSAFETER_IMAGE_CLAUDE=your-registry/joysafeter-claudecode:latest
 JOYSAFETER_IMAGE_CODEX=your-registry/joysafeter-codex:latest
 JOYSAFETER_IMAGE_NATIVE=your-registry/joysafeter-native:latest
+JOYSAFETER_IMAGE_PI=your-registry/joysafeter-pi:latest
 
 # ── Leader Election (HA) ──
 JOYSAFETER_LEADER_ELECTION_ENABLED=true

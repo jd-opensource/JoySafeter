@@ -4,6 +4,7 @@ use crate::CreateResource;
 use anyhow::{bail, Context};
 use dialoguer::{Confirm, Input, Select};
 use joysafeter_entity_id::{AgentId, CredentialGroupId, EnvironmentId, MemoryStoreId, SessionId};
+use joysafeter_types::agent::EngineKind;
 
 use super::mcp_authorization::{
     authorize_session_interactively, build_session_body,
@@ -215,7 +216,7 @@ async fn create_agent(client: &JoysafeterClient) -> anyhow::Result<()> {
 
     let name = input_required("Agent name")?;
 
-    let engines = vec!["claude", "codex", "native"];
+    let engines = EngineKind::ALL.map(|engine| engine.as_str());
     let engine_idx = Select::new()
         .with_prompt("Engine")
         .items(&engines)

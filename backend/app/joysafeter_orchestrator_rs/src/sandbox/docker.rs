@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::ids::SandboxId;
 use async_trait::async_trait;
 use bollard::container::{
     Config, CreateContainerOptions, RemoveContainerOptions, StartContainerOptions,
@@ -10,20 +9,15 @@ use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::models::{HostConfig, Mount, MountTypeEnum, MountVolumeOptions};
 use bollard::Docker;
 use futures::StreamExt;
-use sqlx::PgPool;
 use tracing::{info, warn};
 
-use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::file_injection::{FileToInject, InjectionStrategy};
-use super::lds_backend::{
-    CdsBackend, DeltaXdsServer, FilesystemCds, FilesystemLds, GrpcCds, GrpcLds, LdsBackend,
-    SandboxCredentials,
-};
 use super::mounts::SandboxMount;
 use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
     SandboxProvider, SandboxStatus,
 };
+use super::runtime::SandboxSocketProvisioner;
 use crate::config::JoySafeterConfig;
 
 /// S13: Retry wrapper for Docker operations that may fail due to transient errors.
@@ -83,8 +77,7 @@ fn docker_api_at_least(api_version: &str, min_major: u64, min_minor: u64) -> boo
 
 /// Docker-backed sandbox provider using bollard.
 ///
-/// Owns all Docker-specific subsystems: Envoy sidecar, image builder, xDS.
-/// The orchestrator framework interacts only through the `SandboxProvider` trait.
+/// Owns Docker container lifecycle and socket-mount facts only.
 #[derive(Clone)]
 pub struct DockerProvider {
     docker: Arc<Docker>,
@@ -92,10 +85,7 @@ pub struct DockerProvider {
     socket_volume: Option<String>,
     socket_subpath_mount: bool,
     hardening: SandboxHardening,
-    /// Envoy network isolation manager (None when envoy_enabled=false).
-    envoy_manager: Option<Arc<EnvoyManager>>,
-    /// Delta xDS server for gRPC xDS mode (None when filesystem mode or Envoy disabled).
-    xds_service: Option<Arc<DeltaXdsServer>>,
+    egress_socket: Option<Arc<dyn SandboxSocketProvisioner>>,
 }
 
 /// Resolved hardening settings applied to every sandbox container the
@@ -110,7 +100,10 @@ pub(crate) struct SandboxHardening {
 }
 
 impl DockerProvider {
-    pub async fn new(config: &JoySafeterConfig) -> anyhow::Result<Self> {
+    pub async fn new(
+        config: &JoySafeterConfig,
+        egress_socket: Option<Arc<dyn SandboxSocketProvisioner>>,
+    ) -> anyhow::Result<Self> {
         let docker = Docker::connect_with_local_defaults()
             .map_err(|e| anyhow::anyhow!("failed to connect to Docker: {e}"))?;
 
@@ -141,49 +134,6 @@ impl DockerProvider {
             false
         };
 
-        // Build Envoy manager + xDS service if Envoy is enabled
-        let mut xds_service: Option<Arc<DeltaXdsServer>> = None;
-        let envoy_manager = if config.envoy_enabled {
-            let (lds, cds): (Arc<dyn LdsBackend>, Arc<dyn CdsBackend>) =
-                if config.envoy_xds_mode == "grpc" {
-                    let server = DeltaXdsServer::new();
-                    xds_service = Some(server.clone());
-                    (
-                        Arc::new(GrpcLds::new(server.clone())),
-                        Arc::new(GrpcCds::new(server)),
-                    )
-                } else {
-                    (
-                        Arc::new(FilesystemLds::new(config.envoy_config_dir.clone())),
-                        Arc::new(FilesystemCds::new(config.envoy_config_dir.clone())),
-                    )
-                };
-            Some(Arc::new(EnvoyManager::new(
-                Some(docker.clone()),
-                EnvoyConfig {
-                    envoy_image: config.envoy_image.clone(),
-                    socket_volume: config.envoy_socket_volume.clone(),
-                    socket_host_dir: config.envoy_socket_host_dir.clone(),
-                    config_dir: config.envoy_config_dir.clone(),
-                    envoy_network: config.envoy_network.clone(),
-                    grpc_target_host: config.envoy_grpc_host.clone(),
-                    grpc_target_port: config.envoy_grpc_port,
-                    container_name: config.envoy_container_name.clone(),
-                    xds_mode: config.envoy_xds_mode.clone(),
-                    write_debug_entries: config.envoy_write_debug_entries,
-                    socket_ready_timeout_ms: config.envoy_socket_ready_timeout_ms,
-                    health_check_interval_sec: config.envoy_health_check_interval_sec,
-                    health_failure_threshold: config.envoy_health_failure_threshold,
-                    skip_socket_dir_prep: false,
-                    node_id: "joysafeter-envoy".to_string(),
-                },
-                lds,
-                cds,
-            )))
-        } else {
-            None
-        };
-
         Ok(Self {
             docker,
             config: config.clone(),
@@ -195,8 +145,7 @@ impl DockerProvider {
                 pids_limit: config.sandbox_pids_limit,
                 run_as_user: config.sandbox_run_as_user.clone(),
             },
-            envoy_manager,
-            xds_service,
+            egress_socket,
         })
     }
 
@@ -213,19 +162,8 @@ impl DockerProvider {
                 pids_limit: 256,
                 run_as_user: "1000:1000".to_string(),
             },
-            envoy_manager: None,
-            xds_service: None,
+            egress_socket: None,
         }
-    }
-
-    /// Get the Envoy manager (if enabled). Used by framework during transition.
-    pub fn envoy_manager(&self) -> Option<&Arc<EnvoyManager>> {
-        self.envoy_manager.as_ref()
-    }
-
-    /// Get the xDS service (if gRPC xDS mode). Used to register ADS on gRPC server.
-    pub fn xds_service(&self) -> Option<Arc<DeltaXdsServer>> {
-        self.xds_service.clone()
     }
 
     async fn upload_file_to_container(
@@ -466,8 +404,8 @@ impl SandboxProvider for DockerProvider {
                 binds.push(format!("{control_host_dir}:{control_container_dir}"));
             }
 
-            if let Some(ref manager) = self.envoy_manager {
-                manager.prepare_socket_dir(config.sandbox_id).await?;
+            if let Some(ref socket) = self.egress_socket {
+                socket.prepare_socket(config.sandbox_id).await?;
             }
             if let Some(socket_host_dir) = self.config.envoy_socket_host_dir.as_deref() {
                 let sandbox_socket_dir = format!("{socket_host_dir}/{sandbox_uuid}");
@@ -911,90 +849,6 @@ impl SandboxProvider for DockerProvider {
     // New execution-plane trait methods
     // =================================================================
 
-    async fn on_startup(&self, _pool: &PgPool) -> anyhow::Result<()> {
-        if let Some(ref manager) = self.envoy_manager {
-            // Fail-closed: Envoy fronts every limited-networking sandbox's egress
-            // allowlist. If it cannot initialize or recover the live sandboxes'
-            // listeners, abort startup instead of serving them without enforcement.
-            manager.init().await?;
-            // Prove the orchestrator, Envoy, and sandboxes share the same socket
-            // storage before serving any sandbox. A cross-mount mismatch otherwise
-            // manifests only as a silent per-sandbox egress outage — and does so
-            // the moment the deployment moves to a differently-mounted environment.
-            manager.verify_socket_storage_consistency().await?;
-            info!(
-                xds_mode = %self.config.envoy_xds_mode,
-                "EnvoyManager initialized"
-            );
-        } else {
-            info!("Envoy network isolation disabled");
-        }
-        Ok(())
-    }
-
-    async fn recover_networking(
-        &self,
-        pool: &PgPool,
-        authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
-    ) -> anyhow::Result<()> {
-        if let Some(ref manager) = self.envoy_manager {
-            manager
-                .recover_from_db(pool, &self.config.llm_egress_allowed_hosts, authority)
-                .await?;
-            manager.clone().spawn_health_monitor(
-                pool.clone(),
-                self.config.llm_egress_allowed_hosts.clone(),
-                authority.clone(),
-            );
-        }
-        Ok(())
-    }
-
-    async fn prune_networking(
-        &self,
-        live_sandbox_ids: &std::collections::HashSet<SandboxId>,
-    ) -> anyhow::Result<usize> {
-        match self.envoy_manager.as_ref() {
-            Some(manager) => manager.prune_networking_except(live_sandbox_ids).await,
-            None => Ok(0),
-        }
-    }
-
-    async fn setup_networking(
-        &self,
-        sandbox_id: SandboxId,
-        _sandbox_external_id: &str,
-        networking: Option<&serde_json::Value>,
-        credentials: SandboxCredentials,
-    ) -> anyhow::Result<()> {
-        if let Some(ref manager) = self.envoy_manager {
-            tracing::info!(sandbox_id = %sandbox_id, "Configuring Envoy networking for sandbox");
-            manager
-                .setup_for_sandbox(sandbox_id, networking, credentials)
-                .await?;
-            tracing::info!(sandbox_id = %sandbox_id, "Envoy networking configured for sandbox");
-        }
-        Ok(())
-    }
-
-    async fn refresh_networking(
-        &self,
-        sandbox_id: SandboxId,
-        sandbox_external_id: &str,
-        networking: Option<&serde_json::Value>,
-        credentials: SandboxCredentials,
-    ) -> anyhow::Result<()> {
-        self.setup_networking(sandbox_id, sandbox_external_id, networking, credentials)
-            .await
-    }
-
-    async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-        if let Some(ref manager) = self.envoy_manager {
-            manager.teardown_for_sandbox(sandbox_id).await?;
-        }
-        Ok(())
-    }
-
     fn orchestrator_url(&self, grpc_port: u16) -> String {
         self.config
             .grpc_public_url
@@ -1005,8 +859,8 @@ impl SandboxProvider for DockerProvider {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             has_host_mount: true,
-            has_egress_management: self.envoy_manager.is_some(),
-            network_isolation: if self.envoy_manager.is_some() {
+            has_egress_management: self.egress_socket.is_some(),
+            network_isolation: if self.egress_socket.is_some() {
                 NetworkIsolation::Envoy
             } else {
                 NetworkIsolation::None

@@ -50,7 +50,17 @@ spec:
                 "api_type": "DELTA_GRPC",
                 "transport_api_version": "V3",
                 "grpc_services": [{
-                  "envoy_grpc": { "cluster_name": "xds_cluster" }
+                  "envoy_grpc": { "cluster_name": "xds_cluster" },
+                  "initial_metadata": [
+                    {
+                      "key": "authorization",
+                      "value": "Bearer ${JOYSAFETER_XDS_AUTH_TOKEN}"
+                    },
+                    {
+                      "key": "x-joysafeter-node-id",
+                      "value": "${NODE_NAME}"
+                    }
+                  ]
                 }]
               }
             },
@@ -122,7 +132,7 @@ spec:
                               {{- else }}
                               "address": "joysafeter-orchestrator.{{ .Values.namespace }}.svc.cluster.local",
                               {{- end }}
-                              "port_value": {{ .Values.orchestrator.grpc.port }}
+                              "port_value": {{ .Values.orchestrator.xds.port }}
                             }
                           }
                         }
@@ -150,6 +160,11 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
+        - name: JOYSAFETER_XDS_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.externalSecret }}
+              key: JOYSAFETER_XDS_AUTH_TOKEN
 
         securityContext:
           runAsUser: 101

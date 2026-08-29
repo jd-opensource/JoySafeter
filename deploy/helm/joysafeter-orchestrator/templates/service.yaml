@@ -10,6 +10,11 @@ spec:
   - port: {{ .Values.orchestrator.grpc.port }}
     targetPort: grpc
     name: grpc
+  {{- if ne .Values.haMode "multi" }}
+  - port: {{ .Values.orchestrator.xds.port }}
+    targetPort: xds
+    name: xds
+  {{- end }}
   - port: 9091
     targetPort: health
     name: health
@@ -30,9 +35,9 @@ spec:
     app: joysafeter-orchestrator
     joysafeter-xds-leader: "true"
   ports:
-  - port: {{ .Values.orchestrator.grpc.port }}
-    targetPort: grpc
-    name: grpc
+  - port: {{ .Values.orchestrator.xds.port }}
+    targetPort: xds
+    name: xds
 {{- end }}
 
 ---

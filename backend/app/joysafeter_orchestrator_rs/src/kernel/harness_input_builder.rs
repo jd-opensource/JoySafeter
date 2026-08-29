@@ -955,10 +955,11 @@ impl HarnessInputBuilder {
                 // per-repo slug over plaintext http:// — the sandbox never learns
                 // the real git host. Envoy matches `/git/<slug>/`, injects the
                 // credential, and rewrites host+path to the real remote.
-                let slug = crate::sandbox::lds_backend::git_repo_slug(&row.mount_name, idx);
+                let slug =
+                    crate::kernel::network_policy::envoy_model::git_repo_slug(&row.mount_name, idx);
                 format!(
                     "http://{}/git/{}/",
-                    crate::sandbox::lds_backend::GIT_EGRESS_HOST,
+                    crate::kernel::network_policy::envoy_model::GIT_EGRESS_HOST,
                     slug
                 )
             } else {

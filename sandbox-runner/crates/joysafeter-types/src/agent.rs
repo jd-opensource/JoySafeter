@@ -11,25 +11,56 @@ pub enum EngineKind {
     Claude,
     Codex,
     Native,
+    Pi,
 }
 
 impl std::fmt::Display for EngineKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Claude => write!(f, "claude"),
-            Self::Codex => write!(f, "codex"),
-            Self::Native => write!(f, "native"),
-        }
+        f.write_str(self.as_str())
     }
 }
 
 impl EngineKind {
+    pub const ALL: [Self; 4] = [Self::Claude, Self::Codex, Self::Native, Self::Pi];
+
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+            Self::Native => "native",
+            Self::Pi => "pi",
+        }
+    }
+
     pub fn from_str_lossy(s: &str) -> Self {
         match s {
             "codex" => Self::Codex,
             "native" => Self::Native,
+            "pi" => Self::Pi,
             _ => Self::Claude,
         }
+    }
+}
+
+#[cfg(test)]
+mod engine_kind_tests {
+    use super::EngineKind;
+
+    #[test]
+    fn pi_round_trips_as_a_first_class_engine() {
+        let engine = EngineKind::from_str_lossy("pi");
+
+        assert_eq!(engine, EngineKind::Pi);
+        assert_eq!(engine.to_string(), "pi");
+        assert_eq!(serde_json::to_string(&engine).unwrap(), "\"pi\"");
+    }
+
+    #[test]
+    fn all_lists_every_supported_engine() {
+        assert_eq!(
+            EngineKind::ALL.map(|engine| engine.as_str()),
+            ["claude", "codex", "native", "pi"]
+        );
     }
 }
 

@@ -11,7 +11,14 @@ use uuid::Uuid;
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
 use crate::ids::{SandboxId, TaskId};
-use crate::kernel::ha::{BridgeStore, NetworkPolicyRequest, NetworkPolicyRequestQueue};
+use crate::kernel::ha::BridgeStore;
+use crate::kernel::network_policy::application::NetworkingReconcileOutcome;
+use crate::kernel::network_policy::material::{
+    NetworkPolicyMaterialResolver, UnconfiguredNetworkPolicyMaterialResolver,
+};
+use crate::kernel::network_policy::ports::NetworkPolicyRequestQueue;
+use crate::kernel::network_policy::ports::{NetworkPolicyRuntime, NoopNetworkPolicyRuntime};
+use crate::kernel::network_policy::NetworkPolicyRequest;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_resolver::SandboxResolver;
 use crate::runtime_config::RuntimeConfig;
@@ -34,8 +41,10 @@ pub struct SandboxController {
     redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
     config: JoySafeterConfig,
     runtime_config: Arc<RuntimeConfig>,
-    xds_authority: crate::kernel::xds_authority::XdsAuthorityState,
+    xds_authority: crate::xds::authority::XdsAuthorityState,
     network_policy_queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
+    network_policy_runtime: Arc<dyn NetworkPolicyRuntime>,
+    network_policy_material_resolver: Arc<dyn NetworkPolicyMaterialResolver>,
     /// Wakes the pool manager immediately when a sandbox is claimed from the pool.
     pub pool_replenish_notify: Arc<tokio::sync::Notify>,
 }
@@ -58,15 +67,30 @@ impl SandboxController {
             redis_coordinator,
             config,
             runtime_config,
-            xds_authority: crate::kernel::xds_authority::XdsAuthorityState::standalone(),
+            xds_authority: crate::xds::authority::XdsAuthorityState::standalone(),
             network_policy_queue: None,
+            network_policy_runtime: Arc::new(NoopNetworkPolicyRuntime),
+            network_policy_material_resolver: Arc::new(UnconfiguredNetworkPolicyMaterialResolver),
             pool_replenish_notify: Arc::new(tokio::sync::Notify::new()),
         }
     }
 
+    pub fn with_network_policy_runtime(mut self, runtime: Arc<dyn NetworkPolicyRuntime>) -> Self {
+        self.network_policy_runtime = runtime;
+        self
+    }
+
+    pub fn with_network_policy_material_resolver(
+        mut self,
+        resolver: Arc<dyn NetworkPolicyMaterialResolver>,
+    ) -> Self {
+        self.network_policy_material_resolver = resolver;
+        self
+    }
+
     pub fn with_network_policy_control(
         mut self,
-        authority: crate::kernel::xds_authority::XdsAuthorityState,
+        authority: crate::xds::authority::XdsAuthorityState,
         queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
     ) -> Self {
         self.xds_authority = authority;
@@ -217,18 +241,16 @@ impl SandboxController {
 
         for sandbox in &degraded {
             let _application_lock = self.xds_authority.lock_application().await;
-            match crate::kernel::sandbox_resolver::reconcile_sandbox_networking_as_authority(
+            match crate::kernel::network_policy::application::reconcile_as_authority(
                 &self.pool,
-                self.provider.as_ref(),
+                self.network_policy_runtime.as_ref(),
+                self.network_policy_material_resolver.as_ref(),
                 sandbox,
-                &self.config.llm_egress_allowed_hosts,
                 &authority,
             )
             .await
             {
-                Ok(crate::kernel::sandbox_resolver::NetworkingReconcileOutcome::Refreshed {
-                    policy_hash,
-                }) => {
+                Ok(NetworkingReconcileOutcome::Refreshed { policy_hash }) => {
                     info!(
                         sandbox_id = %sandbox.id,
                         policy_hash = %policy_hash,
@@ -1223,10 +1245,15 @@ impl SandboxController {
                     let config = self.config.clone();
                     let image = image.clone();
                     let permit = sem.clone();
+                    let network_policy_runtime = self.network_policy_runtime.clone();
+                    let network_policy_queue = self.network_policy_queue.clone();
+                    let xds_authority = self.xds_authority.clone();
 
                     join_set.spawn(async move {
                         let _permit = permit.acquire().await;
-                        let resolver = SandboxResolver::new(pool_db, provider, config);
+                        let resolver = SandboxResolver::new(pool_db, provider, config)
+                            .with_network_policy_runtime(network_policy_runtime)
+                            .with_network_policy_control(xds_authority, network_policy_queue);
                         resolver.provision_pool_sandbox(&image).await
                     });
                 }
@@ -1420,7 +1447,7 @@ impl SandboxController {
                 .publish(NetworkPolicyRequest::remove(sandbox_id))
                 .await
         } else {
-            self.provider.teardown_networking(sandbox_id).await
+            self.network_policy_runtime.remove(sandbox_id).await
         }
     }
 
@@ -1434,6 +1461,7 @@ impl SandboxController {
         crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
             &self.pool,
             &self.provider,
+            self.network_policy_runtime.as_ref(),
             self.network_policy_queue.as_deref(),
             sandbox_id,
             observed_status,
@@ -2638,10 +2666,7 @@ mod tests {
             .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
             .expect("lazy pool");
         let controller = missing_runtime_controller(pool, "unused".to_string())
-            .with_network_policy_control(
-                crate::kernel::xds_authority::XdsAuthorityState::managed(),
-                None,
-            );
+            .with_network_policy_control(crate::xds::authority::XdsAuthorityState::managed(), None);
 
         let result = tokio::time::timeout(
             Duration::from_millis(100),

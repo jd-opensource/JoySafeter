@@ -7031,7 +7031,6 @@ pub async fn start_grpc_server(
     redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
     runtime_config: Arc<RuntimeConfig>,
-    xds_service: Option<Arc<crate::sandbox::lds_backend::DeltaXdsServer>>,
 ) -> anyhow::Result<JoinHandle<()>> {
     let service = Arc::new(AgentBridgeService::new(
         bridge_store,
@@ -7057,7 +7056,7 @@ pub async fn start_grpc_server(
         .max_encoding_message_size(GRPC_MAX_SEND_MESSAGE_SIZE);
 
     let handle = tokio::spawn(async move {
-        info!(addr = %addr, control_socket = %control_socket_path.display(), xds = xds_service.is_some(), "gRPC server listening (TCP services: joysafeter.AgentBridge[, envoy ADS]; UDS service: joysafeter.AgentBridge)");
+        info!(addr = %addr, control_socket = %control_socket_path.display(), "Runner gRPC server listening (TCP and UDS)");
 
         let mut builder = tonic::transport::Server::builder()
             // Fix 1.2: transport-level keepalive for dead connection detection
@@ -7065,17 +7064,7 @@ pub async fn start_grpc_server(
             .http2_keepalive_interval(Some(Duration::from_secs(30)))
             .http2_keepalive_timeout(Some(Duration::from_secs(10)));
 
-        // The AgentBridge (runner) service is always present. When the Envoy
-        // LDS backend is in gRPC mode, the Delta ADS service is registered on
-        // the SAME server — tonic routes by service path, so runners and Envoy
-        // coexist on one port with no interference.
-        let tcp_server = if let Some(xds) = xds_service {
-            use envoy_types::pb::envoy::service::discovery::v3::aggregated_discovery_service_server::AggregatedDiscoveryServiceServer;
-            let ads = AggregatedDiscoveryServiceServer::from_arc(xds);
-            builder.add_service(svc).add_service(ads).serve(addr)
-        } else {
-            builder.add_service(svc).serve(addr)
-        };
+        let tcp_server = builder.add_service(svc).serve(addr);
 
         let control_listener = match UnixListener::bind(&control_socket_path) {
             Ok(listener) => listener,

@@ -77,10 +77,11 @@ jobs:
             echo 'CHANGELOG_EOF'
           } >> "$GITHUB_OUTPUT"
 
-  # Cross-compile the Rust binaries once with cargo-zigbuild (host-native, no
-  # QEMU) for both architectures. Runtime images just COPY these in.
+  # Build architecture-specific Rust binaries once. The runner is compiled by
+  # the same target-platform Linux Builder used by deploy.sh; only the
+  # orchestrator uses host cargo-zigbuild.
   rust-binaries:
-    name: Cross-compile Rust binaries (zigbuild)
+    name: Build Rust binaries (Linux Builder + zigbuild)
     needs: prepare-release
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -88,7 +89,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Install protoc + zig + cargo-zigbuild
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Install orchestrator cross-compile tools
         run: |
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler
@@ -96,12 +103,21 @@ jobs:
           pip install ziglang
           rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
 
-      - name: Build runner (amd64 + arm64)
-        working-directory: sandbox-runner
+      - name: Build runner with Linux Builder (amd64 + arm64)
         run: |
           set -euo pipefail
-          PROTOC="$(command -v protoc)" cargo zigbuild --release -p joysafeter-runner \
-            --target x86_64-unknown-linux-gnu --target aarch64-unknown-linux-gnu
+          for arch_and_triple in \
+            "amd64 x86_64-unknown-linux-gnu" \
+            "arm64 aarch64-unknown-linux-gnu"; do
+            read -r arch triple <<< "$arch_and_triple"
+            mkdir -p "target/${triple}/release"
+            docker buildx build \
+              --platform "linux/${arch}" \
+              --file ./deploy/docker/runner-builder.Dockerfile \
+              --target export \
+              --output "type=local,dest=target/${triple}/release" \
+              .
+          done
 
       - name: Build orchestrator (amd64 + arm64, jd-identity)
         working-directory: backend/app/joysafeter_orchestrator_rs
@@ -111,12 +127,11 @@ jobs:
             --features jd-identity \
             --target x86_64-unknown-linux-gnu --target aarch64-unknown-linux-gnu
 
-      - name: Stage binaries into repo-root target/ tree
+      - name: Stage orchestrator binaries into repo-root target/ tree
         run: |
           set -euo pipefail
           for triple in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
             mkdir -p "target/${triple}/release"
-            cp "sandbox-runner/target/${triple}/release/joysafeter-runner" "target/${triple}/release/"
             cp "backend/app/joysafeter_orchestrator_rs/target/${triple}/release/joysafeter-orchestrator" "target/${triple}/release/"
           done
 
@@ -287,7 +302,7 @@ jobs:
           docker buildx imagetools create "${ghcr_args[@]}" "${GHCR_CANDIDATE}@${DIGEST}"
 
   # Rust runtime images: build one single-arch image per architecture from the
-  # -<arch> Dockerfile (COPYs the prebuilt zigbuild binary), push by digest,
+  # -<arch> Dockerfile (COPYs the prebuilt architecture-specific binary), push by digest,
   # then merge the per-arch digests into one multi-arch manifest and sign it.
   build-and-push-rust:
     name: Publish ${{ matrix.image.name }}

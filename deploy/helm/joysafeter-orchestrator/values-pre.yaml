@@ -72,6 +72,9 @@ orchestrator:
     maxConnections: 1000
     maxExecutions: 500
 
+  xds:
+    port: 19000
+
   scheduling:
     maxConcurrentTasks: 100
     maxSchedulingTasks: 50

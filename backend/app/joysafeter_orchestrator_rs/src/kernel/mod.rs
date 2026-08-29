@@ -30,5 +30,3 @@ pub mod session_broadcaster;
 pub mod task_controller;
 pub mod task_identity;
 pub mod task_runner;
-pub mod xds_authority;
-pub mod xds_leader;

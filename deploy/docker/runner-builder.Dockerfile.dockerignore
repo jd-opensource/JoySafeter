@@ -1,0 +1,10 @@
+*
+!proto/
+!proto/**
+!shared/
+!shared/**
+!sandbox-runner/
+!sandbox-runner/**
+
+**/target/
+**/.git/

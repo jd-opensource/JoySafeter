@@ -87,13 +87,14 @@ JoySafeter 把这套模型交到你**自己的基础设施**上：
 **操作流程：**
 
 1. 进入工作台，创建新 Agent
-2. 选择执行引擎（Claude Code / Codex / native）→ 选择渗透测试相关 Skills
+2. 选择执行引擎（Claude Code / Codex / native / Pi）→ 选择渗透测试相关 Skills
 3. 输入经过授权的目标地址和测试要求
 4. Agent 在隔离沙箱中自主运行 —— 若发现登录页面，自动触发认证绕过测试
 5. 会话结束后下载完整报告
 
 > **备注：** 需要为所选引擎配置匹配的 agent runtime 镜像。本地部署读取 `deploy/.env`
-> 中的 `JOYSAFETER_IMAGE_CLAUDE`、`JOYSAFETER_IMAGE_CODEX`、`JOYSAFETER_IMAGE_NATIVE`；
+> 中的 `JOYSAFETER_IMAGE_CLAUDE`、`JOYSAFETER_IMAGE_CODEX`、`JOYSAFETER_IMAGE_NATIVE`、
+> `JOYSAFETER_IMAGE_PI`；
 > 使用镜像仓库部署时可通过 `./deploy.sh pull --all` 同步这些变量。
 
 这种根据侦察结果动态决定下一步的能力，是传统固定脚本无法实现的。
@@ -254,7 +255,7 @@ flowchart LR
 - **持久化与实时投递解耦** —— 两阶段事件总线分别扇出到 Redis Streams（持久，Worker 消费 → `joysafeter_session_events`）和 Redis Pub/Sub（临时，驱动 SSE 扇出到浏览器）
 - **实时事件走 SSE** —— 浏览器订阅 `GET /api/v1/sessions/{id}/events/stream`（先按 `?after_seq` 从 DB 回放，再接实时）；WebSocket 仅用于 `/ws/notifications`
 - **沙箱内 gRPC 执行** —— Agent 从不在 orchestrator 进程中运行；每会话容器内的 Rust `sandbox-runner` 通过 gRPC `AgentBridge` 协议回连 orchestrator
-- **可插拔引擎** —— `claude`（Claude Code CLI）、`codex`（Codex app-server）、`native`（自研 `ccb` 二进制），按 Agent 的 `engine_kind` 选择
+- **可插拔引擎** —— `claude`（Claude Code CLI）、`codex`（Codex app-server）、`native`（自研 `ccb` 二进制）、`pi`（Pi CLI），按 Agent 的 `engine_kind` 选择
 - **可插拔沙箱** —— Docker（默认，加固）、E2B、Daytona，统一的 `SandboxProvider` SPI
 - **集中化状态机** —— Task、Session、Sandbox、Skill 生命周期均由受保护的 FSM 管理
 - **规范化错误系统** —— `AppError` 输出规范的 `ErrorDescriptor`（`{code, message, data, source, retryable, user_action}`），HTTP 与流式路径一致消费

@@ -30,6 +30,7 @@ SKILLSPECTOR_IMAGE="${SKILLSPECTOR_IMAGE:-joysafeter-skillspector}"
 CLAUDECODE_IMAGE="${CLAUDECODE_IMAGE:-joysafeter-claudecode}"
 CODEX_IMAGE="${CODEX_IMAGE:-joysafeter-codex}"
 NATIVE_IMAGE="${NATIVE_IMAGE:-joysafeter-native}"
+PI_IMAGE="${PI_IMAGE:-joysafeter-pi}"
 TAG="${IMAGE_TAG:-latest}"
 # 构建溯源：烘进 backend 镜像的 GIT_COMMIT_SHA（docker inspect / printenv 可读，供可审计发布）。
 # CI 传 github.sha；脚本自建时默认取 git 短 SHA，脏工作树追加 -dirty，取不到则 unknown。
@@ -174,10 +175,11 @@ show_usage() {
   --frontend-only        只处理前端镜像
   --orchestrator-only    只处理 Rust orchestrator 镜像
   --skillspector-only    只处理 SkillSpector 镜像
-  --runtime-only         只处理 agent 运行镜像（claudecode, codex, native）
+  --runtime-only         只处理 agent 运行镜像（claudecode, codex, native, pi）
   --claudecode-only      只处理 Claude Code 运行镜像
   --codex-only           只处理 Codex 运行镜像
   --native-only          只处理 Native 运行镜像
+  --pi-only              只处理 Pi 运行镜像
   --all                  构建所有镜像（核心部署镜像 + agent runtime 镜像）
   --no-cache             禁用 Docker 构建缓存（默认使用缓存）
   --mirror MIRROR        使用国内镜像源加速（aliyun, tencent, huawei, daocloud）
@@ -193,6 +195,7 @@ show_usage() {
   CLAUDECODE_IMAGE       Claude Code 运行镜像名称（默认: joysafeter-claudecode）
   CODEX_IMAGE            Codex 运行镜像名称（默认: joysafeter-codex）
   NATIVE_IMAGE           Native 运行镜像名称（默认: joysafeter-native）
+  PI_IMAGE               Pi 运行镜像名称（默认: joysafeter-pi）
   IMAGE_TAG              镜像标签（默认: latest）
   BUILD_PLATFORMS        目标平台架构（默认: linux/amd64,linux/arm64）
   PIP_INDEX_URL          pip 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
@@ -718,6 +721,7 @@ build_local_compose_images() {
         CLAUDECODE_ONLY=false
         CODEX_ONLY=false
         NATIVE_ONLY=false
+        PI_ONLY=false
         BUILD_ALL=false
         BUILD_BACKEND=true
         BUILD_FRONTEND=true
@@ -726,6 +730,7 @@ build_local_compose_images() {
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
         BUILD_NATIVE=false
+        BUILD_PI=false
         build_all_images
     )
 
@@ -1345,6 +1350,8 @@ runtime_dockerfile_for() {
         claudecode:linux/arm64) echo "$SCRIPT_DIR/docker/claudecode-arm64.Dockerfile" ;;
         codex:linux/amd64) echo "$SCRIPT_DIR/docker/codex-amd64.Dockerfile" ;;
         codex:linux/arm64) echo "$SCRIPT_DIR/docker/codex-arm64.Dockerfile" ;;
+        pi:linux/amd64) echo "$SCRIPT_DIR/docker/pi-amd64.Dockerfile" ;;
+        pi:linux/arm64) echo "$SCRIPT_DIR/docker/pi-arm64.Dockerfile" ;;
         native:linux/amd64) echo "$SCRIPT_DIR/docker/native-amd64.Dockerfile" ;;
         native:linux/arm64) echo "$SCRIPT_DIR/docker/native-arm64.Dockerfile" ;;
         orchestrator:linux/amd64) echo "$SCRIPT_DIR/docker/orchestrator-rs-amd64.Dockerfile" ;;
@@ -1392,21 +1399,17 @@ elf_binary_arch() {
     esac
 }
 
-# Cross-compile a Rust binary on the host with cargo-zigbuild.
+# Cross-compile the orchestrator binary on the host with cargo-zigbuild.
 #
-# Replaces the previous `docker run --platform <target> rust:1-bookworm cargo
-# build` approach: under QEMU that emulation is 10-50x slower (crypto crates in
-# particular crawl), whereas zig's cross-linker produces the same linux/gnu
-# binary natively on the host in seconds. Requires `zig`, `cargo-zigbuild`, and
-# `protoc` on the host (checked in check_prerequisites).
+# The orchestrator remains host-cross-compiled because its build does not include
+# Linux-host-only build scripts. The sandbox runner must not use this path: its
+# fuser dependency requires its build script itself to execute on Linux.
 #
-# Args: <crate_dir> <rust_target_triple> <cargo_package_name> [cargo_features]
-# Output lands at <crate_dir>/target/<target>/release/<package>.
-zigbuild_rust_binary() {
-    local crate_dir=$1
-    local target=$2
-    local package=$3
-    local features=${4:-}
+# Args: <rust_target_triple>
+# Output lands in the orchestrator crate's target directory.
+zigbuild_orchestrator_binary() {
+    local target=$1
+    local crate_dir="$PROJECT_ROOT/backend/app/joysafeter_orchestrator_rs"
 
     for tool in zig cargo-zigbuild protoc; do
         if ! command -v "$tool" >/dev/null 2>&1; then
@@ -1415,14 +1418,10 @@ zigbuild_rust_binary() {
         fi
     done
 
-    local feature_args=()
-    if [ -n "$features" ]; then
-        feature_args=(--features "$features")
-    fi
-
     ( cd "$crate_dir" \
         && rustup target add "$target" >/dev/null 2>&1 || true \
-        && PROTOC="$(command -v protoc)" cargo zigbuild --release --target "$target" -p "$package" "${feature_args[@]}" )
+        && PROTOC="$(command -v protoc)" cargo zigbuild --release --target "$target" \
+            -p joysafeter-orchestrator --features jd-identity )
 }
 
 ensure_orchestrator_binary() {
@@ -1453,7 +1452,7 @@ ensure_orchestrator_binary() {
     fi
 
     log_info "编译 orchestrator-rs 二进制: $target (cargo zigbuild, --features jd-identity)"
-    zigbuild_rust_binary "$PROJECT_ROOT/backend/app/joysafeter_orchestrator_rs" "$target" "joysafeter-orchestrator" "jd-identity"
+    zigbuild_orchestrator_binary "$target"
     mkdir -p "$PROJECT_ROOT/target/$target/release"
     cp "$PROJECT_ROOT/backend/app/joysafeter_orchestrator_rs/target/$target/release/joysafeter-orchestrator" "$output"
     chmod +x "$output"
@@ -1466,25 +1465,69 @@ ensure_runtime_runner_binary() {
     target=$(runtime_runner_target_for "$platform")
     local output="$PROJECT_ROOT/target/$target/release/joysafeter-runner"
 
-    # Reuse the existing binary only when it is up to date with the sandbox-runner
-    # sources. Otherwise stale binaries silently ship (e.g. missing new engine
-    # adapters), so rebuild when sources are newer or FORCE_RUNNER_REBUILD=1.
+    # Reuse only a matching-architecture binary that is newer than every input
+    # owned by the runner build. The runner depends on sandbox-runner, shared Rust
+    # crates, and protobuf definitions.
     if [ -x "$output" ] && [ "${FORCE_RUNNER_REBUILD:-0}" != "1" ]; then
-        local newer_src
-        newer_src=$(find "$PROJECT_ROOT/sandbox-runner" -type f \
-            \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' \) \
-            -newer "$output" -print -quit 2>/dev/null)
-        if [ -z "$newer_src" ]; then
-            log_success "runner 二进制已是最新: $output"
-            return
+        local disk_arch expected_arch
+        disk_arch=$(elf_binary_arch "$output")
+        expected_arch="${target%%-*}"
+        if [ "$disk_arch" != "$expected_arch" ]; then
+            log_warning "现有 runner 二进制架构为 ${disk_arch}，与目标 ${expected_arch}(${target}) 不符，强制重新编译"
+        else
+            local newer_src
+            newer_src=$(find \
+                "$PROJECT_ROOT/sandbox-runner" \
+                "$PROJECT_ROOT/shared/rust" \
+                "$PROJECT_ROOT/proto" \
+                "$SCRIPT_DIR/docker/runner-builder.Dockerfile" \
+                "$SCRIPT_DIR/docker/runner-builder.Dockerfile.dockerignore" \
+                -type f \
+                \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' -o -name '*.proto' \
+                    -o -name 'runner-builder.Dockerfile' -o -name 'runner-builder.Dockerfile.dockerignore' \) \
+                -newer "$output" -print -quit 2>/dev/null)
+            if [ -z "$newer_src" ]; then
+                log_success "runner 二进制已是最新: $output"
+                return
+            fi
+            log_info "检测到 runner 构建输入更新，重新编译 runner"
         fi
-        log_info "检测到 sandbox-runner 源码更新，重新编译 runner"
     fi
 
-    log_info "编译 runner 二进制: $target (cargo zigbuild)"
-    zigbuild_rust_binary "$PROJECT_ROOT/sandbox-runner" "$target" "joysafeter-runner"
+    if [ "$USE_BUILDX" != true ]; then
+        log_error "Runner 二进制必须通过 Docker Buildx 在目标 Linux 平台内编译"
+        suggest_buildx_install
+        exit 1
+    fi
+
+    local output_dir
+    output_dir=$(mktemp -d "${TMPDIR:-/tmp}/joysafeter-runner-build.XXXXXX")
+    local build_args=(
+        --platform "$platform"
+        --file "$SCRIPT_DIR/docker/runner-builder.Dockerfile"
+        --target "export"
+        --build-arg "RUST_IMAGE=$RUST_IMAGE"
+        --output "type=local,dest=$output_dir"
+    )
+    if [ "$NO_CACHE" = true ]; then
+        build_args+=(--no-cache)
+    fi
+
+    log_info "在目标 Linux 平台内编译 runner 二进制: $target"
+    if ! docker buildx build "${build_args[@]}" "$PROJECT_ROOT"; then
+        rm -rf "$output_dir"
+        log_error "Runner Linux Builder 构建失败: $target"
+        return 1
+    fi
+    if [ ! -f "$output_dir/joysafeter-runner" ]; then
+        rm -rf "$output_dir"
+        log_error "Runner Linux Builder 未导出 joysafeter-runner"
+        return 1
+    fi
+
     mkdir -p "$PROJECT_ROOT/target/$target/release"
-    cp "$PROJECT_ROOT/sandbox-runner/target/$target/release/joysafeter-runner" "$output"
+    cp "$output_dir/joysafeter-runner" "$output"
+    rm -rf "$output_dir"
     chmod +x "$output"
     log_success "runner 二进制编译完成: $output"
 }
@@ -1519,6 +1562,7 @@ build_all_images() {
     local BUILD_CLAUDECODE=${BUILD_CLAUDECODE:-false}
     local BUILD_CODEX=${BUILD_CODEX:-false}
     local BUILD_NATIVE=${BUILD_NATIVE:-false}
+    local BUILD_PI=${BUILD_PI:-false}
     # 检查是否只构建特定服务
     if [ "$BACKEND_ONLY" = true ]; then
         BUILD_FRONTEND=false
@@ -1527,6 +1571,7 @@ build_all_images() {
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
         BUILD_NATIVE=false
+        BUILD_PI=false
     elif [ "$FRONTEND_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_ORCHESTRATOR=false
@@ -1534,6 +1579,7 @@ build_all_images() {
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
         BUILD_NATIVE=false
+        BUILD_PI=false
     elif [ "$ORCHESTRATOR_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
@@ -1542,6 +1588,7 @@ build_all_images() {
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
         BUILD_NATIVE=false
+        BUILD_PI=false
     elif [ "$SKILLSPECTOR_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
@@ -1550,6 +1597,7 @@ build_all_images() {
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
         BUILD_NATIVE=false
+        BUILD_PI=false
     elif [ "$RUNTIME_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
@@ -1558,6 +1606,7 @@ build_all_images() {
         BUILD_CLAUDECODE=true
         BUILD_CODEX=true
         BUILD_NATIVE=true
+        BUILD_PI=true
     elif [ "$CLAUDECODE_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
@@ -1566,6 +1615,7 @@ build_all_images() {
         BUILD_CLAUDECODE=true
         BUILD_CODEX=false
         BUILD_NATIVE=false
+        BUILD_PI=false
     elif [ "$CODEX_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
@@ -1574,6 +1624,7 @@ build_all_images() {
         BUILD_CLAUDECODE=false
         BUILD_CODEX=true
         BUILD_NATIVE=false
+        BUILD_PI=false
     elif [ "$NATIVE_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
@@ -1582,6 +1633,16 @@ build_all_images() {
         BUILD_CLAUDECODE=false
         BUILD_CODEX=false
         BUILD_NATIVE=true
+        BUILD_PI=false
+    elif [ "$PI_ONLY" = true ]; then
+        BUILD_BACKEND=false
+        BUILD_FRONTEND=false
+        BUILD_ORCHESTRATOR=false
+        BUILD_SKILLSPECTOR=false
+        BUILD_CLAUDECODE=false
+        BUILD_CODEX=false
+        BUILD_NATIVE=false
+        BUILD_PI=true
     elif [ "$INIT_ONLY" = true ]; then
         BUILD_BACKEND=false
         BUILD_FRONTEND=false
@@ -1595,6 +1656,7 @@ build_all_images() {
         BUILD_CLAUDECODE=true
         BUILD_CODEX=true
         BUILD_NATIVE=true
+        BUILD_PI=true
     fi
 
     # 规范化镜像仓库地址
@@ -1609,6 +1671,7 @@ build_all_images() {
         CLAUDECODE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CODEX_IMAGE}:${TAG}"
         NATIVE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${NATIVE_IMAGE}:${TAG}"
+        PI_FULL_IMAGE="${NORMALIZED_REGISTRY}/${PI_IMAGE}:${TAG}"
     else
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
@@ -1617,9 +1680,10 @@ build_all_images() {
         CLAUDECODE_FULL_IMAGE="${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${CODEX_IMAGE}:${TAG}"
         NATIVE_FULL_IMAGE="${NATIVE_IMAGE}:${TAG}"
+        PI_FULL_IMAGE="${PI_IMAGE}:${TAG}"
     fi
 
-    if [ "$BUILD_CLAUDECODE" = true ] || [ "$BUILD_CODEX" = true ] || [ "$BUILD_NATIVE" = true ]; then
+    if [ "$BUILD_CLAUDECODE" = true ] || [ "$BUILD_CODEX" = true ] || [ "$BUILD_NATIVE" = true ] || [ "$BUILD_PI" = true ]; then
         if echo "$PLATFORMS" | grep -q ","; then
             if [ "$PUSH" = true ]; then
                 log_error "agent runtime 镜像暂不支持多架构 push；请分别使用 --arch amd64 / --arch arm64 构建发布，避免核心镜像先推送后才失败"
@@ -1704,6 +1768,11 @@ build_all_images() {
         echo ""
     fi
 
+    if [ "$BUILD_PI" = true ]; then
+        build_runtime_image "Pi 运行镜像" "pi" "$PI_FULL_IMAGE"
+        echo ""
+    fi
+
 
     log_success "所有镜像构建完成！"
     echo ""
@@ -1715,6 +1784,7 @@ build_all_images() {
     [ "$BUILD_CLAUDECODE" = true ] && echo "   Claude Code 运行镜像: $CLAUDECODE_FULL_IMAGE"
     [ "$BUILD_CODEX" = true ] && echo "   Codex 运行镜像: $CODEX_FULL_IMAGE"
     [ "$BUILD_NATIVE" = true ] && echo "   Native 运行镜像: $NATIVE_FULL_IMAGE"
+    [ "$BUILD_PI" = true ] && echo "   Pi 运行镜像: $PI_FULL_IMAGE"
     echo ""
     echo "🏗️  构建平台: $PLATFORMS"
     echo ""
@@ -1741,6 +1811,7 @@ pull_images() {
     local PULL_CLAUDECODE=false
     local PULL_CODEX=false
     local PULL_NATIVE=false
+    local PULL_PI=false
 
     if [ "$BACKEND_ONLY" = true ]; then
         PULL_FRONTEND=false
@@ -1766,6 +1837,7 @@ pull_images() {
         PULL_CLAUDECODE=true
         PULL_CODEX=true
         PULL_NATIVE=true
+        PULL_PI=true
     elif [ "$CLAUDECODE_ONLY" = true ]; then
         PULL_BACKEND=false
         PULL_FRONTEND=false
@@ -1784,10 +1856,17 @@ pull_images() {
         PULL_ORCHESTRATOR=false
         PULL_SKILLSPECTOR=false
         PULL_NATIVE=true
+    elif [ "$PI_ONLY" = true ]; then
+        PULL_BACKEND=false
+        PULL_FRONTEND=false
+        PULL_ORCHESTRATOR=false
+        PULL_SKILLSPECTOR=false
+        PULL_PI=true
     elif [ "$BUILD_ALL" = true ]; then
         PULL_CLAUDECODE=true
         PULL_CODEX=true
         PULL_NATIVE=true
+        PULL_PI=true
     fi
 
     if [ -n "$NORMALIZED_REGISTRY" ]; then
@@ -1798,6 +1877,7 @@ pull_images() {
         CLAUDECODE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${NORMALIZED_REGISTRY}/${CODEX_IMAGE}:${TAG}"
         NATIVE_FULL_IMAGE="${NORMALIZED_REGISTRY}/${NATIVE_IMAGE}:${TAG}"
+        PI_FULL_IMAGE="${NORMALIZED_REGISTRY}/${PI_IMAGE}:${TAG}"
     else
         BACKEND_FULL_IMAGE="${BACKEND_IMAGE}:${TAG}"
         FRONTEND_FULL_IMAGE="${FRONTEND_IMAGE}:${TAG}"
@@ -1806,6 +1886,7 @@ pull_images() {
         CLAUDECODE_FULL_IMAGE="${CLAUDECODE_IMAGE}:${TAG}"
         CODEX_FULL_IMAGE="${CODEX_IMAGE}:${TAG}"
         NATIVE_FULL_IMAGE="${NATIVE_IMAGE}:${TAG}"
+        PI_FULL_IMAGE="${PI_IMAGE}:${TAG}"
     fi
 
     pull_one_image() {
@@ -1827,6 +1908,7 @@ pull_images() {
     [ "$PULL_CLAUDECODE" = true ] && pull_one_image "Claude Code 运行" "$CLAUDECODE_FULL_IMAGE"
     [ "$PULL_CODEX" = true ] && pull_one_image "Codex 运行" "$CODEX_FULL_IMAGE"
     [ "$PULL_NATIVE" = true ] && pull_one_image "Native 运行" "$NATIVE_FULL_IMAGE"
+    [ "$PULL_PI" = true ] && pull_one_image "Pi 运行" "$PI_FULL_IMAGE"
 
     local deploy_env="$SCRIPT_DIR/.env"
     ensure_env_file "$deploy_env" "$SCRIPT_DIR/.env.example"
@@ -1840,6 +1922,7 @@ pull_images() {
     fi
     [ "$PULL_CODEX" = true ] && set_env_value "$deploy_env" "JOYSAFETER_IMAGE_CODEX" "$CODEX_FULL_IMAGE"
     [ "$PULL_NATIVE" = true ] && set_env_value "$deploy_env" "JOYSAFETER_IMAGE_NATIVE" "$NATIVE_FULL_IMAGE"
+    [ "$PULL_PI" = true ] && set_env_value "$deploy_env" "JOYSAFETER_IMAGE_PI" "$PI_FULL_IMAGE"
 
     log_success "所有镜像拉取完成！"
     log_info "已同步 deploy/.env 中的镜像变量，后续 compose up --no-build 会使用本次拉取的镜像"
@@ -1852,6 +1935,7 @@ pull_images() {
     [ "$PULL_CLAUDECODE" = true ] && echo "   Claude Code 运行镜像: $CLAUDECODE_FULL_IMAGE"
     [ "$PULL_CODEX" = true ] && echo "   Codex 运行镜像: $CODEX_FULL_IMAGE"
     [ "$PULL_NATIVE" = true ] && echo "   Native 运行镜像: $NATIVE_FULL_IMAGE"
+    [ "$PULL_PI" = true ] && echo "   Pi 运行镜像: $PI_FULL_IMAGE"
 
     return 0
 }
@@ -1868,6 +1952,7 @@ main() {
     local CLAUDECODE_ONLY=false
     local CODEX_ONLY=false
     local NATIVE_ONLY=false
+    local PI_ONLY=false
     local BUILD_ALL=false
     local ARCH_LIST_STR=""
     local SERVICE_ARGS=()
@@ -1992,6 +2077,10 @@ main() {
                 ;;
             --native-only)
                 NATIVE_ONLY=true
+                shift
+                ;;
+            --pi-only)
+                PI_ONLY=true
                 shift
                 ;;
             --all)

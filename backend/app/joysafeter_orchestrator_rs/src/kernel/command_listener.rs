@@ -9,8 +9,14 @@ use uuid::Uuid;
 use crate::db::queries;
 use crate::grpc::proto::{self, orchestrator_message, OrchestratorMessage};
 use crate::ids::{MemoryStoreId, SandboxId};
-use crate::kernel::ha::{BridgeStore, DispatchCommand, NetworkPolicyRequestQueue, TaskDispatcher};
+use crate::kernel::ha::{BridgeStore, DispatchCommand, TaskDispatcher};
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
+use crate::kernel::network_policy::application::NetworkingReconcileOutcome;
+use crate::kernel::network_policy::material::{
+    NetworkPolicyMaterialResolver, UnconfiguredNetworkPolicyMaterialResolver,
+};
+use crate::kernel::network_policy::ports::NetworkPolicyRequestQueue;
+use crate::kernel::network_policy::ports::{NetworkPolicyRuntime, NoopNetworkPolicyRuntime};
 use crate::kernel::redis_coordinator::RedisCoordinator;
 use crate::sandbox::envoy::EnvoyManager;
 use crate::sandbox::image_builder::{EnvironmentPackages, ImageBuilder};
@@ -35,12 +41,13 @@ pub struct CommandListener {
     task_dispatcher: Arc<dyn TaskDispatcher>,
     provider: Arc<dyn SandboxProvider>,
     envoy_manager: Option<Arc<EnvoyManager>>,
-    llm_egress_allowed_hosts: Vec<String>,
     image_builder: Option<Arc<ImageBuilder>>,
     redis_coordinator: Option<Arc<RedisCoordinator>>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
-    xds_authority: crate::kernel::xds_authority::XdsAuthorityState,
+    xds_authority: crate::xds::authority::XdsAuthorityState,
     network_policy_queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
+    network_policy_runtime: Arc<dyn NetworkPolicyRuntime>,
+    network_policy_material_resolver: Arc<dyn NetworkPolicyMaterialResolver>,
 }
 
 impl CommandListener {
@@ -52,7 +59,6 @@ impl CommandListener {
         task_dispatcher: Arc<dyn TaskDispatcher>,
         provider: Arc<dyn SandboxProvider>,
         envoy_manager: Option<Arc<EnvoyManager>>,
-        llm_egress_allowed_hosts: Vec<String>,
         image_builder: Option<Arc<ImageBuilder>>,
         redis_coordinator: Option<Arc<RedisCoordinator>>,
         memory_subscribers: Arc<MemoryStoreSubscribers>,
@@ -65,18 +71,32 @@ impl CommandListener {
             task_dispatcher,
             provider,
             envoy_manager,
-            llm_egress_allowed_hosts,
             image_builder,
             redis_coordinator,
             memory_subscribers,
-            xds_authority: crate::kernel::xds_authority::XdsAuthorityState::standalone(),
+            xds_authority: crate::xds::authority::XdsAuthorityState::standalone(),
             network_policy_queue: None,
+            network_policy_runtime: Arc::new(NoopNetworkPolicyRuntime),
+            network_policy_material_resolver: Arc::new(UnconfiguredNetworkPolicyMaterialResolver),
         }
+    }
+
+    pub fn with_network_policy_runtime(mut self, runtime: Arc<dyn NetworkPolicyRuntime>) -> Self {
+        self.network_policy_runtime = runtime;
+        self
+    }
+
+    pub fn with_network_policy_material_resolver(
+        mut self,
+        resolver: Arc<dyn NetworkPolicyMaterialResolver>,
+    ) -> Self {
+        self.network_policy_material_resolver = resolver;
+        self
     }
 
     pub fn with_network_policy_control(
         mut self,
-        authority: crate::kernel::xds_authority::XdsAuthorityState,
+        authority: crate::xds::authority::XdsAuthorityState,
         queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
     ) -> Self {
         self.xds_authority = authority;
@@ -326,25 +346,21 @@ impl CommandListener {
             .await?
             .ok_or_else(|| anyhow::anyhow!("sandbox not found: {sandbox_id}"))?;
 
-        match crate::kernel::sandbox_resolver::request_sandbox_networking_reconcile(
+        match crate::kernel::network_policy::application::request_reconcile(
             &self.pool,
-            self.provider.as_ref(),
+            self.network_policy_runtime.as_ref(),
+            self.network_policy_material_resolver.as_ref(),
             &sandbox,
-            &self.llm_egress_allowed_hosts,
             self.network_policy_queue.as_deref(),
             &self.xds_authority,
         )
         .await?
         {
-            crate::kernel::sandbox_resolver::NetworkingReconcileOutcome::NotLimited => {
+            NetworkingReconcileOutcome::NotLimited => {
                 Ok(serde_json::json!({"ok": true, "refreshed": false, "reason": "not_limited"}))
             }
-            crate::kernel::sandbox_resolver::NetworkingReconcileOutcome::Refreshed {
-                policy_hash,
-            }
-            | crate::kernel::sandbox_resolver::NetworkingReconcileOutcome::AlreadyReady {
-                policy_hash,
-            } => {
+            NetworkingReconcileOutcome::Refreshed { policy_hash }
+            | NetworkingReconcileOutcome::AlreadyReady { policy_hash } => {
                 info!(sandbox_id = %sandbox_id, policy_hash = %policy_hash, "Refreshed sandbox network policy");
                 Ok(serde_json::json!({
                     "ok": true,
@@ -788,7 +804,6 @@ mod tests {
             task_dispatcher,
             provider,
             None,
-            vec![],
             None,
             None,
             Arc::new(MemoryStoreSubscribers::new()),

@@ -855,7 +855,7 @@ class JoySafeterConfig(BaseSettings):
     # deployment. Turning them off should be an explicit, recorded decision.
     #
     # Linux capabilities: drop the full default-14 set Docker grants. Coding
-    # agents (cc/codex/native) run as non-root inside the container and never
+    # agents (claude/codex/native/pi) run as non-root inside the container and never
     # call syscalls that require any cap, so this has no operational impact —
     # but it removes the privilege escalation surface that would open up if an
     # attacker found a setuid binary or pivoted to root some other way.
@@ -932,20 +932,18 @@ class JoySafeterConfig(BaseSettings):
 
     def image_for_provider(self, engine_kind: str) -> str:
         """Return the sandbox image for the given engine kind (matches Rust)."""
-        if engine_kind == "codex" and self.image_codex:
-            return self.image_codex
         if engine_kind == "claude" and self.image_claude:
             return self.image_claude
-        if engine_kind == "native":
-            return (
-                self.image_native
-                if self.image_native
-                else (self.image_claude if self.image_claude else self.sandbox_image)
-            )
-        # pi mirrors native: it needs its OWN image and must not fall back to
-        # another engine's image. Only sandbox_image is the shared default.
-        if engine_kind == "pi" and self.image_pi:
-            return self.image_pi
+        engine_images = {
+            "codex": (self.image_codex, "JOYSAFETER_IMAGE_CODEX"),
+            "native": (self.image_native, "JOYSAFETER_IMAGE_NATIVE"),
+            "pi": (self.image_pi, "JOYSAFETER_IMAGE_PI"),
+        }
+        if engine_kind in engine_images:
+            image, env_var = engine_images[engine_kind]
+            if not image:
+                raise ValueError(f"engine '{engine_kind}' has no image configured; set {env_var}")
+            return image
         return self.sandbox_image
 
 

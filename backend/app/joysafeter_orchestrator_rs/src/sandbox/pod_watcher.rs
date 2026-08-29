@@ -26,6 +26,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use super::provider::{ProviderSandboxInfo, SandboxStatus};
+use super::runtime::{PlacementEvent, PlacementEventHandler};
 use crate::ids::SandboxId;
 
 /// Label selector identifying sandbox pods. Must match the label applied in
@@ -35,14 +36,6 @@ const SANDBOX_LABEL_SELECTOR: &str = "app.kubernetes.io/name=joysafeter-sandbox"
 /// Pod label carrying the sandbox UUID. Must match the label set in
 /// `K8sProvider::build_manifest` / `sandbox_resolver` (`joysafeter.sandbox_id`).
 const SANDBOX_ID_LABEL: &str = "joysafeter.sandbox_id";
-
-/// Callback invoked the first time a sandbox pod's node assignment becomes
-/// known. In K8s this is wired to [`DeltaXdsServer::set_sandbox_node`] so
-/// node-aware xDS filtering can deliver the sandbox's Envoy listener the instant
-/// the scheduler binds the pod — instead of waiting on the `setup_networking`
-/// poll or the networking reconcile loop. Idempotent downstream, so re-invoking
-/// with an unchanged mapping is harmless.
-pub type NodeLearnedHook = Arc<dyn Fn(SandboxId, String) + Send + Sync>;
 
 /// Cached pod state — lightweight subset of full Pod object.
 #[derive(Clone, Debug)]
@@ -114,13 +107,15 @@ pub struct PodWatcher {
 impl PodWatcher {
     /// Create a new PodWatcher and spawn the background watch loop.
     ///
-    /// `on_node_learned` (if provided) is invoked the first time each sandbox
-    /// pod's node assignment becomes known, so node-aware xDS filtering can
-    /// deliver the sandbox's egress listener immediately (see [`NodeLearnedHook`]).
-    pub fn new(client: Client, namespace: &str, on_node_learned: Option<NodeLearnedHook>) -> Self {
+    /// Emits typed placement facts when a sandbox gains or loses a node.
+    pub fn new(
+        client: Client,
+        namespace: &str,
+        placement_events: Option<PlacementEventHandler>,
+    ) -> Self {
         let cache = Arc::new(RwLock::new(HashMap::new()));
         let pods: Api<Pod> = Api::namespaced(client, namespace);
-        tokio::spawn(Self::watch_loop(pods, cache.clone(), on_node_learned));
+        tokio::spawn(Self::watch_loop(pods, cache.clone(), placement_events));
         Self { cache }
     }
 
@@ -149,7 +144,7 @@ impl PodWatcher {
     async fn watch_loop(
         pods: Api<Pod>,
         cache: Arc<RwLock<HashMap<String, CachedPod>>>,
-        on_node_learned: Option<NodeLearnedHook>,
+        placement_events: Option<PlacementEventHandler>,
     ) {
         loop {
             info!("PodWatcher: starting watch stream");
@@ -165,7 +160,7 @@ impl PodWatcher {
             loop {
                 match stream.try_next().await {
                     Ok(Some(event)) => {
-                        Self::handle_event(&cache, &mut staging, event, on_node_learned.as_ref())
+                        Self::handle_event(&cache, &mut staging, event, placement_events.as_ref())
                             .await
                     }
                     Ok(None) => {
@@ -186,7 +181,7 @@ impl PodWatcher {
         cache: &Arc<RwLock<HashMap<String, CachedPod>>>,
         staging: &mut HashMap<String, CachedPod>,
         event: Event<Pod>,
-        on_node_learned: Option<&NodeLearnedHook>,
+        placement_events: Option<&PlacementEventHandler>,
     ) {
         match event {
             Event::Apply(pod) => {
@@ -211,7 +206,7 @@ impl PodWatcher {
                         register
                     };
                     if let Some(cached) = register {
-                        Self::maybe_register_node(&cached, on_node_learned);
+                        Self::publish_assignment(&cached, placement_events);
                     }
                 }
             }
@@ -220,14 +215,26 @@ impl PodWatcher {
                     debug!(pod = %name, "PodWatcher: pod deleted");
                     cache.write().await.remove(name);
                 }
+                if let Some(sandbox_id) = pod
+                    .metadata
+                    .labels
+                    .as_ref()
+                    .and_then(|labels| labels.get(SANDBOX_ID_LABEL))
+                    .and_then(|value| value.parse::<uuid::Uuid>().ok())
+                    .map(SandboxId::from_uuid)
+                {
+                    if let Some(handler) = placement_events {
+                        handler(PlacementEvent::Removed { sandbox_id });
+                    }
+                }
             }
             Event::Init => staging.clear(),
             Event::InitApply(pod) => {
                 if let Some(cached) = CachedPod::from_pod(&pod) {
                     // On a re-list (watch reconnect), re-register any already-
-                    // scheduled sandbox's node. `set_sandbox_node` is idempotent,
-                    // so re-firing for unchanged mappings is harmless.
-                    Self::maybe_register_node(&cached, on_node_learned);
+                    // scheduled sandbox's node. Consumers are idempotent, so
+                    // re-firing an unchanged mapping is harmless.
+                    Self::publish_assignment(&cached, placement_events);
                     staging.insert(cached.name.clone(), cached);
                 }
             }
@@ -240,18 +247,19 @@ impl PodWatcher {
         }
     }
 
-    /// Invoke `on_node_learned` when a pod is scheduled (has a node) and carries a
-    /// parseable `joysafeter.sandbox_id` label. Mirrors the bulk mapping rebuild
-    /// in `K8sProvider::on_startup`.
-    fn maybe_register_node(cached: &CachedPod, on_node_learned: Option<&NodeLearnedHook>) {
-        let (Some(hook), Some(node)) = (on_node_learned, cached.node_name.as_deref()) else {
+    /// Publish an assignment when a pod has a node and typed sandbox identity.
+    fn publish_assignment(cached: &CachedPod, events: Option<&PlacementEventHandler>) {
+        let (Some(handler), Some(node_name)) = (events, cached.node_name.as_deref()) else {
             return;
         };
         let Some(id_str) = cached.labels.get(SANDBOX_ID_LABEL) else {
             return;
         };
         match id_str.parse::<uuid::Uuid>() {
-            Ok(uuid) => hook(SandboxId::from_uuid(uuid), node.to_string()),
+            Ok(uuid) => handler(PlacementEvent::Assigned {
+                sandbox_id: SandboxId::from_uuid(uuid),
+                node_name: node_name.to_string(),
+            }),
             Err(e) => debug!(
                 pod = %cached.name,
                 sandbox_id = %id_str,
@@ -268,12 +276,12 @@ mod tests {
     use serde_json::json;
     use std::sync::Mutex;
 
-    type Calls = Arc<Mutex<Vec<(SandboxId, String)>>>;
+    type Calls = Arc<Mutex<Vec<PlacementEvent>>>;
 
-    fn recording_hook() -> (NodeLearnedHook, Calls) {
+    fn recording_hook() -> (PlacementEventHandler, Calls) {
         let calls: Calls = Arc::new(Mutex::new(Vec::new()));
         let sink = calls.clone();
-        let hook: NodeLearnedHook = Arc::new(move |id, node| sink.lock().unwrap().push((id, node)));
+        let hook: PlacementEventHandler = Arc::new(move |event| sink.lock().unwrap().push(event));
         (hook, calls)
     }
 
@@ -340,8 +348,13 @@ mod tests {
             1,
             "hook should fire once on the None→Some node transition, not on every Apply"
         );
-        assert_eq!(calls[0].0.as_uuid(), uuid);
-        assert_eq!(calls[0].1, "node-a");
+        assert_eq!(
+            calls[0],
+            PlacementEvent::Assigned {
+                sandbox_id: SandboxId::from_uuid(uuid),
+                node_name: "node-a".to_string(),
+            }
+        );
     }
 
     #[tokio::test]
@@ -377,8 +390,13 @@ mod tests {
         .await;
         let calls = calls.lock().unwrap();
         assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0.as_uuid(), uuid);
-        assert_eq!(calls[0].1, "node-b");
+        assert_eq!(
+            calls[0],
+            PlacementEvent::Assigned {
+                sandbox_id: SandboxId::from_uuid(uuid),
+                node_name: "node-b".to_string(),
+            }
+        );
     }
 
     #[tokio::test]
@@ -405,8 +423,13 @@ mod tests {
             1,
             "re-list should re-register a scheduled sandbox"
         );
-        assert_eq!(calls[0].0.as_uuid(), uuid);
-        assert_eq!(calls[0].1, "node-c");
+        assert_eq!(
+            calls[0],
+            PlacementEvent::Assigned {
+                sandbox_id: SandboxId::from_uuid(uuid),
+                node_name: "node-c".to_string(),
+            }
+        );
     }
 
     #[tokio::test]

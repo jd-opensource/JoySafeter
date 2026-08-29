@@ -20,7 +20,9 @@ use tracing::warn;
 
 use crate::db::queries;
 use crate::ids::SandboxId;
-use crate::kernel::ha::{NetworkPolicyRequest, NetworkPolicyRequestQueue};
+use crate::kernel::network_policy::ports::NetworkPolicyRequestQueue;
+use crate::kernel::network_policy::ports::NetworkPolicyRuntime;
+use crate::kernel::network_policy::NetworkPolicyRequest;
 use crate::sandbox::provider::SandboxProvider;
 
 fn provider_runtime_is_absent(message: &str) -> bool {
@@ -29,6 +31,7 @@ fn provider_runtime_is_absent(message: &str) -> bool {
 
 pub(crate) async fn destroy_unpersisted_sandbox(
     provider: &Arc<dyn SandboxProvider>,
+    network_policy_runtime: &dyn NetworkPolicyRuntime,
     network_policy_queue: Option<&dyn NetworkPolicyRequestQueue>,
     sandbox_id: SandboxId,
     external_id: &str,
@@ -47,8 +50,8 @@ pub(crate) async fn destroy_unpersisted_sandbox(
             .err()
             .map(|error| error.to_string())
     } else {
-        provider
-            .teardown_networking(sandbox_id)
+        network_policy_runtime
+            .remove(sandbox_id)
             .await
             .err()
             .map(|error| error.to_string())
@@ -88,6 +91,7 @@ pub(crate) async fn destroy_unpersisted_sandbox(
 pub(crate) async fn finalize_claimed_sandbox_destroy(
     pool: &PgPool,
     provider: &Arc<dyn SandboxProvider>,
+    network_policy_runtime: &dyn NetworkPolicyRuntime,
     network_policy_queue: Option<&dyn NetworkPolicyRequestQueue>,
     sandbox_id: SandboxId,
     external_id: Option<&str>,
@@ -123,7 +127,7 @@ pub(crate) async fn finalize_claimed_sandbox_destroy(
                 .publish(NetworkPolicyRequest::remove(sandbox_id))
                 .await;
         } else {
-            let _ = provider.teardown_networking(sandbox_id).await;
+            let _ = network_policy_runtime.remove(sandbox_id).await;
         }
     } else {
         warn!(
@@ -145,6 +149,7 @@ pub(crate) async fn finalize_claimed_sandbox_destroy(
 pub(crate) async fn destroy_observed_sandbox(
     pool: &PgPool,
     provider: &Arc<dyn SandboxProvider>,
+    network_policy_runtime: &dyn NetworkPolicyRuntime,
     network_policy_queue: Option<&dyn NetworkPolicyRequestQueue>,
     sandbox_id: SandboxId,
     observed_status: &str,
@@ -168,6 +173,7 @@ pub(crate) async fn destroy_observed_sandbox(
     finalize_claimed_sandbox_destroy(
         pool,
         provider,
+        network_policy_runtime,
         network_policy_queue,
         sandbox_id,
         external_id,

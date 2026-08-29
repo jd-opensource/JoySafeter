@@ -281,11 +281,15 @@ REVIEWED_ENTITY_UUID_ADAPTERS = {
         ("physical_resource_naming",),
         2,
     ),
-    "rust:app/joysafeter_orchestrator_rs/src/sandbox/lds_backend.rs::as_uuid": (
+    "rust:app/joysafeter_orchestrator_rs/src/sandbox/envoy_render/json.rs::as_uuid": (
         ("physical_resource_naming",),
-        4,
+        1,
     ),
-    "rust:app/joysafeter_orchestrator_rs/src/sandbox/lds_backend.rs::uuid_parse": (
+    "rust:app/joysafeter_orchestrator_rs/src/sandbox/envoy_render/proto.rs::as_uuid": (
+        ("physical_resource_naming",),
+        1,
+    ),
+    "rust:app/joysafeter_orchestrator_rs/src/xds/control_plane.rs::uuid_parse": (
         ("physical_resource_naming",),
         1,
     ),

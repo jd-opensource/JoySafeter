@@ -62,9 +62,10 @@ graph TB
             CC["Claude\nclaude CLI\nstream-json"]
             CODEX["Codex\ncodex app-server\nJSON-RPC"]
             NATIVE["Native / Harness-Core\nccb 二进制\nstream-json"]
+            PI["Pi\npi CLI\nprovider-selected protocol"]
             MOCK["Mock\n测试替身"]
         end
-        NOTE_PY["注：Python runtime/*Adapter\n为参考孪生，非实时路径"]
+        NOTE_RUNTIME["Rust sandbox-runner 是唯一 harness 执行路径"]
     end
 
     %% ═══════════════════════════════════════════════════════════════
@@ -190,6 +191,7 @@ graph TB
     ADAPTER_REG --> CC
     ADAPTER_REG --> CODEX
     ADAPTER_REG --> NATIVE
+    ADAPTER_REG --> PI
     ADAPTER_REG --> MOCK
 
     %% 引擎 ← 工具 & 技能（SetupSandbox / StartTask 下发）
@@ -204,12 +206,14 @@ graph TB
     NATIVE -.->|"工作负载 LLM"| NOTE_MODEL
     CC -.-> NOTE_MODEL
     CODEX -.-> NOTE_MODEL
+    PI -.-> NOTE_MODEL
     API_SVC --> OPENAI_HELPER
 
     %% runner 事件 → 事件核心
     CC -.->|"HarnessEvent"| MAP
     CODEX -.-> MAP
     NATIVE -.-> MAP
+    PI -.-> MAP
     GRPC_SRV --> MAP
 
     %% 事件总线 → Redis 三通道

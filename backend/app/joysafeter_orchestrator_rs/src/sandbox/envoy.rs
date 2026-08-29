@@ -17,10 +17,12 @@ use serde_json::json;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-use super::lds_backend::{
-    validate_egress_policy, CdsBackend, LdsBackend, ListenerKind, ListenerSpec, SandboxCredentials,
-    SandboxEgressPolicy,
+use super::runtime::SandboxSocketProvisioner;
+use crate::kernel::network_policy::envoy_model::{
+    validate_egress_policy, ListenerKind, ListenerSpec, SandboxCredentials, SandboxEgressPolicy,
 };
+use crate::kernel::network_policy::ports::NetworkPolicyRuntime;
+use crate::sandbox::envoy_delivery::{CdsBackend, LdsBackend};
 
 /// Per-sandbox network isolation via a shared Envoy proxy sidecar container.
 ///
@@ -52,6 +54,7 @@ pub struct EnvoyConfig {
     pub envoy_network: String,
     pub grpc_target_host: String,
     pub grpc_target_port: u16,
+    pub xds_auth_token: String,
     pub container_name: String,
     /// `"grpc"` (default, Delta xDS) or explicit compatibility mode
     /// `"filesystem"` (`lds.json`).
@@ -419,51 +422,6 @@ impl EnvoyManager {
         self.wait_until_ready(Duration::from_secs(15)).await
     }
 
-    pub fn spawn_health_monitor(
-        self: Arc<Self>,
-        pool: sqlx::PgPool,
-        llm_egress_allowed_hosts: Vec<String>,
-        authority: crate::kernel::xds_authority::XdsAuthorityGuard,
-    ) {
-        if self.config.health_check_interval_sec == 0 {
-            return;
-        }
-        tokio::spawn(async move {
-            let mut failures = 0u64;
-            let threshold = self.config.health_failure_threshold.max(1);
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(
-                self.config.health_check_interval_sec,
-            ));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            loop {
-                interval.tick().await;
-                match self.health_check().await {
-                    Ok(()) => {
-                        failures = 0;
-                    }
-                    Err(e) => {
-                        failures += 1;
-                        warn!(
-                            failures,
-                            threshold,
-                            error = %e,
-                            "Envoy health check failed"
-                        );
-                        if failures >= threshold {
-                            failures = 0;
-                            if let Err(recover_err) = self
-                                .restart_and_recover(&pool, &llm_egress_allowed_hosts, &authority)
-                                .await
-                            {
-                                warn!(error = %recover_err, "Envoy restart/recovery failed");
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
-
     async fn health_check(&self) -> anyhow::Result<()> {
         let info = self
             .docker()?
@@ -480,26 +438,6 @@ impl EnvoyManager {
         }
 
         Ok(())
-    }
-
-    async fn restart_and_recover(
-        &self,
-        pool: &sqlx::PgPool,
-        llm_egress_allowed_hosts: &[String],
-        authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
-    ) -> anyhow::Result<()> {
-        warn!("Restarting Envoy container after failed health checks");
-        self.docker()?
-            .restart_container(
-                &self.config.container_name,
-                Some(RestartContainerOptions { t: 10 }),
-            )
-            .await?;
-        self.wait_until_ready(std::time::Duration::from_secs(15))
-            .await?;
-        self.init().await?;
-        self.recover_from_db(pool, llm_egress_allowed_hosts, authority)
-            .await
     }
 
     async fn wait_until_ready(&self, timeout: std::time::Duration) -> anyhow::Result<()> {
@@ -552,157 +490,6 @@ impl EnvoyManager {
         info!(
             xds_mode = %self.config.xds_mode,
             "EnvoyManager xDS state reset (K8s mode, no bootstrap write)"
-        );
-        Ok(())
-    }
-
-    /// Rebuild the LDS state for all live sandboxes from the database.
-    ///
-    /// The listener set is never persisted — it lives only in the filesystem
-    /// `lds.json` (wiped by [`init`]) or the in-memory Delta xDS state (lost on
-    /// orchestrator restart). The database (`joysafeter_sandboxes`) is the source
-    /// of truth for which sandboxes are live and what egress allowlist each has
-    /// (stored in `config.fingerprint.networking`). This re-derives the two
-    /// listeners per sandbox and pushes them all in a single [`LdsBackend::replace_all`],
-    /// so a restarted orchestrator restores networking for still-running sandboxes
-    /// instead of leaving them isolated.
-    pub async fn recover_from_db(
-        &self,
-        pool: &sqlx::PgPool,
-        llm_egress_allowed_hosts: &[String],
-        authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
-    ) -> anyhow::Result<()> {
-        if !authority.is_current() {
-            anyhow::bail!("xDS authority changed before networking recovery started");
-        }
-        let sandboxes = crate::db::queries::list_live_sandboxes_for_recovery(pool).await?;
-
-        let mut specs = Vec::with_capacity(sandboxes.len());
-        let mut clusters = Vec::new();
-        let mut generations = Vec::new();
-        let mut recovered = 0usize;
-        for sb in &sandboxes {
-            // Only sandboxes provisioned with limited networking have Envoy
-            // listeners. Those store their allowlist under
-            // `config.fingerprint.networking`; sandboxes without it used no proxy.
-            let networking = sb
-                .config
-                .as_ref()
-                .and_then(|c| c.get("fingerprint"))
-                .and_then(|f| f.get("networking"));
-            let Some(networking) = networking else {
-                continue;
-            };
-            if networking.get("type").and_then(|t| t.as_str()) != Some("limited") {
-                continue;
-            }
-
-            let allowed_hosts = extract_allowed_hosts(Some(networking));
-
-            // Recreate the socket dir; the Envoy container may have restarted and
-            // lost /sockets contents. Envoy recreates the pipes once it accepts
-            // the pushed listeners. Fail-closed: if we cannot prepare a live
-            // sandbox's socket dir we abort recovery rather than leave it running
-            // without egress enforcement.
-            self.prepare_socket_dir(sb.id).await?;
-
-            // Re-derive the sandbox's egress credentials from the DB and render
-            // both its listener routes and its per-upstream clusters.
-            let creds = crate::kernel::sandbox_resolver::rebuild_sandbox_credentials(
-                pool,
-                sb,
-                llm_egress_allowed_hosts,
-            )
-            .await?;
-            let policy = creds.to_policy(&sb.id, allowed_hosts);
-            if let Err(e) = validate_egress_policy(&sb.id, &policy) {
-                let _ = crate::db::queries::update_sandbox_networking_status(
-                    pool,
-                    sb.id,
-                    "failed",
-                    sb.networking_policy_hash.as_deref(),
-                    None,
-                    Some(&e.to_string()),
-                )
-                .await;
-                return Err(e.context(format!(
-                    "invalid recovered egress policy for sandbox {}",
-                    sb.id
-                )));
-            }
-
-            let policy_hash = sb
-                .networking_policy_hash
-                .clone()
-                .or_else(|| {
-                    sb.config
-                        .as_ref()
-                        .and_then(|c| c.get("fingerprint"))
-                        .and_then(|f| f.get("egress_policy_hash"))
-                        .and_then(|v| v.as_str())
-                        .map(ToOwned::to_owned)
-                })
-                .unwrap_or_else(|| "recovered-unknown".to_string());
-            let generation = crate::db::queries::reopen_network_policy_for_authority_recovery(
-                pool,
-                sb.id,
-                &policy_hash,
-            )
-            .await?;
-
-            clusters.extend(policy.clusters(&sb.id));
-            specs.push(ListenerSpec {
-                sandbox_id: sb.id,
-                kind: ListenerKind::Http,
-                allowed_hosts: policy.allowlist_hosts,
-                credentials: policy.credential_routes,
-                proxy_auth_token: policy.proxy_auth_token,
-            });
-            generations.push((sb.id, generation));
-            recovered += 1;
-        }
-
-        if !authority.is_current() {
-            anyhow::bail!("xDS authority changed before recovered policy publication");
-        }
-        self.cds.replace_all(clusters).await?;
-        self.lds.replace_all(specs).await?;
-        for (sandbox_id, generation) in generations {
-            self.lds
-                .wait_for_sandbox_ack(
-                    sandbox_id,
-                    std::time::Duration::from_millis(
-                        self.config.socket_ready_timeout_ms.max(1_000),
-                    ),
-                )
-                .await
-                .with_context(|| {
-                    format!("recovered Envoy policy was not ACKed for sandbox {sandbox_id}")
-                })?;
-            if !authority.is_current() {
-                anyhow::bail!("xDS authority changed before recovered policy ACK persistence");
-            }
-            match crate::db::queries::mark_sandbox_network_policy_acked(
-                pool,
-                sandbox_id,
-                &generation,
-            )
-            .await?
-            {
-                crate::db::queries::NetworkPolicyAckOutcome::Applied
-                | crate::db::queries::NetworkPolicyAckOutcome::AlreadyReady => {}
-                crate::db::queries::NetworkPolicyAckOutcome::Stale => anyhow::bail!(
-                    "sandbox {sandbox_id} network policy generation changed during recovery"
-                ),
-                crate::db::queries::NetworkPolicyAckOutcome::Missing => {
-                    anyhow::bail!("sandbox {sandbox_id} disappeared during network policy recovery")
-                }
-            }
-        }
-        info!(
-            recovered_sandboxes = recovered,
-            total_live = sandboxes.len(),
-            "EnvoyManager recovered LDS state from DB"
         );
         Ok(())
     }
@@ -958,7 +745,17 @@ impl EnvoyManager {
                     "api_type": "DELTA_GRPC",
                     "transport_api_version": "V3",
                     "grpc_services": [{
-                        "envoy_grpc": { "cluster_name": "xds_cluster" }
+                        "envoy_grpc": { "cluster_name": "xds_cluster" },
+                        "initial_metadata": [
+                            {
+                                "key": "authorization",
+                                "value": format!("Bearer {}", self.config.xds_auth_token)
+                            },
+                            {
+                                "key": crate::xds::auth::ADS_NODE_ID_HEADER,
+                                "value": self.config.node_id
+                            }
+                        ]
                     }]
                 }
             })
@@ -1050,6 +847,51 @@ impl EnvoyManager {
     }
 }
 
+#[async_trait::async_trait]
+impl SandboxSocketProvisioner for EnvoyManager {
+    async fn prepare_socket(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
+        self.prepare_socket_dir(sandbox_id).await
+    }
+}
+
+pub struct EnvoyNetworkPolicyRuntime {
+    manager: Arc<EnvoyManager>,
+}
+
+impl EnvoyNetworkPolicyRuntime {
+    pub fn new(manager: Arc<EnvoyManager>) -> Self {
+        Self { manager }
+    }
+}
+
+#[async_trait::async_trait]
+impl NetworkPolicyRuntime for EnvoyNetworkPolicyRuntime {
+    async fn initialize(&self) -> anyhow::Result<()> {
+        if self.manager.config.skip_socket_dir_prep {
+            self.manager.init_xds_only().await
+        } else {
+            self.manager.init().await?;
+            self.manager.verify_socket_storage_consistency().await
+        }
+    }
+
+    async fn prune(&self, live_sandbox_ids: &HashSet<SandboxId>) -> anyhow::Result<usize> {
+        self.manager.prune_networking_except(live_sandbox_ids).await
+    }
+
+    async fn apply(
+        &self,
+        sandbox_id: SandboxId,
+        policy: SandboxEgressPolicy,
+    ) -> anyhow::Result<()> {
+        self.manager.add_sandbox_policy(sandbox_id, policy).await
+    }
+
+    async fn remove(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
+        self.manager.teardown_for_sandbox(sandbox_id).await
+    }
+}
+
 /// Extract the egress allowlist (`allowed_hosts`) from a networking config value.
 fn extract_allowed_hosts(networking_config: Option<&serde_json::Value>) -> Vec<String> {
     networking_config
@@ -1068,7 +910,8 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::sandbox::lds_backend::{DeltaXdsServer, GrpcCds, GrpcLds};
+    use crate::xds::publisher::{GrpcCds, GrpcLds};
+    use crate::xds::transport::DeltaXdsServer;
     use uuid::Uuid;
 
     fn test_config() -> EnvoyConfig {
@@ -1080,6 +923,7 @@ mod tests {
             envoy_network: "unused".to_string(),
             grpc_target_host: "127.0.0.1".to_string(),
             grpc_target_port: 9090,
+            xds_auth_token: "test-xds-token".to_string(),
             container_name: "unused".to_string(),
             xds_mode: "grpc".to_string(),
             write_debug_entries: false,
@@ -1103,7 +947,7 @@ mod tests {
 
     #[tokio::test]
     async fn authoritative_prune_removes_only_stale_sandbox_networking() {
-        let server = DeltaXdsServer::new();
+        let server = DeltaXdsServer::with_static_token("test-xds-token").unwrap();
         let lds = Arc::new(GrpcLds::new(server.clone()));
         let manager = EnvoyManager::new(
             None,
@@ -1127,7 +971,7 @@ mod tests {
     }
 
     fn manager_without_docker() -> EnvoyManager {
-        let server = DeltaXdsServer::new();
+        let server = DeltaXdsServer::with_static_token("test-xds-token").unwrap();
         EnvoyManager::new(
             None,
             test_config(),
@@ -1218,7 +1062,7 @@ mod tests {
 
     #[tokio::test]
     async fn write_bootstrap_reports_change_only_when_content_differs() {
-        let server = DeltaXdsServer::new();
+        let server = DeltaXdsServer::with_static_token("test-xds-token").unwrap();
         let mut cfg = test_config();
         let dir =
             std::env::temp_dir().join(format!("joysafeter-bootstrap-test-{}", std::process::id()));
@@ -1238,6 +1082,18 @@ mod tests {
             !manager.write_bootstrap_config().await.unwrap(),
             "identical rewrite must report no change"
         );
+        let bootstrap: serde_json::Value = serde_json::from_str(
+            &tokio::fs::read_to_string(dir.join("bootstrap.json"))
+                .await
+                .expect("read rendered bootstrap"),
+        )
+        .expect("parse rendered bootstrap");
+        let metadata =
+            &bootstrap["dynamic_resources"]["ads_config"]["grpc_services"][0]["initial_metadata"];
+        assert_eq!(metadata[0]["key"], "authorization");
+        assert_eq!(metadata[0]["value"], "Bearer test-xds-token");
+        assert_eq!(metadata[1]["key"], crate::xds::auth::ADS_NODE_ID_HEADER);
+        assert_eq!(metadata[1]["value"], "test-node");
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 }

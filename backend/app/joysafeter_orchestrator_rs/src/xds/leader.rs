@@ -1,21 +1,4 @@
-//! xDS leader coordination for K8s multi-replica mode.
-//!
-//! In `ha_mode=multi`, task scheduling is leaderless (all replicas active,
-//! coordinated via Redis). But the Envoy xDS control plane is *stateful* — each
-//! replica holds its own in-memory LDS state and each Envoy DaemonSet pod
-//! connects (via a Service) to a random replica. If Envoys spread across
-//! replicas, listeners created on replica A never reach an Envoy bound to
-//! replica B → wrong-node NACKs and missing egress sockets.
-//!
-//! This module elects a single **xDS leader** using a dedicated K8s Lease
-//! (independent of any scheduling leadership) and labels the leader's Pod with
-//! `joysafeter-xds-leader=true`. A leader-only Service selects that label, so
-//! every Envoy connects to exactly one replica — a single authoritative xDS
-//! source, the same pattern kube-scheduler uses. Task scheduling and runner
-//! bridges keep using the load-balanced Service across all replicas.
-//!
-//! Only active in K8s + multi mode. Docker/standalone/leader modes never call
-//! this (Docker has one Envoy and one xDS source already).
+//! Kubernetes Lease coordination for the single authoritative xDS replica.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,17 +10,13 @@ use serde_json::json;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
-use super::leader_election::LeaderElection;
-use super::xds_authority::XdsAuthorityState;
-use crate::sandbox::lds_backend::DeltaXdsServer;
+use crate::kernel::leader_election::LeaderElection;
 
-/// Pod label that the leader-only xDS Service selects on.
+use super::authority::XdsAuthorityState;
+use super::transport::DeltaXdsServer;
+
 pub const XDS_LEADER_LABEL: &str = "joysafeter-xds-leader";
 
-/// Handle to proactively hand off xDS leadership on graceful shutdown.
-/// Revoking the authority and disabling ADS actively closes established xDS
-/// streams; removing the label stops new Service routing, and releasing the
-/// Lease lets a peer take over without waiting for lease expiry.
 pub struct XdsLeaderHandle {
     election: Arc<LeaderElection>,
     authority: XdsAuthorityState,
@@ -54,8 +33,6 @@ impl XdsLeaderHandle {
         self.authority.clone()
     }
 
-    /// Best-effort graceful hand-off: fence mutations, close ADS streams,
-    /// remove the Service endpoint, then release the Lease.
     pub async fn shutdown(&self) {
         self.coordinator_task.abort();
         self.authority.revoke();
@@ -67,10 +44,6 @@ impl XdsLeaderHandle {
     }
 }
 
-/// Spawn the xDS leader coordinator. Returns a handle for graceful hand-off.
-/// The election and label reconciliation run in the background. Non-fatal: on
-/// any error the pod simply may not become/refresh the label and Envoys keep
-/// their last config (already-established egress is unaffected).
 pub fn spawn(
     client: Client,
     xds_service: Arc<DeltaXdsServer>,
@@ -81,7 +54,7 @@ pub fn spawn(
     lease_duration: Duration,
     renew_interval: Duration,
 ) -> XdsLeaderHandle {
-    let authority = XdsAuthorityState::managed();
+    let authority = XdsAuthorityState::managed_with_metrics(xds_service.metrics());
     xds_service.set_serving(false);
     let election = Arc::new(LeaderElection::new(
         client.clone(),
@@ -114,6 +87,7 @@ pub fn spawn(
             if lease_held {
                 if authority_epoch.is_none() {
                     let guard = coordinator_authority.advertise();
+                    coordinator_xds_service.begin_authority_epoch(guard.authority_epoch());
                     authority_epoch = Some(guard.epoch());
                     info!(
                         pod = %coordinator_pod_name,
@@ -194,9 +168,6 @@ fn should_serve_xds(lease_held: bool, authority_ready: bool) -> bool {
     lease_held && authority_ready
 }
 
-/// Patch the pod's `joysafeter-xds-leader` label. `true` sets it to "true";
-/// `false` removes it (JSON-merge null deletes the key). Best-effort with a
-/// couple of retries — a transient API error must not wedge the coordinator.
 async fn set_leader_label(client: &Client, namespace: &str, pod_name: &str, leader: bool) -> bool {
     let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
     let value = if leader { json!("true") } else { json!(null) };
@@ -205,11 +176,11 @@ async fn set_leader_label(client: &Client, namespace: &str, pod_name: &str, lead
     for attempt in 0..3 {
         match pods.patch(pod_name, &params, &Patch::Merge(&patch)).await {
             Ok(_) => return true,
-            Err(e) => {
+            Err(error) => {
                 warn!(
                     pod = %pod_name,
                     attempt,
-                    error = %e,
+                    error = %error,
                     "Failed to patch xDS leader label; retrying"
                 );
                 tokio::time::sleep(Duration::from_millis(500)).await;

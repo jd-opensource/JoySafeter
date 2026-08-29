@@ -210,7 +210,7 @@ Agent 是 JoySafeter 中可执行的智能体配置，包含模型、系统提�
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---:|---|
 | `name` | string | 是 | Agent 名称，同 project 下应唯一 |
-| `engine_kind` | string | 否 | `claude` / `codex` / `native`，默认 `claude` |
+| `engine_kind` | string | 否 | `claude` / `codex` / `native` / `pi`，默认 `claude` |
 | `model` | string/object/null | 否 | 模型配置，也可直接传字符串 |
 | `system_prompt` | string | 否 | 系统提示词，返回字段为 `system` |
 | `description` | string | 否 | 描述 |

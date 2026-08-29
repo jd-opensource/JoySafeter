@@ -1,9 +1,7 @@
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::sync::Arc;
 
 use anyhow::Context;
-use base64::Engine as _;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use tracing::{debug, info, warn};
@@ -13,43 +11,51 @@ use uuid::Uuid;
 use crate::config::JoySafeterConfig;
 use crate::db::models::{JoySafeterAgent, JoySafeterSandbox};
 use crate::db::queries;
-use crate::ids::{
-    AgentId, CredentialId, EnvironmentId, ProjectId, SandboxId, SandboxNetworkPolicyId, SessionId,
-    TaskId, UserId,
-};
+use crate::ids::{AgentId, ProjectId, SandboxId, SessionId, TaskId, UserId};
+#[cfg(test)]
+use crate::ids::{CredentialId, EnvironmentId};
 use crate::kernel::credentials::access::{
     CredentialAccessContext, CredentialMaterialAccessService,
 };
+#[cfg(test)]
 use crate::kernel::credentials::error::CredentialRuntimeError;
-use crate::kernel::credentials::reference::decode_environment;
-use crate::kernel::credentials::service::ResolvedServiceCredential;
+use crate::kernel::credentials::runtime_projection::{
+    build_external_egress, build_git_egress, extract_llm_egress, resolve_agent_env_from,
+    sandbox_runner_token, EnvironmentRow,
+};
+#[cfg(test)]
+use crate::kernel::credentials::runtime_projection::{
+    model_protocol_env_value, model_protocol_provider_switch, remove_agent_identity_routes,
+};
 use crate::kernel::environment_binding;
-use crate::kernel::ha::{NetworkPolicyRequest, NetworkPolicyRequestQueue};
-use crate::kernel::llm_catalog::RuntimeCredentialBinding;
 use crate::kernel::mcp_runtime_plan::{
     effective_network_mode, resolve_mcp_runtime_plan_with_access, EffectiveNetworkMode,
 };
 #[cfg(test)]
 use crate::kernel::mcp_url;
-use crate::kernel::network_policy::DesiredNetworkPolicy;
-use crate::kernel::repository_access::material::RepositoryAccessMaterialAdapter;
-use crate::kernel::run_spec::{
-    agent_for_execution, environment_credential_ids, environment_for_execution,
+#[cfg(test)]
+use crate::kernel::network_policy::envoy_model::MCP_EGRESS_HOST;
+use crate::kernel::network_policy::envoy_model::{EgressCredentialRoute, SandboxCredentials};
+#[cfg(test)]
+use crate::kernel::network_policy::envoy_model::{
+    EgressExposure, EgressKind, EgressPathMapping, EgressPathMatcher, EgressRetryMode,
 };
+use crate::kernel::network_policy::material::{
+    NetworkPolicyMaterialResolver, UnconfiguredNetworkPolicyMaterialResolver,
+};
+use crate::kernel::network_policy::ports::NetworkPolicyRequestQueue;
+use crate::kernel::network_policy::ports::{NetworkPolicyRuntime, NoopNetworkPolicyRuntime};
+use crate::kernel::network_policy::{
+    DesiredNetworkPolicy, NetworkPolicyGeneration, NetworkPolicyRequest,
+};
+use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
 use crate::kernel::runtime_freshness::RuntimeFreshnessError;
 use crate::kernel::task_identity::material::{
     TaskIdentityMaterialAdapter, TaskIdentityMaterialError,
 };
-#[cfg(test)]
-use crate::sandbox::lds_backend::MCP_EGRESS_HOST;
-use crate::sandbox::lds_backend::{
-    EgressCredentialRoute, EgressExposure, EgressKind, EgressPathMapping, EgressPathMatcher,
-    EgressRetryMode, SandboxCredentials, UpstreamTarget, GIT_EGRESS_HOST,
-};
 use crate::sandbox::mounts::{resolve_mount_resources, SandboxMount, SandboxMountFingerprint};
 use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
 
-use super::llm_providers::credential_profile_spec;
 #[cfg(test)]
 use super::llm_providers::{CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OPENAI_API_KEY};
 
@@ -191,7 +197,6 @@ enum TaskIdentityContextError {
 /// marked `failed` (fail-closed: it keeps network=none, no egress) and the
 /// networking-reconcile loop retries it. Prevents a single stuck setup from
 /// freezing task scheduling.
-const SETUP_NETWORKING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[cfg(test)]
 mod protocol_env_tests {
@@ -240,28 +245,6 @@ mod protocol_env_tests {
     }
 }
 
-/// Normalizes a stored secret `protocol` into the container-env signal read by
-/// pi-entrypoint.sh. Returns `None` for `custom`/blank so we never emit a
-/// meaningless `JOYSAFETER_MODEL_PROTOCOL`.
-fn model_protocol_env_value(protocol: &str) -> Option<String> {
-    match protocol.trim() {
-        "" | "custom" => None,
-        other => Some(other.to_string()),
-    }
-}
-
-/// Maps a stored secret `protocol` to the ccb provider-switch env var that flips
-/// the native harness off its default Anthropic path. ccb ignores `OPENAI_BASE_URL`
-/// on its own — without `CLAUDE_CODE_USE_OPENAI` set it stays in first-party
-/// Anthropic mode and demands a login, so OpenAI-family models fail with
-/// "Not logged in". Returns `None` for Anthropic/custom/blank, which need no switch.
-fn model_protocol_provider_switch(protocol: &str) -> Option<&'static str> {
-    match protocol.trim() {
-        "openai_responses" | "chat_completions" => Some("CLAUDE_CODE_USE_OPENAI"),
-        _ => None,
-    }
-}
-
 fn apply_sandbox_timezone(env: &mut HashMap<String, String>, platform_timezone: &str) {
     let platform_timezone = platform_timezone.trim();
     if !platform_timezone.is_empty() {
@@ -287,6 +270,8 @@ fn apply_claude_code_sandbox_privacy(env: &mut HashMap<String, String>) {
 pub struct SandboxResolver {
     pool: PgPool,
     provider: Arc<dyn SandboxProvider>,
+    network_policy_runtime: Arc<dyn NetworkPolicyRuntime>,
+    network_policy_material_resolver: Arc<dyn NetworkPolicyMaterialResolver>,
     config: JoySafeterConfig,
     /// Per-session locks to prevent concurrent resolution
     session_locks: dashmap::DashMap<SessionId, Arc<tokio::sync::Mutex<()>>>,
@@ -300,7 +285,7 @@ pub struct SandboxResolver {
     /// Multi-replica requests are submitted to the elected xDS authority.
     /// `None` means this process is the single local authority.
     network_policy_queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
-    xds_authority: crate::kernel::xds_authority::XdsAuthorityState,
+    xds_authority: crate::xds::authority::XdsAuthorityState,
     /// Pluggable agent identity provider for outbound credential injection.
     identity_provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
     identity_allowed_hosts: Vec<String>,
@@ -312,18 +297,33 @@ impl SandboxResolver {
         Self {
             pool,
             provider,
+            network_policy_runtime: Arc::new(NoopNetworkPolicyRuntime),
+            network_policy_material_resolver: Arc::new(UnconfiguredNetworkPolicyMaterialResolver),
             config,
             session_locks: dashmap::DashMap::new(),
             network_policy_ready: dashmap::DashMap::new(),
             pool_replenish_notify: None,
             network_policy_queue: None,
-            xds_authority: crate::kernel::xds_authority::XdsAuthorityState::standalone(),
+            xds_authority: crate::xds::authority::XdsAuthorityState::standalone(),
             identity_provider: Arc::new(
                 crate::kernel::agent_identity_provider::NoopAgentIdentityProvider,
             ),
             identity_allowed_hosts: Self::identity_allowed_hosts_from_env(),
             task_identity_material: None,
         }
+    }
+
+    pub fn with_network_policy_runtime(mut self, runtime: Arc<dyn NetworkPolicyRuntime>) -> Self {
+        self.network_policy_runtime = runtime;
+        self
+    }
+
+    pub fn with_network_policy_material_resolver(
+        mut self,
+        resolver: Arc<dyn NetworkPolicyMaterialResolver>,
+    ) -> Self {
+        self.network_policy_material_resolver = resolver;
+        self
     }
 
     /// Set the agent identity provider.
@@ -364,7 +364,7 @@ impl SandboxResolver {
 
     pub fn with_network_policy_control(
         mut self,
-        authority: crate::kernel::xds_authority::XdsAuthorityState,
+        authority: crate::xds::authority::XdsAuthorityState,
         queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
     ) -> Self {
         self.xds_authority = authority;
@@ -377,7 +377,7 @@ impl SandboxResolver {
         sandbox_id: SandboxId,
         _external_id: &str,
         context: &ResolveContext,
-        generation: &queries::NetworkPolicyGeneration,
+        generation: &NetworkPolicyGeneration,
         _task_id: Option<TaskId>,
         proxy_auth_token: Option<String>,
     ) -> anyhow::Result<()> {
@@ -394,9 +394,9 @@ impl SandboxResolver {
                 .ok_or_else(|| anyhow::anyhow!("local xDS authority is not ready"))?;
             let mut credentials = context.credentials.clone();
             credentials.proxy_auth_token = proxy_auth_token;
-            apply_sandbox_networking_generation_with_credentials_as_authority(
+            crate::kernel::network_policy::application::apply_generation_with_credentials_as_authority(
                 &self.pool,
-                self.provider.as_ref(),
+                self.network_policy_runtime.as_ref(),
                 sandbox_id,
                 generation,
                 credentials,
@@ -404,15 +404,15 @@ impl SandboxResolver {
             )
             .await?;
         } else {
-            crate::kernel::xds_authority::ensure_network_policy_ready(
+            crate::kernel::network_policy::application::ensure_ready(
                 &self.pool,
-                self.provider.as_ref(),
+                self.network_policy_runtime.as_ref(),
+                self.network_policy_material_resolver.as_ref(),
                 self.network_policy_queue.as_deref(),
                 &self.xds_authority,
                 sandbox_id,
                 generation,
-                &self.config.llm_egress_allowed_hosts,
-                SETUP_NETWORKING_TIMEOUT,
+                crate::kernel::network_policy::application::POLICY_APPLY_TIMEOUT,
             )
             .await?;
         }
@@ -1238,7 +1238,7 @@ impl SandboxResolver {
                 .map(|session| session.runtime_config_generation),
         );
         let credential_access = CredentialMaterialAccessService::new(self.pool.clone());
-        let resolved_env = Self::resolve_agent_env_from(
+        let resolved_env = resolve_agent_env_from(
             &credential_access,
             &access_context,
             agent.as_ref(),
@@ -1292,7 +1292,7 @@ impl SandboxResolver {
         let mut identity_refresh_after_seconds = None;
         if network_mode == EffectiveNetworkMode::Limited {
             let mut routes = Vec::new();
-            routes.extend(Self::extract_llm_egress(
+            routes.extend(extract_llm_egress(
                 &mut env,
                 llm_binding.as_ref(),
                 &self.config.llm_egress_allowed_hosts,
@@ -1303,8 +1303,8 @@ impl SandboxResolver {
                     .map(|plan| plan.egress_routes())
                     .unwrap_or_default(),
             );
-            routes.extend(Self::build_git_egress(&self.pool, session_id).await?);
-            let (external_routes, identity_targets) = Self::build_external_egress(
+            routes.extend(build_git_egress(&self.pool, session_id).await?);
+            let (external_routes, identity_targets) = build_external_egress(
                 &credential_access,
                 &access_context,
                 environment.as_ref(),
@@ -1546,19 +1546,19 @@ impl SandboxResolver {
             return Ok(false);
         }
 
-        let cleanup_result = request_sandbox_networking_reconcile(
+        let cleanup_result = crate::kernel::network_policy::application::request_reconcile(
             &self.pool,
-            self.provider.as_ref(),
+            self.network_policy_runtime.as_ref(),
+            self.network_policy_material_resolver.as_ref(),
             &sandbox,
-            &self.config.llm_egress_allowed_hosts,
             self.network_policy_queue.as_deref(),
             &self.xds_authority,
         )
         .await;
         let policy_hash = match cleanup_result {
-            Ok(NetworkingReconcileOutcome::Refreshed { policy_hash })
-            | Ok(NetworkingReconcileOutcome::AlreadyReady { policy_hash }) => policy_hash,
-            Ok(NetworkingReconcileOutcome::NotLimited) => {
+            Ok(crate::kernel::network_policy::application::NetworkingReconcileOutcome::Refreshed { policy_hash })
+            | Ok(crate::kernel::network_policy::application::NetworkingReconcileOutcome::AlreadyReady { policy_hash }) => policy_hash,
+            Ok(crate::kernel::network_policy::application::NetworkingReconcileOutcome::NotLimited) => {
                 anyhow::bail!("Agent Identity lease exists on a non-limited sandbox")
             }
             Err(error) => {
@@ -1685,532 +1685,6 @@ impl SandboxResolver {
             );
         }
         Ok(serde_json::Value::Object(map))
-    }
-
-    async fn resolve_agent_env_from(
-        credential_access: &CredentialMaterialAccessService,
-        access_context: &CredentialAccessContext,
-        agent: Option<&JoySafeterAgent>,
-        environment: Option<&EnvironmentRow>,
-    ) -> anyhow::Result<ResolvedAgentEnv> {
-        let mut env = HashMap::new();
-        let Some(agent) = agent else {
-            return Ok(ResolvedAgentEnv::default());
-        };
-
-        if let Some(environment) = environment {
-            if let Some(env_vars) = environment
-                .config
-                .get("env_vars")
-                .and_then(|v| v.as_object())
-            {
-                for (key, value) in env_vars {
-                    let value = value
-                        .as_str()
-                        .map(ToOwned::to_owned)
-                        .unwrap_or_else(|| value.to_string());
-                    env.insert(key.clone(), value);
-                }
-            }
-
-            // Environment-level credentials use canonical `cred_` ids and resolve
-            // against `joysafeter_credentials` with kind=service.
-            for credential_id in environment_credential_ids(&environment.config)? {
-                Self::merge_credential_ref_into_env(
-                    credential_access,
-                    access_context,
-                    &mut env,
-                    credential_id,
-                    agent.project_id,
-                    false,
-                    None,
-                )
-                .await?;
-            }
-        }
-
-        if let Some(model_credential_id) = agent.model_credential_id {
-            let llm_binding = Self::merge_credential_ref_into_env(
-                credential_access,
-                access_context,
-                &mut env,
-                model_credential_id,
-                agent.project_id,
-                true,
-                Some(agent.engine_kind.as_deref().unwrap_or("claude")),
-            )
-            .await?;
-            if let Some(obj) = agent.env.as_ref().and_then(|v| v.as_object()) {
-                for (key, value) in obj {
-                    let value = value
-                        .as_str()
-                        .map(ToOwned::to_owned)
-                        .unwrap_or_else(|| value.to_string());
-                    env.insert(key.clone(), value);
-                }
-            }
-            return Ok(ResolvedAgentEnv {
-                values: env,
-                llm_binding,
-            });
-        }
-
-        if let Some(obj) = agent.env.as_ref().and_then(|v| v.as_object()) {
-            for (key, value) in obj {
-                let value = value
-                    .as_str()
-                    .map(ToOwned::to_owned)
-                    .unwrap_or_else(|| value.to_string());
-                env.insert(key.clone(), value);
-            }
-        }
-
-        Ok(ResolvedAgentEnv {
-            values: env,
-            llm_binding: None,
-        })
-    }
-
-    /// Extract LLM egress credentials from the resolved env, removing the real
-    /// key from the env map and repointing the base URL at the Envoy egress
-    /// boundary. After this, the container env holds no LLM API key — the key is
-    /// injected by Envoy at the egress boundary instead.
-    ///
-    /// Credential handling is selected by the Catalog-resolved profile, and
-    /// provider defaults come from the validated Provider/Protocol binding.
-    fn extract_llm_egress(
-        env: &mut HashMap<String, String>,
-        binding: Option<&RuntimeCredentialBinding>,
-        allowed_hosts: &[String],
-    ) -> Vec<EgressCredentialRoute> {
-        let Some(binding) = binding else {
-            return vec![];
-        };
-        let Some(spec) = credential_profile_spec(&binding.credential_profile_id) else {
-            warn!(
-                credential_profile_id = %binding.credential_profile_id,
-                protocol_id = %binding.protocol_id,
-                "LLM credential profile has no runtime routing implementation"
-            );
-            return vec![];
-        };
-        let Some(credential_key) = spec
-            .credential_keys
-            .iter()
-            .find(|credential| env.contains_key(credential.key))
-        else {
-            return vec![];
-        };
-
-        let Some(key_value) = env.remove(credential_key.key) else {
-            return vec![];
-        };
-
-        // Remove all extra keys associated with this provider (unconditional —
-        // mirrors the original behavior where Anthropic vars are always removed
-        // regardless of which one matched).
-        for extra in spec.extra_keys_to_remove {
-            env.remove(*extra);
-        }
-
-        let base_url_var = binding.base_url_key.as_str();
-
-        // Parse the configured base URL to learn the real upstream
-        // host/port/scheme/path. The sandbox is then repointed at the placeholder
-        // egress host over plaintext http:// — it never learns the real address.
-        // Envoy matches the placeholder, injects the key, host_rewrites to the
-        // real upstream, and forwards via that upstream's STRICT_DNS cluster.
-        let configured = env
-            .get(base_url_var)
-            .cloned()
-            .or_else(|| binding.default_base_url.clone());
-        let (upstream_host, upstream_port, upstream_prefix, upstream_tls) = match configured
-            .as_deref()
-        {
-            Some(raw) => {
-                let url = match Url::parse(raw) {
-                    Ok(url) => url,
-                    Err(e) => {
-                        warn!(base_url_var, error = %e, "Invalid LLM base URL; skipping credential injection");
-                        return vec![];
-                    }
-                };
-                if url.scheme() != "http" && url.scheme() != "https" {
-                    warn!(
-                        base_url_var,
-                        scheme = url.scheme(),
-                        "Unsupported LLM base URL scheme; skipping credential injection"
-                    );
-                    return vec![];
-                }
-                let host = match url.host_str() {
-                    Some(host) => host.to_string(),
-                    None => return vec![],
-                };
-                let tls = url.scheme() == "https";
-                let port = url.port().unwrap_or(if tls { 443 } else { 80 });
-                let prefix = normalize_llm_upstream_prefix(url.path());
-                (host, port, prefix, tls)
-            }
-            None => {
-                warn!(
-                    base_url_var,
-                    credential_profile_id = %binding.credential_profile_id,
-                    protocol_id = %binding.protocol_id,
-                    "LLM binding requires an explicit base URL"
-                );
-                return vec![];
-            }
-        };
-
-        if !is_llm_egress_host_allowed(&upstream_host, allowed_hosts) {
-            warn!(
-                base_url_var,
-                upstream_host = %upstream_host,
-                "LLM base URL host is not allowlisted; skipping credential injection"
-            );
-            return vec![];
-        }
-
-        // Insert non-secret placeholder so the agent CLI doesn't fall back to
-        // interactive login. Envoy overwrites/removes auth headers at the egress
-        // boundary and injects the real credential there.
-        if let Some((placeholder_var, placeholder_val)) = spec.placeholder {
-            env.insert(placeholder_var.to_string(), placeholder_val.to_string());
-        }
-
-        // Repoint the agent at the real upstream host but downgrade to plaintext
-        // http:// so the request goes through the HTTP proxy as a normal request
-        // (not a CONNECT tunnel). This lets Envoy see and inject headers. Envoy
-        // does TLS origination via the shared dynamic_forward_proxy_tls cluster.
-        let base_url_for_sandbox = if upstream_tls {
-            format!(
-                "http://{}:{}{}",
-                upstream_host, upstream_port, upstream_prefix
-            )
-        } else {
-            format!(
-                "http://{}:{}{}",
-                upstream_host, upstream_port, upstream_prefix
-            )
-        };
-        env.insert(base_url_var.to_string(), base_url_for_sandbox);
-
-        let header_value = if credential_key.is_bearer {
-            format!("Bearer {key_value}")
-        } else {
-            key_value
-        };
-
-        vec![EgressCredentialRoute {
-            id: "llm".to_string(),
-            kind: EgressKind::Llm,
-            exposure: EgressExposure::Transparent,
-            match_host: upstream_host.clone(),
-            path_mapping: EgressPathMapping::Passthrough {
-                matcher: EgressPathMatcher::Any,
-            },
-            retry_mode: EgressRetryMode::SafeIdempotent,
-            upstream_host,
-            upstream_port,
-            upstream_tls,
-            cluster_name: String::new(),
-            vetted_addresses: vec![],
-            inject_headers: vec![(credential_key.header_name.to_string(), header_value)],
-            remove_headers: vec![],
-        }]
-    }
-
-    /// Build git egress credentials: decrypt each session repo's clone token and
-    /// produce an [`EgressCredentialRoute`] keyed by a stable slug ([`git_repo_slug`]). The
-    /// sandbox clones from `git-egress.internal/git/<slug>/` (no token); Envoy
-    /// rewrites to the real host + repo path, injects HTTP Basic auth, and
-    /// forwards over the upstream scheme. The real token never enters the sandbox.
-    async fn build_git_egress(
-        pool: &PgPool,
-        session_id: Option<SessionId>,
-    ) -> anyhow::Result<Vec<EgressCredentialRoute>> {
-        let Some(session_id) = session_id else {
-            return Ok(vec![]);
-        };
-        let rows: Vec<(String, String, String)> = sqlx::query_as(
-            r#"
-            SELECT url, mount_name,
-                   CASE
-                       WHEN token_expires_at IS NULL OR token_expires_at > NOW()
-                       THEN encrypted_token
-                       ELSE ''
-                   END AS encrypted_token
-            FROM joysafeter_session_repos
-            WHERE session_id = $1
-            ORDER BY created_at
-            "#,
-        )
-        .bind(session_id)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "failed to load session repos for Git egress in session {session_id}: {e}"
-            )
-        })?;
-
-        let material_adapter = RepositoryAccessMaterialAdapter::from_env();
-        let mut egress = Vec::new();
-        for (idx, (url, mount_name, encrypted_token)) in rows.into_iter().enumerate() {
-            let Some(token) = material_adapter.reveal_optional(&encrypted_token)? else {
-                continue;
-            };
-            let upstream = UpstreamTarget::from_url(&url)
-                .map_err(|e| anyhow::anyhow!("invalid Git repo URL '{url}': {e}"))?;
-            // Preserve the repo path so Envoy rewrites /git/<slug>/ back to the
-            // real repo path (e.g. /org/repo.git/), keeping git smart-HTTP happy.
-            let mut prefix = upstream.prefix;
-            if !prefix.ends_with('/') {
-                prefix.push('/');
-            }
-            // HTTP Basic auth: username "x-access-token" (GitHub) / any (GitLab),
-            // password = token. base64("x-access-token:<token>").
-            let basic =
-                base64::engine::general_purpose::STANDARD.encode(format!("x-access-token:{token}"));
-            let slug = crate::sandbox::lds_backend::git_repo_slug(&mount_name, idx);
-            egress.push(EgressCredentialRoute {
-                id: format!("git:{slug}"),
-                kind: EgressKind::Git,
-                exposure: EgressExposure::Placeholder,
-                match_host: GIT_EGRESS_HOST.to_string(),
-                path_mapping: EgressPathMapping::RewritePrefix {
-                    exposed_prefix: format!("/git/{slug}/"),
-                    upstream_prefix: prefix,
-                },
-                retry_mode: EgressRetryMode::SafeIdempotent,
-                upstream_host: upstream.host,
-                upstream_port: upstream.port,
-                upstream_tls: upstream.tls,
-                cluster_name: String::new(),
-                vetted_addresses: vec![],
-                inject_headers: vec![("authorization".to_string(), format!("Basic {basic}"))],
-                remove_headers: vec![],
-            });
-        }
-        Ok(egress)
-    }
-
-    /// Build external-service egress routes from `environment.config.egress_services`.
-    ///
-    /// For each service, emits a placeholder route (on `external-egress.internal`)
-    /// and a transparent route (on the real host) so skills can use either URL
-    /// pattern. The secret is decrypted and headers are built according to the
-    /// `inject` config (bearer / api_key / cookie).
-    async fn build_external_egress(
-        credential_access: &CredentialMaterialAccessService,
-        access_context: &CredentialAccessContext,
-        environment: Option<&EnvironmentRow>,
-        project_id: Option<ProjectId>,
-    ) -> anyhow::Result<(
-        Vec<EgressCredentialRoute>,
-        Vec<crate::kernel::agent_identity_provider::IdentityEgressRequestTarget>,
-    )> {
-        let Some(environment) = environment else {
-            return Ok((vec![], vec![]));
-        };
-        let decoded = decode_environment(&environment.config)?;
-
-        let mut routes = Vec::new();
-        for reference in decoded.http_egress {
-            let name = reference
-                .name
-                .as_deref()
-                .ok_or(CredentialRuntimeError::FieldMissing)?;
-            let name = sanitize_external_service_name(name);
-            if name.is_empty() {
-                return Err(CredentialRuntimeError::CorruptRecord.into());
-            }
-
-            let upstream = UpstreamTarget::from_url(&reference.endpoint)
-                .map_err(|_| CredentialRuntimeError::CorruptRecord)?;
-            let host = upstream.host;
-            let tls = upstream.tls;
-            let port = upstream.port;
-            let upstream_prefix = normalize_external_upstream_prefix(&upstream.prefix);
-
-            let credential_id = reference.credential_id;
-            let credential_field = reference.credential_field.as_str();
-            let credential_value = Self::load_service_egress_field(
-                credential_access,
-                access_context,
-                credential_id,
-                project_id,
-                credential_field,
-            )
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to load external egress service {name:?} credential {credential_id}"
-                )
-            })?;
-            let secret = HashMap::from([(credential_field.to_string(), credential_value)]);
-            let headers = build_external_inject_headers(
-                &secret,
-                &reference.inject_kind,
-                credential_field,
-                reference.header.as_deref(),
-            )?;
-
-            let remove_headers = vec![
-                "authorization".to_string(),
-                "cookie".to_string(),
-                "x-api-key".to_string(),
-                "api-key".to_string(),
-                "x-goog-api-key".to_string(),
-            ];
-
-            // Transparent route(s): sandbox calls the real host over plaintext http.
-            // Envoy matches the real host vhost, injects the credential, and
-            // TLS-originates to the real upstream when needed.
-            let allowed_paths = reference.allowed_paths;
-
-            if allowed_paths.is_empty() {
-                routes.push(EgressCredentialRoute {
-                    id: format!("external-direct:{name}"),
-                    kind: EgressKind::External,
-                    exposure: EgressExposure::Transparent,
-                    match_host: host.clone(),
-                    path_mapping: EgressPathMapping::Passthrough {
-                        matcher: EgressPathMatcher::Prefix(upstream_prefix.clone()),
-                    },
-                    retry_mode: EgressRetryMode::SafeIdempotent,
-                    upstream_host: host.clone(),
-                    upstream_port: port,
-                    upstream_tls: tls,
-                    cluster_name: String::new(),
-                    vetted_addresses: vec![],
-                    inject_headers: headers.clone(),
-                    remove_headers: remove_headers.clone(),
-                });
-            } else {
-                for (idx, entry) in allowed_paths.iter().enumerate() {
-                    let is_prefix = entry.ends_with('/');
-                    let full_path = join_service_path(&upstream_prefix, entry);
-                    routes.push(EgressCredentialRoute {
-                        id: format!("external-direct:{name}:{idx}"),
-                        kind: EgressKind::External,
-                        exposure: EgressExposure::Transparent,
-                        match_host: host.clone(),
-                        path_mapping: EgressPathMapping::Passthrough {
-                            matcher: if is_prefix {
-                                EgressPathMatcher::Prefix(full_path.clone())
-                            } else {
-                                EgressPathMatcher::Exact(full_path.clone())
-                            },
-                        },
-                        retry_mode: EgressRetryMode::SafeIdempotent,
-                        upstream_host: host.clone(),
-                        upstream_port: port,
-                        upstream_tls: tls,
-                        cluster_name: String::new(),
-                        vetted_addresses: vec![],
-                        inject_headers: headers.clone(),
-                        remove_headers: remove_headers.clone(),
-                    });
-                }
-            }
-        }
-        let mut identity_targets = Vec::new();
-        let services = environment
-            .config
-            .get("egress_services")
-            .and_then(serde_json::Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        for service in services {
-            let service = service
-                .as_object()
-                .ok_or(CredentialRuntimeError::CorruptRecord)?;
-            let auth_source = service
-                .get("auth_source")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("service_credential");
-            if auth_source != "agent_identity" {
-                continue;
-            }
-            if service
-                .get("credential_ref")
-                .is_some_and(|value| !value.is_null())
-                || service.get("inject").is_some_and(|value| !value.is_null())
-            {
-                return Err(CredentialRuntimeError::CorruptRecord.into());
-            }
-            let name = sanitize_external_service_name(
-                service
-                    .get("name")
-                    .and_then(serde_json::Value::as_str)
-                    .ok_or(CredentialRuntimeError::FieldMissing)?,
-            );
-            if name.is_empty() {
-                return Err(CredentialRuntimeError::CorruptRecord.into());
-            }
-            let endpoint = service
-                .get("base_url")
-                .and_then(serde_json::Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .ok_or(CredentialRuntimeError::FieldMissing)?
-                .to_string();
-            let upstream = UpstreamTarget::from_url(&endpoint)
-                .map_err(|_| CredentialRuntimeError::CorruptRecord)?;
-            let upstream_prefix = normalize_external_upstream_prefix(&upstream.prefix);
-            let default_allowed_paths = vec![serde_json::Value::String("/".to_string())];
-            let allowed_paths = match service.get("allowed_paths") {
-                None | Some(serde_json::Value::Null) => &default_allowed_paths,
-                Some(serde_json::Value::Array(paths)) if paths.is_empty() => &default_allowed_paths,
-                Some(serde_json::Value::Array(paths)) => paths,
-                Some(_) => return Err(CredentialRuntimeError::CorruptRecord.into()),
-            };
-            for (index, entry) in allowed_paths.iter().enumerate() {
-                let entry = entry
-                    .as_str()
-                    .filter(|path| path.starts_with('/') && !path.contains(['?', '#']))
-                    .ok_or(CredentialRuntimeError::CorruptRecord)?;
-                let full_path = join_service_path(&upstream_prefix, entry);
-                let route_id = format!("external-identity:{name}:{index}");
-                routes.push(EgressCredentialRoute {
-                    id: route_id.clone(),
-                    kind: EgressKind::External,
-                    exposure: EgressExposure::Transparent,
-                    match_host: upstream.host.clone(),
-                    path_mapping: EgressPathMapping::Passthrough {
-                        matcher: if entry.ends_with('/') {
-                            EgressPathMatcher::Prefix(full_path)
-                        } else {
-                            EgressPathMatcher::Exact(full_path)
-                        },
-                    },
-                    retry_mode: EgressRetryMode::SafeIdempotent,
-                    upstream_host: upstream.host.clone(),
-                    upstream_port: upstream.port,
-                    upstream_tls: upstream.tls,
-                    cluster_name: String::new(),
-                    vetted_addresses: vec![],
-                    inject_headers: vec![],
-                    remove_headers: vec![
-                        "authorization".to_string(),
-                        "cookie".to_string(),
-                        "x-security-agenttoken".to_string(),
-                    ],
-                });
-                identity_targets.push(
-                    crate::kernel::agent_identity_provider::IdentityEgressRequestTarget {
-                        route_id,
-                        endpoint: endpoint.clone(),
-                        host: upstream.host.clone(),
-                        port: upstream.port,
-                        tls: upstream.tls,
-                    },
-                );
-            }
-        }
-        Ok((routes, identity_targets))
     }
 
     /// Resolve task-scoped agent identity via the pluggable provider.
@@ -2529,86 +2003,13 @@ impl SandboxResolver {
         Ok(())
     }
 
-    async fn load_service_egress_field(
-        credential_access: &CredentialMaterialAccessService,
-        access_context: &CredentialAccessContext,
-        credential_id: CredentialId,
-        project_id: Option<ProjectId>,
-        field: &str,
-    ) -> anyhow::Result<String> {
-        let project_id = project_id.ok_or(CredentialRuntimeError::ProjectMismatch)?;
-        credential_access
-            .resolve_http_egress_field(&project_id, credential_id, field, access_context)
-            .await
-    }
-
-    async fn merge_credential_ref_into_env(
-        credential_access: &CredentialMaterialAccessService,
-        access_context: &CredentialAccessContext,
-        env: &mut HashMap<String, String>,
-        credential_id: CredentialId,
-        project_id: Option<ProjectId>,
-        override_existing: bool,
-        runtime_engine_kind: Option<&str>,
-    ) -> anyhow::Result<Option<RuntimeCredentialBinding>> {
-        let project_id = project_id.ok_or(CredentialRuntimeError::ProjectMismatch)?;
-        if let Some(engine_kind) = runtime_engine_kind {
-            let resolved = credential_access
-                .resolve_model(&project_id, credential_id, engine_kind, access_context)
-                .await?;
-            if override_existing {
-                if let Some(value) = model_protocol_env_value(&resolved.protocol_id) {
-                    env.insert("JOYSAFETER_MODEL_PROTOCOL".to_string(), value);
-                }
-            }
-            // ccb only routes to a non-Anthropic provider when the matching
-            // CLAUDE_CODE_USE_* switch is set; the egress-repointed base URL and
-            // placeholder key are otherwise ignored and the native harness falls
-            // back to the Anthropic /login gate ("Not logged in"). Only the native
-            // ccb harness reads CLAUDE_CODE_USE_*; other engines (codex, pi) handle
-            // OpenAI-compatible providers natively and must not get the switch.
-            if engine_kind == "native" {
-                if let Some(switch) = model_protocol_provider_switch(&resolved.protocol_id) {
-                    if override_existing || !env.contains_key(switch) {
-                        env.insert(switch.to_string(), "1".to_string());
-                    }
-                }
-            }
-            for (key, value) in resolved.material.iter() {
-                if override_existing || !env.contains_key(key) {
-                    env.insert(key.to_string(), value.to_string());
-                }
-            }
-            return Ok(Some(resolved.runtime_binding()));
-        }
-
-        let resolved = credential_access
-            .resolve_environment(&project_id, credential_id, access_context)
-            .await?;
-        let ResolvedServiceCredential::Environment(material) = resolved else {
-            return Err(CredentialRuntimeError::CorruptRecord.into());
-        };
-        let material = material
-            .as_object()
-            .ok_or(CredentialRuntimeError::CorruptRecord)?;
-        for (key, value) in material {
-            if override_existing || !env.contains_key(key) {
-                let value = value
-                    .as_str()
-                    .ok_or(CredentialRuntimeError::CorruptRecord)?;
-                env.insert(key.clone(), value.to_string());
-            }
-        }
-        Ok(None)
-    }
-
     async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         if let Some(queue) = self.network_policy_queue.as_ref() {
             queue
                 .publish(NetworkPolicyRequest::remove(sandbox_id))
                 .await
         } else {
-            self.provider.teardown_networking(sandbox_id).await
+            self.network_policy_runtime.remove(sandbox_id).await
         }
     }
 
@@ -2616,7 +2017,7 @@ impl SandboxResolver {
         &self,
         sandbox_id: SandboxId,
         external_id: &str,
-        generation: Option<&queries::NetworkPolicyGeneration>,
+        generation: Option<&NetworkPolicyGeneration>,
     ) -> anyhow::Result<bool> {
         self.network_policy_ready.remove(&sandbox_id);
         if let Some(generation) = generation {
@@ -2648,6 +2049,7 @@ impl SandboxResolver {
             return crate::kernel::sandbox_lifecycle::finalize_claimed_sandbox_destroy(
                 &self.pool,
                 &self.provider,
+                self.network_policy_runtime.as_ref(),
                 self.network_policy_queue.as_deref(),
                 sandbox_id,
                 Some(external_id),
@@ -2663,6 +2065,7 @@ impl SandboxResolver {
         {
             crate::kernel::sandbox_lifecycle::destroy_unpersisted_sandbox(
                 &self.provider,
+                self.network_policy_runtime.as_ref(),
                 self.network_policy_queue.as_deref(),
                 sandbox_id,
                 external_id,
@@ -2676,6 +2079,7 @@ impl SandboxResolver {
         crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
             &self.pool,
             &self.provider,
+            self.network_policy_runtime.as_ref(),
             self.network_policy_queue.as_deref(),
             sandbox_id,
             "creating",
@@ -2693,6 +2097,7 @@ impl SandboxResolver {
         crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
             &self.pool,
             &self.provider,
+            self.network_policy_runtime.as_ref(),
             self.network_policy_queue.as_deref(),
             sandbox.id,
             &sandbox.status,
@@ -2725,6 +2130,7 @@ impl SandboxResolver {
         crate::kernel::sandbox_lifecycle::finalize_claimed_sandbox_destroy(
             &self.pool,
             &self.provider,
+            self.network_policy_runtime.as_ref(),
             self.network_policy_queue.as_deref(),
             sandbox.id,
             sandbox.external_id.as_deref(),
@@ -3141,408 +2547,6 @@ impl SandboxResolver {
     }
 }
 
-/// Rebuild the egress credentials for a live sandbox during orchestrator startup
-/// recovery. Re-derives the same LLM/MCP/git secrets that were injected at
-/// creation time by decrypting the current DB rows, so a restarted orchestrator
-/// (whose in-memory/gRPC xDS state was wiped) restores credential injection for
-/// still-running sandboxes. Returns empty when the sandbox has no session/agent.
-pub(crate) async fn rebuild_sandbox_credentials(
-    pool: &PgPool,
-    sandbox: &crate::db::models::JoySafeterSandbox,
-    llm_egress_allowed_hosts: &[String],
-) -> anyhow::Result<SandboxCredentials> {
-    let mut routes = Vec::new();
-
-    let Some(session_id) = sandbox.chat_session_id else {
-        return Ok(SandboxCredentials {
-            routes,
-            proxy_auth_token: sandbox_runner_token(sandbox),
-        });
-    };
-    let session = queries::get_session(pool, session_id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("sandbox recovery session {session_id} was not found"))?;
-    let networking = sandbox
-        .config
-        .as_ref()
-        .and_then(|config| config.get("fingerprint"))
-        .and_then(|fingerprint| fingerprint.get("networking"));
-    let live_agent = match session.agent_id {
-        Some(aid) => queries::get_agent(pool, aid).await?,
-        None => None,
-    };
-    let snapshot_environment = environment_for_execution(Some(&session));
-    let agent = agent_for_execution(live_agent, Some(&session))?;
-    let access_context = CredentialAccessContext::runtime(
-        Some(session_id),
-        None,
-        Some(session.runtime_config_generation),
-    );
-    let credential_access = CredentialMaterialAccessService::new(pool.clone());
-
-    // Re-resolve the agent env (with decrypted secrets) exactly as at creation,
-    // then extract the LLM egress from it. We discard the env itself — only the
-    // extracted egress credential is needed for recovery.
-    if let Some(agent_ref) = agent.as_ref() {
-        let environment = if let Some(snapshot_environment) = snapshot_environment {
-            Some(EnvironmentRow {
-                config: snapshot_environment.config,
-                image_tag: snapshot_environment.image_tag,
-            })
-        } else {
-            match agent_ref.environment_id {
-                Some(environment_id) => {
-                    load_environment_row(pool, environment_id, agent_ref.project_id).await?
-                }
-                None => None,
-            }
-        };
-        let resolved_env = SandboxResolver::resolve_agent_env_from(
-            &credential_access,
-            &access_context,
-            agent.as_ref(),
-            environment.as_ref(),
-        )
-        .await?;
-        let mut env = resolved_env.values;
-        routes.extend(SandboxResolver::extract_llm_egress(
-            &mut env,
-            resolved_env.llm_binding.as_ref(),
-            llm_egress_allowed_hosts,
-        ));
-        let (external_routes, _) = SandboxResolver::build_external_egress(
-            &credential_access,
-            &access_context,
-            environment.as_ref(),
-            session.project_id.or(agent_ref.project_id),
-        )
-        .await?;
-        routes.extend(external_routes);
-        remove_agent_identity_routes(&mut routes);
-        let network_mode = effective_network_mode(networking, false)?;
-        let mcp_plan = resolve_mcp_runtime_plan_with_access(
-            &credential_access,
-            &access_context,
-            session.project_id.or(agent_ref.project_id),
-            Some(session_id),
-            agent_ref.id,
-            session.runtime_config_generation,
-            network_mode,
-            agent_ref.mcp_servers.as_ref(),
-        )
-        .await?;
-        routes.extend(mcp_plan.egress_routes());
-    }
-    match SandboxResolver::build_git_egress(pool, Some(session_id)).await {
-        Ok(git) => routes.extend(git),
-        Err(e) => warn!(
-            session_id = %session_id,
-            sandbox_id = %sandbox.id,
-            "Failed to rebuild Git egress credentials during sandbox recovery: {e}"
-        ),
-    }
-    Ok(SandboxCredentials {
-        routes,
-        proxy_auth_token: sandbox_runner_token(sandbox),
-    })
-}
-
-/// Outcome of a networking reconcile attempt for one sandbox.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum NetworkingReconcileOutcome {
-    /// Sandbox is not limited-networking; nothing to do.
-    NotLimited,
-    /// The exact requested generation was already applied.
-    AlreadyReady { policy_hash: String },
-    /// Policy was (re)pushed and marked ready.
-    Refreshed { policy_hash: String },
-}
-
-/// Submit a policy refresh through the deployment's single ownership path.
-/// Multi mode publishes an exact-generation request and waits on PostgreSQL;
-/// local modes apply immediately under their always-current authority guard.
-pub(crate) async fn request_sandbox_networking_reconcile(
-    pool: &PgPool,
-    provider: &dyn SandboxProvider,
-    sandbox: &JoySafeterSandbox,
-    llm_egress_allowed_hosts: &[String],
-    queue: Option<&dyn NetworkPolicyRequestQueue>,
-    authority: &crate::kernel::xds_authority::XdsAuthorityState,
-) -> anyhow::Result<NetworkingReconcileOutcome> {
-    let networking = sandbox
-        .config
-        .as_ref()
-        .and_then(|config| config.get("fingerprint"))
-        .and_then(|fingerprint| fingerprint.get("networking"));
-    if networking
-        .and_then(|value| value.get("type"))
-        .and_then(|value| value.as_str())
-        != Some("limited")
-    {
-        return Ok(NetworkingReconcileOutcome::NotLimited);
-    }
-    let credentials = rebuild_sandbox_credentials(pool, sandbox, llm_egress_allowed_hosts).await?;
-    let desired = DesiredNetworkPolicy::from_inputs(networking, &credentials)?;
-    let policy = desired.render_for(sandbox.id);
-    crate::sandbox::lds_backend::validate_egress_policy(&sandbox.id, &policy)?;
-    let policy_hash = desired.revision().to_string();
-    let prepared = queries::prepare_desired_network_policy(pool, sandbox.id, &policy_hash).await?;
-    if prepared.is_already_ready() {
-        return Ok(NetworkingReconcileOutcome::AlreadyReady { policy_hash });
-    }
-    let generation = prepared.into_generation();
-
-    let outcome = crate::kernel::xds_authority::ensure_network_policy_ready(
-        pool,
-        provider,
-        queue,
-        authority,
-        sandbox.id,
-        &generation,
-        llm_egress_allowed_hosts,
-        SETUP_NETWORKING_TIMEOUT,
-    )
-    .await?;
-    Ok(match outcome {
-        queries::NetworkPolicyAckOutcome::Applied => {
-            NetworkingReconcileOutcome::Refreshed { policy_hash }
-        }
-        queries::NetworkPolicyAckOutcome::AlreadyReady => {
-            NetworkingReconcileOutcome::AlreadyReady { policy_hash }
-        }
-        queries::NetworkPolicyAckOutcome::Stale => anyhow::bail!(
-            "sandbox {} network policy generation changed during reconcile",
-            sandbox.id
-        ),
-        queries::NetworkPolicyAckOutcome::Missing => {
-            anyhow::bail!("sandbox {} disappeared during reconcile", sandbox.id)
-        }
-    })
-}
-
-/// Rebuild the latest desired policy and apply it as the current xDS authority.
-pub(crate) async fn reconcile_sandbox_networking_as_authority(
-    pool: &PgPool,
-    provider: &dyn SandboxProvider,
-    sandbox: &JoySafeterSandbox,
-    llm_egress_allowed_hosts: &[String],
-    authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
-) -> anyhow::Result<NetworkingReconcileOutcome> {
-    let sandbox_id = sandbox.id;
-    let networking = sandbox
-        .config
-        .as_ref()
-        .and_then(|config| config.get("fingerprint"))
-        .and_then(|fingerprint| fingerprint.get("networking"));
-    if networking
-        .and_then(|value| value.get("type"))
-        .and_then(|value| value.as_str())
-        != Some("limited")
-    {
-        return Ok(NetworkingReconcileOutcome::NotLimited);
-    }
-
-    let credentials = rebuild_sandbox_credentials(pool, sandbox, llm_egress_allowed_hosts).await?;
-    let desired = DesiredNetworkPolicy::from_inputs(networking, &credentials)?;
-    let policy = desired.render_for(sandbox_id);
-    crate::sandbox::lds_backend::validate_egress_policy(&sandbox_id, &policy)?;
-    let policy_hash = desired.revision().to_string();
-
-    let prepared = queries::prepare_desired_network_policy(pool, sandbox_id, &policy_hash).await?;
-    if prepared.is_already_ready() {
-        return Ok(NetworkingReconcileOutcome::AlreadyReady { policy_hash });
-    }
-    let policy_generation = prepared.into_generation();
-    apply_sandbox_networking_generation_as_authority(
-        pool,
-        provider,
-        sandbox_id,
-        &policy_generation,
-        llm_egress_allowed_hosts,
-        authority,
-    )
-    .await
-}
-
-/// Apply one exact durable generation. Duplicate requests for an already-ready
-/// generation are no-ops and stale requests never mutate the current row.
-pub(crate) async fn apply_sandbox_networking_generation_as_authority(
-    pool: &PgPool,
-    provider: &dyn SandboxProvider,
-    sandbox_id: SandboxId,
-    policy_generation: &queries::NetworkPolicyGeneration,
-    llm_egress_allowed_hosts: &[String],
-    authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
-) -> anyhow::Result<NetworkingReconcileOutcome> {
-    let sandbox = queries::get_sandbox(pool, sandbox_id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("sandbox {sandbox_id} was not found"))?;
-    let credentials = rebuild_sandbox_credentials(pool, &sandbox, llm_egress_allowed_hosts).await?;
-    apply_sandbox_networking_generation_with_credentials_as_authority(
-        pool,
-        provider,
-        sandbox_id,
-        policy_generation,
-        credentials,
-        authority,
-    )
-    .await
-}
-
-async fn apply_sandbox_networking_generation_with_credentials_as_authority(
-    pool: &PgPool,
-    provider: &dyn SandboxProvider,
-    sandbox_id: SandboxId,
-    policy_generation: &queries::NetworkPolicyGeneration,
-    credentials: SandboxCredentials,
-    authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
-) -> anyhow::Result<NetworkingReconcileOutcome> {
-    if !authority.is_current() {
-        anyhow::bail!("xDS authority changed before policy application");
-    }
-    let sandbox = queries::get_sandbox(pool, sandbox_id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("sandbox {sandbox_id} was not found"))?;
-    if !matches!(
-        sandbox.status.as_str(),
-        "creating" | "provisioning" | "idle" | "running"
-    ) {
-        anyhow::bail!(
-            "sandbox {sandbox_id} is not live for xDS reconciliation (status={})",
-            sandbox.status
-        );
-    }
-    if sandbox.networking_policy_hash.as_deref() != Some(&policy_generation.policy_hash)
-        || sandbox.networking_policy_version != policy_generation.policy_version
-    {
-        anyhow::bail!(
-            "stale xDS reconcile request for sandbox {sandbox_id} generation {}",
-            policy_generation.policy_version
-        );
-    }
-    if sandbox.networking_status == "ready"
-        && sandbox.networking_applied_hash.as_deref() == Some(&policy_generation.policy_hash)
-        && sandbox.networking_applied_version == Some(policy_generation.policy_version)
-    {
-        return Ok(NetworkingReconcileOutcome::AlreadyReady {
-            policy_hash: policy_generation.policy_hash.clone(),
-        });
-    }
-    let Some(external_id) = sandbox
-        .external_id
-        .as_deref()
-        .filter(|value| !value.is_empty())
-    else {
-        anyhow::bail!("sandbox {sandbox_id} has no external_id");
-    };
-    let networking = sandbox
-        .config
-        .as_ref()
-        .and_then(|config| config.get("fingerprint"))
-        .and_then(|fingerprint| fingerprint.get("networking"));
-    if networking
-        .and_then(|value| value.get("type"))
-        .and_then(|value| value.as_str())
-        != Some("limited")
-    {
-        return Ok(NetworkingReconcileOutcome::NotLimited);
-    }
-    let desired = DesiredNetworkPolicy::from_inputs(networking, &credentials)?;
-    let policy = desired.render_for(sandbox_id);
-    crate::sandbox::lds_backend::validate_egress_policy(&sandbox_id, &policy)?;
-    let rendered_summary =
-        crate::sandbox::lds_backend::rendered_egress_policy_summary(&sandbox_id, &policy);
-    let policy_hash = desired.revision().to_string();
-    if policy_hash != policy_generation.policy_hash {
-        anyhow::bail!("sandbox {sandbox_id} desired policy changed before authority application");
-    }
-
-    let refresh_result = apply_ephemeral_networking_to_local_authority(
-        provider,
-        sandbox_id,
-        external_id,
-        networking,
-        credentials,
-        authority,
-    )
-    .await;
-    if let Err(e) = refresh_result {
-        let desired_policy = serde_json::json!({
-            "fingerprint": sandbox
-                .config
-                .as_ref()
-                .and_then(|config| config.get("fingerprint"))
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!({})),
-            "networking": networking.cloned().unwrap_or_else(|| serde_json::json!({})),
-            "recorded_on": "failure",
-        });
-        let reason = format!("{e:#}");
-        let _ = queries::record_network_policy_failure_detail(
-            pool,
-            queries::UpsertNetworkPolicy {
-                id: SandboxNetworkPolicyId::new(),
-                sandbox_id,
-                session_id: sandbox.chat_session_id,
-                task_id: None,
-                generation: &policy_generation,
-                desired_policy_json: &desired_policy,
-                rendered_summary_json: &rendered_summary,
-            },
-            &reason,
-        )
-        .await;
-        return Err(e);
-    }
-    if !authority.is_current() {
-        anyhow::bail!("xDS authority changed before policy ACK persistence");
-    }
-    match queries::mark_sandbox_network_policy_acked(pool, sandbox_id, policy_generation).await? {
-        queries::NetworkPolicyAckOutcome::Applied => {}
-        queries::NetworkPolicyAckOutcome::AlreadyReady => {
-            return Ok(NetworkingReconcileOutcome::AlreadyReady { policy_hash });
-        }
-        queries::NetworkPolicyAckOutcome::Stale => anyhow::bail!(
-            "sandbox {sandbox_id} network policy generation changed before ACK persistence"
-        ),
-        queries::NetworkPolicyAckOutcome::Missing => {
-            anyhow::bail!("sandbox {sandbox_id} disappeared before ACK persistence")
-        }
-    }
-
-    Ok(NetworkingReconcileOutcome::Refreshed { policy_hash })
-}
-
-async fn apply_ephemeral_networking_to_local_authority(
-    provider: &dyn SandboxProvider,
-    sandbox_id: SandboxId,
-    external_id: &str,
-    networking: Option<&serde_json::Value>,
-    credentials: SandboxCredentials,
-    authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
-) -> anyhow::Result<()> {
-    if !authority.is_current() {
-        anyhow::bail!("xDS authority changed before ephemeral policy application");
-    }
-    let policy =
-        DesiredNetworkPolicy::from_inputs(networking, &credentials)?.render_for(sandbox_id);
-    crate::sandbox::lds_backend::validate_egress_policy(&sandbox_id, &policy)?;
-    tokio::time::timeout(
-        SETUP_NETWORKING_TIMEOUT,
-        provider.refresh_networking(sandbox_id, external_id, networking, credentials),
-    )
-    .await
-    .unwrap_or_else(|_| {
-        Err(anyhow::anyhow!(
-            "refresh_networking exceeded {SETUP_NETWORKING_TIMEOUT:?}"
-        ))
-    })
-}
-
-fn remove_agent_identity_routes(routes: &mut Vec<EgressCredentialRoute>) {
-    routes.retain(|route| !route.id.starts_with("external-identity:"));
-}
-
 fn identity_lease_metadata(
     task_id: TaskId,
     refresh_after_seconds: Option<u64>,
@@ -3566,45 +2570,6 @@ fn identity_lease_refresh_after_seconds(config: Option<&serde_json::Value>) -> O
         .and_then(|value| value.get("agent_identity_lease"))
         .and_then(|lease| lease.get("refresh_after_seconds"))
         .and_then(serde_json::Value::as_u64)
-}
-
-/// Standalone environment loader for recovery (mirrors `load_environment`).
-async fn load_environment_row(
-    pool: &PgPool,
-    environment_id: EnvironmentId,
-    project_id: Option<ProjectId>,
-) -> anyhow::Result<Option<EnvironmentRow>> {
-    let project_id = project_id.ok_or(CredentialRuntimeError::ProjectMismatch)?;
-    let environment = sqlx::query_as::<_, EnvironmentRow>(
-        r#"
-        SELECT config, image_tag FROM joysafeter_environments
-        WHERE id = $1 AND deleted_at IS NULL AND project_id = $2
-        "#,
-    )
-    .bind(environment_id)
-    .bind(project_id)
-    .fetch_optional(pool)
-    .await?;
-    let diagnostic_project = if environment.is_none() {
-        sqlx::query_as::<_, (ProjectId,)>(
-            "SELECT project_id FROM joysafeter_environments WHERE id = $1 AND deleted_at IS NULL",
-        )
-        .bind(environment_id)
-        .fetch_optional(pool)
-        .await?
-    } else {
-        None
-    };
-    if environment.is_some() {
-        return Ok(environment);
-    }
-    match diagnostic_project {
-        Some((actual_project,)) if actual_project != project_id => {
-            Err(CredentialRuntimeError::ProjectMismatch.into())
-        }
-        Some(_) => Err(CredentialRuntimeError::CorruptRecord.into()),
-        None => Err(CredentialRuntimeError::NotFound.into()),
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -3744,16 +2709,6 @@ fn provisioning_config(
     config
 }
 
-fn sandbox_runner_token(sandbox: &crate::db::models::JoySafeterSandbox) -> Option<String> {
-    sandbox
-        .config
-        .as_ref()?
-        .get("runner_token")?
-        .as_str()
-        .filter(|token| !token.trim().is_empty())
-        .map(ToOwned::to_owned)
-}
-
 /// Generate a random runner token (hex-encoded 32 bytes).
 fn generate_runner_token() -> String {
     let random_bytes: [u8; 32] = rand::random();
@@ -3848,184 +2803,6 @@ fn extract_host(raw_url: &str) -> Option<String> {
         .and_then(|url| url.host_str().map(ToOwned::to_owned))
 }
 
-fn normalize_llm_upstream_prefix(path: &str) -> String {
-    if path.is_empty() || path == "/" {
-        return "/".to_string();
-    }
-
-    let mut prefix = if path.starts_with('/') {
-        path.to_string()
-    } else {
-        format!("/{path}")
-    };
-    if !prefix.ends_with('/') {
-        prefix.push('/');
-    }
-    prefix
-}
-
-fn is_llm_egress_host_allowed(host: &str, allowed_hosts: &[String]) -> bool {
-    let Some(host) = normalize_llm_host(host) else {
-        return false;
-    };
-
-    if is_blocked_llm_host(&host) {
-        return false;
-    }
-
-    allowed_hosts
-        .iter()
-        .filter_map(|entry| normalize_llm_host_pattern(entry))
-        .any(|pattern| llm_host_matches_pattern(&host, &pattern))
-}
-
-fn normalize_llm_host(raw: &str) -> Option<String> {
-    normalize_llm_host_inner(raw, false)
-}
-
-fn normalize_llm_host_pattern(raw: &str) -> Option<String> {
-    normalize_llm_host_inner(raw, true)
-}
-
-fn normalize_llm_host_inner(raw: &str, allow_wildcard: bool) -> Option<String> {
-    let mut value = raw.trim().to_ascii_lowercase();
-    if value.is_empty() {
-        return None;
-    }
-
-    if value.contains("://") {
-        value = Url::parse(&value).ok()?.host_str()?.to_string();
-    } else {
-        if let Some((before_path, _)) = value.split_once('/') {
-            value = before_path.to_string();
-        }
-        if value.starts_with('[') {
-            let end = value.find(']')?;
-            value = value[1..end].to_string();
-        } else if let Some((host, port)) = value.rsplit_once(':') {
-            if !host.contains(':') && port.parse::<u16>().is_ok() {
-                value = host.to_string();
-            }
-        }
-    }
-
-    value = value.trim_matches('.').to_string();
-    if value.is_empty() {
-        return None;
-    }
-
-    if value.starts_with("*.") {
-        if !allow_wildcard {
-            return None;
-        }
-        let suffix = value.trim_start_matches("*.");
-        if suffix.is_empty() || suffix.contains('*') {
-            return None;
-        }
-        return Some(format!("*.{suffix}"));
-    }
-
-    if value.contains('*') {
-        return None;
-    }
-
-    Some(value)
-}
-
-fn llm_host_matches_pattern(host: &str, pattern: &str) -> bool {
-    if let Some(suffix) = pattern.strip_prefix("*.") {
-        return host != suffix && host.ends_with(&format!(".{suffix}"));
-    }
-
-    host == pattern
-}
-
-fn is_blocked_llm_host(host: &str) -> bool {
-    if host == "localhost" || host.ends_with(".localhost") {
-        return true;
-    }
-
-    host.parse::<IpAddr>()
-        .map(is_blocked_llm_ip)
-        .unwrap_or(false)
-}
-
-fn is_blocked_llm_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => {
-            let octets = ip.octets();
-            octets[0] == 0
-                || octets[0] == 10
-                || octets[0] == 127
-                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
-                || (octets[0] == 169 && octets[1] == 254)
-                || (octets[0] == 172 && (16..=31).contains(&octets[1]))
-                || (octets[0] == 192 && octets[1] == 168)
-                || (octets[0] == 198 && (18..=19).contains(&octets[1]))
-                || octets[0] >= 224
-        }
-        IpAddr::V6(ip) => {
-            let segments = ip.segments();
-            let first = segments[0];
-            ip.is_loopback()
-                || ip.is_unspecified()
-                || (first & 0xfe00) == 0xfc00
-                || (first & 0xffc0) == 0xfe80
-                || (first & 0xff00) == 0xff00
-        }
-    }
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct EnvironmentRow {
-    config: serde_json::Value,
-    image_tag: Option<String>,
-}
-
-#[derive(Debug, Default)]
-struct ResolvedAgentEnv {
-    values: HashMap<String, String>,
-    llm_binding: Option<RuntimeCredentialBinding>,
-}
-
-fn sanitize_external_service_name(name: &str) -> String {
-    name.trim()
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string()
-}
-
-fn normalize_external_upstream_prefix(path: &str) -> String {
-    let mut prefix = if path.is_empty() {
-        "/".to_string()
-    } else if path.starts_with('/') {
-        path.to_string()
-    } else {
-        format!("/{path}")
-    };
-    if prefix != "/" && !prefix.ends_with('/') {
-        prefix.push('/');
-    }
-    prefix
-}
-
-/// Join a service base prefix with an allowlist entry into a full host path.
-fn join_service_path(base_prefix: &str, entry: &str) -> String {
-    if entry.starts_with('/') {
-        return entry.to_string();
-    }
-    let base = base_prefix.strip_suffix('/').unwrap_or(base_prefix);
-    format!("{base}/{entry}")
-}
-
 fn prefix_allows(sub_path: &str, prefixes: &[serde_json::Value]) -> bool {
     let sub_path = sub_path.trim_matches('/');
     if prefixes.is_empty() {
@@ -4072,41 +2849,6 @@ fn effective_prefixes(prefix_sets: Vec<Vec<serde_json::Value>>) -> Vec<serde_jso
     candidates
 }
 
-fn build_external_inject_headers(
-    secret: &HashMap<String, String>,
-    inject_kind: &str,
-    credential_field: &str,
-    header: Option<&str>,
-) -> Result<Vec<(String, String)>, CredentialRuntimeError> {
-    match inject_kind {
-        "bearer" => {
-            let token = secret
-                .get(credential_field)
-                .filter(|value| !value.is_empty())
-                .ok_or(CredentialRuntimeError::FieldMissing)?;
-            let header = header.unwrap_or("authorization");
-            Ok(vec![(header.to_string(), format!("Bearer {token}"))])
-        }
-        "api_key" | "raw_header" => {
-            let value = secret
-                .get(credential_field)
-                .filter(|value| !value.is_empty())
-                .ok_or(CredentialRuntimeError::FieldMissing)?;
-            let header = header.unwrap_or("x-api-key");
-            Ok(vec![(header.to_string(), value.clone())])
-        }
-        "cookie" => {
-            let cookie_header = secret
-                .get(credential_field)
-                .filter(|value| !value.is_empty())
-                .ok_or(CredentialRuntimeError::FieldMissing)?
-                .clone();
-            Ok(vec![("cookie".to_string(), cookie_header)])
-        }
-        _ => Err(CredentialRuntimeError::UnsupportedScheme),
-    }
-}
-
 #[cfg(test)]
 mod egress_tests {
     use super::*;
@@ -4115,6 +2857,7 @@ mod egress_tests {
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
     use std::env;
+    use std::net::IpAddr;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
@@ -4187,10 +2930,9 @@ mod egress_tests {
 
         let access = CredentialMaterialAccessService::new(pool.clone());
         let context = CredentialAccessContext::runtime(None, None, None);
-        let error =
-            SandboxResolver::build_external_egress(&access, &context, Some(&environment), None)
-                .await
-                .expect_err("bare UUID in external egress must fail");
+        let error = build_external_egress(&access, &context, Some(&environment), None)
+            .await
+            .expect_err("bare UUID in external egress must fail");
 
         assert_eq!(
             error.downcast_ref(),
@@ -4222,10 +2964,9 @@ mod egress_tests {
 
         let access = CredentialMaterialAccessService::new(pool.clone());
         let context = CredentialAccessContext::runtime(None, None, None);
-        let error =
-            SandboxResolver::build_external_egress(&access, &context, Some(&environment), None)
-                .await
-                .expect_err("non-string external egress credential id must fail");
+        let error = build_external_egress(&access, &context, Some(&environment), None)
+            .await
+            .expect_err("non-string external egress credential id must fail");
 
         assert_eq!(
             error.downcast_ref(),
@@ -4252,10 +2993,9 @@ mod egress_tests {
         let access = CredentialMaterialAccessService::new(pool);
         let context = CredentialAccessContext::runtime(None, None, None);
 
-        let (routes, targets) =
-            SandboxResolver::build_external_egress(&access, &context, Some(&environment), None)
-                .await
-                .expect("build identity egress route");
+        let (routes, targets) = build_external_egress(&access, &context, Some(&environment), None)
+            .await
+            .expect("build identity egress route");
 
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].id, "external-identity:crm-internal:0");
@@ -4436,7 +3176,7 @@ mod egress_tests {
             Some(protocol_id),
         )
         .expect("test binding must be Catalog-valid");
-        SandboxResolver::extract_llm_egress(env, Some(&binding), allowed_hosts)
+        extract_llm_egress(env, Some(&binding), allowed_hosts)
             .into_iter()
             .next()
     }
@@ -4650,7 +3390,7 @@ mod egress_tests {
             .execute(&pool)
             .await?;
 
-            let routes = SandboxResolver::build_git_egress(&pool, Some(session_id)).await?;
+            let routes = build_git_egress(&pool, Some(session_id)).await?;
             anyhow::ensure!(
                 routes.is_empty(),
                 "expired repository token reached Git egress"
@@ -4779,7 +3519,7 @@ mod egress_tests {
             config.sandbox_image = image.clone();
             config.image_claude = image;
 
-            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+            let resolver = recording_resolver(pool.clone(), provider.clone(), config);
             let error = resolver
                 .resolve(
                     TaskId::from_uuid(Uuid::now_v7()),
@@ -4883,7 +3623,7 @@ mod egress_tests {
             config.sandbox_image = image.clone();
             config.image_claude = image;
 
-            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+            let resolver = recording_resolver(pool.clone(), provider.clone(), config);
             let error = resolver
                 .resolve(
                     TaskId::from_uuid(Uuid::now_v7()),
@@ -5069,29 +3809,6 @@ mod egress_tests {
             Ok(String::new())
         }
 
-        async fn setup_networking(
-            &self,
-            sandbox_id: SandboxId,
-            _sandbox_external_id: &str,
-            networking: Option<&serde_json::Value>,
-            credentials: SandboxCredentials,
-        ) -> anyhow::Result<()> {
-            self.networking
-                .lock()
-                .await
-                .push((sandbox_id, networking.cloned()));
-            self.networking_credentials.lock().await.push(credentials);
-            if let Some(message) = self.networking_error.lock().await.clone() {
-                anyhow::bail!(message);
-            }
-            Ok(())
-        }
-
-        async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-            self.networking_teardowns.lock().await.push(sandbox_id);
-            Ok(())
-        }
-
         fn provider_name(&self) -> &'static str {
             "recording"
         }
@@ -5106,10 +3823,92 @@ mod egress_tests {
         }
     }
 
+    #[async_trait]
+    impl NetworkPolicyRuntime for RecordingProvider {
+        async fn initialize(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn prune(
+            &self,
+            _live_sandbox_ids: &std::collections::HashSet<SandboxId>,
+        ) -> anyhow::Result<usize> {
+            Ok(0)
+        }
+
+        async fn apply(
+            &self,
+            sandbox_id: SandboxId,
+            policy: crate::kernel::network_policy::envoy_model::SandboxEgressPolicy,
+        ) -> anyhow::Result<()> {
+            self.networking.lock().await.push((
+                sandbox_id,
+                Some(serde_json::json!({
+                    "type": "limited",
+                    "allowed_hosts": policy.allowlist_hosts,
+                })),
+            ));
+            self.networking_credentials
+                .lock()
+                .await
+                .push(SandboxCredentials {
+                    routes: policy.credential_routes,
+                    proxy_auth_token: policy.proxy_auth_token,
+                });
+            if let Some(message) = self.networking_error.lock().await.clone() {
+                anyhow::bail!(message);
+            }
+            Ok(())
+        }
+
+        async fn remove(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
+            self.networking_teardowns.lock().await.push(sandbox_id);
+            Ok(())
+        }
+    }
+
+    struct PostgresTestNetworkPolicyMaterialResolver {
+        pool: PgPool,
+    }
+
+    #[async_trait]
+    impl NetworkPolicyMaterialResolver for PostgresTestNetworkPolicyMaterialResolver {
+        async fn resolve(&self, sandbox_id: SandboxId) -> anyhow::Result<DesiredNetworkPolicy> {
+            let sandbox = queries::get_sandbox(&self.pool, sandbox_id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("sandbox {sandbox_id} was not found"))?;
+            let networking = sandbox
+                .config
+                .as_ref()
+                .and_then(|config| config.get("fingerprint"))
+                .and_then(|fingerprint| fingerprint.get("networking"));
+            let credentials =
+                crate::kernel::credentials::runtime_projection::rebuild_sandbox_credentials(
+                    &self.pool,
+                    &sandbox,
+                    &[],
+                )
+                .await?;
+            DesiredNetworkPolicy::from_inputs(networking, &credentials)
+        }
+    }
+
+    fn recording_resolver(
+        pool: PgPool,
+        provider: Arc<RecordingProvider>,
+        config: JoySafeterConfig,
+    ) -> SandboxResolver {
+        SandboxResolver::new(pool.clone(), provider.clone(), config)
+            .with_network_policy_runtime(provider)
+            .with_network_policy_material_resolver(Arc::new(
+                PostgresTestNetworkPolicyMaterialResolver { pool },
+            ))
+    }
+
     #[tokio::test]
     async fn local_authority_applies_ephemeral_identity_credentials_without_rebuild() {
         let provider = RecordingProvider::default();
-        let authority = crate::kernel::xds_authority::XdsAuthorityState::standalone();
+        let authority = crate::xds::authority::XdsAuthorityState::standalone();
         let guard = authority.ready_guard().expect("standalone authority guard");
         let sandbox_id = SandboxId::new();
         let credentials = SandboxCredentials {
@@ -5140,12 +3939,12 @@ mod egress_tests {
             "allowed_hosts": []
         });
 
-        apply_ephemeral_networking_to_local_authority(
+        crate::kernel::network_policy::application::apply_ephemeral(
             &provider,
             sandbox_id,
-            "external-sandbox",
-            Some(&networking),
-            credentials,
+            DesiredNetworkPolicy::from_inputs(Some(&networking), &credentials)
+                .expect("desired policy")
+                .render_for(sandbox_id),
             &guard,
         )
         .await
@@ -5235,7 +4034,7 @@ mod egress_tests {
         let provider = Arc::new(RecordingProvider::default());
         let mut resolver_config = JoySafeterConfig::from_env();
         resolver_config.sandbox_provider = "recording".to_string();
-        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), resolver_config);
+        let resolver = recording_resolver(pool.clone(), provider.clone(), resolver_config);
 
         let other_task_id = TaskId::new();
         assert!(!resolver
@@ -5449,15 +4248,16 @@ mod egress_tests {
             queries::NetworkPolicyAckOutcome::Applied
         );
         let provider = RecordingProvider::default();
-        let authority = crate::kernel::xds_authority::XdsAuthorityState::standalone();
+        let authority = crate::xds::authority::XdsAuthorityState::standalone();
         let guard = authority.ready_guard().expect("authority guard");
 
-        let outcome = apply_sandbox_networking_generation_as_authority(
+        let material_resolver = UnconfiguredNetworkPolicyMaterialResolver;
+        let outcome = crate::kernel::network_policy::application::apply_generation_as_authority(
             &pool,
             &provider,
+            &material_resolver,
             sandbox_id,
             &generation,
-            &[],
             &guard,
         )
         .await
@@ -5465,7 +4265,7 @@ mod egress_tests {
 
         assert_eq!(
             outcome,
-            NetworkingReconcileOutcome::AlreadyReady {
+            crate::kernel::network_policy::application::NetworkingReconcileOutcome::AlreadyReady {
                 policy_hash: generation.policy_hash.clone()
             }
         );
@@ -6081,14 +4881,10 @@ mod egress_tests {
         .expect("DeepSeek Chat Completions must be valid for Native");
         let mut e = env(&[("OPENAI_API_KEY", "sk-deepseek")]);
 
-        let egress = SandboxResolver::extract_llm_egress(
-            &mut e,
-            Some(&binding),
-            &allow(&["api.deepseek.com"]),
-        )
-        .into_iter()
-        .next()
-        .expect("egress route");
+        let egress = extract_llm_egress(&mut e, Some(&binding), &allow(&["api.deepseek.com"]))
+            .into_iter()
+            .next()
+            .expect("egress route");
 
         assert_eq!(egress.upstream_host, "api.deepseek.com");
         assert_eq!(
@@ -8170,7 +6966,7 @@ mod egress_tests {
             config.sandbox_workspace_root = None;
             config.image_claude = "fallback-claude:latest".to_string();
             config.image_codex = "fallback-codex:latest".to_string();
-            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+            let resolver = recording_resolver(pool.clone(), provider.clone(), config);
 
             let resolved = resolver
                 .resolve(
@@ -8332,7 +7128,7 @@ mod egress_tests {
         config.sandbox_workspace_root = None;
         config.envoy_enabled = true;
         config.image_claude = "network-failure:latest".to_string();
-        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+        let resolver = recording_resolver(pool.clone(), provider.clone(), config);
 
         let error = resolver
             .resolve(
@@ -8456,7 +7252,7 @@ mod egress_tests {
         config.sandbox_workspace_root = None;
         config.envoy_enabled = true;
         config.image_claude = "ack-failure:latest".to_string();
-        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+        let resolver = recording_resolver(pool.clone(), provider.clone(), config);
 
         let error = resolver
             .resolve(
@@ -8577,7 +7373,7 @@ mod egress_tests {
         config.sandbox_workspace_root = None;
         config.envoy_enabled = true;
         config.image_claude = "reuse-network-failure:latest".to_string();
-        let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+        let resolver = recording_resolver(pool.clone(), provider.clone(), config);
 
         let resolved = resolver
             .resolve(

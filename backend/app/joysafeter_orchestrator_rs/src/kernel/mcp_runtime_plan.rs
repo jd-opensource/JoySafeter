@@ -19,7 +19,7 @@ use crate::kernel::mcp_network_policy::{
     SystemMcpAddressResolver,
 };
 use crate::kernel::mcp_url;
-use crate::sandbox::lds_backend::{
+use crate::kernel::network_policy::envoy_model::{
     EgressCredentialRoute, EgressExposure, EgressKind, EgressPathMapping, EgressRetryMode,
     MCP_EGRESS_HOST,
 };
@@ -822,7 +822,9 @@ mod tests {
         resolve_mcp_runtime_plan_from_metadata, EffectiveNetworkMode, McpAuthRequirement,
         McpRuntimePlanError, McpTransport,
     };
-    use crate::sandbox::lds_backend::{EgressPathMapping, EgressRetryMode, MCP_EGRESS_HOST};
+    use crate::kernel::network_policy::envoy_model::{
+        EgressPathMapping, EgressRetryMode, MCP_EGRESS_HOST,
+    };
 
     struct StaticResolver {
         addresses: HashMap<String, Vec<IpAddr>>,

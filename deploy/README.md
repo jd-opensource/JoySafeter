@@ -26,14 +26,15 @@ Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并�
 - `skillspector`：内部 Skill 安全扫描服务，API 在创建、更新、导入和文件变更时调用
 - `joysafeter-envoy`：沙箱出站白名单和 gRPC 回连通道。没有 profile，任何 `up` 都会启动；它会空闲等待 orchestrator 写入 bootstrap 配置，所以 `docker compose ps` 里看到它 running 但暂时不转发流量是正常的
 - `api`：后端 API，端口 `8000`
-- `orchestrator-rs`：Rust 版调度 / gRPC / sandbox 生命周期，gRPC 端口 `9090`
+- `orchestrator-rs`：Rust 版调度、sandbox 生命周期与 Runner gRPC（`:9090`）；Kubernetes gRPC xDS 模式另用独立 ADS 端口 `:19000`
 - `worker`：Redis Stream 消费 / 批量事件落库
 - `frontend`：前端，端口 `3000`
 
-`deploy.sh local` 只构建并启动上面这些控制面服务，不会构建 agent 运行镜像（`joysafeter-claudecode` / `joysafeter-codex` / `joysafeter-native`）。默认 `JOYSAFETER_SANDBOX_IMAGE=joysafeter-claudecode:latest` 缺失时脚本只告警、不阻断：控制面能起来，但真实 agent 任务会因拉不到运行镜像而失败。跑第一个 agent 前先构建或拉取运行镜像：
+`deploy.sh local` 只构建并启动上面这些控制面服务，不会构建 agent 运行镜像（`joysafeter-claudecode` / `joysafeter-codex` / `joysafeter-native` / `joysafeter-pi`）。默认 `JOYSAFETER_SANDBOX_IMAGE=joysafeter-claudecode:latest` 缺失时脚本只告警、不阻断：控制面能起来，但真实 agent 任务会因拉不到运行镜像而失败。跑第一个 agent 前先构建或拉取运行镜像：
 
 ```bash
 ./deploy.sh build --claudecode-only --arch arm64   # 或 --arch amd64
+./deploy.sh build --pi-only --arch arm64
 # 或使用预构建镜像
 ./deploy.sh pull --runtime-only --registry registry.example.com/your-org --tag v0.3.2
 ```
@@ -47,7 +48,7 @@ Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并�
 | 入口层 | `frontend` | Next.js UI，连接 API 和 SSE | 可独立横向扩容；只依赖 `BACKEND_URL` / `FRONTEND_URL` |
 | 控制面 | `api` | Auth/RBAC、REST、任务创建、Skill 写入扫描、SSE 回放/实时桥接 | 可横向扩容；必须共享同一 PostgreSQL / Redis |
 | 调度面 | `orchestrator-rs` | DB 权威调度、任务租约、sandbox 生命周期、runner gRPC、事件发射 | 可多实例，但每个实例必须有唯一 `JOYSAFETER_INSTANCE_ID` |
-| 执行面 | sandbox container + `sandbox-runner` | 在隔离容器内运行 Claude/Codex/native harness，所有出站经 Envoy | 按 session/task 动态创建；镜像由 agent runtime 镜像变量控制 |
+| 执行面 | sandbox container + `sandbox-runner` | 在隔离容器内运行 Claude/Codex/Native/Pi harness，所有出站经 Envoy | 按 session/task 动态创建；镜像由 agent runtime 镜像变量控制 |
 | 持久化面 | `worker` | 消费 Redis Stream，批量写入 `joysafeter_session_events`，写后再发布实时事件 | 可横向扩容；依赖 Redis consumer group 和 Postgres advisory lock 去重 |
 | 安全面 | `skillspector` | Skill 内容静态扫描；默认提示风险，可选仅在发布版本时强制 | CPU 密集，可用 `SKILLSPECTOR_WORKERS` / `SKILLSPECTOR_CPUS` 调整 |
 | 状态层 | PostgreSQL | task/session/sandbox/skill/auth/event log 权威状态 | 本地用 `db`；生产建议云 PostgreSQL / 托管 PostgreSQL |
@@ -121,7 +122,7 @@ docker compose down
 | `--arch arm64` / `--arch amd64` | `local`、`build`、`push` | 强制目标平台；不传时 `local` 按 Docker daemon 自动识别 |
 | `--platform linux/amd64,linux/arm64` | `build`、`push` | 构建多架构 manifest |
 | `--backend-only` / `--frontend-only` / `--orchestrator-only` / `--skillspector-only` | `build`、`push`、`pull` | 只处理单类核心部署镜像 |
-| `--runtime-only` / `--claudecode-only` / `--codex-only` / `--native-only` | `build`、`push`、`pull` | 只处理 agent runtime 镜像 |
+| `--runtime-only` / `--claudecode-only` / `--codex-only` / `--native-only` / `--pi-only` | `build`、`push`、`pull` | 只处理 agent runtime 镜像 |
 | `--api-url URL` | `build`、`push` | （已废弃）前端 API 地址现在通过容器环境变量运行时注入 |
 | `--no-cache` | `build`、`push` | 禁用 Docker 构建缓存 |
 | `--mirror MIRROR` | `build`、`push` | 只用于手工镜像构建；本地 `local` 默认使用 `public.ecr.aws/docker/library/` 多架构基础镜像 |
@@ -226,6 +227,8 @@ cd deploy
 
 `pull` 成功后会同步 `deploy/.env` 中被拉取镜像对应的变量，后续 `docker compose up --no-build` 会使用本次拉取的镜像。核心部署镜像支持多架构 buildx push。agent runtime 镜像依赖按架构生成的 runner 二进制和 Dockerfile，当前脚本只支持单架构构建；构建 runtime 时显式指定 `--arch amd64` 或 `--arch arm64`。如果 `push --all` 或 `--runtime-only` 触发多架构 runtime 构建，脚本会在任何镜像构建/推送前拒绝执行，避免出现只推送一部分镜像的发布状态。
 
+Runner 的唯一发布构建路径是 `deploy/docker/runner-builder.Dockerfile`：Buildx 在目标 Linux 平台内编译 `sandbox-runner`，再把单个 ELF 二进制导出到仓库根目录的 `target/<triple>/release/`。Claude Code、Codex、Native、Pi 四类 runtime Dockerfile 都只负责安装自己的 harness、写入 provider 专属 entrypoint，并封装同一 Runner 产物；它们不得自行编译 Runner。这样 `fuser` 等 Linux-only build script 不会在 macOS 宿主执行；各 runtime-only 选项只要求 Docker 与 Buildx，不要求宿主安装 Zig、`cargo-zigbuild` 或 `protoc`。宿主 `cargo-zigbuild` 仅属于 orchestrator 快速打包路径。
+
 ## 部署方案选择
 
 | 方案 | 命令 / 做法 | 适用场景 | 注意事项 |
@@ -243,7 +246,7 @@ cd deploy
 
 - PostgreSQL 和 Redis 使用托管服务或独立高可用实例。
 - API / frontend 可放在反向代理后，只暴露 HTTPS。
-- `orchestrator-rs` 的 `9090` gRPC 和 Docker socket 所在宿主机不要暴露到公网。
+- `orchestrator-rs` 的 Runner gRPC `9090`、ADS `19000` 和 Docker socket 所在宿主机不要暴露到公网；ADS 只允许 Envoy 节点携带配置的认证 metadata 访问。
 - 用预构建镜像部署，并固定 `BACKEND_FULL_IMAGE`、`FRONTEND_FULL_IMAGE`、`ORCHESTRATOR_RS_FULL_IMAGE`、`SKILLSPECTOR_FULL_IMAGE`。
 - 根据 CPU 调整 `SKILLSPECTOR_WORKERS` / `SKILLSPECTOR_CPUS`，避免扫描挤占 orchestrator 和 worker。
 
@@ -372,7 +375,7 @@ docker compose --profile rust-orchestrator up -d --no-build
 
 ## 注意
 
-- Python orchestrator 已移除；Rust `orchestrator-rs` 当前只暴露 gRPC `9090`，API/Worker 仍有 HTTP healthcheck。
+- Python orchestrator 已移除；Rust `orchestrator-rs` 的 Runner `AgentBridge` 使用 `9090`，启用 gRPC xDS 时 ADS 使用独立 `19000`，API/Worker 仍有 HTTP healthcheck。
 - `orchestrator` 会挂载 Docker socket 创建 sandbox，生产只能放在可信机器。
 - 如果 sandbox 需要跨机器回连，修改 `deploy/.env` 里的 `JOYSAFETER_GRPC_PUBLIC_URL`。
 

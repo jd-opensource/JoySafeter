@@ -69,6 +69,10 @@ data:
   JOYSAFETER_GRPC_MAX_CONNECTIONS: {{ .Values.orchestrator.grpc.maxConnections | quote }}
   JOYSAFETER_GRPC_MAX_EXECUTIONS: {{ .Values.orchestrator.grpc.maxExecutions | quote }}
 
+  # ── ADS/xDS ──
+  JOYSAFETER_XDS_HOST: "0.0.0.0"
+  JOYSAFETER_XDS_PORT: {{ .Values.orchestrator.xds.port | quote }}
+
   # ── Sandbox Provider ──
   JOYSAFETER_SANDBOX_PROVIDER: "k8s"
   JOYSAFETER_K8S_NAMESPACE: {{ .Values.namespace | quote }}
@@ -79,6 +83,7 @@ data:
   JOYSAFETER_IMAGE_CLAUDE: {{ .Values.image.sandbox.claude | quote }}
   JOYSAFETER_IMAGE_CODEX: {{ .Values.image.sandbox.codex | quote }}
   JOYSAFETER_IMAGE_NATIVE: {{ .Values.image.sandbox.native | quote }}
+  JOYSAFETER_IMAGE_PI: {{ .Values.image.sandbox.pi | quote }}
   JOYSAFETER_MAX_MEMORIES_PER_STORE: {{ .Values.orchestrator.maxMemoriesPerStore | quote }}
   {{- if .Values.orchestrator.sandboxWorkspaceRoot }}
   JOYSAFETER_SANDBOX_WORKSPACE_ROOT: {{ .Values.orchestrator.sandboxWorkspaceRoot | quote }}
@@ -125,7 +130,7 @@ data:
   JOYSAFETER_ENVOY_XDS_MODE: {{ .Values.envoy.xdsMode | quote }}
   JOYSAFETER_ENVOY_SOCKET_HOST_DIR: {{ .Values.envoy.socketHostDir | quote }}
   JOYSAFETER_ENVOY_GRPC_HOST: "joysafeter-orchestrator{{ if eq .Values.haMode "multi" }}-xds{{ end }}.{{ .Values.namespace }}.svc.cluster.local"
-  JOYSAFETER_ENVOY_GRPC_PORT: {{ .Values.orchestrator.grpc.port | quote }}
+  JOYSAFETER_ENVOY_GRPC_PORT: {{ .Values.orchestrator.xds.port | quote }}
   {{- end }}
 
   # ── 调度 ──

@@ -17,6 +17,7 @@
 #     --from-literal=REDIS_URL="redis://:pass@host:6379/0" \
 #     --from-literal=SECRET_KEY="xxx" \
 #     --from-literal=JWT_SECRET_KEY="xxx" \
+#     --from-literal=JOYSAFETER_XDS_AUTH_TOKEN="$(openssl rand -hex 32)" \
 #     --from-literal=JOYSAFETER_VAULT_ENCRYPTION_KEY="xxx" \
 #     --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING='{"active-2026-08":"xxx"}' \
 #     --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID="active-2026-08"
@@ -120,9 +121,9 @@ spec:
     app: joysafeter-orchestrator
     joysafeter-xds-leader: "true"
   ports:
-  - port: 9090
-    targetPort: grpc
-    name: grpc
+  - port: 19000
+    targetPort: xds
+    name: xds
 
 ---
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -187,6 +188,8 @@ spec:
         ports:
         - containerPort: 9090
           name: grpc
+        - containerPort: 19000
+          name: xds
         - containerPort: 9091
           name: health
 
@@ -225,6 +228,12 @@ spec:
         - name: JOYSAFETER_GRPC_MAX_EXECUTIONS
           value: "2000"
 
+        # ── ADS/xDS ──
+        - name: JOYSAFETER_XDS_HOST
+          value: "0.0.0.0"
+        - name: JOYSAFETER_XDS_PORT
+          value: "19000"
+
         # ── Sandbox Provider ──
         - name: JOYSAFETER_SANDBOX_PROVIDER
           value: "k8s"
@@ -238,6 +247,8 @@ spec:
           value: "aisec-repo.jd.com/joysafeter/joysafeter-codex:latest"
         - name: JOYSAFETER_IMAGE_NATIVE
           value: "aisec-repo.jd.com/joysafeter/joysafeter-native:latest"
+        - name: JOYSAFETER_IMAGE_PI
+          value: "aisec-repo.jd.com/joysafeter/joysafeter-pi:latest"
 
         # ── Sandbox 预热池 ──
         - name: JOYSAFETER_SANDBOX_POOL_ENABLED
@@ -257,7 +268,7 @@ spec:
         - name: JOYSAFETER_ENVOY_GRPC_HOST
           value: "joysafeter-orchestrator-xds"
         - name: JOYSAFETER_ENVOY_GRPC_PORT
-          value: "9090"
+          value: "19000"
 
         # ── Runtime ──
         - name: JOYSAFETER_MAX_CONCURRENT_TASKS
@@ -372,7 +383,17 @@ spec:
                 "api_type": "DELTA_GRPC",
                 "transport_api_version": "V3",
                 "grpc_services": [{
-                  "envoy_grpc": { "cluster_name": "xds_cluster" }
+                  "envoy_grpc": { "cluster_name": "xds_cluster" },
+                  "initial_metadata": [
+                    {
+                      "key": "authorization",
+                      "value": "Bearer ${JOYSAFETER_XDS_AUTH_TOKEN}"
+                    },
+                    {
+                      "key": "x-joysafeter-node-id",
+                      "value": "${NODE_NAME}"
+                    }
+                  ]
                 }]
               }
             },
@@ -440,7 +461,7 @@ spec:
                           "address": {
                             "socket_address": {
                               "address": "joysafeter-orchestrator-xds",
-                              "port_value": 9090
+                              "port_value": 19000
                             }
                           }
                         }
@@ -469,6 +490,11 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
+        - name: JOYSAFETER_XDS_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: joysafeter-secrets
+              key: JOYSAFETER_XDS_AUTH_TOKEN
 
         securityContext:
           runAsUser: 101
@@ -536,7 +562,7 @@ spec:
         matchLabels:
           app: joysafeter-orchestrator
     ports:
-    - port: 9090
+    - port: 19000
       protocol: TCP
   # 允许 DNS
   - to:

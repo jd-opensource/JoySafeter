@@ -4,11 +4,27 @@ use anyhow::Context;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use crate::ids::SandboxId;
-use crate::sandbox::lds_backend::{
+use self::envoy_model::{
     EgressCredentialRoute, EgressPathMapping, EgressPathMatcher, SandboxCredentials,
     SandboxEgressPolicy,
 };
+use crate::ids::SandboxId;
+
+pub mod application;
+pub mod authority;
+pub mod envoy_model;
+pub mod material;
+pub mod ports;
+pub mod recovery;
+pub mod request;
+
+pub use request::{NetworkPolicyAction, NetworkPolicyRequest};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkPolicyGeneration {
+    pub policy_hash: String,
+    pub policy_version: i64,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NetworkPolicyRevision(String);
@@ -194,8 +210,8 @@ fn sha256_hex(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::envoy_model::{EgressExposure, EgressKind, EgressRetryMode};
     use super::*;
-    use crate::sandbox::lds_backend::{EgressExposure, EgressKind, EgressRetryMode};
     use uuid::Uuid;
 
     fn credentials() -> SandboxCredentials {

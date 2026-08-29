@@ -8,22 +8,17 @@ use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, AttachParams, DeleteParams, Patch, PatchParams, PostParams};
 use kube::Client;
 use serde_json::{json, Value};
-use sqlx::PgPool;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{info, warn};
 
-use super::envoy::{EnvoyConfig, EnvoyManager};
 use super::file_injection::FileToInject;
-use super::lds_backend::{
-    CdsBackend, DeltaXdsServer, FilesystemCds, FilesystemLds, GrpcCds, GrpcLds, LdsBackend,
-    SandboxCredentials,
-};
 use super::mounts::SandboxMount;
-use super::pod_watcher::{NodeLearnedHook, PodWatcher};
+use super::pod_watcher::PodWatcher;
 use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
     SandboxProvider, SandboxStatus,
 };
+use super::runtime::{PlacementEventHandler, SandboxSocketProvisioner};
 use crate::config::JoySafeterConfig;
 
 /// Kubernetes-backed sandbox provider using the kube-rs SDK.
@@ -42,10 +37,7 @@ pub struct K8sProvider {
     namespace: String,
     config: JoySafeterConfig,
     orchestrator_url: Option<String>,
-    /// Envoy network isolation manager (None when envoy_enabled=false).
-    envoy_manager: Option<Arc<EnvoyManager>>,
-    /// Delta xDS server for gRPC xDS mode.
-    xds_service: Option<Arc<DeltaXdsServer>>,
+    egress_socket: Option<Arc<dyn SandboxSocketProvisioner>>,
     /// Local pod cache backed by K8s Watch — zero API calls for status/list.
     pod_watcher: PodWatcher,
 }
@@ -53,7 +45,11 @@ pub struct K8sProvider {
 impl K8sProvider {
     /// Create a new K8s provider. Uses in-cluster config automatically when
     /// running inside a pod (ServiceAccount token), falls back to kubeconfig.
-    pub async fn new(config: &JoySafeterConfig) -> anyhow::Result<Self> {
+    pub async fn new(
+        config: &JoySafeterConfig,
+        egress_socket: Option<Arc<dyn SandboxSocketProvisioner>>,
+        placement_events: Option<PlacementEventHandler>,
+    ) -> anyhow::Result<Self> {
         let client = Client::try_default()
             .await
             .map_err(|e| anyhow::anyhow!("failed to create K8s client: {e}"))?;
@@ -64,73 +60,14 @@ impl K8sProvider {
             .await
             .map_err(|e| anyhow::anyhow!("K8s API server unreachable: {e}"))?;
 
-        // Build Envoy manager + xDS service if enabled
-        let mut xds_service: Option<Arc<DeltaXdsServer>> = None;
-        let envoy_manager = if config.envoy_enabled {
-            let (lds, cds): (Arc<dyn LdsBackend>, Arc<dyn CdsBackend>) =
-                if config.envoy_xds_mode == "grpc" {
-                    let server = DeltaXdsServer::new();
-                    xds_service = Some(server.clone());
-                    (
-                        Arc::new(GrpcLds::new(server.clone())),
-                        Arc::new(GrpcCds::new(server)),
-                    )
-                } else {
-                    (
-                        Arc::new(FilesystemLds::new(config.envoy_config_dir.clone())),
-                        Arc::new(FilesystemCds::new(config.envoy_config_dir.clone())),
-                    )
-                };
-            Some(Arc::new(EnvoyManager::new(
-                // K8s provider doesn't need a Docker client for Envoy (DaemonSet
-                // manages its own container). EnvoyManager only uses Docker for
-                // prepare_socket_dir_in_volume (skipped via initContainer) and
-                // health_check (skipped via K8s livenessProbe on the DaemonSet),
-                // so pass None — constructing a real bollard client here would
-                // panic in a pod that has no Docker socket.
-                None,
-                EnvoyConfig {
-                    envoy_image: config.envoy_image.clone(),
-                    socket_volume: config.envoy_socket_volume.clone(),
-                    socket_host_dir: config.envoy_socket_host_dir.clone(),
-                    config_dir: config.envoy_config_dir.clone(),
-                    envoy_network: config.envoy_network.clone(),
-                    grpc_target_host: config.envoy_grpc_host.clone(),
-                    grpc_target_port: config.envoy_grpc_port,
-                    container_name: config.envoy_container_name.clone(),
-                    xds_mode: config.envoy_xds_mode.clone(),
-                    write_debug_entries: config.envoy_write_debug_entries,
-                    socket_ready_timeout_ms: config.envoy_socket_ready_timeout_ms,
-                    health_check_interval_sec: 0, // K8s livenessProbe handles this
-                    health_failure_threshold: 0,
-                    skip_socket_dir_prep: true, // K8s: initContainer creates socket dir
-                    // K8s DaemonSet: Envoy's node.id is set via downward API in the
-                    // DaemonSet manifest (env NODE_NAME from spec.nodeName). The
-                    // bootstrap is not written by the orchestrator in K8s mode
-                    // (init_xds_only), so this field is informational here.
-                    node_id: "k8s-envoy".to_string(),
-                },
-                lds,
-                cds,
-            )))
-        } else {
-            None
-        };
-
         // Start PodWatcher — background Watch stream keeps local pod cache synced.
         // status() and list_active() read from this cache (zero API calls).
         //
-        // Wire a node-learned hook so the moment K8s binds a sandbox pod to a node
-        // (Watch Apply), we register `sandbox_id → nodeName` with the xDS server.
-        // Node-aware filtering then delivers the sandbox's Envoy listener
-        // immediately, instead of waiting on setup_networking's ~5s poll or the
-        // networking reconcile loop — closing the egress-gap window at start.
-        let node_learned: Option<NodeLearnedHook> = xds_service.clone().map(|xds| {
-            let hook: NodeLearnedHook =
-                Arc::new(move |sandbox_id, node| xds.set_sandbox_node(sandbox_id, node));
-            hook
-        });
-        let pod_watcher = PodWatcher::new(client.clone(), &config.k8s_namespace, node_learned);
+        let pod_watcher = PodWatcher::new(
+            client.clone(),
+            &config.k8s_namespace,
+            placement_events.clone(),
+        );
 
         // pids_limit has no per-pod equivalent in the K8s pod spec (it is a
         // node-level kubelet setting, `podPidsLimit`). Warn once so operators
@@ -155,8 +92,7 @@ impl K8sProvider {
             namespace: config.k8s_namespace.clone(),
             config: config.clone(),
             orchestrator_url: config.k8s_orchestrator_url.clone(),
-            envoy_manager,
-            xds_service,
+            egress_socket,
             pod_watcher,
         })
     }
@@ -359,11 +295,6 @@ impl K8sProvider {
         Ok(true)
     }
 
-    /// Get the xDS service (if gRPC xDS mode). Used to register ADS on gRPC server.
-    pub fn xds_service(&self) -> Option<Arc<DeltaXdsServer>> {
-        self.xds_service.clone()
-    }
-
     fn pods(&self) -> Api<Pod> {
         Api::namespaced(self.client.clone(), &self.namespace)
     }
@@ -503,7 +434,7 @@ impl K8sProvider {
         // Envoy egress socket: hostPath shared with DaemonSet on same node.
         // initContainer creates the per-sandbox subdirectory (orchestrator can't
         // do it remotely since it may be on a different node).
-        let has_egress = config.network.as_deref() == Some("none") && self.envoy_manager.is_some();
+        let has_egress = config.network.as_deref() == Some("none") && self.egress_socket.is_some();
         if has_egress {
             // Tell the runner where Envoy's per-sandbox HTTP egress pipe lives so
             // it starts the in-process proxy bridge (127.0.0.1:3128 → this socket).
@@ -769,140 +700,14 @@ impl SandboxProvider for K8sProvider {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             has_host_mount: false,
-            has_egress_management: self.envoy_manager.is_some(),
-            network_isolation: if self.envoy_manager.is_some() {
+            has_egress_management: self.egress_socket.is_some(),
+            network_isolation: if self.egress_socket.is_some() {
                 NetworkIsolation::Envoy
             } else {
                 NetworkIsolation::None
             },
             stop_preserves_state: false,
         }
-    }
-
-    // ─── Envoy egress integration ───────────────────────────────────────────
-
-    async fn on_startup(&self, _pool: &PgPool) -> anyhow::Result<()> {
-        if let Some(ref manager) = self.envoy_manager {
-            // In K8s mode, Envoy DaemonSet manages its own bootstrap (embedded).
-            // We only reset in-memory xDS state and recover listeners from DB.
-            // Fail-closed: if xDS cannot reset or the live sandboxes' listeners
-            // cannot be recovered, abort startup instead of serving them without
-            // egress enforcement.
-            manager.init_xds_only().await?;
-            // No health monitor spawn — K8s livenessProbe on DaemonSet handles it.
-            info!(
-                xds_mode = %self.config.envoy_xds_mode,
-                "K8s EnvoyManager initialized (DaemonSet manages Envoy lifecycle)"
-            );
-        }
-        Ok(())
-    }
-
-    async fn recover_networking(
-        &self,
-        pool: &PgPool,
-        authority: &crate::kernel::xds_authority::XdsAuthorityGuard,
-    ) -> anyhow::Result<()> {
-        let Some(ref manager) = self.envoy_manager else {
-            return Ok(());
-        };
-        manager.init_xds_only().await?;
-
-        if let Some(ref xds) = self.xds_service {
-            let active_pods = self.pod_watcher.list_active().await;
-            for pod_info in &active_pods {
-                if let Some(node) = self.pod_watcher.node_name(&pod_info.name).await {
-                    if let Some(id_str) = pod_info.labels.get("joysafeter.sandbox_id") {
-                        if let Ok(sandbox_id) = id_str.parse::<uuid::Uuid>() {
-                            xds.set_sandbox_node(SandboxId::from_uuid(sandbox_id), node);
-                        }
-                    }
-                }
-            }
-        }
-
-        manager
-            .recover_from_db(pool, &self.config.llm_egress_allowed_hosts, authority)
-            .await
-    }
-
-    async fn prune_networking(
-        &self,
-        live_sandbox_ids: &std::collections::HashSet<SandboxId>,
-    ) -> anyhow::Result<usize> {
-        match self.envoy_manager.as_ref() {
-            Some(manager) => manager.prune_networking_except(live_sandbox_ids).await,
-            None => Ok(0),
-        }
-    }
-
-    async fn setup_networking(
-        &self,
-        sandbox_id: SandboxId,
-        _sandbox_external_id: &str,
-        networking: Option<&serde_json::Value>,
-        credentials: SandboxCredentials,
-    ) -> anyhow::Result<()> {
-        if let Some(ref manager) = self.envoy_manager {
-            // Register sandbox→node mapping BEFORE pushing the listener, so
-            // node-aware xDS filtering sends it only to the Envoy on the
-            // sandbox's node. With restrictive filtering, a missing mapping
-            // means the listener is withheld from all Envoys — so we must wait
-            // for the PodWatcher cache to learn the pod's nodeName (it may lag
-            // pod creation by a moment). Bounded wait; if it never resolves the
-            // periodic networking reconcile loop retries later.
-            let pod_name = Self::pod_name(sandbox_id);
-            if let Some(ref xds) = self.xds_service {
-                let mut node = self.pod_watcher.node_name(&pod_name).await;
-                if node.is_none() {
-                    for _ in 0..25 {
-                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                        node = self.pod_watcher.node_name(&pod_name).await;
-                        if node.is_some() {
-                            break;
-                        }
-                    }
-                }
-                match node {
-                    Some(node) => xds.set_sandbox_node(sandbox_id, node),
-                    None => warn!(
-                        sandbox_id = %sandbox_id,
-                        "node name not known yet for sandbox; listener will be delivered once the \
-                         networking reconcile loop resolves the node mapping"
-                    ),
-                }
-            }
-            // In K8s mode, prepare_socket_dir is handled by the pod's
-            // initContainer (it creates the dir on the local node). We skip
-            // the orchestrator-side mkdir (it would only work on the local node).
-            // Just push the LDS listener to Envoy.
-            manager
-                .setup_for_sandbox(sandbox_id, networking, credentials)
-                .await?;
-        }
-        Ok(())
-    }
-
-    async fn refresh_networking(
-        &self,
-        sandbox_id: SandboxId,
-        sandbox_external_id: &str,
-        networking: Option<&serde_json::Value>,
-        credentials: SandboxCredentials,
-    ) -> anyhow::Result<()> {
-        self.setup_networking(sandbox_id, sandbox_external_id, networking, credentials)
-            .await
-    }
-
-    async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-        if let Some(ref manager) = self.envoy_manager {
-            manager.teardown_for_sandbox(sandbox_id).await?;
-        }
-        // Remove sandbox→node mapping
-        if let Some(ref xds) = self.xds_service {
-            xds.remove_sandbox_node(sandbox_id);
-        }
-        Ok(())
     }
 }
 

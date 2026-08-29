@@ -1,5 +1,6 @@
 use crate::db::models::JoySafeterSandbox;
 use crate::ids::{ProjectId, SandboxId, SandboxNetworkPolicyId, SessionId, TaskId};
+use crate::kernel::network_policy::NetworkPolicyGeneration;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, Transaction};
@@ -48,12 +49,6 @@ pub struct UpsertNetworkPolicy<'a> {
     pub generation: &'a NetworkPolicyGeneration,
     pub desired_policy_json: &'a Value,
     pub rendered_summary_json: &'a Value,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NetworkPolicyGeneration {
-    pub policy_hash: String,
-    pub policy_version: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

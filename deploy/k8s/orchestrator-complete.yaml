@@ -194,6 +194,8 @@ spec:
           value: "aisec-repo.jd.com/joysafeter/joysafeter-codex:latest"
         - name: JOYSAFETER_IMAGE_NATIVE
           value: "aisec-repo.jd.com/joysafeter/joysafeter-native:latest"
+        - name: JOYSAFETER_IMAGE_PI
+          value: "aisec-repo.jd.com/joysafeter/joysafeter-pi:latest"
 
         # ── Leader Election ──
         - name: JOYSAFETER_LEADER_ELECTION_ENABLED

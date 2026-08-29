@@ -14,6 +14,8 @@ mod kernel;
 mod runtime_config;
 #[path = "../src/sandbox/mod.rs"]
 mod sandbox;
+#[path = "../src/xds/mod.rs"]
+mod xds;
 
 use std::env;
 
@@ -23,8 +25,8 @@ use ids::{
     SessionId, TaskId,
 };
 use kernel::credentials::error::{require_bound_credential_id, CredentialRuntimeError};
+use kernel::credentials::runtime_projection::rebuild_sandbox_credentials;
 use kernel::harness_input_builder::HarnessInputBuilder;
-use kernel::sandbox_resolver::rebuild_sandbox_credentials;
 use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
