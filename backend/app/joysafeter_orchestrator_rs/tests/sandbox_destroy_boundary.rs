@@ -24,7 +24,7 @@ fn shared_destroy_protocol_finalizes_postgres_before_policy_teardown() {
         .find("destroy_sandbox_if_status_and_external_id")
         .expect("durable destroy finalization");
     let teardown = lifecycle[finalize..]
-        .find("network_policy.teardown")
+        .find("network_cleanup.teardown_networking")
         .map(|offset| finalize + offset)
         .expect("network-policy teardown");
 

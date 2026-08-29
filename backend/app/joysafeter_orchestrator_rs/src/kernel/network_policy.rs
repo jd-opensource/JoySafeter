@@ -15,6 +15,7 @@ pub mod authority;
 pub mod envoy_model;
 pub mod material;
 pub mod ports;
+pub(crate) mod reconciler;
 pub mod recovery;
 pub mod request;
 pub(crate) mod service;

@@ -18,10 +18,9 @@ fn network_policy_service_is_the_only_application_facing_policy_capability() {
     }
 
     for path in [
-        "src/kernel/sandbox_resolver.rs",
-        "src/kernel/sandbox_controller.rs",
+        "src/kernel/sandbox_resolver/networking.rs",
         "src/kernel/command_listener.rs",
-        "src/kernel/scheduler.rs",
+        "src/kernel/network_policy/reconciler.rs",
     ] {
         let module = source(path);
         assert!(
@@ -39,6 +38,17 @@ fn network_policy_service_is_the_only_application_facing_policy_capability() {
                 "{path} leaks policy internals through {leaked_dependency}"
             );
         }
+    }
+
+    for path in [
+        "src/kernel/sandbox_resolver.rs",
+        "src/kernel/sandbox_controller.rs",
+        "src/kernel/scheduler.rs",
+    ] {
+        assert!(
+            !source(path).contains("NetworkPolicyService"),
+            "{path} must depend on a narrower sandbox capability"
+        );
     }
 }
 

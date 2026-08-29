@@ -1,7 +1,23 @@
 use std::sync::Arc;
 
 use crate::config::JoySafeterConfig;
+use crate::kernel::agent_identity_provider::AgentIdentityProvider;
+use crate::kernel::ha::BridgeStore;
 use crate::kernel::network_policy::ports::NetworkPolicyRuntime;
+use crate::kernel::network_policy::reconciler::NetworkPolicyReconciler;
+use crate::kernel::network_policy::service::NetworkPolicyService;
+use crate::kernel::queue::TaskQueue;
+use crate::kernel::redis_coordinator::RedisCoordinator;
+use crate::kernel::runner::{
+    RunnerCleanupService, RunnerExecutionService, RunnerFlowSet, RunnerRecoveryService,
+};
+use crate::kernel::sandbox_controller::SandboxController;
+use crate::kernel::sandbox_resolver::{
+    ResolveContextBuilder, SandboxIdentityPolicy, SandboxIdentityPolicyService,
+    SandboxLifecycleService, SandboxNetworkingService, SandboxPoolService,
+    SandboxProvisioningService, SandboxResolution, SandboxResolver,
+};
+use crate::runtime_config::RuntimeConfig;
 use crate::sandbox;
 use crate::sandbox::envoy::process::EnvoyProcessSupervisor;
 use crate::sandbox::envoy::{EnvoyConfig, EnvoyRuntime};
@@ -11,11 +27,20 @@ use crate::sandbox::runtime::{PlacementEventSink, SandboxSocketProvisioner};
 use crate::xds::placement::{PlacementReconciler, PlacementRetryPolicy};
 use async_trait::async_trait;
 use bollard::Docker;
+use sqlx::PgPool;
+use tokio::task::JoinHandle;
 
 use super::registry::{
     ProviderFactory, ProviderFactoryRegistry, RuntimeComponents, RuntimeFactoryContext,
     SandboxRuntimeTopology,
 };
+use super::supervisor::ServiceCriticality;
+
+pub(super) struct RuntimeTask {
+    pub(super) name: &'static str,
+    pub(super) criticality: ServiceCriticality,
+    pub(super) handle: JoinHandle<()>,
+}
 
 fn unscoped_topology() -> SandboxRuntimeTopology {
     SandboxRuntimeTopology {
@@ -30,6 +55,136 @@ pub(super) fn register_defaults(registry: &mut ProviderFactoryRegistry) {
     registry.register(["k8s", "kubernetes"], Arc::new(KubernetesFactory));
     registry.register(["daytona"], Arc::new(DaytonaFactory));
     registry.register(["e2b"], Arc::new(E2bFactory));
+}
+
+pub(super) fn build_runner_flows(max_executions: usize) -> RunnerFlowSet {
+    RunnerFlowSet::new(
+        RunnerExecutionService::new(max_executions),
+        RunnerRecoveryService::new(),
+        RunnerCleanupService::new(),
+    )
+}
+
+pub(super) struct SandboxRuntimeServices {
+    pub(super) controller: Arc<SandboxController>,
+    pub(super) resolution: Arc<dyn SandboxResolution>,
+    pub(super) identity_policy: Arc<dyn SandboxIdentityPolicy>,
+    pub(super) network_policy_reconciler: Option<Arc<NetworkPolicyReconciler>>,
+}
+
+pub(super) fn build_sandbox_runtime_services(
+    pool: PgPool,
+    queue: TaskQueue,
+    bridge_store: Arc<dyn BridgeStore>,
+    provider: Arc<dyn crate::sandbox::provider::SandboxProvider>,
+    redis_coordinator: Option<Arc<RedisCoordinator>>,
+    config: JoySafeterConfig,
+    runtime_config: Arc<RuntimeConfig>,
+    network_policy: NetworkPolicyService,
+    identity_provider: Arc<dyn AgentIdentityProvider>,
+) -> SandboxRuntimeServices {
+    let networking = SandboxNetworkingService::new(pool.clone(), network_policy.clone());
+    let pool_service = SandboxPoolService::new(
+        pool.clone(),
+        provider.clone(),
+        config.clone(),
+        networking.clone(),
+    );
+    let lifecycle =
+        SandboxLifecycleService::new(pool.clone(), provider.clone(), networking.clone());
+    let provisioning = SandboxProvisioningService::new(
+        pool.clone(),
+        provider.clone(),
+        config.clone(),
+        networking.clone(),
+        lifecycle.clone(),
+    );
+    let context_builder =
+        ResolveContextBuilder::new(pool.clone(), config.clone(), networking.clone())
+            .with_identity_provider(identity_provider);
+    let identity_policy: Arc<dyn SandboxIdentityPolicy> =
+        Arc::new(SandboxIdentityPolicyService::new(
+            pool.clone(),
+            networking.clone(),
+            lifecycle.clone(),
+            context_builder.clone(),
+        ));
+    let pool_replenish_notify = Arc::new(tokio::sync::Notify::new());
+    let controller = Arc::new(SandboxController::new_with_components(
+        pool.clone(),
+        queue,
+        bridge_store,
+        provider.clone(),
+        redis_coordinator,
+        config,
+        runtime_config,
+        networking.clone(),
+        lifecycle.clone(),
+        Arc::new(pool_service.clone()),
+        pool_replenish_notify.clone(),
+    ));
+    let resolution: Arc<dyn SandboxResolution> = Arc::new(
+        SandboxResolver::new_with_services(
+            pool.clone(),
+            networking,
+            lifecycle,
+            pool_service,
+            provisioning,
+            context_builder,
+        )
+        .with_pool_replenish_notify(pool_replenish_notify),
+    );
+    let network_policy_reconciler = provider
+        .capabilities()
+        .has_egress_management
+        .then(|| Arc::new(NetworkPolicyReconciler::new(pool, network_policy)));
+
+    SandboxRuntimeServices {
+        controller,
+        resolution,
+        identity_policy,
+        network_policy_reconciler,
+    }
+}
+
+pub(super) fn build_sandbox_controller_tasks(
+    controller: Arc<SandboxController>,
+    network_policy_reconciler: Option<Arc<NetworkPolicyReconciler>>,
+) -> Vec<RuntimeTask> {
+    let mut tasks = vec![
+        RuntimeTask {
+            name: "sandbox-idle-sweep",
+            criticality: ServiceCriticality::Critical,
+            handle: {
+                let controller = controller.clone();
+                tokio::spawn(async move { controller.idle_sweep_loop().await })
+            },
+        },
+        RuntimeTask {
+            name: "sandbox-provisioning-monitor",
+            criticality: ServiceCriticality::Critical,
+            handle: {
+                let controller = controller.clone();
+                tokio::spawn(async move { controller.provisioning_poll_loop().await })
+            },
+        },
+        RuntimeTask {
+            name: "sandbox-pool-orphan-maintenance",
+            criticality: ServiceCriticality::Degradable,
+            handle: {
+                let controller = controller.clone();
+                tokio::spawn(async move { controller.cleanup_loop().await })
+            },
+        },
+    ];
+    if let Some(reconciler) = network_policy_reconciler {
+        tasks.push(RuntimeTask {
+            name: "sandbox-networking-reconcile",
+            criticality: ServiceCriticality::Critical,
+            handle: tokio::spawn(async move { reconciler.run().await }),
+        });
+    }
+    tasks
 }
 
 fn build_delivery(

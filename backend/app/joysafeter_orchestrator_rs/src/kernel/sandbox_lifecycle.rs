@@ -15,6 +15,7 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use sqlx::PgPool;
 use tracing::warn;
 
@@ -23,13 +24,25 @@ use crate::ids::SandboxId;
 use crate::kernel::network_policy::service::NetworkPolicyService;
 use crate::sandbox::provider::SandboxProvider;
 
+#[async_trait]
+pub(crate) trait SandboxNetworkCleanup: Send + Sync {
+    async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()>;
+}
+
+#[async_trait]
+impl SandboxNetworkCleanup for NetworkPolicyService {
+    async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
+        self.teardown(sandbox_id).await.map(|_| ())
+    }
+}
+
 fn provider_runtime_is_absent(message: &str) -> bool {
     message.contains("No such container") || message.contains("404")
 }
 
 pub(crate) async fn destroy_unpersisted_sandbox(
     provider: &Arc<dyn SandboxProvider>,
-    network_policy: &NetworkPolicyService,
+    network_cleanup: &dyn SandboxNetworkCleanup,
     sandbox_id: SandboxId,
     external_id: &str,
     reason: &str,
@@ -40,8 +53,8 @@ pub(crate) async fn destroy_unpersisted_sandbox(
         .err()
         .map(|error| error.to_string())
         .filter(|message| !provider_runtime_is_absent(message));
-    let networking_error = network_policy
-        .teardown(sandbox_id)
+    let networking_error = network_cleanup
+        .teardown_networking(sandbox_id)
         .await
         .err()
         .map(|error| error.to_string());
@@ -80,7 +93,7 @@ pub(crate) async fn destroy_unpersisted_sandbox(
 pub(crate) async fn finalize_claimed_sandbox_destroy(
     pool: &PgPool,
     provider: &Arc<dyn SandboxProvider>,
-    network_policy: &NetworkPolicyService,
+    network_cleanup: &dyn SandboxNetworkCleanup,
     sandbox_id: SandboxId,
     external_id: Option<&str>,
     restore_status: &str,
@@ -110,7 +123,7 @@ pub(crate) async fn finalize_claimed_sandbox_destroy(
     )
     .await?;
     if destroyed {
-        let _ = network_policy.teardown(sandbox_id).await;
+        let _ = network_cleanup.teardown_networking(sandbox_id).await;
     } else {
         warn!(
             sandbox_id = %sandbox_id,
@@ -131,7 +144,7 @@ pub(crate) async fn finalize_claimed_sandbox_destroy(
 pub(crate) async fn destroy_observed_sandbox(
     pool: &PgPool,
     provider: &Arc<dyn SandboxProvider>,
-    network_policy: &NetworkPolicyService,
+    network_cleanup: &dyn SandboxNetworkCleanup,
     sandbox_id: SandboxId,
     observed_status: &str,
     external_id: Option<&str>,
@@ -154,7 +167,7 @@ pub(crate) async fn destroy_observed_sandbox(
     finalize_claimed_sandbox_destroy(
         pool,
         provider,
-        network_policy,
+        network_cleanup,
         sandbox_id,
         external_id,
         observed_status,

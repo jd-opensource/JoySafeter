@@ -67,3 +67,29 @@ fn supervisor_keeps_lifecycle_types_private_to_bootstrap() {
     assert!(managed_service.contains("pub(crate) struct ManagedServiceHandle"));
     assert!(managed_service.contains("pub(crate) enum ServiceHealth"));
 }
+
+#[test]
+fn sandbox_controller_loops_are_named_and_assembled_by_bootstrap() {
+    let controller = source("src/kernel/sandbox_controller.rs");
+    let factories = source("src/bootstrap/runtime_factories.rs");
+    let application = source("src/bootstrap/application.rs");
+
+    assert!(
+        !controller.contains("pub fn spawn(self: Arc<Self>)"),
+        "sandbox controller must not spawn its own child loops"
+    );
+    assert!(factories.contains("build_sandbox_controller_tasks"));
+    for name in [
+        "sandbox-idle-sweep",
+        "sandbox-provisioning-monitor",
+        "sandbox-networking-reconcile",
+        "sandbox-pool-orphan-maintenance",
+    ] {
+        assert!(
+            factories.contains(name),
+            "missing named controller task {name}"
+        );
+    }
+    assert!(application.contains("build_sandbox_controller_tasks"));
+    assert!(!application.contains("sandbox-controller-{index}"));
+}

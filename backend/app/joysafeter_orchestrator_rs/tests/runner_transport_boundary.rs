@@ -39,10 +39,17 @@ fn runner_transport_only_adapts_tonic_streams_and_limits_connections() {
 #[test]
 fn runner_application_services_own_disjoint_session_execution_and_recovery_flows() {
     let session = source("src/kernel/runner/session.rs");
+    let session_production = session
+        .split("#[cfg(test)]\nmod tests")
+        .next()
+        .expect("session production source");
     assert!(session.contains("pub(crate) struct RunnerSessionCoordinator"));
     assert!(session.contains("wait_for_ready"));
     assert!(session.contains("register"));
     assert!(!session.contains("impl AgentBridge for"));
+    assert!(!session_production.contains("RunnerExecutionService::new"));
+    assert!(!session_production.contains("RunnerRecoveryService::new"));
+    assert!(!session_production.contains("RunnerCleanupService::new"));
 
     let execution = source("src/kernel/runner/execution.rs");
     assert!(execution.contains("pub(crate) struct RunnerExecutionService"));
@@ -55,6 +62,33 @@ fn runner_application_services_own_disjoint_session_execution_and_recovery_flows
     assert!(recovery.contains("handle_reconnect"));
     assert!(recovery.contains("rescue_orphaned_tasks"));
     assert!(!recovery.contains("impl AgentBridge for"));
+
+    for (owner, source) in [("execution", execution), ("recovery", recovery)] {
+        for forbidden in ["super::session", "runner::session"] {
+            assert!(
+                !source.contains(forbidden),
+                "{owner} reverses the runner dependency direction through {forbidden}"
+            );
+        }
+    }
+}
+
+#[test]
+fn bootstrap_factory_assembles_runner_subflows() {
+    let factories = source("src/bootstrap/runtime_factories.rs");
+
+    for required in [
+        "build_runner_flows",
+        "RunnerExecutionService::new",
+        "RunnerRecoveryService::new",
+        "RunnerCleanupService::new",
+        "RunnerFlowSet::new",
+    ] {
+        assert!(
+            factories.contains(required),
+            "runner bootstrap factory misses {required}"
+        );
+    }
 }
 
 #[test]

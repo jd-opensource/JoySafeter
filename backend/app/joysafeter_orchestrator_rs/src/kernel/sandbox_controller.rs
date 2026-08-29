@@ -4,7 +4,6 @@ use std::time::Duration;
 use serde_json::json;
 use sqlx::PgPool;
 use tokio::sync::Semaphore;
-use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -12,37 +11,77 @@ use crate::config::JoySafeterConfig;
 use crate::db::queries;
 use crate::ids::{SandboxId, TaskId};
 use crate::kernel::ha::BridgeStore;
-use crate::kernel::network_policy::application::NetworkingReconcileOutcome;
 #[cfg(test)]
 use crate::kernel::network_policy::material::NetworkPolicyMaterialResolver;
 #[cfg(test)]
 use crate::kernel::network_policy::ports::{NetworkPolicyRequestQueue, NetworkPolicyRuntime};
-use crate::kernel::network_policy::service::NetworkPolicyService;
 use crate::kernel::queue::TaskQueue;
-use crate::kernel::sandbox_resolver::SandboxResolver;
+#[cfg(test)]
+use crate::kernel::sandbox_resolver::SandboxPoolService;
+use crate::kernel::sandbox_resolver::{
+    PoolSandboxProvisioner, SandboxLifecycleService, SandboxNetworkingService,
+};
 use crate::runtime_config::RuntimeConfig;
 use crate::sandbox::provider::SandboxProvider;
 
 const ORPHAN_PROVIDER_DB_INSERT_GRACE_SECS: i64 = 120;
 
-/// Background sandbox lifecycle management with full Python parity.
+/// Background sandbox lifecycle maintenance.
 ///
 /// Runs multiple async loops:
 /// - Idle sweep: health check bridges, expire idle, force-stop stuck, destroy stopped
 /// - Provisioning poll: detect timed-out provisioning
 /// - Pool manager: warm pool top-up, stale pool cleanup
 /// - Orphan cleanup: destroy sandboxes with no DB record
-pub struct SandboxController {
+#[derive(Clone)]
+struct SandboxTaskRecovery {
     pool: PgPool,
     queue: TaskQueue,
+}
+
+#[derive(Clone)]
+struct IdleSandboxMaintenance {
+    pool: PgPool,
     bridge_store: Arc<dyn BridgeStore>,
     provider: Arc<dyn SandboxProvider>,
     redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
     config: JoySafeterConfig,
     runtime_config: Arc<RuntimeConfig>,
-    network_policy: NetworkPolicyService,
-    /// Wakes the pool manager immediately when a sandbox is claimed from the pool.
-    pub pool_replenish_notify: Arc<tokio::sync::Notify>,
+    networking: SandboxNetworkingService,
+    lifecycle: SandboxLifecycleService,
+    task_recovery: SandboxTaskRecovery,
+}
+
+struct ProvisioningSandboxMaintenance {
+    pool: PgPool,
+    bridge_store: Arc<dyn BridgeStore>,
+    provider: Arc<dyn SandboxProvider>,
+    task_recovery: SandboxTaskRecovery,
+}
+
+struct SandboxPoolMaintenance {
+    pool: PgPool,
+    redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
+    config: JoySafeterConfig,
+    runtime_config: Arc<RuntimeConfig>,
+    lifecycle: SandboxLifecycleService,
+    pool_provisioner: Arc<dyn PoolSandboxProvisioner>,
+}
+
+struct SandboxOrphanMaintenance {
+    pool: PgPool,
+    provider: Arc<dyn SandboxProvider>,
+    networking: SandboxNetworkingService,
+    task_recovery: SandboxTaskRecovery,
+}
+
+pub struct SandboxController {
+    idle: IdleSandboxMaintenance,
+    provisioning: ProvisioningSandboxMaintenance,
+    pool: SandboxPoolMaintenance,
+    orphan: SandboxOrphanMaintenance,
+    pool_enabled: bool,
+    pool_replenish_notify: Arc<tokio::sync::Notify>,
 }
 
 impl SandboxController {
@@ -56,8 +95,16 @@ impl SandboxController {
         config: JoySafeterConfig,
         runtime_config: Arc<RuntimeConfig>,
     ) -> Self {
-        let network_policy = NetworkPolicyService::test_fixture(pool.clone());
-        Self::new_with_network_policy(
+        let networking = SandboxNetworkingService::test_fixture(pool.clone());
+        let pool_provisioner = Arc::new(SandboxPoolService::new(
+            pool.clone(),
+            provider.clone(),
+            config.clone(),
+            networking.clone(),
+        ));
+        let lifecycle =
+            SandboxLifecycleService::new(pool.clone(), provider.clone(), networking.clone());
+        Self::new_with_components(
             pool,
             queue,
             bridge_store,
@@ -65,11 +112,14 @@ impl SandboxController {
             redis_coordinator,
             config,
             runtime_config,
-            network_policy,
+            networking,
+            lifecycle,
+            pool_provisioner,
+            Arc::new(tokio::sync::Notify::new()),
         )
     }
 
-    pub fn new_with_network_policy(
+    pub(crate) fn new_with_components(
         pool: PgPool,
         queue: TaskQueue,
         bridge_store: Arc<dyn BridgeStore>,
@@ -77,24 +127,64 @@ impl SandboxController {
         redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
         config: JoySafeterConfig,
         runtime_config: Arc<RuntimeConfig>,
-        network_policy: NetworkPolicyService,
+        networking: SandboxNetworkingService,
+        lifecycle: SandboxLifecycleService,
+        pool_provisioner: Arc<dyn PoolSandboxProvisioner>,
+        pool_replenish_notify: Arc<tokio::sync::Notify>,
     ) -> Self {
-        Self {
-            pool,
+        let task_recovery = SandboxTaskRecovery {
+            pool: pool.clone(),
             queue,
+        };
+        let idle = IdleSandboxMaintenance {
+            pool: pool.clone(),
+            bridge_store: bridge_store.clone(),
+            provider: provider.clone(),
+            redis_coordinator: redis_coordinator.clone(),
+            config: config.clone(),
+            runtime_config: runtime_config.clone(),
+            networking: networking.clone(),
+            lifecycle: lifecycle.clone(),
+            task_recovery: task_recovery.clone(),
+        };
+        let provisioning = ProvisioningSandboxMaintenance {
+            pool: pool.clone(),
             bridge_store,
-            provider,
+            provider: provider.clone(),
+            task_recovery: task_recovery.clone(),
+        };
+        let pool_maintenance = SandboxPoolMaintenance {
+            pool: pool.clone(),
             redis_coordinator,
-            config,
+            config: config.clone(),
             runtime_config,
-            network_policy,
-            pool_replenish_notify: Arc::new(tokio::sync::Notify::new()),
+            lifecycle,
+            pool_provisioner,
+        };
+        let orphan = SandboxOrphanMaintenance {
+            pool,
+            provider,
+            networking,
+            task_recovery,
+        };
+        Self {
+            idle,
+            provisioning,
+            pool: pool_maintenance,
+            orphan,
+            pool_enabled: config.sandbox_pool_enabled,
+            pool_replenish_notify,
         }
     }
 
     #[cfg(test)]
     pub fn with_network_policy_runtime(mut self, runtime: Arc<dyn NetworkPolicyRuntime>) -> Self {
-        self.network_policy = self.network_policy.with_test_runtime(runtime);
+        let networking = self
+            .idle
+            .networking
+            .clone()
+            .map_policy(|policy| policy.with_test_runtime(runtime));
+        self.replace_networking(networking);
         self
     }
 
@@ -103,7 +193,12 @@ impl SandboxController {
         mut self,
         resolver: Arc<dyn NetworkPolicyMaterialResolver>,
     ) -> Self {
-        self.network_policy = self.network_policy.with_test_material_resolver(resolver);
+        let networking = self
+            .idle
+            .networking
+            .clone()
+            .map_policy(|policy| policy.with_test_material_resolver(resolver));
+        self.replace_networking(networking);
         self
     }
 
@@ -113,8 +208,26 @@ impl SandboxController {
         authority: crate::xds::authority::XdsAuthority,
         queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
     ) -> Self {
-        self.network_policy = self.network_policy.with_test_control(authority, queue);
+        let networking = self
+            .idle
+            .networking
+            .clone()
+            .map_policy(|policy| policy.with_test_control(authority, queue));
+        self.replace_networking(networking);
         self
+    }
+
+    #[cfg(test)]
+    fn replace_networking(&mut self, networking: SandboxNetworkingService) {
+        let lifecycle = self
+            .idle
+            .lifecycle
+            .clone()
+            .with_networking(networking.clone());
+        self.idle.networking = networking.clone();
+        self.idle.lifecycle = lifecycle.clone();
+        self.pool.lifecycle = lifecycle;
+        self.orphan.networking = networking;
     }
 
     /// Notify the pool manager that a sandbox was just claimed from the pool.
@@ -124,35 +237,12 @@ impl SandboxController {
         self.pool_replenish_notify.notify_one();
     }
 
-    /// Spawn all controller loops.
-    pub fn spawn(self: Arc<Self>) -> Vec<JoinHandle<()>> {
-        let mut handles = Vec::new();
-
-        let s = self.clone();
-        handles.push(tokio::spawn(async move { s.idle_sweep_loop().await }));
-
-        let s = self.clone();
-        handles.push(tokio::spawn(
-            async move { s.provisioning_poll_loop().await },
-        ));
-
-        let s = self.clone();
-        handles.push(tokio::spawn(
-            async move { s.networking_reconcile_loop().await },
-        ));
-
-        let s = self.clone();
-        handles.push(tokio::spawn(async move { s.cleanup_loop().await }));
-
-        handles
-    }
-
     /// Idle sweep loop: runs every 30s.
     /// Phase 0: Health check bridges (detect dead connections)
     /// Phase 1: Expire idle sandboxes past timeout
     /// Phase 2: Force-stop stuck stopping sandboxes (60s threshold)
     /// Phase 3: Destroy stopped sandboxes past TTL
-    async fn idle_sweep_loop(self: &Arc<Self>) {
+    pub(crate) async fn idle_sweep_loop(self: &Arc<Self>) {
         let interval = Duration::from_secs(30);
         info!("SandboxController idle sweep started (interval=30s)");
 
@@ -160,130 +250,45 @@ impl SandboxController {
             tokio::time::sleep(interval).await;
 
             // Phase 0: Health check bridges
-            if let Err(e) = self.health_check_bridges().await {
+            if let Err(e) = self.idle.health_check_bridges().await {
                 error!("Bridge health check error: {e}");
             }
 
             // Phase 1: Expire idle sandboxes
-            if let Err(e) = self.sweep_idle_sandboxes().await {
+            if let Err(e) = self.idle.sweep_idle_sandboxes().await {
                 error!("Idle sweep error: {e}");
             }
 
             // Phase 2: Force-stop stuck stopping sandboxes
-            if let Err(e) = self.force_stop_stuck().await {
+            if let Err(e) = self.idle.force_stop_stuck().await {
                 error!("Force-stop stuck error: {e}");
             }
 
             // Phase 3: Destroy stopped sandboxes past TTL
-            if let Err(e) = self.sweep_stopped_sandboxes().await {
+            if let Err(e) = self.idle.sweep_stopped_sandboxes().await {
                 error!("Stopped sweep error: {e}");
             }
         }
     }
 
     /// Provisioning poll: detect sandboxes stuck in provisioning (5s interval).
-    async fn provisioning_poll_loop(&self) {
+    pub(crate) async fn provisioning_poll_loop(&self) {
         let interval = Duration::from_secs(5);
         info!("SandboxController provisioning poll started (interval=5s)");
 
         loop {
             tokio::time::sleep(interval).await;
 
-            if let Err(e) = self.check_provisioning_timeout().await {
+            if let Err(e) = self.provisioning.check_provisioning_timeout().await {
                 error!("Provisioning poll error: {e}");
             }
         }
     }
 
-    /// Networking reconcile loop: re-push egress policy for sandboxes whose
-    /// Envoy config was left degraded (pending/nacked/failed) by a transient
-    /// xDS or Docker hiccup during provisioning. This is what makes the grpc
-    /// xDS path production-safe: a sandbox that missed its policy push self-heals
-    /// within one tick instead of running with no egress until the next task.
-    ///
-    /// Runs every 15s. Bounded batch per tick so a large backlog can't stall the
-    /// loop; oldest-degraded sandboxes are retried first.
-    async fn networking_reconcile_loop(self: &Arc<Self>) {
-        // Runs for any provider with Envoy egress management — both Docker
-        // (single Envoy) and K8s (per-node Envoy DaemonSet + gRPC xDS). Providers
-        // without egress management (Daytona/E2B) manage networking externally and
-        // skip this loop.
-        if !self.provider.capabilities().has_egress_management {
-            return;
-        }
-        // Adaptive cadence: poll fast (2s) while there is degraded networking to
-        // repair, back off to 15s when everything is healthy. A freshly-created
-        // K8s sandbox NACKs its first listener push (Envoy tries to bind the
-        // socket before the pod initContainer has created the dir); the fast
-        // cadence re-pushes within ~2s once the dir exists instead of leaving a
-        // ~15s egress gap. Idle cost stays low via the 15s back-off.
-        const FAST: Duration = Duration::from_secs(2);
-        const IDLE: Duration = Duration::from_secs(15);
-        const BATCH: i64 = 20;
-        info!("SandboxController networking reconcile started (adaptive 2s/15s)");
-
-        loop {
-            let repaired = match self.reconcile_degraded_networking(BATCH).await {
-                Ok(count) => count,
-                Err(e) => {
-                    error!("Networking reconcile error: {e}");
-                    0
-                }
-            };
-            // Stay in fast mode while we're actively repairing (a NACK'd sandbox
-            // stays degraded until its async ACK lands, so keep polling quickly).
-            let next = if repaired > 0 { FAST } else { IDLE };
-            tokio::time::sleep(next).await;
-        }
-    }
-
-    /// Re-push egress policy for up to `limit` degraded limited-networking
-    /// sandboxes. Each reconcile is independent; one failure does not abort the
-    /// batch. Fail-closed: a sandbox that can't be repaired stays `network=none`
-    /// with no egress and is retried next tick.
-    ///
-    /// Returns the number of degraded sandboxes found this tick (0 = all
-    /// healthy), so the caller can adapt its polling cadence.
-    async fn reconcile_degraded_networking(&self, limit: i64) -> anyhow::Result<usize> {
-        if !self.network_policy.can_reconcile_as_authority() {
-            return Ok(0);
-        }
-        let degraded = queries::list_degraded_limited_sandboxes(&self.pool, limit).await?;
-        if degraded.is_empty() {
-            return Ok(0);
-        }
-        let degraded_count = degraded.len();
-        debug!(
-            count = degraded_count,
-            "Reconciling degraded sandbox networking"
-        );
-
-        for sandbox in &degraded {
-            match self.network_policy.reconcile_as_authority(sandbox).await {
-                Ok(NetworkingReconcileOutcome::Refreshed { policy_hash }) => {
-                    info!(
-                        sandbox_id = %sandbox.id,
-                        policy_hash = %policy_hash,
-                        "Reconciled degraded sandbox networking"
-                    );
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    warn!(
-                        sandbox_id = %sandbox.id,
-                        error = %e,
-                        "Failed to reconcile sandbox networking; will retry next tick"
-                    );
-                }
-            }
-        }
-        Ok(degraded_count)
-    }
-
     /// Cleanup loop: runs every 10s OR immediately when pool claim notifies.
     /// Pool management + stale cleanup.
-    /// S5: Also runs orphan cleanup every 30 iterations (~5 minutes).
-    async fn cleanup_loop(&self) {
+    /// Also runs orphan cleanup every 30 iterations (~5 minutes).
+    pub(crate) async fn cleanup_loop(&self) {
         let interval = Duration::from_secs(10);
         info!("SandboxController cleanup loop started (interval=10s, notify-driven pool)");
         let mut iteration: u64 = 0;
@@ -298,15 +303,15 @@ impl SandboxController {
             }
             iteration += 1;
 
-            if self.config.sandbox_pool_enabled {
-                if let Err(e) = self.manage_pool().await {
+            if self.pool_enabled {
+                if let Err(e) = self.pool.manage_pool().await {
                     error!("Pool management error: {e}");
                 }
             }
 
-            // S5: Run orphan cleanup every 30 iterations (~5 minutes)
+            // Run orphan cleanup every 30 iterations (~5 minutes).
             if iteration % 30 == 0 {
-                match self.cleanup_orphaned().await {
+                match self.orphan.cleanup_orphaned().await {
                     Ok(count) => {
                         if count > 0 {
                             info!(count, "Orphan cleanup completed");
@@ -320,6 +325,44 @@ impl SandboxController {
         }
     }
 
+    pub async fn cleanup_orphaned(&self) -> anyhow::Result<usize> {
+        self.orphan.cleanup_orphaned().await
+    }
+
+    #[cfg(test)]
+    async fn health_check_bridges(&self) -> anyhow::Result<()> {
+        self.idle.health_check_bridges().await
+    }
+
+    #[cfg(test)]
+    async fn stop_idle_sandbox(
+        &self,
+        sandbox_id: SandboxId,
+        external_id: Option<String>,
+        current_status: String,
+    ) {
+        self.idle
+            .stop_idle_sandbox(sandbox_id, external_id, current_status)
+            .await;
+    }
+
+    #[cfg(test)]
+    async fn force_stop_stuck(&self) -> anyhow::Result<()> {
+        self.idle.force_stop_stuck().await
+    }
+
+    #[cfg(test)]
+    async fn sweep_stopped_sandboxes(&self) -> anyhow::Result<()> {
+        self.idle.sweep_stopped_sandboxes().await
+    }
+
+    #[cfg(test)]
+    async fn check_provisioning_timeout(&self) -> anyhow::Result<()> {
+        self.provisioning.check_provisioning_timeout().await
+    }
+}
+
+impl IdleSandboxMaintenance {
     /// Phase 0: Health check all registered bridges.
     /// If a bridge has no active HITL and the container is dead, clean it up.
     async fn health_check_bridges(&self) -> anyhow::Result<()> {
@@ -370,6 +413,7 @@ impl SandboxController {
                         // row still exists; DB remains the durable authority.
                         let failure_reason = "sandbox runtime failed bridge health check";
                         if let Err(e) = self
+                            .task_recovery
                             .recover_tasks_for_missing_runtime(sandbox_id, failure_reason)
                             .await
                         {
@@ -470,7 +514,7 @@ impl SandboxController {
     /// only does the graceful idle→stopping→stopped dance when the row is
     /// actually idle; for disconnect/hard-timeout reaps we jump straight to
     /// stopped (no point waiting on a runner we already gave up on).
-    async fn sweep_idle_sandboxes(self: &Arc<Self>) -> anyhow::Result<()> {
+    async fn sweep_idle_sandboxes(&self) -> anyhow::Result<()> {
         let timeout_secs = self.runtime_config.idle_timeout_sec() as i64;
         let disconnect_grace = self.config.sandbox_bridge_disconnect_grace as i64;
         let hard_timeout = self.config.sandbox_hard_timeout as i64;
@@ -504,7 +548,7 @@ impl SandboxController {
             return Ok(());
         }
 
-        // S9: Process up to 5 sandbox stops concurrently
+        // Process up to five sandbox stops concurrently.
         let semaphore = Arc::new(Semaphore::new(5));
         let mut join_set = tokio::task::JoinSet::new();
 
@@ -542,7 +586,7 @@ impl SandboxController {
         external_id: Option<String>,
         current_status: String,
     ) {
-        // HA: skip sandboxes owned by another instance (Python L220-225)
+        // In HA mode, skip sandboxes owned by another instance.
         if let Some(ref coord) = self.redis_coordinator {
             if let Ok(Some(owner)) = coord.get_sandbox_owner(sandbox_id).await {
                 if owner != self.config.instance_id {
@@ -605,17 +649,22 @@ impl SandboxController {
             );
         }
 
-        // S3: Repair DB task/session state BEFORE the grace sleep/stop.
+        // Repair durable task/session state before the grace sleep or stop.
         // Graceful idle stops should only have scheduling residues to reset.
         // Non-graceful disconnect/hard-timeout reaps can still have DB-running
         // tasks even when the bridge is gone; repair those before stopping.
         if graceful {
-            if let Err(e) = self.requeue_scheduling_tasks(sandbox_id).await {
+            if let Err(e) = self
+                .task_recovery
+                .requeue_scheduling_tasks(sandbox_id)
+                .await
+            {
                 warn!(sandbox_id = %sandbox_id, "Failed to requeue tasks during stop: {e}");
             }
         } else {
             let failure_reason = "sandbox runtime reaped after disconnect or hard timeout";
             if let Err(e) = self
+                .task_recovery
                 .recover_tasks_for_missing_runtime(sandbox_id, failure_reason)
                 .await
             {
@@ -774,6 +823,7 @@ impl SandboxController {
             warn!(sandbox_id = %sandbox_id, "Force-stopping stuck sandbox (>60s in stopping)");
             let failure_reason = "sandbox force-stopped after stuck stopping state";
             if let Err(e) = self
+                .task_recovery
                 .recover_tasks_for_missing_runtime(sandbox_id, failure_reason)
                 .await
             {
@@ -796,7 +846,7 @@ impl SandboxController {
                 continue;
             }
 
-            // Remove bridge (Python L311)
+            // Remove the stale bridge before touching the provider runtime.
             let stop_preserves_state = self.provider.capabilities().stop_preserves_state;
             let mut stop_succeeded = false;
             if let Some(ref ext_id) = external_id {
@@ -838,7 +888,7 @@ impl SandboxController {
                     )
                     .await;
                 }
-                // Teardown networking (Python L332)
+                // Tear down networking after the runtime transition.
                 let _ = self.teardown_networking(sandbox_id).await;
             }
         }
@@ -893,6 +943,24 @@ impl SandboxController {
         Ok(())
     }
 
+    async fn destroy_observed_sandbox(
+        &self,
+        sandbox_id: SandboxId,
+        observed_status: &str,
+        external_id: Option<&str>,
+        reason: &str,
+    ) -> anyhow::Result<bool> {
+        self.lifecycle
+            .destroy_observed_state(sandbox_id, observed_status, external_id, reason)
+            .await
+    }
+
+    async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
+        self.networking.teardown(sandbox_id).await
+    }
+}
+
+impl ProvisioningSandboxMaintenance {
     /// Detect sandboxes stuck in provisioning (>180s relative, >300s absolute).
     async fn check_provisioning_timeout(&self) -> anyhow::Result<()> {
         // Query ALL provisioning sandboxes (not just timed out ones)
@@ -908,7 +976,7 @@ impl SandboxController {
         .await?;
 
         for (sandbox_id, external_id) in provisioning {
-            // Bridge fast-path: if bridge already registered, transition to idle (Python L464-473)
+            // A registered bridge proves provisioning is ready to transition to idle.
             if let Some(ref ext_id) = external_id {
                 if self.bridge_store.get(ext_id).is_some() {
                     let cas_ok = queries::transition_sandbox_cas(
@@ -1016,7 +1084,9 @@ impl SandboxController {
             return Ok(false);
         }
 
-        self.requeue_scheduling_tasks(sandbox_id).await?;
+        self.task_recovery
+            .requeue_scheduling_tasks(sandbox_id)
+            .await?;
 
         let stop_preserves_state = self.provider.capabilities().stop_preserves_state;
         let mut stop_succeeded = external_id.is_none();
@@ -1064,7 +1134,9 @@ impl SandboxController {
 
         Ok(stop_succeeded)
     }
+}
 
+impl SandboxTaskRecovery {
     async fn requeue_scheduling_tasks(&self, sandbox_id: SandboxId) -> anyhow::Result<u64> {
         let _ = self.queue.drain(sandbox_id).await;
         let failure_reason = "sandbox provisioning failed after retry limit";
@@ -1173,10 +1245,12 @@ impl SandboxController {
 
         Ok(())
     }
+}
 
+impl SandboxPoolMaintenance {
     /// Pool manager: warm pool top-up + stale pool cleanup.
     async fn manage_pool(&self) -> anyhow::Result<()> {
-        // #22: HA lock with guaranteed release (Python try/finally L558-568)
+        // Hold the HA pool-manager lock for one complete maintenance cycle.
         let has_lock = if let Some(ref coord) = self.redis_coordinator {
             let acquired = coord.try_lock("pool_manager", 60).await.unwrap_or(false);
             if !acquired {
@@ -1189,7 +1263,7 @@ impl SandboxController {
 
         let result = self.manage_pool_inner().await;
 
-        // Always release lock (Python finally block L567-568)
+        // Always release the HA lock.
         if has_lock {
             if let Some(ref coord) = self.redis_coordinator {
                 let _ = coord.unlock("pool_manager").await;
@@ -1204,7 +1278,7 @@ impl SandboxController {
         // refresh_networking injects the session's credentials dynamically.
         // This is safe because pool sandboxes have no egress until claimed.
 
-        // Support multiple pool images (Python L586-606)
+        // Maintain each configured pool image independently.
         let pool_images = if self.config.sandbox_pool_images.is_empty() {
             vec![self.config.sandbox_image.clone()]
         } else {
@@ -1250,22 +1324,13 @@ impl SandboxController {
                 let mut join_set = tokio::task::JoinSet::new();
 
                 for _ in 0..to_create {
-                    let pool_db = self.pool.clone();
-                    let provider = self.provider.clone();
-                    let config = self.config.clone();
                     let image = image.clone();
                     let permit = sem.clone();
-                    let network_policy = self.network_policy.clone();
+                    let pool_provisioner = self.pool_provisioner.clone();
 
                     join_set.spawn(async move {
                         let _permit = permit.acquire().await;
-                        let resolver = SandboxResolver::new_with_network_policy(
-                            pool_db,
-                            provider,
-                            config,
-                            network_policy,
-                        );
-                        resolver.provision_pool_sandbox(&image).await
+                        pool_provisioner.provision(&image).await
                     });
                 }
 
@@ -1329,6 +1394,20 @@ impl SandboxController {
         Ok(())
     }
 
+    async fn destroy_observed_sandbox(
+        &self,
+        sandbox_id: SandboxId,
+        observed_status: &str,
+        external_id: Option<&str>,
+        reason: &str,
+    ) -> anyhow::Result<bool> {
+        self.lifecycle
+            .destroy_observed_state(sandbox_id, observed_status, external_id, reason)
+            .await
+    }
+}
+
+impl SandboxOrphanMaintenance {
     /// Cleanup orphaned provider sandboxes by cross-referencing with DB.
     pub async fn cleanup_orphaned(&self) -> anyhow::Result<usize> {
         let mut cleaned = 0usize;
@@ -1420,6 +1499,7 @@ impl SandboxController {
             ) {
                 let failure_reason = "sandbox provider runtime missing";
                 if let Err(e) = self
+                    .task_recovery
                     .recover_tasks_for_missing_runtime(sandbox_id, failure_reason)
                     .await
                 {
@@ -1453,26 +1533,7 @@ impl SandboxController {
     }
 
     async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-        self.network_policy.teardown(sandbox_id).await.map(|_| ())
-    }
-
-    async fn destroy_observed_sandbox(
-        &self,
-        sandbox_id: SandboxId,
-        observed_status: &str,
-        external_id: Option<&str>,
-        reason: &str,
-    ) -> anyhow::Result<bool> {
-        crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
-            &self.pool,
-            &self.provider,
-            &self.network_policy,
-            sandbox_id,
-            observed_status,
-            external_id,
-            reason,
-        )
-        .await
+        self.networking.teardown(sandbox_id).await
     }
 }
 
@@ -2669,16 +2730,18 @@ mod tests {
         let pool = PgPoolOptions::new()
             .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
             .expect("lazy pool");
-        let controller = missing_runtime_controller(pool, "unused".to_string())
+        let controller = missing_runtime_controller(pool.clone(), "unused".to_string())
             .with_network_policy_control(crate::xds::authority::XdsAuthority::managed(), None);
 
-        let result = tokio::time::timeout(
-            Duration::from_millis(100),
-            controller.reconcile_degraded_networking(20),
-        )
-        .await
-        .expect("non-authority reconcile must not wait on PostgreSQL")
-        .expect("non-authority reconcile must be a no-op");
+        let reconciler = crate::kernel::network_policy::reconciler::NetworkPolicyReconciler::new(
+            pool,
+            controller.idle.networking.policy(),
+        );
+        let result =
+            tokio::time::timeout(Duration::from_millis(100), reconciler.reconcile_batch(20))
+                .await
+                .expect("non-authority reconcile must not wait on PostgreSQL")
+                .expect("non-authority reconcile must be a no-op");
 
         assert_eq!(result, 0);
     }

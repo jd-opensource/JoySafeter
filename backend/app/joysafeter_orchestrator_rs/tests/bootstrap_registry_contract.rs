@@ -51,16 +51,24 @@ fn composition_root_builds_network_policy_material_behind_its_port() {
 
     let resolver = source("src/kernel/sandbox_resolver.rs");
     assert!(!resolver.contains("PostgresNetworkPolicyMaterialResolver"));
-    assert!(resolver.contains("NetworkPolicyService"));
+    assert!(!resolver.contains("NetworkPolicyService"));
     assert!(!resolver.contains("fn rebuild_sandbox_credentials"));
+
+    let networking = source("src/kernel/sandbox_resolver/networking.rs");
+    assert!(networking.contains("NetworkPolicyService"));
+    assert!(!networking.contains("PostgresNetworkPolicyMaterialResolver"));
 
     let projection = source("src/kernel/credentials/runtime_projection.rs");
     assert!(projection.contains("pub(crate) async fn rebuild_sandbox_credentials"));
     assert!(!projection.contains("sandbox_resolver"));
 
     let scheduler = source("src/kernel/scheduler.rs");
-    assert!(scheduler.contains("NetworkPolicyService"));
+    assert!(!scheduler.contains("NetworkPolicyService"));
     assert!(!scheduler.contains("NetworkPolicyMaterialResolver"));
+
+    let runtime_factories = source("src/bootstrap/runtime_factories.rs");
+    assert!(runtime_factories.contains("NetworkPolicyService"));
+    assert!(runtime_factories.contains("SandboxNetworkingService::new"));
 
     let command_listener = source("src/kernel/command_listener.rs");
     assert!(!command_listener.contains("llm_egress_allowed_hosts"));

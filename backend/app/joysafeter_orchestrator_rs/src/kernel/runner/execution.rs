@@ -24,17 +24,20 @@ use crate::kernel::ha::BridgeStore;
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_bridge::SandboxBridge;
-use crate::kernel::sandbox_resolver::SandboxResolver;
+use crate::kernel::sandbox_resolver::SandboxIdentityPolicy;
 use crate::runtime_config::RuntimeConfig;
 
-use super::session::{
-    build_start_task_full, compute_stop_reason, emit_session_idle_status,
-    emit_session_running_status, fail_pre_start_task, failover_or_fail_inline,
-    handle_dispatch_retryable_failure, handle_memory_sync_db, handle_task_disconnect_before_result,
-    handle_task_setup_failure_result, is_setup_failure_error, is_setup_failure_result,
-    is_setup_failure_task_result, load_terminal_task_result, mark_idle_setup_failure, send_setup,
+use super::memory_sync::handle_memory_sync_db;
+use super::setup::{
+    build_start_task_full, is_setup_failure_error, is_setup_failure_result,
+    is_setup_failure_task_result, mark_idle_setup_failure, send_setup,
+};
+use super::task_lifecycle::{
+    compute_stop_reason, emit_session_idle_status, emit_session_running_status,
+    fail_pre_start_task, failover_or_fail_inline, handle_dispatch_retryable_failure,
+    handle_task_disconnect_before_result, load_terminal_task_result,
     send_start_task_or_handle_failure, task_result_from_status,
-    transition_running_task_and_emit_idle,
+    transition_running_task_and_emit_idle, TaskResult,
 };
 
 const HEARTBEAT_TIMEOUT_DEFAULT: u64 = 120;
@@ -69,7 +72,7 @@ pub(crate) async fn multi_task_loop(
     event_bus: &EventBus,
     queue: &TaskQueue,
     config: &JoySafeterConfig,
-    sandbox_resolver: &Arc<SandboxResolver>,
+    identity_policy: &Arc<dyn SandboxIdentityPolicy>,
     sandbox_db_id: SandboxId,
     sandbox_external_id: &str,
     linked_session_id: Option<SessionId>,
@@ -213,8 +216,7 @@ pub(crate) async fn multi_task_loop(
 
         info!(task_id = %task_id, sandbox_id = %sandbox_external_id, "Dispatching task");
 
-        // #17: Acquire execution semaphore (blocking, matching Python L1014)
-        // G2 fix: handle closed semaphore gracefully instead of panic
+        // Acquire execution capacity and handle shutdown without panicking.
         let _exec_permit = match exec_sem.clone().acquire_owned().await {
             Ok(p) => p,
             Err(_) => {
@@ -242,7 +244,7 @@ pub(crate) async fn multi_task_loop(
             _ => continue,
         };
 
-        // Defensive check: task must be in RUNNING status (Python L1142)
+        // The durable task row must still be running after the claim.
         if task.status != "running" {
             warn!(
                 task_id = %task_id,
@@ -303,14 +305,14 @@ pub(crate) async fn multi_task_loop(
             }
         }
 
-        // Redis: register task→sandbox mapping (Python L1107)
+        // Register the task-to-sandbox coordination mapping.
         if let Some(coord) = redis_coord {
             let _ = coord.map_task_to_sandbox(task_id, sandbox_db_id).await;
         }
 
         let session_id = task.session_id.or(linked_session_id);
 
-        // #8: Check agent exists before dispatch (Python L1133-1140)
+        // Revalidate that the referenced agent still exists before dispatch.
         if let Some(agent_id) = task.agent_id {
             if queries::get_agent(pool, agent_id)
                 .await
@@ -469,17 +471,14 @@ pub(crate) async fn multi_task_loop(
             heartbeat_timeout,
             memory_subscribers.clone(),
             bridge_store.clone(),
-            sandbox_resolver,
+            identity_policy.as_ref(),
             &task_cancel,
             Some(queue),
         )
         .await;
 
         if !matches!(result, TaskResult::Disconnected) {
-            if let Err(error) = sandbox_resolver
-                .clear_task_agent_identity_policy(sandbox_db_id, task_id)
-                .await
-            {
+            if let Err(error) = identity_policy.clear_policy(sandbox_db_id, task_id).await {
                 error!(
                     sandbox_id = %sandbox_db_id,
                     task_id = %task_id,
@@ -510,15 +509,15 @@ pub(crate) async fn multi_task_loop(
         }
         heartbeat_deadline = Instant::now() + heartbeat_timeout;
 
-        // Remove task→sandbox mapping from Redis + publish complete event (Python L1876-1886)
+        // Remove the task-to-sandbox mapping and publish completion.
         if let Some(coord) = redis_coord {
-            // Publish "complete" event to Redis (Python L1876-1881: direct payload string)
+            // Publish the completion event to Redis.
             let complete_payload =
                 serde_json::to_string(&json!({"type": "complete", "task_id": task_id.to_string()}))
                     .unwrap_or_default();
             let _ = coord.publish_task_event(task_id, &complete_payload).await;
             let _ = coord.remove_task_sandbox(task_id).await;
-            // Refresh sandbox owner TTL (Python L1685)
+            // Refresh the sandbox ownership TTL.
             let _ = coord.refresh_sandbox(sandbox_db_id).await;
         }
 
@@ -562,22 +561,104 @@ pub(crate) async fn multi_task_loop(
     }
 }
 
-/// Result of a single task execution.
-#[derive(Clone, Debug)]
-pub(crate) enum TaskResult {
-    Completed,
-    Failed(String),
-    Timeout,
-    Cancelled,
-    Disconnected,
-}
-
 #[derive(Default)]
 pub(crate) struct TaskMessageOutcome {
     pub(crate) task_done: bool,
     pub(crate) runner_idle_seen: bool,
     pub(crate) terminal_idle_handled: bool,
     pub(crate) task_result: Option<TaskResult>,
+}
+pub(crate) async fn handle_task_setup_failure_result(
+    harness_result: &proto::RunnerHarnessResult,
+    pool: &PgPool,
+    event_bus: &EventBus,
+    bridge: &Arc<SandboxBridge>,
+    task_id: TaskId,
+    expected_owner_epoch: Option<i64>,
+    session_id: Option<SessionId>,
+    sandbox_db_id: SandboxId,
+    task_error: &mut bool,
+) -> TaskMessageOutcome {
+    *task_error = true;
+    let error = harness_result
+        .error
+        .as_deref()
+        .unwrap_or("SetupSandbox failed");
+
+    let cas_ok = match queries::transition_task_cas(
+        pool,
+        task_id,
+        "running",
+        "failed",
+        Some(error),
+        expected_owner_epoch,
+    )
+    .await
+    {
+        Ok(true) => true,
+        Ok(false) => {
+            warn!(task_id = %task_id, "CAS conflict: task already terminal, ignoring setup failure result");
+            false
+        }
+        Err(db_error) => {
+            error!(task_id = %task_id, error = %db_error, "Failed to transition setup failure result");
+            false
+        }
+    };
+    if cas_ok {
+        let _ = queries::complete_task(
+            pool,
+            task_id,
+            "failed",
+            Some(&harness_result.output),
+            Some(error),
+            None,
+        )
+        .await;
+    }
+    let task_result = if cas_ok {
+        TaskResult::Failed(error.to_string())
+    } else {
+        load_terminal_task_result(pool, task_id)
+            .await
+            .unwrap_or_else(|| TaskResult::Failed(error.to_string()))
+    };
+
+    mark_idle_setup_failure(pool, bridge, sandbox_db_id, harness_result).await;
+    *bridge.last_result_status.lock().await = Some("failed".to_string());
+    *bridge.last_result_error.lock().await = Some(error.to_string());
+
+    let result_payload = json!({
+        "type": "complete",
+        "status": "failed",
+        "output": harness_result.output,
+        "error": error,
+        "duration_ms": harness_result.duration_ms,
+    });
+    bridge.broadcast_to_task(task_id, result_payload).await;
+    bridge.remove_task_subscribers(task_id).await;
+
+    if cas_ok {
+        emit_session_idle_status(
+            pool,
+            event_bus,
+            task_id,
+            session_id,
+            sandbox_db_id,
+            json!({"type": "error", "message": error}),
+            "setup failure result",
+        )
+        .await;
+        event_bus.flush().await;
+    }
+
+    info!(task_id = %task_id, "SetupSandbox failure result received during task dispatch");
+    TaskMessageOutcome {
+        task_done: true,
+        terminal_idle_handled: true,
+        task_result: Some(task_result),
+        ..Default::default()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -598,11 +679,11 @@ pub(crate) async fn run_single_task(
     heartbeat_timeout: Duration,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
     bridge_store: Arc<dyn BridgeStore>,
-    sandbox_resolver: &SandboxResolver,
+    identity_policy: &dyn SandboxIdentityPolicy,
     task_cancel: &tokio_util::sync::CancellationToken,
     queue: Option<&TaskQueue>,
 ) -> TaskResult {
-    // I-NEW-2 fix: use per-task timeout_sec if set, else global default (matching Python)
+    // Prefer the persisted per-task timeout, falling back to the configured default.
     let timeout_secs = match queries::get_task(pool, task_id).await {
         Ok(Some(t)) => t.timeout_sec.unwrap_or(config.task_default_timeout as i32) as u64,
         _ => config.task_default_timeout,
@@ -648,8 +729,8 @@ pub(crate) async fn run_single_task(
     let mut task_completed = false;
     let mut task_error = false;
     let mut cancel_sent = false;
-    let mut identity_refresh_deadline = sandbox_resolver
-        .task_identity_refresh_delay(sandbox_db_id, task_id)
+    let mut identity_refresh_deadline = identity_policy
+        .refresh_delay(sandbox_db_id, task_id)
         .await
         .ok()
         .flatten()
@@ -661,8 +742,8 @@ pub(crate) async fn run_single_task(
             _ = tokio::time::sleep_until(
                 identity_refresh_deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(86_400))
             ), if identity_refresh_deadline.is_some() => {
-                match sandbox_resolver
-                    .refresh_task_agent_identity_policy(task_id, sandbox_db_id)
+                match identity_policy
+                    .refresh_policy(task_id, sandbox_db_id)
                     .await
                 {
                     Ok(Some(seconds)) => {
@@ -826,7 +907,7 @@ pub(crate) async fn run_single_task(
                 return TaskResult::Timeout;
             }
 
-            // #18: Heartbeat timeout — flush + failover_or_fail (Python L1367-1383)
+            // On heartbeat timeout, flush pending events before durable failover.
             // Skip heartbeat timeout during HITL pause — runner is idle waiting
             // for user input and may legitimately stop heartbeating.
             _ = tokio::time::sleep_until(heartbeat_deadline) => {
@@ -945,9 +1026,9 @@ pub(crate) async fn run_single_task(
         }
     }
 
-    // Post-task handling (matches Python lines 1737-1802)
+    // Finalize the durable task, sandbox, usage, and subscriber state.
     if !task_done {
-        // #18: Stream broke before result — failover_or_fail (Python L1746)
+        // A stream break before Result follows the durable failover policy.
         event_bus.flush().await;
         let last_err = bridge.last_error.lock().await.clone();
         let reason = last_err
@@ -1042,7 +1123,7 @@ pub(crate) async fn handle_task_message(
                     let is_ctrl = mapping::is_control_request(harness_event);
                     let is_custom_tool = event_type == "agent.custom_tool_use";
 
-                    // Update bridge.last_error on error events (Python L1461-1462)
+                    // Preserve the latest runner error on the bridge.
                     if event_type == "session.error" {
                         let error_msg = payload
                             .get("error")
@@ -1207,7 +1288,7 @@ pub(crate) async fn handle_task_message(
                     },
                 );
 
-            // CAS task completion — only update output/usage if CAS succeeds (Python L1831-1849)
+            // Persist output and usage only when the terminal CAS succeeds.
             let cas_result = if harness_result.error.is_some() {
                 queries::transition_task_cas(
                     pool,
@@ -1260,7 +1341,7 @@ pub(crate) async fn handle_task_message(
                     .unwrap_or_else(|| runner_task_result.clone())
             };
 
-            // sandbox_svc.complete_task — update sandbox status + clear last_task_id (Python L1852)
+            // Return the sandbox to idle and clear its active task binding.
             let _ = queries::complete_sandbox_task(pool, sandbox_db_id).await;
 
             // Accumulate session usage
@@ -1300,7 +1381,7 @@ pub(crate) async fn handle_task_message(
             *bridge.last_result_status.lock().await = Some(status.to_string());
             *bridge.last_result_error.lock().await = harness_result.error.clone();
 
-            // Broadcast "complete" to per-task WebSocket subscribers (Python L1871-1873)
+            // Broadcast completion to per-task subscribers.
             let result_payload = json!({
                 "type": "complete",
                 "status": status,
@@ -1427,7 +1508,7 @@ pub(crate) async fn handle_task_message(
             let content = sync_msg.content.clone();
             let operation = sync_msg.operation.clone();
 
-            // Fire-and-forget DB write (matching Python's asyncio.create_task)
+            // Persist memory synchronization without blocking the runner stream.
             tokio::spawn(async move {
                 handle_memory_sync_db(
                     &pool_clone,

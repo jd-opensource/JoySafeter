@@ -14,11 +14,9 @@ use crate::ids::{AgentId, ProjectId, SessionId, TaskId};
 use crate::kernel::credentials::snapshot;
 use crate::kernel::credentials::{error::CredentialRuntimeError, CredentialStore};
 use crate::kernel::ha::BridgeStore;
-use crate::kernel::network_policy::service::NetworkPolicyService;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::runtime_freshness::RuntimeFreshnessError;
-use crate::kernel::sandbox_resolver::SandboxResolver;
-use crate::sandbox::provider::SandboxProvider;
+use crate::kernel::sandbox_resolver::{SandboxIdentityPolicy, SandboxResolution};
 
 const QUEUE_POP_TIMEOUT: Duration = Duration::from_secs(1);
 const DB_REPAIR_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
@@ -42,28 +40,15 @@ const GENERATION_CHANGE_IMMEDIATE_RETRIES: usize = 2;
 ///
 /// T5 fix: removed the TaskScheduler struct and stop() method — they were
 /// disconnected from the spawned loop. The loop runs until process exit.
-pub fn spawn_scheduler(
+pub(crate) fn spawn_scheduler(
     pool: PgPool,
     queue: TaskQueue,
     bridge_store: Arc<dyn BridgeStore>,
     task_dispatcher: Arc<dyn crate::kernel::ha::TaskDispatcher>,
-    provider: Arc<dyn SandboxProvider>,
-    network_policy: NetworkPolicyService,
+    resolver: Arc<dyn SandboxResolution>,
+    identity_policy: Arc<dyn SandboxIdentityPolicy>,
     config: JoySafeterConfig,
-    pool_replenish_notify: Option<Arc<tokio::sync::Notify>>,
-    identity_provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
 ) -> JoinHandle<()> {
-    let mut resolver = SandboxResolver::new_with_network_policy(
-        pool.clone(),
-        provider,
-        config.clone(),
-        network_policy,
-    );
-    if let Some(notify) = pool_replenish_notify {
-        resolver = resolver.with_pool_replenish_notify(notify);
-    }
-    resolver = resolver.with_identity_provider(identity_provider);
-    let resolver = Arc::new(resolver);
     let scheduling_semaphore = Arc::new(Semaphore::new(config.max_scheduling_tasks));
 
     tokio::spawn(async move {
@@ -157,6 +142,7 @@ pub fn spawn_scheduler(
                 let task_dispatcher = task_dispatcher.clone();
                 let config = config.clone();
                 let resolver = resolver.clone();
+                let identity_policy = identity_policy.clone();
                 let sched_sem = scheduling_semaphore.clone();
 
                 // Acquire scheduling semaphore
@@ -181,7 +167,8 @@ pub fn spawn_scheduler(
                             &*bridge_store,
                             &*task_dispatcher,
                             &config,
-                            &resolver,
+                            resolver.as_ref(),
+                            identity_policy.as_ref(),
                             task_id,
                             task.agent_id,
                             task.session_id,
@@ -222,7 +209,8 @@ async fn schedule_single_task(
     bridge_store: &dyn BridgeStore,
     task_dispatcher: &dyn crate::kernel::ha::TaskDispatcher,
     config: &JoySafeterConfig,
-    resolver: &SandboxResolver,
+    resolver: &dyn SandboxResolution,
+    identity_policy: &dyn SandboxIdentityPolicy,
     task_id: TaskId,
     agent_id: Option<AgentId>,
     mut session_id: Option<SessionId>,
@@ -338,8 +326,8 @@ async fn schedule_single_task(
             if let Some(status) = crate::db::models::TaskStatus::from_str(&task.status) {
                 if status.is_terminal() {
                     info!(task_id = %task_id, "Task became terminal before enqueue, skipping");
-                    let _ = resolver
-                        .clear_task_agent_identity_policy(resolved_sandbox.sandbox_id, task_id)
+                    let _ = identity_policy
+                        .clear_policy(resolved_sandbox.sandbox_id, task_id)
                         .await;
                     return Ok(());
                 }
@@ -361,8 +349,8 @@ async fn schedule_single_task(
             Err(error) => {
                 let error = anyhow::Error::new(error);
                 if should_retry_generation_change(&error, generation_retries) {
-                    let _ = resolver
-                        .clear_task_agent_identity_policy(resolved_sandbox.sandbox_id, task_id)
+                    let _ = identity_policy
+                        .clear_policy(resolved_sandbox.sandbox_id, task_id)
                         .await;
                     generation_retries += 1;
                     warn!(
@@ -387,8 +375,8 @@ async fn schedule_single_task(
                     }
                 }
 
-                let _ = resolver
-                    .clear_task_agent_identity_policy(resolved_sandbox.sandbox_id, task_id)
+                let _ = identity_policy
+                    .clear_policy(resolved_sandbox.sandbox_id, task_id)
                     .await;
                 return Err(error);
             }
@@ -397,9 +385,7 @@ async fn schedule_single_task(
 
     // --- Push sandbox wakeup ---
     if let Err(error) = queue.push(sandbox_db_id, task_id).await {
-        let _ = resolver
-            .clear_task_agent_identity_policy(sandbox_db_id, task_id)
-            .await;
+        let _ = identity_policy.clear_policy(sandbox_db_id, task_id).await;
         return Err(error);
     }
 
@@ -646,10 +632,40 @@ mod tests {
     use super::*;
     use crate::ids::{EnvironmentId, OrganizationId, SandboxId};
     use crate::kernel::sandbox_bridge::BridgeRegistry;
+    use crate::kernel::sandbox_resolver::SandboxResolver;
     use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
     use sqlx::postgres::PgPoolOptions;
     use std::env;
     use uuid::Uuid;
+
+    struct NoopIdentityPolicy;
+
+    #[async_trait::async_trait]
+    impl SandboxIdentityPolicy for NoopIdentityPolicy {
+        async fn refresh_delay(
+            &self,
+            _sandbox_id: SandboxId,
+            _task_id: TaskId,
+        ) -> anyhow::Result<Option<Duration>> {
+            Ok(None)
+        }
+
+        async fn refresh_policy(
+            &self,
+            _task_id: TaskId,
+            _sandbox_id: SandboxId,
+        ) -> anyhow::Result<Option<u64>> {
+            Ok(None)
+        }
+
+        async fn clear_policy(
+            &self,
+            _sandbox_id: SandboxId,
+            _task_id: TaskId,
+        ) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+    }
 
     fn database_url() -> Option<String> {
         env::var("JOYSAFETER_TEST_DATABASE_URL")
@@ -1038,6 +1054,7 @@ mod tests {
                 &*task_dispatcher,
                 &config,
                 &resolver,
+                &NoopIdentityPolicy,
                 task_id,
                 Some(agent_id),
                 None,
@@ -1427,6 +1444,7 @@ mod tests {
                 &*task_dispatcher,
                 &config,
                 &resolver,
+                &NoopIdentityPolicy,
                 task_id,
                 Some(agent_id),
                 Some(session_id),
@@ -1490,6 +1508,7 @@ mod tests {
                 &*task_dispatcher,
                 &config,
                 &resolver,
+                &NoopIdentityPolicy,
                 task_id,
                 Some(agent_id),
                 Some(session_id),

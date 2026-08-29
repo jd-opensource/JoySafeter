@@ -6,6 +6,9 @@ use crate::config::JoySafeterConfig;
 use crate::{db, events, grpc, kernel, runtime_config, xds};
 use tracing::{error, info, warn};
 
+use super::runtime_factories::{
+    build_runner_flows, build_sandbox_controller_tasks, build_sandbox_runtime_services,
+};
 use super::supervisor::{
     shutdown_signal, spawn_health_server, ReadinessGate, ServiceCriticality, TaskSupervisor,
 };
@@ -371,45 +374,37 @@ impl OrchestratorApplication {
         task_controller.recover_on_startup().await?;
         info!("Startup recovery complete");
 
-        // Orphaned sandbox cleanup
-        let sandbox_controller_for_cleanup = Arc::new(
-            kernel::sandbox_controller::SandboxController::new_with_network_policy(
-                db_pool.clone(),
-                queue.clone(),
-                bridge_store.clone(),
-                sandbox_provider.clone(),
-                redis_coordinator.clone(),
-                config.clone(),
-                runtime_config.clone(),
-                network_policy.clone(),
-            ),
+        let sandbox_runtime = build_sandbox_runtime_services(
+            db_pool.clone(),
+            queue.clone(),
+            bridge_store.clone(),
+            sandbox_provider.clone(),
+            redis_coordinator.clone(),
+            config.clone(),
+            runtime_config.clone(),
+            network_policy.clone(),
+            identity_provider,
         );
-        match sandbox_controller_for_cleanup.cleanup_orphaned().await {
+
+        // Orphaned sandbox cleanup
+        match sandbox_runtime.controller.cleanup_orphaned().await {
             Ok(n) if n > 0 => info!("Cleaned up {n} orphaned sandboxes"),
             Ok(_) => {}
             Err(e) => warn!("Orphan cleanup failed: {e}"),
         }
 
         // Start gRPC server
-        let grpc_sandbox_resolver = Arc::new(
-            kernel::sandbox_resolver::SandboxResolver::new_with_network_policy(
-                db_pool.clone(),
-                sandbox_provider.clone(),
-                config.clone(),
-                network_policy.clone(),
-            )
-            .with_identity_provider(identity_provider.clone()),
-        );
         let runner_coordinator = Arc::new(kernel::runner::RunnerSessionCoordinator::new(
             bridge_store.clone(),
             event_bus.clone(),
             queue.clone(),
             db_pool.clone(),
             config.clone(),
-            grpc_sandbox_resolver,
+            sandbox_runtime.identity_policy.clone(),
             redis_coordinator.clone(),
             memory_subscribers.clone(),
             runtime_config.clone(),
+            build_runner_flows(config.grpc_max_executions),
         ));
         let runner_transport = Arc::new(grpc::transport::RunnerTransport::new(
             runner_coordinator,
@@ -454,22 +449,13 @@ impl OrchestratorApplication {
         info!("Task controller started");
 
         // Start sandbox controller
-        let sandbox_controller = Arc::new(
-            kernel::sandbox_controller::SandboxController::new_with_network_policy(
-                db_pool.clone(),
-                queue.clone(),
-                bridge_store.clone(),
-                sandbox_provider.clone(),
-                redis_coordinator.clone(),
-                config.clone(),
-                runtime_config.clone(),
-                network_policy.clone(),
-            ),
+        let sandbox_controller_tasks = build_sandbox_controller_tasks(
+            sandbox_runtime.controller.clone(),
+            sandbox_runtime.network_policy_reconciler.clone(),
         );
-        let sandbox_ctrl_handles = sandbox_controller.clone().spawn();
         info!(
             "Sandbox controller started ({} loops)",
-            sandbox_ctrl_handles.len()
+            sandbox_controller_tasks.len()
         );
 
         // Start task scheduler (after sandbox controller so pool_replenish_notify is available)
@@ -478,11 +464,9 @@ impl OrchestratorApplication {
             queue.clone(),
             bridge_store.clone(),
             ha.task_dispatcher.clone(),
-            sandbox_provider.clone(),
-            network_policy.clone(),
+            sandbox_runtime.resolution,
+            sandbox_runtime.identity_policy,
             config.clone(),
-            Some(sandbox_controller.pool_replenish_notify.clone()),
-            identity_provider.clone(),
         );
         info!("Task scheduler started");
 
@@ -571,7 +555,7 @@ impl OrchestratorApplication {
         let sighup_handle: Option<tokio::task::JoinHandle<()>> = None;
 
         let total_tasks = 3
-            + sandbox_ctrl_handles.len()
+            + sandbox_controller_tasks.len()
             + subscriber_handles.len()
             + if cmd_listener_handle.is_some() { 1 } else { 0 };
         info!(total_tasks, "JoySafeter kernel fully started");
@@ -599,13 +583,9 @@ impl OrchestratorApplication {
                 task_ctrl_handle,
             )?
             .mark_ready();
-        for (index, handle) in sandbox_ctrl_handles.into_iter().enumerate() {
+        for task in sandbox_controller_tasks {
             supervisor
-                .register(
-                    format!("sandbox-controller-{index}"),
-                    ServiceCriticality::Critical,
-                    handle,
-                )?
+                .register(task.name, task.criticality, task.handle)?
                 .mark_ready();
         }
         supervisor

@@ -294,16 +294,15 @@ over gRPC.
 |---|---|---|
 | Runner server | `src/grpc/server.rs` | Binds the Runner TCP/UDS listeners, configures tonic limits/keepalive, and owns only server-task lifecycle |
 | Runner transport | `src/grpc/transport.rs` | Adapts the closed protobuf `AgentBridge.Session` stream, enforces connection limits, and delegates typed messages |
-| Runner session | `src/kernel/runner/session.rs` | Authenticates runners, registers/displaces bridges, and owns connection/session lifecycle |
-| Runner execution | `src/kernel/runner/execution.rs` | Claims tasks, drives the task event loop, persists results, archives artifacts, and handles control-input replay |
-| Runner recovery | `src/kernel/runner/recovery.rs` | Classifies reconnects, resumes active tasks, and performs bounded orphan-task recovery |
+| Runner session | `src/kernel/runner/session.rs` | Authenticates runners, performs the handshake, registers/displaces bridges, and delegates work through `RunnerFlowSet` |
+| Runner child flows | `src/kernel/runner/{setup,task_lifecycle,execution,recovery,memory_sync,cleanup}.rs` | Own setup, durable task transitions, execution/event handling, reconnect recovery, memory synchronization, and disconnect cleanup independently |
 | xDS control plane | `src/xds/control_plane.rs`, `src/xds/resource_store.rs`, `src/xds/node_ownership.rs`, `src/xds/delta.rs` | One process-level composition root, atomic explicitly-owned resource world, complete sandbox-to-node lifecycle, and Delta reconciliation |
 | xDS transport | `src/xds/auth.rs`, `src/xds/transport.rs` | Dedicated `:9092` ADS listener, keyring authentication, and transport isolation from runner gRPC |
 | xDS authority | `src/xds/authority.rs`, `src/xds/leader.rs` | Single `Standby → Staging → RecoveryServing → Ready → Revoked` lifecycle, epoch-fenced recovery/mutation guards, ADS admission, and leader endpoint publication |
 | Task scheduler | `src/kernel/scheduler.rs` | Claims pending tasks (`FOR UPDATE SKIP LOCKED`), resolves a sandbox, pushes to the sandbox queue |
 | Task controller | `src/kernel/task_controller.rs` | Lifecycle, startup recovery, failover/retry |
-| Sandbox controller | `src/kernel/sandbox_controller.rs` | Idle sweep, provisioning poll, warm-pool, orphan cleanup |
-| Sandbox resolver | `src/kernel/sandbox_resolver.rs` | 3-stage resolve: reuse session sandbox → claim from pool → create new; injects runner env |
+| Sandbox controller | `src/kernel/sandbox_controller.rs` | Timer/notification orchestration over isolated idle, provisioning, pool, orphan, and task-recovery capabilities |
+| Sandbox resolution | `src/kernel/sandbox_resolver.rs`, `src/kernel/sandbox_resolver/*` | Reuse/restart → pool claim → create orchestration over explicit context, lifecycle, networking, provisioning, pool, and identity-policy capabilities |
 | Sandbox bridge | `src/kernel/sandbox_bridge.rs` | Per-sandbox in-memory state: runner stream, status, subscribers, control queue |
 | Redis coordinator | `src/kernel/redis_coordinator.rs` | Cross-instance HA: owner mapping, heartbeats, queues, event publishing |
 | Command listener | `src/kernel/command_listener.rs` | Redis command relay for cancel/input/shutdown/memory updates with ACKs |
@@ -330,7 +329,7 @@ is therefore registry-driven rather than hard-coded through branches in `main.rs
 | Process entry | `src/main.rs` | Logging/config entry and delegation only | environment → `JoySafeterConfig` → `OrchestratorApplication` | `bootstrap` | Invalid process configuration |
 | Composition root | `src/bootstrap/application.rs` | Process-wide object graph, startup order, background-loop startup, coordinated shutdown | validated config → initialized ports, services, and handles | config, DB/Redis constructors, registries, application services, transports | Missing required infrastructure or an invalid cross-component topology |
 | Provider registry | `src/bootstrap/registry.rs` | Normalized provider-name lookup and factory dispatch | provider name + factory context → `RuntimeComponents` | factory interfaces only | Unknown/disabled provider and factory construction errors |
-| Runtime factories | `src/bootstrap/runtime_factories.rs` | Docker/Kubernetes/Daytona/E2B adapter construction and composition-only event handlers | config + shared xDS context → provider, policy runtime, socket provisioner, process supervisor, optional placement reconciler | concrete adapters, never business callers | Provider-specific construction/configuration errors |
+| Runtime factories | `src/bootstrap/runtime_factories.rs` | Concrete adapter construction, `RunnerFlowSet`, the single production `SandboxRuntimeServices` capability graph, and composition-only event handlers | config + shared infrastructure → provider/runtime adapters and application ports | concrete adapters and fixed core-flow constructors, never business callers | Construction errors and invalid capability combinations |
 | Supervision | `src/bootstrap/supervisor.rs` | OS shutdown signal and health/metrics HTTP exposure | readiness + xDS snapshots → process lifecycle/HTTP responses | stable health interfaces | Listener failure is reported here; domain failures remain with their owner |
 | Material adapter | `src/bootstrap/network_policy_material.rs` | PostgreSQL/credential implementation of the domain material port | `SandboxId` → validated `DesiredNetworkPolicy` inputs | DB queries and credential projection | Missing sandbox, credential reconstruction, or material-loading failure |
 
@@ -339,6 +338,60 @@ is therefore registry-driven rather than hard-coded through branches in `main.rs
 Envoy-process, and placement-reconciliation capabilities supported by that backend. Callers consume those
 ports and handles and do not downcast or branch on provider type.
 The registry is confined to bootstrap so business code cannot become a service locator.
+
+Registration and factories have deliberately different roles. Replaceable provider implementations use
+`ProviderFactoryRegistry`; fixed application flows use explicit bootstrap factories. A core flow is not
+looked up dynamically merely to avoid a constructor: `build_runner_flows` and
+`build_sandbox_runtime_services` make the complete production graph reviewable and type-checked, while
+consumers receive only their narrow ports. `application.rs` controls startup order and supervision but
+does not instantiate child-flow implementations itself.
+
+#### Sandbox application capabilities
+
+`SandboxRuntimeServices` is the only production composition point for sandbox application capabilities.
+It creates one shared set of immutable handles and hands each consumer only the capability it needs:
+
+| Capability | Owner | Input → output | Direct dependencies | Failure owner |
+|---|---|---|---|---|
+| `ResolveContextBuilder` | `sandbox_resolver/context.rs` | task/session/agent/project IDs → immutable `ResolveContext` snapshot | PostgreSQL reads, identity material, MCP/runtime projections | Missing or inconsistent material; no provider side effect has started |
+| `SandboxNetworkingService` | `sandbox_resolver/networking.rs` | validated desired policy/generation → ready or failed network state | `NetworkPolicyService`, PostgreSQL generation state, bounded ready cache | Network-policy validation/application/delivery failure |
+| `SandboxLifecycleService` | `sandbox_resolver/lifecycle.rs` | observed sandbox state + external ID → CAS-fenced restart/destroy/compensation result | PostgreSQL, `SandboxProvider`, networking teardown | Lifecycle transition or compensation failure |
+| `SandboxProvisioningService` | `sandbox_resolver/provisioning.rs` | task ID + immutable context → newly created `ResolvedSandbox` | provider port, lifecycle compensation, networking capability | Create/start/file-injection/generation/CAS failure; compensates partial runtime creation |
+| `SandboxPoolService` / `PoolSandboxProvisioner` | `sandbox_resolver/pool.rs` | claim context or image → claimed/provisioned pool sandbox | PostgreSQL, provider port, networking capability | Claim race, stale pool runtime, or pool provisioning failure |
+| `SandboxResolver` / `SandboxResolution` | `sandbox_resolver.rs`, `sandbox_resolver/ports.rs` | typed IDs → `ResolvedSandbox` | context, lifecycle, pool, provisioning capabilities only | Stage-selection failure; it owns no provider construction or identity-policy side channel |
+| `SandboxIdentityPolicyService` / `SandboxIdentityPolicy` | `sandbox_resolver/identity_policy.rs` | sandbox/task identity lifecycle → refresh delay, refreshed policy, or cleared lease | context snapshot, networking, lifecycle | Identity lease/material/policy refresh failure |
+
+`SandboxResolution` is consumed by the scheduler. `SandboxIdentityPolicy` is consumed by runner execution
+and recovery. Runner code never depends on `SandboxResolver`, and the resolver does not re-export pool
+provisioning, identity refresh, provider creation, or network-policy internals. Context objects are built
+per resolve request and passed immutably; child services share cloneable handles, not mutable request
+state.
+
+`SandboxController` is a loop coordinator, not a bag of infrastructure dependencies. Its internal fixed
+flows are composed once and have disjoint dependency sets:
+
+| Child flow | Owns | Must not own | Failure behavior |
+|---|---|---|---|
+| `IdleSandboxMaintenance` | bridge health, idle/disconnect/hard-timeout reap, stuck-stop recovery, stopped/error TTL cleanup | pool provisioning or provisioning progress | Each phase reports independently; one sandbox or phase failure does not suppress later cycles |
+| `ProvisioningSandboxMaintenance` | provisioning progress, timeout CAS, provider stop/destroy after claim | idle policy, pool sizing, orphan inventory | A failed CAS means another actor owns the new state; external cleanup follows only a successful claim |
+| `SandboxPoolMaintenance` | HA-locked pool sizing, bounded parallel top-up, stale-pool cleanup | session resolution or task identity | Per-create failures are isolated; the HA lock is released on every result path |
+| `SandboxOrphanMaintenance` | provider↔PostgreSQL inventory comparison and missing-runtime cleanup | pool sizing or xDS inventory | Recent uncommitted runtimes are protected; DB task recovery precedes durable sandbox destruction |
+| `SandboxTaskRecovery` | queue drain/requeue, retry exhaustion, task/session durable transitions and events | provider/network/xDS operations | PostgreSQL is authoritative; queue publication is best effort after durable transition |
+
+Bootstrap supervises `sandbox-idle-sweep` and `sandbox-provisioning-monitor` as critical tasks,
+`sandbox-pool-orphan-maintenance` as degradable, and registers the network-policy reconciler separately
+only for providers with egress management. The Controller neither holds `NetworkPolicyService` nor imports
+xDS types.
+
+#### Runner application capabilities
+
+`RunnerSessionCoordinator` owns only authentication, handshake, bridge displacement/registration, and
+connection lifetime. Bootstrap injects a `RunnerFlowSet`; the coordinator does not construct concrete
+flows. Setup, task lifecycle, execution, recovery, memory synchronization, and cleanup exchange typed
+inputs through the coordinator and do not share request-scoped mutable context. Transport failures belong
+to `grpc/transport.rs`; authentication/connection failures belong to the coordinator; task/event/artifact
+failures belong to execution; reconnect classification and orphan recovery belong to recovery; disconnect
+state release belongs to cleanup.
 
 #### Network-policy domain and application flow
 

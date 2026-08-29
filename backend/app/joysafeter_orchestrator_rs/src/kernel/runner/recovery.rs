@@ -6,7 +6,7 @@ use crate::events::bus::EventBus;
 use crate::ids::SandboxId;
 use crate::kernel::queue::TaskQueue;
 
-use super::session::handle_dispatch_retryable_failure;
+use super::task_lifecycle::handle_dispatch_retryable_failure;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ReconnectPlan {
@@ -99,11 +99,11 @@ use crate::ids::SessionId;
 use crate::kernel::ha::BridgeStore;
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::sandbox_bridge::SandboxBridge;
-use crate::kernel::sandbox_resolver::SandboxResolver;
+use crate::kernel::sandbox_resolver::SandboxIdentityPolicy;
 use crate::runtime_config::RuntimeConfig;
 
-use super::execution::{replay_pending_control_inputs, run_single_task, TaskResult};
-use super::session::{emit_session_running_status, failover_or_fail_inline};
+use super::execution::{replay_pending_control_inputs, run_single_task};
+use super::task_lifecycle::{emit_session_running_status, failover_or_fail_inline, TaskResult};
 
 const HEARTBEAT_TIMEOUT_DEFAULT: u64 = 120;
 
@@ -125,7 +125,7 @@ impl RunnerRecoveryService {
         memory_subscribers: Arc<MemoryStoreSubscribers>,
         bridge_store: Arc<dyn BridgeStore>,
         runtime_config: &RuntimeConfig,
-        sandbox_resolver: Arc<SandboxResolver>,
+        identity_policy: Arc<dyn SandboxIdentityPolicy>,
     ) {
         // Verify task exists and belongs to this sandbox
         let task = match queries::get_task(pool, active_task_id).await {
@@ -147,7 +147,7 @@ impl RunnerRecoveryService {
             return;
         }
 
-        // #17: Acquire execution semaphore (blocking, Python L374)
+        // Acquire execution capacity before resuming work.
         // G2 fix: handle closed semaphore gracefully (same as multi_task_loop)
         let _exec_permit = match exec_sem.clone().acquire_owned().await {
             Ok(p) => p,
@@ -164,7 +164,7 @@ impl RunnerRecoveryService {
         *bridge.current_task_id.lock().await = Some(active_task_id);
         let session_id = task.session_id.or(linked_session_id);
 
-        // #5: Redis set_task_sandbox (Python L382-384)
+        // Restore the task-to-sandbox coordination mapping.
         if let Some(coord) = redis_coord {
             let _ = coord
                 .map_task_to_sandbox(active_task_id, sandbox_db_id)
@@ -223,15 +223,15 @@ impl RunnerRecoveryService {
             heartbeat_timeout,
             memory_subscribers.clone(),
             bridge_store,
-            sandbox_resolver.as_ref(),
+            identity_policy.as_ref(),
             &task_cancel,
             None,
         )
         .await;
 
         if !matches!(result, TaskResult::Disconnected) {
-            if let Err(error) = sandbox_resolver
-                .clear_task_agent_identity_policy(sandbox_db_id, active_task_id)
+            if let Err(error) = identity_policy
+                .clear_policy(sandbox_db_id, active_task_id)
                 .await
             {
                 error!(
@@ -257,7 +257,7 @@ impl RunnerRecoveryService {
                 info!(task_id = %active_task_id, "Reconnected task completed");
             }
             TaskResult::Failed(ref reason) => {
-                // #6: failover_or_fail_task on reconnect failure (Python L824-835)
+                // Apply the durable failover policy when reconnect recovery fails.
                 warn!(task_id = %active_task_id, "Reconnected task failed: {reason}");
                 failover_or_fail_inline(
                     pool,
@@ -287,7 +287,7 @@ impl RunnerRecoveryService {
                 }
             }
             TaskResult::Disconnected => {
-                // #6: failover on disconnect (Python L824-835)
+                // Apply the durable failover policy after disconnect.
                 warn!(task_id = %active_task_id, "Runner disconnected again during reconnected task");
                 failover_or_fail_inline(
                     pool,
