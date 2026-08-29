@@ -4,6 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::ids::SandboxId;
+use crate::xds::authority::{MutationAuthorityGuard, RecoveryAuthorityGuard, XdsAuthority};
+use crate::xds::delivery::DeliveryRequest;
+use crate::xds::inventory::{RecoveredSandbox, RecoveryDeliveryState, RecoveryInventory};
 use anyhow::Context;
 use bollard::container::{
     Config, CreateContainerOptions, RemoveContainerOptions, RestartContainerOptions,
@@ -17,16 +20,19 @@ use serde_json::json;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-use super::runtime::SandboxSocketProvisioner;
+use super::envoy_delivery::{managed_cluster, managed_listener, DeliverySubmission, EnvoyDelivery};
 use crate::kernel::network_policy::envoy_model::{
     validate_egress_policy, ListenerKind, ListenerSpec, SandboxCredentials, SandboxEgressPolicy,
 };
-use crate::kernel::network_policy::ports::NetworkPolicyRuntime;
-use crate::sandbox::envoy_delivery::{CdsBackend, LdsBackend};
+use crate::kernel::network_policy::ports::{
+    NetworkPolicyApplyRequest, NetworkPolicyRecoveryEntry, NetworkPolicyRecoveryReport,
+    NetworkPolicyRuntime,
+};
+use crate::sandbox::runtime::SandboxSocketProvisioner;
 
 /// Per-sandbox network isolation via a shared Envoy proxy sidecar container.
 ///
-/// Listener config is delivered through a pluggable [`LdsBackend`] using either
+/// Envoy resources are delivered through a pluggable [`EnvoyDelivery`] using either
 /// the filesystem path or Delta gRPC xDS, selected by [`EnvoyConfig::xds_mode`].
 /// The bootstrap written here is generated to match
 /// the active mode. Everything else (socket dirs, the wait-for-sockets loop, the
@@ -40,12 +46,11 @@ pub struct EnvoyManager {
     /// skipped). Only the Docker-container paths dereference it.
     docker: Option<Arc<Docker>>,
     config: EnvoyConfig,
-    lds: Arc<dyn LdsBackend>,
-    cds: Arc<dyn CdsBackend>,
+    delivery: Arc<dyn EnvoyDelivery>,
     sandbox_apply_locks: Mutex<HashMap<SandboxId, Arc<Mutex<()>>>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct EnvoyConfig {
     pub envoy_image: String,
     pub socket_volume: String,
@@ -54,7 +59,7 @@ pub struct EnvoyConfig {
     pub envoy_network: String,
     pub grpc_target_host: String,
     pub grpc_target_port: u16,
-    pub xds_auth_token: String,
+    pub xds_auth_token: Option<String>,
     pub container_name: String,
     /// `"grpc"` (default, Delta xDS) or explicit compatibility mode
     /// `"filesystem"` (`lds.json`).
@@ -130,14 +135,12 @@ impl EnvoyManager {
     pub fn new(
         docker: Option<Arc<Docker>>,
         config: EnvoyConfig,
-        lds: Arc<dyn LdsBackend>,
-        cds: Arc<dyn CdsBackend>,
+        delivery: Arc<dyn EnvoyDelivery>,
     ) -> Self {
         Self {
             docker,
             config,
-            lds,
-            cds,
+            delivery,
             sandbox_apply_locks: Mutex::new(HashMap::new()),
         }
     }
@@ -422,6 +425,49 @@ impl EnvoyManager {
         self.wait_until_ready(Duration::from_secs(15)).await
     }
 
+    pub fn spawn_health_monitor(self: Arc<Self>, authority: XdsAuthority) {
+        if self.config.health_check_interval_sec == 0 {
+            return;
+        }
+        tokio::spawn(async move {
+            let mut failures = 0u64;
+            let threshold = self.config.health_failure_threshold.max(1);
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(
+                self.config.health_check_interval_sec,
+            ));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                interval.tick().await;
+                match self.health_check().await {
+                    Ok(()) => {
+                        failures = 0;
+                    }
+                    Err(e) => {
+                        failures += 1;
+                        warn!(
+                            failures,
+                            threshold,
+                            error = %e,
+                            "Envoy health check failed"
+                        );
+                        if failures >= threshold {
+                            failures = 0;
+                            let Some(guard) = authority.mutation_guard() else {
+                                warn!(
+                                    "Skipping Envoy recovery without ready xDS mutation authority"
+                                );
+                                continue;
+                            };
+                            if let Err(recover_err) = self.restart_envoy(&guard).await {
+                                warn!(error = %recover_err, "Envoy restart/recovery failed");
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     async fn health_check(&self) -> anyhow::Result<()> {
         let info = self
             .docker()?
@@ -437,6 +483,21 @@ impl EnvoyManager {
             anyhow::bail!("Envoy container is not running: {status}");
         }
 
+        Ok(())
+    }
+
+    async fn restart_envoy(&self, authority: &MutationAuthorityGuard) -> anyhow::Result<()> {
+        warn!("Restarting Envoy container after failed health checks");
+        authority.validate()?;
+        self.docker()?
+            .restart_container(
+                &self.config.container_name,
+                Some(RestartContainerOptions { t: 10 }),
+            )
+            .await?;
+        self.wait_until_ready(std::time::Duration::from_secs(15))
+            .await?;
+        authority.validate()?;
         Ok(())
     }
 
@@ -465,9 +526,7 @@ impl EnvoyManager {
         // while we serve the new (e.g. filesystem) one, and no listeners land.
         let bootstrap_changed = self.write_bootstrap_config().await?;
 
-        // Reset xDS state to an empty initial state.
-        self.cds.replace_all(vec![]).await?;
-        self.lds.replace_all(vec![]).await?;
+        self.delivery.prepare_for_startup().await?;
 
         if bootstrap_changed {
             self.reload_envoy_after_bootstrap_change().await?;
@@ -481,17 +540,133 @@ impl EnvoyManager {
         Ok(())
     }
 
-    /// Initialize xDS state only (no bootstrap write, no filesystem ops).
-    /// Used in K8s mode where the Envoy DaemonSet manages its own bootstrap
-    /// and the orchestrator only needs to reset in-memory LDS state.
+    /// Prepare xDS delivery only (no bootstrap write or container operations).
+    /// gRPC delivery leaves the resource world untouched until recovery installs
+    /// one authoritative inventory; filesystem compatibility clears local snapshots.
     pub async fn init_xds_only(&self) -> anyhow::Result<()> {
-        self.cds.replace_all(vec![]).await?;
-        self.lds.replace_all(vec![]).await?;
+        self.delivery.prepare_for_startup().await?;
         info!(
             xds_mode = %self.config.xds_mode,
-            "EnvoyManager xDS state reset (K8s mode, no bootstrap write)"
+            "EnvoyManager delivery prepared (K8s mode, no bootstrap write)"
         );
         Ok(())
+    }
+
+    /// Rebuild the LDS state for all live sandboxes from the database.
+    ///
+    /// The listener set is never persisted — it lives only in the filesystem
+    /// `lds.json` (wiped by [`init`]) or the in-memory Delta xDS state (lost on
+    /// orchestrator restart). The database (`joysafeter_sandboxes`) is the source
+    /// of truth for which sandboxes are live and what egress allowlist each has
+    /// (stored in `config.fingerprint.networking`). This re-derives the two
+    /// listeners per sandbox and publishes each exact persisted generation through
+    /// the same delivery lifecycle as a live policy mutation.
+    async fn recover_inventory(
+        &self,
+        authority: &RecoveryAuthorityGuard,
+        entries: Vec<crate::kernel::network_policy::ports::NetworkPolicyRecoveryEntry>,
+    ) -> anyhow::Result<crate::kernel::network_policy::ports::NetworkPolicyRecoveryReport> {
+        authority.validate()?;
+        if !self.config.is_grpc_mode() {
+            authority.begin_serving()?;
+            let mut report =
+                crate::kernel::network_policy::ports::NetworkPolicyRecoveryReport::default();
+            for entry in entries {
+                let result = self
+                    .add_sandbox_policy(
+                        DeliveryRequest {
+                            authority_epoch: authority.epoch(),
+                            sandbox_id: entry.sandbox_id,
+                            generation: entry.generation.clone(),
+                        },
+                        entry.policy,
+                    )
+                    .await;
+                match result {
+                    Ok(()) => report.ready.push((entry.sandbox_id, entry.generation)),
+                    Err(error) => report.failed.push(
+                        crate::kernel::network_policy::ports::NetworkPolicyRecoveryFailure {
+                            sandbox_id: entry.sandbox_id,
+                            generation: entry.generation,
+                            reason: format!("recovered policy delivery failed: {error:#}"),
+                        },
+                    ),
+                }
+            }
+            self.delivery.set_degraded_inventory(report.failed.len());
+            return Ok(report);
+        }
+
+        let mut recovered = Vec::with_capacity(entries.len());
+        for entry in entries {
+            authority.validate()?;
+            self.prepare_socket_dir(entry.sandbox_id).await?;
+            let listener = ListenerSpec {
+                sandbox_id: entry.sandbox_id,
+                kind: ListenerKind::Http,
+                allowed_hosts: entry.policy.allowlist_hosts.clone(),
+                credentials: entry.policy.credential_routes.clone(),
+                proxy_auth_token: entry.policy.proxy_auth_token.clone(),
+            };
+            let mut resources = entry
+                .policy
+                .clusters(&entry.sandbox_id)
+                .iter()
+                .map(managed_cluster)
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            resources.push(managed_listener(&listener)?);
+            recovered.push(RecoveredSandbox {
+                sandbox_id: entry.sandbox_id,
+                generation: entry.generation,
+                resources,
+            });
+        }
+
+        let installed = self
+            .delivery
+            .install_recovery_inventory(authority, RecoveryInventory::new(recovered, Vec::new())?)
+            .await?;
+        authority.begin_serving()?;
+
+        let mut report =
+            crate::kernel::network_policy::ports::NetworkPolicyRecoveryReport::default();
+        for delivery in installed.deliveries {
+            authority.validate()?;
+            match delivery.state {
+                RecoveryDeliveryState::Deferred => {
+                    report.deferred.push(delivery.sandbox_id);
+                }
+                RecoveryDeliveryState::Await(attempt) => {
+                    let result = self
+                        .delivery
+                        .wait_for_delivery(
+                            attempt,
+                            Duration::from_millis(self.config.socket_ready_timeout_ms.max(1_000)),
+                        )
+                        .await
+                        .and_then(|_| Ok(()));
+                    let result = match result {
+                        Ok(()) => self.wait_for_socket_ready(delivery.sandbox_id).await,
+                        Err(error) => Err(error),
+                    };
+                    match result {
+                        Ok(()) => report
+                            .ready
+                            .push((delivery.sandbox_id, delivery.generation)),
+                        Err(error) => report.failed.push(
+                            crate::kernel::network_policy::ports::NetworkPolicyRecoveryFailure {
+                                sandbox_id: delivery.sandbox_id,
+                                generation: delivery.generation,
+                                reason: format!("recovered policy delivery failed: {error:#}"),
+                            },
+                        ),
+                    }
+                }
+            }
+        }
+        self.delivery
+            .set_degraded_inventory(report.deferred.len() + report.failed.len());
+        Ok(report)
     }
 
     /// Add a sandbox to Envoy config (creates socket dir, pushes listeners).
@@ -501,17 +676,18 @@ impl EnvoyManager {
     /// listener and never enter the sandbox.
     pub async fn add_sandbox_policy(
         &self,
-        sandbox_id: SandboxId,
+        delivery: DeliveryRequest,
         policy: SandboxEgressPolicy,
     ) -> anyhow::Result<()> {
-        self.add_sandbox_with_policy(sandbox_id, policy).await
+        self.add_sandbox_with_policy(delivery, policy).await
     }
 
     async fn add_sandbox_with_policy(
         &self,
-        sandbox_id: SandboxId,
+        delivery: DeliveryRequest,
         policy: SandboxEgressPolicy,
     ) -> anyhow::Result<()> {
+        let sandbox_id = delivery.sandbox_id;
         validate_egress_policy(&sandbox_id, &policy)?;
         // Create socket directory inside container.
         self.prepare_socket_dir(sandbox_id).await?;
@@ -530,7 +706,7 @@ impl EnvoyManager {
                 .await?;
         }
 
-        {
+        let delivery_attempt = {
             let sandbox_lock = self.sandbox_apply_lock(sandbox_id).await;
             let _guard =
                 tokio::time::timeout(std::time::Duration::from_secs(5), sandbox_lock.lock())
@@ -544,38 +720,36 @@ impl EnvoyManager {
                 proxy_auth_token: policy.proxy_auth_token.clone(),
             };
             let clusters = policy.clusters(&sandbox_id);
-            let cluster_prefix = format!("up_{}_", sandbox_id.as_uuid());
-
-            let applied_as_batch = tokio::time::timeout(
+            let submission = tokio::time::timeout(
                 std::time::Duration::from_secs(10),
-                self.lds.apply_sandbox_batch(
+                self.delivery.apply_sandbox_batch(
+                    delivery,
                     clusters.clone(),
                     vec![listener.clone()],
-                    cluster_prefix.clone(),
                 ),
             )
             .await
             .map_err(|_| anyhow::anyhow!("timed out applying Envoy xDS update"))??;
-            if !applied_as_batch {
-                if !clusters.is_empty() {
-                    anyhow::bail!(
-                        "filesystem xDS cannot safely publish listener {} with dedicated clusters; use JOYSAFETER_ENVOY_XDS_MODE=grpc",
-                        listener.resource_name()
-                    );
-                }
-                self.lds.upsert(vec![listener]).await?;
-            }
+            let delivery_attempt = match submission {
+                DeliverySubmission::AlreadyCurrent => None,
+                DeliverySubmission::Await(attempt) => Some(attempt),
+            };
             drop(_guard);
             self.cleanup_sandbox_apply_lock(sandbox_id, &sandbox_lock)
                 .await;
-        }
+            delivery_attempt
+        };
 
-        self.lds
-            .wait_for_sandbox_ack(
-                sandbox_id,
-                std::time::Duration::from_millis(self.config.socket_ready_timeout_ms.max(1_000)),
-            )
-            .await?;
+        if let Some(attempt) = delivery_attempt {
+            self.delivery
+                .wait_for_delivery(
+                    attempt,
+                    std::time::Duration::from_millis(
+                        self.config.socket_ready_timeout_ms.max(1_000),
+                    ),
+                )
+                .await?;
+        }
 
         // xDS acceptance is not proof of egress: the runner cannot reach the
         // network until Envoy has actually bound the per-sandbox Unix socket on
@@ -594,16 +768,25 @@ impl EnvoyManager {
     /// Remove a sandbox from Envoy config.
     async fn remove_sandbox_unlocked(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         let sandbox_uuid = sandbox_id.as_uuid();
-        self.cds
-            .remove_by_prefix(&format!("up_{sandbox_uuid}_"))
-            .await?;
-        self.lds
-            .remove(vec![format!("{sandbox_uuid}_http")])
-            .await?;
-
-        // Release retained per-sandbox ACK/NACK bookkeeping (grpc xDS backend)
-        // so apply_status cannot grow unboundedly over the orchestrator's life.
-        self.lds.forget_sandbox(sandbox_id).await;
+        match self.delivery.remove_sandbox_batch(sandbox_id).await? {
+            DeliverySubmission::Await(attempt) => {
+                self.delivery
+                    .wait_for_delivery(
+                        attempt,
+                        std::time::Duration::from_millis(
+                            self.config.socket_ready_timeout_ms.max(1_000),
+                        ),
+                    )
+                    .await
+                    .with_context(|| {
+                        format!("Envoy did not ACK xDS removal for sandbox {sandbox_id}")
+                    })?;
+                self.delivery.retire_sandbox_delivery(sandbox_id).await;
+            }
+            DeliverySubmission::AlreadyCurrent => {
+                self.delivery.retire_sandbox_delivery(sandbox_id).await;
+            }
+        }
 
         if let Some(socket_dir) = self.host_socket_dir(sandbox_id) {
             let _ = tokio::fs::remove_dir_all(socket_dir).await;
@@ -640,7 +823,7 @@ impl EnvoyManager {
         &self,
         live_sandbox_ids: &HashSet<SandboxId>,
     ) -> anyhow::Result<usize> {
-        let configured = self.lds.configured_sandbox_ids().await;
+        let configured = self.delivery.configured_sandbox_ids().await;
         let mut stale: Vec<_> = configured.difference(live_sandbox_ids).copied().collect();
         stale.sort_by_key(|sandbox_id| sandbox_id.as_uuid());
 
@@ -706,6 +889,9 @@ impl EnvoyManager {
 
         // Dynamic resources differ by mode.
         let dynamic_resources = if self.config.is_grpc_mode() {
+            let xds_auth_token = self.config.xds_auth_token.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("gRPC xDS bootstrap requires an authentication token")
+            })?;
             // Add a static cluster for the xDS control plane (H2 gRPC to the
             // orchestrator). Runner control-plane gRPC does not traverse Envoy.
             clusters.push(json!({
@@ -746,16 +932,10 @@ impl EnvoyManager {
                     "transport_api_version": "V3",
                     "grpc_services": [{
                         "envoy_grpc": { "cluster_name": "xds_cluster" },
-                        "initial_metadata": [
-                            {
-                                "key": "authorization",
-                                "value": format!("Bearer {}", self.config.xds_auth_token)
-                            },
-                            {
-                                "key": crate::xds::auth::ADS_NODE_ID_HEADER,
-                                "value": self.config.node_id
-                            }
-                        ]
+                        "initial_metadata": [{
+                            "key": crate::xds::auth::XDS_AUTH_HEADER,
+                            "value": xds_auth_token
+                        }]
                     }]
                 }
             })
@@ -829,16 +1009,14 @@ impl EnvoyManager {
     /// egress boundary.
     pub async fn setup_for_sandbox(
         &self,
-        sandbox_id: SandboxId,
+        delivery: DeliveryRequest,
         networking_config: Option<&serde_json::Value>,
         credentials: SandboxCredentials,
     ) -> anyhow::Result<()> {
+        let sandbox_id = delivery.sandbox_id;
         let allowed_hosts = extract_allowed_hosts(networking_config);
-        self.add_sandbox_policy(
-            sandbox_id,
-            credentials.to_policy(&sandbox_id, allowed_hosts),
-        )
-        .await
+        self.add_sandbox_policy(delivery, credentials.to_policy(&sandbox_id, allowed_hosts))
+            .await
     }
 
     /// Teardown networking for a sandbox.
@@ -856,11 +1034,12 @@ impl SandboxSocketProvisioner for EnvoyManager {
 
 pub struct EnvoyNetworkPolicyRuntime {
     manager: Arc<EnvoyManager>,
+    authority: XdsAuthority,
 }
 
 impl EnvoyNetworkPolicyRuntime {
-    pub fn new(manager: Arc<EnvoyManager>) -> Self {
-        Self { manager }
+    pub fn new(manager: Arc<EnvoyManager>, authority: XdsAuthority) -> Self {
+        Self { manager, authority }
     }
 }
 
@@ -879,12 +1058,34 @@ impl NetworkPolicyRuntime for EnvoyNetworkPolicyRuntime {
         self.manager.prune_networking_except(live_sandbox_ids).await
     }
 
+    async fn recover(
+        &self,
+        authority_epoch: u64,
+        entries: Vec<NetworkPolicyRecoveryEntry>,
+    ) -> anyhow::Result<NetworkPolicyRecoveryReport> {
+        let guard = self
+            .authority
+            .recovery_guard()
+            .filter(|guard| guard.epoch() == authority_epoch)
+            .ok_or_else(|| anyhow::anyhow!("xDS recovery authority changed"))?;
+        self.manager.recover_inventory(&guard, entries).await
+    }
+
     async fn apply(
         &self,
-        sandbox_id: SandboxId,
+        request: NetworkPolicyApplyRequest,
         policy: SandboxEgressPolicy,
     ) -> anyhow::Result<()> {
-        self.manager.add_sandbox_policy(sandbox_id, policy).await
+        self.manager
+            .add_sandbox_policy(
+                DeliveryRequest {
+                    authority_epoch: request.authority_epoch,
+                    sandbox_id: request.sandbox_id,
+                    generation: request.generation,
+                },
+                policy,
+            )
+            .await
     }
 
     async fn remove(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
@@ -910,9 +1111,15 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::xds::publisher::{GrpcCds, GrpcLds};
-    use crate::xds::transport::DeltaXdsServer;
+    use crate::sandbox::envoy_delivery::ControlPlaneEnvoyDelivery;
+    use crate::sandbox::envoy_delivery::EnvoyDelivery;
+    use crate::sandbox::envoy_filesystem::FilesystemEnvoyDelivery;
+    use crate::xds::control_plane::{NodeVisibility, XdsControlPlane};
     use uuid::Uuid;
+
+    fn test_control_plane() -> XdsControlPlane {
+        XdsControlPlane::new(XdsAuthority::standalone(), NodeVisibility::Unscoped)
+    }
 
     fn test_config() -> EnvoyConfig {
         EnvoyConfig {
@@ -923,7 +1130,7 @@ mod tests {
             envoy_network: "unused".to_string(),
             grpc_target_host: "127.0.0.1".to_string(),
             grpc_target_port: 9090,
-            xds_auth_token: "test-xds-token".to_string(),
+            xds_auth_token: Some("test-control-plane-token-with-enough-entropy".to_string()),
             container_name: "unused".to_string(),
             xds_mode: "grpc".to_string(),
             write_debug_entries: false,
@@ -947,19 +1154,49 @@ mod tests {
 
     #[tokio::test]
     async fn authoritative_prune_removes_only_stale_sandbox_networking() {
-        let server = DeltaXdsServer::with_static_token("test-xds-token").unwrap();
-        let lds = Arc::new(GrpcLds::new(server.clone()));
-        let manager = EnvoyManager::new(
-            None,
-            test_config(),
-            lds.clone(),
-            Arc::new(GrpcCds::new(server)),
-        );
         let live = SandboxId::from_uuid(Uuid::from_u128(10));
         let stale = SandboxId::from_uuid(Uuid::from_u128(11));
-        lds.upsert(vec![listener(live), listener(stale)])
+        let config_dir = std::env::temp_dir().join(format!(
+            "joysafeter-envoy-prune-test-{}",
+            SandboxId::new().as_uuid()
+        ));
+        let delivery = Arc::new(FilesystemEnvoyDelivery::new(
+            config_dir.to_string_lossy().into_owned(),
+        ));
+        let mut config = test_config();
+        config.config_dir = config_dir.to_string_lossy().into_owned();
+        config.xds_mode = "filesystem".to_string();
+        let manager = EnvoyManager::new(None, config, delivery.clone());
+        delivery
+            .apply_sandbox_batch(
+                DeliveryRequest {
+                    authority_epoch: 1,
+                    sandbox_id: live,
+                    generation: crate::kernel::network_policy::NetworkPolicyGeneration {
+                        policy_hash: "live-policy".to_string(),
+                        policy_version: 1,
+                    },
+                },
+                vec![],
+                vec![listener(live)],
+            )
             .await
-            .expect("seed listeners");
+            .expect("seed live listener");
+        delivery
+            .apply_sandbox_batch(
+                DeliveryRequest {
+                    authority_epoch: 1,
+                    sandbox_id: stale,
+                    generation: crate::kernel::network_policy::NetworkPolicyGeneration {
+                        policy_hash: "stale-policy".to_string(),
+                        policy_version: 1,
+                    },
+                },
+                vec![],
+                vec![listener(stale)],
+            )
+            .await
+            .expect("seed stale listener");
 
         let removed = manager
             .prune_networking_except(&HashSet::from([live]))
@@ -967,17 +1204,54 @@ mod tests {
             .expect("prune stale networking");
 
         assert_eq!(removed, 1);
-        assert_eq!(lds.configured_sandbox_ids().await, HashSet::from([live]));
+        assert_eq!(
+            delivery.configured_sandbox_ids().await,
+            HashSet::from([live])
+        );
+        let _ = tokio::fs::remove_dir_all(config_dir).await;
     }
 
     fn manager_without_docker() -> EnvoyManager {
-        let server = DeltaXdsServer::with_static_token("test-xds-token").unwrap();
+        let control_plane = test_control_plane();
         EnvoyManager::new(
             None,
             test_config(),
-            Arc::new(GrpcLds::new(server.clone())),
-            Arc::new(GrpcCds::new(server)),
+            Arc::new(ControlPlaneEnvoyDelivery::new(control_plane)),
         )
+    }
+
+    #[tokio::test]
+    async fn deferred_recovery_does_not_touch_durable_generation() {
+        let authority = XdsAuthority::managed();
+        let recovery = authority.begin_staging().expect("begin recovery staging");
+        let control_plane = XdsControlPlane::new(authority.clone(), NodeVisibility::NodeScoped);
+        let manager = Arc::new(EnvoyManager::new(
+            None,
+            test_config(),
+            Arc::new(ControlPlaneEnvoyDelivery::new(control_plane)),
+        ));
+        let runtime = EnvoyNetworkPolicyRuntime::new(manager, authority);
+        let sandbox_id = SandboxId::new();
+        let generation = crate::kernel::network_policy::NetworkPolicyGeneration {
+            policy_hash: "deferred-policy".to_string(),
+            policy_version: 1,
+        };
+
+        let report = runtime
+            .recover(
+                recovery.epoch(),
+                vec![NetworkPolicyRecoveryEntry {
+                    sandbox_id,
+                    generation,
+                    policy: SandboxEgressPolicy::default(),
+                }],
+            )
+            .await
+            .expect("deferred recovery must not access persistence");
+
+        assert!(report.ready.is_empty());
+        assert_eq!(report.deferred, vec![sandbox_id]);
+        assert!(report.failed.is_empty());
     }
 
     #[tokio::test]
@@ -1062,7 +1336,7 @@ mod tests {
 
     #[tokio::test]
     async fn write_bootstrap_reports_change_only_when_content_differs() {
-        let server = DeltaXdsServer::with_static_token("test-xds-token").unwrap();
+        let control_plane = test_control_plane();
         let mut cfg = test_config();
         let dir =
             std::env::temp_dir().join(format!("joysafeter-bootstrap-test-{}", std::process::id()));
@@ -1071,29 +1345,21 @@ mod tests {
         let manager = EnvoyManager::new(
             None,
             cfg,
-            Arc::new(GrpcLds::new(server.clone())),
-            Arc::new(GrpcCds::new(server)),
+            Arc::new(ControlPlaneEnvoyDelivery::new(control_plane)),
         );
         assert!(
             manager.write_bootstrap_config().await.unwrap(),
             "first write must report a change (file created)"
         );
+        let bootstrap = tokio::fs::read_to_string(dir.join("bootstrap.json"))
+            .await
+            .unwrap();
+        assert!(bootstrap.contains("x-joysafeter-xds-token"));
+        assert!(bootstrap.contains("test-control-plane-token-with-enough-entropy"));
         assert!(
             !manager.write_bootstrap_config().await.unwrap(),
             "identical rewrite must report no change"
         );
-        let bootstrap: serde_json::Value = serde_json::from_str(
-            &tokio::fs::read_to_string(dir.join("bootstrap.json"))
-                .await
-                .expect("read rendered bootstrap"),
-        )
-        .expect("parse rendered bootstrap");
-        let metadata =
-            &bootstrap["dynamic_resources"]["ads_config"]["grpc_services"][0]["initial_metadata"];
-        assert_eq!(metadata[0]["key"], "authorization");
-        assert_eq!(metadata[0]["value"], "Bearer test-xds-token");
-        assert_eq!(metadata[1]["key"], crate::xds::auth::ADS_NODE_ID_HEADER);
-        assert_eq!(metadata[1]["value"], "test-node");
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 }

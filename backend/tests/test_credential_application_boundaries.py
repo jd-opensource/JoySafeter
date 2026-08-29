@@ -80,6 +80,7 @@ from app.joysafeter_infrastructure.repository_access.material_adapter import (
 from app.joysafeter_infrastructure.sensitive_material.versioned import VersionedMaterialProtector
 from app.joysafeter_infrastructure.task_identity.material_adapter import TaskIdentityMaterialAdapter
 from app.joysafeter_shared.ids import EnvironmentId, OrganizationId, SandboxId, SecurityAuditId, SessionId
+from tests.network_policy_test_helpers import acknowledged_network_policy_fields
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 APP_ROOT = BACKEND_ROOT / "app"
@@ -1323,7 +1324,7 @@ async def test_production_composition_orders_mutation_audit_impact_commit_nudge(
         project_id=project_id,
         image="test-image:latest",
         status="running",
-        networking_status="ready",
+        **acknowledged_network_policy_fields(),
         config={"fingerprint": {"networking": {"type": "limited"}}},
     )
     db_session.add_all([environment, sandbox])

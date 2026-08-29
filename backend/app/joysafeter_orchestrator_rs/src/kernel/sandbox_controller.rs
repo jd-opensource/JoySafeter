@@ -41,7 +41,7 @@ pub struct SandboxController {
     redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
     config: JoySafeterConfig,
     runtime_config: Arc<RuntimeConfig>,
-    xds_authority: crate::xds::authority::XdsAuthorityState,
+    xds_authority: crate::xds::authority::XdsAuthority,
     network_policy_queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
     network_policy_runtime: Arc<dyn NetworkPolicyRuntime>,
     network_policy_material_resolver: Arc<dyn NetworkPolicyMaterialResolver>,
@@ -67,7 +67,7 @@ impl SandboxController {
             redis_coordinator,
             config,
             runtime_config,
-            xds_authority: crate::xds::authority::XdsAuthorityState::standalone(),
+            xds_authority: crate::xds::authority::XdsAuthority::standalone(),
             network_policy_queue: None,
             network_policy_runtime: Arc::new(NoopNetworkPolicyRuntime),
             network_policy_material_resolver: Arc::new(UnconfiguredNetworkPolicyMaterialResolver),
@@ -90,7 +90,7 @@ impl SandboxController {
 
     pub fn with_network_policy_control(
         mut self,
-        authority: crate::xds::authority::XdsAuthorityState,
+        authority: crate::xds::authority::XdsAuthority,
         queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
     ) -> Self {
         self.xds_authority = authority;
@@ -226,7 +226,7 @@ impl SandboxController {
     /// Returns the number of degraded sandboxes found this tick (0 = all
     /// healthy), so the caller can adapt its polling cadence.
     async fn reconcile_degraded_networking(&self, limit: i64) -> anyhow::Result<usize> {
-        let Some(authority) = self.xds_authority.ready_guard() else {
+        let Some(authority) = self.xds_authority.mutation_guard() else {
             return Ok(0);
         };
         let degraded = queries::list_degraded_limited_sandboxes(&self.pool, limit).await?;
@@ -2666,7 +2666,7 @@ mod tests {
             .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
             .expect("lazy pool");
         let controller = missing_runtime_controller(pool, "unused".to_string())
-            .with_network_policy_control(crate::xds::authority::XdsAuthorityState::managed(), None);
+            .with_network_policy_control(crate::xds::authority::XdsAuthority::managed(), None);
 
         let result = tokio::time::timeout(
             Duration::from_millis(100),

@@ -51,16 +51,10 @@ spec:
                 "transport_api_version": "V3",
                 "grpc_services": [{
                   "envoy_grpc": { "cluster_name": "xds_cluster" },
-                  "initial_metadata": [
-                    {
-                      "key": "authorization",
-                      "value": "Bearer ${JOYSAFETER_XDS_AUTH_TOKEN}"
-                    },
-                    {
-                      "key": "x-joysafeter-node-id",
-                      "value": "${NODE_NAME}"
-                    }
-                  ]
+                  "initial_metadata": [{
+                    "key": "x-joysafeter-xds-token",
+                    "value": "${JOYSAFETER_XDS_AUTH_TOKEN}"
+                  }]
                 }]
               }
             },
@@ -127,11 +121,7 @@ spec:
                         "endpoint": {
                           "address": {
                             "socket_address": {
-                              {{- if eq .Values.haMode "multi" }}
                               "address": "joysafeter-orchestrator-xds.{{ .Values.namespace }}.svc.cluster.local",
-                              {{- else }}
-                              "address": "joysafeter-orchestrator.{{ .Values.namespace }}.svc.cluster.local",
-                              {{- end }}
                               "port_value": {{ .Values.orchestrator.xds.port }}
                             }
                           }

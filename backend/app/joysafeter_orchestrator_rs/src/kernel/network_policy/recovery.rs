@@ -1,29 +1,27 @@
-use std::collections::HashSet;
-
-use anyhow::Context;
 use sqlx::PgPool;
 
 use crate::db::queries;
-use crate::xds::authority::XdsAuthorityGuard;
+use crate::ids::SandboxId;
+use crate::xds::authority::RecoveryAuthorityGuard;
 
+use super::envoy_model::validate_egress_policy;
 use super::material::NetworkPolicyMaterialResolver;
-use super::ports::NetworkPolicyRuntime;
+use super::ports::{
+    NetworkPolicyRecoveryEntry, NetworkPolicyRecoveryFailure, NetworkPolicyRuntime,
+};
 
 pub async fn recover_as_authority(
     pool: &PgPool,
     runtime: &dyn NetworkPolicyRuntime,
     material_resolver: &dyn NetworkPolicyMaterialResolver,
-    authority: &XdsAuthorityGuard,
+    authority: &RecoveryAuthorityGuard,
 ) -> anyhow::Result<usize> {
-    if !authority.is_current() {
-        anyhow::bail!("xDS authority changed before network-policy recovery started");
-    }
+    authority.validate()?;
+    let sandboxes = queries::load_recovery_inventory(pool).await?;
+    let mut entries = Vec::new();
 
-    runtime.prune(&HashSet::new()).await?;
-    let sandboxes = queries::list_live_sandboxes_for_recovery(pool).await?;
-    let mut recovered = 0usize;
-
-    for sandbox in &sandboxes {
+    for sandbox in sandboxes {
+        authority.validate()?;
         let networking = sandbox
             .config
             .as_ref()
@@ -31,50 +29,144 @@ pub async fn recover_as_authority(
             .and_then(|fingerprint| fingerprint.get("networking"));
         if networking
             .and_then(|value| value.get("type"))
-            .and_then(|value| value.as_str())
+            .and_then(serde_json::Value::as_str)
             != Some("limited")
         {
+            quarantine(
+                pool,
+                sandbox.id,
+                sandbox.networking_policy_hash.as_deref(),
+                sandbox.networking_policy_version,
+                "live sandbox carries network-policy state for a non-limited network mode",
+            )
+            .await?;
             continue;
         }
-        if !authority.is_current() {
-            anyhow::bail!("xDS authority changed during network-policy recovery");
+        let Some(policy_hash) = sandbox.networking_policy_hash.as_deref() else {
+            quarantine(
+                pool,
+                sandbox.id,
+                None,
+                sandbox.networking_policy_version,
+                "live limited-networking sandbox has no persisted policy hash",
+            )
+            .await?;
+            continue;
+        };
+        if sandbox.networking_policy_version <= 0 {
+            quarantine(
+                pool,
+                sandbox.id,
+                Some(policy_hash),
+                sandbox.networking_policy_version,
+                "live limited-networking sandbox has no valid persisted policy version",
+            )
+            .await?;
+            continue;
         }
 
-        let desired = material_resolver.resolve(sandbox.id).await?;
-        let policy_hash = sandbox
-            .networking_policy_hash
-            .clone()
-            .unwrap_or_else(|| desired.revision().to_string());
-        if desired.revision().as_str() != policy_hash {
-            anyhow::bail!(
-                "sandbox {} recovery policy hash does not match durable generation",
-                sandbox.id
-            );
-        }
-        let generation =
-            queries::reopen_network_policy_for_authority_recovery(pool, sandbox.id, &policy_hash)
+        let desired = match material_resolver.resolve(sandbox.id).await {
+            Ok(desired) => desired,
+            Err(error) => {
+                quarantine(
+                    pool,
+                    sandbox.id,
+                    Some(policy_hash),
+                    sandbox.networking_policy_version,
+                    &format!("failed to rebuild recovery material: {error:#}"),
+                )
                 .await?;
-
-        runtime
-            .apply(sandbox.id, desired.render_for(sandbox.id))
-            .await
-            .with_context(|| format!("failed to recover network policy for {}", sandbox.id))?;
-        if !authority.is_current() {
-            anyhow::bail!("xDS authority changed before recovery ACK persistence");
+                continue;
+            }
+        };
+        if desired.revision().as_str() != policy_hash {
+            quarantine(
+                pool,
+                sandbox.id,
+                Some(policy_hash),
+                sandbox.networking_policy_version,
+                "recovered desired policy does not match durable generation",
+            )
+            .await?;
+            continue;
         }
-        match queries::mark_sandbox_network_policy_acked(pool, sandbox.id, &generation).await? {
+        let policy = desired.render_for(sandbox.id);
+        if let Err(error) = validate_egress_policy(&sandbox.id, &policy) {
+            quarantine(
+                pool,
+                sandbox.id,
+                Some(policy_hash),
+                sandbox.networking_policy_version,
+                &format!("invalid recovered egress policy: {error:#}"),
+            )
+            .await?;
+            continue;
+        }
+        entries.push(NetworkPolicyRecoveryEntry {
+            sandbox_id: sandbox.id,
+            generation: super::NetworkPolicyGeneration {
+                policy_hash: policy_hash.to_string(),
+                policy_version: sandbox.networking_policy_version,
+            },
+            policy,
+        });
+    }
+
+    let report = runtime.recover(authority.epoch(), entries).await?;
+    authority.validate()?;
+    let mut recovered = 0usize;
+    for (sandbox_id, generation) in report.ready {
+        authority.validate()?;
+        match queries::mark_generation_applied(pool, sandbox_id, &generation).await? {
             queries::NetworkPolicyAckOutcome::Applied
             | queries::NetworkPolicyAckOutcome::AlreadyReady => recovered += 1,
             queries::NetworkPolicyAckOutcome::Stale => anyhow::bail!(
-                "sandbox {} network policy generation changed during recovery",
-                sandbox.id
+                "sandbox {sandbox_id} network policy generation changed during recovery"
             ),
-            queries::NetworkPolicyAckOutcome::Missing => anyhow::bail!(
-                "sandbox {} disappeared during network-policy recovery",
-                sandbox.id
-            ),
+            queries::NetworkPolicyAckOutcome::Missing => {}
         }
     }
-
+    for failure in report.failed {
+        persist_runtime_failure(pool, failure).await?;
+    }
     Ok(recovered)
+}
+
+async fn persist_runtime_failure(
+    pool: &PgPool,
+    failure: NetworkPolicyRecoveryFailure,
+) -> anyhow::Result<()> {
+    quarantine(
+        pool,
+        failure.sandbox_id,
+        Some(&failure.generation.policy_hash),
+        failure.generation.policy_version,
+        &failure.reason,
+    )
+    .await
+}
+
+async fn quarantine(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+    observed_policy_hash: Option<&str>,
+    observed_policy_version: i64,
+    reason: &str,
+) -> anyhow::Result<()> {
+    match queries::quarantine_recovery_generation(
+        pool,
+        sandbox_id,
+        observed_policy_hash,
+        observed_policy_version,
+        reason,
+    )
+    .await?
+    {
+        queries::NetworkPolicyFailureOutcome::Recorded
+        | queries::NetworkPolicyFailureOutcome::Missing => Ok(()),
+        queries::NetworkPolicyFailureOutcome::Stale
+        | queries::NetworkPolicyFailureOutcome::AlreadyReady => anyhow::bail!(
+            "sandbox {sandbox_id} generation changed while recovery was quarantining it"
+        ),
+    }
 }

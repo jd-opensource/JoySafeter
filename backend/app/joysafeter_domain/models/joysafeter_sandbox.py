@@ -16,6 +16,30 @@ class JoySafeterSandbox(JoySafeterModel):
     __tablename__ = "joysafeter_sandboxes"
     __table_args__ = (
         CheckConstraint(
+            "networking_status IN ('disabled', 'pending', 'ready', 'nacked', 'failed')",
+            name="ck_sandbox_networking_status",
+        ),
+        CheckConstraint(
+            "(networking_policy_hash IS NULL AND networking_policy_version = 0) OR "
+            "(networking_policy_hash IS NOT NULL AND length(btrim(networking_policy_hash)) > 0 "
+            "AND networking_policy_version > 0)",
+            name="ck_sandbox_desired_network_policy_generation",
+        ),
+        CheckConstraint(
+            "(networking_applied_hash IS NULL AND networking_applied_version IS NULL) OR "
+            "(networking_applied_hash IS NOT NULL AND length(btrim(networking_applied_hash)) > 0 "
+            "AND networking_applied_version > 0)",
+            name="ck_sandbox_applied_network_policy_generation",
+        ),
+        CheckConstraint(
+            "networking_status <> 'ready' OR "
+            "(networking_policy_hash IS NOT NULL AND networking_applied_hash IS NOT NULL "
+            "AND networking_policy_version > 0 AND networking_applied_version > 0 "
+            "AND networking_policy_hash = networking_applied_hash "
+            "AND networking_policy_version = networking_applied_version)",
+            name="ck_sandbox_ready_network_policy_generation",
+        ),
+        CheckConstraint(
             "runtime_config_status IN ('ready', 'restart_required')",
             name="ck_joysafeter_sandboxes_runtime_config_status",
         ),

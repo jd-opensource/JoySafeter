@@ -28,6 +28,7 @@ flowchart TB
     subgraph ORCH_S["Rust Orchestrator 服务"]
         SCHED["任务调度器<br/>DB 拉取 · FOR UPDATE SKIP LOCKED"]
         GRPC["gRPC AgentBridge :9090"]
+        XDS["认证 Delta ADS :9092"]
         BUS["两相事件总线<br/>持久化 ∥ 广播"]
     end
 
@@ -207,9 +208,8 @@ sequenceDiagram
 | **可靠事件总线** | Redis **Streams** `joysafeter:orchestrator:events` + 消费组 | orchestrator `XADD` → Worker `XREADGROUP` → 落库 | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`、`joysafeter_worker/events/stream_consumer.py` |
 | **实时事件扇出** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | 跨实例 SSE 投递（`SessionBroadcaster`） | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`、`joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
 | 控制/取消中继 | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | 把 cancel/input/shutdown 路由到拥有该沙箱的实例 | `joysafeter_shared/orchestrator_bridge/runtime_commands.py`、`joysafeter_orchestrator_rs/src/kernel/command_listener.rs` |
-| 网络策略唤醒 | Redis **Stream** `joysafeter:network-policy:requests` | 把精确 generation 的 reconcile/remove 请求送达 elected authority；不保存业务期望或 xDS 状态 | `joysafeter_orchestrator_rs/src/kernel/ha/redis_impl.rs`、`joysafeter_orchestrator_rs/src/xds/authority_worker.rs` |
+| 网络策略唤醒 | Redis **Stream** `joysafeter:network-policy:requests` | 唤醒 elected xDS authority 处理精确 PostgreSQL generation 或 teardown；不保存 xDS 状态 | `joysafeter_orchestrator_rs/src/kernel/ha/redis_impl.rs`、`joysafeter_orchestrator_rs/src/xds/authority.rs` |
 | orchestrator ↔ runner | **gRPC** `AgentBridge`（双向流，:9090） | Agent 执行协议 | `proto/joysafeter.proto`、`joysafeter_orchestrator_rs/src/grpc/server.rs` |
-| Envoy ↔ xDS authority | **gRPC** Delta ADS（默认 `:19000`） | 带认证的 CDS/LDS 订阅、ACK/NACK 与 revoke | `joysafeter_orchestrator_rs/src/xds/`、`JOYSAFETER_XDS_AUTH_TOKEN` |
 | runner 出口 | Envoy 代理（unix socket） | 每沙箱域名白名单，默认全拒 | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
 | 技能扫描 | HTTP → skillspector `:8010` | 写入时信息扫描；可选仅在发布时执行新的 fail-closed 扫描 | `joysafeter_skill_security.py` |
 
@@ -245,169 +245,123 @@ Cookie/session 回退（首次登录自动开通默认 org+project）。所有 p
 | 子系统 | 模块 | 职责 |
 |---|---|---|
 | gRPC 服务 | `src/grpc/server.rs` | `AgentBridge.Session` 双向流；处理 runner 消息、下发 orchestrator 命令 |
+| xDS 控制面 | `src/xds/control_plane.rs`、`src/xds/resource_store.rs`、`src/xds/node_ownership.rs`、`src/xds/delta.rs` | 单一进程级装配根、原子且显式归属的资源世界、完整 sandbox-to-node 生命周期与 Delta reconciliation |
+| xDS authority/transport | `src/xds/authority.rs`、`src/xds/auth.rs`、`src/xds/transport.rs`、`src/xds/leader.rs` | `Standby → Staging → RecoveryServing → Ready → Revoked`、epoch fencing、认证 ADS 与 leader endpoint 发布 |
 | 任务调度器 | `src/kernel/scheduler.rs` | 认领 pending 任务（`FOR UPDATE SKIP LOCKED`），解析沙箱，推入沙箱队列 |
 | 任务控制器 | `src/kernel/task_controller.rs` | 生命周期、启动恢复、故障转移/重试 |
 | 沙箱控制器 | `src/kernel/sandbox_controller.rs` | 空闲清扫、provisioning 轮询、预热池、孤儿清理 |
 | 沙箱解析器 | `src/kernel/sandbox_resolver.rs` | 三段式解析：复用会话沙箱 → 从池认领 → 新建；注入 runner env |
 | 沙箱 bridge | `src/kernel/sandbox_bridge.rs` | 每沙箱的进程内状态：runner 流、状态、订阅者、控制队列 |
-| 网络策略应用 | `src/kernel/network_policy/` | 业务期望、generation 编排、PostgreSQL CAS 状态转换与失败分类 |
-| Envoy 渲染 | `src/sandbox/envoy_render/` | 纯函数式 Listener/Cluster JSON 与 protobuf 渲染；无 I/O、无运行时查询 |
-| xDS 控制面 | `src/xds/` | ADS 认证/服务、资源库存、节点所有权、stream fencing、ACK/NACK quorum、authority 生命周期、恢复、撤销与指标 |
-| 沙箱运行时 | `src/sandbox/docker.rs`、`src/sandbox/k8s.rs`、`src/sandbox/runtime.rs` | 容器/Pod 生命周期、文件/socket 操作与 placement facts；不持有 xDS/策略状态 |
-| Bootstrap | `src/bootstrap/` | Registry/Factory 解析、具体 adapter 一次性装配与进程生命周期；Registry 不进入业务服务 |
 | Redis 协调器 | `src/kernel/redis_coordinator.rs` | 跨实例 HA：owner 映射、心跳、队列、事件发布 |
 | 命令监听器 | `src/kernel/command_listener.rs` | Redis cancel/input/shutdown/memory_update 中继与 ACK |
 | 事件总线 | `src/events/bus.rs` | 进程内事件总线，驱动 stream 持久化和实时扇出 |
 | 会话广播器 | `src/kernel/session_broadcaster.rs` | 实时 SSE 扇出：Redis Pub/Sub |
 
-启动职责被明确拆开：`src/main.rs` 只做进程级初始化并调用 `bootstrap/application.rs`；application
-composition root 打开数据库/Redis，通过 Registry 解析一组 `RuntimeComponents`，初始化网络策略 runtime，
-分别启动独立 `:19000` ADS server 与 `:9090` Runner gRPC server，安装 authority worker、控制器与调度器，
-最后才置 ready。`bootstrap/supervisor.rs` 只负责信号与健康检查。`multi` 模式下所有副本均参与调度；
-启用受管出口时若没有 Kubernetes Lease-elected xDS authority，进程会 fail closed。
+启动顺序（`src/bootstrap/application.rs`；`src/main.rs` 只负责委托）：配置 + 数据库 + Redis 协调器 → 单一进程级 xDS authority 与
+`XdsControlPlane` → provider adapter 接收控制面 → 独立认证的 `:9092` ADS 服务 → provider 初始化 → `Staging` / `RecoveryServing`
+PostgreSQL 恢复 → `Ready` → `:9090` Runner gRPC → 任务与生命周期后台循环。`multi` 模式在
+`RecoveryServing` 即发布 leader endpoint，让 Envoy 能完成恢复 ACK；正常变更必须等到 `Ready`。
+Lease 丢失和进程退出先进入 `Revoked`，再移除 endpoint 并停止传输。启用受管出口但没有 Kubernetes
+Lease-elected xDS authority 时进程 fail closed。
 
-#### 网络策略与 xDS 的领域归属
+#### Orchestrator 主流程、子流程与扩展边界
 
-这条链路按“谁拥有状态不变量”拆分，而不是按调用方便拆分。模块只能依赖 **消费能力** 列出的窄接口；
-反向 import、从 trait object 向下转型、把 Registry 放进请求上下文，均属于越界。
+orchestrator 只有一个组合根，下面挂接可独立替换的子流程。主流程只能选择实现、连接端口、按依赖顺序启动并统一
+监督退出，不得复制 provider、network-policy、xDS 或 transport 的领域判断。因此具体 provider 通过 Registry/
+Factory 装载，`main.rs` 和业务服务不得通过分支硬编码实例化。
 
-| 领域 owner | 拥有 / 对外能力 | 消费能力 | 明确不拥有 |
-|---|---|---|---|
-| `kernel/network_policy` | `DesiredNetworkPolicy`、稳定 revision、精确 generation 编排、PostgreSQL CAS、恢复顺序 | PostgreSQL query API、材料 resolver port、policy runtime port、Redis wakeup port、authority guard | Envoy JSON/protobuf 编码、ADS stream、Docker/Kubernetes client、具体 adapter |
-| `sandbox/envoy_render` | 把已验证 `ListenerSpec`/`ClusterSpec` 纯函数式转换成 JSON/protobuf | `kernel/network_policy/envoy_model` 的值对象 | 策略推导、凭据查询、数据库、Redis、Tokio task、socket、Pod/container、xDS session state |
-| `xds` | authority epoch/FSM、认证 ADS、资源库存、节点 audience、placement revision、stream identity、按 owner/type 的 ACK/NACK quorum、recovery/revoke 编排、指标 | 已渲染资源、placement event、Lease/fence、应用层提供的 recovery/work handler | 业务策略推导、凭据解析、沙箱生命周期、PostgreSQL 读取或终态决策 |
-| `sandbox/runtime` 与 provider adapter | create/start/stop/destroy、exec、文件注入、socket 准备、runtime status、`PlacementEvent` facts | Docker/Kubernetes/第三方 runtime API、不可变配置 | xDS inventory、generation 转换、ACK/NACK 判定、凭据或策略推导 |
-| `grpc/server` | Runner `AgentBridge` transport | 已装配的 runner application handlers | ADS 注册、xDS 认证、网络策略编排 |
-| `bootstrap` | Provider Registry、具体 factory、端口装配、server/task supervision | 配置与具体构造器 | 领域决策、可变请求上下文、业务代码内 service locator |
+| 领域 | 模块 | 拥有的能力 | 输入 → 输出 | 允许依赖 | 失败归属 |
+|---|---|---|---|---|---|
+| 进程入口 | `src/main.rs` | 日志、配置入口和委托 | 环境 → `JoySafeterConfig` → `OrchestratorApplication` | `bootstrap` | 进程配置非法 |
+| 组合根 | `src/bootstrap/application.rs` | 进程级对象图、启动顺序、后台循环启动和协同退出 | 已验证配置 → 已初始化端口、服务、handle | 配置、DB/Redis 构造器、Registry、应用服务、transport | 必需基础设施缺失或跨组件拓扑非法 |
+| Provider Registry | `src/bootstrap/registry.rs` | provider 名称规范化、查找和 factory 分派 | provider 名 + factory context → `RuntimeComponents` | 只依赖 factory 接口 | 未知/禁用 provider、factory 构造失败 |
+| Runtime Factory | `src/bootstrap/runtime_factories.rs` | Docker/Kubernetes/Daytona/E2B adapter 装配及仅用于组合的事件 handler | 配置 + 共享 xDS context → provider、network-policy runtime、可选 Envoy manager | 具体 adapter，不被业务调用 | provider 配置或构造失败 |
+| 监督 | `src/bootstrap/supervisor.rs` | OS 退出信号、健康与指标 HTTP 暴露 | readiness + xDS snapshot → 进程生命周期/HTTP 响应 | 稳定健康接口 | listener 失败归本模块；领域失败仍回归原 owner |
+| 策略材料 adapter | `src/bootstrap/network_policy_material.rs` | `NetworkPolicyMaterialResolver` 的 PostgreSQL/凭据实现 | `SandboxId` → `DesiredNetworkPolicy` 输入 | DB query、credential projection | sandbox 缺失、凭据重建或材料读取失败 |
 
-允许的依赖方向：
+新增 sandbox 后端时，只向 `ProviderFactoryRegistry` 注册一个 `ProviderFactory`，统一产出
+`SandboxProvider`、`NetworkPolicyRuntime` 和可选 `EnvoyManager`。调用方只消费 trait，不按 provider 类型
+downcast 或分支。Registry 只能存在于 bootstrap，不能退化成业务代码随处读取的 service locator。
 
-```text
-main
-  -> bootstrap/application
-       -> registry/factories
-            -> docker/k8s/daytona/e2b adapters
-            -> PostgreSQL policy-material adapter
-            -> xDS control plane/transport
-       -> kernel application handlers through explicit ports
+#### Network-policy 领域与应用流程
 
-kernel/network_policy/application -> DB query API + material/runtime/queue ports + authority guard
-kernel/network_policy/envoy_model -> typed IDs + pure policy/resource values
-sandbox/envoy_render              -> network_policy/envoy_model + serde/envoy protobuf
-sandbox/envoy                     -> NetworkPolicyRuntime + render functions + LDS/CDS delivery ports
-xds/publisher                     -> rendered specs + xDS control-plane handle
-sandbox/runtime/providers         -> external runtime APIs + fact ports only
-```
+`src/kernel/network_policy/` 拥有业务期望、确定性 revision、精确 generation 编排，以及 runtime 结果到
+PostgreSQL 状态转换的规则。它不拥有容器、Pod、ADS session 或 JSON/protobuf 编码。
 
-#### Rust 模块、依赖、能力与失败归属
+| 模块 | 职责与对外能力 | 依赖与边界 |
+|---|---|---|
+| `mod.rs` | `DesiredNetworkPolicy`、规范化脱敏 revision、`NetworkPolicyGeneration` 值对象 | 纯领域输入；不能访问 provider/transport |
+| `envoy_model.rs` | 已验证且 transport-neutral 的 listener/cluster/credential 策略模型 | 纯模型与校验；renderer 依赖它，不能反向依赖 renderer |
+| `material.rs` | `NetworkPolicyMaterialResolver` 输入端口 | 由 bootstrap 实现；领域只看 `SandboxId → DesiredNetworkPolicy` |
+| `ports.rs` | `NetworkPolicyRuntime` 执行端口和 `NetworkPolicyRequestQueue` 唤醒端口 | 基础设施实现；PostgreSQL 始终是权威 |
+| `request.rs` | 中立 reconcile/remove 命令；需要时携带精确 generation | 可经 Redis 运输，但不携带 runtime 状态 |
+| `application.rs` | 准备 generation、校验材料、apply/remove、等待投递、持久化精确 CAS 结果 | 使用 DB query、领域端口和 authority guard；不构造 provider/xDS server |
+| `authority.rs` | `NetworkPolicyAuthorityHandler`，把领域工作适配到通用 elected-authority worker | 在当前 mutation guard 下加载 DB inventory、apply/prune |
+| `recovery.rs` | 重建并校验存活 limited-network inventory，分类 ready/deferred/quarantine | 读取 PostgreSQL、调用 runtime recovery 端口、持久化精确恢复结果 |
 
-| 模块 | 角色 | 直接依赖 | 对外暴露能力 | 状态 / 失败归属 |
-|---|---|---|---|---|
-| `main.rs` | 进程入口 | 环境、tracing、`JoySafeterConfig`、`OrchestratorApplication` | 启动一个 application | 仅进程初始化；不构造 adapter/controller |
-| `bootstrap/application.rs` | composition root 与生命周期 | Registry、应用 handler、server start、supervisor | 一次性装配端口，编排初始化、ready、drain、shutdown | 启停顺序与 fail-closed 装配；不做领域策略决策 |
-| `bootstrap/supervisor.rs` | 进程监督 adapter | Tokio signal/TCP | shutdown signal、health listener | signal/listener 失败；不持有 controller/authority 状态 |
-| `bootstrap/registry.rs` | Provider Factory 注册表 | 配置、`ProviderFactory` | 按名称解析一个 `RuntimeComponents` bundle | 未知/禁用 provider 导致启动失败；不进入请求上下文 |
-| `bootstrap/runtime_factories.rs` | 具体装配 | Docker/Kube、Envoy、xDS publisher/transport | 一次性构造 lifecycle、socket、policy runtime、placement、ADS 能力 | 仅构造/配置失败 |
-| `bootstrap/network_policy_material.rs` | PostgreSQL 材料 adapter factory | DB query、credential runtime projection、material port | 以 trait object 暴露私有 PostgreSQL resolver | 查询/解密/材料组装失败；不改变 generation |
-| `kernel/credentials/runtime_projection.rs` | 临时运行时凭据投影 | credential access、run spec、MCP plan、repository access | 推导 sandbox env、模型/MCP/Git egress、runner token 与恢复材料 | 授权/解密/投影错误；不拥有生命周期、generation、xDS publication |
-| `kernel/network_policy.rs` | 策略领域 facade | credential-route 值对象 | 业务期望与 canonical revision | 业务校验、策略 identity |
-| `kernel/network_policy/envoy_model.rs` | 策略/资源值模型 | typed IDs、URL/IP、hash | credential route、listener、cluster、校验与脱敏摘要 | 纯校验；secret 不进入 Debug/摘要 |
-| `kernel/network_policy/material.rs` | 材料输入端口 | `SandboxId`、`DesiredNetworkPolicy` | 解析单个 sandbox 的已授权期望策略 | 未注入 adapter 时 fail closed；不包含 DB/runtime 类型 |
-| `kernel/network_policy/request.rs` | 跨副本请求值 | sandbox ID、策略域拥有的精确 generation | `Reconcile` / `Remove` work item | 仅值约束；不携带 secret、provider、stream、DB handle |
-| `kernel/network_policy/ports.rs` | runtime 与 wakeup 端口 | typed IDs、已验证 Envoy policy、request value | initialize/apply/remove/prune、发布精确 generation wakeup | 不含 SQL、credential resolver、authority、Redis、具体 Envoy 类型 |
-| `kernel/network_policy/application.rs` | generation 应用 handler | DB query、material/runtime/queue ports、authority guard | request、authority apply、等待精确 generation、CAS 持久化结果 | 顺序、陈旧 generation 拒绝、durable transition 决策 |
-| `kernel/network_policy/recovery.rs` | 恢复 handler | DB query、material resolver、policy runtime、authority guard | 按 PostgreSQL 重建 live generation 并 CAS ACK | 恢复顺序与陈旧 generation 失败 |
-| `kernel/network_policy/authority.rs` | authority 下的策略 work | DB query、recovery/application handler、runtime/material ports | recover、reconcile inventory、在 guard 下应用精确请求 | DB 重校验与策略结果；不拥有 Lease/stream 状态 |
-| `db/queries/sandbox.rs` 网络策略查询 | PostgreSQL CAS adapter | SQLx/PostgreSQL | prepare、reopen、ACK、failure audit、remove freshness | durable generation/status 原子性；不发布 xDS |
-| `sandbox/provider.rs` | 沙箱生命周期端口 | typed IDs、mount/file 值对象 | create/start/stop/destroy/status/exec/list/inject | runtime 生命周期失败；不拥有策略 generation/xDS |
-| `sandbox/runtime.rs` | runtime fact 端口 | typed sandbox ID | socket preparation、typed placement event | 仅报告事实/失败；不决定控制面动作 |
-| `sandbox/docker.rs` | Docker adapter | Bollard、不可变配置、socket port | 容器生命周期、mount、文件注入、socket mount facts | Docker/container 错误 |
-| `sandbox/k8s.rs` | Kubernetes adapter | kube client、PodWatcher、socket port | Pod 生命周期、文件、hostPath/socket facts | Kubernetes/Pod 错误 |
-| `sandbox/pod_watcher.rs` | placement fact source | Kubernetes watch API | `Assigned` / `Removed` 事件 | watch/cache 错误；不直接改 xDS |
-| `sandbox/envoy_render/mod.rs` | renderer facade | JSON/protobuf renderer | 暴露 render/encode 与 type URL | 无状态 |
-| `sandbox/envoy_render/json.rs` | filesystem renderer | policy value model、serde JSON | deterministic canonical JSON | 纯转换失败 |
-| `sandbox/envoy_render/proto.rs` | ADS renderer | policy value model、Envoy protobuf | deterministic protobuf resources | 纯转换失败 |
-| `sandbox/envoy_delivery.rs` | delivery 端口与 filesystem adapter | JSON renderer、filesystem、resource-name parser | `LdsBackend`/`CdsBackend`、filesystem snapshot | 文件 I/O；不拥有策略/generation/authority 状态 |
-| `sandbox/envoy.rs` | Envoy policy-runtime adapter | socket storage、delivery ports、已验证 policy model | initialize、prepare socket、publish、wait ACK、remove、prune | Envoy I/O 与 convergence；不读写 PostgreSQL |
-| `xds/model.rs` | xDS identity 值 | typed sandbox ID | node、stream、epoch、placement revision、resource type、apply ticket | 值校验 |
-| `xds/authority.rs` | authority lifecycle/fence | 原子状态、metrics | advertise、mark-ready、ready guard、revoke、serialization lock | epoch 生命周期与 stale guard 拒绝 |
-| `xds/authority_worker.rs` | authority 生命周期 runner | authority fence、通用 request-source/work ports | 每 epoch 恢复、ready、串行请求、周期 inventory reconcile | authority 顺序/重试；不实现 Redis/PostgreSQL |
-| `xds/inventory.rs` | 资源库存 | xDS resource | 按 type/sandbox upsert、remove、snapshot | resource version 一致性 |
-| `xds/node_registry.rs` | 节点所有权注册表 | node/sandbox ID | placement revision 与 owner 变更 | active authority 内的 node ownership truth |
-| `xds/ack_tracker.rs` | 收敛追踪器 | epoch/generation/placement/stream/resource type | owner/type quorum、stale ACK 拒绝 | ACK/NACK quorum 结果 |
-| `xds/control_plane.rs` | xDS domain control plane | inventory、ownership、ACK tracker | audience delta、apply ticket、原子资源变更 | xDS 域内 mutation 语义 |
-| `xds/auth.rs` | ADS 认证 | gRPC metadata | immutable authenticated node identity | 未认证/节点不匹配拒绝 |
-| `xds/publisher.rs` | gRPC publication adapter | delivery ports、protobuf renderer、`DeltaXdsServer` | 把已验证 spec 转为 inventory mutation 并等待收敛 | 编码/发布错误；不拥有业务 generation 或 filesystem write |
-| `xds/transport.rs` | ADS transport | tonic、Envoy protobuf、auth、control plane | authenticated Delta ADS、nonce/subscription、stream fencing、control-plane handle | stream/protocol 错误；不推导策略、不渲染、不写文件 |
-| `xds/server.rs` | ADS 进程 listener | `DeltaXdsServer` | 独立 ADS listener | 仅 ADS bind/serve 失败 |
-| `xds/leader.rs` | Kubernetes xDS leadership adapter | Lease、Pod label API、authority/ADS handle | advertise/revoke epoch，ready 后开放 ADS | Lease/label/serving gate；不拥有 generation/DB recovery |
-| `xds/metrics.rs` | xDS 可观测模型 | authority/control-plane 状态 | authority、stream、auth、ACK/NACK、reconcile 指标 | 只记录 ID/计数，不记录策略 secret |
-| `grpc/server.rs` | Runner transport | bridge、task/event handler | Runner 端口上的 `AgentBridge` | Runner protocol/auth/session；绝不注册 ADS |
-| `kernel/ha/redis_impl.rs` | 跨副本 transport adapter | Redis Streams、request/source ports | 编码、发布、解码精确 generation wakeup | 仅 Redis delivery/decode；不读 DB、不做 authority lifecycle/recovery/xDS mutation |
-
-#### 主流程与子流程协同
-
-**主流程只装配能力，不选择业务实现：**
-
-1. `main` 完成 dotenv、TLS provider、tracing 与配置加载，然后调用 `OrchestratorApplication`。
-2. `bootstrap/application.rs` 通过 `ProviderFactoryRegistry` 获取一个 `RuntimeComponents` bundle。
-3. Registry 只在 composition root 可见；返回拆开的 sandbox lifecycle、network-policy runtime 与可选 ADS
-   能力，材料 resolver 也只以 trait object 暴露，调用方看不到具体 adapter 身份。
-4. application 初始化 policy runtime、构造 authority fence，分别启动 ADS 与 Runner gRPC，再安装 handler、
-   controller、scheduler；业务模块从不 `new Docker/K8s/Envoy/Redis repository`。
-
-**策略 apply 数据链：**
+正常 reconcile 的唯一数据链路是：
 
 ```text
-controller / resolver 的业务网络变更
-  -> credential runtime projection + authorized material
-  -> DesiredNetworkPolicy + stable revision
-  -> PostgreSQL prepare exact generation（pending 或 already-ready）
-  -> 本地 authority handler 或 Redis exact-generation wakeup
-  -> xDS authority worker 取得 ready epoch + application lock
-  -> network-policy authority handler 重载并重校验该 generation
-  -> NetworkPolicyRuntime.apply
-  -> sandbox/envoy_render 纯渲染 Listener/Cluster
-  -> xDS inventory + node audience + owner/type ACK/NACK quorum
-  -> PostgreSQL CAS ready | nacked
-  -> generation drift / authority loss 不写伪终态
+业务触发
+  → NetworkPolicyMaterialResolver.resolve(sandbox_id)
+  → DesiredNetworkPolicy.revision/render_for
+  → PostgreSQL prepare_generation(hash, version)
+  → 本地 authority apply 或 Redis 精确 generation 唤醒
+  → NetworkPolicyRuntime.apply
+  → Envoy 精确 CDS/LDS ACK quorum
+  → PostgreSQL mark_generation_applied CAS
 ```
 
-**placement 数据链只传事实：**
+材料/校验错误归 network-policy application；stale/missing 是 PostgreSQL 并发结果；provider/render/delivery
+错误归 `NetworkPolicyRuntime`；NACK/timeout 归 xDS delivery。任何一层都不得通过改写 ready、换 generation
+重试或把 Redis 当真相来掩盖失败。恢复遵循同一套材料和 generation 规则，但必须先原子安装完整资源世界，再
+持久化各 ready 项。
 
-```text
-Kubernetes PodWatcher observation（Docker standalone placement 为隐式本地事实）
-  -> PlacementEvent { Assigned | Removed }
-  -> bootstrap 安装的窄 handler
-  -> xDS node registry placement revision
-  -> node-specific audience 与 ACK quorum
-```
+#### xDS 领域、authority 与 transport
 
-**启动与监督数据链：**
+`src/xds/` 拥有进程内 xDS authority 与协议状态。它只接收已验证资源和显式 ownership；不读取业务凭据、不决定
+desired policy、不管理容器/Pod，也不持久化 sandbox 生命周期。
 
-```text
-main process init
-  -> OrchestratorApplication
-  -> ProviderFactoryRegistry / ProviderFactory
-  -> lifecycle + policy-runtime + optional ADS capabilities
-  -> policy runtime initialize + authority construction
-  -> 独立 ADS server + 独立 Runner gRPC server
-  -> authority worker / controllers / scheduler
-  -> readiness
-  -> supervisor signal -> revoke/stop ADS -> drain Runner -> stop background work
-```
+| 模块 | 拥有的能力 | 输入 → 输出 / 失败行为 |
+|---|---|---|
+| `authority.rs` | authority FSM、epoch、recovery/mutation guard、application 串行锁、撤销 | Lease/生命周期事件 → fenced capability guard；旧 epoch fail closed |
+| `leader.rs` | Kubernetes Lease 观察与 leader-only Pod label 发布 | Lease + authority phase → xDS Service endpoint 资格；API 失败只重试，不授予 authority |
+| `authority_worker.rs` | 与 Redis/network-policy 无关的通用 recover/reconcile/apply 循环 | request source + `AuthorityWork` handler → 串行、带 guard 的工作 |
+| `control_plane.rs` | 组合 resource、ownership、delivery、ADS 的稳定进程内 facade | 显式 sandbox resource/placement → delivery attempt 与 snapshot |
+| `model.rs` | resource type、显式 owner、managed resource、sandbox bundle | 只有类型值；禁止从名称反推 owner |
+| `resource_store.rs` | 原子资源世界与有界 revision log | 带 owner 的资源批次 → 单调 world revision |
+| `node_ownership.rs` | sandbox-to-node 真相和 ownership transition | 中立 placement fact → scoped visibility revision |
+| `inventory.rs` | 原子 recovery inventory 校验与安装结果 | 完整恢复世界 → installed/deferred inventory |
+| `delivery.rs` | 精确 generation delivery attempt 与 CDS/LDS quorum 完成 | world revision + node session ACK/NACK → attempt 终态 |
+| `delta.rs` | Delta ADS subscription、重连 reconcile、per-node session、stream closure | 已认证协议消息 ↔ resource delta/ACK/NACK 更新 |
+| `auth.rs` | shared-token keyring 解析和 client principal 认证 | request metadata → principal 或 `Unauthenticated` |
+| `transport.rs` | 仅独立 tonic ADS listener | `XdsControlPlane` + authenticator → `:9092` server handle |
+| `metrics.rs` | 有界基数健康状态和 Prometheus 投影 | 内部计数/状态 → health/metrics snapshot |
 
-**销毁链保持生命周期与策略清理解耦：**
+authority 生命周期是 xDS mutation 的唯一权限模型。`RecoveryAuthorityGuard` 只允许启动原子恢复；
+`MutationAuthorityGuard` 只在 `Ready` 存在。Lease 丢失会撤销 epoch、关闭既有 ADS stream 并使在途工作失效。
+resource store、node ownership、delivery quorum 和 ADS session 分离，避免某个状态机通过共享临时 context 暗中
+污染另一个状态机。
 
-```text
-PostgreSQL claim stopping -> SandboxProvider.destroy -> PostgreSQL finalize destroyed
-                         -> multi: queue Remove | local: NetworkPolicyRuntime.remove
-```
+#### Sandbox 与 transport adapter
 
-上下文隔离规则：请求/stream context 只携带认证后的 `NodeId`、不可变 `StreamId` 与值类型；policy apply
-context 只携带 sandbox ID、authority epoch、generation、placement revision、deadline/cancellation。凭据材料只在
-一次投影/渲染期间存在，不进入 xDS inventory metadata、日志、指标或错误字符串；provider handle、Registry、
-DB repository 不进入上述上下文。
+| 模块 | 拥有的能力 | 明确不拥有 |
+|---|---|---|
+| `src/sandbox/provider.rs` | 可替换 create/start/stop/destroy/status/exec/file 生命周期与 capability 端口 | 不做 PostgreSQL generation 转换，不访问 xDS authority |
+| `src/sandbox/docker.rs` | Docker container、mount、socket 与 runtime facts | 不直接发布/删除 xDS resource |
+| `src/sandbox/k8s.rs` | Pod/PVC/spec 生命周期与 watcher 装配 | 不判断 ownership，不修改 xDS state |
+| `src/sandbox/pod_watcher.rs` | 观察 Kubernetes Pod 并发出中立 `PlacementEvent` | 不依赖 `XdsControlPlane` 或 policy application |
+| `src/sandbox/runtime.rs` | socket preparation、placement event 的小型基础设施端口 | 不包含 provider/xDS 实现 |
+| `src/sandbox/envoy.rs` | `NetworkPolicyRuntime` adapter：socket 准备、模型批处理、等待 delivery | 不拥有 desired policy、durable generation 或 ADS protocol state |
+| `src/sandbox/envoy_render/{json,proto}.rs` | 把已验证 listener/cluster spec 纯转换为 Envoy JSON/protobuf | 无 I/O、DB、authority、delivery 或 provider lifecycle |
+| `src/sandbox/envoy_delivery.rs` | provider-facing `EnvoyDelivery` 端口及 `XdsControlPlane` adapter | 不做 desired-policy 决策，不隐式推断 owner |
+| `src/sandbox/envoy_filesystem.rs` | 受限的本地 filesystem delivery adapter | 不宣称支持非空原子恢复或完整 CDS/LDS 语义 |
+| `src/grpc/server.rs` | Runner `AgentBridge` 认证、stream 协议、执行/控制消息 | 不承载 ADS、不选举 authority、不修改 xDS resource state |
+
+Kubernetes placement 链路刻意采用依赖反转：watcher 只发 `PlacementEvent`，bootstrap factory 安装 handler，
+再把事件映射到 `XdsControlPlane` ownership 调用。这样 Kubernetes facts 可替换，provider 也拿不到 xDS context。
+Runner gRPC 与 ADS 使用不同 server 和端口（`:9090`/`:9091` 对比 `:9092`），执行协议与控制面协议的变更、认证、
+限流和失败处理不会互相泄漏。
 
 ### 4.3 Worker 服务（`app/joysafeter_worker/`）
 
@@ -513,8 +467,20 @@ runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`�
 | **E2B** | E2B REST（Firecracker VM） | 需 `E2B_API_KEY` + `E2B_TEMPLATE_ID` |
 | **Daytona** | Daytona REST | 需 `DAYTONA_API_URL` + `DAYTONA_API_KEY` |
 
-**Envoy**（`joysafeter_orchestrator_rs/src/sandbox/envoy.rs`）给每个沙箱独立网络命名空间、无直接出口：runner 经 unix-socket gRPC
-管道触达 orchestrator，所有出站 HTTP 都过一个带**默认全拒域名白名单**的 Envoy listener。
+**Envoy** 给每个沙箱独立网络命名空间、无直接出口：runner 经 unix-socket gRPC 管道触达 orchestrator，
+所有出站 HTTP 都经过带**默认全拒域名白名单**的 Envoy listener。模块边界固定如下：
+
+- `src/sandbox/envoy.rs` 只编排沙箱网络生命周期；
+- `src/kernel/network_policy/envoy_model.rs` 拥有已验证、provider-neutral 的策略与 Envoy-facing 值模型；
+- `src/sandbox/envoy_render/{json,proto}.rs` 只对这些已验证模型做纯渲染；
+- `src/sandbox/envoy_delivery.rs` 定义唯一 `EnvoyDelivery` provider 端口，并适配 `XdsControlPlane`；
+- `src/sandbox/envoy_filesystem.rs` 只是非原子的本地兼容适配器，明确拒绝非空恢复与带独立 cluster 的
+  listener/cluster 原子发布；
+- `src/xds/control_plane.rs` 是进程内控制面的唯一装配根，`resource_store.rs` 是唯一内存资源真相，
+  `node_ownership.rs` 是唯一 sandbox-to-node 真相，`delta.rs` 独占协议协调。
+
+provider 只通过 `EnvoyDelivery` 提交显式 owner 资源，不访问 Delta transport 内部，也不从 listener/cluster
+名称反推归属。已删除的 `sandbox/lds_backend.rs` 兼容门面不得恢复。
 
 ### 6.4 MCP runtime plan 与 xDS authority
 
@@ -551,13 +517,27 @@ PostgreSQL terminal generation CAS
 
 所有 orchestrator 副本都可调度、拥有 runner bridge 并发送唤醒；只有 authority 可 recover/apply/remove/prune
 provider-local xDS。Envoy DaemonSet 连接带 `joysafeter-xds-leader=true` selector 的专用 Service，runner 流量
-继续走普通负载均衡 Service。authority 激活顺序为 Lease → 新 epoch → PostgreSQL 全量恢复 → Envoy ACK →
-ready → 开放 ADS → 发布 leader label；失去 Lease 会 fence epoch、关闭 ADS 与已有流、移除 label。
+继续走普通负载均衡 Service。authority 激活顺序为 Lease → `Staging` → PostgreSQL 全量恢复并原子安装资源世界 →
+`RecoveryServing` → 发布 leader endpoint → Envoy ACK → `Ready`。合法 generation 对应的 Kubernetes data plane
+尚未初始化时，该 sandbox 不进入活动资源世界并归类为 deferred，而不是 quarantine；精确 generation 保持
+`pending`，交由 PostgreSQL 驱动的 degraded-policy reconciler 重试。只有无效策略状态或终态投递失败才进入
+quarantine。失去 Lease 会 fence epoch、关闭 ADS 与已有流、移除 label。
 
 所有变更由 authority application lock 串行化并携带 epoch guard。ACK/NACK 只能从精确 `pending` generation
 终结，因此迟到失败不能覆盖已 ACK 状态；teardown 在删除前必须重新核对 PostgreSQL 当前生命周期与网络模式。
 Redis 消息丢失由 PostgreSQL 驱动的 degraded-policy reconcile 和周期 prune 修复，新 leader 永远从 PostgreSQL
 重建，而不是依赖 Redis 历史回放。
+
+健康端口暴露 `/healthz/xds` 与 `/metrics`。只有 `Ready` authority 的 `/healthz/xds` 返回 200；其他阶段和
+xDS 禁用状态都返回 503。指标标签保持有界，覆盖 authority phase/epoch、恢复结果与耗时、ADS 鉴权/拒绝、
+活跃 Envoy 节点、待 ACK delivery 数量与最长等待、ACK/NACK、重连删除、ownership 迁移、旧 session 关闭和
+持久化 degraded inventory；sandbox ID、资源名、hash、token、payload 与错误文本不得成为标签。
+
+xDS 当前使用独立 shared-token keyring，按要求暂不启用 mTLS。服务端接受
+`JOYSAFETER_XDS_AUTH_KEYRING` 中所有 token；Envoy bootstrap 只使用
+`JOYSAFETER_XDS_AUTH_WRITE_KEY_ID` 选中的 token，并要求 `JOYSAFETER_XDS_AUTH_TOKEN` 与之相等。
+无中断轮换分三批：先加入新 token 但继续写旧 key；全部 authority 能接受双 key 后切换 write key 与 Envoy
+token；确认所有 Envoy 已重连且鉴权/拒绝指标正常后，再移除旧 token。
 
 ---
 
@@ -743,14 +723,12 @@ backend/app/
 │   ├── app.py / main.py       #   应用装配 + 入口
 │   └── startup.py             #   装配 SessionBroadcaster
 ├── joysafeter_orchestrator_rs/ # Rust Orchestrator 服务
-│   ├── src/bootstrap/         #   composition root、provider Registry/Factory、监督
-│   ├── src/grpc/              #   仅 Runner AgentBridge 服务（+ 生成的 proto）
-│   ├── src/kernel/            #   应用流程；network policy 拥有业务期望与 PostgreSQL CAS
-│   ├── src/xds/               #   authority FSM、ADS、库存、ownership、ACK/NACK quorum、指标
+│   ├── src/grpc/              #   AgentBridge 服务（+ 生成的 proto）
+│   ├── src/kernel/            #   调度器、控制器、沙箱解析器/bridge、协调器、队列
 │   ├── src/runtime/           #   HarnessAdapter SPI + 适配器
-│   ├── src/sandbox/           #   provider、runtime facts、Envoy delivery 与纯渲染
+│   ├── src/sandbox/           #   Docker/E2B/Daytona provider、Envoy 管理器、镜像构建器
 │   ├── src/events/            #   事件总线 + stream/realtime 订阅者
-│   ├── src/main.rs            #   薄进程入口；生命周期委托给 bootstrap
+│   ├── src/main.rs            #   启停装配
 │   └── Cargo.toml             #   Rust crate manifest
 ├── joysafeter_worker/         # Worker 服务
 │   └── events/                #   EventStreamWorker（Redis Stream 消费者）+ EventBatchSender

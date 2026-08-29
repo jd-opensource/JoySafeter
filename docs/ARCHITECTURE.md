@@ -32,6 +32,7 @@ flowchart TB
     subgraph ORCH_S["Rust Orchestrator service"]
         SCHED["Task scheduler<br/>DB pull · FOR UPDATE SKIP LOCKED"]
         GRPC["gRPC AgentBridge :9090"]
+        XDS["Authenticated Delta ADS :9092"]
         BUS["Two-phase event bus<br/>persist ∥ broadcast"]
     end
 
@@ -252,9 +253,8 @@ Runtime communication uses several purpose-built channels. This table is the def
 | **Durable event bus** | Redis **Streams** `joysafeter:orchestrator:events` + consumer group | Orchestrator `XADD` → Worker `XREADGROUP` → DB persist | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`, `joysafeter_worker/events/stream_consumer.py` |
 | **Live event fan-out** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | Cross-instance SSE delivery via `SessionBroadcaster` | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`, `joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
 | Control/cancel relay | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | Route cancel/input/shutdown to the instance owning the sandbox | `joysafeter_shared/orchestrator_bridge/runtime_commands.py`, `joysafeter_orchestrator_rs/src/kernel/command_listener.rs` |
-| Network-policy wakeup | Redis **Stream** `joysafeter:network-policy:requests` | Transport an exact-generation reconcile/remove request to the elected authority; never store desired policy or xDS state | `joysafeter_orchestrator_rs/src/kernel/ha/redis_impl.rs`, `joysafeter_orchestrator_rs/src/xds/authority_worker.rs` |
+| Network-policy wakeup | Redis **Stream** `joysafeter:network-policy:requests` | Wake the elected xDS authority for an exact PostgreSQL policy generation or teardown | `joysafeter_orchestrator_rs/src/kernel/ha/redis_impl.rs`, `joysafeter_orchestrator_rs/src/xds/authority.rs` |
 | Orchestrator ↔ runner | **gRPC** `AgentBridge` (bidi stream, :9090) | The agent execution protocol | `proto/joysafeter.proto`, `joysafeter_orchestrator_rs/src/grpc/server.rs` |
-| Envoy ↔ xDS authority | **gRPC** Delta ADS (`:19000` by default) | Authenticated CDS/LDS subscription, ACK/NACK, revoke | `joysafeter_orchestrator_rs/src/xds/`, `JOYSAFETER_XDS_AUTH_TOKEN` |
 | Runner egress | Envoy proxy (unix socket) | Per-sandbox domain allowlist, deny-all default | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
 | Skill scan | HTTP → skillspector `:8010` | Informational scans on writes; optional fresh fail-closed scan only when publishing | `joysafeter_skill_security.py` |
 
@@ -293,224 +293,132 @@ over gRPC.
 | Subsystem | Module | Responsibility |
 |---|---|---|
 | gRPC server | `src/grpc/server.rs` | `AgentBridge.Session` bidi stream; handles runner messages, sends orchestrator commands |
+| xDS control plane | `src/xds/control_plane.rs`, `src/xds/resource_store.rs`, `src/xds/node_ownership.rs`, `src/xds/delta.rs` | One process-level composition root, atomic explicitly-owned resource world, complete sandbox-to-node lifecycle, and Delta reconciliation |
+| xDS transport | `src/xds/auth.rs`, `src/xds/transport.rs` | Dedicated `:9092` ADS listener, keyring authentication, and transport isolation from runner gRPC |
+| xDS authority | `src/xds/authority.rs`, `src/xds/leader.rs` | Single `Standby → Staging → RecoveryServing → Ready → Revoked` lifecycle, epoch-fenced recovery/mutation guards, ADS admission, and leader endpoint publication |
 | Task scheduler | `src/kernel/scheduler.rs` | Claims pending tasks (`FOR UPDATE SKIP LOCKED`), resolves a sandbox, pushes to the sandbox queue |
 | Task controller | `src/kernel/task_controller.rs` | Lifecycle, startup recovery, failover/retry |
 | Sandbox controller | `src/kernel/sandbox_controller.rs` | Idle sweep, provisioning poll, warm-pool, orphan cleanup |
 | Sandbox resolver | `src/kernel/sandbox_resolver.rs` | 3-stage resolve: reuse session sandbox → claim from pool → create new; injects runner env |
 | Sandbox bridge | `src/kernel/sandbox_bridge.rs` | Per-sandbox in-memory state: runner stream, status, subscribers, control queue |
-| Network-policy application | `src/kernel/network_policy/` | Owns desired policy, generation workflow, PostgreSQL CAS transitions, and failure classification |
-| Envoy rendering | `src/sandbox/envoy_render/` | Pure validation and deterministic Listener/Cluster JSON + protobuf rendering; no I/O or runtime lookup |
-| xDS control plane | `src/xds/` | ADS authentication/server, resource inventory, node ownership, stream fencing, ACK/NACK quorum, authority lifecycle, recovery, revoke, and metrics |
-| Sandbox runtime | `src/sandbox/docker.rs`, `src/sandbox/k8s.rs`, `src/sandbox/runtime.rs` | Container/Pod lifecycle, file/socket operations, and placement facts only |
-| Bootstrap | `src/bootstrap/` | Registry/factory resolution and one-time dependency wiring; registries never enter application services |
 | Redis coordinator | `src/kernel/redis_coordinator.rs` | Cross-instance HA: owner mapping, heartbeats, queues, event publishing |
 | Command listener | `src/kernel/command_listener.rs` | Redis command relay for cancel/input/shutdown/memory updates with ACKs |
 | Event bus | `src/events/bus.rs` | In-process event bus feeding stream persistence and realtime fan-out |
 | Session broadcaster | `src/kernel/session_broadcaster.rs` | Live SSE fan-out via Redis Pub/Sub |
 
-Startup ownership is split deliberately. `src/main.rs` performs only process initialization and
-delegates to `bootstrap/application.rs`. The application composition root opens database/Redis,
-resolves one `RuntimeComponents` bundle through the registry, initializes the policy runtime,
-starts ADS on its dedicated `:19000` listener and Runner gRPC on `:9090`, installs the authority
-worker and controllers, then marks readiness. `bootstrap/supervisor.rs` owns signal and health
-transport. Multi mode fails closed when managed egress is enabled without the Kubernetes
-leader-only xDS authority.
+Startup order (`src/bootstrap/application.rs`; `src/main.rs` only delegates): config + database + Redis coordinator → one process-wide xDS authority and
+`XdsControlPlane` → provider adapters receive the control plane → dedicated authenticated ADS on `:9092` → provider initialization →
+`Staging` / `RecoveryServing` PostgreSQL recovery → `Ready` → runner `AgentBridge` on `:9090` → task and
+lifecycle background loops. In multi mode, the Lease owner publishes its endpoint at `RecoveryServing` so
+Envoy can ACK recovery; mutation guards remain unavailable until `Ready`. Lease loss and shutdown enter
+`Revoked` before endpoint removal and transport shutdown. Multi mode fails closed when managed egress is
+enabled without the Kubernetes leader-only xDS authority.
 
-#### Network policy and xDS ownership
+#### Orchestrator ownership and extension boundaries
 
-The network path is split by authority, not by convenience. A module may depend only on the
-capabilities listed in its **Consumes** column; reverse imports are architectural defects.
+The orchestrator has one composition root and several independently replaceable child flows. The main
+flow may select implementations, connect ports, start them in dependency order, and supervise shutdown;
+it must not reproduce provider, network-policy, xDS, or transport decisions. Concrete provider selection
+is therefore registry-driven rather than hard-coded through branches in `main.rs` or business services.
 
-| Owner | Owns / exports | Consumes | Must not own |
-|---|---|---|---|
-| `kernel/network_policy` | `DesiredNetworkPolicy`, policy identity, exact-generation orchestration, PostgreSQL CAS transitions, recovery ordering | PostgreSQL query API, policy-material resolver port, policy-runtime port, Redis wakeup port, authority fence | Envoy protobuf/JSON encoding, ADS streams, Docker/Kubernetes clients, concrete material/runtime implementations |
-| `sandbox/envoy_render` | pure `ListenerSpec`/`ClusterSpec` to JSON/protobuf conversion | validated value objects from `kernel/network_policy/envoy_model` | policy derivation, credentials lookup, database, Redis, Tokio tasks, sockets, containers/Pods, xDS stream/session state |
-| `xds` | authenticated ADS, authoritative resource inventory, node audience, placement revision, authority epoch, stream identity, per-owner/per-resource-type ACK/NACK quorum, recovery/revoke sequencing, metrics | rendered resources, placement events, authority lease/fence, application-supplied recovery/work handlers | business policy derivation, credentials resolution, sandbox lifecycle, PostgreSQL reads or status decisions |
-| `sandbox/runtime` and provider adapters | create/start/stop/destroy, exec, file injection, socket provisioning, runtime status, `PlacementEvent` facts | Docker/Kubernetes/platform APIs and immutable runtime config | xDS inventory, generation transitions, ACK/NACK interpretation, credentials or policy derivation |
-| `grpc/server` | Runner `AgentBridge` transport only | already-constructed runner application handlers | ADS registration, xDS authentication, network-policy orchestration |
-| `bootstrap` | provider factory registry, concrete adapter construction, task/server supervision | configuration and concrete constructors | domain decisions, mutable request context, service-location from application code |
+| Area | Module | Owns | Inputs → outputs | May depend on | Failure owner |
+|---|---|---|---|---|---|
+| Process entry | `src/main.rs` | Logging/config entry and delegation only | environment → `JoySafeterConfig` → `OrchestratorApplication` | `bootstrap` | Invalid process configuration |
+| Composition root | `src/bootstrap/application.rs` | Process-wide object graph, startup order, background-loop startup, coordinated shutdown | validated config → initialized ports, services, and handles | config, DB/Redis constructors, registries, application services, transports | Missing required infrastructure or an invalid cross-component topology |
+| Provider registry | `src/bootstrap/registry.rs` | Normalized provider-name lookup and factory dispatch | provider name + factory context → `RuntimeComponents` | factory interfaces only | Unknown/disabled provider and factory construction errors |
+| Runtime factories | `src/bootstrap/runtime_factories.rs` | Docker/Kubernetes/Daytona/E2B adapter construction and composition-only event handlers | config + shared xDS context → provider, network-policy runtime, optional Envoy manager | concrete adapters, never business callers | Provider-specific construction/configuration errors |
+| Supervision | `src/bootstrap/supervisor.rs` | OS shutdown signal and health/metrics HTTP exposure | readiness + xDS snapshots → process lifecycle/HTTP responses | stable health interfaces | Listener failure is reported here; domain failures remain with their owner |
+| Material adapter | `src/bootstrap/network_policy_material.rs` | PostgreSQL/credential implementation of the domain material port | `SandboxId` → validated `DesiredNetworkPolicy` inputs | DB queries and credential projection | Missing sandbox, credential reconstruction, or material-loading failure |
 
-Allowed dependency direction:
+`ProviderFactoryRegistry` is the extension point for a new sandbox backend. A new provider registers a
+`ProviderFactory` that returns the same three capabilities: `SandboxProvider`, `NetworkPolicyRuntime`, and
+an optional `EnvoyManager`. Callers consume those traits and do not downcast or branch on provider type.
+The registry is confined to bootstrap so business code cannot become a service locator.
 
-```text
-main
-  -> bootstrap/application
-       -> registry/factories
-            -> runtime adapters (docker/k8s/daytona/e2b)
-            -> PostgreSQL policy-material adapter
-            -> xds transport/control plane
-       -> kernel application services through explicit ports
+#### Network-policy domain and application flow
 
-kernel/network_policy/application -> db query API + material/runtime/queue ports + authority fence
-kernel/network_policy/envoy_model -> typed IDs + pure policy/resource values
-sandbox/envoy_render              -> network_policy/envoy_model + serde/envoy protobufs
-sandbox/envoy                     -> NetworkPolicyRuntime + render functions + LDS/CDS ports
-xds                               -> xds domain models + rendered resources
-sandbox/runtime/providers         -> external runtime APIs + fact ports only
-grpc/server                       -> Runner handlers only
-```
+`src/kernel/network_policy/` owns desired egress intent, deterministic revisioning, exact generation
+orchestration, and the rules for converting runtime outcomes into PostgreSQL state transitions. It does
+not own containers, Pods, ADS sessions, or protobuf/JSON encoding.
 
-Forbidden dependency examples:
+| Module | Responsibility and public capability | Dependencies and boundary |
+|---|---|---|
+| `mod.rs` | `DesiredNetworkPolicy`, canonical redacted revision, and `NetworkPolicyGeneration` value types | Pure domain inputs; no provider or transport access |
+| `envoy_model.rs` | Validated, transport-neutral listener/cluster/credential policy model | Pure model/validation; renderers consume it but it does not consume renderers |
+| `material.rs` | `NetworkPolicyMaterialResolver` input port | Implemented in bootstrap; domain callers see only `SandboxId → DesiredNetworkPolicy` |
+| `ports.rs` | `NetworkPolicyRuntime` execution port and `NetworkPolicyRequestQueue` wakeup port | Infrastructure implements the ports; PostgreSQL remains authoritative |
+| `request.rs` | Neutral reconcile/remove command carrying an exact generation where required | Safe to transport through Redis without embedding runtime state |
+| `application.rs` | Prepare generation, validate material, apply/remove, wait for delivery, and persist exact CAS outcomes | Uses DB queries, domain ports, and authority guards; never constructs providers or xDS servers |
+| `authority.rs` | `NetworkPolicyAuthorityHandler`, adapting domain work to the generic elected-authority worker | Loads live DB inventory, applies/prunes only under current mutation guards |
+| `recovery.rs` | Rebuild and validate live limited-network inventory; classify ready, deferred, and quarantined entries | Reads PostgreSQL, invokes the runtime recovery port, persists exact recovery outcomes |
 
-- `kernel/network_policy` importing `DeltaXdsServer`, Envoy protobuf messages, Docker, or Kube.
-- Docker/Kubernetes providers calling xDS `upsert`, `remove`, recovery, ACK, or authority methods.
-- Pod watchers invoking xDS callbacks; they publish typed placement facts instead.
-- ADS handlers loading policy/credentials from PostgreSQL or deciding durable status.
-- `grpc/server` registering `AggregatedDiscoveryService` or sharing the Runner listener with ADS.
-- Application services looking up implementations from `ProviderFactoryRegistry`.
-
-#### Network-policy data chain
-
-1. An API, scheduler, lifecycle handler, or credential refresh commits business inputs in PostgreSQL and
-   asks `kernel/network_policy/application.rs` to reconcile.
-2. The application resolves authorized credential/routing material through
-   `NetworkPolicyMaterialResolver`, derives `DesiredNetworkPolicy`, computes its stable revision, and calls
-   `prepare_desired_network_policy`; PostgreSQL either returns the already-ready generation or atomically
-   marks the exact generation `pending`.
-3. In single-instance mode the local authority guard executes immediately. In multi-instance mode Redis
-   publishes only a wakeup containing sandbox ID and the exact generation; loss or duplication does not
-   change truth, and the caller waits on PostgreSQL.
-4. The elected authority handler reloads the sandbox, rejects a stale generation or lost authority, and
-   resolves material again so secrets are fresh at the authority boundary.
-5. `NetworkPolicyRuntime::apply` invokes the Envoy adapter. `sandbox/envoy_render` deterministically
-   converts the validated policy into Cluster and Listener resources with no side effects.
-6. `xds` atomically updates inventory, binds resources to the current placement revision, and creates an
-   apply ticket fenced by authority epoch, generation, placement revision, expected node set, resource
-   types, and ADS stream identity.
-7. ADS sends CDS before LDS. A placement A→B emits removals to A and upserts to B even when resource
-   content is unchanged. Late placement publishes existing inventory to the newly known owner.
-8. Only ACKs from current owner streams for the current epoch/generation/placement count. Every required
-   owner and resource type must ACK; any valid NACK terminates the ticket as rejected.
-9. `kernel/network_policy/application.rs` persists the result through generation-fenced PostgreSQL
-   queries: ACK quorum → `ready`; publication, NACK, socket-readiness, or timeout error → `nacked` with a
-   redacted policy audit row; stale generation or authority loss is rejected without writing a false
-   terminal result. xDS never writes durable business status itself.
-
-#### Context isolation
-
-- Request/stream context carries authenticated `NodeId` and immutable `StreamId`; it never stores DB
-  repositories, provider clients, or a registry.
-- Policy application context carries sandbox ID, authority epoch, generation, placement revision, and
-  cancellation/deadline only. Secret material is scoped to render input and is not retained in xDS
-  inventory metadata, logs, metrics, or error strings.
-- Runtime events contain runtime facts (`external_id`, node, phase, socket readiness), not desired policy
-  or xDS commands. Translation from facts to control-plane actions is an application handler.
-
-#### Rust module capability inventory
-
-| Module | Role | Direct dependencies | Public capability | State / failure owner |
-|---|---|---|---|---|
-| `main.rs` | Process entry | environment, tracing, `JoySafeterConfig`, `OrchestratorApplication` | Start one application instance | Process initialization only; contains no adapter/controller construction |
-| `bootstrap/application.rs` | Application composition and lifecycle | registry, application handlers, server start functions, supervisor | Build all ports once; order initialization, readiness, drain, and shutdown | Startup/shutdown ordering and fail-closed composition; no domain policy decisions |
-| `bootstrap/supervisor.rs` | Process supervision adapter | Tokio signals/TCP | shutdown signal and health listener | Signal/listener failures; no controller or authority state |
-| `bootstrap/registry.rs` | Composition root registry | configuration, `ProviderFactory` | Resolve one `RuntimeComponents` bundle by provider name | Fails startup for unknown/disabled providers; never enters request context |
-| `bootstrap/runtime_factories.rs` | Concrete wiring | Docker/Kube adapters, Envoy adapter, xDS transport | Construct lifecycle, socket, policy-publish, placement, and ADS capabilities once | Construction/configuration failures only |
-| `bootstrap/network_policy_material.rs` | PostgreSQL material adapter factory | DB queries, credential runtime projection, `NetworkPolicyMaterialResolver` | Return the material resolver as a trait object; concrete type remains private | Lookup/decryption/material assembly failures; no generation transition |
-| `kernel/credentials/runtime_projection.rs` | Ephemeral credential projection | credential access service, run spec, MCP plan, repository access | Derive sandbox env, model/MCP/Git egress routes, runner token, and recovery material | Credential authorization/decryption/projection errors; never owns lifecycle, generation, or xDS publication |
-| `sandbox/provider.rs` | Sandbox lifecycle port | typed IDs, mount/file value objects | create/start/stop/destroy/status/exec/list/inject | Runtime lifecycle failures; no policy generation or xDS state |
-| `sandbox/runtime.rs` | Runtime fact ports | typed sandbox ID | socket preparation and typed placement events | Reports facts/failures; does not decide policy actions |
-| `sandbox/docker.rs` | Docker adapter | Bollard, immutable runtime config, socket-provision port | Docker lifecycle, mounts, file injection, socket mount facts | Docker/container errors only |
-| `sandbox/k8s.rs` | Kubernetes adapter | kube client, PodWatcher, socket-provision port | Pod lifecycle, files, hostPath/socket facts | Kubernetes/Pod errors only |
-| `sandbox/pod_watcher.rs` | Placement fact source | Kubernetes watch API | `Assigned` / `Removed` events | Watch/cache errors; no direct xDS mutation |
-| `sandbox/envoy_render/mod.rs` | Renderer facade | JSON/protobuf renderer functions | Expose render/encode functions and xDS type URLs only | No state |
-| `sandbox/envoy_render/json.rs` | Filesystem renderer | `kernel/network_policy/envoy_model`, serde JSON | deterministic canonical JSON | Pure conversion failure only |
-| `sandbox/envoy_render/proto.rs` | ADS renderer | `kernel/network_policy/envoy_model`, Envoy protobuf types | deterministic protobuf resources | Pure conversion failure only |
-| `sandbox/envoy_delivery.rs` | Delivery ports and filesystem adapter | pure JSON renderer, filesystem, xDS resource-name parser | `LdsBackend`/`CdsBackend`, filesystem snapshots, ACK-neutral delivery contract | Filesystem snapshot I/O; no policy/generation/authority state |
-| `sandbox/envoy.rs` | Envoy policy-runtime adapter | socket storage, LDS/CDS delivery ports, validated policy model | initialize, prepare socket, publish, wait for ACK, remove, prune | Envoy I/O and convergence errors; no PostgreSQL reads/writes |
-| `kernel/network_policy.rs` | Policy domain facade | credential-route value objects | desired policy and canonical revision | Business validation and policy identity |
-| `kernel/network_policy/envoy_model.rs` | Policy/resource value model | typed IDs, URL/IP parsing, hashes | credentials, egress routes, listeners, clusters, validation and redacted summaries | Pure validation; secrets excluded from `Debug` and summaries |
-| `kernel/network_policy/material.rs` | Material input port | `SandboxId`, `DesiredNetworkPolicy` | Resolve one sandbox's authorized desired policy | Fail-closed when no adapter is injected; contains no DB/runtime types |
-| `kernel/network_policy/request.rs` | Cross-replica request value | typed sandbox ID, domain-owned exact generation | `Reconcile`/`Remove` work item | Value validation only; carries no material, provider, stream, or DB handle |
-| `kernel/network_policy/ports.rs` | Runtime and wakeup ports | typed IDs, validated Envoy policy, request value | initialize/apply/remove/prune and publish exact-generation wakeups | Contains no SQL, credential resolver, authority, Redis, or concrete Envoy type |
-| `kernel/network_policy/application.rs` | Generation application handler | PostgreSQL query API, material/runtime/queue ports, authority fence | request, authority apply, exact-generation wait and CAS result persistence | Owns ordering, stale-generation rejection and durable transition decisions |
-| `kernel/network_policy/recovery.rs` | Recovery application handler | PostgreSQL queries, material resolver, policy runtime, authority fence | Rebuild exact live generations and persist ACK CAS | Owns durable recovery ordering and stale-generation failure |
-| `kernel/network_policy/authority.rs` | Policy work executed by authority | PostgreSQL queries, recovery/application handlers, runtime/material ports | Recover, reconcile durable inventory, apply exact request under a guard | Owns DB revalidation and policy-result decisions; not lease/stream state |
-| `db/queries/sandbox.rs` network-policy queries | PostgreSQL CAS adapter | SQLx/PostgreSQL | prepare, reopen, ACK, failure audit, current-removal checks | Durable generation and status atomicity; no xDS publication |
-| `xds/model.rs` | xDS identity values | typed sandbox ID | node, stream, epoch, placement revision, resource type and apply ticket | Value validation only |
-| `xds/authority.rs` | Authority lifecycle/fence | atomic state, metrics | advertise, mark-ready, ready guards, revoke, serialization lock | Epoch lifecycle and stale-guard rejection |
-| `xds/authority_worker.rs` | Authority lifecycle runner | authority fence plus generic request-source/work ports | Per-epoch recovery, readiness, serialized requests, periodic inventory reconcile | Authority sequencing/retry; contains no Redis or PostgreSQL implementation |
-| `xds/inventory.rs` | Resource inventory | xDS resources | upsert/remove/snapshot by type and sandbox | Resource-version consistency |
-| `xds/node_registry.rs` | Ownership registry | node/sandbox IDs | placement revisions and owner changes | Node ownership truth in the active authority |
-| `xds/ack_tracker.rs` | Convergence tracker | epoch/generation/placement/stream/resource types | owner/type quorum and stale ACK rejection | ACK/NACK quorum result |
-| `xds/control_plane.rs` | Domain control plane | inventory, ownership, ACK tracker | audience deltas and apply tickets | Atomic xDS-domain mutation semantics |
-| `xds/auth.rs` | ADS authentication | gRPC metadata | authenticated immutable node identity | Unauthenticated/mismatched-node rejection |
-| `xds/publisher.rs` | gRPC publication adapter | LDS/CDS delivery ports, protobuf renderer, `DeltaXdsServer` | Convert validated specs into inventory mutations and wait for convergence | Encode/publication errors; owns no business generation or filesystem writes |
-| `xds/transport.rs` | ADS transport | tonic, Envoy protobuf, auth, control plane | Authenticated Delta ADS streams, nonce/subscription handling, stream fencing and control-plane handle | Stream lifecycle and protocol errors; no policy derivation, rendering, or filesystem delivery |
-| `xds/server.rs` | ADS process listener | `DeltaXdsServer` | Dedicated ADS listener | Bind/serve failure for ADS only |
-| `xds/leader.rs` | Kubernetes xDS leadership adapter | Lease election, Pod label API, authority/ADS handles | Advertise/revoke epochs and expose ADS only after authority readiness | Lease/label/serving-gate failures; no policy generation or DB recovery |
-| `xds/metrics.rs` | xDS observability model | authority state | authority, stream, auth, ACK/NACK, reconcile counters | Metrics contain identifiers/counts, never policy secrets |
-| `grpc/server.rs` | Runner transport | bridge, task/event handlers | Runner `AgentBridge` service on the Runner port | Runner protocol/auth/session errors; never registers ADS |
-| `kernel/ha/redis_impl.rs` | Cross-replica transport adapter | Redis Streams, network-policy request/source ports | Encode/publish/decode exact-generation wakeups | Redis delivery/decoding errors only; no DB reads, authority lifecycle, recovery, or xDS mutation |
-
-The composition rule is capability-based: a concrete Docker/Kubernetes object may implement several
-technical interfaces internally, but bootstrap must expose each one through a separate trait object.
-Callers receive only the capability they need. No controller, resolver, listener, or gRPC handler may
-retain the registry or downcast a capability to recover another one.
-
-#### Main and sub-flow boundaries
-
-The **main flow** is an application orchestrator, not a concrete implementation selector:
-
-1. `main` performs process initialization, loads configuration, and calls `OrchestratorApplication`.
-2. `bootstrap/application.rs` asks `ProviderFactoryRegistry` for one `RuntimeComponents` bundle.
-3. Bootstrap returns separate trait objects for sandbox lifecycle and network-policy runtime plus an
-   optional ADS service; `build_network_policy_material_resolver` returns the private PostgreSQL material
-   adapter behind its port. Consumers cannot observe concrete adapter identity.
-4. The application initializes the network-policy runtime, constructs authority fencing, and starts
-   ADS independently from Runner gRPC before marking readiness.
-5. Controllers and handlers receive explicit ports. They never instantiate Docker, Kube, Envoy, ADS,
-   Redis, or repository implementations.
-
-The **network-policy sub-flow** owns all durable decisions:
+Normal reconcile follows one data path:
 
 ```text
-business/network change
-  -> resolve authorized material
-  -> derive DesiredNetworkPolicy + stable revision
-  -> PostgreSQL prepare exact generation (pending or already-ready)
-  -> local authority handler OR Redis exact-generation wakeup
-  -> reload/revalidate exact PostgreSQL generation
-  -> NetworkPolicyRuntime.apply
-  -> pure Envoy Listener/Cluster rendering
-  -> xDS owner/type ACK quorum
-  -> PostgreSQL CAS ready | nacked; stale/authority-loss remains non-terminal
+business trigger
+  → NetworkPolicyMaterialResolver.resolve(sandbox_id)
+  → DesiredNetworkPolicy.revision/render_for
+  → PostgreSQL prepare_generation(hash, version)
+  → local authority apply OR Redis exact-generation wakeup
+  → NetworkPolicyRuntime.apply
+  → Envoy exact CDS/LDS ACK quorum
+  → PostgreSQL mark_generation_applied CAS
 ```
 
-The **placement sub-flow** is fact-only:
+Validation/material errors belong to the network-policy application boundary; stale or missing rows are
+PostgreSQL concurrency outcomes; provider/render/delivery errors belong to `NetworkPolicyRuntime`; NACK and
+timeout belong to xDS delivery. None may be hidden by changing a generation to ready, retrying with a
+different generation, or treating Redis as truth. Recovery uses the same policy material and generation
+rules, but installs one atomic resource world before persisting ready entries.
 
-```text
-Kubernetes PodWatcher observation (Docker standalone placement is implicit)
-  -> PlacementEvent { Assigned | Removed }
-  -> bootstrap-installed narrow handler
-  -> xDS node registry placement revision
-  -> node-specific audience and ACK quorum
-```
+#### xDS domain, authority, and transport
 
-The **startup/supervision sub-flow** keeps composition out of the process entry and transport
-servers independent:
+`src/xds/` owns the in-memory xDS authority and protocol state. It accepts already validated resources and
+explicit ownership; it does not load business credentials, decide desired policy, manage containers/Pods,
+or persist sandbox lifecycle state.
 
-```text
-main process init
-  -> OrchestratorApplication
-  -> ProviderFactoryRegistry / ProviderFactory
-  -> lifecycle + policy-runtime + optional ADS capabilities
-  -> policy runtime initialization and authority construction
-  -> dedicated ADS server + dedicated Runner gRPC server
-  -> authority worker/controllers/scheduler
-  -> readiness
-  -> supervisor signal -> revoke/stop ADS -> drain Runner -> stop background work
-```
+| Module | Owns | Input → output / failure behavior |
+|---|---|---|
+| `authority.rs` | Authority FSM, epochs, recovery/mutation guards, application serialization, revocation | Lease/lifecycle events → fenced capability guards; stale epochs fail closed |
+| `leader.rs` | Kubernetes Lease observation and leader-only Pod label publication | Lease + authority phase → xDS Service endpoint eligibility; API failures retry without granting authority |
+| `authority_worker.rs` | Generic recover/reconcile/apply loop independent of Redis and network-policy details | request source + `AuthorityWork` handler → serialized guarded work |
+| `control_plane.rs` | Stable process-local facade combining resource, ownership, delivery, and ADS services | explicit sandbox resources/placement → delivery attempts and snapshots |
+| `model.rs` | Resource type, explicit owner, managed resource, sandbox bundle | Typed values only; no naming-based ownership inference |
+| `resource_store.rs` | Atomic resource world and bounded revision log | owned resource batches → monotonic world revisions |
+| `node_ownership.rs` | Sandbox-to-node truth and ownership transitions | neutral placement facts → scoped visibility revisions |
+| `inventory.rs` | Atomic recovery inventory validation/install result | complete recovered world → installed/deferred inventory |
+| `delivery.rs` | Exact generation delivery attempts and CDS/LDS quorum completion | world revision + node session ACK/NACK → terminal attempt result |
+| `delta.rs` | Delta ADS subscriptions, reconnect reconciliation, per-node sessions, stream closure | authenticated protocol messages ↔ resource deltas/ACK/NACK updates |
+| `auth.rs` | Shared-token keyring parsing and client principal authentication | request metadata → principal or `Unauthenticated` |
+| `transport.rs` | Dedicated tonic ADS listener only | `XdsControlPlane` + authenticator → `:9092` server handle |
+| `metrics.rs` | Bounded-cardinality health and Prometheus projection | internal counters/state → health/metrics snapshots |
 
-The **destroy sub-flow** keeps lifecycle and policy cleanup separate:
+The authority lifecycle is the sole permission model for xDS mutation. `RecoveryAuthorityGuard` permits
+atomic startup reconstruction; `MutationAuthorityGuard` exists only in `Ready`. Lease loss revokes the
+epoch, closes established ADS streams, and invalidates in-flight work. Resource storage, node ownership,
+delivery quorum, and ADS sessions remain separate so a change to one state machine cannot silently mutate
+another through shared ad-hoc context.
 
-```text
-PostgreSQL claim stopping -> SandboxProvider.destroy -> PostgreSQL finalize destroyed
-                         -> queue Remove (multi) OR NetworkPolicyRuntime.remove (local)
-```
+#### Sandbox and transport adapters
 
-No mutable request context crosses these flows. Durable identifiers/generations are copied as values;
-credential material exists only while deriving/rendering one policy; authenticated ADS node identity is
-bound to one stream; provider handles never enter xDS inventory or policy status records.
+| Module | Owns | Explicit non-responsibilities |
+|---|---|---|
+| `src/sandbox/provider.rs` | Replaceable lifecycle/capability port for create/start/stop/destroy/status/exec/files | No PostgreSQL generation transitions and no xDS authority access |
+| `src/sandbox/docker.rs` | Docker container, mount, socket, and runtime facts | Does not publish/remove xDS resources directly |
+| `src/sandbox/k8s.rs` | Pod/PVC/spec lifecycle and watcher setup | Does not decide ownership or mutate xDS state |
+| `src/sandbox/pod_watcher.rs` | Kubernetes Pod observation and neutral `PlacementEvent` emission | No dependency on `XdsControlPlane` or policy application |
+| `src/sandbox/runtime.rs` | Small infrastructure ports for socket preparation and placement events | Contains no provider or xDS implementation |
+| `src/sandbox/envoy.rs` | `NetworkPolicyRuntime` adapter: socket preparation, model batching, delivery waiting | Does not own desired policy, durable generation, or ADS protocol state |
+| `src/sandbox/envoy_render/{json,proto}.rs` | Pure conversion from validated listener/cluster specs to Envoy JSON/protobuf | No I/O, DB, authority, delivery, or provider lifecycle |
+| `src/sandbox/envoy_delivery.rs` | Provider-facing `EnvoyDelivery` port and `XdsControlPlane` adapter | No desired-policy decisions or implicit owner inference |
+| `src/sandbox/envoy_filesystem.rs` | Limited local filesystem delivery adapter | Cannot claim atomic non-empty recovery or full CDS/LDS semantics |
+| `src/grpc/server.rs` | Runner `AgentBridge` authentication, stream protocol, execution/control messages | Does not host ADS, elect authority, or mutate xDS resource state |
+
+The Kubernetes placement path is deliberately inverted: the watcher emits `PlacementEvent`; the bootstrap
+factory installs a handler that translates it into `XdsControlPlane` ownership calls. This keeps Kubernetes
+facts replaceable and prevents the provider from acquiring xDS context. Runner gRPC and ADS use different
+servers and ports (`:9090`/`:9091` versus `:9092`), so protocol changes, authentication, limits, and failure
+handling cannot leak between execution and control-plane transports.
 
 ### 4.3 Worker service (`app/joysafeter_worker/`)
 
@@ -583,7 +491,7 @@ travels as the `provider` field in `SetupSandbox`/`StartTask`, and the **in-sand
 runner** picks the matching harness. It also selects the Docker image
 (`image_claude` / `image_codex` / `image_native` / `image_pi`).
 
-The Rust runner is the only harness execution path. Python services do not carry a parallel
+The Rust runner is the only harness execution path. Python services do not retain a parallel
 adapter or task-runner implementation.
 
 ### 6.2 The Rust sandbox-runner (`sandbox-runner/`)
@@ -609,7 +517,7 @@ harness as a persistent subprocess:
 | `claude` | `ClaudeAdapter` | `claude` CLI | stream-json over stdin/stdout, `--permission-prompt-tool stdio` |
 | `codex` | `CodexAdapter` | `codex app-server --listen stdio://` | JSON-RPC |
 | `native` | `NativeAdapter` | **`ccb`** binary | claude-style stream-json — the self-developed "Harness-Core" engine |
-| `pi` | `PiAdapter` | `pi` CLI | provider-selected OpenAI Responses / Chat Completions / Anthropic messages |
+| `pi` | `PiAdapter` | `pi` CLI | provider-configured OpenAI Responses / Chat Completions / Anthropic messages |
 | `mock` | `MockAdapter` | test double | env-gated |
 
 ### 6.3 Sandbox providers (`app/joysafeter_orchestrator_rs/src/sandbox/`)
@@ -623,10 +531,24 @@ Selected by `JOYSAFETER_SANDBOX_PROVIDER` (default `docker`). SPI: `SandboxProvi
 | **E2B** | E2B REST (Firecracker VMs) | Requires `E2B_API_KEY` + `E2B_TEMPLATE_ID` |
 | **Daytona** | Daytona REST | Requires `DAYTONA_API_URL` + `DAYTONA_API_KEY` |
 
-**Envoy** (`src/sandbox/envoy.rs`, `src/sandbox/envoy_delivery.rs`, `src/sandbox/envoy_render/`)
-gives each limited-networking
-sandbox no direct egress. The runner reaches the orchestrator through its control channel, and
-outbound HTTP goes through a per-sandbox Envoy listener with a deny-all-by-default policy.
+**Envoy** gives each limited-networking sandbox no direct egress. The runner reaches the
+orchestrator through its control channel, and outbound HTTP goes through a per-sandbox Envoy
+listener with a deny-all-by-default policy. The module boundary is explicit:
+
+- `src/sandbox/envoy.rs` owns sandbox networking lifecycle orchestration only;
+- `src/kernel/network_policy/envoy_model.rs` owns validated provider-neutral policy and Envoy-facing value models;
+- `src/sandbox/envoy_render/{json,proto}.rs` purely renders those validated models;
+- `src/sandbox/envoy_delivery.rs` defines the single `EnvoyDelivery` provider port and adapts it to
+  `XdsControlPlane`;
+- `src/sandbox/envoy_filesystem.rs` is a non-atomic local compatibility adapter and deliberately
+  refuses non-empty recovery or credential-bearing cluster/listener batches;
+- `src/xds/control_plane.rs` is the in-process composition root, `resource_store.rs` is the only
+  in-memory xDS resource truth, `node_ownership.rs` is the only sandbox-to-node truth, and
+  `delta.rs` owns protocol reconciliation.
+
+Provider code submits explicitly owned resources through `EnvoyDelivery`; it neither reaches into
+Delta transport internals nor infers ownership from listener or cluster names. The removed
+`sandbox/lds_backend.rs` compatibility facade must not be reintroduced.
 
 ### 6.4 MCP runtime plan and xDS authority
 
@@ -672,10 +594,13 @@ resources. Envoy DaemonSet pods connect to `joysafeter-orchestrator-xds`, whose 
 `joysafeter-xds-leader=true`; runner traffic continues through the ordinary load-balanced
 orchestrator Service.
 
-Authority activation is ordered and fenced: the pod acquires the dedicated Lease, advertises a new
-authority epoch internally, recovers the complete live limited-networking inventory from
-PostgreSQL, waits for Envoy ACKs, marks that epoch ready, enables ADS serving, and only then
-publishes the leader label. Standby ADS calls fail closed. Losing the Lease or shutting down
+Authority activation is ordered and fenced: the pod acquires the dedicated Lease, enters `Staging`,
+recovers the complete live limited-networking inventory from PostgreSQL, atomically installs that
+world, enters `RecoveryServing`, publishes the leader endpoint, waits for Envoy ACKs, and then marks
+the epoch `Ready`. A valid recovery generation whose Kubernetes data plane is not initialized is
+excluded from the active resource world and classified as deferred, not quarantined; its exact
+generation remains `pending` for the PostgreSQL-driven degraded-policy reconciler. Quarantine is
+reserved for invalid policy state or terminal delivery failure. Standby and `Staging` ADS calls fail closed. Losing the Lease or shutting down
 revokes the epoch, disables ADS, actively closes existing ADS streams, and removes the label; the
 design does not rely on Kubernetes endpoint removal to terminate established HTTP/2 connections.
 Every mutation is serialized by one authority application lock and carries an epoch guard. ACK and
@@ -689,6 +614,20 @@ leader-only degraded-policy loop using PostgreSQL. Missed teardown messages are 
 authority's periodic prune, which removes only xDS resources absent from the live PostgreSQL
 inventory without republishing healthy generations. A new leader always rebuilds from PostgreSQL
 and never depends on replaying Redis history.
+
+The health port exposes `/healthz/xds` and `/metrics`. `/healthz/xds` is 200 only in `Ready`; all
+other authority phases and disabled xDS return 503. Metrics use bounded labels and cover authority
+phase/epoch, recovery result and duration, authenticated/rejected ADS streams, active Envoy nodes,
+pending delivery age, ACK/NACK totals, reconnect removals, ownership transitions, stale-session
+closures, and durable degraded inventory. Sandbox IDs, resource names, hashes, tokens, payloads,
+and error text are never metric labels.
+
+xDS currently uses a dedicated shared-token keyring; mTLS is intentionally not enabled. The server
+accepts every token in `JOYSAFETER_XDS_AUTH_KEYRING`, while generated Envoy bootstrap uses the token
+selected by `JOYSAFETER_XDS_AUTH_WRITE_KEY_ID` and supplied as `JOYSAFETER_XDS_AUTH_TOKEN`. Rotate
+without downtime in three rollouts: add the new token while retaining the old write key; switch the
+write key and Envoy token after every authority accepts both; then remove the old token only after
+all Envoy pods have reconnected and authentication/rejection metrics are healthy.
 
 ---
 
@@ -927,14 +866,12 @@ backend/app/
 │   ├── app.py / main.py       #   app assembly + entrypoint
 │   └── startup.py             #   wires SessionBroadcaster
 ├── joysafeter_orchestrator_rs/ # Rust orchestrator service
-│   ├── src/bootstrap/         #   composition root, provider registry/factories, supervision
-│   ├── src/grpc/              #   Runner AgentBridge server only (+ generated proto)
-│   ├── src/kernel/            #   application flows; network policy owns desired state + PostgreSQL CAS
-│   ├── src/xds/               #   authority FSM, ADS, inventory, ownership, ACK/NACK quorum, metrics
+│   ├── src/grpc/              #   AgentBridge server (+ generated proto)
+│   ├── src/kernel/            #   scheduler, controllers, sandbox resolver/bridge, coordinator, queue
 │   ├── src/runtime/           #   HarnessAdapter SPI + adapters
-│   ├── src/sandbox/           #   providers, runtime facts, Envoy delivery, pure rendering
+│   ├── src/sandbox/           #   Docker/E2B/Daytona providers, Envoy manager, image builder
 │   ├── src/events/            #   event bus + stream/realtime subscribers
-│   ├── src/main.rs            #   thin process entry; delegates lifecycle to bootstrap
+│   ├── src/main.rs            #   boot/shutdown wiring
 │   └── Cargo.toml             #   Rust crate manifest
 ├── joysafeter_worker/         # Worker service
 │   └── events/                #   EventStreamWorker (Redis Stream consumer) + EventBatchSender

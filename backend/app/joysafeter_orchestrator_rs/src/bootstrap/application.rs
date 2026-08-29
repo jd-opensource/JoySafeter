@@ -3,14 +3,16 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use tracing::{error, info, warn};
-
 use crate::config::JoySafeterConfig;
 use crate::kernel::agent_identity_config::AgentIdentityProviderKind;
-use crate::{db, events, grpc, kernel, runtime_config};
+use crate::{db, events, grpc, kernel, runtime_config, xds};
+use tracing::{error, info, warn};
 
 use super::supervisor::{shutdown_signal, spawn_health_server};
-use super::{build_network_policy_material_resolver, ProviderFactoryRegistry, RuntimeComponents};
+use super::{
+    build_network_policy_material_resolver, ProviderFactoryRegistry, RuntimeComponents,
+    RuntimeFactoryContext,
+};
 
 pub struct OrchestratorApplication {
     config: JoySafeterConfig,
@@ -24,9 +26,11 @@ impl OrchestratorApplication {
 
     pub async fn run(self) -> anyhow::Result<()> {
         let config = self.config;
+
         info!(
             instance_id = %config.instance_id,
             grpc_addr = %config.grpc_addr(),
+            xds_addr = %config.xds_addr(),
             max_concurrent_tasks = config.max_concurrent_tasks,
             sandbox_provider = %config.sandbox_provider,
             "Starting JoySafeter Orchestrator (Rust)"
@@ -103,8 +107,8 @@ impl OrchestratorApplication {
                     #[cfg(not(feature = "jd-identity"))]
                     {
                         anyhow::bail!(
-                            "AGENT_IDENTITY_PROVIDER=jd requires a binary built with the jd-identity feature"
-                        );
+                        "AGENT_IDENTITY_PROVIDER=jd requires a binary built with the jd-identity feature"
+                    );
                     }
                 }
             };
@@ -135,14 +139,36 @@ impl OrchestratorApplication {
         );
         info!("Session broadcaster initialized");
 
-        // Resolve concrete adapters once at the composition root. Application and
-        // transport modules receive typed capabilities, never a service locator.
+        // Initialize the single xDS authority before constructing any provider or
+        // transport so every control-plane boundary observes the same lifecycle.
+        let managed_xds_authority = config.ha_mode == "multi"
+            && matches!(config.sandbox_provider.as_str(), "k8s" | "kubernetes")
+            && config.grpc_xds_enabled();
+        let xds_authority = if managed_xds_authority {
+            xds::authority::XdsAuthority::managed()
+        } else {
+            xds::authority::XdsAuthority::standalone()
+        };
+        let xds_control_plane = config.grpc_xds_enabled().then(|| {
+            let visibility = match config.sandbox_provider.as_str() {
+                "k8s" | "kubernetes" => xds::control_plane::NodeVisibility::NodeScoped,
+                _ => xds::control_plane::NodeVisibility::Unscoped,
+            };
+            xds::control_plane::XdsControlPlane::new(xds_authority.clone(), visibility)
+        });
         let RuntimeComponents {
             sandbox_provider,
             network_policy_runtime,
-            xds_service,
+            envoy_manager,
         } = ProviderFactoryRegistry::with_defaults()
-            .build(&config.sandbox_provider, &config)
+            .build(
+                &config.sandbox_provider,
+                &config,
+                &RuntimeFactoryContext {
+                    xds_authority: xds_authority.clone(),
+                    xds_control_plane: xds_control_plane.clone(),
+                },
+            )
             .await?;
         let network_policy_material_resolver = build_network_policy_material_resolver(
             db_pool.clone(),
@@ -161,7 +187,7 @@ impl OrchestratorApplication {
             let kube_client = kube::Client::try_default().await.map_err(|e| {
                 anyhow::anyhow!(
                     "Leader election enabled but K8s client init failed: {e}. \
-                     Set JOYSAFETER_LEADER_ELECTION_ENABLED=false for non-K8s deployments."
+                 Set JOYSAFETER_LEADER_ELECTION_ENABLED=false for non-K8s deployments."
                 )
             })?;
             let le = Arc::new(kernel::leader_election::LeaderElection::new(
@@ -192,23 +218,23 @@ impl OrchestratorApplication {
         // routes every Envoy DaemonSet to one replica. No-op unless multi + k8s +
         // xDS enabled (Docker/standalone/leader already have a single xDS source).
         let mut xds_leader_handle = None;
-        if config.ha_mode == "multi" && config.sandbox_provider == "k8s" && xds_service.is_some() {
+        if config.ha_mode == "multi"
+            && config.sandbox_provider == "k8s"
+            && xds_control_plane.is_some()
+        {
             let kube_client = kube::Client::try_default().await.map_err(|error| {
-                anyhow::anyhow!(
-                    "multi+k8s gRPC xDS requires K8s leader coordination, but client init failed: {error}"
-                )
-            })?;
+            anyhow::anyhow!(
+                "multi+k8s gRPC xDS requires K8s leader coordination, but client init failed: {error}"
+            )
+        })?;
             let pod_name = std::env::var("POD_NAME").map_err(|_| {
                 anyhow::anyhow!(
                     "multi+k8s gRPC xDS requires POD_NAME for leader label coordination"
                 )
             })?;
-            xds_leader_handle = Some(crate::xds::leader::spawn(
+            xds_leader_handle = Some(xds::leader::spawn(
                 kube_client,
-                xds_service
-                    .as_ref()
-                    .expect("multi+k8s xDS leader requires an xDS service")
-                    .clone(),
+                xds_authority.clone(),
                 config.k8s_namespace.clone(),
                 pod_name,
                 config.xds_leader_lease_name.clone(),
@@ -217,30 +243,6 @@ impl OrchestratorApplication {
                 std::time::Duration::from_secs(config.leader_renew_interval_sec),
             ));
         }
-        let xds_authority = if config.ha_mode == "multi" {
-            xds_leader_handle
-                .as_ref()
-                .map(crate::xds::leader::XdsLeaderHandle::authority)
-                .unwrap_or_else(|| {
-                    xds_service.as_ref().map_or_else(
-                        crate::xds::authority::XdsAuthorityState::managed,
-                        |service| {
-                            crate::xds::authority::XdsAuthorityState::managed_with_metrics(
-                                service.metrics(),
-                            )
-                        },
-                    )
-                })
-        } else {
-            xds_service.as_ref().map_or_else(
-                crate::xds::authority::XdsAuthorityState::standalone,
-                |service| {
-                    crate::xds::authority::XdsAuthorityState::standalone_with_metrics(
-                        service.metrics(),
-                    )
-                },
-            )
-        };
         if config.ha_mode == "multi"
             && sandbox_provider.capabilities().has_egress_management
             && xds_leader_handle.is_none()
@@ -254,23 +256,56 @@ impl OrchestratorApplication {
         // Starts early (both leader and standby expose /healthz/live).
         // ready_flag is set to true only after services are fully started.
         let ready_flag = Arc::new(AtomicBool::new(!config.leader_election_enabled));
-        spawn_health_server(9091, ready_flag.clone());
+        spawn_health_server(
+            9091,
+            ready_flag.clone(),
+            xds_authority.clone(),
+            xds_control_plane.clone(),
+        );
 
-        // Provider startup: Envoy init, DB recovery, ImageBuilder, etc.
+        let xds_handle = if let Some(service) = xds_control_plane.as_ref() {
+            let authenticator = Arc::new(xds::auth::SharedTokenAuthenticator::new(
+                config.parse_xds_auth_keyring()?,
+            ));
+            let handle =
+                xds::transport::start_xds_server(config.xds_addr(), service.clone(), authenticator)
+                    .await?;
+            info!(addr = %config.xds_addr(), "authenticated xDS server started");
+            Some(handle)
+        } else {
+            if config.grpc_xds_enabled() {
+                anyhow::bail!(
+                    "gRPC xDS is enabled but the selected sandbox provider has no xDS service"
+                );
+            }
+            None
+        };
+
+        // Initialize the network-policy runtime before authority recovery.
         // Fail-closed: if egress control cannot initialize or recover, abort startup
         // rather than becoming ready and serving sandboxes without enforcement.
         network_policy_runtime.initialize().await?;
-        if config.ha_mode != "multi" && sandbox_provider.capabilities().has_egress_management {
-            let authority = xds_authority
-                .ready_guard()
-                .expect("standalone xDS authority must be ready");
-            kernel::network_policy::recovery::recover_as_authority(
-                &db_pool,
-                network_policy_runtime.as_ref(),
-                network_policy_material_resolver.as_ref(),
-                &authority,
-            )
-            .await?;
+        if !managed_xds_authority {
+            let recovery = xds_authority.begin_staging()?;
+            if sandbox_provider.capabilities().has_egress_management {
+                kernel::network_policy::recovery::recover_as_authority(
+                    &db_pool,
+                    network_policy_runtime.as_ref(),
+                    network_policy_material_resolver.as_ref(),
+                    &recovery,
+                )
+                .await?;
+            }
+            if matches!(
+                xds_authority.phase(),
+                xds::authority::AuthorityPhase::Staging { .. }
+            ) {
+                xds_authority.begin_recovery_serving(&recovery)?;
+            }
+            xds_authority.mark_ready(&recovery)?;
+        }
+        if let Some(manager) = envoy_manager.clone() {
+            manager.spawn_health_monitor(xds_authority.clone());
         }
 
         // Initialize HA components (bridge store, task dispatcher, network-policy wakeup queue)
@@ -320,16 +355,7 @@ impl OrchestratorApplication {
             Err(e) => warn!("Orphan cleanup failed: {e}"),
         }
 
-        let xds_server_handle = if let Some(xds_service) = xds_service.clone() {
-            let handle =
-                crate::xds::server::start_ads_server(config.xds_addr(), xds_service).await?;
-            info!(addr = %config.xds_addr(), "ADS server started");
-            Some(handle)
-        } else {
-            None
-        };
-
-        // Start Runner gRPC server
+        // Start gRPC server
         let grpc_sandbox_resolver = Arc::new(
             kernel::sandbox_resolver::SandboxResolver::new(
                 db_pool.clone(),
@@ -356,7 +382,7 @@ impl OrchestratorApplication {
         .await?;
         info!(addr = %config.grpc_addr(), "gRPC server started");
 
-        if ha.mode == kernel::ha::HaMode::Multi {
+        if managed_xds_authority {
             let request_source = Box::new(kernel::ha::RedisNetworkPolicyRequestSource::new(
                 redis_client
                     .as_ref()
@@ -370,12 +396,11 @@ impl OrchestratorApplication {
                     network_policy_material_resolver.clone(),
                 ),
             );
-            let xds_authority_handle =
-                tokio::spawn(crate::xds::authority_worker::run_authority_worker(
-                    request_source,
-                    authority_work,
-                    xds_authority.clone(),
-                ));
+            let xds_authority_handle = tokio::spawn(xds::authority_worker::run_authority_worker(
+                request_source,
+                authority_work,
+                xds_authority.clone(),
+            ));
             ha.background_handles.push(xds_authority_handle);
         }
 
@@ -463,7 +488,7 @@ impl OrchestratorApplication {
                 bridge_store.clone(),
                 ha.task_dispatcher.clone(),
                 sandbox_provider.clone(),
-                None, // envoy_manager
+                envoy_manager.clone(),
                 None, // image_builder
                 redis_coordinator.clone(),
                 memory_subscribers.clone(),
@@ -541,6 +566,8 @@ impl OrchestratorApplication {
         // gap with no xDS leader during rolling upgrades.
         if let Some(ref xh) = xds_leader_handle {
             xh.shutdown().await;
+        } else {
+            let _ = xds_authority.revoke();
         }
 
         // Stop scheduler immediately (no new tasks claimed).
@@ -578,7 +605,7 @@ impl OrchestratorApplication {
 
         // Stop remaining background tasks
         grpc_handle.abort();
-        if let Some(handle) = xds_server_handle {
+        if let Some(handle) = xds_handle {
             handle.abort();
         }
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;

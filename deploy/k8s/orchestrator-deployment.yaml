@@ -39,6 +39,8 @@ spec:
         ports:
         - containerPort: 9090
           name: grpc
+        - containerPort: 9092
+          name: xds
         - containerPort: 9091
           name: health
         env:
@@ -48,6 +50,10 @@ spec:
           value: "9090"
         - name: JOYSAFETER_GRPC_PUBLIC_URL
           value: "http://joysafeter-orchestrator:9090"
+        - name: JOYSAFETER_XDS_HOST
+          value: "0.0.0.0"
+        - name: JOYSAFETER_XDS_PORT
+          value: "9092"
         - name: JOYSAFETER_SANDBOX_PROVIDER
           value: "k8s"
         - name: JOYSAFETER_K8S_NAMESPACE
@@ -65,6 +71,14 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: APP_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['app']
         # Envoy
         - name: JOYSAFETER_ENVOY_ENABLED
           value: "true"
@@ -72,6 +86,8 @@ spec:
           value: "grpc"
         - name: JOYSAFETER_ENVOY_SOCKET_HOST_DIR
           value: "/data/joysafeter/envoy-sockets"
+        - name: JOYSAFETER_ENVOY_GRPC_HOST
+          value: "joysafeter-orchestrator-xds"
         # Cloud services (from Secret)
         envFrom:
         - secretRef:

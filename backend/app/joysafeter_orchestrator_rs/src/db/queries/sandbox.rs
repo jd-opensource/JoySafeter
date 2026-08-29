@@ -1,5 +1,5 @@
 use crate::db::models::JoySafeterSandbox;
-use crate::ids::{ProjectId, SandboxId, SandboxNetworkPolicyId, SessionId, TaskId};
+use crate::ids::{ProjectId, SandboxId, SessionId, TaskId};
 use crate::kernel::network_policy::NetworkPolicyGeneration;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -38,80 +38,6 @@ pub struct AttachedPoolSandboxClaim {
     pub config_fingerprint: Value,
     pub claimed_status: String,
     pub claimed_runtime_config_applied_generation: i64,
-}
-
-#[derive(Debug, Clone)]
-pub struct UpsertNetworkPolicy<'a> {
-    pub id: SandboxNetworkPolicyId,
-    pub sandbox_id: SandboxId,
-    pub session_id: Option<SessionId>,
-    pub task_id: Option<TaskId>,
-    pub generation: &'a NetworkPolicyGeneration,
-    pub desired_policy_json: &'a Value,
-    pub rendered_summary_json: &'a Value,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NetworkPolicyPrepareOutcome {
-    Pending(NetworkPolicyGeneration),
-    AlreadyReady(NetworkPolicyGeneration),
-}
-
-impl NetworkPolicyPrepareOutcome {
-    pub fn generation(&self) -> &NetworkPolicyGeneration {
-        match self {
-            Self::Pending(generation) | Self::AlreadyReady(generation) => generation,
-        }
-    }
-
-    pub fn into_generation(self) -> NetworkPolicyGeneration {
-        match self {
-            Self::Pending(generation) | Self::AlreadyReady(generation) => generation,
-        }
-    }
-
-    pub fn is_already_ready(&self) -> bool {
-        matches!(self, Self::AlreadyReady(_))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NetworkPolicyAckOutcome {
-    Applied,
-    AlreadyReady,
-    Stale,
-    Missing,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NetworkPolicyFailureOutcome {
-    Recorded,
-    AlreadyReady,
-    Stale,
-    Missing,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct NetworkPolicyState {
-    networking_status: String,
-    networking_policy_hash: Option<String>,
-    networking_policy_version: i64,
-    networking_applied_hash: Option<String>,
-    networking_applied_version: Option<i64>,
-}
-
-impl NetworkPolicyState {
-    fn desired_matches(&self, generation: &NetworkPolicyGeneration) -> bool {
-        self.networking_policy_hash.as_deref() == Some(&generation.policy_hash)
-            && self.networking_policy_version == generation.policy_version
-    }
-
-    fn is_ready_for(&self, generation: &NetworkPolicyGeneration) -> bool {
-        self.networking_status == "ready"
-            && self.desired_matches(generation)
-            && self.networking_applied_hash.as_deref() == Some(&generation.policy_hash)
-            && self.networking_applied_version == Some(generation.policy_version)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -219,21 +145,27 @@ pub async fn find_sandbox_for_session(
     .await
 }
 
-/// List all live sandboxes for Envoy LDS recovery on orchestrator startup.
+/// Load every live sandbox that either declares limited networking or still
+/// carries durable network-policy state. Including inconsistent historical
+/// rows lets recovery quarantine them instead of silently omitting them.
 ///
 /// Returns sandboxes that still exist (not destroyed) and are in a state where
 /// their runner may still be connected, so their Envoy listeners must be
 /// rebuilt after an orchestrator restart (which wipes the in-memory/gRPC xDS
 /// state). The listener set (grpc + http pipes) is derived from the sandbox id;
 /// the egress allowlist is read from `config.fingerprint.networking`.
-pub async fn list_live_sandboxes_for_recovery(
-    pool: &PgPool,
-) -> Result<Vec<JoySafeterSandbox>, sqlx::Error> {
+pub async fn load_recovery_inventory(pool: &PgPool) -> Result<Vec<JoySafeterSandbox>, sqlx::Error> {
     sqlx::query_as::<_, JoySafeterSandbox>(
         r#"
         SELECT * FROM joysafeter_sandboxes
         WHERE status IN ('idle', 'running', 'creating', 'provisioning')
           AND destroyed_at IS NULL
+          AND (
+              config #>> '{fingerprint,networking,type}' = 'limited'
+              OR networking_status <> 'disabled'
+              OR networking_policy_hash IS NOT NULL
+              OR networking_applied_hash IS NOT NULL
+          )
         ORDER BY created_at
         "#,
     )
@@ -286,6 +218,22 @@ pub async fn list_degraded_limited_sandboxes(
     )
     .bind(limit)
     .fetch_all(pool)
+    .await
+}
+
+pub async fn count_degraded_limited_sandboxes(pool: &PgPool) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::BIGINT
+        FROM joysafeter_sandboxes
+        WHERE status IN ('idle', 'running', 'provisioning')
+          AND destroyed_at IS NULL
+          AND external_id IS NOT NULL
+          AND config #>> '{fingerprint,networking,type}' = 'limited'
+          AND networking_status IN ('pending', 'nacked', 'failed')
+        "#,
+    )
+    .fetch_one(pool)
     .await
 }
 
@@ -660,248 +608,6 @@ pub async fn update_sandbox_status_and_config(
     .await?;
 
     Ok(result.rows_affected() > 0)
-}
-
-/// Mark the sandbox networking control-plane status.
-pub async fn update_sandbox_networking_status(
-    pool: &PgPool,
-    sandbox_id: SandboxId,
-    status: &str,
-    policy_hash: Option<&str>,
-    policy_version: Option<i64>,
-    last_error: Option<&str>,
-) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query(
-        r#"
-        UPDATE joysafeter_sandboxes
-        SET networking_status = $2,
-            networking_policy_hash = COALESCE($3, networking_policy_hash),
-            networking_policy_version = COALESCE($4, networking_policy_version),
-            networking_last_error = $5,
-            networking_ready_at = CASE WHEN $2 = 'ready' THEN NOW() ELSE networking_ready_at END,
-            updated_at = NOW()
-        WHERE id = $1
-          AND destroyed_at IS NULL
-        "#,
-    )
-    .bind(sandbox_id)
-    .bind(status)
-    .bind(policy_hash)
-    .bind(policy_version)
-    .bind(last_error)
-    .execute(pool)
-    .await?;
-
-    Ok(result.rows_affected() > 0)
-}
-
-/// Prepare the desired generation without reopening an already-ready policy.
-pub async fn prepare_desired_network_policy(
-    pool: &PgPool,
-    sandbox_id: SandboxId,
-    policy_hash: &str,
-) -> Result<NetworkPolicyPrepareOutcome, sqlx::Error> {
-    let mut transaction = pool.begin().await?;
-    let current = sqlx::query_as::<_, NetworkPolicyState>(
-        r#"
-        SELECT networking_status, networking_policy_hash, networking_policy_version,
-               networking_applied_hash, networking_applied_version
-        FROM joysafeter_sandboxes
-        WHERE id = $1 AND destroyed_at IS NULL
-        FOR UPDATE
-        "#,
-    )
-    .bind(sandbox_id)
-    .fetch_optional(&mut *transaction)
-    .await?
-    .ok_or(sqlx::Error::RowNotFound)?;
-    let generation = NetworkPolicyGeneration {
-        policy_hash: policy_hash.to_string(),
-        policy_version: if current.networking_policy_hash.as_deref() == Some(policy_hash) {
-            current.networking_policy_version
-        } else {
-            current.networking_policy_version.max(0) + 1
-        },
-    };
-    if current.is_ready_for(&generation) {
-        transaction.commit().await?;
-        return Ok(NetworkPolicyPrepareOutcome::AlreadyReady(generation));
-    }
-    sqlx::query(
-        r#"
-        UPDATE joysafeter_sandboxes
-        SET networking_status = 'pending',
-            networking_policy_hash = $2,
-            networking_policy_version = $3,
-            networking_last_error = NULL,
-            updated_at = NOW()
-        WHERE id = $1
-        "#,
-    )
-    .bind(sandbox_id)
-    .bind(policy_hash)
-    .bind(generation.policy_version)
-    .execute(&mut *transaction)
-    .await?;
-    transaction.commit().await?;
-    Ok(NetworkPolicyPrepareOutcome::Pending(generation))
-}
-
-pub async fn reopen_network_policy_for_authority_recovery(
-    pool: &PgPool,
-    sandbox_id: SandboxId,
-    policy_hash: &str,
-) -> Result<NetworkPolicyGeneration, sqlx::Error> {
-    let row = sqlx::query_as::<_, (String, i64)>(
-        r#"
-        UPDATE joysafeter_sandboxes
-        SET networking_status = 'pending', networking_last_error = NULL, updated_at = NOW()
-        WHERE id = $1 AND destroyed_at IS NULL AND networking_policy_hash = $2
-        RETURNING networking_policy_hash, networking_policy_version
-        "#,
-    )
-    .bind(sandbox_id)
-    .bind(policy_hash)
-    .fetch_one(pool)
-    .await?;
-    Ok(NetworkPolicyGeneration {
-        policy_hash: row.0,
-        policy_version: row.1,
-    })
-}
-
-/// Mark only the exact accepted network-policy generation as ready.
-pub async fn mark_sandbox_network_policy_acked(
-    pool: &PgPool,
-    sandbox_id: SandboxId,
-    generation: &NetworkPolicyGeneration,
-) -> Result<NetworkPolicyAckOutcome, sqlx::Error> {
-    let result = sqlx::query(
-        r#"
-        UPDATE joysafeter_sandboxes
-        SET networking_status = 'ready',
-            networking_applied_hash = $2,
-            networking_applied_version = $3,
-            networking_last_error = NULL,
-            networking_ready_at = NOW(),
-            updated_at = NOW()
-        WHERE id = $1
-          AND destroyed_at IS NULL
-          AND networking_status = 'pending'
-          AND networking_policy_hash = $2
-          AND networking_policy_version = $3
-        "#,
-    )
-    .bind(sandbox_id)
-    .bind(&generation.policy_hash)
-    .bind(generation.policy_version)
-    .execute(pool)
-    .await?;
-
-    if result.rows_affected() > 0 {
-        return Ok(NetworkPolicyAckOutcome::Applied);
-    }
-    Ok(match load_network_policy_state(pool, sandbox_id).await? {
-        None => NetworkPolicyAckOutcome::Missing,
-        Some(state) if state.is_ready_for(generation) => NetworkPolicyAckOutcome::AlreadyReady,
-        Some(_) => NetworkPolicyAckOutcome::Stale,
-    })
-}
-
-/// Persist a failed policy application with the redacted desired/rendered policy.
-pub async fn record_network_policy_failure_detail(
-    pool: &PgPool,
-    policy: UpsertNetworkPolicy<'_>,
-    reason: &str,
-) -> Result<NetworkPolicyFailureOutcome, sqlx::Error> {
-    let result = sqlx::query(
-        r#"
-        WITH status_update AS (
-            UPDATE joysafeter_sandboxes
-            SET networking_status = 'nacked',
-                networking_last_error = $7,
-                updated_at = NOW()
-            WHERE id = $1
-              AND destroyed_at IS NULL
-              AND networking_status = 'pending'
-              AND networking_policy_hash = $2
-              AND networking_policy_version = $3
-            RETURNING id,
-                      chat_session_id,
-                      networking_policy_version AS policy_version
-        )
-        INSERT INTO joysafeter_sandbox_network_policies (
-            id, sandbox_id, session_id, task_id, policy_hash, policy_version,
-            desired_policy_json, rendered_summary_json, status,
-            last_error, last_nack_reason, created_at, updated_at
-        )
-        SELECT $9,
-               status_update.id,
-               COALESCE($4, status_update.chat_session_id),
-               $5,
-               $2,
-               status_update.policy_version,
-               $6,
-               $8,
-               'nacked',
-               $7,
-               $7,
-               NOW(),
-               NOW()
-        FROM status_update
-        ON CONFLICT (sandbox_id, policy_version) DO UPDATE
-        SET session_id = COALESCE(EXCLUDED.session_id, joysafeter_sandbox_network_policies.session_id),
-            task_id = COALESCE(EXCLUDED.task_id, joysafeter_sandbox_network_policies.task_id),
-            policy_hash = EXCLUDED.policy_hash,
-            desired_policy_json = EXCLUDED.desired_policy_json,
-            rendered_summary_json = EXCLUDED.rendered_summary_json,
-            status = 'nacked',
-            last_error = EXCLUDED.last_error,
-            last_nack_reason = EXCLUDED.last_nack_reason,
-            updated_at = NOW()
-        "#,
-    )
-    .bind(policy.sandbox_id)
-    .bind(&policy.generation.policy_hash)
-    .bind(policy.generation.policy_version)
-    .bind(policy.session_id)
-    .bind(policy.task_id)
-    .bind(policy.desired_policy_json)
-    .bind(reason)
-    .bind(policy.rendered_summary_json)
-    .bind(policy.id)
-    .execute(pool)
-    .await?;
-
-    if result.rows_affected() > 0 {
-        return Ok(NetworkPolicyFailureOutcome::Recorded);
-    }
-    Ok(
-        match load_network_policy_state(pool, policy.sandbox_id).await? {
-            None => NetworkPolicyFailureOutcome::Missing,
-            Some(state) if state.is_ready_for(policy.generation) => {
-                NetworkPolicyFailureOutcome::AlreadyReady
-            }
-            Some(_) => NetworkPolicyFailureOutcome::Stale,
-        },
-    )
-}
-
-async fn load_network_policy_state(
-    pool: &PgPool,
-    sandbox_id: SandboxId,
-) -> Result<Option<NetworkPolicyState>, sqlx::Error> {
-    sqlx::query_as::<_, NetworkPolicyState>(
-        r#"
-        SELECT networking_status, networking_policy_hash, networking_policy_version,
-               networking_applied_hash, networking_applied_version
-        FROM joysafeter_sandboxes
-        WHERE id = $1 AND destroyed_at IS NULL
-        "#,
-    )
-    .bind(sandbox_id)
-    .fetch_optional(pool)
-    .await
 }
 
 /// Merge non-secret sandbox config metadata while preserving lifecycle fields.

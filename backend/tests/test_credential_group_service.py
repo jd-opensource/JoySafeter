@@ -44,6 +44,10 @@ from app.joysafeter_domain.schemas.joysafeter_credential import (
 from app.joysafeter_shared.common.app_errors import AppError
 from app.joysafeter_shared.ids import OrganizationId, ProjectId, SandboxId
 from app.joysafeter_shared.utils.datetime import utc_now
+from tests.network_policy_test_helpers import (
+    acknowledged_network_policy_fields,
+    mark_network_policy_ready,
+)
 
 
 async def _make_project(db_session) -> str:
@@ -72,7 +76,7 @@ def _limited_sandbox(project_id: str) -> JoySafeterSandbox:
         project_id=project_id,
         image="test-image:latest",
         status="running",
-        networking_status="ready",
+        **acknowledged_network_policy_fields(),
         config={"fingerprint": {"networking": {"type": "limited"}}},
     )
 
@@ -196,7 +200,7 @@ async def test_archive_soft_delete_group_mark_pending(db_session, project_id):
         await getattr(svc, method)(group.id, project_id=project_id)
         assert await _sandbox_status(db_session, sandbox_id) == "pending", method
 
-        sandbox.networking_status = "ready"
+        mark_network_policy_ready(sandbox)
         db_session.add(sandbox)
         await db_session.commit()
 
@@ -427,13 +431,17 @@ async def test_active_session_blocks_group_lifecycle_but_member_changes_refresh_
     )
     assert await _sandbox_status(db_session, sandbox_id) == "pending"
     await db_session.execute(
-        update(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id).values(networking_status="ready")
+        update(JoySafeterSandbox)
+        .where(JoySafeterSandbox.id == sandbox_id)
+        .values(**acknowledged_network_policy_fields())
     )
     await db_session.commit()
     await svc.archive_credential(first_group_id, member.id, project_id=project_id)
     assert await _sandbox_status(db_session, sandbox_id) == "pending"
     await db_session.execute(
-        update(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id).values(networking_status="ready")
+        update(JoySafeterSandbox)
+        .where(JoySafeterSandbox.id == sandbox_id)
+        .values(**acknowledged_network_policy_fields())
     )
     await db_session.commit()
     captured_impacts = []

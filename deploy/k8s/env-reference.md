@@ -18,9 +18,12 @@
 #   --from-literal=REDIS_URL="..." \
 #   --from-literal=SECRET_KEY="..." \
 #   --from-literal=JWT_SECRET_KEY="..." \
-#   --from-literal=JOYSAFETER_VAULT_ENCRYPTION_KEY="..."
+#   --from-literal=JOYSAFETER_VAULT_ENCRYPTION_KEY="..." \
 #   --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING='{"active-2026-08":"..."}' \
-#   --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID="active-2026-08"
+#   --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID="active-2026-08" \
+#   --from-literal=JOYSAFETER_XDS_AUTH_KEYRING='{"active-2026-08":"<openssl rand -hex 32>"}' \
+#   --from-literal=JOYSAFETER_XDS_AUTH_WRITE_KEY_ID="active-2026-08" \
+#   --from-literal=JOYSAFETER_XDS_AUTH_TOKEN="<same token selected by write key id>"
 # ─────────────────────────────────────────────────────────────────────────────
 
 # 云 PostgreSQL 连接串 (asyncpg driver)
@@ -39,6 +42,9 @@ JWT_SECRET_KEY=CHANGE_ME
 JOYSAFETER_VAULT_ENCRYPTION_KEY=CHANGE_ME
 JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING=
 JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID=
+JOYSAFETER_XDS_AUTH_KEYRING=
+JOYSAFETER_XDS_AUTH_WRITE_KEY_ID=
+JOYSAFETER_XDS_AUTH_TOKEN=
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -55,6 +61,8 @@ JOYSAFETER_GRPC_HOST=0.0.0.0
 JOYSAFETER_GRPC_PORT=9090
 JOYSAFETER_GRPC_PUBLIC_URL=http://joysafeter-orchestrator:9090
 JOYSAFETER_GRPC_MAX_CONNECTIONS=5000
+JOYSAFETER_XDS_HOST=0.0.0.0
+JOYSAFETER_XDS_PORT=9092
 
 # ── Sandbox Provider ──
 JOYSAFETER_SANDBOX_PROVIDER=k8s
@@ -76,8 +84,7 @@ JOYSAFETER_ENVOY_ENABLED=true
 JOYSAFETER_ENVOY_XDS_MODE=grpc
 JOYSAFETER_ENVOY_SOCKET_HOST_DIR=/data/joysafeter/envoy-sockets
 JOYSAFETER_ENVOY_CONTAINER_NAME=joysafeter-envoy
-JOYSAFETER_ENVOY_GRPC_HOST=joysafeter-orchestrator
-JOYSAFETER_ENVOY_GRPC_PORT=9090
+JOYSAFETER_ENVOY_GRPC_HOST=joysafeter-orchestrator-xds
 JOYSAFETER_ENVOY_NETWORK=joysafeter
 
 # LLM 凭证注入允许的上游 host (逗号分隔)

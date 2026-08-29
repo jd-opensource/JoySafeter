@@ -139,6 +139,7 @@ backend/scripts/*
 !backend/scripts/
 !backend/scripts/credential_preflight.py
 !backend/scripts/credential_encryption_rotation.py
+!backend/scripts/audit_network_policy_generations.py
 backend/logs/
 backend/docs/
 

@@ -71,6 +71,14 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: APP_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['app']
         - name: TZ
           value: {{ .Values.timezone | default "Asia/Shanghai" | quote }}
 

@@ -130,8 +130,9 @@ pub trait AgentIdentityProvider: Send + Sync + std::fmt::Debug {
     /// 2. Exchange for short-lived tokens (e.g. agentToken, SSO ticket)
     /// 3. Return per-host injection headers
     ///
-    /// Errors are non-fatal: the orchestrator logs and continues without
-    /// identity injection (fail-open). The sandbox still runs.
+    /// Provider errors are returned to the orchestrator. When an environment
+    /// requests task-scoped identity, the application boundary must fail closed
+    /// rather than execute without that route.
     async fn resolve(
         &self,
         context: &IdentityResolveContext,

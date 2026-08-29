@@ -64,6 +64,7 @@ from app.joysafeter_shared.ids import (
     SessionId,
     UserId,
 )
+from tests.network_policy_test_helpers import acknowledged_network_policy_fields
 
 TEST_USER_ID = UserId.new()
 TEST_ORG_ID = OrganizationId.new()
@@ -468,7 +469,7 @@ async def test_environment_update_orders_mutation_audit_pending_single_commit_nu
         project_id=project_id,
         image="test-image:latest",
         status="running",
-        networking_status="ready",
+        **acknowledged_network_policy_fields(),
         config={"fingerprint": {"networking": {"type": "limited"}}},
     )
     db_session.add(sandbox)
@@ -599,7 +600,7 @@ async def test_environment_direct_binding_update_marks_only_its_live_session_san
         chat_session_id=matching_session.id,
         image="test-image:latest",
         status="running",
-        networking_status="ready",
+        **acknowledged_network_policy_fields(),
     )
     unrelated_sandbox = JoySafeterSandbox(
         id=SandboxId.new(),
@@ -607,7 +608,7 @@ async def test_environment_direct_binding_update_marks_only_its_live_session_san
         chat_session_id=unrelated_session.id,
         image="test-image:latest",
         status="running",
-        networking_status="ready",
+        **acknowledged_network_policy_fields(),
     )
     db_session.add_all([matching_sandbox, unrelated_sandbox])
     await db_session.commit()
@@ -703,7 +704,7 @@ async def test_direct_injection_credential_rotation_requires_reactivation_withou
         chat_session_id=session.id,
         image="test-image:latest",
         status="running",
-        networking_status="ready",
+        **acknowledged_network_policy_fields(),
         config={"fingerprint": {"networking": {"type": "limited"}}},
     )
     db_session.add(sandbox)
@@ -781,7 +782,7 @@ async def test_mixed_environment_update_advances_generation_once_and_keeps_proje
         chat_session_id=session.id,
         image="test-image:latest",
         status="running",
-        networking_status="ready",
+        **acknowledged_network_policy_fields(),
         config={"fingerprint": {"networking": {"type": "limited"}}},
     )
     unrelated = JoySafeterSandbox(
@@ -789,7 +790,7 @@ async def test_mixed_environment_update_advances_generation_once_and_keeps_proje
         project_id=project_id,
         image="test-image:latest",
         status="running",
-        networking_status="ready",
+        **acknowledged_network_policy_fields(),
         config={"fingerprint": {"networking": {"type": "limited"}}},
     )
     db_session.add_all([attached, unrelated])
@@ -882,7 +883,7 @@ async def test_session_without_environment_binding_uses_snapshot_for_direct_cred
         chat_session_id=session.id,
         image="test-image:latest",
         status="running",
-        networking_status="ready",
+        **acknowledged_network_policy_fields(),
     )
     db_session.add(sandbox)
     await db_session.commit()
@@ -966,7 +967,7 @@ async def test_environment_create_with_credentials_has_no_runtime_impact(
         project_id=project_id,
         image="test-image:latest",
         status="running",
-        networking_status="ready",
+        **acknowledged_network_policy_fields(),
         config={"fingerprint": {"networking": {"type": "limited"}}},
     )
     db_session.add(sandbox)
@@ -1113,7 +1114,7 @@ async def test_direct_credential_rotation_excludes_http_terminated_destroyed_and
             chat_session_id=http_session.id,
             image="test-image:latest",
             status="running",
-            networking_status="ready",
+            **acknowledged_network_policy_fields(),
         ),
         JoySafeterSandbox(
             id=SandboxId.new(),
@@ -1121,7 +1122,7 @@ async def test_direct_credential_rotation_excludes_http_terminated_destroyed_and
             chat_session_id=terminated_session.id,
             image="test-image:latest",
             status="running",
-            networking_status="ready",
+            **acknowledged_network_policy_fields(),
         ),
         JoySafeterSandbox(
             id=SandboxId.new(),
@@ -1130,7 +1131,7 @@ async def test_direct_credential_rotation_excludes_http_terminated_destroyed_and
             image="test-image:latest",
             status="running",
             destroyed_at=datetime.now(timezone.utc),
-            networking_status="ready",
+            **acknowledged_network_policy_fields(),
         ),
         JoySafeterSandbox(
             id=SandboxId.new(),
@@ -1138,7 +1139,7 @@ async def test_direct_credential_rotation_excludes_http_terminated_destroyed_and
             chat_session_id=other_project_session.id,
             image="test-image:latest",
             status="running",
-            networking_status="ready",
+            **acknowledged_network_policy_fields(),
         ),
     ]
     db_session.add_all(sandboxes)

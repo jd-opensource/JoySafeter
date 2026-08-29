@@ -44,7 +44,7 @@ pub struct CommandListener {
     image_builder: Option<Arc<ImageBuilder>>,
     redis_coordinator: Option<Arc<RedisCoordinator>>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
-    xds_authority: crate::xds::authority::XdsAuthorityState,
+    xds_authority: crate::xds::authority::XdsAuthority,
     network_policy_queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
     network_policy_runtime: Arc<dyn NetworkPolicyRuntime>,
     network_policy_material_resolver: Arc<dyn NetworkPolicyMaterialResolver>,
@@ -74,7 +74,7 @@ impl CommandListener {
             image_builder,
             redis_coordinator,
             memory_subscribers,
-            xds_authority: crate::xds::authority::XdsAuthorityState::standalone(),
+            xds_authority: crate::xds::authority::XdsAuthority::standalone(),
             network_policy_queue: None,
             network_policy_runtime: Arc::new(NoopNetworkPolicyRuntime),
             network_policy_material_resolver: Arc::new(UnconfiguredNetworkPolicyMaterialResolver),
@@ -96,7 +96,7 @@ impl CommandListener {
 
     pub fn with_network_policy_control(
         mut self,
-        authority: crate::xds::authority::XdsAuthorityState,
+        authority: crate::xds::authority::XdsAuthority,
         queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
     ) -> Self {
         self.xds_authority = authority;

@@ -20,6 +20,9 @@
 #     --from-literal=REDIS_PORT=6379 \
 #     --from-literal=REDIS_PASSWORD='<密码>' \
 #     --from-literal=REDIS_DB=0 \
+#     --from-literal=JOYSAFETER_XDS_AUTH_KEYRING='{"active-2026-08":"<openssl rand -hex 32>"}' \
+#     --from-literal=JOYSAFETER_XDS_AUTH_WRITE_KEY_ID='active-2026-08' \
+#     --from-literal=JOYSAFETER_XDS_AUTH_TOKEN='<same token selected by write key id>' \
 #     --from-literal=JOYSAFETER_VAULT_ENCRYPTION_KEY='<openssl rand -base64 32>' \
 #     --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING='{"active-2026-08":"<key>"}' \
 #     --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID='active-2026-08' \
@@ -73,7 +76,7 @@ orchestrator:
     maxExecutions: 500
 
   xds:
-    port: 19000
+    port: 9092
 
   scheduling:
     maxConcurrentTasks: 100

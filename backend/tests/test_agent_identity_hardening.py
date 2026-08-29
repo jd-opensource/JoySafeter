@@ -31,6 +31,49 @@ pytestmark = pytest.mark.no_db
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEST_KEY_ID = "test-2026-08"
 TEST_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+CANONICAL_JD_DEFAULTS = {
+    "JD_AGENT_IDENTITY_AUTH_TYPE": "SSO",
+    "JD_AGENT_IDENTITY_IDENTITY_TYPE": "ssoTicket",
+    "JD_AGENT_IDENTITY_AGENT_SCENE": "jdcloud_box_skill",
+    "JD_AGENT_IDENTITY_EXCHANGE_USER_TOKEN_ENABLED": "true",
+}
+IDENTITY_ENV_EXAMPLES = (
+    REPO_ROOT / "backend/env.example",
+    REPO_ROOT / "deploy/.env.example",
+    REPO_ROOT / "deploy/.env.remote.example",
+)
+ORCHESTRATOR_MANIFESTS = (
+    REPO_ROOT / "deploy/k8s/orchestrator-complete.yaml",
+    REPO_ROOT / "deploy/k8s/orchestrator-deployment.yaml",
+    REPO_ROOT / "deploy/k8s/orchestrator-multi.yaml",
+)
+
+
+def _dotenv_values(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key] = value
+    return values
+
+
+def _orchestrator_env(path: Path) -> dict[str, dict[str, object]]:
+    deployment = next(
+        document
+        for document in yaml.safe_load_all(path.read_text())
+        if document
+        and document.get("kind") == "Deployment"
+        and document.get("metadata", {}).get("name") == "joysafeter-orchestrator"
+    )
+    container = next(
+        item
+        for item in deployment["spec"]["template"]["spec"]["containers"]
+        if item["name"] == "orchestrator"
+    )
+    return {item["name"]: item for item in container.get("env", [])}
 
 
 def test_create_session_rejects_reserved_agent_identity_context_metadata() -> None:
@@ -477,6 +520,68 @@ def test_preprod_orchestrator_build_and_env_wire_identity_feature() -> None:
     ):
         assert variable in compose
         assert all(variable in env_example for env_example in env_examples)
+
+
+@pytest.mark.parametrize("path", IDENTITY_ENV_EXAMPLES, ids=lambda path: path.name)
+def test_agent_identity_examples_use_canonical_jd_contract(path: Path) -> None:
+    values = _dotenv_values(path)
+
+    assert {key: values.get(key) for key in CANONICAL_JD_DEFAULTS} == CANONICAL_JD_DEFAULTS
+    assert values.get("JD_AGENT_IDENTITY_USER_TOKEN_COOKIE_NAME") == ""
+
+
+def test_compose_forwards_user_token_exchange_settings() -> None:
+    compose = yaml.safe_load((REPO_ROOT / "deploy/docker-compose.yml").read_text())
+    common_env = compose["x-backend-common-env"]
+
+    assert common_env["JD_AGENT_IDENTITY_USER_TOKEN_COOKIE_NAME"] == (
+        "${JD_AGENT_IDENTITY_USER_TOKEN_COOKIE_NAME:-}"
+    )
+    assert common_env["JD_AGENT_IDENTITY_EXCHANGE_USER_TOKEN_ENABLED"] == (
+        "${JD_AGENT_IDENTITY_EXCHANGE_USER_TOKEN_ENABLED:-true}"
+    )
+
+
+def test_helm_renders_canonical_user_token_exchange_contract() -> None:
+    values = yaml.safe_load(
+        (REPO_ROOT / "deploy/helm/joysafeter-orchestrator/values.yaml").read_text()
+    )["agentIdentity"]
+    configmap = (
+        REPO_ROOT / "deploy/helm/joysafeter-orchestrator/templates/configmap.yaml"
+    ).read_text()
+    deployment = (
+        REPO_ROOT / "deploy/helm/joysafeter-orchestrator/templates/deployment.yaml"
+    ).read_text()
+
+    assert values["authType"] == CANONICAL_JD_DEFAULTS["JD_AGENT_IDENTITY_AUTH_TYPE"]
+    assert values["identityType"] == CANONICAL_JD_DEFAULTS["JD_AGENT_IDENTITY_IDENTITY_TYPE"]
+    assert values["agentScene"] == CANONICAL_JD_DEFAULTS["JD_AGENT_IDENTITY_AGENT_SCENE"]
+    assert values["userTokenCookieName"] == ""
+    assert values["exchangeUserTokenEnabled"] is True
+    assert "JD_AGENT_IDENTITY_USER_TOKEN_COOKIE_NAME:" in configmap
+    assert ".Values.agentIdentity.userTokenCookieName" in configmap
+    assert "JD_AGENT_IDENTITY_EXCHANGE_USER_TOKEN_ENABLED:" in configmap
+    assert ".Values.agentIdentity.exchangeUserTokenEnabled" in configmap
+    assert "fieldPath: status.podIP" in deployment
+    assert "fieldPath: metadata.labels['app']" in deployment
+
+
+@pytest.mark.parametrize("path", ORCHESTRATOR_MANIFESTS, ids=lambda path: path.name)
+def test_kubernetes_orchestrator_injects_identity_pod_metadata(path: Path) -> None:
+    env = _orchestrator_env(path)
+
+    assert env["POD_IP"]["valueFrom"]["fieldRef"]["fieldPath"] == "status.podIP"
+    assert env["APP_NAME"]["valueFrom"]["fieldRef"]["fieldPath"] == "metadata.labels['app']"
+
+
+def test_agent_identity_trait_assigns_fail_closed_policy_to_application_boundary() -> None:
+    contract = (
+        REPO_ROOT
+        / "backend/app/joysafeter_orchestrator_rs/crates/agent-identity-trait/src/lib.rs"
+    ).read_text()
+
+    assert "Errors are non-fatal" not in contract
+    assert "the application boundary must fail closed" in contract
 
 
 def test_preprod_helm_identity_values_do_not_capture_orchestrator_settings() -> None:

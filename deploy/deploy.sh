@@ -450,6 +450,46 @@ read_env_value() {
     ' "$file"
 }
 
+unset_env_value() {
+    local file="$1"
+    local key="$2"
+    local tmp="${file}.tmp"
+
+    awk -v key="$key" '$0 !~ "^" key "=" { print }' "$file" > "$tmp"
+    mv "$tmp" "$file"
+}
+
+validate_local_database_config() {
+    local deploy_env="$1"
+    local database_url url_rest authority host_port host
+
+    database_url="$(read_env_value "$deploy_env" "DATABASE_URL")"
+    database_url="${database_url#"${database_url%%[![:space:]]*}"}"
+    database_url="${database_url%"${database_url##*[![:space:]]}"}"
+    [ -z "$database_url" ] && return 0
+
+    case "$database_url" in
+        postgres://*|postgresql://*|postgresql+asyncpg://*) ;;
+        *)
+            log_error "本地 Compose 不支持 DATABASE_URL；请统一配置 POSTGRES_HOST、POSTGRES_PORT、POSTGRES_USER、POSTGRES_PASSWORD 和 POSTGRES_DB"
+            return 1
+            ;;
+    esac
+
+    url_rest="${database_url#*://}"
+    authority="${url_rest%%/*}"
+    host_port="${authority##*@}"
+    host="${host_port%%:*}"
+    if [ "$host" = "postgres" ]; then
+        unset_env_value "$deploy_env" "DATABASE_URL"
+        log_warning "检测到旧版内置 PostgreSQL DATABASE_URL，已移除；本地 Compose 统一使用 POSTGRES_* 配置"
+        return 0
+    fi
+
+    log_error "本地 Compose 不接受外部 DATABASE_URL；请统一改用 POSTGRES_HOST、POSTGRES_PORT、POSTGRES_USER、POSTGRES_PASSWORD 和 POSTGRES_DB"
+    return 1
+}
+
 # vault 密钥合法性校验：64 位 hex（Rust 兼容）或 base64 解码后为 32 字节。
 # 无 openssl 时无法校验，返回成功以避免误报。
 vault_key_is_valid() {
@@ -938,6 +978,7 @@ configure_local_compose_env() {
     ensure_env_file "$PROJECT_ROOT/frontend/.env" "$PROJECT_ROOT/frontend/env.example"
 
     ensure_vault_encryption_key "$deploy_env" "$PROJECT_ROOT/backend/.env"
+    validate_local_database_config "$deploy_env"
 
     set_env_value "$deploy_env" "BASE_IMAGE_REGISTRY" "$BASE_IMAGE_REGISTRY"
     set_env_value "$deploy_env" "RUST_IMAGE" "$RUST_IMAGE"
@@ -961,6 +1002,27 @@ configure_local_compose_env() {
     fi
 }
 
+start_local_compose() {
+    local timeout_seconds="${LOCAL_COMPOSE_READY_TIMEOUT_SECONDS:-240}"
+
+    if ! (
+        cd "$SCRIPT_DIR"
+        log_info "启动本地 Compose 服务并等待健康检查（最长 ${timeout_seconds}s）..."
+        compose_local_env --profile local-redis --profile rust-orchestrator \
+            up -d --no-build --wait --wait-timeout "$timeout_seconds"
+    ); then
+        log_error "本地 Compose 服务未通过健康检查"
+        (
+            cd "$SCRIPT_DIR"
+            compose_local_env --profile local-redis --profile rust-orchestrator ps -a || true
+            compose_local_env --profile local-redis --profile rust-orchestrator \
+                logs --no-color --tail=120 orchestrator-rs joysafeter-envoy api worker || true
+        )
+        return 1
+    fi
+    log_success "本地 Compose 服务已启动并通过健康检查"
+}
+
 run_local_compose() {
     require_single_platform
     configure_local_compose_env
@@ -974,12 +1036,7 @@ run_local_compose() {
 
     build_local_compose_images
     run_local_migrations
-
-    (
-        cd "$SCRIPT_DIR"
-        log_info "启动本地 Compose 服务..."
-        compose_local_env --profile local-redis --profile rust-orchestrator up -d --no-build
-    )
+    start_local_compose
 }
 
 run_local_doctor() {
@@ -2115,7 +2172,7 @@ main() {
     done
 
     # 如果没有指定平台且没有设置环境变量，根据命令动态决定
-    if [ -z "$PLATFORMS" ] && [ -z "$BUILD_PLATFORMS" ] && [ -z "$ARCH_LIST_STR" ]; then
+    if [ -z "$PLATFORMS" ] && [ -z "${BUILD_PLATFORMS:-}" ] && [ -z "$ARCH_LIST_STR" ]; then
         if [ "$COMMAND" = "push" ]; then
             PLATFORMS="$DEFAULT_PLATFORMS"
             log_info "未指定架构，推送模式默认使用多架构: $PLATFORMS"
@@ -2200,5 +2257,7 @@ main() {
     esac
 }
 
-# 运行主函数
-main "$@"
+# 运行主函数；测试和工具可以 source 本文件复用纯函数而不触发 CLI。
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main "$@"
+fi

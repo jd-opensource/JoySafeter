@@ -904,7 +904,6 @@ class JoySafeterConfig(BaseSettings):
     envoy_config_dir: str = "/tmp/joysafeter-envoy-config"
     envoy_network: str = "joysafeter-net"
     envoy_grpc_host: str = "host.docker.internal"
-    envoy_grpc_port: int = 9090
     envoy_container_name: str = "joysafeter-envoy"
 
     # Image builder

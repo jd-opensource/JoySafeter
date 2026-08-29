@@ -12,4 +12,14 @@ describe('session page scope lifecycle', () => {
 
     expect(source).toContain('}, [id, loadEvents, sessionScope])')
   })
+
+  it('uses the shared network policy refresh lifecycle', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'app/managed/sessions/[sessionId]/page.tsx'),
+      'utf8',
+    )
+
+    expect(source).toContain("from '@/lib/managed/network-policy-refresh'")
+    expect(source).toContain('networkPolicyRefetchInterval({')
+  })
 })

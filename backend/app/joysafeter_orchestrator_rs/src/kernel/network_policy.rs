@@ -20,7 +20,7 @@ pub mod request;
 
 pub use request::{NetworkPolicyAction, NetworkPolicyRequest};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NetworkPolicyGeneration {
     pub policy_hash: String,
     pub policy_version: i64,

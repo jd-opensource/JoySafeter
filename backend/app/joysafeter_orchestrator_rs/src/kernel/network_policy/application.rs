@@ -7,13 +7,13 @@ use super::envoy_model::{
     rendered_egress_policy_summary, validate_egress_policy, SandboxCredentials, SandboxEgressPolicy,
 };
 use super::material::NetworkPolicyMaterialResolver;
-use super::ports::{NetworkPolicyRequestQueue, NetworkPolicyRuntime};
+use super::ports::{NetworkPolicyApplyRequest, NetworkPolicyRequestQueue, NetworkPolicyRuntime};
 use super::request::NetworkPolicyRequest;
 use super::{DesiredNetworkPolicy, NetworkPolicyGeneration};
 use crate::db::models::JoySafeterSandbox;
 use crate::db::queries;
 use crate::ids::{SandboxId, SandboxNetworkPolicyId};
-use crate::xds::authority::{XdsAuthorityGuard, XdsAuthorityState};
+use crate::xds::authority::{MutationAuthorityGuard, XdsAuthority};
 
 pub const POLICY_APPLY_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -30,7 +30,7 @@ pub async fn request_reconcile(
     material_resolver: &dyn NetworkPolicyMaterialResolver,
     sandbox: &JoySafeterSandbox,
     queue: Option<&dyn NetworkPolicyRequestQueue>,
-    authority: &XdsAuthorityState,
+    authority: &XdsAuthority,
 ) -> anyhow::Result<NetworkingReconcileOutcome> {
     let Some(desired) = desired_policy(material_resolver, sandbox).await? else {
         return Ok(NetworkingReconcileOutcome::NotLimited);
@@ -38,7 +38,7 @@ pub async fn request_reconcile(
     let policy = desired.render_for(sandbox.id);
     validate_egress_policy(&sandbox.id, &policy)?;
     let policy_hash = desired.revision().to_string();
-    let prepared = queries::prepare_desired_network_policy(pool, sandbox.id, &policy_hash).await?;
+    let prepared = queries::prepare_generation(pool, sandbox.id, &policy_hash).await?;
     if prepared.is_already_ready() {
         return Ok(NetworkingReconcileOutcome::AlreadyReady { policy_hash });
     }
@@ -77,7 +77,7 @@ pub async fn reconcile_as_authority(
     runtime: &dyn NetworkPolicyRuntime,
     material_resolver: &dyn NetworkPolicyMaterialResolver,
     sandbox: &JoySafeterSandbox,
-    authority: &XdsAuthorityGuard,
+    authority: &MutationAuthorityGuard,
 ) -> anyhow::Result<NetworkingReconcileOutcome> {
     let Some(desired) = desired_policy(material_resolver, sandbox).await? else {
         return Ok(NetworkingReconcileOutcome::NotLimited);
@@ -86,7 +86,7 @@ pub async fn reconcile_as_authority(
     validate_egress_policy(&sandbox.id, &policy)?;
     let policy_hash = desired.revision().to_string();
 
-    let prepared = queries::prepare_desired_network_policy(pool, sandbox.id, &policy_hash).await?;
+    let prepared = queries::prepare_generation(pool, sandbox.id, &policy_hash).await?;
     if prepared.is_already_ready() {
         return Ok(NetworkingReconcileOutcome::AlreadyReady { policy_hash });
     }
@@ -108,7 +108,7 @@ pub async fn apply_generation_as_authority(
     material_resolver: &dyn NetworkPolicyMaterialResolver,
     sandbox_id: SandboxId,
     generation: &NetworkPolicyGeneration,
-    authority: &XdsAuthorityGuard,
+    authority: &MutationAuthorityGuard,
 ) -> anyhow::Result<NetworkingReconcileOutcome> {
     let sandbox = queries::get_sandbox(pool, sandbox_id)
         .await?
@@ -142,7 +142,7 @@ pub async fn apply_generation_with_credentials_as_authority(
     sandbox_id: SandboxId,
     generation: &NetworkPolicyGeneration,
     credentials: SandboxCredentials,
-    authority: &XdsAuthorityGuard,
+    authority: &MutationAuthorityGuard,
 ) -> anyhow::Result<NetworkingReconcileOutcome> {
     let sandbox = queries::get_sandbox(pool, sandbox_id)
         .await?
@@ -161,10 +161,10 @@ async fn apply_generation_with_desired_as_authority(
     sandbox: JoySafeterSandbox,
     generation: &NetworkPolicyGeneration,
     desired: DesiredNetworkPolicy,
-    authority: &XdsAuthorityGuard,
+    authority: &MutationAuthorityGuard,
 ) -> anyhow::Result<NetworkingReconcileOutcome> {
     let sandbox_id = sandbox.id;
-    if !authority.is_current() {
+    if authority.validate().is_err() {
         anyhow::bail!("xDS authority changed before policy application");
     }
     if !matches!(
@@ -215,7 +215,7 @@ async fn apply_generation_with_desired_as_authority(
         anyhow::bail!("sandbox {sandbox_id} desired policy changed before authority application");
     }
 
-    if let Err(error) = apply_ephemeral(runtime, sandbox_id, policy, authority).await {
+    if let Err(error) = apply_ephemeral(runtime, sandbox_id, generation, policy, authority).await {
         let desired_policy = serde_json::json!({
             "fingerprint": sandbox
                 .config
@@ -227,7 +227,7 @@ async fn apply_generation_with_desired_as_authority(
             "recorded_on": "failure",
         });
         let reason = format!("{error:#}");
-        let _ = queries::record_network_policy_failure_detail(
+        let _ = queries::record_generation_failure(
             pool,
             queries::UpsertNetworkPolicy {
                 id: SandboxNetworkPolicyId::new(),
@@ -243,10 +243,10 @@ async fn apply_generation_with_desired_as_authority(
         .await;
         return Err(error);
     }
-    if !authority.is_current() {
+    if authority.validate().is_err() {
         anyhow::bail!("xDS authority changed before policy ACK persistence");
     }
-    match queries::mark_sandbox_network_policy_acked(pool, sandbox_id, generation).await? {
+    match queries::mark_generation_applied(pool, sandbox_id, generation).await? {
         queries::NetworkPolicyAckOutcome::Applied => {}
         queries::NetworkPolicyAckOutcome::AlreadyReady => {
             return Ok(NetworkingReconcileOutcome::AlreadyReady { policy_hash });
@@ -267,7 +267,7 @@ pub async fn ensure_ready(
     runtime: &dyn NetworkPolicyRuntime,
     material_resolver: &dyn NetworkPolicyMaterialResolver,
     queue: Option<&dyn NetworkPolicyRequestQueue>,
-    authority: &XdsAuthorityState,
+    authority: &XdsAuthority,
     sandbox_id: SandboxId,
     generation: &NetworkPolicyGeneration,
     timeout: Duration,
@@ -284,7 +284,7 @@ pub async fn ensure_ready(
     }
     let _application_lock = authority.lock_application().await;
     let guard = authority
-        .ready_guard()
+        .mutation_guard()
         .ok_or_else(|| anyhow::anyhow!("local xDS authority is not ready"))?;
     match apply_generation_as_authority(
         pool,
@@ -380,18 +380,29 @@ fn sandbox_networking(sandbox: &JoySafeterSandbox) -> Option<&serde_json::Value>
 pub(crate) async fn apply_ephemeral(
     runtime: &dyn NetworkPolicyRuntime,
     sandbox_id: SandboxId,
+    generation: &NetworkPolicyGeneration,
     policy: SandboxEgressPolicy,
-    authority: &XdsAuthorityGuard,
+    authority: &MutationAuthorityGuard,
 ) -> anyhow::Result<()> {
-    if !authority.is_current() {
+    if authority.validate().is_err() {
         anyhow::bail!("xDS authority changed before ephemeral policy application");
     }
     validate_egress_policy(&sandbox_id, &policy)?;
-    tokio::time::timeout(POLICY_APPLY_TIMEOUT, runtime.apply(sandbox_id, policy))
-        .await
-        .unwrap_or_else(|_| {
-            Err(anyhow::anyhow!(
-                "refresh_networking exceeded {POLICY_APPLY_TIMEOUT:?}"
-            ))
-        })
+    tokio::time::timeout(
+        POLICY_APPLY_TIMEOUT,
+        runtime.apply(
+            NetworkPolicyApplyRequest {
+                authority_epoch: authority.epoch(),
+                sandbox_id,
+                generation: generation.clone(),
+            },
+            policy,
+        ),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        Err(anyhow::anyhow!(
+            "refresh_networking exceeded {POLICY_APPLY_TIMEOUT:?}"
+        ))
+    })
 }

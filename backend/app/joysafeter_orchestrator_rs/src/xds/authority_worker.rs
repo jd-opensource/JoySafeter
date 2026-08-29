@@ -6,7 +6,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tracing::{debug, error, info, warn};
 
-use super::authority::{XdsAuthorityGuard, XdsAuthorityState};
+use super::authority::{
+    AuthorityPhase, MutationAuthorityGuard, RecoveryAuthorityGuard, XdsAuthority,
+};
 
 const INVENTORY_RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -22,17 +24,17 @@ pub trait AuthorityRequestSource<Request>: Send {
 
 #[async_trait]
 pub trait AuthorityWork<Request>: Send + Sync + 'static {
-    async fn recover(&self, guard: &XdsAuthorityGuard) -> anyhow::Result<usize>;
+    async fn recover(&self, guard: &RecoveryAuthorityGuard) -> anyhow::Result<usize>;
 
-    async fn reconcile_inventory(&self, guard: &XdsAuthorityGuard) -> anyhow::Result<usize>;
+    async fn reconcile_inventory(&self, guard: &MutationAuthorityGuard) -> anyhow::Result<usize>;
 
-    async fn apply(&self, request: Request, guard: &XdsAuthorityGuard) -> anyhow::Result<()>;
+    async fn apply(&self, request: Request, guard: &MutationAuthorityGuard) -> anyhow::Result<()>;
 }
 
 pub async fn run_authority_worker<Request: Send + 'static>(
     mut source: Box<dyn AuthorityRequestSource<Request>>,
     work: Arc<dyn AuthorityWork<Request>>,
-    authority: XdsAuthorityState,
+    authority: XdsAuthority,
 ) {
     let mut recovered_epoch = None;
     let mut last_inventory_reconcile = None;
@@ -40,23 +42,34 @@ pub async fn run_authority_worker<Request: Send + 'static>(
     info!("xDS authority worker started");
 
     loop {
-        if let Some(guard) = authority.advertised_guard() {
+        if let Some(guard) = authority.recovery_guard() {
             if recovered_epoch != Some(guard.epoch()) {
                 let _application_lock = authority.lock_application().await;
                 match work.recover(&guard).await {
-                    Ok(recovered) if authority.mark_ready(&guard) => {
+                    Ok(recovered) => {
+                        if matches!(authority.phase(), AuthorityPhase::Staging { .. })
+                            && authority.begin_recovery_serving(&guard).is_err()
+                        {
+                            recovered_epoch = None;
+                            warn!(
+                                epoch = guard.epoch(),
+                                "xDS authority changed before recovery serving"
+                            );
+                            continue;
+                        }
+                        if authority.mark_ready(&guard).is_err() {
+                            recovered_epoch = None;
+                            warn!(
+                                epoch = guard.epoch(),
+                                "xDS authority changed during recovery"
+                            );
+                            continue;
+                        }
                         recovered_epoch = Some(guard.epoch());
                         last_inventory_reconcile = Some(tokio::time::Instant::now());
                         info!(
                             epoch = guard.epoch(),
                             recovered, "xDS authority recovery completed"
-                        );
-                    }
-                    Ok(_) => {
-                        recovered_epoch = None;
-                        warn!(
-                            epoch = guard.epoch(),
-                            "xDS authority changed during recovery"
                         );
                     }
                     Err(error) => {
@@ -65,12 +78,12 @@ pub async fn run_authority_worker<Request: Send + 'static>(
                     }
                 }
             }
-        } else {
+        } else if !matches!(authority.phase(), AuthorityPhase::Ready { .. }) {
             recovered_epoch = None;
             last_inventory_reconcile = None;
         }
 
-        if let Some(guard) = authority.ready_guard() {
+        if let Some(guard) = authority.mutation_guard() {
             let elapsed = last_inventory_reconcile
                 .map(|last| last.elapsed())
                 .unwrap_or(INVENTORY_RECONCILE_INTERVAL);
@@ -93,9 +106,8 @@ pub async fn run_authority_worker<Request: Send + 'static>(
         let Some(entries) = source.next_batch().await else {
             continue;
         };
-
         for envelope in entries {
-            let Some(guard) = authority.ready_guard() else {
+            let Some(guard) = authority.mutation_guard() else {
                 continue;
             };
             debug!(source = %envelope.source, epoch = guard.epoch(), "Received authority work request");

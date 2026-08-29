@@ -76,6 +76,7 @@ import {
 } from '@/lib/managed/agent-response-parsers'
 import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
 import { getSessionDisplayTitle } from '@/lib/managed/session-display'
+import { networkPolicyRefetchInterval } from '@/lib/managed/network-policy-refresh'
 import { AgentModelSummary } from '@/components/managed/agent/agent-model-summary'
 import {
   parseFileListResponse,
@@ -352,6 +353,12 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
         managedRequestOptions(managedScope),
       ),
     enabled: !!id && hasManagedRequestScope(managedScope),
+    refetchInterval: (query) =>
+      networkPolicyRefetchInterval({
+        sessionActive: session?.status === 'running',
+        streamForced,
+        networkingStatus: query.state.data?.networking_status,
+      }),
   })
   const mountedFiles = useMemo(
     () => (sessionResources?.data || []).filter((r): r is SessionFileResource => r.type === 'file'),

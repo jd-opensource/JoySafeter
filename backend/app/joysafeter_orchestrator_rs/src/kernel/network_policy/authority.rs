@@ -13,7 +13,7 @@ use super::{NetworkPolicyAction, NetworkPolicyRequest};
 use crate::db::queries;
 #[cfg(test)]
 use crate::ids::SandboxId;
-use crate::xds::authority::XdsAuthorityGuard;
+use crate::xds::authority::{MutationAuthorityGuard, RecoveryAuthorityGuard};
 use crate::xds::authority_worker::AuthorityWork;
 
 pub struct NetworkPolicyAuthorityHandler {
@@ -38,7 +38,7 @@ impl NetworkPolicyAuthorityHandler {
 
 #[async_trait]
 impl AuthorityWork<NetworkPolicyRequest> for NetworkPolicyAuthorityHandler {
-    async fn recover(&self, guard: &XdsAuthorityGuard) -> anyhow::Result<usize> {
+    async fn recover(&self, guard: &RecoveryAuthorityGuard) -> anyhow::Result<usize> {
         super::recovery::recover_as_authority(
             &self.pool,
             self.runtime.as_ref(),
@@ -48,17 +48,17 @@ impl AuthorityWork<NetworkPolicyRequest> for NetworkPolicyAuthorityHandler {
         .await
     }
 
-    async fn reconcile_inventory(&self, guard: &XdsAuthorityGuard) -> anyhow::Result<usize> {
-        if !guard.is_current() {
+    async fn reconcile_inventory(&self, guard: &MutationAuthorityGuard) -> anyhow::Result<usize> {
+        if guard.validate().is_err() {
             anyhow::bail!("xDS authority changed before inventory reconciliation");
         }
-        let live_sandbox_ids = queries::list_live_sandboxes_for_recovery(&self.pool)
+        let live_sandbox_ids = queries::load_recovery_inventory(&self.pool)
             .await?
             .into_iter()
             .filter(is_limited_networking)
             .map(|sandbox| sandbox.id)
             .collect::<HashSet<_>>();
-        if !guard.is_current() {
+        if guard.validate().is_err() {
             anyhow::bail!("xDS authority changed before inventory pruning");
         }
         self.runtime.prune(&live_sandbox_ids).await
@@ -67,9 +67,9 @@ impl AuthorityWork<NetworkPolicyRequest> for NetworkPolicyAuthorityHandler {
     async fn apply(
         &self,
         request: NetworkPolicyRequest,
-        guard: &XdsAuthorityGuard,
+        guard: &MutationAuthorityGuard,
     ) -> anyhow::Result<()> {
-        if !guard.is_current() {
+        if guard.validate().is_err() {
             anyhow::bail!("xDS authority changed before request application");
         }
         match request.action {
@@ -96,7 +96,7 @@ impl AuthorityWork<NetworkPolicyRequest> for NetworkPolicyAuthorityHandler {
                         request.sandbox_id
                     );
                 }
-                if !guard.is_current() {
+                if guard.validate().is_err() {
                     anyhow::bail!("xDS authority changed before networking removal");
                 }
                 self.runtime.remove(request.sandbox_id).await?;
@@ -123,7 +123,7 @@ mod tests {
 
     use super::*;
     use crate::kernel::network_policy::DesiredNetworkPolicy;
-    use crate::xds::authority::XdsAuthorityState;
+    use crate::xds::authority::XdsAuthority;
     use sqlx::postgres::PgPoolOptions;
 
     struct NeverMaterialResolver;
@@ -149,9 +149,23 @@ mod tests {
             Ok(0)
         }
 
+        async fn recover(
+            &self,
+            _authority_epoch: u64,
+            entries: Vec<super::super::ports::NetworkPolicyRecoveryEntry>,
+        ) -> anyhow::Result<super::super::ports::NetworkPolicyRecoveryReport> {
+            Ok(super::super::ports::NetworkPolicyRecoveryReport {
+                ready: entries
+                    .into_iter()
+                    .map(|entry| (entry.sandbox_id, entry.generation))
+                    .collect(),
+                ..super::super::ports::NetworkPolicyRecoveryReport::default()
+            })
+        }
+
         async fn apply(
             &self,
-            _sandbox_id: SandboxId,
+            _request: super::super::ports::NetworkPolicyApplyRequest,
             _policy: super::super::envoy_model::SandboxEgressPolicy,
         ) -> anyhow::Result<()> {
             Ok(())
@@ -165,10 +179,14 @@ mod tests {
 
     #[tokio::test]
     async fn revoked_authority_cannot_remove_networking() {
-        let authority = XdsAuthorityState::managed();
-        let guard = authority.advertise();
-        assert!(authority.mark_ready(&guard));
-        authority.revoke();
+        let authority = XdsAuthority::managed();
+        let recovery = authority.begin_staging().expect("begin staging");
+        authority
+            .begin_recovery_serving(&recovery)
+            .expect("begin recovery serving");
+        authority.mark_ready(&recovery).expect("mark ready");
+        let guard = authority.mutation_guard().expect("mutation guard");
+        authority.revoke().expect("revoke authority");
         let runtime = Arc::new(TeardownRecordingRuntime {
             calls: AtomicUsize::new(0),
         });

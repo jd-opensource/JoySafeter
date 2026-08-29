@@ -1,0 +1,64 @@
+{{- if .Values.monitoring.xdsAlerts.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: joysafeter-orchestrator-xds
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "joysafeter.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.xdsAlerts.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+  - name: joysafeter-xds-control-plane
+    rules:
+    - alert: JoySafeterXdsAuthorityUnavailable
+      expr: absent(joysafeter_xds_authority_phase{phase="ready"}) or max(joysafeter_xds_authority_phase{phase="ready"}) < 1
+      for: {{ .Values.monitoring.xdsAlerts.authorityUnavailableFor }}
+      labels:
+        severity: critical
+      annotations:
+        summary: JoySafeter xDS authority is not ready
+        description: No orchestrator replica has reported a Ready xDS authority within the configured lease and recovery budget.
+    - alert: JoySafeterXdsRecoveryOverBudget
+      expr: max(joysafeter_xds_authority_recovery_duration_seconds{result="current"}) > {{ .Values.monitoring.xdsAlerts.recoveryBudgetSeconds }}
+      for: {{ .Values.monitoring.xdsAlerts.recoveryOverBudgetFor }}
+      labels:
+        severity: warning
+      annotations:
+        summary: JoySafeter xDS recovery exceeded its budget
+        description: The active authority remains in staging or recovery serving beyond the configured recovery budget.
+    - alert: JoySafeterXdsSustainedNacks
+      expr: sum(rate(joysafeter_xds_nack_total[{{ .Values.monitoring.xdsAlerts.nackWindow }}])) > 0
+      for: {{ .Values.monitoring.xdsAlerts.nackFor }}
+      labels:
+        severity: critical
+      annotations:
+        summary: Envoy is persistently rejecting JoySafeter xDS updates
+        description: Sustained NACKs indicate invalid resources or an incompatible Envoy/control-plane contract.
+    - alert: JoySafeterXdsDeliveryStalled
+      expr: max(joysafeter_xds_oldest_pending_delivery_age_seconds) > {{ .Values.monitoring.xdsAlerts.applyTimeoutSeconds }}
+      for: 30s
+      labels:
+        severity: critical
+      annotations:
+        summary: JoySafeter xDS delivery is stalled
+        description: At least one published policy generation has exceeded the configured apply timeout without a terminal ACK or NACK.
+    - alert: JoySafeterXdsDegradedInventory
+      expr: max(joysafeter_xds_degraded_inventory) > 0
+      for: {{ .Values.monitoring.xdsAlerts.degradedInventoryFor }}
+      labels:
+        severity: warning
+      annotations:
+        summary: JoySafeter xDS has degraded sandbox networking
+        description: PostgreSQL still contains one or more live limited-networking sandboxes awaiting successful policy application.
+    - alert: JoySafeterXdsEnvoyNodeCountMismatch
+      expr: max(joysafeter_xds_active_envoy_nodes) != max(kube_daemonset_status_number_available{namespace="{{ .Values.namespace }}",daemonset="joysafeter-envoy"})
+      for: {{ .Values.monitoring.xdsAlerts.envoyNodeMismatchFor }}
+      labels:
+        severity: warning
+      annotations:
+        summary: JoySafeter xDS active node count differs from available Envoy pods
+        description: The control plane and the Envoy DaemonSet disagree on the number of active nodes.
+{{- end }}

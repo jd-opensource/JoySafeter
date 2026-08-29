@@ -285,7 +285,7 @@ pub struct SandboxResolver {
     /// Multi-replica requests are submitted to the elected xDS authority.
     /// `None` means this process is the single local authority.
     network_policy_queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
-    xds_authority: crate::xds::authority::XdsAuthorityState,
+    xds_authority: crate::xds::authority::XdsAuthority,
     /// Pluggable agent identity provider for outbound credential injection.
     identity_provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
     identity_allowed_hosts: Vec<String>,
@@ -304,7 +304,7 @@ impl SandboxResolver {
             network_policy_ready: dashmap::DashMap::new(),
             pool_replenish_notify: None,
             network_policy_queue: None,
-            xds_authority: crate::xds::authority::XdsAuthorityState::standalone(),
+            xds_authority: crate::xds::authority::XdsAuthority::standalone(),
             identity_provider: Arc::new(
                 crate::kernel::agent_identity_provider::NoopAgentIdentityProvider,
             ),
@@ -364,7 +364,7 @@ impl SandboxResolver {
 
     pub fn with_network_policy_control(
         mut self,
-        authority: crate::xds::authority::XdsAuthorityState,
+        authority: crate::xds::authority::XdsAuthority,
         queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
     ) -> Self {
         self.xds_authority = authority;
@@ -390,7 +390,7 @@ impl SandboxResolver {
             let _application_lock = self.xds_authority.lock_application().await;
             let guard = self
                 .xds_authority
-                .ready_guard()
+                .mutation_guard()
                 .ok_or_else(|| anyhow::anyhow!("local xDS authority is not ready"))?;
             let mut credentials = context.credentials.clone();
             credentials.proxy_auth_token = proxy_auth_token;
@@ -1093,7 +1093,7 @@ impl SandboxResolver {
                 policy_hash = %context.expected.egress_policy_hash,
                 "Preparing Envoy networking (sandbox already started)"
             );
-            let policy_generation = match queries::prepare_desired_network_policy(
+            let policy_generation = match queries::prepare_generation(
                 &self.pool,
                 sandbox_db_id,
                 &context.expected.egress_policy_hash,
@@ -1398,7 +1398,7 @@ impl SandboxResolver {
             return Ok(());
         }
 
-        let policy_generation = queries::prepare_desired_network_policy(
+        let policy_generation = queries::prepare_generation(
             &self.pool,
             sandbox.id,
             &context.expected.egress_policy_hash,
@@ -1441,7 +1441,7 @@ impl SandboxResolver {
         external_id: &str,
         context: &ResolveContext,
     ) -> anyhow::Result<()> {
-        let policy_generation = queries::prepare_desired_network_policy(
+        let policy_generation = queries::prepare_generation(
             &self.pool,
             sandbox_id,
             &context.expected.egress_policy_hash,
@@ -2894,6 +2894,16 @@ mod egress_tests {
         hosts.iter().map(|host| host.to_string()).collect()
     }
 
+    fn ready_standalone_authority() -> crate::xds::authority::XdsAuthority {
+        let authority = crate::xds::authority::XdsAuthority::standalone();
+        let recovery = authority.begin_staging().expect("begin staging");
+        authority
+            .begin_recovery_serving(&recovery)
+            .expect("begin recovery serving");
+        authority.mark_ready(&recovery).expect("mark ready");
+        authority
+    }
+
     fn identity_target(
         host: &str,
     ) -> crate::kernel::agent_identity_provider::IdentityEgressRequestTarget {
@@ -3836,13 +3846,30 @@ mod egress_tests {
             Ok(0)
         }
 
+        async fn recover(
+            &self,
+            _authority_epoch: u64,
+            entries: Vec<crate::kernel::network_policy::ports::NetworkPolicyRecoveryEntry>,
+        ) -> anyhow::Result<crate::kernel::network_policy::ports::NetworkPolicyRecoveryReport>
+        {
+            Ok(
+                crate::kernel::network_policy::ports::NetworkPolicyRecoveryReport {
+                    ready: entries
+                        .into_iter()
+                        .map(|entry| (entry.sandbox_id, entry.generation))
+                        .collect(),
+                    ..crate::kernel::network_policy::ports::NetworkPolicyRecoveryReport::default()
+                },
+            )
+        }
+
         async fn apply(
             &self,
-            sandbox_id: SandboxId,
+            request: crate::kernel::network_policy::ports::NetworkPolicyApplyRequest,
             policy: crate::kernel::network_policy::envoy_model::SandboxEgressPolicy,
         ) -> anyhow::Result<()> {
             self.networking.lock().await.push((
-                sandbox_id,
+                request.sandbox_id,
                 Some(serde_json::json!({
                     "type": "limited",
                     "allowed_hosts": policy.allowlist_hosts,
@@ -3903,13 +3930,21 @@ mod egress_tests {
             .with_network_policy_material_resolver(Arc::new(
                 PostgresTestNetworkPolicyMaterialResolver { pool },
             ))
+            .with_network_policy_control(ready_standalone_authority(), None)
     }
 
     #[tokio::test]
     async fn local_authority_applies_ephemeral_identity_credentials_without_rebuild() {
         let provider = RecordingProvider::default();
-        let authority = crate::xds::authority::XdsAuthorityState::standalone();
-        let guard = authority.ready_guard().expect("standalone authority guard");
+        let authority = crate::xds::authority::XdsAuthority::standalone();
+        let recovery = authority.begin_staging().expect("begin staging");
+        authority
+            .begin_recovery_serving(&recovery)
+            .expect("begin recovery serving");
+        authority.mark_ready(&recovery).expect("mark ready");
+        let guard = authority
+            .mutation_guard()
+            .expect("standalone authority guard");
         let sandbox_id = SandboxId::new();
         let credentials = SandboxCredentials {
             routes: vec![EgressCredentialRoute {
@@ -3938,13 +3973,18 @@ mod egress_tests {
             "type": "limited",
             "allowed_hosts": []
         });
+        let desired = DesiredNetworkPolicy::from_inputs(Some(&networking), &credentials)
+            .expect("desired policy");
+        let generation = NetworkPolicyGeneration {
+            policy_hash: desired.revision().to_string(),
+            policy_version: 1,
+        };
 
         crate::kernel::network_policy::application::apply_ephemeral(
             &provider,
             sandbox_id,
-            DesiredNetworkPolicy::from_inputs(Some(&networking), &credentials)
-                .expect("desired policy")
-                .render_for(sandbox_id),
+            &generation,
+            desired.render_for(sandbox_id),
             &guard,
         )
         .await
@@ -4021,12 +4061,12 @@ mod egress_tests {
         )
         .await
         .expect("create identity cleanup sandbox");
-        let generation = queries::prepare_desired_network_policy(&pool, sandbox_id, &dynamic_hash)
+        let generation = queries::prepare_generation(&pool, sandbox_id, &dynamic_hash)
             .await
             .expect("prepare dynamic generation")
             .into_generation();
         assert_eq!(
-            queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &generation)
+            queries::mark_generation_applied(&pool, sandbox_id, &generation)
                 .await
                 .expect("mark dynamic policy ready"),
             queries::NetworkPolicyAckOutcome::Applied
@@ -4093,12 +4133,8 @@ mod egress_tests {
         async fn publish(&self, request: NetworkPolicyRequest) -> anyhow::Result<()> {
             if let Some(generation) = request.generation.as_ref() {
                 assert!(matches!(
-                    queries::mark_sandbox_network_policy_acked(
-                        &self.pool,
-                        request.sandbox_id,
-                        generation,
-                    )
-                    .await?,
+                    queries::mark_generation_applied(&self.pool, request.sandbox_id, generation)
+                        .await?,
                     queries::NetworkPolicyAckOutcome::Applied
                         | queries::NetworkPolicyAckOutcome::AlreadyReady
                 ));
@@ -4156,14 +4192,11 @@ mod egress_tests {
         )
         .await
         .expect("create authority test sandbox");
-        let generation = queries::prepare_desired_network_policy(
-            &pool,
-            sandbox_id,
-            &context.expected.egress_policy_hash,
-        )
-        .await
-        .expect("prepare authority generation")
-        .into_generation();
+        let generation =
+            queries::prepare_generation(&pool, sandbox_id, &context.expected.egress_policy_hash)
+                .await
+                .expect("prepare authority generation")
+                .into_generation();
         let provider = Arc::new(RecordingProvider::default());
         let request_queue = Arc::new(AckingNetworkPolicyQueue {
             pool: pool.clone(),
@@ -4233,23 +4266,25 @@ mod egress_tests {
         )
         .await
         .expect("create duplicate authority test sandbox");
-        let generation = queries::prepare_desired_network_policy(
-            &pool,
-            sandbox_id,
-            &expected.egress_policy_hash,
-        )
-        .await
-        .expect("prepare duplicate generation")
-        .into_generation();
+        let generation =
+            queries::prepare_generation(&pool, sandbox_id, &expected.egress_policy_hash)
+                .await
+                .expect("prepare duplicate generation")
+                .into_generation();
         assert_eq!(
-            queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &generation)
+            queries::mark_generation_applied(&pool, sandbox_id, &generation)
                 .await
                 .expect("mark duplicate generation ready"),
             queries::NetworkPolicyAckOutcome::Applied
         );
         let provider = RecordingProvider::default();
-        let authority = crate::xds::authority::XdsAuthorityState::standalone();
-        let guard = authority.ready_guard().expect("authority guard");
+        let authority = crate::xds::authority::XdsAuthority::standalone();
+        let recovery = authority.begin_staging().expect("begin staging");
+        authority
+            .begin_recovery_serving(&recovery)
+            .expect("begin recovery serving");
+        authority.mark_ready(&recovery).expect("mark ready");
+        let guard = authority.mutation_guard().expect("authority guard");
 
         let material_resolver = UnconfiguredNetworkPolicyMaterialResolver;
         let outcome = crate::kernel::network_policy::application::apply_generation_as_authority(

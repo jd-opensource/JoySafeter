@@ -26,7 +26,7 @@ Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并�
 - `skillspector`：内部 Skill 安全扫描服务，API 在创建、更新、导入和文件变更时调用
 - `joysafeter-envoy`：沙箱出站白名单和 gRPC 回连通道。没有 profile，任何 `up` 都会启动；它会空闲等待 orchestrator 写入 bootstrap 配置，所以 `docker compose ps` 里看到它 running 但暂时不转发流量是正常的
 - `api`：后端 API，端口 `8000`
-- `orchestrator-rs`：Rust 版调度、sandbox 生命周期与 Runner gRPC（`:9090`）；Kubernetes gRPC xDS 模式另用独立 ADS 端口 `:19000`
+- `orchestrator-rs`：Rust 版调度 / sandbox 生命周期；Runner gRPC `9090`，认证 xDS `9092`
 - `worker`：Redis Stream 消费 / 批量事件落库
 - `frontend`：前端，端口 `3000`
 
@@ -73,7 +73,7 @@ Browser
   -> Redis list: wake up orchestrator
   -> orchestrator-rs: claim task from PostgreSQL, create/reuse sandbox
   -> sandbox-runner: SetupSandbox + StartTask over gRPC
-  -> harness: Claude/Codex/native executes tools/MCP/skills
+  -> harness: Claude/Codex/Native/Pi executes tools/MCP/skills
   -> orchestrator-rs: runner events over gRPC
   -> Redis Stream: durable event path
   -> worker: batch persist events into PostgreSQL with seq/dedup
@@ -246,7 +246,7 @@ Runner 的唯一发布构建路径是 `deploy/docker/runner-builder.Dockerfile`�
 
 - PostgreSQL 和 Redis 使用托管服务或独立高可用实例。
 - API / frontend 可放在反向代理后，只暴露 HTTPS。
-- `orchestrator-rs` 的 Runner gRPC `9090`、ADS `19000` 和 Docker socket 所在宿主机不要暴露到公网；ADS 只允许 Envoy 节点携带配置的认证 metadata 访问。
+- `orchestrator-rs` 的 `9090` gRPC 和 Docker socket 所在宿主机不要暴露到公网。
 - 用预构建镜像部署，并固定 `BACKEND_FULL_IMAGE`、`FRONTEND_FULL_IMAGE`、`ORCHESTRATOR_RS_FULL_IMAGE`、`SKILLSPECTOR_FULL_IMAGE`。
 - 根据 CPU 调整 `SKILLSPECTOR_WORKERS` / `SKILLSPECTOR_CPUS`，避免扫描挤占 orchestrator 和 worker。
 
@@ -375,7 +375,7 @@ docker compose --profile rust-orchestrator up -d --no-build
 
 ## 注意
 
-- Python orchestrator 已移除；Rust `orchestrator-rs` 的 Runner `AgentBridge` 使用 `9090`，启用 gRPC xDS 时 ADS 使用独立 `19000`，API/Worker 仍有 HTTP healthcheck。
+- Python orchestrator 已移除；Rust `orchestrator-rs` 暴露 Runner gRPC `9090`、健康检查 `9091` 和认证 xDS `9092`，API/Worker 仍有 HTTP healthcheck。
 - `orchestrator` 会挂载 Docker socket 创建 sandbox，生产只能放在可信机器。
 - 如果 sandbox 需要跨机器回连，修改 `deploy/.env` 里的 `JOYSAFETER_GRPC_PUBLIC_URL`。
 

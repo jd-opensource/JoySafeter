@@ -71,7 +71,7 @@ async fn same_policy_prepare_keeps_ready_generation_ready() {
     let pool = test_pool().await;
     let sandbox_id = create_sandbox(&pool).await;
 
-    let first = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
+    let first = queries::prepare_generation(&pool, sandbox_id, "policy-a")
         .await
         .expect("prepare first policy generation");
     assert!(matches!(
@@ -82,13 +82,13 @@ async fn same_policy_prepare_keeps_ready_generation_ready() {
     assert_eq!(first.policy_hash, "policy-a");
     assert_eq!(first.policy_version, 1);
     assert_eq!(
-        queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &first)
+        queries::mark_generation_applied(&pool, sandbox_id, &first)
             .await
             .expect("ack first policy generation"),
         queries::NetworkPolicyAckOutcome::Applied
     );
 
-    let repush = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
+    let repush = queries::prepare_generation(&pool, sandbox_id, "policy-a")
         .await
         .expect("prepare same ready policy");
     assert_eq!(
@@ -113,19 +113,19 @@ async fn same_policy_prepare_keeps_ready_generation_ready() {
 async fn duplicate_ack_is_idempotent() {
     let pool = test_pool().await;
     let sandbox_id = create_sandbox(&pool).await;
-    let generation = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
+    let generation = queries::prepare_generation(&pool, sandbox_id, "policy-a")
         .await
         .expect("prepare policy generation")
         .into_generation();
 
     assert_eq!(
-        queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &generation)
+        queries::mark_generation_applied(&pool, sandbox_id, &generation)
             .await
             .expect("apply policy ACK"),
         queries::NetworkPolicyAckOutcome::Applied
     );
     assert_eq!(
-        queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &generation)
+        queries::mark_generation_applied(&pool, sandbox_id, &generation)
             .await
             .expect("repeat policy ACK"),
         queries::NetworkPolicyAckOutcome::AlreadyReady
@@ -139,12 +139,12 @@ async fn ready_generation_cannot_be_claimed_for_failed_setup_cleanup() {
     let pool = test_pool().await;
     let sandbox_id = create_sandbox(&pool).await;
     let external_id = format!("network-policy-generation-{sandbox_id}");
-    let generation = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
+    let generation = queries::prepare_generation(&pool, sandbox_id, "policy-a")
         .await
         .expect("prepare policy generation")
         .into_generation();
     assert_eq!(
-        queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &generation)
+        queries::mark_generation_applied(&pool, sandbox_id, &generation)
             .await
             .expect("ack policy generation"),
         queries::NetworkPolicyAckOutcome::Applied
@@ -164,11 +164,11 @@ async fn stale_generation_cannot_claim_newer_pending_sandbox_for_cleanup() {
     let pool = test_pool().await;
     let sandbox_id = create_sandbox(&pool).await;
     let external_id = format!("network-policy-generation-{sandbox_id}");
-    let first = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
+    let first = queries::prepare_generation(&pool, sandbox_id, "policy-a")
         .await
         .expect("prepare first policy generation")
         .into_generation();
-    let second = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-b")
+    let second = queries::prepare_generation(&pool, sandbox_id, "policy-b")
         .await
         .expect("prepare newer policy generation")
         .into_generation();
@@ -197,7 +197,7 @@ async fn current_failed_generation_can_claim_cleanup_ownership() {
     let pool = test_pool().await;
     let sandbox_id = create_sandbox(&pool).await;
     let external_id = format!("network-policy-generation-{sandbox_id}");
-    let generation = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
+    let generation = queries::prepare_generation(&pool, sandbox_id, "policy-a")
         .await
         .expect("prepare policy generation")
         .into_generation();
@@ -223,18 +223,18 @@ async fn stale_ack_cannot_mark_a_newer_policy_generation_ready() {
     let pool = test_pool().await;
     let sandbox_id = create_sandbox(&pool).await;
 
-    let first = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
+    let first = queries::prepare_generation(&pool, sandbox_id, "policy-a")
         .await
         .expect("prepare first policy generation")
         .into_generation();
-    let second = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-b")
+    let second = queries::prepare_generation(&pool, sandbox_id, "policy-b")
         .await
         .expect("prepare newer policy generation")
         .into_generation();
     assert_eq!(second.policy_version, first.policy_version + 1);
 
     assert_eq!(
-        queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &first)
+        queries::mark_generation_applied(&pool, sandbox_id, &first)
             .await
             .expect("reject stale ACK"),
         queries::NetworkPolicyAckOutcome::Stale
@@ -251,7 +251,7 @@ async fn stale_ack_cannot_mark_a_newer_policy_generation_ready() {
     );
 
     assert_eq!(
-        queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &second)
+        queries::mark_generation_applied(&pool, sandbox_id, &second)
             .await
             .expect("ack current policy generation"),
         queries::NetworkPolicyAckOutcome::Applied
@@ -277,17 +277,17 @@ async fn stale_failure_cannot_nack_a_newer_policy_generation() {
     let desired = json!({"networking": {"type": "limited"}});
     let rendered = json!({"routes": []});
 
-    let first = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
+    let first = queries::prepare_generation(&pool, sandbox_id, "policy-a")
         .await
         .expect("prepare first policy generation")
         .into_generation();
-    let second = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-b")
+    let second = queries::prepare_generation(&pool, sandbox_id, "policy-b")
         .await
         .expect("prepare newer policy generation")
         .into_generation();
 
     assert_eq!(
-        queries::record_network_policy_failure_detail(
+        queries::record_generation_failure(
             &pool,
             queries::UpsertNetworkPolicy {
                 id: SandboxNetworkPolicyId::new(),
@@ -316,7 +316,7 @@ async fn stale_failure_cannot_nack_a_newer_policy_generation() {
     );
 
     assert_eq!(
-        queries::record_network_policy_failure_detail(
+        queries::record_generation_failure(
             &pool,
             queries::UpsertNetworkPolicy {
                 id: SandboxNetworkPolicyId::new(),
@@ -365,19 +365,19 @@ async fn late_failure_cannot_replace_an_acknowledged_generation() {
     let desired = json!({"networking": {"type": "limited"}});
     let rendered = json!({"routes": []});
 
-    let generation = queries::prepare_desired_network_policy(&pool, sandbox_id, "policy-a")
+    let generation = queries::prepare_generation(&pool, sandbox_id, "policy-a")
         .await
         .expect("prepare policy generation")
         .into_generation();
     assert_eq!(
-        queries::mark_sandbox_network_policy_acked(&pool, sandbox_id, &generation)
+        queries::mark_generation_applied(&pool, sandbox_id, &generation)
             .await
             .expect("ack policy generation"),
         queries::NetworkPolicyAckOutcome::Applied
     );
 
     assert_eq!(
-        queries::record_network_policy_failure_detail(
+        queries::record_generation_failure(
             &pool,
             queries::UpsertNetworkPolicy {
                 id: SandboxNetworkPolicyId::new(),
@@ -413,6 +413,101 @@ async fn late_failure_cannot_replace_an_acknowledged_generation() {
     .await
     .expect("count policy audit rows");
     assert_eq!(policy_rows, 0);
+
+    delete_sandbox(&pool, sandbox_id).await;
+}
+
+#[tokio::test]
+async fn recovery_quarantine_is_fenced_by_the_observed_generation() {
+    let pool = test_pool().await;
+    let sandbox_id = create_sandbox(&pool).await;
+    let first = queries::prepare_generation(&pool, sandbox_id, "policy-a")
+        .await
+        .expect("prepare first generation")
+        .into_generation();
+    let second = queries::prepare_generation(&pool, sandbox_id, "policy-b")
+        .await
+        .expect("prepare newer generation")
+        .into_generation();
+
+    assert_eq!(
+        queries::quarantine_recovery_generation(
+            &pool,
+            sandbox_id,
+            Some(&first.policy_hash),
+            first.policy_version,
+            "late recovery failure",
+        )
+        .await
+        .expect("fence late quarantine"),
+        queries::NetworkPolicyFailureOutcome::Stale
+    );
+    assert_eq!(
+        networking_state(&pool, sandbox_id).await,
+        (
+            "pending".to_string(),
+            Some(second.policy_hash),
+            second.policy_version,
+            None,
+            None,
+        )
+    );
+
+    delete_sandbox(&pool, sandbox_id).await;
+}
+
+#[tokio::test]
+async fn recovery_prepare_advances_canonical_generation_and_clears_old_proof() {
+    let pool = test_pool().await;
+    let sandbox_id = create_sandbox(&pool).await;
+    let first = queries::prepare_generation(&pool, sandbox_id, "policy-a")
+        .await
+        .expect("prepare first generation")
+        .into_generation();
+    queries::mark_generation_applied(&pool, sandbox_id, &first)
+        .await
+        .expect("apply first generation");
+
+    let prepared = queries::prepare_recovery_generation(
+        &pool,
+        sandbox_id,
+        Some(&first.policy_hash),
+        first.policy_version,
+        "policy-b",
+    )
+    .await
+    .expect("prepare canonical recovery generation");
+    let queries::RecoveryGenerationPrepareOutcome::Pending(second) = prepared else {
+        panic!("expected a pending recovery generation");
+    };
+    assert_eq!(second.policy_hash, "policy-b");
+    assert_eq!(second.policy_version, first.policy_version + 1);
+    assert_eq!(
+        networking_state(&pool, sandbox_id).await,
+        (
+            "pending".to_string(),
+            Some("policy-b".to_string()),
+            second.policy_version,
+            None,
+            None,
+        )
+    );
+
+    delete_sandbox(&pool, sandbox_id).await;
+}
+
+#[tokio::test]
+async fn recovery_inventory_includes_inconsistent_live_network_policy_rows() {
+    let pool = test_pool().await;
+    let sandbox_id = create_sandbox(&pool).await;
+    queries::prepare_generation(&pool, sandbox_id, "orphaned-policy")
+        .await
+        .expect("prepare orphaned network policy state");
+
+    let inventory = queries::load_recovery_inventory(&pool)
+        .await
+        .expect("load recovery inventory");
+    assert!(inventory.iter().any(|sandbox| sandbox.id == sandbox_id));
 
     delete_sandbox(&pool, sandbox_id).await;
 }

@@ -65,7 +65,7 @@ uv run uvicorn app.joysafeter_worker.main:app --host 127.0.0.1 --port 8002 --wor
 
 - 显式 Python 入口：`app.joysafeter_api.main:app`、`app.joysafeter_worker.main:app`。
 - Rust orchestrator 入口：`app/joysafeter_orchestrator_rs`。
-- 单机云虚拟机部署建议只对公网暴露 API；Worker HTTP 监听 `127.0.0.1:8002`，Orchestrator gRPC 监听 `0.0.0.0:9090` 供沙箱容器访问，并通过云安全组/防火墙禁止公网访问 `9090`。
+- 单机云虚拟机部署建议只对公网暴露 API；Worker HTTP 监听 `127.0.0.1:8002`，Orchestrator Runner gRPC 监听 `0.0.0.0:9090`，认证 xDS 监听 `0.0.0.0:9092`。云安全组/防火墙不得将 `9090` 或 `9092` 暴露到公网。
 
 注意事项：
 

@@ -13,7 +13,7 @@ fn main_delegates_runtime_composition_to_bootstrap_application() {
     for forbidden in [
         "ProviderFactoryRegistry",
         "start_grpc_server",
-        "start_ads_server",
+        "start_xds_server",
         "SandboxResolver::new",
         "SandboxController::new",
         "spawn_scheduler",
@@ -31,7 +31,7 @@ fn main_delegates_runtime_composition_to_bootstrap_application() {
     assert!(application.contains("pub struct OrchestratorApplication"));
     assert!(application.contains("ProviderFactoryRegistry"));
     assert!(application.contains("start_grpc_server"));
-    assert!(application.contains("start_ads_server"));
+    assert!(application.contains("start_xds_server"));
 }
 
 #[test]

@@ -5,18 +5,30 @@ use async_trait::async_trait;
 
 use crate::config::JoySafeterConfig;
 use crate::kernel::network_policy::ports::NetworkPolicyRuntime;
+use crate::sandbox::envoy::EnvoyManager;
 use crate::sandbox::provider::SandboxProvider;
-use crate::xds::transport::DeltaXdsServer;
+use crate::xds::authority::XdsAuthority;
+use crate::xds::control_plane::XdsControlPlane;
+
+#[derive(Clone)]
+pub struct RuntimeFactoryContext {
+    pub xds_authority: XdsAuthority,
+    pub xds_control_plane: Option<XdsControlPlane>,
+}
 
 pub struct RuntimeComponents {
     pub sandbox_provider: Arc<dyn SandboxProvider>,
     pub network_policy_runtime: Arc<dyn NetworkPolicyRuntime>,
-    pub xds_service: Option<Arc<DeltaXdsServer>>,
+    pub envoy_manager: Option<Arc<EnvoyManager>>,
 }
 
 #[async_trait]
 pub trait ProviderFactory: Send + Sync {
-    async fn build(&self, config: &JoySafeterConfig) -> anyhow::Result<RuntimeComponents>;
+    async fn build(
+        &self,
+        config: &JoySafeterConfig,
+        context: &RuntimeFactoryContext,
+    ) -> anyhow::Result<RuntimeComponents>;
 }
 
 enum RegistryEntry {
@@ -60,6 +72,7 @@ impl ProviderFactoryRegistry {
         &self,
         provider_name: &str,
         config: &JoySafeterConfig,
+        context: &RuntimeFactoryContext,
     ) -> anyhow::Result<RuntimeComponents> {
         let normalized = if provider_name.trim().is_empty() {
             "docker"
@@ -68,7 +81,7 @@ impl ProviderFactoryRegistry {
         }
         .to_ascii_lowercase();
         match self.entries.get(&normalized) {
-            Some(RegistryEntry::Enabled(factory)) => factory.build(config).await,
+            Some(RegistryEntry::Enabled(factory)) => factory.build(config, context).await,
             Some(RegistryEntry::Disabled(reason)) => {
                 anyhow::bail!("sandbox provider {normalized} is disabled: {reason}")
             }
@@ -93,13 +106,17 @@ mod tests {
         let mut registry = ProviderFactoryRegistry::default();
         registry.register_disabled("disabled", "not installed");
         let config = JoySafeterConfig::from_env();
+        let context = RuntimeFactoryContext {
+            xds_authority: XdsAuthority::standalone(),
+            xds_control_plane: None,
+        };
 
-        let disabled = match registry.build("disabled", &config).await {
+        let disabled = match registry.build("disabled", &config, &context).await {
             Ok(_) => panic!("disabled provider unexpectedly resolved"),
             Err(error) => error,
         };
         assert!(disabled.to_string().contains("not installed"));
-        let unknown = match registry.build("missing", &config).await {
+        let unknown = match registry.build("missing", &config, &context).await {
             Ok(_) => panic!("unknown provider unexpectedly resolved"),
             Err(error) => error,
         };

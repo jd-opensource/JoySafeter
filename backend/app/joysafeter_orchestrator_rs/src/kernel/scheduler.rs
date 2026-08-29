@@ -56,7 +56,7 @@ pub fn spawn_scheduler(
     network_policy_queue: Option<
         Arc<dyn crate::kernel::network_policy::ports::NetworkPolicyRequestQueue>,
     >,
-    xds_authority: crate::xds::authority::XdsAuthorityState,
+    xds_authority: crate::xds::authority::XdsAuthority,
     identity_provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
 ) -> JoinHandle<()> {
     let mut resolver = SandboxResolver::new(pool.clone(), provider, config.clone())

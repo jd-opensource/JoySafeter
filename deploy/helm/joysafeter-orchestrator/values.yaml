@@ -41,10 +41,6 @@ image:
 # 方式 2: 手动 kubectl create secret → 只设 externalSecret 名称
 externalSecret: joysafeter-secrets
 
-# ADS authentication token. Prefer provisioning this key in externalSecret.
-# Set only when Helm should generate/update that Secret.
-xdsAuthToken: ""
-
 # ── 数据库 (可选,配了则自动生成 Secret) ──
 # database:
 #   host: pg-host
@@ -66,6 +62,13 @@ xdsAuthToken: ""
 # credentialEncryptionWriteKeyId: "active-2026-08"
 # 仅迁移仍含 enc:/enc:v1: 数据的旧部署需要暂时保留：
 # vaultEncryptionKey: "legacy-base64-key"
+
+# ── xDS 控制面认证（也可放入 externalSecret）──
+# keyring 接受当前 token 与有限数量的轮换期旧 token；token 必须等于 writeKeyId 选中的值。
+xdsAuth:
+  keyring: ""
+  writeKeyId: ""
+  token: ""
 
 # ── HA 模式 ──
 haMode: multi   # standalone / leader / multi
@@ -122,9 +125,8 @@ orchestrator:
     maxConnections: 5000
     maxExecutions: 2000
 
-  # ── ADS/xDS ──
   xds:
-    port: 19000
+    port: 9092
 
   # ── 调度 ──
   scheduling:
@@ -176,8 +178,6 @@ orchestrator:
     # images:
     #   - aisec-repo.jd.com/joysafeter/joysafeter-claudecode:latest
     #   - aisec-repo.jd.com/joysafeter/joysafeter-codex:latest
-    #   - aisec-repo.jd.com/joysafeter/joysafeter-native:latest
-    #   - aisec-repo.jd.com/joysafeter/joysafeter-pi:latest
 
   # ── 事件流 ──
   eventStream:
@@ -218,9 +218,11 @@ agentIdentity:
   contextTtlSeconds: 300
   clientId: ""
   platformId: ""
-  authType: sso
-  identityType: cookie
-  agentScene: cloud_sandbox_skill
+  authType: SSO
+  identityType: ssoTicket
+  agentScene: jdcloud_box_skill
+  userTokenCookieName: ""
+  exchangeUserTokenEnabled: true
   clientSecret: ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -255,3 +257,20 @@ egress:
 networkPolicy:
   enabled: true
   type: cilium   # cilium (CiliumNetworkPolicy) / standard (K8s NetworkPolicy)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# xDS 生产告警（依赖 Prometheus Operator 与 kube-state-metrics）
+# ═══════════════════════════════════════════════════════════════════════════════
+
+monitoring:
+  xdsAlerts:
+    enabled: false
+    additionalLabels: {}
+    authorityUnavailableFor: 40s
+    recoveryBudgetSeconds: 30
+    recoveryOverBudgetFor: 1m
+    nackWindow: 5m
+    nackFor: 5m
+    applyTimeoutSeconds: 30
+    degradedInventoryFor: 30s
+    envoyNodeMismatchFor: 2m

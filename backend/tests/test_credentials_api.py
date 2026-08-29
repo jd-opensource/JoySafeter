@@ -58,6 +58,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
 from app.joysafeter_shared.config.settings import settings
 from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.ids import AgentId, ApiKeyId, CredentialId, OrganizationId, SandboxId, UserId
+from tests.network_policy_test_helpers import acknowledged_network_policy_fields
 
 
 def test_router_imports_ok() -> None:
@@ -524,7 +525,7 @@ def test_credential_update_nudges_live_sandbox_after_commit(client, monkeypatch)
                 project_id=project_id,
                 image="test-image:latest",
                 status="running",
-                networking_status="ready",
+                **acknowledged_network_policy_fields(),
                 config={"fingerprint": {"networking": {"type": "limited"}}},
             )
             session.add(sandbox)

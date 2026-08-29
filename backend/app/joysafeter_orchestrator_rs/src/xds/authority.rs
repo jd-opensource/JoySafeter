@@ -1,359 +1,367 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex as StdMutex};
+use std::time::{Duration, Instant};
 
-use super::metrics::XdsMetrics;
-use super::model::AuthorityEpoch;
+use thiserror::Error;
+use tokio::sync::{watch, Mutex, OwnedMutexGuard};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AuthorityState {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthorityPhase {
     Standby,
-    Acquired(AuthorityEpoch),
-    Recovering(AuthorityEpoch),
-    Ready(AuthorityEpoch),
-    Revoking(AuthorityEpoch),
-    Stopped,
+    Staging { epoch: u64 },
+    RecoveryServing { epoch: u64 },
+    Ready { epoch: u64 },
+    Revoked { epoch: u64 },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AuthorityFence {
-    epoch: AuthorityEpoch,
-}
-
-impl AuthorityFence {
-    pub fn epoch(self) -> AuthorityEpoch {
-        self.epoch
-    }
-}
-
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-#[error("illegal xDS authority transition from {from:?} via {operation}")]
-pub struct AuthorityTransitionError {
-    from: AuthorityState,
-    operation: &'static str,
-}
-
-pub struct AuthorityStateMachine {
-    state: AuthorityState,
-    highest_epoch: AuthorityEpoch,
-}
-
-impl Default for AuthorityStateMachine {
-    fn default() -> Self {
-        Self {
-            state: AuthorityState::Standby,
-            highest_epoch: AuthorityEpoch::new(0),
+impl AuthorityPhase {
+    pub fn epoch(self) -> Option<u64> {
+        match self {
+            Self::Standby => None,
+            Self::Staging { epoch }
+            | Self::RecoveryServing { epoch }
+            | Self::Ready { epoch }
+            | Self::Revoked { epoch } => Some(epoch),
         }
+    }
+
+    pub fn serves_ads(self) -> bool {
+        matches!(self, Self::RecoveryServing { .. } | Self::Ready { .. })
     }
 }
 
-impl AuthorityStateMachine {
-    pub fn standalone(epoch: AuthorityEpoch) -> Self {
-        Self {
-            state: AuthorityState::Ready(epoch),
-            highest_epoch: epoch,
-        }
-    }
-
-    pub fn state(&self) -> AuthorityState {
-        self.state
-    }
-
-    pub fn current_epoch(&self) -> Option<AuthorityEpoch> {
-        match self.state {
-            AuthorityState::Acquired(epoch)
-            | AuthorityState::Recovering(epoch)
-            | AuthorityState::Ready(epoch)
-            | AuthorityState::Revoking(epoch) => Some(epoch),
-            AuthorityState::Standby | AuthorityState::Stopped => None,
-        }
-    }
-
-    pub fn next_epoch(&self) -> AuthorityEpoch {
-        AuthorityEpoch::new(self.highest_epoch.get().saturating_add(1))
-    }
-
-    pub fn is_advertised(&self) -> bool {
-        matches!(
-            self.state,
-            AuthorityState::Acquired(_) | AuthorityState::Recovering(_) | AuthorityState::Ready(_)
-        )
-    }
-
-    pub fn acquire(&mut self, epoch: AuthorityEpoch) -> Result<(), AuthorityTransitionError> {
-        if self.state != AuthorityState::Standby || epoch <= self.highest_epoch {
-            return Err(self.illegal("acquire"));
-        }
-        self.highest_epoch = epoch;
-        self.state = AuthorityState::Acquired(epoch);
-        Ok(())
-    }
-
-    pub fn begin_recovery(&mut self) -> Result<(), AuthorityTransitionError> {
-        let AuthorityState::Acquired(epoch) = self.state else {
-            return Err(self.illegal("begin_recovery"));
-        };
-        self.state = AuthorityState::Recovering(epoch);
-        Ok(())
-    }
-
-    pub fn mark_ready(&mut self) -> Result<(), AuthorityTransitionError> {
-        let AuthorityState::Recovering(epoch) = self.state else {
-            return Err(self.illegal("mark_ready"));
-        };
-        self.state = AuthorityState::Ready(epoch);
-        Ok(())
-    }
-
-    pub fn begin_revoke(&mut self) -> Result<(), AuthorityTransitionError> {
-        let epoch = match self.state {
-            AuthorityState::Acquired(epoch)
-            | AuthorityState::Recovering(epoch)
-            | AuthorityState::Ready(epoch) => epoch,
-            _ => return Err(self.illegal("begin_revoke")),
-        };
-        self.state = AuthorityState::Revoking(epoch);
-        Ok(())
-    }
-
-    pub fn complete_revoke(&mut self) -> Result<(), AuthorityTransitionError> {
-        if !matches!(self.state, AuthorityState::Revoking(_)) {
-            return Err(self.illegal("complete_revoke"));
-        }
-        self.state = AuthorityState::Standby;
-        Ok(())
-    }
-
-    pub fn stop(&mut self) {
-        self.state = AuthorityState::Stopped;
-    }
-
-    pub fn ready_fence(&self) -> Option<AuthorityFence> {
-        match self.state {
-            AuthorityState::Ready(epoch) => Some(AuthorityFence { epoch }),
-            _ => None,
-        }
-    }
-
-    fn illegal(&self, operation: &'static str) -> AuthorityTransitionError {
-        AuthorityTransitionError {
-            from: self.state,
-            operation,
-        }
-    }
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum AuthorityError {
+    #[error("invalid xDS authority transition from {from:?} to {target}")]
+    InvalidTransition {
+        from: AuthorityPhase,
+        target: &'static str,
+    },
+    #[error("xDS authority guard for epoch {guard_epoch} is stale in phase {phase:?}")]
+    StaleGuard {
+        guard_epoch: u64,
+        phase: AuthorityPhase,
+    },
 }
 
 #[derive(Clone)]
-pub struct XdsAuthorityState {
+pub struct XdsAuthority {
     inner: Arc<XdsAuthorityInner>,
 }
 
 struct XdsAuthorityInner {
-    standalone: bool,
-    machine: Mutex<AuthorityStateMachine>,
-    metrics: Arc<XdsMetrics>,
-    apply_lock: Arc<tokio::sync::Mutex<()>>,
+    phase: watch::Sender<AuthorityPhase>,
+    application_lock: Arc<Mutex<()>>,
+    lifecycle: StdMutex<AuthorityLifecycle>,
+}
+
+#[derive(Debug, Default)]
+struct AuthorityLifecycle {
+    recovery_started_at: Option<Instant>,
+    last_ready_recovery_duration: Duration,
+    last_revoked_recovery_duration: Duration,
+    ready_recovery_total: u64,
+    revoked_recovery_total: u64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AuthorityMetricsSnapshot {
+    pub phase: AuthorityPhase,
+    pub current_recovery_duration: Duration,
+    pub last_ready_recovery_duration: Duration,
+    pub last_revoked_recovery_duration: Duration,
+    pub ready_recovery_total: u64,
+    pub revoked_recovery_total: u64,
 }
 
 #[derive(Clone)]
-pub struct XdsAuthorityGuard {
-    state: XdsAuthorityState,
-    epoch: AuthorityEpoch,
+pub struct RecoveryAuthorityGuard {
+    authority: XdsAuthority,
+    epoch: u64,
 }
 
-impl XdsAuthorityState {
-    pub fn standalone() -> Self {
-        Self::standalone_with_metrics(Arc::new(XdsMetrics::default()))
-    }
+#[derive(Clone)]
+pub struct MutationAuthorityGuard {
+    authority: XdsAuthority,
+    epoch: u64,
+}
 
-    pub fn standalone_with_metrics(metrics: Arc<XdsMetrics>) -> Self {
-        let epoch = AuthorityEpoch::new(1);
-        metrics.set_authority_state(AuthorityState::Ready(epoch));
-        Self {
-            inner: Arc::new(XdsAuthorityInner {
-                standalone: true,
-                machine: Mutex::new(AuthorityStateMachine::standalone(epoch)),
-                metrics,
-                apply_lock: Arc::new(tokio::sync::Mutex::new(())),
-            }),
-        }
-    }
-
+impl XdsAuthority {
     pub fn managed() -> Self {
-        Self::managed_with_metrics(Arc::new(XdsMetrics::default()))
+        Self::new()
     }
 
-    pub fn managed_with_metrics(metrics: Arc<XdsMetrics>) -> Self {
-        metrics.set_authority_state(AuthorityState::Standby);
+    pub fn standalone() -> Self {
+        Self::new()
+    }
+
+    fn new() -> Self {
+        let (phase, _receiver) = watch::channel(AuthorityPhase::Standby);
         Self {
             inner: Arc::new(XdsAuthorityInner {
-                standalone: false,
-                machine: Mutex::new(AuthorityStateMachine::default()),
-                metrics,
-                apply_lock: Arc::new(tokio::sync::Mutex::new(())),
+                phase,
+                application_lock: Arc::new(Mutex::new(())),
+                lifecycle: StdMutex::new(AuthorityLifecycle::default()),
             }),
         }
     }
 
-    pub fn advertise(&self) -> XdsAuthorityGuard {
-        if self.inner.standalone {
-            return XdsAuthorityGuard {
-                state: self.clone(),
-                epoch: self
-                    .inner
-                    .machine
-                    .lock()
-                    .expect("xDS authority state lock poisoned")
-                    .current_epoch()
-                    .expect("standalone authority has an epoch"),
+    pub fn phase(&self) -> AuthorityPhase {
+        *self.inner.phase.borrow()
+    }
+
+    pub fn subscribe(&self) -> watch::Receiver<AuthorityPhase> {
+        self.inner.phase.subscribe()
+    }
+
+    pub fn validate_delivery_epoch(&self, epoch: u64) -> Result<(), AuthorityError> {
+        let phase = self.phase();
+        if phase.serves_ads() && phase.epoch() == Some(epoch) {
+            Ok(())
+        } else {
+            Err(AuthorityError::StaleGuard {
+                guard_epoch: epoch,
+                phase,
+            })
+        }
+    }
+
+    pub fn begin_staging(&self) -> Result<RecoveryAuthorityGuard, AuthorityError> {
+        let started_at = Instant::now();
+        let mut lifecycle = self
+            .inner
+            .lifecycle
+            .lock()
+            .expect("xDS authority lifecycle poisoned");
+        let mut result = None;
+        self.inner.phase.send_if_modified(|phase| {
+            let epoch = match *phase {
+                AuthorityPhase::Standby => 1,
+                AuthorityPhase::Revoked { epoch } => epoch.saturating_add(1),
+                current => {
+                    result = Some(Err(AuthorityError::InvalidTransition {
+                        from: current,
+                        target: "Staging",
+                    }));
+                    return false;
+                }
             };
+            lifecycle.recovery_started_at = Some(started_at);
+            *phase = AuthorityPhase::Staging { epoch };
+            result = Some(Ok(RecoveryAuthorityGuard {
+                authority: self.clone(),
+                epoch,
+            }));
+            true
+        });
+        result.expect("authority transition closure must set a result")
+    }
+
+    pub fn begin_recovery_serving(
+        &self,
+        guard: &RecoveryAuthorityGuard,
+    ) -> Result<(), AuthorityError> {
+        if !guard.belongs_to(self) {
+            return Err(AuthorityError::StaleGuard {
+                guard_epoch: guard.epoch,
+                phase: self.phase(),
+            });
         }
-        let mut machine = self
+        let mut result = None;
+        self.inner.phase.send_if_modified(|phase| match *phase {
+            AuthorityPhase::Staging { epoch } if epoch == guard.epoch => {
+                *phase = AuthorityPhase::RecoveryServing { epoch: guard.epoch };
+                result = Some(Ok(()));
+                true
+            }
+            AuthorityPhase::RecoveryServing { epoch } if epoch == guard.epoch => {
+                result = Some(Ok(()));
+                false
+            }
+            _ => {
+                result = Some(Err(AuthorityError::StaleGuard {
+                    guard_epoch: guard.epoch,
+                    phase: *phase,
+                }));
+                false
+            }
+        });
+        result.expect("authority transition closure must set a result")
+    }
+
+    pub fn mark_ready(&self, guard: &RecoveryAuthorityGuard) -> Result<(), AuthorityError> {
+        if !guard.belongs_to(self) {
+            return Err(AuthorityError::StaleGuard {
+                guard_epoch: guard.epoch,
+                phase: self.phase(),
+            });
+        }
+        let mut lifecycle = self
             .inner
-            .machine
+            .lifecycle
             .lock()
-            .expect("xDS authority state lock poisoned");
-        let epoch = machine.next_epoch();
-        machine
-            .acquire(epoch)
-            .expect("xDS authority must be standby before advertise");
-        machine
-            .begin_recovery()
-            .expect("newly acquired xDS authority must enter recovery");
-        self.inner.metrics.set_authority_state(machine.state());
-        XdsAuthorityGuard {
-            state: self.clone(),
+            .expect("xDS authority lifecycle poisoned");
+        let mut result = None;
+        self.inner.phase.send_if_modified(|phase| {
+            if *phase == (AuthorityPhase::RecoveryServing { epoch: guard.epoch }) {
+                let duration = lifecycle
+                    .recovery_started_at
+                    .take()
+                    .map(|started_at| started_at.elapsed())
+                    .unwrap_or_default();
+                lifecycle.last_ready_recovery_duration = duration;
+                lifecycle.ready_recovery_total = lifecycle.ready_recovery_total.saturating_add(1);
+                *phase = AuthorityPhase::Ready { epoch: guard.epoch };
+                result = Some(Ok(()));
+                true
+            } else {
+                result = Some(Err(AuthorityError::StaleGuard {
+                    guard_epoch: guard.epoch,
+                    phase: *phase,
+                }));
+                false
+            }
+        });
+        result.expect("authority transition closure must set a result")
+    }
+
+    pub fn revoke(&self) -> Result<(), AuthorityError> {
+        let mut lifecycle = self
+            .inner
+            .lifecycle
+            .lock()
+            .expect("xDS authority lifecycle poisoned");
+        let mut result = None;
+        self.inner.phase.send_if_modified(|phase| {
+            let Some(epoch) = phase.epoch() else {
+                result = Some(Err(AuthorityError::InvalidTransition {
+                    from: *phase,
+                    target: "Revoked",
+                }));
+                return false;
+            };
+            if matches!(*phase, AuthorityPhase::Revoked { .. }) {
+                result = Some(Ok(()));
+                return false;
+            }
+            if matches!(
+                *phase,
+                AuthorityPhase::Staging { .. } | AuthorityPhase::RecoveryServing { .. }
+            ) {
+                let duration = lifecycle
+                    .recovery_started_at
+                    .take()
+                    .map(|started_at| started_at.elapsed())
+                    .unwrap_or_default();
+                lifecycle.last_revoked_recovery_duration = duration;
+                lifecycle.revoked_recovery_total =
+                    lifecycle.revoked_recovery_total.saturating_add(1);
+            }
+            *phase = AuthorityPhase::Revoked { epoch };
+            result = Some(Ok(()));
+            true
+        });
+        result.expect("authority transition closure must set a result")
+    }
+
+    pub fn recovery_guard(&self) -> Option<RecoveryAuthorityGuard> {
+        let phase = self.phase();
+        let epoch = match phase {
+            AuthorityPhase::Staging { epoch } | AuthorityPhase::RecoveryServing { epoch } => epoch,
+            _ => return None,
+        };
+        Some(RecoveryAuthorityGuard {
+            authority: self.clone(),
             epoch,
-        }
-    }
-
-    pub fn revoke(&self) {
-        if self.inner.standalone {
-            return;
-        }
-        let mut machine = self
-            .inner
-            .machine
-            .lock()
-            .expect("xDS authority state lock poisoned");
-        if machine.begin_revoke().is_ok() {
-            self.inner.metrics.set_authority_state(machine.state());
-            machine
-                .complete_revoke()
-                .expect("revoking xDS authority must return to standby");
-            self.inner.metrics.set_authority_state(machine.state());
-        }
-    }
-
-    pub fn advertised_guard(&self) -> Option<XdsAuthorityGuard> {
-        let machine = self
-            .inner
-            .machine
-            .lock()
-            .expect("xDS authority state lock poisoned");
-        if !machine.is_advertised() {
-            return None;
-        }
-        Some(XdsAuthorityGuard {
-            state: self.clone(),
-            epoch: machine
-                .current_epoch()
-                .expect("advertised xDS authority has an epoch"),
         })
     }
 
-    pub fn ready_guard(&self) -> Option<XdsAuthorityGuard> {
-        if !self.is_ready() {
+    pub fn mutation_guard(&self) -> Option<MutationAuthorityGuard> {
+        let AuthorityPhase::Ready { epoch } = self.phase() else {
             return None;
-        }
-        self.advertised_guard()
+        };
+        Some(MutationAuthorityGuard {
+            authority: self.clone(),
+            epoch,
+        })
     }
 
-    pub fn is_ready(&self) -> bool {
-        matches!(
-            self.inner
-                .machine
-                .lock()
-                .expect("xDS authority state lock poisoned")
-                .state(),
-            AuthorityState::Ready(_)
-        )
+    pub async fn lock_application(&self) -> OwnedMutexGuard<()> {
+        self.inner.application_lock.clone().lock_owned().await
     }
 
-    pub async fn lock_application(&self) -> tokio::sync::OwnedMutexGuard<()> {
-        self.inner.apply_lock.clone().lock_owned().await
-    }
-
-    pub fn mark_ready(&self, guard: &XdsAuthorityGuard) -> bool {
-        if !guard.is_current() {
-            return false;
-        }
-        if self.inner.standalone {
-            return true;
-        }
-        let mut machine = self
+    pub(crate) fn metrics_snapshot(&self) -> AuthorityMetricsSnapshot {
+        let phase = self.phase();
+        let lifecycle = self
             .inner
-            .machine
+            .lifecycle
             .lock()
-            .expect("xDS authority state lock poisoned");
-        let ready = machine.mark_ready().is_ok();
-        if ready {
-            self.inner.metrics.set_authority_state(machine.state());
+            .expect("xDS authority lifecycle poisoned");
+        let current_recovery_duration = if matches!(
+            phase,
+            AuthorityPhase::Staging { .. } | AuthorityPhase::RecoveryServing { .. }
+        ) {
+            lifecycle
+                .recovery_started_at
+                .map(|started_at| started_at.elapsed())
+                .unwrap_or_default()
+        } else {
+            Duration::ZERO
+        };
+        AuthorityMetricsSnapshot {
+            phase,
+            current_recovery_duration,
+            last_ready_recovery_duration: lifecycle.last_ready_recovery_duration,
+            last_revoked_recovery_duration: lifecycle.last_revoked_recovery_duration,
+            ready_recovery_total: lifecycle.ready_recovery_total,
+            revoked_recovery_total: lifecycle.revoked_recovery_total,
         }
-        ready
     }
 }
 
-impl XdsAuthorityGuard {
-    pub fn epoch(&self) -> u64 {
-        self.epoch.get()
+impl RecoveryAuthorityGuard {
+    fn belongs_to(&self, authority: &XdsAuthority) -> bool {
+        Arc::ptr_eq(&self.authority.inner, &authority.inner)
     }
 
-    pub fn authority_epoch(&self) -> AuthorityEpoch {
+    pub fn epoch(&self) -> u64 {
         self.epoch
     }
 
-    pub fn is_current(&self) -> bool {
-        let machine = self
-            .state
-            .inner
-            .machine
-            .lock()
-            .expect("xDS authority state lock poisoned");
-        machine.is_advertised() && machine.current_epoch() == Some(self.epoch)
+    pub fn begin_serving(&self) -> Result<(), AuthorityError> {
+        self.authority.begin_recovery_serving(self)
+    }
+
+    pub fn validate(&self) -> Result<(), AuthorityError> {
+        let phase = self.authority.phase();
+        if matches!(
+            phase,
+            AuthorityPhase::Staging { epoch } | AuthorityPhase::RecoveryServing { epoch }
+                if epoch == self.epoch
+        ) {
+            Ok(())
+        } else {
+            Err(AuthorityError::StaleGuard {
+                guard_epoch: self.epoch,
+                phase,
+            })
+        }
     }
 }
 
-#[cfg(test)]
-mod runtime_tests {
-    use super::{XdsAuthorityGuard, XdsAuthorityState};
-
-    #[test]
-    fn managed_authority_is_not_ready_until_recovery_completes() {
-        let state = XdsAuthorityState::managed();
-        let guard = state.advertise();
-        assert!(guard.is_current());
-        assert!(!state.is_ready());
-        assert!(state.mark_ready(&guard));
-        assert!(state.is_ready());
+impl MutationAuthorityGuard {
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
-    #[test]
-    fn revoked_authority_invalidates_existing_guard() {
-        let state = XdsAuthorityState::managed();
-        let guard = state.advertise();
-        assert!(state.mark_ready(&guard));
-        state.revoke();
-        assert!(!guard.is_current());
-        assert!(!state.is_ready());
-        assert!(!state.mark_ready(&guard));
-    }
-
-    #[test]
-    fn standalone_authority_is_always_ready() {
-        let state = XdsAuthorityState::standalone();
-        let guard: XdsAuthorityGuard = state
-            .ready_guard()
-            .expect("standalone authority must always be ready");
-        assert!(state.is_ready());
-        assert!(guard.is_current());
+    pub fn validate(&self) -> Result<(), AuthorityError> {
+        let phase = self.authority.phase();
+        if phase == (AuthorityPhase::Ready { epoch: self.epoch }) {
+            Ok(())
+        } else {
+            Err(AuthorityError::StaleGuard {
+                guard_epoch: self.epoch,
+                phase,
+            })
+        }
     }
 }

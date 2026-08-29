@@ -6,6 +6,7 @@ pub mod docker;
 pub mod e2b;
 pub mod envoy;
 pub mod envoy_delivery;
+pub mod envoy_filesystem;
 pub mod envoy_render;
 pub mod file_injection;
 pub mod image_builder;

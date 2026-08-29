@@ -54,6 +54,10 @@ from app.joysafeter_infrastructure.credentials.sqlalchemy_repository import (
     SqlAlchemyCredentialRepository,
 )
 from app.joysafeter_shared.ids import AgentId, EnvironmentId, OrganizationId, ProjectId, SandboxId, SessionId
+from tests.network_policy_test_helpers import (
+    acknowledged_network_policy_fields,
+    mark_network_policy_ready,
+)
 
 
 async def _make_project(db_session) -> ProjectId:
@@ -78,7 +82,7 @@ def _limited_sandbox(project_id: ProjectId, status: str = "running") -> JoySafet
         project_id=project_id,
         image="test-image:latest",
         status=status,
-        networking_status="ready",
+        **acknowledged_network_policy_fields(),
         config={"fingerprint": {"networking": {"type": "limited"}}},
     )
 
@@ -328,7 +332,7 @@ async def test_direct_rotation_rolls_back_mutation_audit_and_restart_required_on
         chat_session_id=session.id,
         image="test-image:latest",
         status="running",
-        networking_status="ready",
+        **acknowledged_network_policy_fields(),
     )
     db_session.add(sandbox)
     await db_session.commit()
@@ -529,7 +533,7 @@ async def test_service_credential_restore_recomputes_direct_and_egress_impacts_o
         chat_session_id=session.id,
         image="test-image:latest",
         status="running",
-        networking_status="ready",
+        **acknowledged_network_policy_fields(),
         config={"fingerprint": {"networking": {"type": "limited"}}},
     )
     unrelated = _limited_sandbox(project_id)
@@ -862,8 +866,8 @@ async def test_unreferenced_archive_and_delete_emit_no_impact_while_set_default_
         expected = "pending" if method == "set_default" else "ready"
         assert await _sandbox_status(db_session, sandbox_id) == expected, method
 
-        # Reset the sandbox flag for the next iteration.
-        sandbox.networking_status = "ready"
+        # Restore a coherent acknowledged generation for the next iteration.
+        mark_network_policy_ready(sandbox)
         db_session.add(sandbox)
         await db_session.commit()
 
@@ -1039,14 +1043,18 @@ async def test_mcp_member_lifecycle_with_active_group_session_marks_network_pend
     assert await _sandbox_status(db_session, sandbox_id) == "pending"
 
     await db_session.execute(
-        update(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id).values(networking_status="ready")
+        update(JoySafeterSandbox)
+        .where(JoySafeterSandbox.id == sandbox_id)
+        .values(**acknowledged_network_policy_fields())
     )
     await db_session.commit()
     await application.resource_service.restore(credential.id, project_id=project_id)
     assert await _sandbox_status(db_session, sandbox_id) == "pending"
 
     await db_session.execute(
-        update(JoySafeterSandbox).where(JoySafeterSandbox.id == sandbox_id).values(networking_status="ready")
+        update(JoySafeterSandbox)
+        .where(JoySafeterSandbox.id == sandbox_id)
+        .values(**acknowledged_network_policy_fields())
     )
     await db_session.commit()
     await application.group_service.remove_credential(
@@ -1272,7 +1280,7 @@ async def test_refresh_wrapper_marks_and_returns_count(db_session, project_id):
         project_id=project_id,
         image="test-image:latest",
         status="running",
-        networking_status="ready",
+        **acknowledged_network_policy_fields(),
         config={"fingerprint": {"networking": {"type": "full"}}},
     )
     db_session.add_all([a, b, c])

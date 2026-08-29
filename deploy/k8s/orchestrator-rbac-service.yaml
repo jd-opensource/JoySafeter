@@ -52,3 +52,16 @@ spec:
   - port: 9091
     targetPort: health
     name: health
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: joysafeter-orchestrator-xds
+  namespace: joysafeter
+spec:
+  selector:
+    app: joysafeter-orchestrator
+  ports:
+  - port: 9092
+    targetPort: xds
+    name: xds

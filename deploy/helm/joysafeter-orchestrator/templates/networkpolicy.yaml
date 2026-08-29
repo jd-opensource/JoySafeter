@@ -88,6 +88,39 @@ spec:
       - port: "80"
         protocol: TCP
 
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: joysafeter-orchestrator-ingress
+  namespace: {{ .Values.namespace }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app: joysafeter-orchestrator
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: joysafeter-sandbox
+    toPorts:
+    - ports:
+      - port: "{{ .Values.orchestrator.grpc.port }}"
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        app: joysafeter-envoy
+    toPorts:
+    - ports:
+      - port: "{{ .Values.orchestrator.xds.port }}"
+        protocol: TCP
+  - fromEntities:
+    - host
+    - remote-node
+    toPorts:
+    - ports:
+      - port: "9091"
+        protocol: TCP
+
 {{- else }}
 # =============================================================================
 # 标准 K8s NetworkPolicy (通用 CNI)
@@ -166,6 +199,34 @@ spec:
     - port: 443
       protocol: TCP
     - port: 80
+      protocol: TCP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: joysafeter-orchestrator-ingress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: joysafeter-orchestrator
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: joysafeter-sandbox
+    ports:
+    - port: {{ .Values.orchestrator.grpc.port }}
+      protocol: TCP
+  - from:
+    - podSelector:
+        matchLabels:
+          app: joysafeter-envoy
+    ports:
+    - port: {{ .Values.orchestrator.xds.port }}
       protocol: TCP
 {{- end }}
 {{- end }}

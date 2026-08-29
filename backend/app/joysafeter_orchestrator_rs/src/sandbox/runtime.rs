@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::future::BoxFuture;
+use std::collections::HashMap;
 
 use crate::ids::SandboxId;
 
@@ -13,9 +15,13 @@ pub enum PlacementEvent {
     Removed {
         sandbox_id: SandboxId,
     },
+    Reconciled {
+        assignments: HashMap<SandboxId, String>,
+    },
 }
 
-pub type PlacementEventHandler = Arc<dyn Fn(PlacementEvent) + Send + Sync>;
+pub type PlacementEventHandler =
+    Arc<dyn Fn(PlacementEvent) -> BoxFuture<'static, ()> + Send + Sync>;
 
 #[async_trait]
 pub trait SandboxSocketProvisioner: Send + Sync {

@@ -7056,7 +7056,7 @@ pub async fn start_grpc_server(
         .max_encoding_message_size(GRPC_MAX_SEND_MESSAGE_SIZE);
 
     let handle = tokio::spawn(async move {
-        info!(addr = %addr, control_socket = %control_socket_path.display(), "Runner gRPC server listening (TCP and UDS)");
+        info!(addr = %addr, control_socket = %control_socket_path.display(), "runner gRPC server listening (TCP and UDS: joysafeter.AgentBridge)");
 
         let mut builder = tonic::transport::Server::builder()
             // Fix 1.2: transport-level keepalive for dead connection detection

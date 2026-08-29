@@ -69,7 +69,7 @@ data:
   JOYSAFETER_GRPC_MAX_CONNECTIONS: {{ .Values.orchestrator.grpc.maxConnections | quote }}
   JOYSAFETER_GRPC_MAX_EXECUTIONS: {{ .Values.orchestrator.grpc.maxExecutions | quote }}
 
-  # ── ADS/xDS ──
+  # ── 独立 xDS 控制面 ──
   JOYSAFETER_XDS_HOST: "0.0.0.0"
   JOYSAFETER_XDS_PORT: {{ .Values.orchestrator.xds.port | quote }}
 
@@ -129,8 +129,7 @@ data:
   JOYSAFETER_ENVOY_ENABLED: "true"
   JOYSAFETER_ENVOY_XDS_MODE: {{ .Values.envoy.xdsMode | quote }}
   JOYSAFETER_ENVOY_SOCKET_HOST_DIR: {{ .Values.envoy.socketHostDir | quote }}
-  JOYSAFETER_ENVOY_GRPC_HOST: "joysafeter-orchestrator{{ if eq .Values.haMode "multi" }}-xds{{ end }}.{{ .Values.namespace }}.svc.cluster.local"
-  JOYSAFETER_ENVOY_GRPC_PORT: {{ .Values.orchestrator.xds.port | quote }}
+  JOYSAFETER_ENVOY_GRPC_HOST: "joysafeter-orchestrator-xds.{{ .Values.namespace }}.svc.cluster.local"
   {{- end }}
 
   # ── 调度 ──
@@ -163,6 +162,8 @@ data:
   JD_AGENT_IDENTITY_AUTH_TYPE: {{ .Values.agentIdentity.authType | quote }}
   JD_AGENT_IDENTITY_IDENTITY_TYPE: {{ .Values.agentIdentity.identityType | quote }}
   JD_AGENT_IDENTITY_AGENT_SCENE: {{ .Values.agentIdentity.agentScene | quote }}
+  JD_AGENT_IDENTITY_USER_TOKEN_COOKIE_NAME: {{ .Values.agentIdentity.userTokenCookieName | quote }}
+  JD_AGENT_IDENTITY_EXCHANGE_USER_TOKEN_ENABLED: {{ .Values.agentIdentity.exchangeUserTokenEnabled | quote }}
 
   # ── Egress 白名单 ──
   JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS: {{ join "," .Values.egress.allowedHosts | quote }}

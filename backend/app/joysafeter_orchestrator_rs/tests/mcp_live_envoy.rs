@@ -17,9 +17,11 @@ use joysafeter_orchestrator::kernel::network_policy::envoy_model::{
     EgressCredentialRoute, EgressExposure, EgressKind, EgressPathMapping, EgressRetryMode,
     SandboxCredentials, MCP_EGRESS_HOST,
 };
+use joysafeter_orchestrator::kernel::network_policy::NetworkPolicyGeneration;
 use joysafeter_orchestrator::sandbox::envoy::{EnvoyConfig, EnvoyManager};
-use joysafeter_orchestrator::xds::publisher::{GrpcCds, GrpcLds};
-use joysafeter_orchestrator::xds::transport::DeltaXdsServer;
+use joysafeter_orchestrator::sandbox::envoy_delivery::ControlPlaneEnvoyDelivery;
+use joysafeter_orchestrator::xds::control_plane::{NodeVisibility, XdsControlPlane};
+use joysafeter_orchestrator::xds::delivery::DeliveryRequest;
 use serde_json::Value;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
@@ -481,11 +483,16 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
     let retry_url = runner_servers[1].url.clone();
     let exact_route_key = runtime_plan.servers[0].route_key.clone();
 
-    let xds = DeltaXdsServer::with_static_token("test-xds-token")?;
+    let authority = joysafeter_orchestrator::xds::authority::XdsAuthority::standalone();
+    let recovery = authority.begin_staging()?;
+    authority.begin_recovery_serving(&recovery)?;
+    authority.mark_ready(&recovery)?;
+    let authority_epoch = recovery.epoch();
+    let xds = XdsControlPlane::new(authority, NodeVisibility::Unscoped);
     let listener = TcpListener::bind("0.0.0.0:0").await?;
     let xds_port = listener.local_addr()?.port();
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    let xds_service = xds.clone();
+    let xds_service = xds.ads_service();
     let xds_task = tokio::spawn(async move {
         Server::builder()
             .add_service(AggregatedDiscoveryServiceServer::from_arc(xds_service))
@@ -498,8 +505,7 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
     let config_dir = temp.path().join("config");
     fs::create_dir_all(&config_dir)?;
     fs::set_permissions(&config_dir, fs::Permissions::from_mode(0o755))?;
-    let lds = Arc::new(GrpcLds::new(xds.clone()));
-    let cds = Arc::new(GrpcCds::new(xds));
+    let delivery = Arc::new(ControlPlaneEnvoyDelivery::new(xds));
     let manager = EnvoyManager::new(
         None,
         EnvoyConfig {
@@ -510,7 +516,7 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
             envoy_network: network.clone(),
             grpc_target_host: "host.docker.internal".to_string(),
             grpc_target_port: xds_port,
-            xds_auth_token: "test-xds-token".to_string(),
+            xds_auth_token: Some("test-control-plane-token-with-enough-entropy".to_string()),
             container_name: envoy_container.clone(),
             xds_mode: "grpc".to_string(),
             write_debug_entries: false,
@@ -520,8 +526,7 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
             skip_socket_dir_prep: true,
             node_id: "joysafeter-mcp-live-envoy".to_string(),
         },
-        lds,
-        cds,
+        delivery,
     );
     manager.init().await?;
 
@@ -560,7 +565,17 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
     let mut initial_policy = policy(&fixture_ip, "bearer-one");
     initial_policy.routes.extend(runtime_plan.egress_routes());
     if let Err(error) = manager
-        .add_sandbox_policy(sandbox_id, initial_policy.to_policy(&sandbox_id, vec![]))
+        .add_sandbox_policy(
+            DeliveryRequest {
+                authority_epoch,
+                sandbox_id,
+                generation: NetworkPolicyGeneration {
+                    policy_hash: "mcp-live-initial".to_string(),
+                    policy_version: 1,
+                },
+            },
+            initial_policy.to_policy(&sandbox_id, vec![]),
+        )
         .await
     {
         bail!(
@@ -646,7 +661,14 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
 
     if let Err(error) = manager
         .add_sandbox_policy(
-            sandbox_id,
+            DeliveryRequest {
+                authority_epoch,
+                sandbox_id,
+                generation: NetworkPolicyGeneration {
+                    policy_hash: "mcp-live-rotated".to_string(),
+                    policy_version: 2,
+                },
+            },
             policy(&fixture_ip, "bearer-rotated").to_policy(&sandbox_id, vec![]),
         )
         .await
@@ -667,7 +689,14 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
     docker(&["restart", &envoy_container])?;
     if let Err(error) = manager
         .add_sandbox_policy(
-            sandbox_id,
+            DeliveryRequest {
+                authority_epoch,
+                sandbox_id,
+                generation: NetworkPolicyGeneration {
+                    policy_hash: "mcp-live-restarted".to_string(),
+                    policy_version: 3,
+                },
+            },
             policy(&fixture_ip, "after-restart").to_policy(&sandbox_id, vec![]),
         )
         .await

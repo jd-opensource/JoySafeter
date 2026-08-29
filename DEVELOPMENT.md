@@ -120,6 +120,29 @@ uv run alembic upgrade head
 Review generated migrations before committing them. Deployment automatically runs
 `alembic upgrade head`; do not maintain a second manual deployment procedure here.
 
+## xDS Control Plane Verification
+
+Run the focused control-plane checks from the repository root:
+
+```bash
+cd backend
+../backend/.venv/bin/pytest -q \
+  tests/test_xds_control_plane_architecture.py \
+  tests/test_typed_id_architecture.py
+cd ..
+
+cargo fmt --manifest-path backend/app/joysafeter_orchestrator_rs/Cargo.toml --all -- --check
+cargo check --all-targets --manifest-path backend/app/joysafeter_orchestrator_rs/Cargo.toml
+cargo test --manifest-path backend/app/joysafeter_orchestrator_rs/Cargo.toml \
+  --test xds_authority_lifecycle \
+  --test xds_delivery_contract \
+  --test xds_delivery_transport \
+  --test xds_observability \
+  --test xds_recovery_lifecycle \
+  --test xds_resource_ownership \
+  --test xds_transport_contract
+```
+
 ## Component Guides
 
 - Backend structure and service roles: [`backend/README.md`](backend/README.md)

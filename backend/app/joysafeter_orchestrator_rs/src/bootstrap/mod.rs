@@ -6,4 +6,4 @@ pub mod supervisor;
 
 pub use application::OrchestratorApplication;
 pub use network_policy_material::build_network_policy_material_resolver;
-pub use registry::{ProviderFactoryRegistry, RuntimeComponents};
+pub use registry::{ProviderFactoryRegistry, RuntimeComponents, RuntimeFactoryContext};

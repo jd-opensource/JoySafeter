@@ -179,6 +179,8 @@ impl std::fmt::Debug for EgressCredentialRoute {
 /// using the existing DNS behavior.
 #[derive(Debug, Clone)]
 pub struct ClusterSpec {
+    /// Sandbox that owns this cluster.
+    pub sandbox_id: SandboxId,
     /// Cluster name referenced by [`EgressCredentialRoute::cluster_name`].
     pub name: String,
     /// Real upstream host to resolve + connect to.
@@ -280,7 +282,7 @@ impl SandboxEgressPolicy {
         self
     }
 
-    pub fn clusters(&self, _sandbox_id: &SandboxId) -> Vec<ClusterSpec> {
+    pub fn clusters(&self, sandbox_id: &SandboxId) -> Vec<ClusterSpec> {
         let mut clusters = std::collections::BTreeMap::new();
         for route in &self.credential_routes {
             if route.vetted_addresses.is_empty() {
@@ -289,6 +291,7 @@ impl SandboxEgressPolicy {
             clusters
                 .entry(route.cluster_name.clone())
                 .or_insert_with(|| ClusterSpec {
+                    sandbox_id: *sandbox_id,
                     name: route.cluster_name.clone(),
                     upstream_host: route.upstream_host.clone(),
                     upstream_port: route.upstream_port,
