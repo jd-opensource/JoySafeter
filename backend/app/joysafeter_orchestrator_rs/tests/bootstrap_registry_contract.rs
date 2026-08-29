@@ -51,7 +51,7 @@ fn composition_root_builds_network_policy_material_behind_its_port() {
 
     let resolver = source("src/kernel/sandbox_resolver.rs");
     assert!(!resolver.contains("PostgresNetworkPolicyMaterialResolver"));
-    assert!(resolver.contains("UnconfiguredNetworkPolicyMaterialResolver"));
+    assert!(resolver.contains("NetworkPolicyService"));
     assert!(!resolver.contains("fn rebuild_sandbox_credentials"));
 
     let projection = source("src/kernel/credentials/runtime_projection.rs");
@@ -59,8 +59,8 @@ fn composition_root_builds_network_policy_material_behind_its_port() {
     assert!(!projection.contains("sandbox_resolver"));
 
     let scheduler = source("src/kernel/scheduler.rs");
-    assert!(scheduler.contains("NetworkPolicyMaterialResolver"));
-    assert!(scheduler.contains("with_network_policy_material_resolver"));
+    assert!(scheduler.contains("NetworkPolicyService"));
+    assert!(!scheduler.contains("NetworkPolicyMaterialResolver"));
 
     let command_listener = source("src/kernel/command_listener.rs");
     assert!(!command_listener.contains("llm_egress_allowed_hosts"));
@@ -79,6 +79,37 @@ fn registry_is_confined_to_the_composition_root() {
     ] {
         assert!(!source(application_module).contains("ProviderFactoryRegistry"));
     }
+}
+
+#[test]
+fn application_accepts_injected_provider_and_identity_factories() {
+    let application = source("src/bootstrap/application.rs");
+    assert!(application.contains("BootstrapDependencies"));
+    assert!(application.contains("build_with_dependencies"));
+    assert!(application.contains(".provider_registry"));
+    assert!(application.contains(".identity_factory"));
+    assert_eq!(
+        application
+            .matches("ProviderFactoryRegistry::with_defaults()")
+            .count(),
+        1,
+        "production defaults belong only in BootstrapDependencies::production"
+    );
+    assert!(!application.contains("match identity_provider_kind"));
+}
+
+#[test]
+fn provider_registry_owns_normalization_and_runtime_topology() {
+    let registry = source("src/bootstrap/registry.rs");
+    assert!(registry.contains("pub struct SandboxProviderKey"));
+    assert!(registry.contains("pub struct SandboxRuntimeTopology"));
+    assert!(registry.contains("pub struct ResolvedSandboxProvider"));
+    assert!(registry.contains("pub fn resolve"));
+
+    let application = source("src/bootstrap/application.rs");
+    assert!(!application.contains("matches!(config.sandbox_provider.as_str()"));
+    assert!(!application.contains("match config.sandbox_provider.as_str()"));
+    assert!(!application.contains("config.sandbox_provider == \"k8s\""));
 }
 
 #[test]

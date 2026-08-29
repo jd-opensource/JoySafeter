@@ -26,7 +26,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use super::provider::{ProviderSandboxInfo, SandboxStatus};
-use super::runtime::{PlacementEvent, PlacementEventHandler};
+use super::runtime::{PlacementEvent, PlacementEventSink};
 use crate::ids::SandboxId;
 
 /// Label selector identifying sandbox pods. Must match the label applied in
@@ -122,11 +122,11 @@ impl PodWatcher {
     pub fn new(
         client: Client,
         namespace: &str,
-        on_delivery_node: Option<PlacementEventHandler>,
+        placement_events: Option<PlacementEventSink>,
     ) -> Self {
         let cache = Arc::new(RwLock::new(HashMap::new()));
         let pods: Api<Pod> = Api::namespaced(client, namespace);
-        tokio::spawn(Self::watch_loop(pods, cache.clone(), on_delivery_node));
+        tokio::spawn(Self::watch_loop(pods, cache.clone(), placement_events));
         Self { cache }
     }
 
@@ -167,7 +167,7 @@ impl PodWatcher {
     async fn watch_loop(
         pods: Api<Pod>,
         cache: Arc<RwLock<HashMap<String, CachedPod>>>,
-        on_delivery_node: Option<PlacementEventHandler>,
+        placement_events: Option<PlacementEventSink>,
     ) {
         loop {
             info!("PodWatcher: starting watch stream");
@@ -183,7 +183,7 @@ impl PodWatcher {
             loop {
                 match stream.try_next().await {
                     Ok(Some(event)) => {
-                        Self::handle_event(&cache, &mut staging, event, on_delivery_node.as_ref())
+                        Self::handle_event(&cache, &mut staging, event, placement_events.as_ref())
                             .await
                     }
                     Ok(None) => {
@@ -204,7 +204,7 @@ impl PodWatcher {
         cache: &Arc<RwLock<HashMap<String, CachedPod>>>,
         staging: &mut HashMap<String, CachedPod>,
         event: Event<Pod>,
-        on_delivery_node: Option<&PlacementEventHandler>,
+        placement_events: Option<&PlacementEventSink>,
     ) {
         match event {
             Event::Apply(pod) => {
@@ -219,9 +219,9 @@ impl PodWatcher {
                         guard.insert(cached.name.clone(), cached);
                         delivery_node_changes(previous, current)
                     };
-                    if let Some(hook) = on_delivery_node {
+                    if let Some(sink) = placement_events {
                         for observation in observations {
-                            hook(observation).await;
+                            Self::publish_placement(sink, observation).await;
                         }
                     }
                 }
@@ -234,8 +234,8 @@ impl PodWatcher {
                         .await
                         .remove(name)
                         .and_then(|cached| cached.delivery_assignment());
-                    if let (Some(hook), Some((sandbox_id, _))) = (on_delivery_node, removed) {
-                        hook(PlacementEvent::Removed { sandbox_id }).await;
+                    if let (Some(sink), Some((sandbox_id, _))) = (placement_events, removed) {
+                        Self::publish_placement(sink, PlacementEvent::Removed { sandbox_id }).await;
                     }
                 }
             }
@@ -255,10 +255,16 @@ impl PodWatcher {
                     .collect();
                 info!(pod_count = c.len(), "PodWatcher: cache synced");
                 drop(c);
-                if let Some(hook) = on_delivery_node {
-                    hook(PlacementEvent::Reconciled { assignments }).await;
+                if let Some(sink) = placement_events {
+                    Self::publish_placement(sink, PlacementEvent::Reconciled { assignments }).await;
                 }
             }
+        }
+    }
+
+    async fn publish_placement(sink: &PlacementEventSink, event: PlacementEvent) {
+        if let Err(error) = sink.publish(event).await {
+            warn!(?error, "PodWatcher: placement event sink is unavailable");
         }
     }
 }
@@ -331,18 +337,30 @@ fn delivery_node_changes(
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::sync::Mutex;
 
-    type Calls = Arc<Mutex<Vec<PlacementEvent>>>;
+    struct PlacementEventProbe {
+        receiver: tokio::sync::mpsc::Receiver<PlacementEvent>,
+        observed: Vec<PlacementEvent>,
+    }
 
-    fn recording_hook() -> (PlacementEventHandler, Calls) {
-        let calls: Calls = Arc::new(Mutex::new(Vec::new()));
-        let sink = calls.clone();
-        let hook: PlacementEventHandler = Arc::new(move |observation| {
-            let sink = sink.clone();
-            Box::pin(async move { sink.lock().unwrap().push(observation) })
-        });
-        (hook, calls)
+    impl PlacementEventProbe {
+        fn observed(&mut self) -> &[PlacementEvent] {
+            while let Ok(event) = self.receiver.try_recv() {
+                self.observed.push(event);
+            }
+            &self.observed
+        }
+    }
+
+    fn recording_sink() -> (PlacementEventSink, PlacementEventProbe) {
+        let (sink, receiver) = PlacementEventSink::channel(16);
+        (
+            sink,
+            PlacementEventProbe {
+                receiver,
+                observed: Vec::new(),
+            },
+        )
     }
 
     /// Build a sandbox Pod carrying the `joysafeter.sandbox_id` label, optionally
@@ -393,7 +411,7 @@ mod tests {
     async fn scheduled_pod_is_hidden_until_initialized() {
         let uuid = uuid::Uuid::now_v7();
         let pod_name = "joysafeter-init-barrier";
-        let (hook, calls) = recording_hook();
+        let (sink, mut probe) = recording_sink();
         let (cache, mut staging) = empty_state();
         let watcher = PodWatcher {
             cache: cache.clone(),
@@ -409,12 +427,12 @@ mod tests {
                 "Pending",
                 Some("False"),
             )),
-            Some(&hook),
+            Some(&sink),
         )
         .await;
 
         assert_eq!(watcher.delivery_node(pod_name).await, None);
-        assert!(calls.lock().unwrap().is_empty());
+        assert!(probe.observed().is_empty());
 
         PodWatcher::handle_event(
             &cache,
@@ -426,7 +444,7 @@ mod tests {
                 "Pending",
                 Some("True"),
             )),
-            Some(&hook),
+            Some(&sink),
         )
         .await;
 
@@ -435,7 +453,7 @@ mod tests {
             Some("node-a")
         );
         assert!(matches!(
-            calls.lock().unwrap().as_slice(),
+            probe.observed(),
             [PlacementEvent::Assigned { sandbox_id, node_name }]
                 if sandbox_id.as_uuid() == uuid && node_name == "node-a"
         ));
@@ -460,7 +478,7 @@ mod tests {
     #[tokio::test]
     async fn apply_with_node_fires_hook_once_on_transition() {
         let uuid = uuid::Uuid::now_v7();
-        let (hook, calls) = recording_hook();
+        let (sink, mut probe) = recording_sink();
         let (cache, mut staging) = empty_state();
 
         // First Apply: pod already scheduled (has nodeName) → hook fires once.
@@ -472,7 +490,7 @@ mod tests {
                 &uuid.to_string(),
                 Some("node-a"),
             )),
-            Some(&hook),
+            Some(&sink),
         )
         .await;
 
@@ -485,11 +503,11 @@ mod tests {
                 &uuid.to_string(),
                 Some("node-a"),
             )),
-            Some(&hook),
+            Some(&sink),
         )
         .await;
 
-        let calls = calls.lock().unwrap();
+        let calls = probe.observed();
         assert_eq!(
             calls.len(),
             1,
@@ -505,7 +523,7 @@ mod tests {
     #[tokio::test]
     async fn apply_without_node_defers_until_scheduled() {
         let uuid = uuid::Uuid::now_v7();
-        let (hook, calls) = recording_hook();
+        let (sink, mut probe) = recording_sink();
         let (cache, mut staging) = empty_state();
 
         // Unscheduled pod (no nodeName) → hook must NOT fire.
@@ -513,13 +531,10 @@ mod tests {
             &cache,
             &mut staging,
             Event::Apply(sandbox_pod("joysafeter-y", &uuid.to_string(), None)),
-            Some(&hook),
+            Some(&sink),
         )
         .await;
-        assert!(
-            calls.lock().unwrap().is_empty(),
-            "no node yet → no registration"
-        );
+        assert!(probe.observed().is_empty(), "no node yet → no registration");
 
         // Scheduler binds it → hook fires now.
         PodWatcher::handle_event(
@@ -530,10 +545,10 @@ mod tests {
                 &uuid.to_string(),
                 Some("node-b"),
             )),
-            Some(&hook),
+            Some(&sink),
         )
         .await;
-        let calls = calls.lock().unwrap();
+        let calls = probe.observed();
         assert_eq!(calls.len(), 1);
         assert!(matches!(
             &calls[0],
@@ -545,7 +560,7 @@ mod tests {
     #[tokio::test]
     async fn init_done_emits_one_authoritative_relist() {
         let uuid = uuid::Uuid::now_v7();
-        let (hook, calls) = recording_hook();
+        let (sink, mut probe) = recording_sink();
         let (cache, mut staging) = empty_state();
 
         PodWatcher::handle_event(
@@ -556,18 +571,18 @@ mod tests {
                 &uuid.to_string(),
                 Some("node-c"),
             )),
-            Some(&hook),
+            Some(&sink),
         )
         .await;
 
         assert!(
-            calls.lock().unwrap().is_empty(),
+            probe.observed().is_empty(),
             "partial relist state must never escape before InitDone"
         );
 
-        PodWatcher::handle_event(&cache, &mut staging, Event::InitDone, Some(&hook)).await;
+        PodWatcher::handle_event(&cache, &mut staging, Event::InitDone, Some(&sink)).await;
 
-        let calls = calls.lock().unwrap();
+        let calls = probe.observed();
         assert_eq!(calls.len(), 1);
         assert!(matches!(
             &calls[0],
@@ -580,7 +595,7 @@ mod tests {
     #[tokio::test]
     async fn node_move_and_delete_emit_complete_lifecycle() {
         let uuid = uuid::Uuid::now_v7();
-        let (hook, calls) = recording_hook();
+        let (sink, mut probe) = recording_sink();
         let (cache, mut staging) = empty_state();
 
         PodWatcher::handle_event(
@@ -591,7 +606,7 @@ mod tests {
                 &uuid.to_string(),
                 Some("node-a"),
             )),
-            Some(&hook),
+            Some(&sink),
         )
         .await;
         PodWatcher::handle_event(
@@ -604,7 +619,7 @@ mod tests {
                 "Pending",
                 Some("False"),
             )),
-            Some(&hook),
+            Some(&sink),
         )
         .await;
         PodWatcher::handle_event(
@@ -617,7 +632,7 @@ mod tests {
                 "Pending",
                 Some("True"),
             )),
-            Some(&hook),
+            Some(&sink),
         )
         .await;
         PodWatcher::handle_event(
@@ -628,11 +643,11 @@ mod tests {
                 &uuid.to_string(),
                 Some("node-b"),
             )),
-            Some(&hook),
+            Some(&sink),
         )
         .await;
 
-        let calls = calls.lock().unwrap();
+        let calls = probe.observed();
         assert!(matches!(
             &calls[0],
             PlacementEvent::Assigned { node_name, .. } if node_name == "node-a"
@@ -655,7 +670,7 @@ mod tests {
 
     #[tokio::test]
     async fn apply_with_non_uuid_label_does_not_fire() {
-        let (hook, calls) = recording_hook();
+        let (sink, mut probe) = recording_sink();
         let (cache, mut staging) = empty_state();
 
         // A malformed sandbox_id label (e.g. the `sbx_`-prefixed public form, not
@@ -668,12 +683,12 @@ mod tests {
                 "sbx_not-a-uuid",
                 Some("node-a"),
             )),
-            Some(&hook),
+            Some(&sink),
         )
         .await;
 
         assert!(
-            calls.lock().unwrap().is_empty(),
+            probe.observed().is_empty(),
             "a non-UUID sandbox_id label must not register a node"
         );
     }

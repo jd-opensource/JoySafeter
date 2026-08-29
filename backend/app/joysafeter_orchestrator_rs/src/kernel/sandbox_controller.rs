@@ -13,12 +13,11 @@ use crate::db::queries;
 use crate::ids::{SandboxId, TaskId};
 use crate::kernel::ha::BridgeStore;
 use crate::kernel::network_policy::application::NetworkingReconcileOutcome;
-use crate::kernel::network_policy::material::{
-    NetworkPolicyMaterialResolver, UnconfiguredNetworkPolicyMaterialResolver,
-};
-use crate::kernel::network_policy::ports::NetworkPolicyRequestQueue;
-use crate::kernel::network_policy::ports::{NetworkPolicyRuntime, NoopNetworkPolicyRuntime};
-use crate::kernel::network_policy::NetworkPolicyRequest;
+#[cfg(test)]
+use crate::kernel::network_policy::material::NetworkPolicyMaterialResolver;
+#[cfg(test)]
+use crate::kernel::network_policy::ports::{NetworkPolicyRequestQueue, NetworkPolicyRuntime};
+use crate::kernel::network_policy::service::NetworkPolicyService;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_resolver::SandboxResolver;
 use crate::runtime_config::RuntimeConfig;
@@ -41,15 +40,13 @@ pub struct SandboxController {
     redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
     config: JoySafeterConfig,
     runtime_config: Arc<RuntimeConfig>,
-    xds_authority: crate::xds::authority::XdsAuthority,
-    network_policy_queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
-    network_policy_runtime: Arc<dyn NetworkPolicyRuntime>,
-    network_policy_material_resolver: Arc<dyn NetworkPolicyMaterialResolver>,
+    network_policy: NetworkPolicyService,
     /// Wakes the pool manager immediately when a sandbox is claimed from the pool.
     pub pool_replenish_notify: Arc<tokio::sync::Notify>,
 }
 
 impl SandboxController {
+    #[cfg(test)]
     pub fn new(
         pool: PgPool,
         queue: TaskQueue,
@@ -59,6 +56,29 @@ impl SandboxController {
         config: JoySafeterConfig,
         runtime_config: Arc<RuntimeConfig>,
     ) -> Self {
+        let network_policy = NetworkPolicyService::test_fixture(pool.clone());
+        Self::new_with_network_policy(
+            pool,
+            queue,
+            bridge_store,
+            provider,
+            redis_coordinator,
+            config,
+            runtime_config,
+            network_policy,
+        )
+    }
+
+    pub fn new_with_network_policy(
+        pool: PgPool,
+        queue: TaskQueue,
+        bridge_store: Arc<dyn BridgeStore>,
+        provider: Arc<dyn SandboxProvider>,
+        redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
+        config: JoySafeterConfig,
+        runtime_config: Arc<RuntimeConfig>,
+        network_policy: NetworkPolicyService,
+    ) -> Self {
         Self {
             pool,
             queue,
@@ -67,34 +87,33 @@ impl SandboxController {
             redis_coordinator,
             config,
             runtime_config,
-            xds_authority: crate::xds::authority::XdsAuthority::standalone(),
-            network_policy_queue: None,
-            network_policy_runtime: Arc::new(NoopNetworkPolicyRuntime),
-            network_policy_material_resolver: Arc::new(UnconfiguredNetworkPolicyMaterialResolver),
+            network_policy,
             pool_replenish_notify: Arc::new(tokio::sync::Notify::new()),
         }
     }
 
+    #[cfg(test)]
     pub fn with_network_policy_runtime(mut self, runtime: Arc<dyn NetworkPolicyRuntime>) -> Self {
-        self.network_policy_runtime = runtime;
+        self.network_policy = self.network_policy.with_test_runtime(runtime);
         self
     }
 
+    #[cfg(test)]
     pub fn with_network_policy_material_resolver(
         mut self,
         resolver: Arc<dyn NetworkPolicyMaterialResolver>,
     ) -> Self {
-        self.network_policy_material_resolver = resolver;
+        self.network_policy = self.network_policy.with_test_material_resolver(resolver);
         self
     }
 
+    #[cfg(test)]
     pub fn with_network_policy_control(
         mut self,
         authority: crate::xds::authority::XdsAuthority,
         queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
     ) -> Self {
-        self.xds_authority = authority;
-        self.network_policy_queue = queue;
+        self.network_policy = self.network_policy.with_test_control(authority, queue);
         self
     }
 
@@ -226,9 +245,9 @@ impl SandboxController {
     /// Returns the number of degraded sandboxes found this tick (0 = all
     /// healthy), so the caller can adapt its polling cadence.
     async fn reconcile_degraded_networking(&self, limit: i64) -> anyhow::Result<usize> {
-        let Some(authority) = self.xds_authority.mutation_guard() else {
+        if !self.network_policy.can_reconcile_as_authority() {
             return Ok(0);
-        };
+        }
         let degraded = queries::list_degraded_limited_sandboxes(&self.pool, limit).await?;
         if degraded.is_empty() {
             return Ok(0);
@@ -240,16 +259,7 @@ impl SandboxController {
         );
 
         for sandbox in &degraded {
-            let _application_lock = self.xds_authority.lock_application().await;
-            match crate::kernel::network_policy::application::reconcile_as_authority(
-                &self.pool,
-                self.network_policy_runtime.as_ref(),
-                self.network_policy_material_resolver.as_ref(),
-                sandbox,
-                &authority,
-            )
-            .await
-            {
+            match self.network_policy.reconcile_as_authority(sandbox).await {
                 Ok(NetworkingReconcileOutcome::Refreshed { policy_hash }) => {
                     info!(
                         sandbox_id = %sandbox.id,
@@ -839,7 +849,7 @@ impl SandboxController {
     /// Phase 3: Destroy stopped/errored sandboxes past TTL.
     ///
     /// `error` is a terminal-ish state set on failure ejection
-    /// (grpc/server.rs execute_sandbox_cleanup) WITHOUT a disconnected_at
+    /// (`kernel/runner/session.rs` cleanup) WITHOUT a disconnected_at
     /// marker, so the idle sweep does not reliably reach it. Include it here so
     /// an errored sandbox's container / DB row / Envoy listeners are reclaimed
     /// (error -> destroyed is a valid transition) rather than leaking until the
@@ -1245,15 +1255,16 @@ impl SandboxController {
                     let config = self.config.clone();
                     let image = image.clone();
                     let permit = sem.clone();
-                    let network_policy_runtime = self.network_policy_runtime.clone();
-                    let network_policy_queue = self.network_policy_queue.clone();
-                    let xds_authority = self.xds_authority.clone();
+                    let network_policy = self.network_policy.clone();
 
                     join_set.spawn(async move {
                         let _permit = permit.acquire().await;
-                        let resolver = SandboxResolver::new(pool_db, provider, config)
-                            .with_network_policy_runtime(network_policy_runtime)
-                            .with_network_policy_control(xds_authority, network_policy_queue);
+                        let resolver = SandboxResolver::new_with_network_policy(
+                            pool_db,
+                            provider,
+                            config,
+                            network_policy,
+                        );
                         resolver.provision_pool_sandbox(&image).await
                     });
                 }
@@ -1442,13 +1453,7 @@ impl SandboxController {
     }
 
     async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-        if let Some(queue) = self.network_policy_queue.as_ref() {
-            queue
-                .publish(NetworkPolicyRequest::remove(sandbox_id))
-                .await
-        } else {
-            self.network_policy_runtime.remove(sandbox_id).await
-        }
+        self.network_policy.teardown(sandbox_id).await.map(|_| ())
     }
 
     async fn destroy_observed_sandbox(
@@ -1461,8 +1466,7 @@ impl SandboxController {
         crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
             &self.pool,
             &self.provider,
-            self.network_policy_runtime.as_ref(),
-            self.network_policy_queue.as_deref(),
+            &self.network_policy,
             sandbox_id,
             observed_status,
             external_id,

@@ -18,7 +18,7 @@ use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
     SandboxProvider, SandboxStatus,
 };
-use super::runtime::{PlacementEventHandler, SandboxSocketProvisioner};
+use super::runtime::{PlacementEventSink, SandboxSocketProvisioner};
 use crate::config::JoySafeterConfig;
 
 /// Kubernetes-backed sandbox provider using the kube-rs SDK.
@@ -48,7 +48,7 @@ impl K8sProvider {
     pub async fn new(
         config: &JoySafeterConfig,
         egress_socket: Option<Arc<dyn SandboxSocketProvisioner>>,
-        placement_events: Option<PlacementEventHandler>,
+        placement_events: Option<PlacementEventSink>,
     ) -> anyhow::Result<Self> {
         let client = Client::try_default()
             .await

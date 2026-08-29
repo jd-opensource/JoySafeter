@@ -5,11 +5,18 @@ fn source(path: &str) -> String {
 #[test]
 fn production_network_policy_has_one_generation_state_machine() {
     assert!(!std::path::Path::new("src/kernel/network_policy/model.rs").exists());
-    assert!(!std::path::Path::new("src/kernel/network_policy/service.rs").exists());
+    assert!(std::path::Path::new("src/kernel/network_policy/service.rs").exists());
 
     let module = source("src/kernel/network_policy.rs");
     assert!(!module.contains("pub mod model"));
-    assert!(!module.contains("pub mod service"));
+    assert!(module.contains("pub(crate) mod service;"));
+    assert!(!module.contains("pub mod service;"));
+
+    let service = source("src/kernel/network_policy/service.rs");
+    assert!(service.contains("pub struct NetworkPolicyService"));
+    assert!(!service.contains("struct NetworkPolicyGeneration"));
+    assert!(!service.contains("sqlx::query"));
+    assert!(!service.contains("envoy_render"));
 
     let ports = source("src/kernel/network_policy/ports.rs");
     assert!(!ports.contains("NetworkPolicyRepository"));
@@ -23,9 +30,10 @@ fn production_network_policy_has_one_generation_state_machine() {
 
     let authority = source("src/kernel/network_policy/authority.rs");
     assert!(authority.contains("pub struct NetworkPolicyAuthorityHandler"));
-    assert!(authority.contains("apply_generation_as_authority"));
-    assert!(authority.contains("network_policy_removal_is_current"));
-    assert!(authority.contains("load_recovery_inventory"));
+    assert!(authority.contains("self.service.recover(guard)"));
+    assert!(authority.contains("self.service.reconcile_inventory(guard)"));
+    assert!(authority.contains("self.service.apply_request(request, guard)"));
+    assert!(!authority.contains("super::application"));
 
     let request = source("src/kernel/network_policy/request.rs");
     assert!(request.contains("pub struct NetworkPolicyRequest"));

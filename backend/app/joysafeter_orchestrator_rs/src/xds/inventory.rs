@@ -3,15 +3,14 @@
 use std::collections::HashSet;
 
 use crate::ids::SandboxId;
-use crate::kernel::network_policy::NetworkPolicyGeneration;
 
 use super::delivery::DeliveryAttempt;
-use super::model::{ManagedXdsResource, ResourceOwner};
+use super::model::{DeliveryGeneration, ManagedXdsResource, ResourceOwner};
 
 #[derive(Debug, Clone)]
 pub struct RecoveredSandbox {
     pub sandbox_id: SandboxId,
-    pub generation: NetworkPolicyGeneration,
+    pub generation: DeliveryGeneration,
     pub resources: Vec<ManagedXdsResource>,
 }
 
@@ -82,7 +81,7 @@ impl RecoveryInventory {
 #[derive(Debug, Clone)]
 pub struct RecoveryDelivery {
     pub sandbox_id: SandboxId,
-    pub generation: NetworkPolicyGeneration,
+    pub generation: DeliveryGeneration,
     pub state: RecoveryDeliveryState,
 }
 

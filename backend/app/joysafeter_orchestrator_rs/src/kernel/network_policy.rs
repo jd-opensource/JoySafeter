@@ -17,6 +17,7 @@ pub mod material;
 pub mod ports;
 pub mod recovery;
 pub mod request;
+pub(crate) mod service;
 
 pub use request::{NetworkPolicyAction, NetworkPolicyRequest};
 

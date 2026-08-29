@@ -1,31 +1,60 @@
 //! Orchestrator composition root and service lifecycle.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::config::JoySafeterConfig;
-use crate::kernel::agent_identity_config::AgentIdentityProviderKind;
 use crate::{db, events, grpc, kernel, runtime_config, xds};
 use tracing::{error, info, warn};
 
-use super::supervisor::{shutdown_signal, spawn_health_server};
+use super::supervisor::{
+    shutdown_signal, spawn_health_server, ReadinessGate, ServiceCriticality, TaskSupervisor,
+};
 use super::{
-    build_network_policy_material_resolver, ProviderFactoryRegistry, RuntimeComponents,
+    build_network_policy_material_resolver, IdentityProviderFactory,
+    ProductionIdentityProviderFactory, ProviderFactoryRegistry, RuntimeComponents,
     RuntimeFactoryContext,
 };
 
+pub(crate) struct BootstrapDependencies {
+    pub(crate) provider_registry: Arc<ProviderFactoryRegistry>,
+    pub(crate) identity_factory: Arc<dyn IdentityProviderFactory>,
+}
+
+impl BootstrapDependencies {
+    pub(crate) fn production() -> Self {
+        Self {
+            provider_registry: Arc::new(ProviderFactoryRegistry::with_defaults()),
+            identity_factory: Arc::new(ProductionIdentityProviderFactory),
+        }
+    }
+}
+
 pub struct OrchestratorApplication {
     config: JoySafeterConfig,
+    dependencies: BootstrapDependencies,
 }
 
 impl OrchestratorApplication {
     pub async fn build(config: JoySafeterConfig) -> anyhow::Result<Self> {
+        Self::build_with_dependencies(config, BootstrapDependencies::production()).await
+    }
+
+    pub(crate) async fn build_with_dependencies(
+        config: JoySafeterConfig,
+        dependencies: BootstrapDependencies,
+    ) -> anyhow::Result<Self> {
         config.validate()?;
-        Ok(Self { config })
+        Ok(Self {
+            config,
+            dependencies,
+        })
     }
 
     pub async fn run(self) -> anyhow::Result<()> {
         let config = self.config;
+        let dependencies = self.dependencies;
+        let readiness = ReadinessGate::new();
+        let mut supervisor = TaskSupervisor::new(readiness.clone());
 
         info!(
             instance_id = %config.instance_id,
@@ -85,33 +114,7 @@ impl OrchestratorApplication {
         };
 
         // Initialize Agent Identity Provider (pluggable, feature-gated)
-        let identity_provider_kind =
-            AgentIdentityProviderKind::from_env()?.validate_feature_availability()?;
-        let identity_provider: Arc<dyn kernel::agent_identity_provider::AgentIdentityProvider> =
-            match identity_provider_kind {
-                AgentIdentityProviderKind::None => {
-                    info!("Agent identity provider: none");
-                    Arc::new(kernel::agent_identity_provider::NoopAgentIdentityProvider)
-                }
-                AgentIdentityProviderKind::Jd => {
-                    #[cfg(feature = "jd-identity")]
-                    {
-                        let redis = redis_client.as_ref().ok_or_else(|| {
-                            anyhow::anyhow!("Redis is required when AGENT_IDENTITY_PROVIDER=jd")
-                        })?;
-                        let provider =
-                            jd_agent_identity::JdAgentIdentityProvider::from_env(redis.clone())?;
-                        info!("Agent identity provider: jd");
-                        Arc::new(provider)
-                    }
-                    #[cfg(not(feature = "jd-identity"))]
-                    {
-                        anyhow::bail!(
-                        "AGENT_IDENTITY_PROVIDER=jd requires a binary built with the jd-identity feature"
-                    );
-                    }
-                }
-            };
+        let identity_provider = dependencies.identity_factory.build(redis_client.as_ref())?;
 
         // Initialize runtime config (hot-reloadable)
         let runtime_config = Arc::new(runtime_config::RuntimeConfig::from_config(&config));
@@ -127,7 +130,12 @@ impl OrchestratorApplication {
         );
         // Start periodic flush timer so buffered events don't sit in memory
         // indefinitely when event rate is below the batch threshold.
-        let _flush_timer = event_bus.persister().spawn_flush_timer();
+        let flush_timer = event_bus.persister().spawn_flush_timer();
+        supervisor.register(
+            "event-flush-timer",
+            ServiceCriticality::BestEffort,
+            flush_timer,
+        )?;
         info!("Event bus initialized (flush timer started)");
 
         // Initialize session broadcaster
@@ -141,8 +149,12 @@ impl OrchestratorApplication {
 
         // Initialize the single xDS authority before constructing any provider or
         // transport so every control-plane boundary observes the same lifecycle.
+        let resolved_provider = dependencies
+            .provider_registry
+            .resolve(&config.sandbox_provider)?;
+        let topology = resolved_provider.topology;
         let managed_xds_authority = config.ha_mode == "multi"
-            && matches!(config.sandbox_provider.as_str(), "k8s" | "kubernetes")
+            && topology.managed_xds_authority_in_multi
             && config.grpc_xds_enabled();
         let xds_authority = if managed_xds_authority {
             xds::authority::XdsAuthority::managed()
@@ -150,19 +162,19 @@ impl OrchestratorApplication {
             xds::authority::XdsAuthority::standalone()
         };
         let xds_control_plane = config.grpc_xds_enabled().then(|| {
-            let visibility = match config.sandbox_provider.as_str() {
-                "k8s" | "kubernetes" => xds::control_plane::NodeVisibility::NodeScoped,
-                _ => xds::control_plane::NodeVisibility::Unscoped,
-            };
-            xds::control_plane::XdsControlPlane::new(xds_authority.clone(), visibility)
+            xds::control_plane::XdsControlPlane::new(
+                xds_authority.clone(),
+                topology.node_visibility,
+            )
         });
         let RuntimeComponents {
             sandbox_provider,
             network_policy_runtime,
-            envoy_manager,
-        } = ProviderFactoryRegistry::with_defaults()
+            socket_provisioner,
+            envoy_process,
+            placement_reconciler,
+        } = resolved_provider
             .build(
-                &config.sandbox_provider,
                 &config,
                 &RuntimeFactoryContext {
                     xds_authority: xds_authority.clone(),
@@ -175,7 +187,7 @@ impl OrchestratorApplication {
             config.llm_egress_allowed_hosts.clone(),
         );
         info!(
-            provider = %config.sandbox_provider,
+            provider = %resolved_provider.key.as_str(),
             "Sandbox provider initialized"
         );
 
@@ -219,7 +231,7 @@ impl OrchestratorApplication {
         // xDS enabled (Docker/standalone/leader already have a single xDS source).
         let mut xds_leader_handle = None;
         if config.ha_mode == "multi"
-            && config.sandbox_provider == "k8s"
+            && topology.xds_leader_coordination_in_multi
             && xds_control_plane.is_some()
         {
             let kube_client = kube::Client::try_default().await.map_err(|error| {
@@ -255,13 +267,16 @@ impl OrchestratorApplication {
         // Health server — expose readiness/liveness for K8s probes.
         // Starts early (both leader and standby expose /healthz/live).
         // ready_flag is set to true only after services are fully started.
-        let ready_flag = Arc::new(AtomicBool::new(!config.leader_election_enabled));
-        spawn_health_server(
+        let health_handle = spawn_health_server(
             9091,
-            ready_flag.clone(),
+            readiness.clone(),
             xds_authority.clone(),
             xds_control_plane.clone(),
-        );
+        )
+        .await?;
+        supervisor
+            .register("health-http", ServiceCriticality::Critical, health_handle)?
+            .mark_ready();
 
         let xds_handle = if let Some(service) = xds_control_plane.as_ref() {
             let authenticator = Arc::new(xds::auth::SharedTokenAuthenticator::new(
@@ -281,20 +296,47 @@ impl OrchestratorApplication {
             None
         };
 
-        // Initialize the network-policy runtime before authority recovery.
-        // Fail-closed: if egress control cannot initialize or recover, abort startup
-        // rather than becoming ready and serving sandboxes without enforcement.
-        network_policy_runtime.initialize().await?;
+        // Initialize HA components (bridge store, task dispatcher, network-policy wakeup queue)
+        let mut ha = kernel::ha::build_ha_components(&config, redis_client.as_ref());
+        let bridge_store = ha.bridge_store.clone();
+        info!(ha_mode = %ha.mode.as_str(), "HA components initialized");
+
+        if let Some(process) = envoy_process.as_ref() {
+            process.initialize().await?;
+        }
+        let network_policy = match network_policy_runtime {
+            Some(runtime) => kernel::network_policy::service::NetworkPolicyService::managed(
+                db_pool.clone(),
+                runtime,
+                network_policy_material_resolver,
+                ha.network_policy_queue.clone(),
+                xds_authority.clone(),
+            ),
+            None => {
+                kernel::network_policy::service::NetworkPolicyService::unsupported(db_pool.clone())
+            }
+        };
+        if sandbox_provider.capabilities().has_egress_management
+            && network_policy.capability()
+                != kernel::network_policy::service::NetworkPolicyCapability::Managed
+        {
+            anyhow::bail!(
+                "sandbox provider advertises egress management without a network-policy runtime"
+            );
+        }
+        network_policy.initialize().await?;
+        if let Some(process) = envoy_process.as_ref() {
+            process
+                .wait_until_ready(std::time::Duration::from_secs(15))
+                .await?;
+        }
+        if let Some(sockets) = socket_provisioner.as_ref() {
+            sockets.verify_storage().await?;
+        }
         if !managed_xds_authority {
             let recovery = xds_authority.begin_staging()?;
             if sandbox_provider.capabilities().has_egress_management {
-                kernel::network_policy::recovery::recover_as_authority(
-                    &db_pool,
-                    network_policy_runtime.as_ref(),
-                    network_policy_material_resolver.as_ref(),
-                    &recovery,
-                )
-                .await?;
+                network_policy.recover(&recovery).await?;
             }
             if matches!(
                 xds_authority.phase(),
@@ -304,14 +346,9 @@ impl OrchestratorApplication {
             }
             xds_authority.mark_ready(&recovery)?;
         }
-        if let Some(manager) = envoy_manager.clone() {
-            manager.spawn_health_monitor(xds_authority.clone());
+        if let Some(process) = envoy_process {
+            process.spawn_health_monitor(xds_authority.clone());
         }
-
-        // Initialize HA components (bridge store, task dispatcher, network-policy wakeup queue)
-        let mut ha = kernel::ha::build_ha_components(&config, redis_client.as_ref());
-        let bridge_store = ha.bridge_store.clone();
-        info!(ha_mode = %ha.mode.as_str(), "HA components initialized");
 
         // Initialize task queue (Redis-backed scheduler wakeups)
         let queue = kernel::queue::TaskQueue::new(
@@ -336,7 +373,7 @@ impl OrchestratorApplication {
 
         // Orphaned sandbox cleanup
         let sandbox_controller_for_cleanup = Arc::new(
-            kernel::sandbox_controller::SandboxController::new(
+            kernel::sandbox_controller::SandboxController::new_with_network_policy(
                 db_pool.clone(),
                 queue.clone(),
                 bridge_store.clone(),
@@ -344,10 +381,8 @@ impl OrchestratorApplication {
                 redis_coordinator.clone(),
                 config.clone(),
                 runtime_config.clone(),
-            )
-            .with_network_policy_runtime(network_policy_runtime.clone())
-            .with_network_policy_material_resolver(network_policy_material_resolver.clone())
-            .with_network_policy_control(xds_authority.clone(), ha.network_policy_queue.clone()),
+                network_policy.clone(),
+            ),
         );
         match sandbox_controller_for_cleanup.cleanup_orphaned().await {
             Ok(n) if n > 0 => info!("Cleaned up {n} orphaned sandboxes"),
@@ -357,18 +392,15 @@ impl OrchestratorApplication {
 
         // Start gRPC server
         let grpc_sandbox_resolver = Arc::new(
-            kernel::sandbox_resolver::SandboxResolver::new(
+            kernel::sandbox_resolver::SandboxResolver::new_with_network_policy(
                 db_pool.clone(),
                 sandbox_provider.clone(),
                 config.clone(),
+                network_policy.clone(),
             )
-            .with_network_policy_runtime(network_policy_runtime.clone())
-            .with_network_policy_material_resolver(network_policy_material_resolver.clone())
-            .with_network_policy_control(xds_authority.clone(), ha.network_policy_queue.clone())
             .with_identity_provider(identity_provider.clone()),
         );
-        let grpc_handle = grpc::server::start_grpc_server(
-            config.grpc_addr(),
+        let runner_coordinator = Arc::new(kernel::runner::RunnerSessionCoordinator::new(
             bridge_store.clone(),
             event_bus.clone(),
             queue.clone(),
@@ -378,6 +410,15 @@ impl OrchestratorApplication {
             redis_coordinator.clone(),
             memory_subscribers.clone(),
             runtime_config.clone(),
+        ));
+        let runner_transport = Arc::new(grpc::transport::RunnerTransport::new(
+            runner_coordinator,
+            config.grpc_max_connections,
+        ));
+        let grpc_handle = grpc::server::start_grpc_server(
+            config.grpc_addr(),
+            config.runner_control_socket_host_dir.clone(),
+            runner_transport,
         )
         .await?;
         info!(addr = %config.grpc_addr(), "gRPC server started");
@@ -391,9 +432,7 @@ impl OrchestratorApplication {
             ));
             let authority_work = Arc::new(
                 kernel::network_policy::authority::NetworkPolicyAuthorityHandler::new(
-                    db_pool.clone(),
-                    network_policy_runtime.clone(),
-                    network_policy_material_resolver.clone(),
+                    network_policy.clone(),
                 ),
             );
             let xds_authority_handle = tokio::spawn(xds::authority_worker::run_authority_worker(
@@ -401,7 +440,13 @@ impl OrchestratorApplication {
                 authority_work,
                 xds_authority.clone(),
             ));
-            ha.background_handles.push(xds_authority_handle);
+            supervisor
+                .register(
+                    "xds-authority-worker",
+                    ServiceCriticality::Critical,
+                    xds_authority_handle,
+                )?
+                .mark_ready();
         }
 
         // Start task controller (periodic checks)
@@ -410,7 +455,7 @@ impl OrchestratorApplication {
 
         // Start sandbox controller
         let sandbox_controller = Arc::new(
-            kernel::sandbox_controller::SandboxController::new(
+            kernel::sandbox_controller::SandboxController::new_with_network_policy(
                 db_pool.clone(),
                 queue.clone(),
                 bridge_store.clone(),
@@ -418,10 +463,8 @@ impl OrchestratorApplication {
                 redis_coordinator.clone(),
                 config.clone(),
                 runtime_config.clone(),
-            )
-            .with_network_policy_runtime(network_policy_runtime.clone())
-            .with_network_policy_material_resolver(network_policy_material_resolver.clone())
-            .with_network_policy_control(xds_authority.clone(), ha.network_policy_queue.clone()),
+                network_policy.clone(),
+            ),
         );
         let sandbox_ctrl_handles = sandbox_controller.clone().spawn();
         info!(
@@ -436,12 +479,9 @@ impl OrchestratorApplication {
             bridge_store.clone(),
             ha.task_dispatcher.clone(),
             sandbox_provider.clone(),
-            network_policy_runtime.clone(),
-            network_policy_material_resolver.clone(),
+            network_policy.clone(),
             config.clone(),
             Some(sandbox_controller.pool_replenish_notify.clone()),
-            ha.network_policy_queue.clone(),
-            xds_authority.clone(),
             identity_provider.clone(),
         );
         info!("Task scheduler started");
@@ -481,21 +521,18 @@ impl OrchestratorApplication {
 
         // Start command listener (cross-instance relay via Redis)
         let cmd_listener_handle = if let Some(ref client) = redis_client {
-            let listener = kernel::command_listener::CommandListener::new(
+            let listener = kernel::command_listener::CommandListener::new_with_network_policy(
                 client.clone(),
                 &config.instance_id,
                 db_pool.clone(),
                 bridge_store.clone(),
                 ha.task_dispatcher.clone(),
                 sandbox_provider.clone(),
-                envoy_manager.clone(),
+                network_policy.clone(),
                 None, // image_builder
                 redis_coordinator.clone(),
                 memory_subscribers.clone(),
-            )
-            .with_network_policy_runtime(network_policy_runtime.clone())
-            .with_network_policy_material_resolver(network_policy_material_resolver.clone())
-            .with_network_policy_control(xds_authority.clone(), ha.network_policy_queue.clone());
+            );
             Some(listener.spawn())
         } else {
             None
@@ -506,9 +543,9 @@ impl OrchestratorApplication {
 
         // Setup SIGHUP handler for config hot-reload
         #[cfg(unix)]
-        {
+        let sighup_handle = {
             let rc = runtime_config.clone();
-            tokio::spawn(async move {
+            Some(tokio::spawn(async move {
                 let mut sighup =
                     tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
                         .expect("failed to register SIGHUP handler");
@@ -528,35 +565,125 @@ impl OrchestratorApplication {
                     );
                     info!("Runtime config reloaded successfully");
                 }
-            });
-        }
+            }))
+        };
+        #[cfg(not(unix))]
+        let sighup_handle: Option<tokio::task::JoinHandle<()>> = None;
 
         let total_tasks = 3
             + sandbox_ctrl_handles.len()
             + subscriber_handles.len()
             + if cmd_listener_handle.is_some() { 1 } else { 0 };
         info!(total_tasks, "JoySafeter kernel fully started");
-        ready_flag.store(true, Ordering::Release);
+        supervisor
+            .register("runner-grpc", ServiceCriticality::Critical, grpc_handle)?
+            .mark_ready();
+        if let Some(handle) = xds_handle {
+            supervisor
+                .register("xds-ads", ServiceCriticality::Critical, handle)?
+                .mark_ready();
+        }
+        if let Some(handle) = placement_reconciler {
+            supervisor
+                .register(
+                    "placement-reconciler",
+                    ServiceCriticality::Degradable,
+                    handle,
+                )?
+                .mark_ready();
+        }
+        supervisor
+            .register(
+                "task-controller",
+                ServiceCriticality::Critical,
+                task_ctrl_handle,
+            )?
+            .mark_ready();
+        for (index, handle) in sandbox_ctrl_handles.into_iter().enumerate() {
+            supervisor
+                .register(
+                    format!("sandbox-controller-{index}"),
+                    ServiceCriticality::Critical,
+                    handle,
+                )?
+                .mark_ready();
+        }
+        supervisor
+            .register(
+                "task-scheduler",
+                ServiceCriticality::Critical,
+                scheduler_handle,
+            )?
+            .mark_ready();
+        for (index, handle) in subscriber_handles.into_iter().enumerate() {
+            supervisor
+                .register(
+                    format!("event-subscriber-{index}"),
+                    ServiceCriticality::Degradable,
+                    handle,
+                )?
+                .mark_ready();
+        }
+        if let Some(handle) = cmd_listener_handle {
+            let criticality = if ha.mode == kernel::ha::HaMode::Multi {
+                ServiceCriticality::Critical
+            } else {
+                ServiceCriticality::Degradable
+            };
+            supervisor
+                .register("command-listener", criticality, handle)?
+                .mark_ready();
+        }
+        for (index, handle) in ha.background_handles.drain(..).enumerate() {
+            supervisor
+                .register(
+                    format!("ha-background-{index}"),
+                    ServiceCriticality::Critical,
+                    handle,
+                )?
+                .mark_ready();
+        }
+        if let Some(handle) = sighup_handle {
+            supervisor.register(
+                "runtime-config-reload",
+                ServiceCriticality::BestEffort,
+                handle,
+            )?;
+        }
+        supervisor.seal_startup();
 
-        // Wait for shutdown signal OR leadership loss
-        if let Some(ref le) = leader_election {
+        // Wait for shutdown signal, leadership loss, or a critical child exit.
+        let critical_exit = if let Some(ref le) = leader_election {
             tokio::select! {
                 _ = shutdown_signal() => {
                     info!("Shutdown signal received, releasing leadership...");
                     le.release().await;
+                    None
                 }
                 _ = le.wait_until_lost() => {
                     warn!("Lost leadership — shutting down to yield to new leader");
+                    None
+                }
+                exit = supervisor.wait_for_critical_exit() => {
+                    error!(service = %exit.service_name(), error = ?exit.error(), "Critical runtime service exited");
+                    le.release().await;
+                    Some(exit)
                 }
             }
         } else {
-            shutdown_signal().await;
-        }
+            tokio::select! {
+                _ = shutdown_signal() => None,
+                exit = supervisor.wait_for_critical_exit() => {
+                    error!(service = %exit.service_name(), error = ?exit.error(), "Critical runtime service exited");
+                    Some(exit)
+                }
+            }
+        };
 
         // ── Graceful drain ─────────────────────────────────────────────────────
         // Mark not-ready FIRST so K8s Service stops sending new traffic, then
         // drain in-flight work before stopping services.
-        ready_flag.store(false, Ordering::Release);
+        readiness.mark_not_ready();
         info!("Marked not-ready; draining in-flight work...");
 
         // Hand off xDS leadership up front: drop our pod label (Envoy xDS Service
@@ -571,7 +698,7 @@ impl OrchestratorApplication {
         }
 
         // Stop scheduler immediately (no new tasks claimed).
-        scheduler_handle.abort();
+        supervisor.abort("task-scheduler");
 
         // Give in-flight runner streams and gRPC calls time to finish.
         // Runners that are mid-task will continue autonomously (agent runs locally);
@@ -603,26 +730,9 @@ impl OrchestratorApplication {
             );
         }
 
-        // Stop remaining background tasks
-        grpc_handle.abort();
-        if let Some(handle) = xds_handle {
-            handle.abort();
-        }
+        // Stop remaining background tasks.
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        task_ctrl_handle.abort();
-        for h in sandbox_ctrl_handles {
-            h.abort();
-        }
-        for h in subscriber_handles {
-            h.abort();
-        }
-        if let Some(h) = cmd_listener_handle {
-            h.abort();
-        }
-        // Stop HA background loops (inbox, heartbeat, network-policy authority requests)
-        for h in ha.background_handles {
-            h.abort();
-        }
+        supervisor.shutdown().await;
 
         // 3. Deregister from Redis
         if let Some(ref coord) = redis_coordinator {
@@ -633,6 +743,15 @@ impl OrchestratorApplication {
         event_bus.flush().await;
 
         info!("JoySafeter Orchestrator shut down");
+        if let Some(exit) = critical_exit {
+            anyhow::bail!(
+                "critical runtime service {} exited{}",
+                exit.service_name(),
+                exit.error()
+                    .map(|error| format!(": {error}"))
+                    .unwrap_or_default()
+            );
+        }
         Ok(())
     }
 }

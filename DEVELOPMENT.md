@@ -101,6 +101,11 @@ JOYSAFETER_TEST_PASSWORD='<local-admin-password>' \
   ../../backend/.venv/bin/python -m pytest test_l2_contract.py
 ```
 
+Database-backed Rust tests read `JOYSAFETER_TEST_DATABASE_URL`. Point it at a dedicated,
+fully migrated test database that is not used by any running API, worker, or orchestrator.
+A live scheduler can legitimately claim test-created `pending` tasks and make state-machine
+assertions nondeterministic; never run these tests against a deployed environment database.
+
 Install repository hooks after backend dependencies are ready:
 
 ```bash
@@ -134,6 +139,15 @@ cd ..
 cargo fmt --manifest-path backend/app/joysafeter_orchestrator_rs/Cargo.toml --all -- --check
 cargo check --all-targets --manifest-path backend/app/joysafeter_orchestrator_rs/Cargo.toml
 cargo test --manifest-path backend/app/joysafeter_orchestrator_rs/Cargo.toml \
+  --test public_surface_contract \
+  --test runner_transport_boundary \
+  --test runtime_supervision_contract \
+  --test network_policy_composition_contract \
+  --test network_policy_service_contract \
+  --test sandbox_destroy_boundary \
+  --test xds_placement_reconciliation \
+  --test envoy_capability_boundary \
+  --test envoy_render_boundary \
   --test xds_authority_lifecycle \
   --test xds_delivery_contract \
   --test xds_delivery_transport \
@@ -141,7 +155,31 @@ cargo test --manifest-path backend/app/joysafeter_orchestrator_rs/Cargo.toml \
   --test xds_recovery_lifecycle \
   --test xds_resource_ownership \
   --test xds_transport_contract
+
+# Destructive Docker-backed Envoy fixture
+JOYSAFETER_RUN_LIVE_ENVOY=1 cargo test \
+  --manifest-path backend/app/joysafeter_orchestrator_rs/Cargo.toml \
+  --test mcp_live_envoy -- --ignored
 ```
+
+## Local Kubernetes Verification (Colima + Helm)
+
+Colima must be running with Kubernetes enabled and the active kubectl context must be `colima`.
+The repository does not provide or depend on separate k3s scripts or manifests.
+
+```bash
+colima status
+kubectl config current-context
+kubectl get nodes
+helm lint deploy/helm/joysafeter-orchestrator
+helm template joysafeter-local deploy/helm/joysafeter-orchestrator \
+  --namespace joysafeter-local \
+  --set namespace=joysafeter-local
+```
+
+Runner gRPC and ADS must render as distinct service ports. Deployment verification must wait for
+the orchestrator readiness endpoint and the Envoy DaemonSet before exercising Runner and managed
+network-policy flows.
 
 ## Component Guides
 

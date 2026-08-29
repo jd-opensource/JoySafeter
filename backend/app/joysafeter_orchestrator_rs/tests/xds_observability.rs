@@ -12,7 +12,6 @@ use envoy_types::pb::envoy::service::discovery::v3::{
 use envoy_types::pb::google::protobuf::Any;
 use envoy_types::pb::google::rpc::Status as RpcStatus;
 use joysafeter_orchestrator::ids::SandboxId;
-use joysafeter_orchestrator::kernel::network_policy::NetworkPolicyGeneration;
 use joysafeter_orchestrator::xds::auth::{SharedTokenAuthenticator, XdsAuthKeyring};
 use joysafeter_orchestrator::xds::authority::{AuthorityPhase, XdsAuthority};
 use joysafeter_orchestrator::xds::control_plane::{NodeVisibility, XdsControlPlane};
@@ -21,6 +20,7 @@ use joysafeter_orchestrator::xds::inventory::{
     QuarantinedSandbox, RecoveredSandbox, RecoveryDeliveryState, RecoveryInventory,
 };
 use joysafeter_orchestrator::xds::metrics::xds_health;
+use joysafeter_orchestrator::xds::model::DeliveryGeneration;
 use joysafeter_orchestrator::xds::model::{ManagedXdsResource, ResourceOwner, ResourceType};
 use joysafeter_orchestrator::xds::transport::start_xds_server;
 use tokio::net::TcpListener;
@@ -174,7 +174,7 @@ async fn metrics_report_pending_delivery_and_ack_nack_totals() {
             DeliveryRequest {
                 authority_epoch: epoch,
                 sandbox_id,
-                generation: NetworkPolicyGeneration {
+                generation: DeliveryGeneration {
                     policy_hash: "policy-1".to_string(),
                     policy_version: 1,
                 },
@@ -211,7 +211,7 @@ async fn metrics_report_pending_delivery_and_ack_nack_totals() {
             DeliveryRequest {
                 authority_epoch: epoch,
                 sandbox_id,
-                generation: NetworkPolicyGeneration {
+                generation: DeliveryGeneration {
                     policy_hash: "policy-2".to_string(),
                     policy_version: 2,
                 },
@@ -273,7 +273,7 @@ async fn metrics_never_render_tokens_resource_payloads_or_dynamic_identity() {
             DeliveryRequest {
                 authority_epoch: recovery.epoch(),
                 sandbox_id,
-                generation: NetworkPolicyGeneration {
+                generation: DeliveryGeneration {
                     policy_hash: "Bearer-sk-secret-policy-hash".to_string(),
                     policy_version: 1,
                 },
@@ -416,7 +416,7 @@ async fn metrics_track_reconnect_cleanup_and_recovery_quarantine() {
             RecoveryInventory::new(
                 vec![RecoveredSandbox {
                     sandbox_id: deferred_id,
-                    generation: NetworkPolicyGeneration {
+                    generation: DeliveryGeneration {
                         policy_hash: "deferred-policy".to_string(),
                         policy_version: 1,
                     },

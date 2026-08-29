@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use envoy_types::pb::google::protobuf::Any;
 use joysafeter_orchestrator::ids::SandboxId;
-use joysafeter_orchestrator::kernel::network_policy::NetworkPolicyGeneration;
+use joysafeter_orchestrator::xds::model::DeliveryGeneration;
 use joysafeter_orchestrator::xds::model::{
     ManagedXdsResource, ResourceOwner, ResourceType, SandboxResourceBundle,
 };
@@ -24,7 +24,7 @@ fn resource(name: &str, resource_type: ResourceType, owner: ResourceOwner) -> Ma
 fn bundle(sandbox_id: SandboxId, cluster: &str, listener: &str) -> SandboxResourceBundle {
     SandboxResourceBundle {
         sandbox_id,
-        generation: NetworkPolicyGeneration {
+        generation: DeliveryGeneration {
             policy_hash: "policy-hash".to_string(),
             policy_version: 1,
         },

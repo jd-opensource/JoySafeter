@@ -138,7 +138,7 @@ async fn write_config_file(
 mod tests {
     use super::*;
     use crate::kernel::network_policy::envoy_model::ListenerKind;
-    use crate::kernel::network_policy::NetworkPolicyGeneration;
+    use crate::xds::model::DeliveryGeneration;
 
     #[tokio::test]
     async fn startup_preparation_clears_stale_filesystem_snapshots() {
@@ -153,7 +153,7 @@ mod tests {
                 DeliveryRequest {
                     authority_epoch: 1,
                     sandbox_id,
-                    generation: NetworkPolicyGeneration {
+                    generation: DeliveryGeneration {
                         policy_hash: "stale-policy".to_string(),
                         policy_version: 1,
                     },

@@ -19,6 +19,7 @@ pub mod queue;
 pub mod redis_coordinator;
 pub mod repository_access;
 pub mod run_spec;
+pub(crate) mod runner;
 pub mod runtime_freshness;
 pub mod sandbox_bridge;
 pub mod sandbox_controller;

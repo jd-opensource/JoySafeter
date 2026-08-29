@@ -8,7 +8,7 @@ use crate::kernel::credentials::runtime_projection::rebuild_sandbox_credentials;
 use crate::kernel::network_policy::material::NetworkPolicyMaterialResolver;
 use crate::kernel::network_policy::DesiredNetworkPolicy;
 
-pub fn build_network_policy_material_resolver(
+pub(crate) fn build_network_policy_material_resolver(
     pool: PgPool,
     llm_egress_allowed_hosts: Vec<String>,
 ) -> Arc<dyn NetworkPolicyMaterialResolver> {

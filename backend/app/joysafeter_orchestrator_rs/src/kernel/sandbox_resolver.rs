@@ -40,14 +40,16 @@ use crate::kernel::network_policy::envoy_model::{EgressCredentialRoute, SandboxC
 use crate::kernel::network_policy::envoy_model::{
     EgressExposure, EgressKind, EgressPathMapping, EgressPathMatcher, EgressRetryMode,
 };
+#[cfg(test)]
 use crate::kernel::network_policy::material::{
-    NetworkPolicyMaterialResolver, UnconfiguredNetworkPolicyMaterialResolver,
+    NetworkPolicyMaterialResolver, RejectingNetworkPolicyMaterialResolver,
 };
-use crate::kernel::network_policy::ports::NetworkPolicyRequestQueue;
-use crate::kernel::network_policy::ports::{NetworkPolicyRuntime, NoopNetworkPolicyRuntime};
-use crate::kernel::network_policy::{
-    DesiredNetworkPolicy, NetworkPolicyGeneration, NetworkPolicyRequest,
-};
+#[cfg(test)]
+use crate::kernel::network_policy::ports::{NetworkPolicyRequestQueue, NetworkPolicyRuntime};
+use crate::kernel::network_policy::service::NetworkPolicyService;
+#[cfg(test)]
+use crate::kernel::network_policy::NetworkPolicyRequest;
+use crate::kernel::network_policy::{DesiredNetworkPolicy, NetworkPolicyGeneration};
 use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
 use crate::kernel::runtime_freshness::RuntimeFreshnessError;
 use crate::kernel::task_identity::material::{
@@ -270,8 +272,7 @@ fn apply_claude_code_sandbox_privacy(env: &mut HashMap<String, String>) {
 pub struct SandboxResolver {
     pool: PgPool,
     provider: Arc<dyn SandboxProvider>,
-    network_policy_runtime: Arc<dyn NetworkPolicyRuntime>,
-    network_policy_material_resolver: Arc<dyn NetworkPolicyMaterialResolver>,
+    network_policy: NetworkPolicyService,
     config: JoySafeterConfig,
     /// Per-session locks to prevent concurrent resolution
     session_locks: dashmap::DashMap<SessionId, Arc<tokio::sync::Mutex<()>>>,
@@ -282,10 +283,6 @@ pub struct SandboxResolver {
     network_policy_ready: dashmap::DashMap<SandboxId, String>,
     /// Optional notify to trigger immediate pool replenishment after a claim.
     pool_replenish_notify: Option<Arc<tokio::sync::Notify>>,
-    /// Multi-replica requests are submitted to the elected xDS authority.
-    /// `None` means this process is the single local authority.
-    network_policy_queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
-    xds_authority: crate::xds::authority::XdsAuthority,
     /// Pluggable agent identity provider for outbound credential injection.
     identity_provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
     identity_allowed_hosts: Vec<String>,
@@ -293,18 +290,26 @@ pub struct SandboxResolver {
 }
 
 impl SandboxResolver {
+    #[cfg(test)]
     pub fn new(pool: PgPool, provider: Arc<dyn SandboxProvider>, config: JoySafeterConfig) -> Self {
+        let network_policy = NetworkPolicyService::test_fixture(pool.clone());
+        Self::new_with_network_policy(pool, provider, config, network_policy)
+    }
+
+    pub fn new_with_network_policy(
+        pool: PgPool,
+        provider: Arc<dyn SandboxProvider>,
+        config: JoySafeterConfig,
+        network_policy: NetworkPolicyService,
+    ) -> Self {
         Self {
             pool,
             provider,
-            network_policy_runtime: Arc::new(NoopNetworkPolicyRuntime),
-            network_policy_material_resolver: Arc::new(UnconfiguredNetworkPolicyMaterialResolver),
+            network_policy,
             config,
             session_locks: dashmap::DashMap::new(),
             network_policy_ready: dashmap::DashMap::new(),
             pool_replenish_notify: None,
-            network_policy_queue: None,
-            xds_authority: crate::xds::authority::XdsAuthority::standalone(),
             identity_provider: Arc::new(
                 crate::kernel::agent_identity_provider::NoopAgentIdentityProvider,
             ),
@@ -313,16 +318,18 @@ impl SandboxResolver {
         }
     }
 
+    #[cfg(test)]
     pub fn with_network_policy_runtime(mut self, runtime: Arc<dyn NetworkPolicyRuntime>) -> Self {
-        self.network_policy_runtime = runtime;
+        self.network_policy = self.network_policy.with_test_runtime(runtime);
         self
     }
 
+    #[cfg(test)]
     pub fn with_network_policy_material_resolver(
         mut self,
         resolver: Arc<dyn NetworkPolicyMaterialResolver>,
     ) -> Self {
-        self.network_policy_material_resolver = resolver;
+        self.network_policy = self.network_policy.with_test_material_resolver(resolver);
         self
     }
 
@@ -357,18 +364,22 @@ impl SandboxResolver {
     }
 
     /// Route networking changes through the elected xDS authority in multi mode.
+    #[cfg(test)]
     pub fn with_network_policy_queue(mut self, queue: Arc<dyn NetworkPolicyRequestQueue>) -> Self {
-        self.network_policy_queue = Some(queue);
+        self.network_policy = self.network_policy.with_test_control(
+            crate::xds::authority::XdsAuthority::standalone(),
+            Some(queue),
+        );
         self
     }
 
+    #[cfg(test)]
     pub fn with_network_policy_control(
         mut self,
         authority: crate::xds::authority::XdsAuthority,
         queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
     ) -> Self {
-        self.xds_authority = authority;
-        self.network_policy_queue = queue;
+        self.network_policy = self.network_policy.with_test_control(authority, queue);
         self
     }
 
@@ -382,39 +393,19 @@ impl SandboxResolver {
         proxy_auth_token: Option<String>,
     ) -> anyhow::Result<()> {
         if context.has_task_identity() {
-            if self.network_policy_queue.is_some() {
-                anyhow::bail!(
-                    "task-scoped Agent Identity requires secure ephemeral delivery to the elected xDS authority"
-                );
-            }
-            let _application_lock = self.xds_authority.lock_application().await;
-            let guard = self
-                .xds_authority
-                .mutation_guard()
-                .ok_or_else(|| anyhow::anyhow!("local xDS authority is not ready"))?;
             let mut credentials = context.credentials.clone();
             credentials.proxy_auth_token = proxy_auth_token;
-            crate::kernel::network_policy::application::apply_generation_with_credentials_as_authority(
-                &self.pool,
-                self.network_policy_runtime.as_ref(),
-                sandbox_id,
-                generation,
-                credentials,
-                &guard,
-            )
-            .await?;
+            self.network_policy
+                .apply_with_credentials(sandbox_id, generation, credentials)
+                .await?;
         } else {
-            crate::kernel::network_policy::application::ensure_ready(
-                &self.pool,
-                self.network_policy_runtime.as_ref(),
-                self.network_policy_material_resolver.as_ref(),
-                self.network_policy_queue.as_deref(),
-                &self.xds_authority,
-                sandbox_id,
-                generation,
-                crate::kernel::network_policy::application::POLICY_APPLY_TIMEOUT,
-            )
-            .await?;
+            self.network_policy
+                .ensure_ready(
+                    sandbox_id,
+                    generation,
+                    crate::kernel::network_policy::application::POLICY_APPLY_TIMEOUT,
+                )
+                .await?;
         }
 
         if context.has_task_identity() {
@@ -1316,7 +1307,7 @@ impl SandboxResolver {
             // Agent identity is composed into existing MCP placeholder routes.
             // Never create a transparent HTTPS interception route.
             if !identity_targets.is_empty() {
-                if self.network_policy_queue.is_some() {
+                if self.network_policy.uses_remote_authority() {
                     anyhow::bail!(
                         "task-scoped Agent Identity requires secure ephemeral delivery to the elected xDS authority"
                     );
@@ -1546,15 +1537,7 @@ impl SandboxResolver {
             return Ok(false);
         }
 
-        let cleanup_result = crate::kernel::network_policy::application::request_reconcile(
-            &self.pool,
-            self.network_policy_runtime.as_ref(),
-            self.network_policy_material_resolver.as_ref(),
-            &sandbox,
-            self.network_policy_queue.as_deref(),
-            &self.xds_authority,
-        )
-        .await;
+        let cleanup_result = self.network_policy.reconcile(&sandbox).await;
         let policy_hash = match cleanup_result {
             Ok(crate::kernel::network_policy::application::NetworkingReconcileOutcome::Refreshed { policy_hash })
             | Ok(crate::kernel::network_policy::application::NetworkingReconcileOutcome::AlreadyReady { policy_hash }) => policy_hash,
@@ -2004,13 +1987,7 @@ impl SandboxResolver {
     }
 
     async fn teardown_networking(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-        if let Some(queue) = self.network_policy_queue.as_ref() {
-            queue
-                .publish(NetworkPolicyRequest::remove(sandbox_id))
-                .await
-        } else {
-            self.network_policy_runtime.remove(sandbox_id).await
-        }
+        self.network_policy.teardown(sandbox_id).await.map(|_| ())
     }
 
     async fn cleanup_rejected_new_sandbox(
@@ -2049,8 +2026,7 @@ impl SandboxResolver {
             return crate::kernel::sandbox_lifecycle::finalize_claimed_sandbox_destroy(
                 &self.pool,
                 &self.provider,
-                self.network_policy_runtime.as_ref(),
-                self.network_policy_queue.as_deref(),
+                &self.network_policy,
                 sandbox_id,
                 Some(external_id),
                 "creating",
@@ -2065,8 +2041,7 @@ impl SandboxResolver {
         {
             crate::kernel::sandbox_lifecycle::destroy_unpersisted_sandbox(
                 &self.provider,
-                self.network_policy_runtime.as_ref(),
-                self.network_policy_queue.as_deref(),
+                &self.network_policy,
                 sandbox_id,
                 external_id,
                 "rejected new sandbox",
@@ -2079,8 +2054,7 @@ impl SandboxResolver {
         crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
             &self.pool,
             &self.provider,
-            self.network_policy_runtime.as_ref(),
-            self.network_policy_queue.as_deref(),
+            &self.network_policy,
             sandbox_id,
             "creating",
             Some(external_id),
@@ -2097,8 +2071,7 @@ impl SandboxResolver {
         crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
             &self.pool,
             &self.provider,
-            self.network_policy_runtime.as_ref(),
-            self.network_policy_queue.as_deref(),
+            &self.network_policy,
             sandbox.id,
             &sandbox.status,
             sandbox.external_id.as_deref(),
@@ -2130,8 +2103,7 @@ impl SandboxResolver {
         crate::kernel::sandbox_lifecycle::finalize_claimed_sandbox_destroy(
             &self.pool,
             &self.provider,
-            self.network_policy_runtime.as_ref(),
-            self.network_policy_queue.as_deref(),
+            &self.network_policy,
             sandbox.id,
             sandbox.external_id.as_deref(),
             &previous_status,
@@ -4286,7 +4258,7 @@ mod egress_tests {
         authority.mark_ready(&recovery).expect("mark ready");
         let guard = authority.mutation_guard().expect("authority guard");
 
-        let material_resolver = UnconfiguredNetworkPolicyMaterialResolver;
+        let material_resolver = RejectingNetworkPolicyMaterialResolver;
         let outcome = crate::kernel::network_policy::application::apply_generation_as_authority(
             &pool,
             &provider,

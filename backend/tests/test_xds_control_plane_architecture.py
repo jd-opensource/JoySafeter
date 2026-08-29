@@ -124,18 +124,20 @@ def test_sandbox_adapters_depend_on_control_plane_not_delta_transport() -> None:
 def test_kubernetes_xds_delivery_uses_initialized_pod_boundary() -> None:
     kubernetes = (RUST_ROOT / "sandbox/k8s.rs").read_text(encoding="utf-8")
     watcher = (RUST_ROOT / "sandbox/pod_watcher.rs").read_text(encoding="utf-8")
+    placement = (RUST_ROOT / "xds/placement.rs").read_text(encoding="utf-8")
     factories = (RUST_ROOT / "bootstrap/runtime_factories.rs").read_text(
         encoding="utf-8"
     )
 
-    assert "PlacementEventHandler" in kubernetes
+    assert "PlacementEventSink" in kubernetes
     assert "XdsControlPlane" not in kubernetes
     assert "PlacementEvent::Assigned" in watcher
     assert "PlacementEvent::Removed" in watcher
     assert "PlacementEvent::Reconciled" in watcher
-    assert "assign_sandbox_node" in factories
-    assert "remove_sandbox_node" in factories
-    assert "replace_node_assignments" in factories
+    assert "PlacementReconciler" in factories
+    assert "assign_sandbox_node" in placement
+    assert "remove_sandbox_node" in placement
+    assert "replace_node_assignments" in placement
     assert "pub async fn node_assignments" not in watcher
     assert "condition.type_ == \"Initialized\"" in watcher
 
@@ -144,6 +146,9 @@ def test_exact_delivery_coordinator_is_the_only_xds_ack_state_machine() -> None:
     delta = (RUST_ROOT / "xds/delta.rs").read_text(encoding="utf-8")
     adapter = (RUST_ROOT / "sandbox/envoy_delivery.rs").read_text(encoding="utf-8")
     envoy = (RUST_ROOT / "sandbox/envoy.rs").read_text(encoding="utf-8")
+    policy_runtime = (RUST_ROOT / "sandbox/envoy/policy_runtime.rs").read_text(
+        encoding="utf-8"
+    )
 
     for obsolete_symbol in (
         "XdsApplyStatus",
@@ -160,7 +165,8 @@ def test_exact_delivery_coordinator_is_the_only_xds_ack_state_machine() -> None:
     assert "NodeSessionId" in delta
     assert "DeliveredResource" in delta
     assert "wait_for_delivery" in adapter
-    assert "wait_for_delivery" in envoy
+    assert "wait_for_delivery" in policy_runtime
+    assert "wait_for_delivery" not in envoy
 
 
 def test_xds_model_expresses_resource_and_sandbox_ownership() -> None:
@@ -198,6 +204,9 @@ def test_network_policy_persistence_has_a_dedicated_typed_repository() -> None:
 
 def test_recovery_builds_and_installs_inventory_before_ads_serving() -> None:
     envoy = (RUST_ROOT / "sandbox/envoy.rs").read_text(encoding="utf-8")
+    policy_runtime = (RUST_ROOT / "sandbox/envoy/policy_runtime.rs").read_text(
+        encoding="utf-8"
+    )
     application = (RUST_ROOT / "bootstrap/application.rs").read_text(encoding="utf-8")
     worker = (RUST_ROOT / "xds/authority_worker.rs").read_text(encoding="utf-8")
     recovery = (RUST_ROOT / "kernel/network_policy/recovery.rs").read_text(
@@ -206,12 +215,13 @@ def test_recovery_builds_and_installs_inventory_before_ads_serving() -> None:
     ha = (RUST_ROOT / "kernel/ha/redis_impl.rs").read_text(encoding="utf-8")
     kubernetes = (RUST_ROOT / "sandbox/k8s.rs").read_text(encoding="utf-8")
 
-    assert "install_recovery_inventory" in envoy
-    grpc_recovery = envoy[envoy.index("let installed =") :]
+    assert "install_recovery_inventory" in policy_runtime
+    grpc_recovery = policy_runtime[policy_runtime.index("let installed =") :]
     assert grpc_recovery.index("install_recovery_inventory") < grpc_recovery.index(
         "authority.begin_serving()"
     )
     assert "crate::db" not in envoy
+    assert "crate::db" not in policy_runtime
     assert "load_recovery_inventory" in recovery
     assert "runtime.recover(" in recovery
     assert recovery.index("runtime.recover(") < recovery.index("mark_generation_applied")
@@ -220,4 +230,4 @@ def test_recovery_builds_and_installs_inventory_before_ads_serving() -> None:
     assert "recover_as_authority" not in ha
     assert "mark_ready" not in ha
     assert "recover_networking" not in kubernetes
-    assert "recover_as_authority" in application
+    assert "network_policy.recover(&recovery)" in application

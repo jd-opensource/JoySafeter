@@ -1,8 +1,13 @@
 //! Stable types shared by xDS control-plane components.
 
 use crate::ids::SandboxId;
-use crate::kernel::network_policy::NetworkPolicyGeneration;
 use envoy_types::pb::google::protobuf::Any;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DeliveryGeneration {
+    pub policy_hash: String,
+    pub policy_version: i64,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResourceType {
@@ -51,7 +56,7 @@ pub struct ManagedXdsResource {
 #[derive(Debug, Clone)]
 pub struct SandboxResourceBundle {
     pub sandbox_id: SandboxId,
-    pub generation: NetworkPolicyGeneration,
+    pub generation: DeliveryGeneration,
     pub owner_node: Option<String>,
     pub resources: Vec<ManagedXdsResource>,
 }

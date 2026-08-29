@@ -14,8 +14,7 @@ use crate::ids::{AgentId, ProjectId, SessionId, TaskId};
 use crate::kernel::credentials::snapshot;
 use crate::kernel::credentials::{error::CredentialRuntimeError, CredentialStore};
 use crate::kernel::ha::BridgeStore;
-use crate::kernel::network_policy::material::NetworkPolicyMaterialResolver;
-use crate::kernel::network_policy::ports::NetworkPolicyRuntime;
+use crate::kernel::network_policy::service::NetworkPolicyService;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::runtime_freshness::RuntimeFreshnessError;
 use crate::kernel::sandbox_resolver::SandboxResolver;
@@ -49,20 +48,17 @@ pub fn spawn_scheduler(
     bridge_store: Arc<dyn BridgeStore>,
     task_dispatcher: Arc<dyn crate::kernel::ha::TaskDispatcher>,
     provider: Arc<dyn SandboxProvider>,
-    network_policy_runtime: Arc<dyn NetworkPolicyRuntime>,
-    network_policy_material_resolver: Arc<dyn NetworkPolicyMaterialResolver>,
+    network_policy: NetworkPolicyService,
     config: JoySafeterConfig,
     pool_replenish_notify: Option<Arc<tokio::sync::Notify>>,
-    network_policy_queue: Option<
-        Arc<dyn crate::kernel::network_policy::ports::NetworkPolicyRequestQueue>,
-    >,
-    xds_authority: crate::xds::authority::XdsAuthority,
     identity_provider: Arc<dyn crate::kernel::agent_identity_provider::AgentIdentityProvider>,
 ) -> JoinHandle<()> {
-    let mut resolver = SandboxResolver::new(pool.clone(), provider, config.clone())
-        .with_network_policy_runtime(network_policy_runtime)
-        .with_network_policy_material_resolver(network_policy_material_resolver)
-        .with_network_policy_control(xds_authority, network_policy_queue);
+    let mut resolver = SandboxResolver::new_with_network_policy(
+        pool.clone(),
+        provider,
+        config.clone(),
+        network_policy,
+    );
     if let Some(notify) = pool_replenish_notify {
         resolver = resolver.with_pool_replenish_notify(notify);
     }

@@ -4,11 +4,38 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::config::JoySafeterConfig;
+use crate::kernel::agent_identity_provider::AgentIdentityProvider;
 use crate::kernel::network_policy::ports::NetworkPolicyRuntime;
-use crate::sandbox::envoy::EnvoyManager;
+use crate::sandbox::envoy::process::EnvoyProcessSupervisor;
 use crate::sandbox::provider::SandboxProvider;
+use crate::sandbox::runtime::SandboxSocketProvisioner;
 use crate::xds::authority::XdsAuthority;
 use crate::xds::control_plane::XdsControlPlane;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SandboxProviderKey(String);
+
+impl SandboxProviderKey {
+    pub fn parse(value: &str) -> Self {
+        let normalized = value.trim().to_ascii_lowercase();
+        Self(if normalized.is_empty() {
+            "docker".to_string()
+        } else {
+            normalized
+        })
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SandboxRuntimeTopology {
+    pub node_visibility: crate::xds::control_plane::NodeVisibility,
+    pub managed_xds_authority_in_multi: bool,
+    pub xds_leader_coordination_in_multi: bool,
+}
 
 #[derive(Clone)]
 pub struct RuntimeFactoryContext {
@@ -18,12 +45,16 @@ pub struct RuntimeFactoryContext {
 
 pub struct RuntimeComponents {
     pub sandbox_provider: Arc<dyn SandboxProvider>,
-    pub network_policy_runtime: Arc<dyn NetworkPolicyRuntime>,
-    pub envoy_manager: Option<Arc<EnvoyManager>>,
+    pub network_policy_runtime: Option<Arc<dyn NetworkPolicyRuntime>>,
+    pub socket_provisioner: Option<Arc<dyn SandboxSocketProvisioner>>,
+    pub envoy_process: Option<Arc<EnvoyProcessSupervisor>>,
+    pub placement_reconciler: Option<tokio::task::JoinHandle<()>>,
 }
 
 #[async_trait]
 pub trait ProviderFactory: Send + Sync {
+    fn topology(&self) -> SandboxRuntimeTopology;
+
     async fn build(
         &self,
         config: &JoySafeterConfig,
@@ -31,14 +62,67 @@ pub trait ProviderFactory: Send + Sync {
     ) -> anyhow::Result<RuntimeComponents>;
 }
 
-enum RegistryEntry {
-    Enabled(Arc<dyn ProviderFactory>),
-    Disabled(String),
+pub trait IdentityProviderFactory: Send + Sync {
+    fn build(
+        &self,
+        redis: Option<&redis::Client>,
+    ) -> anyhow::Result<Arc<dyn AgentIdentityProvider>>;
+}
+
+pub struct ProductionIdentityProviderFactory;
+
+impl IdentityProviderFactory for ProductionIdentityProviderFactory {
+    fn build(
+        &self,
+        redis: Option<&redis::Client>,
+    ) -> anyhow::Result<Arc<dyn AgentIdentityProvider>> {
+        use crate::kernel::agent_identity_config::AgentIdentityProviderKind;
+
+        match AgentIdentityProviderKind::from_env()?.validate_feature_availability()? {
+            AgentIdentityProviderKind::None => Ok(Arc::new(
+                crate::kernel::agent_identity_provider::NoopAgentIdentityProvider,
+            )),
+            AgentIdentityProviderKind::Jd => {
+                #[cfg(feature = "jd-identity")]
+                {
+                    let redis = redis.ok_or_else(|| {
+                        anyhow::anyhow!("Redis is required when AGENT_IDENTITY_PROVIDER=jd")
+                    })?;
+                    Ok(Arc::new(
+                        jd_agent_identity::JdAgentIdentityProvider::from_env(redis.clone())?,
+                    ))
+                }
+                #[cfg(not(feature = "jd-identity"))]
+                {
+                    let _ = redis;
+                    anyhow::bail!(
+                        "AGENT_IDENTITY_PROVIDER=jd requires a binary built with the jd-identity feature"
+                    )
+                }
+            }
+        }
+    }
+}
+
+pub struct ResolvedSandboxProvider {
+    pub key: SandboxProviderKey,
+    pub topology: SandboxRuntimeTopology,
+    factory: Arc<dyn ProviderFactory>,
+}
+
+impl ResolvedSandboxProvider {
+    pub async fn build(
+        &self,
+        config: &JoySafeterConfig,
+        context: &RuntimeFactoryContext,
+    ) -> anyhow::Result<RuntimeComponents> {
+        self.factory.build(config, context).await
+    }
 }
 
 #[derive(Default)]
 pub struct ProviderFactoryRegistry {
-    entries: HashMap<String, RegistryEntry>,
+    entries: HashMap<String, Arc<dyn ProviderFactory>>,
 }
 
 impl ProviderFactoryRegistry {
@@ -54,42 +138,25 @@ impl ProviderFactoryRegistry {
         factory: Arc<dyn ProviderFactory>,
     ) {
         for name in names {
-            self.entries.insert(
-                name.to_ascii_lowercase(),
-                RegistryEntry::Enabled(factory.clone()),
-            );
+            self.entries
+                .insert(name.to_ascii_lowercase(), factory.clone());
         }
     }
 
-    pub fn register_disabled(&mut self, name: &'static str, reason: impl Into<String>) {
-        self.entries.insert(
-            name.to_ascii_lowercase(),
-            RegistryEntry::Disabled(reason.into()),
-        );
-    }
-
-    pub async fn build(
-        &self,
-        provider_name: &str,
-        config: &JoySafeterConfig,
-        context: &RuntimeFactoryContext,
-    ) -> anyhow::Result<RuntimeComponents> {
-        let normalized = if provider_name.trim().is_empty() {
-            "docker"
-        } else {
-            provider_name.trim()
-        }
-        .to_ascii_lowercase();
-        match self.entries.get(&normalized) {
-            Some(RegistryEntry::Enabled(factory)) => factory.build(config, context).await,
-            Some(RegistryEntry::Disabled(reason)) => {
-                anyhow::bail!("sandbox provider {normalized} is disabled: {reason}")
-            }
+    pub fn resolve(&self, provider_name: &str) -> anyhow::Result<ResolvedSandboxProvider> {
+        let key = SandboxProviderKey::parse(provider_name);
+        match self.entries.get(key.as_str()) {
+            Some(factory) => Ok(ResolvedSandboxProvider {
+                key,
+                topology: factory.topology(),
+                factory: factory.clone(),
+            }),
             None => {
                 let mut supported = self.entries.keys().cloned().collect::<Vec<_>>();
                 supported.sort();
                 anyhow::bail!(
-                    "unsupported JOYSAFETER_SANDBOX_PROVIDER={normalized}; registered providers: {}",
+                    "unsupported JOYSAFETER_SANDBOX_PROVIDER={}; registered providers: {}",
+                    key.as_str(),
                     supported.join(", ")
                 )
             }
@@ -101,22 +168,49 @@ impl ProviderFactoryRegistry {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn disabled_and_unknown_providers_fail_at_registry_boundary() {
-        let mut registry = ProviderFactoryRegistry::default();
-        registry.register_disabled("disabled", "not installed");
-        let config = JoySafeterConfig::from_env();
-        let context = RuntimeFactoryContext {
-            xds_authority: XdsAuthority::standalone(),
-            xds_control_plane: None,
-        };
+    struct TestFactory;
 
-        let disabled = match registry.build("disabled", &config, &context).await {
-            Ok(_) => panic!("disabled provider unexpectedly resolved"),
-            Err(error) => error,
-        };
-        assert!(disabled.to_string().contains("not installed"));
-        let unknown = match registry.build("missing", &config, &context).await {
+    #[async_trait]
+    impl ProviderFactory for TestFactory {
+        fn topology(&self) -> SandboxRuntimeTopology {
+            SandboxRuntimeTopology {
+                node_visibility: crate::xds::control_plane::NodeVisibility::NodeScoped,
+                managed_xds_authority_in_multi: true,
+                xds_leader_coordination_in_multi: false,
+            }
+        }
+
+        async fn build(
+            &self,
+            _config: &JoySafeterConfig,
+            _context: &RuntimeFactoryContext,
+        ) -> anyhow::Result<RuntimeComponents> {
+            anyhow::bail!("test factory build is not required")
+        }
+    }
+
+    #[test]
+    fn custom_factory_aliases_resolve_to_factory_owned_topology() {
+        let mut registry = ProviderFactoryRegistry::default();
+        registry.register(["Custom", "custom-alias"], Arc::new(TestFactory));
+
+        let resolved = registry
+            .resolve(" CUSTOM-ALIAS ")
+            .expect("resolve normalized custom provider");
+
+        assert_eq!(resolved.key.as_str(), "custom-alias");
+        assert_eq!(
+            resolved.topology.node_visibility,
+            crate::xds::control_plane::NodeVisibility::NodeScoped
+        );
+        assert!(resolved.topology.managed_xds_authority_in_multi);
+        assert!(!resolved.topology.xds_leader_coordination_in_multi);
+    }
+
+    #[test]
+    fn unknown_provider_fails_at_registry_boundary() {
+        let registry = ProviderFactoryRegistry::default();
+        let unknown = match registry.resolve("missing") {
             Ok(_) => panic!("unknown provider unexpectedly resolved"),
             Err(error) => error,
         };

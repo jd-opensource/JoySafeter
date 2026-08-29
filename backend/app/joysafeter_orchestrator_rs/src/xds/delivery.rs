@@ -6,15 +6,14 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 
 use crate::ids::SandboxId;
-use crate::kernel::network_policy::NetworkPolicyGeneration;
 
-use super::model::ResourceType;
+use super::model::{DeliveryGeneration, ResourceType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeliveryRequest {
     pub authority_epoch: u64,
     pub sandbox_id: SandboxId,
-    pub generation: NetworkPolicyGeneration,
+    pub generation: DeliveryGeneration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,7 +95,7 @@ impl NodeSessionId {
 pub struct DeliveryKey {
     pub authority_epoch: u64,
     pub sandbox_id: SandboxId,
-    pub generation: NetworkPolicyGeneration,
+    pub generation: DeliveryGeneration,
     pub owner_node: String,
     pub node_session: NodeSessionId,
     pub attempt_id: DeliveryAttemptId,

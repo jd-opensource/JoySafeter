@@ -17,11 +17,11 @@ use joysafeter_orchestrator::kernel::network_policy::envoy_model::{
     EgressCredentialRoute, EgressExposure, EgressKind, EgressPathMapping, EgressRetryMode,
     SandboxCredentials, MCP_EGRESS_HOST,
 };
-use joysafeter_orchestrator::kernel::network_policy::NetworkPolicyGeneration;
-use joysafeter_orchestrator::sandbox::envoy::{EnvoyConfig, EnvoyManager};
+use joysafeter_orchestrator::sandbox::envoy::{EnvoyConfig, EnvoyRuntime};
 use joysafeter_orchestrator::sandbox::envoy_delivery::ControlPlaneEnvoyDelivery;
 use joysafeter_orchestrator::xds::control_plane::{NodeVisibility, XdsControlPlane};
 use joysafeter_orchestrator::xds::delivery::DeliveryRequest;
+use joysafeter_orchestrator::xds::model::DeliveryGeneration;
 use serde_json::Value;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
@@ -506,14 +506,13 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
     fs::create_dir_all(&config_dir)?;
     fs::set_permissions(&config_dir, fs::Permissions::from_mode(0o755))?;
     let delivery = Arc::new(ControlPlaneEnvoyDelivery::new(xds));
-    let manager = EnvoyManager::new(
+    let manager = EnvoyRuntime::new(
         None,
         EnvoyConfig {
             envoy_image: DEFAULT_ENVOY_IMAGE.to_string(),
             socket_volume: socket_volume.clone(),
             socket_host_dir: None,
             config_dir: config_dir.display().to_string(),
-            envoy_network: network.clone(),
             grpc_target_host: "host.docker.internal".to_string(),
             grpc_target_port: xds_port,
             xds_auth_token: Some("test-control-plane-token-with-enough-entropy".to_string()),
@@ -523,12 +522,13 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
             socket_ready_timeout_ms: 15_000,
             health_check_interval_sec: 0,
             health_failure_threshold: 1,
+            manage_bootstrap: true,
             skip_socket_dir_prep: true,
             node_id: "joysafeter-mcp-live-envoy".to_string(),
         },
         delivery,
     );
-    manager.init().await?;
+    manager.initialize().await?;
 
     let envoy_image = std::env::var("JOYSAFETER_LIVE_ENVOY_IMAGE")
         .unwrap_or_else(|_| DEFAULT_ENVOY_IMAGE.to_string());
@@ -569,7 +569,7 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
             DeliveryRequest {
                 authority_epoch,
                 sandbox_id,
-                generation: NetworkPolicyGeneration {
+                generation: DeliveryGeneration {
                     policy_hash: "mcp-live-initial".to_string(),
                     policy_version: 1,
                 },
@@ -664,7 +664,7 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
             DeliveryRequest {
                 authority_epoch,
                 sandbox_id,
-                generation: NetworkPolicyGeneration {
+                generation: DeliveryGeneration {
                     policy_hash: "mcp-live-rotated".to_string(),
                     policy_version: 2,
                 },
@@ -692,7 +692,7 @@ async fn live_envoy_enforces_mcp_routes_headers_streaming_rotation_and_recovery(
             DeliveryRequest {
                 authority_epoch,
                 sandbox_id,
-                generation: NetworkPolicyGeneration {
+                generation: DeliveryGeneration {
                     policy_hash: "mcp-live-restarted".to_string(),
                     policy_version: 3,
                 },

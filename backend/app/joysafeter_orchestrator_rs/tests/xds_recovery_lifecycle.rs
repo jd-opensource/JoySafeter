@@ -2,12 +2,12 @@ use std::collections::HashSet;
 
 use envoy_types::pb::google::protobuf::Any;
 use joysafeter_orchestrator::ids::SandboxId;
-use joysafeter_orchestrator::kernel::network_policy::NetworkPolicyGeneration;
 use joysafeter_orchestrator::xds::authority::{AuthorityPhase, XdsAuthority};
 use joysafeter_orchestrator::xds::control_plane::{NodeVisibility, XdsControlPlane};
 use joysafeter_orchestrator::xds::inventory::{
     QuarantinedSandbox, RecoveredSandbox, RecoveryDeliveryState, RecoveryInventory,
 };
+use joysafeter_orchestrator::xds::model::DeliveryGeneration;
 use joysafeter_orchestrator::xds::model::{ManagedXdsResource, ResourceOwner, ResourceType};
 
 fn resource(sandbox_id: SandboxId, resource_type: ResourceType, name: &str) -> ManagedXdsResource {
@@ -25,7 +25,7 @@ fn resource(sandbox_id: SandboxId, resource_type: ResourceType, name: &str) -> M
 fn recovered(sandbox_id: SandboxId, suffix: &str) -> RecoveredSandbox {
     RecoveredSandbox {
         sandbox_id,
-        generation: NetworkPolicyGeneration {
+        generation: DeliveryGeneration {
             policy_hash: format!("policy-{suffix}"),
             policy_version: 1,
         },

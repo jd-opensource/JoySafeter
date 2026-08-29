@@ -12,13 +12,8 @@ use crate::ids::{MemoryStoreId, SandboxId};
 use crate::kernel::ha::{BridgeStore, DispatchCommand, TaskDispatcher};
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::network_policy::application::NetworkingReconcileOutcome;
-use crate::kernel::network_policy::material::{
-    NetworkPolicyMaterialResolver, UnconfiguredNetworkPolicyMaterialResolver,
-};
-use crate::kernel::network_policy::ports::NetworkPolicyRequestQueue;
-use crate::kernel::network_policy::ports::{NetworkPolicyRuntime, NoopNetworkPolicyRuntime};
+use crate::kernel::network_policy::service::NetworkPolicyService;
 use crate::kernel::redis_coordinator::RedisCoordinator;
-use crate::sandbox::envoy::EnvoyManager;
 use crate::sandbox::image_builder::{EnvironmentPackages, ImageBuilder};
 use crate::sandbox::provider::SandboxProvider;
 
@@ -40,17 +35,14 @@ pub struct CommandListener {
     bridge_store: Arc<dyn BridgeStore>,
     task_dispatcher: Arc<dyn TaskDispatcher>,
     provider: Arc<dyn SandboxProvider>,
-    envoy_manager: Option<Arc<EnvoyManager>>,
+    network_policy: NetworkPolicyService,
     image_builder: Option<Arc<ImageBuilder>>,
     redis_coordinator: Option<Arc<RedisCoordinator>>,
     memory_subscribers: Arc<MemoryStoreSubscribers>,
-    xds_authority: crate::xds::authority::XdsAuthority,
-    network_policy_queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
-    network_policy_runtime: Arc<dyn NetworkPolicyRuntime>,
-    network_policy_material_resolver: Arc<dyn NetworkPolicyMaterialResolver>,
 }
 
 impl CommandListener {
+    #[cfg(test)]
     pub fn new(
         client: redis::Client,
         instance_id: &str,
@@ -58,7 +50,33 @@ impl CommandListener {
         bridge_store: Arc<dyn BridgeStore>,
         task_dispatcher: Arc<dyn TaskDispatcher>,
         provider: Arc<dyn SandboxProvider>,
-        envoy_manager: Option<Arc<EnvoyManager>>,
+        image_builder: Option<Arc<ImageBuilder>>,
+        redis_coordinator: Option<Arc<RedisCoordinator>>,
+        memory_subscribers: Arc<MemoryStoreSubscribers>,
+    ) -> Self {
+        let network_policy = NetworkPolicyService::test_fixture(pool.clone());
+        Self::new_with_network_policy(
+            client,
+            instance_id,
+            pool,
+            bridge_store,
+            task_dispatcher,
+            provider,
+            network_policy,
+            image_builder,
+            redis_coordinator,
+            memory_subscribers,
+        )
+    }
+
+    pub fn new_with_network_policy(
+        client: redis::Client,
+        instance_id: &str,
+        pool: PgPool,
+        bridge_store: Arc<dyn BridgeStore>,
+        task_dispatcher: Arc<dyn TaskDispatcher>,
+        provider: Arc<dyn SandboxProvider>,
+        network_policy: NetworkPolicyService,
         image_builder: Option<Arc<ImageBuilder>>,
         redis_coordinator: Option<Arc<RedisCoordinator>>,
         memory_subscribers: Arc<MemoryStoreSubscribers>,
@@ -70,38 +88,11 @@ impl CommandListener {
             bridge_store,
             task_dispatcher,
             provider,
-            envoy_manager,
+            network_policy,
             image_builder,
             redis_coordinator,
             memory_subscribers,
-            xds_authority: crate::xds::authority::XdsAuthority::standalone(),
-            network_policy_queue: None,
-            network_policy_runtime: Arc::new(NoopNetworkPolicyRuntime),
-            network_policy_material_resolver: Arc::new(UnconfiguredNetworkPolicyMaterialResolver),
         }
-    }
-
-    pub fn with_network_policy_runtime(mut self, runtime: Arc<dyn NetworkPolicyRuntime>) -> Self {
-        self.network_policy_runtime = runtime;
-        self
-    }
-
-    pub fn with_network_policy_material_resolver(
-        mut self,
-        resolver: Arc<dyn NetworkPolicyMaterialResolver>,
-    ) -> Self {
-        self.network_policy_material_resolver = resolver;
-        self
-    }
-
-    pub fn with_network_policy_control(
-        mut self,
-        authority: crate::xds::authority::XdsAuthority,
-        queue: Option<Arc<dyn NetworkPolicyRequestQueue>>,
-    ) -> Self {
-        self.xds_authority = authority;
-        self.network_policy_queue = queue;
-        self
     }
 
     /// Spawn the listener as a background task.
@@ -346,16 +337,7 @@ impl CommandListener {
             .await?
             .ok_or_else(|| anyhow::anyhow!("sandbox not found: {sandbox_id}"))?;
 
-        match crate::kernel::network_policy::application::request_reconcile(
-            &self.pool,
-            self.network_policy_runtime.as_ref(),
-            self.network_policy_material_resolver.as_ref(),
-            &sandbox,
-            self.network_policy_queue.as_deref(),
-            &self.xds_authority,
-        )
-        .await?
-        {
+        match self.network_policy.reconcile(&sandbox).await? {
             NetworkingReconcileOutcome::NotLimited => {
                 Ok(serde_json::json!({"ok": true, "refreshed": false, "reason": "not_limited"}))
             }
@@ -426,37 +408,19 @@ impl CommandListener {
             let _ = bridge.send_to_runner(msg).await;
         }
 
-        if let Some(ref ext_id) = external_id {
-            self.bridge_store.remove(ext_id);
-            if let Err(e) = self.provider.destroy(ext_id).await {
-                let err = format!("{e}");
-                if !(err.contains("No such container") || err.contains("404")) {
-                    if let Some(ref status) = restore_status {
-                        let _ = queries::restore_sandbox_after_passive_destroy_failure(
-                            &self.pool,
-                            sandbox_id,
-                            status,
-                            external_id.as_deref(),
-                        )
-                        .await;
-                    }
-                    return Err(e);
-                }
-            }
+        if let Some(ref external_id) = external_id {
+            self.bridge_store.remove(external_id);
         }
 
-        if let Some(ref envoy) = self.envoy_manager {
-            if let Err(e) = envoy.remove_sandbox(sandbox_id).await {
-                warn!(sandbox_id = %sandbox_id, "Failed to remove sandbox from Envoy during destroy command: {e}");
-            }
-        }
-
-        if restore_status.is_some() {
-            let finalized = queries::destroy_sandbox_if_status_and_external_id(
+        if let Some(restore_status) = restore_status {
+            let finalized = crate::kernel::sandbox_lifecycle::finalize_claimed_sandbox_destroy(
                 &self.pool,
+                &self.provider,
+                &self.network_policy,
                 sandbox_id,
-                "stopping",
                 external_id.as_deref(),
+                &restore_status,
+                reason,
             )
             .await?;
             if !finalized {
@@ -464,7 +428,15 @@ impl CommandListener {
                     "destroy command provider cleanup completed but DB finalize was fenced out for sandbox {sandbox_id}"
                 );
             }
-        } else {
+        } else if let Some(external_id) = external_id.as_deref() {
+            crate::kernel::sandbox_lifecycle::destroy_unpersisted_sandbox(
+                &self.provider,
+                &self.network_policy,
+                sandbox_id,
+                external_id,
+                reason,
+            )
+            .await?;
             queries::destroy_sandbox(&self.pool, sandbox_id).await?;
         }
 
@@ -803,7 +775,6 @@ mod tests {
             bridge_store,
             task_dispatcher,
             provider,
-            None,
             None,
             None,
             Arc::new(MemoryStoreSubscribers::new()),

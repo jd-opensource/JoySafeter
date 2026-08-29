@@ -1,67 +1,32 @@
 //! Application handler for work executed by the elected xDS authority.
 
-use std::collections::HashSet;
-use std::sync::Arc;
-
 use async_trait::async_trait;
-use sqlx::PgPool;
 
-use super::application::apply_generation_as_authority;
-use super::material::NetworkPolicyMaterialResolver;
-use super::ports::NetworkPolicyRuntime;
-use super::{NetworkPolicyAction, NetworkPolicyRequest};
-use crate::db::queries;
+use super::service::NetworkPolicyService;
+use super::NetworkPolicyRequest;
 #[cfg(test)]
 use crate::ids::SandboxId;
 use crate::xds::authority::{MutationAuthorityGuard, RecoveryAuthorityGuard};
 use crate::xds::authority_worker::AuthorityWork;
 
 pub struct NetworkPolicyAuthorityHandler {
-    pool: PgPool,
-    runtime: Arc<dyn NetworkPolicyRuntime>,
-    material_resolver: Arc<dyn NetworkPolicyMaterialResolver>,
+    service: NetworkPolicyService,
 }
 
 impl NetworkPolicyAuthorityHandler {
-    pub fn new(
-        pool: PgPool,
-        runtime: Arc<dyn NetworkPolicyRuntime>,
-        material_resolver: Arc<dyn NetworkPolicyMaterialResolver>,
-    ) -> Self {
-        Self {
-            pool,
-            runtime,
-            material_resolver,
-        }
+    pub fn new(service: NetworkPolicyService) -> Self {
+        Self { service }
     }
 }
 
 #[async_trait]
 impl AuthorityWork<NetworkPolicyRequest> for NetworkPolicyAuthorityHandler {
     async fn recover(&self, guard: &RecoveryAuthorityGuard) -> anyhow::Result<usize> {
-        super::recovery::recover_as_authority(
-            &self.pool,
-            self.runtime.as_ref(),
-            self.material_resolver.as_ref(),
-            guard,
-        )
-        .await
+        self.service.recover(guard).await
     }
 
     async fn reconcile_inventory(&self, guard: &MutationAuthorityGuard) -> anyhow::Result<usize> {
-        if guard.validate().is_err() {
-            anyhow::bail!("xDS authority changed before inventory reconciliation");
-        }
-        let live_sandbox_ids = queries::load_recovery_inventory(&self.pool)
-            .await?
-            .into_iter()
-            .filter(is_limited_networking)
-            .map(|sandbox| sandbox.id)
-            .collect::<HashSet<_>>();
-        if guard.validate().is_err() {
-            anyhow::bail!("xDS authority changed before inventory pruning");
-        }
-        self.runtime.prune(&live_sandbox_ids).await
+        self.service.reconcile_inventory(guard).await
     }
 
     async fn apply(
@@ -69,59 +34,20 @@ impl AuthorityWork<NetworkPolicyRequest> for NetworkPolicyAuthorityHandler {
         request: NetworkPolicyRequest,
         guard: &MutationAuthorityGuard,
     ) -> anyhow::Result<()> {
-        if guard.validate().is_err() {
-            anyhow::bail!("xDS authority changed before request application");
-        }
-        match request.action {
-            NetworkPolicyAction::Reconcile => {
-                let generation = request
-                    .generation
-                    .ok_or_else(|| anyhow::anyhow!("reconcile request is missing generation"))?;
-                apply_generation_as_authority(
-                    &self.pool,
-                    self.runtime.as_ref(),
-                    self.material_resolver.as_ref(),
-                    request.sandbox_id,
-                    &generation,
-                    guard,
-                )
-                .await?;
-            }
-            NetworkPolicyAction::Remove => {
-                if !queries::network_policy_removal_is_current(&self.pool, request.sandbox_id)
-                    .await?
-                {
-                    anyhow::bail!(
-                        "stale xDS remove request for live limited-networking sandbox {}",
-                        request.sandbox_id
-                    );
-                }
-                if guard.validate().is_err() {
-                    anyhow::bail!("xDS authority changed before networking removal");
-                }
-                self.runtime.remove(request.sandbox_id).await?;
-            }
-        }
-        Ok(())
+        self.service.apply_request(request, guard).await
     }
-}
-
-fn is_limited_networking(sandbox: &crate::db::models::JoySafeterSandbox) -> bool {
-    sandbox
-        .config
-        .as_ref()
-        .and_then(|config| config.get("fingerprint"))
-        .and_then(|fingerprint| fingerprint.get("networking"))
-        .and_then(|networking| networking.get("type"))
-        .and_then(|kind| kind.as_str())
-        == Some("limited")
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     use super::*;
+    use crate::kernel::network_policy::material::NetworkPolicyMaterialResolver;
+    use crate::kernel::network_policy::ports::NetworkPolicyRuntime;
+    use crate::kernel::network_policy::service::NetworkPolicyService;
     use crate::kernel::network_policy::DesiredNetworkPolicy;
     use crate::xds::authority::XdsAuthority;
     use sqlx::postgres::PgPoolOptions;
@@ -193,11 +119,14 @@ mod tests {
         let pool = PgPoolOptions::new()
             .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
             .expect("lazy pool");
-        let handler = NetworkPolicyAuthorityHandler::new(
+        let service = NetworkPolicyService::managed(
             pool,
             runtime.clone(),
             Arc::new(NeverMaterialResolver),
+            None,
+            authority.clone(),
         );
+        let handler = NetworkPolicyAuthorityHandler::new(service);
 
         let error = handler
             .apply(NetworkPolicyRequest::remove(SandboxId::new()), &guard)

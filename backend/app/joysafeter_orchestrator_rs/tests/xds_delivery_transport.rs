@@ -9,10 +9,10 @@ use envoy_types::pb::envoy::service::discovery::v3::{
 };
 use envoy_types::pb::google::protobuf::Any;
 use joysafeter_orchestrator::ids::SandboxId;
-use joysafeter_orchestrator::kernel::network_policy::NetworkPolicyGeneration;
 use joysafeter_orchestrator::xds::authority::XdsAuthority;
 use joysafeter_orchestrator::xds::control_plane::{NodeVisibility, XdsControlPlane};
 use joysafeter_orchestrator::xds::delivery::{DeliveryAttempt, DeliveryRequest};
+use joysafeter_orchestrator::xds::model::DeliveryGeneration;
 use joysafeter_orchestrator::xds::model::{ManagedXdsResource, ResourceOwner, ResourceType};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -44,7 +44,7 @@ fn delivery_request(epoch: u64, sandbox_id: SandboxId, suffix: &str) -> Delivery
     DeliveryRequest {
         authority_epoch: epoch,
         sandbox_id,
-        generation: NetworkPolicyGeneration {
+        generation: DeliveryGeneration {
             policy_hash: format!("policy-{suffix}"),
             policy_version: 1,
         },
@@ -229,7 +229,7 @@ async fn ads_node_move_removes_old_visibility_and_requires_new_node_ack() {
             DeliveryRequest {
                 authority_epoch: epoch,
                 sandbox_id,
-                generation: NetworkPolicyGeneration {
+                generation: DeliveryGeneration {
                     policy_hash: "policy-1".to_string(),
                     policy_version: 1,
                 },
@@ -487,7 +487,7 @@ async fn ads_acknowledges_exact_changed_types_and_removal_quorum() {
             DeliveryRequest {
                 authority_epoch: epoch,
                 sandbox_id,
-                generation: NetworkPolicyGeneration {
+                generation: DeliveryGeneration {
                     policy_hash: "policy-1".to_string(),
                     policy_version: 1,
                 },
@@ -528,7 +528,7 @@ async fn ads_acknowledges_exact_changed_types_and_removal_quorum() {
             DeliveryRequest {
                 authority_epoch: epoch,
                 sandbox_id,
-                generation: NetworkPolicyGeneration {
+                generation: DeliveryGeneration {
                     policy_hash: "policy-2".to_string(),
                     policy_version: 2,
                 },
@@ -569,7 +569,7 @@ async fn ads_acknowledges_exact_changed_types_and_removal_quorum() {
             DeliveryRequest {
                 authority_epoch: epoch,
                 sandbox_id,
-                generation: NetworkPolicyGeneration {
+                generation: DeliveryGeneration {
                     policy_hash: "policy-3".to_string(),
                     policy_version: 3,
                 },

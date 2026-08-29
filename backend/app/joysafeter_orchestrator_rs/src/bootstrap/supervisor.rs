@@ -1,9 +1,8 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::xds;
+
+pub(crate) use super::managed_service::{ReadinessGate, ServiceCriticality, TaskSupervisor};
 
 pub(crate) async fn shutdown_signal() {
     let ctrl_c = tokio::signal::ctrl_c();
@@ -24,22 +23,17 @@ pub(crate) async fn shutdown_signal() {
     }
 }
 
-pub(crate) fn spawn_health_server(
+pub(crate) async fn spawn_health_server(
     port: u16,
-    ready: Arc<AtomicBool>,
+    ready: ReadinessGate,
     xds_authority: xds::authority::XdsAuthority,
     xds_control_plane: Option<xds::control_plane::XdsControlPlane>,
-) {
-    use tokio::io::AsyncWriteExt;
+) -> anyhow::Result<tokio::task::JoinHandle<()>> {
+    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
 
-    tokio::spawn(async move {
-        let listener = match tokio::net::TcpListener::bind(("0.0.0.0", port)).await {
-            Ok(listener) => listener,
-            Err(error) => {
-                warn!(port, error = %error, "Health server bind failed");
-                return;
-            }
-        };
+    Ok(tokio::spawn(async move {
+        use tokio::io::AsyncWriteExt;
+
         info!(port, "Health server listening");
         loop {
             let Ok((mut stream, _)) = listener.accept().await else {
@@ -58,7 +52,7 @@ pub(crate) fn spawn_health_server(
                     .and_then(|line| line.split_whitespace().nth(1))
                     .unwrap_or("/");
                 let (status, content_type, body) = match path {
-                    "/healthz/ready" if ready.load(Ordering::Acquire) => {
+                    "/healthz/ready" if ready.is_ready() => {
                         ("200 OK", "text/plain; charset=utf-8", "ok".to_string())
                     }
                     "/healthz/ready" => (
@@ -109,5 +103,113 @@ pub(crate) fn spawn_health_server(
                 let _ = stream.write_all(response.as_bytes()).await;
             });
         }
-    });
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::{ReadinessGate, ServiceCriticality, TaskSupervisor};
+
+    #[tokio::test]
+    async fn readiness_stays_false_until_bootstrap_marks_it_ready() {
+        let readiness = ReadinessGate::new();
+
+        assert!(!readiness.is_ready());
+        readiness.mark_ready();
+        assert!(readiness.is_ready());
+        readiness.mark_not_ready();
+        assert!(!readiness.is_ready());
+    }
+
+    #[tokio::test]
+    async fn critical_task_exit_marks_application_not_ready() {
+        let readiness = ReadinessGate::new();
+        let mut supervisor = TaskSupervisor::new(readiness.clone());
+        supervisor
+            .register(
+                "critical",
+                ServiceCriticality::Critical,
+                tokio::spawn(async {}),
+            )
+            .expect("register critical service");
+        supervisor.seal_startup();
+
+        let exit =
+            tokio::time::timeout(Duration::from_secs(1), supervisor.wait_for_critical_exit())
+                .await
+                .expect("critical exit must be observed");
+
+        assert_eq!(exit.service_name(), "critical");
+        assert!(!readiness.is_ready());
+    }
+
+    #[tokio::test]
+    async fn degradable_task_exit_does_not_mark_application_not_ready() {
+        let readiness = ReadinessGate::new();
+        let mut supervisor = TaskSupervisor::new(readiness.clone());
+        supervisor
+            .register(
+                "degradable",
+                ServiceCriticality::Degradable,
+                tokio::spawn(async {}),
+            )
+            .expect("register degradable service");
+        supervisor.seal_startup();
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        assert!(readiness.is_ready());
+        assert!(tokio::time::timeout(
+            Duration::from_millis(20),
+            supervisor.wait_for_critical_exit(),
+        )
+        .await
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn health_server_bind_failure_is_reported_to_bootstrap() {
+        let occupied = tokio::net::TcpListener::bind(("0.0.0.0", 0))
+            .await
+            .expect("reserve local port");
+        let port = occupied.local_addr().expect("reserved address").port();
+
+        let result = super::spawn_health_server(
+            port,
+            ReadinessGate::new(),
+            crate::xds::authority::XdsAuthority::standalone(),
+            None,
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn intentional_service_abort_does_not_report_a_critical_failure() {
+        let readiness = ReadinessGate::new();
+        let mut supervisor = TaskSupervisor::new(readiness.clone());
+        let scheduler = supervisor
+            .register(
+                "scheduler",
+                ServiceCriticality::Critical,
+                tokio::spawn(std::future::pending()),
+            )
+            .expect("register scheduler");
+        scheduler.mark_ready();
+        supervisor.seal_startup();
+
+        assert!(supervisor.abort("scheduler"));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        assert!(readiness.is_ready());
+        assert!(tokio::time::timeout(
+            Duration::from_millis(20),
+            supervisor.wait_for_critical_exit(),
+        )
+        .await
+        .is_err());
+    }
 }

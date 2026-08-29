@@ -3404,7 +3404,7 @@ impl HarnessGenerationFence {
 }
 
 /// Extract custom tool names and MCP server names from agent config.
-/// Used by grpc/server.rs to route events to correct types.
+/// Used by the Runner execution service to route events to correct types.
 pub fn extract_tool_name_sets(
     agent: &crate::db::models::JoySafeterAgent,
 ) -> (

@@ -1,16 +1,16 @@
 use std::collections::HashSet;
 
 use joysafeter_orchestrator::ids::SandboxId;
-use joysafeter_orchestrator::kernel::network_policy::NetworkPolicyGeneration;
 use joysafeter_orchestrator::xds::delivery::{
     DeliveredResource, DeliveryAttemptId, DeliveryCoordinator, DeliveryKey, DeliveryOutcome,
     DeliveryRequest, DeliveryTarget, DeliveryTracker, NodeSessionId, ReceiptOutcome,
     ResponseReceipt,
 };
+use joysafeter_orchestrator::xds::model::DeliveryGeneration;
 use joysafeter_orchestrator::xds::model::{ResourceOwner, ResourceType};
 
-fn generation(hash: &str, version: i64) -> NetworkPolicyGeneration {
-    NetworkPolicyGeneration {
+fn generation(hash: &str, version: i64) -> DeliveryGeneration {
+    DeliveryGeneration {
         policy_hash: hash.to_string(),
         policy_version: version,
     }
@@ -18,7 +18,7 @@ fn generation(hash: &str, version: i64) -> NetworkPolicyGeneration {
 
 fn key(
     sandbox_id: SandboxId,
-    generation: NetworkPolicyGeneration,
+    generation: DeliveryGeneration,
     node: &str,
     session: u64,
     attempt: u64,

@@ -15,10 +15,25 @@ use crate::xds::authority::RecoveryAuthorityGuard;
 use crate::xds::control_plane::XdsControlPlane;
 use crate::xds::delivery::{DeliveryAttempt, DeliveryRequest};
 use crate::xds::inventory::{InstalledRecoveryInventory, RecoveryInventory};
-use crate::xds::model::{ManagedXdsResource, ResourceOwner, ResourceType};
+use crate::xds::model::{DeliveryGeneration, ManagedXdsResource, ResourceOwner, ResourceType};
 
 use super::envoy_render::{encode_cluster_any, encode_listener_any};
 use crate::kernel::network_policy::envoy_model::{ClusterSpec, ListenerSpec};
+use crate::kernel::network_policy::NetworkPolicyGeneration;
+
+pub(crate) fn delivery_generation(generation: &NetworkPolicyGeneration) -> DeliveryGeneration {
+    DeliveryGeneration {
+        policy_hash: generation.policy_hash.clone(),
+        policy_version: generation.policy_version,
+    }
+}
+
+pub(crate) fn network_policy_generation(generation: DeliveryGeneration) -> NetworkPolicyGeneration {
+    NetworkPolicyGeneration {
+        policy_hash: generation.policy_hash,
+        policy_version: generation.policy_version,
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliverySubmission {
@@ -183,10 +198,10 @@ pub(crate) fn managed_cluster(spec: &ClusterSpec) -> anyhow::Result<ManagedXdsRe
 mod tests {
     use super::*;
     use crate::kernel::network_policy::envoy_model::ListenerKind;
-    use crate::kernel::network_policy::NetworkPolicyGeneration;
     use crate::xds::authority::XdsAuthority;
     use crate::xds::control_plane::NodeVisibility;
     use crate::xds::inventory::RecoveredSandbox;
+    use crate::xds::model::DeliveryGeneration;
 
     #[tokio::test]
     async fn control_plane_delivery_reports_explicit_resource_owners() {
@@ -227,7 +242,7 @@ mod tests {
     fn recovered(sandbox_id: SandboxId) -> RecoveredSandbox {
         RecoveredSandbox {
             sandbox_id,
-            generation: NetworkPolicyGeneration {
+            generation: DeliveryGeneration {
                 policy_hash: format!("policy-{sandbox_id}"),
                 policy_version: 1,
             },

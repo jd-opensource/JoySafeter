@@ -15,5 +15,6 @@ pub mod leader;
 pub mod metrics;
 pub mod model;
 pub mod node_ownership;
+pub mod placement;
 pub mod resource_store;
 pub mod transport;
