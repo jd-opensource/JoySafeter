@@ -3,27 +3,20 @@
 # =============================================================================
 #
 # 本文件是 K8s 部署的配置参考(非直接使用的 .env 文件)。
-# K8s 部署配置分三层:
+# Helm/Kubernetes 部署配置分三层:
 #
-#   1. Secret (敏感): kubectl create secret generic joysafeter-secrets ...
-#   2. YAML env (非敏感): orchestrator-complete.yaml 里的 env 字段
+#   1. Secret (敏感): deploy/deploy.sh k8s secrets ...
+#   2. Helm values (非敏感): deploy/helm/joysafeter-orchestrator/values*.yaml
 #   3. 默认值 (不用设): 代码里有合理默认
 #
 # =============================================================================
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 第一层: Secret (必须手动创建)
-# kubectl create secret generic joysafeter-secrets -n joysafeter \
-#   --from-literal=DATABASE_URL="..." \
-#   --from-literal=REDIS_URL="..." \
-#   --from-literal=SECRET_KEY="..." \
-#   --from-literal=JWT_SECRET_KEY="..." \
-#   --from-literal=JOYSAFETER_VAULT_ENCRYPTION_KEY="..." \
-#   --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING='{"active-2026-08":"..."}' \
-#   --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID="active-2026-08" \
-#   --from-literal=JOYSAFETER_XDS_AUTH_KEYRING='{"active-2026-08":"<openssl rand -hex 32>"}' \
-#   --from-literal=JOYSAFETER_XDS_AUTH_WRITE_KEY_ID="active-2026-08" \
-#   --from-literal=JOYSAFETER_XDS_AUTH_TOKEN="<same token selected by write key id>"
+# 第一层: Secret
+# 统一入口:
+#   DATABASE_URL=... REDIS_URL=... JOYSAFETER_VAULT_ENCRYPTION_KEY=... \
+#     ./deploy/deploy.sh k8s secrets --namespace joysafeter --from-env
+# 其他可选 Secret key 由 Helm chart 的 externalSecret 契约管理。
 # ─────────────────────────────────────────────────────────────────────────────
 
 # 云 PostgreSQL 连接串 (asyncpg driver)
@@ -48,7 +41,7 @@ JOYSAFETER_XDS_AUTH_TOKEN=
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 第二层: YAML env (在 orchestrator-complete.yaml 里设)
+# 第二层: Helm values (在 values.yaml 或环境 values 文件里设)
 # 以下是完整列表和推荐值
 # ─────────────────────────────────────────────────────────────────────────────
 

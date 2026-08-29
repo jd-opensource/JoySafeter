@@ -42,11 +42,6 @@ IDENTITY_ENV_EXAMPLES = (
     REPO_ROOT / "deploy/.env.example",
     REPO_ROOT / "deploy/.env.remote.example",
 )
-ORCHESTRATOR_MANIFESTS = (
-    REPO_ROOT / "deploy/k8s/orchestrator-complete.yaml",
-    REPO_ROOT / "deploy/k8s/orchestrator-deployment.yaml",
-    REPO_ROOT / "deploy/k8s/orchestrator-multi.yaml",
-)
 
 
 def _dotenv_values(path: Path) -> dict[str, str]:
@@ -58,22 +53,6 @@ def _dotenv_values(path: Path) -> dict[str, str]:
         key, value = stripped.split("=", 1)
         values[key] = value
     return values
-
-
-def _orchestrator_env(path: Path) -> dict[str, dict[str, object]]:
-    deployment = next(
-        document
-        for document in yaml.safe_load_all(path.read_text())
-        if document
-        and document.get("kind") == "Deployment"
-        and document.get("metadata", {}).get("name") == "joysafeter-orchestrator"
-    )
-    container = next(
-        item
-        for item in deployment["spec"]["template"]["spec"]["containers"]
-        if item["name"] == "orchestrator"
-    )
-    return {item["name"]: item for item in container.get("env", [])}
 
 
 def test_create_session_rejects_reserved_agent_identity_context_metadata() -> None:
@@ -564,14 +543,6 @@ def test_helm_renders_canonical_user_token_exchange_contract() -> None:
     assert ".Values.agentIdentity.exchangeUserTokenEnabled" in configmap
     assert "fieldPath: status.podIP" in deployment
     assert "fieldPath: metadata.labels['app']" in deployment
-
-
-@pytest.mark.parametrize("path", ORCHESTRATOR_MANIFESTS, ids=lambda path: path.name)
-def test_kubernetes_orchestrator_injects_identity_pod_metadata(path: Path) -> None:
-    env = _orchestrator_env(path)
-
-    assert env["POD_IP"]["valueFrom"]["fieldRef"]["fieldPath"] == "status.podIP"
-    assert env["APP_NAME"]["valueFrom"]["fieldRef"]["fieldPath"] == "metadata.labels['app']"
 
 
 def test_agent_identity_trait_assigns_fail_closed_policy_to_application_boundary() -> None:

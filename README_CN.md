@@ -95,7 +95,7 @@ JoySafeter 把这套模型交到你**自己的基础设施**上：
 > **备注：** 需要为所选引擎配置匹配的 agent runtime 镜像。本地部署读取 `deploy/.env`
 > 中的 `JOYSAFETER_IMAGE_CLAUDE`、`JOYSAFETER_IMAGE_CODEX`、`JOYSAFETER_IMAGE_NATIVE`、
 > `JOYSAFETER_IMAGE_PI`；
-> 使用镜像仓库部署时可通过 `./deploy.sh pull --all` 同步这些变量。
+> 使用镜像仓库部署时可通过 `./deploy.sh pull --group all` 同步这些变量。
 
 这种根据侦察结果动态决定下一步的能力，是传统固定脚本无法实现的。
 

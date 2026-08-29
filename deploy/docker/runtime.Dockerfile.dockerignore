@@ -1,0 +1,10 @@
+*
+!proto/**
+!shared/**
+!sandbox-runner/**
+!deploy/docker/runtime.Dockerfile
+!deploy/docker/runner-entrypoint.sh
+!deploy/docker/codex-entrypoint.sh
+!deploy/docker/pi-entrypoint.sh
+!deploy/docker/claude-code-best-2.8.4.tgz
+**/target/

@@ -36,7 +36,7 @@ Use the repository development guide instead of maintaining a second setup proce
 
 ```bash
 cd deploy
-./local-test.sh
+./deploy.sh dev
 ```
 
 See [`DEVELOPMENT.md`](DEVELOPMENT.md) for prerequisites, component commands, tests, formatting,

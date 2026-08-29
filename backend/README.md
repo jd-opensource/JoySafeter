@@ -27,7 +27,7 @@ cp env.example .env
 
 ```bash
 cd ../deploy
-./local-test.sh
+./deploy.sh dev
 ```
 
 如果只想手动启动后端，请先自行准备 PostgreSQL/Redis，并按

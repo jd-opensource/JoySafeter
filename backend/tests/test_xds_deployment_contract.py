@@ -81,52 +81,11 @@ def test_obsolete_envoy_grpc_port_bridge_is_removed() -> None:
         "deploy/helm/joysafeter-orchestrator/templates/configmap.yaml",
         "deploy/docker-compose.yml",
         "deploy/k8s/env-reference.md",
-        "deploy/k8s/orchestrator-multi.yaml",
-        "deploy/k8s/orchestrator-complete.yaml",
-        "deploy/k8s/orchestrator-deployment.yaml",
     ]
 
     for relative_path in audited_files:
         assert "JOYSAFETER_ENVOY_GRPC_PORT" not in read(relative_path), relative_path
         assert "envoy_grpc_port" not in read(relative_path), relative_path
-
-
-@pytest.mark.parametrize(
-    "relative_path",
-    [
-        "deploy/k8s/orchestrator-multi.yaml",
-        "deploy/k8s/orchestrator-complete.yaml",
-    ],
-)
-def test_raw_k8s_manifests_authenticate_on_dedicated_xds_port(
-    relative_path: str,
-) -> None:
-    manifest = read(relative_path)
-
-    assert "containerPort: 9092" in manifest
-    assert "name: xds" in manifest
-    assert "JOYSAFETER_XDS_PORT" in manifest
-    assert '"key": "x-joysafeter-xds-token"' in manifest
-    assert '"value": "${JOYSAFETER_XDS_AUTH_TOKEN}"' in manifest
-    assert "key: JOYSAFETER_XDS_AUTH_TOKEN" in manifest
-
-    sandbox_policy, envoy_policy = manifest.split(
-        "name: joysafeter-envoy-egress", maxsplit=1
-    )
-    assert "# 允许连 orchestrator (gRPC 控制面)" in sandbox_policy
-    assert "- port: 9090" in sandbox_policy
-    assert "- port: 9092" in envoy_policy
-    assert "name: joysafeter-orchestrator-ingress" in manifest
-
-
-def test_multi_manifest_keeps_runner_and_xds_services_distinct() -> None:
-    manifest = read("deploy/k8s/orchestrator-multi.yaml")
-    runner_service, xds_service = manifest.split(
-        "name: joysafeter-orchestrator-xds", maxsplit=1
-    )
-
-    assert "port: 9090\n    targetPort: grpc" in runner_service
-    assert "port: 9092\n    targetPort: xds" in xds_service
 
 
 def test_xds_health_metrics_and_alerts_are_deployed_as_one_contract() -> None:

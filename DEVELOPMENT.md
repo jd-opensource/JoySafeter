@@ -15,7 +15,7 @@ use [`deploy/deploy.sh`](deploy/README.md) instead.
 
 ```bash
 cd deploy
-./local-test.sh
+./deploy.sh dev
 ```
 
 The script starts PostgreSQL, Redis, Envoy, and supporting containers, runs migrations, then starts
@@ -50,7 +50,7 @@ Environment definitions have one source of truth:
 
 ## Run Components Manually
 
-Start PostgreSQL, Redis, Envoy, and migrations through `./deploy/local-test.sh` at least once, then
+Start PostgreSQL, Redis, Envoy, and migrations through `./deploy/deploy.sh dev` at least once, then
 run components in separate terminals when focused debugging is needed.
 
 ```bash
@@ -165,16 +165,15 @@ JOYSAFETER_RUN_LIVE_ENVOY=1 cargo test \
 ## Local Kubernetes Verification (Colima + Helm)
 
 Colima must be running with Kubernetes enabled and the active kubectl context must be `colima`.
-The repository does not provide or depend on separate k3s scripts or manifests.
+Colima plus the Helm chart is the only supported local Kubernetes verification path.
 
 ```bash
 colima status
 kubectl config current-context
 kubectl get nodes
-helm lint deploy/helm/joysafeter-orchestrator
-helm template joysafeter-local deploy/helm/joysafeter-orchestrator \
-  --namespace joysafeter-local \
-  --set namespace=joysafeter-local
+./deploy/deploy.sh k8s deploy --dry-run \
+  --release joysafeter-local \
+  --namespace joysafeter-local
 ```
 
 Runner gRPC and ADS must render as distinct service ports. Deployment verification must wait for

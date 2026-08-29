@@ -363,6 +363,10 @@ Kubernetes placement 链路刻意采用依赖反转：watcher 只发 `PlacementE
 Runner gRPC 与 ADS 使用不同 server 和端口（`:9090`/`:9091` 对比 `:9092`），执行协议与控制面协议的变更、认证、
 限流和失败处理不会互相泄漏。
 
+对于 node-scoped delivery，xDS 发布在 `NodeOwnershipRegistry` 内等待权威 placement revision 后才暴露资源。
+Kubernetes watcher 仍然只发布事实，scheduler/provider 不增加 Kubernetes 特有的 sleep 或 retry；外层 delivery
+timeout 负责终态失败，因此 placement 缺失在 xDS 边界失败，不污染业务编排。
+
 ### 4.3 Worker 服务（`app/joysafeter_worker/`）
 
 可靠持久化层。只跑一个循环：`EventStreamWorker`（`events/stream_consumer.py`）通过消费组消费 Redis Stream。
@@ -430,6 +434,11 @@ token/tool 指标）。
 镜像（`image_claude` / `image_codex` / `image_native` / `image_pi`）。
 
 Rust runner 是唯一的 harness 执行路径。Python 服务不再保留平行的 adapter 或 task-runner 实现。
+
+Runtime 镜像组装遵循同一归属原则。`deploy/docker/runtime.Dockerfile` 负责公共 Linux 工具链，在目标
+平台的 `runner-builder` stage 内编译 Runner，并为每个 provider 暴露独立 final stage。各 provider
+stage 只拥有自己的 harness 包和 entrypoint。`deploy.sh` 只选择 target、platform 和 image tag，不在
+宿主机编译或暂存 Runner 二进制；Helm 与 orchestrator 只消费镜像引用，不感知镜像构建细节。
 
 ### 6.2 Rust sandbox-runner（`sandbox-runner/`）
 

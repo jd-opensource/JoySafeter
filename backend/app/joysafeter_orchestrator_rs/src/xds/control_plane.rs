@@ -71,6 +71,15 @@ impl XdsControlPlane {
             .await
     }
 
+    pub async fn wait_for_delivery_owner_node(
+        &self,
+        sandbox_id: SandboxId,
+    ) -> anyhow::Result<Option<String>> {
+        self.node_ownership
+            .wait_for_delivery_owner_node(sandbox_id)
+            .await
+    }
+
     pub async fn install_recovery_inventory(
         &self,
         authority: &RecoveryAuthorityGuard,

@@ -33,10 +33,10 @@ Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并�
 `deploy.sh local` 只构建并启动上面这些控制面服务，不会构建 agent 运行镜像（`joysafeter-claudecode` / `joysafeter-codex` / `joysafeter-native` / `joysafeter-pi`）。默认 `JOYSAFETER_SANDBOX_IMAGE=joysafeter-claudecode:latest` 缺失时脚本只告警、不阻断：控制面能起来，但真实 agent 任务会因拉不到运行镜像而失败。跑第一个 agent 前先构建或拉取运行镜像：
 
 ```bash
-./deploy.sh build --claudecode-only --arch arm64   # 或 --arch amd64
-./deploy.sh build --pi-only --arch arm64
+./deploy.sh build --component claudecode --arch arm64   # 或 --arch amd64
+./deploy.sh build --component pi --arch arm64
 # 或使用预构建镜像
-./deploy.sh pull --runtime-only --registry registry.example.com/your-org --tag v0.3.2
+./deploy.sh pull --group runtime --registry registry.example.com/your-org --tag v0.3.2
 ```
 
 ## 协同拓扑和职责
@@ -111,7 +111,7 @@ docker compose down
 | `./deploy.sh doctor` | 准备 env、探测 CPU 架构、检查 Docker/Compose/SkillSpector/socket/端口/Compose 配置 | 否 |
 | `./deploy.sh local` | 完整本地 Compose 部署：基础服务、迁移、API/Rust orchestrator/worker/frontend | 是 |
 | `./deploy.sh build` | 构建核心部署镜像：backend、frontend、orchestrator-rs、skillspector | 否 |
-| `./deploy.sh build --all` | 构建核心部署镜像与 agent runtime 镜像 | 否 |
+| `./deploy.sh build --group all` | 构建核心部署镜像与 agent runtime 镜像 | 否 |
 | `./deploy.sh push` | 构建并推送核心部署镜像到 `DOCKER_REGISTRY` | 否 |
 | `./deploy.sh pull` | 从 `DOCKER_REGISTRY` 拉取核心部署镜像 | 否 |
 
@@ -121,8 +121,8 @@ docker compose down
 |---|---|---|
 | `--arch arm64` / `--arch amd64` | `local`、`build`、`push` | 强制目标平台；不传时 `local` 按 Docker daemon 自动识别 |
 | `--platform linux/amd64,linux/arm64` | `build`、`push` | 构建多架构 manifest |
-| `--backend-only` / `--frontend-only` / `--orchestrator-only` / `--skillspector-only` | `build`、`push`、`pull` | 只处理单类核心部署镜像 |
-| `--runtime-only` / `--claudecode-only` / `--codex-only` / `--native-only` / `--pi-only` | `build`、`push`、`pull` | 只处理 agent runtime 镜像 |
+| `--component NAME` | `build`、`push`、`pull` | 选择一个组件，可重复指定 |
+| `--group core\|runtime\|all` | `build`、`push`、`pull` | 选择统一注册表中的组件组；默认 `core` |
 | `--api-url URL` | `build`、`push` | （已废弃）前端 API 地址现在通过容器环境变量运行时注入 |
 | `--no-cache` | `build`、`push` | 禁用 Docker 构建缓存 |
 | `--mirror MIRROR` | `build`、`push` | 只用于手工镜像构建；本地 `local` 默认使用 `public.ecr.aws/docker/library/` 多架构基础镜像 |
@@ -193,7 +193,7 @@ docker compose --profile rust-orchestrator build orchestrator-rs
 
 ```bash
 cd deploy
-./local-test.sh
+./deploy.sh dev
 ```
 
 脚本会自动：
@@ -213,28 +213,35 @@ docker compose down
 
 ## 镜像工具
 
-普通本地部署使用 `local`，它会自动处理 CPU 架构和本地 `.env`。只有需要单独构建/推送/拉取镜像时再用 `build` / `push` / `pull`。默认处理核心部署镜像：backend、frontend、orchestrator-rs、skillspector；agent runtime 镜像用 `--runtime-only` 或 `--all` 纳入。
+普通本地部署使用 `local`，它会自动处理 CPU 架构和本地 `.env`。只有需要单独构建/推送/拉取镜像时再用 `build` / `push` / `pull`。默认处理核心部署镜像：backend、frontend、orchestrator、skillspector；agent runtime 镜像使用 `--group runtime`，全部镜像使用 `--group all`。
+
+`deploy/image-components.tsv` 是组件名、分组、默认镜像名、Dockerfile、context、runtime target、Compose
+环境变量和 CI build family 的唯一 Registry。`deploy.sh` 的 build/push/pull、Compose 镜像同步，以及
+`.github/workflows/docker-build.yml` / `.github/workflows/release.yml` 的 matrix 都从该文件加载；新增镜像组件
+不得再在脚本或 workflow 中复制一套布尔开关或静态矩阵。`deploy/lib/*.sh` 是入口内部 capability module，
+对用户公开的部署入口仍只有 `deploy/deploy.sh`。
 
 ```bash
 cd deploy
 ./deploy.sh doctor
 ./deploy.sh local
 ./deploy.sh build
-./deploy.sh build --all
+./deploy.sh build --group all
 ./deploy.sh push
 ./deploy.sh pull --registry registry.example.com/your-org --tag v0.3.2
+./deploy.sh registry
 ```
 
-`pull` 成功后会同步 `deploy/.env` 中被拉取镜像对应的变量，后续 `docker compose up --no-build` 会使用本次拉取的镜像。核心部署镜像支持多架构 buildx push。agent runtime 镜像依赖按架构生成的 runner 二进制和 Dockerfile，当前脚本只支持单架构构建；构建 runtime 时显式指定 `--arch amd64` 或 `--arch arm64`。如果 `push --all` 或 `--runtime-only` 触发多架构 runtime 构建，脚本会在任何镜像构建/推送前拒绝执行，避免出现只推送一部分镜像的发布状态。
+`pull` 成功后会同步 `deploy/.env` 中被拉取镜像对应的变量，后续 `docker compose up --no-build` 会使用本次拉取的镜像。核心部署镜像和 agent runtime 镜像都支持多架构 Buildx push；本地 `build` 未指定单架构时仍只加载第一个目标平台，这是 Docker 本地镜像存储的限制。
 
-Runner 的唯一发布构建路径是 `deploy/docker/runner-builder.Dockerfile`：Buildx 在目标 Linux 平台内编译 `sandbox-runner`，再把单个 ELF 二进制导出到仓库根目录的 `target/<triple>/release/`。Claude Code、Codex、Native、Pi 四类 runtime Dockerfile 都只负责安装自己的 harness、写入 provider 专属 entrypoint，并封装同一 Runner 产物；它们不得自行编译 Runner。这样 `fuser` 等 Linux-only build script 不会在 macOS 宿主执行；各 runtime-only 选项只要求 Docker 与 Buildx，不要求宿主安装 Zig、`cargo-zigbuild` 或 `protoc`。宿主 `cargo-zigbuild` 仅属于 orchestrator 快速打包路径。
+Agent runtime 的唯一构建定义是 `deploy/docker/runtime.Dockerfile`。其 `runner-builder` stage 在目标 Linux 平台内编译 `sandbox-runner`，`runtime-with-runner` stage 组装公共工具和 Runner，`claudecode` / `codex` / `native` / `pi` final stage 只安装各自 harness 与 entrypoint。Runner 不再导出到宿主 `target/` 后二次打包，因此 `fuser` 等 Linux 构建逻辑不会落到 macOS；`deploy.sh` 只选择 target、platform 和 image tag，不复制 provider 构建细节。宿主 `cargo-zigbuild` 仅属于 orchestrator 快速打包路径。
 
 ## 部署方案选择
 
 | 方案 | 命令 / 做法 | 适用场景 | 注意事项 |
 |---|---|---|---|
-| 全本地 Compose | `./deploy.sh doctor && ./deploy.sh local` | 新用户、本机验证、单机 demo | 会启动 PostgreSQL/Redis/SkillSpector/Envoy/API/orchestrator/worker/frontend；不构建 agent 运行镜像，跑真实 agent 前需先 `build --claudecode-only` 或 `pull --runtime-only` |
-| 宿主机本地开发 | `./local-test.sh` | 开发 API/Rust/Worker/Frontend，数据库和 Redis 仍用 Docker | Python/Node/Rust 进程跑在宿主机；普通用户不要把它当生产部署 |
+| 全本地 Compose | `./deploy.sh doctor && ./deploy.sh local` | 新用户、本机验证、单机 demo | 会启动 PostgreSQL/Redis/SkillSpector/Envoy/API/orchestrator/worker/frontend；不构建 agent 运行镜像，跑真实 agent 前需先 `build --component claudecode` 或 `pull --group runtime` |
+| 宿主机本地开发 | `./deploy.sh dev` | 开发 API/Rust/Worker/Frontend，数据库和 Redis 仍用 Docker | Python/Node/Rust 进程跑在宿主机；普通用户不要把它当生产部署 |
 | 云 Redis / 本地 PostgreSQL | `./deploy.sh build --arch <arch>` 后手工 `docker compose --profile rust-orchestrator up -d --no-build` | Redis 已托管，其他服务仍在单机 | 不启用 `local-redis` profile，设置 `REDIS_URL` |
 | 云 Redis + 云 PostgreSQL | 同一 compose 文件，覆盖 `REDIS_URL` 和 `POSTGRES_*` | 单机应用服务 + 托管中间件 | 手工运行 `db-init` 或按发布流程执行迁移 |
 | 预构建镜像部署 | `./deploy.sh pull --registry ... --tag ...` 后 `up --no-build` | 生产/准生产，不希望线上机器编译 | `pull` 会写入 `deploy/.env`；镜像 tag 要显式，不要依赖 `latest` 做可审计发布 |

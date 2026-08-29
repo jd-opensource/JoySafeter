@@ -18,7 +18,7 @@ BINARY_ORCHESTRATOR_DOCKERFILES = (
 # Source Dockerfiles that still compile in-image (used by GitHub CI on native
 # runners). Kept for the multi-arch CI build path.
 SOURCE_ORCHESTRATOR_DOCKERFILES = ("orchestrator-rs.Dockerfile",)
-RUNNER_BUILDER_DOCKERFILE = "runner-builder.Dockerfile"
+RUNTIME_DOCKERFILE = "runtime.Dockerfile"
 RUNTIME_ENGINES = ("claudecode", "codex", "pi", "native")
 
 
@@ -65,98 +65,111 @@ def test_orchestrator_dockerfiles_do_not_export_dead_global_enable_switch(filena
     assert "JOYSAFETER_ENABLED" not in source
 
 
-def test_runner_builder_compiles_inside_target_linux_platform() -> None:
-    source = (REPO_ROOT / "deploy/docker" / RUNNER_BUILDER_DOCKERFILE).read_text()
+def test_runtime_dockerfile_compiles_runner_inside_target_linux_platform() -> None:
+    source = (REPO_ROOT / "deploy/docker" / RUNTIME_DOCKERFILE).read_text()
 
-    assert not source.startswith("# syntax=docker/dockerfile")
-    assert "FROM ${RUST_IMAGE} AS builder" in source
+    first_from = source.index("FROM ")
+    assert source.index('ARG RUST_IMAGE=') < first_from
+    assert source.index('ARG BASE_IMAGE_REGISTRY=') < first_from
+    assert "FROM ${RUST_IMAGE} AS runner-builder" in source
     assert "COPY proto ./proto" in source
     assert "COPY shared ./shared" in source
     assert "COPY sandbox-runner ./sandbox-runner" in source
     assert "cargo build --release -p joysafeter-runner" in source
-    assert "FROM scratch AS export" in source
-    assert "/joysafeter-runner" in source
+    assert "COPY --from=runner-builder" in source
+    assert "/usr/local/bin/joysafeter-runner" in source
 
 
-def test_runner_builder_context_contains_only_required_sources() -> None:
-    source = (REPO_ROOT / "deploy/docker" / f"{RUNNER_BUILDER_DOCKERFILE}.dockerignore").read_text()
+def test_runtime_build_context_contains_only_required_sources() -> None:
+    source = (REPO_ROOT / "deploy/docker" / f"{RUNTIME_DOCKERFILE}.dockerignore").read_text()
 
     assert source.startswith("*\n")
     assert "!proto/**" in source
     assert "!shared/**" in source
     assert "!sandbox-runner/**" in source
+    assert "!deploy/docker/runtime.Dockerfile" in source
+    assert "!deploy/docker/runner-entrypoint.sh" in source
+    assert "!deploy/docker/codex-entrypoint.sh" in source
+    assert "!deploy/docker/pi-entrypoint.sh" in source
+    assert "!deploy/docker/claude-code-best-2.8.4.tgz" in source
     assert "**/target/" in source
 
 
-def test_runtime_runner_build_uses_buildkit_export_not_host_zigbuild() -> None:
-    source = (REPO_ROOT / "deploy/deploy.sh").read_text()
+def test_runtime_build_selects_named_target_without_host_binary_staging() -> None:
+    source = (REPO_ROOT / "deploy/lib/images.sh").read_text()
     match = re.search(
-        r"ensure_runtime_runner_binary\(\) \{(?P<body>.*?)\n\}\n\nbuild_runtime_image\(\)",
+        r"build_runtime_image\(\) \{(?P<body>.*?)\n\}\n\n# 镜像组件",
         source,
         re.DOTALL,
     )
 
     assert match is not None
     body = match.group("body")
-    assert "runner-builder.Dockerfile" in body
-    assert "docker buildx build" in body
-    assert '--target "export"' in body
-    assert "type=local,dest=$output_dir" in body
-    assert '"$PROJECT_ROOT/shared/rust"' in body
-    assert '"$PROJECT_ROOT/proto"' in body
-    assert '"$SCRIPT_DIR/docker/runner-builder.Dockerfile"' in body
-    assert '"$SCRIPT_DIR/docker/runner-builder.Dockerfile.dockerignore"' in body
+    assert '"$SCRIPT_DIR/docker/runtime.Dockerfile"' in body
+    assert '--target "$engine"' in body
+    assert '--build-arg "RUST_IMAGE=$RUST_IMAGE"' in body
+    assert "ensure_runtime_runner_binary" not in body
+    assert "target/$target/release/joysafeter-runner" not in body
     assert "zigbuild_rust_binary" not in body
     assert "cargo zigbuild" not in body
 
 
 @pytest.mark.parametrize("workflow", ("docker-build.yml", "release.yml"))
-def test_ci_builds_runner_through_the_same_linux_builder(workflow: str) -> None:
+def test_ci_builds_each_runtime_from_the_unified_multistage_dockerfile(workflow: str) -> None:
     source = (REPO_ROOT / ".github/workflows" / workflow).read_text()
+    registry_rows = [
+        line.split("\t")
+        for line in (REPO_ROOT / "deploy/image-components.tsv").read_text().splitlines()
+        if line and not line.startswith("#")
+    ]
+    runtime_rows = {row[0]: row for row in registry_rows if row[1] == "runtime"}
 
-    assert "runner-builder.Dockerfile" in source
-    assert "Build runner with Linux Builder" in source
+    assert "./deploy/deploy.sh registry --family container --format github" in source
+    assert "target: ${{ matrix.image.target }}" in source
+    assert set(runtime_rows) == set(RUNTIME_ENGINES)
+    for engine, row in runtime_rows.items():
+        assert row[6] == "deploy/docker/runtime.Dockerfile"
+        assert row[8] == engine
+    assert "runner-builder.Dockerfile" not in source
     assert "cargo zigbuild --release -p joysafeter-runner" not in source
 
 
 @pytest.mark.parametrize("engine", RUNTIME_ENGINES)
-@pytest.mark.parametrize(
-    ("arch", "target"),
-    (
-        ("amd64", "x86_64-unknown-linux-gnu"),
-        ("arm64", "aarch64-unknown-linux-gnu"),
-    ),
-)
-def test_runtime_images_only_package_the_shared_runner(engine: str, arch: str, target: str) -> None:
-    source = (REPO_ROOT / "deploy/docker" / f"{engine}-{arch}.Dockerfile").read_text()
+def test_runtime_dockerfile_exposes_one_final_stage_per_engine(engine: str) -> None:
+    source = (REPO_ROOT / "deploy/docker" / RUNTIME_DOCKERFILE).read_text()
 
-    assert f"COPY target/{target}/release/joysafeter-runner" in source
-    assert "cargo build" not in source
+    assert f"FROM runtime-with-runner AS {engine}" in source
     assert "cargo zigbuild" not in source
 
 
+def test_legacy_per_arch_runtime_dockerfiles_are_removed() -> None:
+    docker_dir = REPO_ROOT / "deploy/docker"
+
+    for engine in RUNTIME_ENGINES:
+        assert not (docker_dir / f"{engine}-amd64.Dockerfile").exists()
+        assert not (docker_dir / f"{engine}-arm64.Dockerfile").exists()
+    assert not (docker_dir / "runner-builder.Dockerfile").exists()
+    assert not (docker_dir / "runner-builder.Dockerfile.dockerignore").exists()
+
+
 def test_deploy_cli_registers_pi_as_a_first_class_runtime() -> None:
-    source = (REPO_ROOT / "deploy/deploy.sh").read_text()
+    entrypoint = (REPO_ROOT / "deploy/deploy.sh").read_text()
+    images = (REPO_ROOT / "deploy/lib/images.sh").read_text()
+    registry = (REPO_ROOT / "deploy/image-components.tsv").read_text()
 
     for marker in (
-        'PI_IMAGE="${PI_IMAGE:-joysafeter-pi}"',
-        "--pi-only",
-        "pi:linux/amd64",
-        "pi:linux/arm64",
-        "BUILD_PI",
-        "PULL_PI",
-        "JOYSAFETER_IMAGE_PI",
+        "pi\truntime\tPi 运行镜像\truntime\tPI_IMAGE\tjoysafeter-pi",
+        "\tpi\tJOYSAFETER_IMAGE_PI\tcontainer\t-",
     ):
-        assert marker in source
+        assert marker in registry
+    assert "--component NAME" in entrypoint
+    assert "--group GROUP" in entrypoint
+    assert '--target "$engine"' in images
 
 
 def test_kubernetes_deployments_project_the_pi_runtime_image() -> None:
     values = (REPO_ROOT / "deploy/helm/joysafeter-orchestrator/values.yaml").read_text()
     configmap = (REPO_ROOT / "deploy/helm/joysafeter-orchestrator/templates/configmap.yaml").read_text()
-    complete = (REPO_ROOT / "deploy/k8s/orchestrator-complete.yaml").read_text()
-    multi = (REPO_ROOT / "deploy/k8s/orchestrator-multi.yaml").read_text()
 
     assert "pi: aisec-repo.jd.com/joysafeter/joysafeter-pi:latest" in values
     assert "JOYSAFETER_IMAGE_PI: {{ .Values.image.sandbox.pi | quote }}" in configmap
-    assert "JOYSAFETER_IMAGE_PI" in complete
-    assert "JOYSAFETER_IMAGE_PI" in multi

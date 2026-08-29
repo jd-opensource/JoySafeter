@@ -491,6 +491,11 @@ facts replaceable and prevents the provider from acquiring xDS context. Runner g
 servers and ports (`:9090`/`:9091` versus `:9092`), so protocol changes, authentication, limits, and failure
 handling cannot leak between execution and control-plane transports.
 
+For node-scoped delivery, xDS publication waits inside `NodeOwnershipRegistry` for the authoritative
+placement revision before exposing resources. The Kubernetes watcher still only emits facts; schedulers and
+providers do not add Kubernetes-specific sleeps or retries. The enclosing delivery timeout owns the terminal
+failure, so a missing placement fact fails at the xDS boundary instead of contaminating business orchestration.
+
 ### 4.3 Worker service (`app/joysafeter_worker/`)
 
 The durable persistence tier. Runs exactly one loop: `EventStreamWorker`
@@ -564,6 +569,13 @@ runner** picks the matching harness. It also selects the Docker image
 
 The Rust runner is the only harness execution path. Python services do not retain a parallel
 adapter or task-runner implementation.
+
+Runtime image assembly follows the same ownership rule. `deploy/docker/runtime.Dockerfile` owns
+the shared Linux toolchain, compiles the runner in its target-platform `runner-builder` stage, and
+exposes one final stage per provider. Each provider stage owns only its harness package and
+entrypoint. `deploy.sh` selects a named target, platform, and image tag; it does not compile or
+stage Runner binaries on the host. Helm and the orchestrator consume image references only and do
+not know how those images are built.
 
 ### 6.2 The Rust sandbox-runner (`sandbox-runner/`)
 

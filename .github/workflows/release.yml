@@ -77,23 +77,34 @@ jobs:
             echo 'CHANGELOG_EOF'
           } >> "$GITHUB_OUTPUT"
 
-  # Build architecture-specific Rust binaries once. The runner is compiled by
-  # the same target-platform Linux Builder used by deploy.sh; only the
-  # orchestrator uses host cargo-zigbuild.
+  image-matrix:
+    name: Load image component registry
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      container: ${{ steps.registry.outputs.container }}
+      orchestrator: ${{ steps.registry.outputs.orchestrator }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Export build matrices
+        id: registry
+        shell: bash
+        run: |
+          echo "container=$(./deploy/deploy.sh registry --family container --format github)" >> "$GITHUB_OUTPUT"
+          echo "orchestrator=$(./deploy/deploy.sh registry --family orchestrator --format github)" >> "$GITHUB_OUTPUT"
+
+  # Build architecture-specific orchestrator binaries once. Agent runtimes own
+  # their runner compilation inside deploy/docker/runtime.Dockerfile.
   rust-binaries:
-    name: Build Rust binaries (Linux Builder + zigbuild)
+    name: Build orchestrator binaries (zigbuild)
     needs: prepare-release
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
 
       - name: Install orchestrator cross-compile tools
         run: |
@@ -102,22 +113,6 @@ jobs:
           cargo install cargo-zigbuild --locked
           pip install ziglang
           rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
-
-      - name: Build runner with Linux Builder (amd64 + arm64)
-        run: |
-          set -euo pipefail
-          for arch_and_triple in \
-            "amd64 x86_64-unknown-linux-gnu" \
-            "arm64 aarch64-unknown-linux-gnu"; do
-            read -r arch triple <<< "$arch_and_triple"
-            mkdir -p "target/${triple}/release"
-            docker buildx build \
-              --platform "linux/${arch}" \
-              --file ./deploy/docker/runner-builder.Dockerfile \
-              --target export \
-              --output "type=local,dest=target/${triple}/release" \
-              .
-          done
 
       - name: Build orchestrator (amd64 + arm64, jd-identity)
         working-directory: backend/app/joysafeter_orchestrator_rs
@@ -140,16 +135,16 @@ jobs:
         with:
           name: rust-binaries
           path: |
-            target/x86_64-unknown-linux-gnu/release/joysafeter-runner
             target/x86_64-unknown-linux-gnu/release/joysafeter-orchestrator
-            target/aarch64-unknown-linux-gnu/release/joysafeter-runner
             target/aarch64-unknown-linux-gnu/release/joysafeter-orchestrator
           if-no-files-found: error
 
   # Non-Rust images: single multi-arch buildx build + push, then sign/attest.
   build-and-push:
     name: Publish ${{ matrix.image.name }}
-    needs: prepare-release
+    needs:
+      - prepare-release
+      - image-matrix
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -162,22 +157,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image:
-          - name: joysafeter-backend
-            context: ./backend
-            dockerfile: ./deploy/docker/backend.Dockerfile
-            skillspector: false
-            build_contexts: ''
-          - name: joysafeter-frontend
-            context: ./frontend
-            dockerfile: ./deploy/docker/frontend.Dockerfile
-            skillspector: false
-            build_contexts: ''
-          - name: joysafeter-skillspector
-            context: ./backend/joysafeter_skillspector
-            dockerfile: ./deploy/docker/skillspector-service.Dockerfile
-            skillspector: true
-            build_contexts: skillspector=./.deps/SkillSpector
+        image: ${{ fromJSON(needs.image-matrix.outputs.container).include }}
 
     steps:
       - name: Checkout code
@@ -231,6 +211,7 @@ jobs:
         with:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.dockerfile }}
+          target: ${{ matrix.image.target }}
           build-contexts: ${{ matrix.image.build_contexts }}
           platforms: linux/amd64,linux/arm64
           push: true
@@ -301,13 +282,13 @@ jobs:
           docker buildx imagetools create "${docker_args[@]}" "${DOCKER_CANDIDATE}@${DIGEST}"
           docker buildx imagetools create "${ghcr_args[@]}" "${GHCR_CANDIDATE}@${DIGEST}"
 
-  # Rust runtime images: build one single-arch image per architecture from the
-  # -<arch> Dockerfile (COPYs the prebuilt architecture-specific binary), push by digest,
-  # then merge the per-arch digests into one multi-arch manifest and sign it.
+  # The orchestrator packages prebuilt architecture-specific binaries, pushes
+  # per-architecture digests, then merges them into one signed manifest.
   build-and-push-rust:
     name: Publish ${{ matrix.image.name }}
     needs:
       - prepare-release
+      - image-matrix
       - rust-binaries
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -321,15 +302,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image:
-          - name: joysafeter-orchestrator-rs
-            file_prefix: orchestrator-rs
-          - name: joysafeter-claudecode
-            file_prefix: claudecode
-          - name: joysafeter-codex
-            file_prefix: codex
-          - name: joysafeter-pi
-            file_prefix: pi
+        image: ${{ fromJSON(needs.image-matrix.outputs.orchestrator).include }}
 
     steps:
       - name: Checkout code
@@ -380,14 +353,15 @@ jobs:
         env:
           GHCR_REPOSITORY: ${{ steps.tags.outputs.ghcr_repository }}
           DOCKER_REPOSITORY: ${{ steps.tags.outputs.docker_repository }}
-          FILE_PREFIX: ${{ matrix.image.file_prefix }}
+          DOCKERFILE_PATTERN: ${{ matrix.image.dockerfile }}
         run: |
           set -euo pipefail
           declare -A DIGESTS
           for arch in amd64 arm64; do
+            dockerfile="${DOCKERFILE_PATTERN/\{0\}/${arch}}"
             # push-by-digest to BOTH registries; --tag-less so only digests are created.
             metadata="$(docker buildx build \
-              --file "./deploy/docker/${FILE_PREFIX}-${arch}.Dockerfile" \
+              --file "$dockerfile" \
               --platform "linux/${arch}" \
               --provenance=mode=max --sbom=true \
               --cache-from type=gha --cache-to type=gha,mode=max \

@@ -110,6 +110,9 @@ impl EnvoyDelivery for ControlPlaneEnvoyDelivery {
         listeners: Vec<ListenerSpec>,
     ) -> anyhow::Result<DeliverySubmission> {
         let sandbox_id = delivery.sandbox_id;
+        self.control_plane
+            .wait_for_delivery_owner_node(sandbox_id)
+            .await?;
         let mut resources = Vec::with_capacity(clusters.len() + listeners.len());
         for spec in &clusters {
             if spec.sandbox_id != sandbox_id {

@@ -98,7 +98,7 @@ The entire flow — from upload to report — requires zero manual intervention,
 > **Note:** Requires the matching agent runtime image for the selected engine. Local deployment
 > uses `JOYSAFETER_IMAGE_CLAUDE`, `JOYSAFETER_IMAGE_CODEX`, `JOYSAFETER_IMAGE_NATIVE`, and
 > `JOYSAFETER_IMAGE_PI` from
-> `deploy/.env`; registry deployments can sync those values with `./deploy.sh pull --all`.
+> `deploy/.env`; registry deployments can sync those values with `./deploy.sh pull --group all`.
 
 This dynamic decision-making — where the agent adapts its next step based on what it finds — is what fixed scripts cannot replicate.
 

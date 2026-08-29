@@ -1,61 +1,31 @@
-#!/usr/bin/env bash
-set -euo pipefail
+# shellcheck shell=bash
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEPLOY="$ROOT/deploy"
-PIDS=()
+DEVELOPMENT_PIDS=()
 
-log() { printf '\033[0;36m▶ %s\033[0m\n' "$*"; }
-ok() { printf '\033[0;32m✅ %s\033[0m\n' "$*"; }
-
-cleanup() {
-  for pid in "${PIDS[@]:-}"; do
-    kill "$pid" >/dev/null 2>&1 || true
-  done
-}
-trap cleanup EXIT INT TERM
-
-compose() {
-  if docker compose version >/dev/null 2>&1; then
-    docker compose "$@"
-  else
-    docker-compose "$@"
-  fi
+development_cleanup() {
+    local pid
+    for pid in "${DEVELOPMENT_PIDS[@]:-}"; do
+        kill "$pid" >/dev/null 2>&1 || true
+    done
 }
 
-init_env() {
-  [ -f "$DEPLOY/.env" ] || cp "$DEPLOY/.env.example" "$DEPLOY/.env"
-  [ -f "$ROOT/backend/.env" ] || cp "$ROOT/backend/env.example" "$ROOT/backend/.env"
-  [ -f "$ROOT/frontend/.env" ] || cp "$ROOT/frontend/env.example" "$ROOT/frontend/.env"
+development_initialize_env() {
+    ensure_env_file "$SCRIPT_DIR/.env" "$SCRIPT_DIR/.env.example"
+    ensure_env_file "$PROJECT_ROOT/backend/.env" "$PROJECT_ROOT/backend/env.example"
+    ensure_env_file "$PROJECT_ROOT/frontend/.env" "$PROJECT_ROOT/frontend/env.example"
 }
 
-read_env() {
-  # 从 backend/.env 读取 KEY 的值，去掉行内注释和首尾空白；缺失则为空
-  local key="$1"
-  local file="$ROOT/backend/.env"
-  [ -f "$file" ] || return 0
-  awk -v k="$key" '
-    $0 ~ "^" k "=" {
-      v = substr($0, index($0, "=") + 1)
-      sub(/[[:space:]]+#.*$/, "", v)
-      gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
-      print v
-      exit
-    }
-  ' "$file"
-}
-
-report_dev_toggles() {
+development_report_toggles() {
   # 宿主机开发模式下，api/worker/orchestrator 读的是 backend/.env，并以本地进程运行。
   # PostgreSQL/Redis/Envoy 作为本地开发依赖容器运行。这里把实际状态打印出来，避免“为什么没扫描/没隔离”
   # 的静默困惑，并在扫描被打开但 scanner URL 指向宿主机连不到的容器 DNS 时明确告警。
-  local scan envoy scanner
-  scan="$(read_env SKILL_SECURITY_SCAN_ENABLED)"; scan="${scan:-false}"
-  enforcement="$(read_env SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED)"; enforcement="${enforcement:-false}"
-  envoy="$(read_env JOYSAFETER_ENVOY_ENABLED)"; envoy="${envoy:-false}"
-  scanner="$(read_env SKILL_SECURITY_SCANNER_URL)"
+  local scan enforcement envoy scanner
+  scan="$(read_env_value "$PROJECT_ROOT/backend/.env" SKILL_SECURITY_SCAN_ENABLED)"; scan="${scan:-false}"
+  enforcement="$(read_env_value "$PROJECT_ROOT/backend/.env" SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED)"; enforcement="${enforcement:-false}"
+  envoy="$(read_env_value "$PROJECT_ROOT/backend/.env" JOYSAFETER_ENVOY_ENABLED)"; envoy="${envoy:-false}"
+  scanner="$(read_env_value "$PROJECT_ROOT/backend/.env" SKILL_SECURITY_SCANNER_URL)"
 
-  log "宿主机开发模式安全开关（来自 backend/.env）"
+  log_info "宿主机开发模式安全开关（来自 backend/.env）"
   echo "  SKILL_SECURITY_SCAN_ENABLED = $scan"
   echo "  SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED = $enforcement"
   echo "  JOYSAFETER_ENVOY_ENABLED    = $envoy"
@@ -81,15 +51,16 @@ report_dev_toggles() {
   esac
 }
 
-start_envoy() {
-  local socket_dir config_dir image container_name
-  socket_dir="$(read_env JOYSAFETER_ENVOY_SOCKET_HOST_DIR)"
-  socket_volume="$(read_env JOYSAFETER_ENVOY_SOCKET_VOLUME)"; socket_volume="${socket_volume:-joysafeter-sockets}"
-  config_dir="$(read_env JOYSAFETER_ENVOY_CONFIG_DIR)"; config_dir="${config_dir:-/tmp/joysafeter-envoy-config}"
-  image="$(read_env JOYSAFETER_ENVOY_IMAGE)"; image="${image:-envoyproxy/envoy:v1.37.1}"
-  container_name="$(read_env JOYSAFETER_ENVOY_CONTAINER_NAME)"; container_name="${container_name:-joysafeter-envoy}"
+development_start_envoy() {
+  local socket_dir socket_volume config_dir image container_name
+  local -a socket_mount=()
+  socket_dir="$(read_env_value "$PROJECT_ROOT/backend/.env" JOYSAFETER_ENVOY_SOCKET_HOST_DIR)"
+  socket_volume="$(read_env_value "$PROJECT_ROOT/backend/.env" JOYSAFETER_ENVOY_SOCKET_VOLUME)"; socket_volume="${socket_volume:-joysafeter-sockets}"
+  config_dir="$(read_env_value "$PROJECT_ROOT/backend/.env" JOYSAFETER_ENVOY_CONFIG_DIR)"; config_dir="${config_dir:-/tmp/joysafeter-envoy-config}"
+  image="$(read_env_value "$PROJECT_ROOT/backend/.env" JOYSAFETER_ENVOY_IMAGE)"; image="${image:-envoyproxy/envoy:v1.37.1}"
+  container_name="$(read_env_value "$PROJECT_ROOT/backend/.env" JOYSAFETER_ENVOY_CONTAINER_NAME)"; container_name="${container_name:-joysafeter-envoy}"
 
-  log "启动 Envoy 出口网关容器（本地开发依赖）"
+  log_info "启动 Envoy 出口网关容器（本地开发依赖）"
   mkdir -p "$config_dir/sandboxes"
   if [ -n "$socket_dir" ]; then
     mkdir -p "$socket_dir"
@@ -119,16 +90,16 @@ start_envoy() {
     -c "set -eu; mkdir -p /sockets /envoy-config/sandboxes; while [ ! -s /envoy-config/bootstrap.json ]; do sleep 0.2; done; exec envoy -c /envoy-config/bootstrap.json --log-level ${JOYSAFETER_ENVOY_LOG_LEVEL:-info}" >/dev/null
 }
 
-start_runner_control_proxy() {
+development_start_runner_control_proxy() {
   local volume container_path container_dir container_name image
-  volume="$(read_env JOYSAFETER_RUNNER_CONTROL_SOCKET_VOLUME)"
+  volume="$(read_env_value "$PROJECT_ROOT/backend/.env" JOYSAFETER_RUNNER_CONTROL_SOCKET_VOLUME)"
   [ -n "$volume" ] || return 0
-  container_path="$(read_env JOYSAFETER_RUNNER_CONTROL_SOCKET_CONTAINER_PATH)"; container_path="${container_path:-/control/grpc.sock}"
+  container_path="$(read_env_value "$PROJECT_ROOT/backend/.env" JOYSAFETER_RUNNER_CONTROL_SOCKET_CONTAINER_PATH)"; container_path="${container_path:-/control/grpc.sock}"
   container_dir="${container_path%/*}"; [ -n "$container_dir" ] || container_dir="/sockets"
   container_name="${JOYSAFETER_RUNNER_CONTROL_PROXY_CONTAINER:-joysafeter-runner-control-proxy}"
-  image="${JOYSAFETER_RUNNER_CONTROL_PROXY_IMAGE:-aisec-repo.jd.com/joysafeter/joysafeter-claudecode:latest}"
+  image="${JOYSAFETER_RUNNER_CONTROL_PROXY_IMAGE:-$(component_image_ref claudecode)}"
 
-  log "启动 Runner 控制面 UDS 代理容器（Docker Desktop 本地开发）"
+  log_info "启动 Runner 控制面 UDS 代理容器（Docker Desktop 本地开发）"
   docker volume create "$volume" >/dev/null
   docker rm -f "$container_name" >/dev/null 2>&1 || true
   docker run --rm --user 0 --entrypoint sh \
@@ -148,17 +119,17 @@ start_runner_control_proxy() {
     UNIX-LISTEN:"$container_path",fork,mode=666,reuseaddr TCP:host.docker.internal:${JOYSAFETER_GRPC_PORT:-9090} >/dev/null
 }
 
-start_infra() {
-  log "启动 PostgreSQL / Redis"
-  cd "$DEPLOY"
-  compose -f docker-compose.yml up -d db redis
-  start_envoy
-  start_runner_control_proxy
+development_start_infra() {
+  log_info "启动 PostgreSQL / Redis"
+  cd "$SCRIPT_DIR"
+  compose_local_env --profile local-redis up -d postgres redis
+  development_start_envoy
+  development_start_runner_control_proxy
 
-  log "等待 PostgreSQL 就绪"
+  log_info "等待 PostgreSQL 就绪"
   local ready=false
   for _ in $(seq 1 60); do
-    if compose -f docker-compose.yml exec -T db \
+    if compose_local_env --profile local-redis exec -T postgres \
         pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-joysafeter}" >/dev/null 2>&1; then
       ready=true
       break
@@ -166,7 +137,7 @@ start_infra() {
     sleep 1
   done
   if [ "$ready" != true ]; then
-    echo "PostgreSQL 在 60s 内未就绪；请检查 docker compose logs db" >&2
+    echo "PostgreSQL 在 60s 内未就绪；请检查 ./deploy.sh logs postgres" >&2
     exit 1
   fi
 
@@ -174,31 +145,31 @@ start_infra() {
   # 源码启动，迁移也应如此：容器 db-init 可能是陈旧的 joysafeter-backend:latest，
   # 会把库迁到旧 head，而宿主机源码期待更新的表，造成崩溃。宿主机 alembic 让 schema
   # 与代码始终一致，也不必为跑一次迁移去构建整个 backend 镜像。
-  log "运行数据库迁移（宿主机源码 alembic upgrade head）"
-  ( cd "$ROOT/backend" && uv run alembic upgrade head )
+  log_info "运行数据库迁移（宿主机源码 alembic upgrade head）"
+  ( cd "$PROJECT_ROOT/backend" && uv run alembic upgrade head )
 }
 
-start_backend() {
-  cd "$ROOT/backend"
+development_start_backend() {
+  cd "$PROJECT_ROOT/backend"
   export JOYSAFETER_EVENT_STREAM_ENABLED=true
   export JOYSAFETER_GRPC_PUBLIC_URL="${JOYSAFETER_GRPC_PUBLIC_URL:-http://host.docker.internal:9090}"
   export JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR="${JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR:-/tmp/joysafeter-runner-control}"
   export JOYSAFETER_RUNNER_CONTROL_SOCKET_VOLUME="${JOYSAFETER_RUNNER_CONTROL_SOCKET_VOLUME:-}"
   export JOYSAFETER_RUNNER_CONTROL_SOCKET_CONTAINER_PATH="${JOYSAFETER_RUNNER_CONTROL_SOCKET_CONTAINER_PATH:-/control/grpc.sock}"
-  export JOYSAFETER_ENVOY_SOCKET_HOST_DIR="${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-$(read_env JOYSAFETER_ENVOY_SOCKET_HOST_DIR)}"
-  export JOYSAFETER_ENVOY_SOCKET_VOLUME="${JOYSAFETER_ENVOY_SOCKET_VOLUME:-$(read_env JOYSAFETER_ENVOY_SOCKET_VOLUME)}"
-  export JOYSAFETER_ENVOY_XDS_MODE="${JOYSAFETER_ENVOY_XDS_MODE:-$(read_env JOYSAFETER_ENVOY_XDS_MODE)}"
+  export JOYSAFETER_ENVOY_SOCKET_HOST_DIR="${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-$(read_env_value "$PROJECT_ROOT/backend/.env" JOYSAFETER_ENVOY_SOCKET_HOST_DIR)}"
+  export JOYSAFETER_ENVOY_SOCKET_VOLUME="${JOYSAFETER_ENVOY_SOCKET_VOLUME:-$(read_env_value "$PROJECT_ROOT/backend/.env" JOYSAFETER_ENVOY_SOCKET_VOLUME)}"
+  export JOYSAFETER_ENVOY_XDS_MODE="${JOYSAFETER_ENVOY_XDS_MODE:-$(read_env_value "$PROJECT_ROOT/backend/.env" JOYSAFETER_ENVOY_XDS_MODE)}"
   if [ -z "${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-}" ]; then
     export JOYSAFETER_ENVOY_XDS_MODE="${JOYSAFETER_ENVOY_XDS_MODE:-grpc}"
   fi
 
-  log "启动 API :8000"
+  log_info "启动 API :8000"
   JOYSAFETER_SERVICE_ROLE=api uv run uvicorn app.joysafeter_api.main:app --host 0.0.0.0 --port 8000 &
-  PIDS+=("$!")
+  DEVELOPMENT_PIDS+=("$!")
 
-  log "启动 Rust Orchestrator gRPC :9090"
+  log_info "启动 Rust Orchestrator gRPC :9090"
   (
-    cd "$ROOT/backend/app/joysafeter_orchestrator_rs"
+    cd "$PROJECT_ROOT/backend/app/joysafeter_orchestrator_rs"
     JOYSAFETER_GRPC_HOST=0.0.0.0 \
       JOYSAFETER_GRPC_PORT="${JOYSAFETER_GRPC_PORT:-9090}" \
       JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR="$JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR" \
@@ -209,34 +180,41 @@ start_backend() {
       JOYSAFETER_ENVOY_XDS_MODE="$JOYSAFETER_ENVOY_XDS_MODE" \
       cargo run --release
   ) &
-  PIDS+=("$!")
+  DEVELOPMENT_PIDS+=("$!")
 
-  log "启动 Worker :8002"
+  log_info "启动 Worker :8002"
   JOYSAFETER_SERVICE_ROLE=worker uv run uvicorn app.joysafeter_worker.main:app --host 127.0.0.1 --port 8002 &
-  PIDS+=("$!")
+  DEVELOPMENT_PIDS+=("$!")
 }
 
-start_frontend() {
-  cd "$ROOT/frontend"
+development_start_frontend() {
+  cd "$PROJECT_ROOT/frontend"
   export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-http://localhost:8000}"
-  log "启动 Frontend :3000"
+  log_info "启动 Frontend :3000"
   bun run dev &
-  PIDS+=("$!")
+  DEVELOPMENT_PIDS+=("$!")
 }
 
-main() {
-  init_env
-  report_dev_toggles
-  start_infra
-  start_backend
-  start_frontend
-  ok "本地测试环境已启动"
-  echo "Frontend: http://localhost:3000"
-  echo "API:      http://localhost:8000"
-  echo "Docs:     http://localhost:8000/docs"
-  echo "gRPC:     http://host.docker.internal:${JOYSAFETER_GRPC_PORT:-9090}"
-  echo "按 Ctrl+C 停止本地进程；PostgreSQL/Redis 可用: cd deploy && docker compose down"
-  wait
+run_host_development() {
+    check_command docker || return 1
+    check_command uv || return 1
+    check_command cargo || return 1
+    check_command bun || return 1
+    check_docker_running
+    if [ -z "$PLATFORMS" ]; then
+        PLATFORMS="$(get_docker_platform)"
+    fi
+    development_initialize_env
+    development_report_toggles
+    trap development_cleanup EXIT INT TERM
+    development_start_infra
+    development_start_backend
+    development_start_frontend
+    log_success "宿主机开发环境已启动"
+    echo "Frontend: http://localhost:3000"
+    echo "API:      http://localhost:8000"
+    echo "Docs:     http://localhost:8000/docs"
+    echo "Runner gRPC: http://host.docker.internal:${JOYSAFETER_GRPC_PORT:-9090}"
+    echo "按 Ctrl+C 停止宿主进程；依赖容器可用: cd deploy && ./deploy.sh down postgres redis"
+    wait
 }
-
-main "$@"
