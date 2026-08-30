@@ -233,6 +233,8 @@ envoy:
   enabled: true
   xdsMode: grpc
   socketHostDir: /data/joysafeter/envoy-sockets
+  runAsUser: 101
+  runAsGroup: 101
 
   resources:
     requests:

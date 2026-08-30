@@ -27,6 +27,28 @@ spec:
         {{- end }}
       {{- end }}
 
+      initContainers:
+      - name: prepare-socket-root
+        image: {{ .Values.image.envoy }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["sh", "-c"]
+        args:
+        - |
+          set -eu
+          mkdir -p /sockets
+          chown 0:0 /sockets
+          chmod 0750 /sockets
+          chown {{ .Values.envoy.runAsUser }}:{{ .Values.envoy.runAsGroup }} /sockets
+        securityContext:
+          runAsUser: 0
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+            add: ["CHOWN"]
+        volumeMounts:
+        - name: envoy-sockets
+          mountPath: /sockets
+
       containers:
       - name: envoy
         image: {{ .Values.image.envoy }}
@@ -157,8 +179,8 @@ spec:
               key: JOYSAFETER_XDS_AUTH_TOKEN
 
         securityContext:
-          runAsUser: 101
-          runAsGroup: 101
+          runAsUser: {{ .Values.envoy.runAsUser }}
+          runAsGroup: {{ .Values.envoy.runAsGroup }}
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]

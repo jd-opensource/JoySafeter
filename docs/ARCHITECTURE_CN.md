@@ -349,7 +349,7 @@ resource store、node ownership、delivery quorum 和 ADS session 分离，避�
 |---|---|---|
 | `src/sandbox/provider.rs` | 可替换 create/start/stop/destroy/status/exec/file 生命周期与 capability 端口 | 不做 PostgreSQL generation 转换，不访问 xDS authority |
 | `src/sandbox/docker.rs` | Docker container、mount、socket 与 runtime facts | 不直接发布/删除 xDS resource |
-| `src/sandbox/k8s.rs` | Pod/PVC/spec 生命周期与 watcher 装配 | 不判断 ownership，不修改 xDS state |
+| `src/sandbox/k8s.rs` | Pod/PVC/spec 生命周期、节点本地 socket 目录清理与 watcher 装配 | 不判断 ownership，不修改 xDS state |
 | `src/sandbox/pod_watcher.rs` | 观察 Kubernetes Pod 并发出中立 `PlacementEvent` | 不依赖 `XdsControlPlane` 或 policy application |
 | `src/sandbox/runtime.rs` | socket preparation、placement event 的小型基础设施端口 | 不包含 provider/xDS 实现 |
 | `src/sandbox/envoy.rs` | `NetworkPolicyRuntime` adapter：socket 准备、模型批处理、等待 delivery | 不拥有 desired policy、durable generation 或 ADS protocol state |
@@ -363,9 +363,18 @@ Kubernetes placement 链路刻意采用依赖反转：watcher 只发 `PlacementE
 Runner gRPC 与 ADS 使用不同 server 和端口（`:9090`/`:9091` 对比 `:9092`），执行协议与控制面协议的变更、认证、
 限流和失败处理不会互相泄漏。
 
+Kubernetes socket 存储遵循同一归属规则：sandbox initContainer 在 Runner 启动前创建 UUID 作用域的节点
+本地 hostPath 目录；不可恢复的 Pod 停止或销毁时，由 Kubernetes provider 通过每个节点上的 Envoy
+DaemonSet Pod 删除该 UUID 目录。清理只接受解析后的 sandbox UUID 和固定命令参数，Pod 已不存在时仍可
+幂等重试，且不会直接发布或删除任何 xDS resource。
+
 对于 node-scoped delivery，xDS 发布在 `NodeOwnershipRegistry` 内等待权威 placement revision 后才暴露资源。
 Kubernetes watcher 仍然只发布事实，scheduler/provider 不增加 Kubernetes 特有的 sleep 或 retry；外层 delivery
 timeout 负责终态失败，因此 placement 缺失在 xDS 边界失败，不污染业务编排。
+
+撤销与发布具有刻意不同的 quorum 语义：仍有节点归属时，撤销必须等待该节点的精确 ACK；placement 已撤销时，
+资源对所有节点均不可见，xDS authority 直接从权威库存中退役该资源，不虚构 fallback 节点，也不等待不可能到达
+的 ACK。这样 Pod 被外部删除后，周期库存对账仍可收敛，而发布路径继续 fail-closed。
 
 ### 4.3 Worker 服务（`app/joysafeter_worker/`）
 

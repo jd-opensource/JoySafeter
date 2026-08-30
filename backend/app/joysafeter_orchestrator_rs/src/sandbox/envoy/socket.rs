@@ -11,12 +11,19 @@ use bollard::exec::{CreateExecOptions, StartExecOptions};
 use bollard::models::{HostConfig, Mount, MountTypeEnum};
 use bollard::Docker;
 use futures::TryStreamExt;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::ids::SandboxId;
 use crate::sandbox::runtime::SandboxSocketProvisioner;
 
 const SOCKET_READY_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+fn socket_storage_preflight_marker() -> String {
+    format!(
+        ".joysafeter-socket-preflight-{}",
+        SandboxId::new().as_uuid()
+    )
+}
 
 #[derive(Clone)]
 pub struct EgressSocketConfig {
@@ -70,7 +77,26 @@ impl EgressSocketProvisioner {
     }
 
     async fn mkdir_in_socket_volume(&self, name: &str) -> anyhow::Result<()> {
-        let helper_name = format!("joysafeter-envoy-socket-init-{name}");
+        self.run_socket_volume_helper(
+            "init",
+            name,
+            format!("mkdir -p /sockets/{name} && chmod 755 /sockets/{name}"),
+        )
+        .await
+    }
+
+    async fn remove_socket_volume_subdir(&self, name: &str) -> anyhow::Result<()> {
+        self.run_socket_volume_helper("cleanup", name, format!("rm -rf /sockets/{name}"))
+            .await
+    }
+
+    async fn run_socket_volume_helper(
+        &self,
+        operation: &str,
+        name: &str,
+        command: String,
+    ) -> anyhow::Result<()> {
+        let helper_name = format!("joysafeter-envoy-socket-{operation}-{name}");
         let docker = self.docker()?;
         let _ = docker
             .remove_container(
@@ -85,9 +111,7 @@ impl EgressSocketProvisioner {
             image: Some(self.config.envoy_image.clone()),
             user: Some("0".to_string()),
             entrypoint: Some(vec!["/bin/sh".to_string(), "-lc".to_string()]),
-            cmd: Some(vec![format!(
-                "mkdir -p /sockets/{name} && chmod 755 /sockets/{name}"
-            )]),
+            cmd: Some(vec![command]),
             host_config: Some(HostConfig {
                 mounts: Some(vec![Mount {
                     target: Some("/sockets".to_string()),
@@ -128,18 +152,25 @@ impl EgressSocketProvisioner {
             .await;
         if status_code != 0 {
             anyhow::bail!(
-                "failed to prepare Envoy socket volume directory {name}: helper exited {status_code}"
+                "failed to {operation} Envoy socket volume directory {name}: helper exited {status_code}"
             );
         }
-        debug!(name, socket_volume = %self.config.socket_volume, "Prepared Envoy socket dir");
+        debug!(operation, name, socket_volume = %self.config.socket_volume, "Updated Envoy socket dir");
         Ok(())
     }
 
-    fn host_socket_dir(&self, sandbox_id: SandboxId) -> Option<PathBuf> {
-        self.config
-            .socket_host_dir
-            .as_ref()
-            .map(|root| PathBuf::from(root).join(sandbox_id.as_uuid().to_string()))
+    async fn remove_socket_subdir(&self, name: &str) -> anyhow::Result<()> {
+        match self.config.socket_host_dir.as_deref() {
+            Some(root) => {
+                let dir = PathBuf::from(root).join(name);
+                match tokio::fs::remove_dir_all(&dir).await {
+                    Ok(()) => Ok(()),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    Err(error) => Err(error.into()),
+                }
+            }
+            None => self.remove_socket_volume_subdir(name).await,
+        }
     }
 
     async fn envoy_path_test(&self, flag: &str, path: &str) -> anyhow::Result<bool> {
@@ -221,27 +252,36 @@ impl EgressSocketProvisioner {
         if self.docker.is_none() || self.config.externally_provisioned {
             return Ok(());
         }
-        const MARKER: &str = ".joysafeter-socket-preflight";
-        self.ensure_socket_subdir(MARKER)
+        let marker = socket_storage_preflight_marker();
+        self.ensure_socket_subdir(&marker)
             .await
             .context("failed to create socket-storage preflight marker")?;
-        if !self
-            .envoy_path_test("-d", &format!("/sockets/{MARKER}"))
+        let visible = self
+            .envoy_path_test("-d", &format!("/sockets/{marker}"))
             .await
-            .unwrap_or(false)
-        {
+            .unwrap_or(false);
+        let cleanup_result = self.remove_socket_subdir(&marker).await;
+        if !visible {
+            if let Err(error) = cleanup_result {
+                warn!(marker, %error, "Failed to remove invisible socket-storage preflight marker");
+            }
             anyhow::bail!(
                 "Envoy cannot see orchestrator socket storage {}; mount the same storage at /sockets",
                 self.storage_description()
             );
         }
+        cleanup_result.context("failed to remove socket-storage preflight marker")?;
         info!(storage = %self.storage_description(), "Envoy socket storage verified");
         Ok(())
     }
 
     pub async fn remove_socket_dir(&self, sandbox_id: SandboxId) {
-        if let Some(socket_dir) = self.host_socket_dir(sandbox_id) {
-            let _ = tokio::fs::remove_dir_all(socket_dir).await;
+        if self.config.externally_provisioned {
+            return;
+        }
+        let name = sandbox_id.as_uuid().to_string();
+        if let Err(error) = self.remove_socket_subdir(&name).await {
+            warn!(sandbox_id = %sandbox_id, %error, "Failed to remove Envoy socket directory");
         }
     }
 
@@ -300,5 +340,15 @@ mod tests {
             .wait_for_socket_ready_with(SandboxId::new(), || async { true })
             .await
             .expect("visible socket");
+    }
+
+    #[test]
+    fn socket_storage_preflight_markers_are_unique() {
+        let first = socket_storage_preflight_marker();
+        let second = socket_storage_preflight_marker();
+
+        assert!(first.starts_with(".joysafeter-socket-preflight-"));
+        assert!(second.starts_with(".joysafeter-socket-preflight-"));
+        assert_ne!(first, second);
     }
 }

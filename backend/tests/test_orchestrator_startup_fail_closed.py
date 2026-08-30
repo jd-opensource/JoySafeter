@@ -7,10 +7,13 @@ pytestmark = pytest.mark.no_db
 
 
 def test_envoy_recovery_does_not_ignore_socket_directory_failures() -> None:
-    source = (REPO_ROOT / "backend/app/joysafeter_orchestrator_rs/src/sandbox/envoy.rs").read_text()
+    source = (
+        REPO_ROOT
+        / "backend/app/joysafeter_orchestrator_rs/src/sandbox/envoy/policy_runtime.rs"
+    ).read_text()
 
-    assert "let _ = self.prepare_socket_dir(sb.id).await;" not in source
-    assert "self.prepare_socket_dir(entry.sandbox_id).await?;" in source
+    assert "let _ = self.sockets.prepare_socket_dir(sb.id).await;" not in source
+    assert "self.sockets.prepare_socket_dir(entry.sandbox_id).await?;" in source
 
 
 def test_provider_startup_failure_aborts_orchestrator_readiness() -> None:
@@ -18,13 +21,15 @@ def test_provider_startup_failure_aborts_orchestrator_readiness() -> None:
         REPO_ROOT
         / "backend/app/joysafeter_orchestrator_rs/src/bootstrap/application.rs"
     ).read_text()
-    envoy_source = (
-        REPO_ROOT / "backend/app/joysafeter_orchestrator_rs/src/sandbox/envoy.rs"
+    envoy_process_source = (
+        REPO_ROOT
+        / "backend/app/joysafeter_orchestrator_rs/src/sandbox/envoy/process.rs"
     ).read_text()
 
-    assert "network_policy_runtime.initialize().await?;" in application_source
-    assert "self.manager.init().await?;" in envoy_source
-    assert "network_policy::recovery::recover_as_authority(" in application_source
+    assert "process.initialize().await?;" in application_source
+    assert "network_policy.initialize().await?;" in application_source
+    assert "self.write_bootstrap_config().await?;" in envoy_process_source
+    assert "network_policy.recover(&recovery).await?;" in application_source
     assert "xds_authority.mark_ready(&recovery)?;" in application_source
 
 

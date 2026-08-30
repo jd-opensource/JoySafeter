@@ -243,6 +243,15 @@ impl DeltaXdsServer {
             .ok_or(super::delivery::DeliveryError::MissingDeliveryContext)?;
         self.authority
             .validate_delivery_epoch(request.authority_epoch)?;
+        if matches!(target, DeliveryTarget::Unavailable) {
+            let revision = self.resources.remove_sandbox(sandbox_id).await;
+            delivery.forget(sandbox_id);
+            drop(delivery);
+            if !revision.changes.is_empty() {
+                self.notify_delivery_changed();
+            }
+            return Ok(None);
+        }
         let attempt = delivery.begin_removal(sandbox_id, target, required_types.clone())?;
         let revision = self.resources.remove_sandbox(sandbox_id).await;
         delivery.mark_published(attempt, revision.version, required_types)?;

@@ -94,8 +94,11 @@ impl XdsControlPlane {
         &self,
         sandbox_id: SandboxId,
     ) -> anyhow::Result<Option<DeliveryAttempt>> {
-        let owner_node = self.node_ownership.delivery_owner_node(sandbox_id)?;
-        let target = owner_node.map_or(DeliveryTarget::AnyNode, DeliveryTarget::Node);
+        let target = match self.node_ownership.owner_node(sandbox_id) {
+            Some(node) => DeliveryTarget::Node(node),
+            None if self.node_ownership.requires_node_assignment() => DeliveryTarget::Unavailable,
+            None => DeliveryTarget::AnyNode,
+        };
         self.delta
             .remove_sandbox_resources(sandbox_id, target)
             .await
@@ -159,5 +162,68 @@ impl XdsControlPlane {
     pub async fn retire_sandbox_delivery(&self, sandbox_id: SandboxId) {
         self.delta.delivery().lock().await.forget(sandbox_id);
         self.delta.notify_delivery_changed();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use envoy_types::pb::google::protobuf::Any;
+
+    use super::*;
+    use crate::xds::inventory::{RecoveredSandbox, RecoveryInventory};
+    use crate::xds::model::{DeliveryGeneration, ResourceOwner};
+
+    #[tokio::test]
+    async fn removal_without_a_live_node_retires_authoritative_inventory() {
+        let authority = XdsAuthority::managed();
+        let recovery = authority.begin_staging().expect("begin recovery");
+        let control_plane = XdsControlPlane::new(authority.clone(), NodeVisibility::NodeScoped);
+        let sandbox_id = SandboxId::new();
+        control_plane
+            .assign_sandbox_node(sandbox_id, "node-a")
+            .await
+            .expect("assign sandbox node");
+        control_plane
+            .install_recovery_inventory(
+                &recovery,
+                RecoveryInventory::new(
+                    vec![RecoveredSandbox {
+                        sandbox_id,
+                        generation: DeliveryGeneration {
+                            policy_hash: "policy-1".to_string(),
+                            policy_version: 1,
+                        },
+                        resources: vec![ManagedXdsResource {
+                            name: "listener-1".to_string(),
+                            resource_type: ResourceType::Listener,
+                            owner: ResourceOwner::Sandbox(sandbox_id),
+                            payload: Any {
+                                type_url: ResourceType::Listener.type_url().to_string(),
+                                value: vec![1],
+                            },
+                        }],
+                    }],
+                    Vec::new(),
+                )
+                .expect("recovery inventory"),
+            )
+            .await
+            .expect("install recovery inventory");
+        authority
+            .begin_recovery_serving(&recovery)
+            .expect("begin recovery serving");
+        authority.mark_ready(&recovery).expect("mark ready");
+        control_plane.remove_sandbox_node(sandbox_id).await;
+
+        let attempt = control_plane
+            .remove_sandbox_resources(sandbox_id)
+            .await
+            .expect("remove unassigned sandbox resources");
+
+        assert_eq!(attempt, None);
+        assert!(!control_plane
+            .configured_sandbox_ids(ResourceType::Listener)
+            .await
+            .contains(&sandbox_id));
     }
 }

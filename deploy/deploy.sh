@@ -406,19 +406,39 @@ main() {
             print_image_component_registry "$REGISTRY_FAMILY" "$REGISTRY_FORMAT"
             ;;
         (down)
-            run_down "${SERVICE_ARGS[@]}"
+            if [ "${#SERVICE_ARGS[@]}" -eq 0 ]; then
+                run_down
+            else
+                run_down "${SERVICE_ARGS[@]}"
+            fi
             ;;
         (logs)
-            run_logs "${SERVICE_ARGS[@]}"
+            if [ "${#SERVICE_ARGS[@]}" -eq 0 ]; then
+                run_logs
+            else
+                run_logs "${SERVICE_ARGS[@]}"
+            fi
             ;;
         (restart)
-            run_restart "${SERVICE_ARGS[@]}"
+            if [ "${#SERVICE_ARGS[@]}" -eq 0 ]; then
+                run_restart
+            else
+                run_restart "${SERVICE_ARGS[@]}"
+            fi
             ;;
         (status)
-            run_status "${SERVICE_ARGS[@]}"
+            if [ "${#SERVICE_ARGS[@]}" -eq 0 ]; then
+                run_status
+            else
+                run_status "${SERVICE_ARGS[@]}"
+            fi
             ;;
         (k8s)
-            run_kubernetes_command "${SERVICE_ARGS[@]}"
+            if [ "${#SERVICE_ARGS[@]}" -eq 0 ]; then
+                run_kubernetes_command
+            else
+                run_kubernetes_command "${SERVICE_ARGS[@]}"
+            fi
             ;;
         (*)
             log_error "未知命令: $COMMAND"

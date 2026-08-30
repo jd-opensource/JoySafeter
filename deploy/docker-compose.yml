@@ -45,7 +45,8 @@ x-backend-common-env: &backend-common-env
   FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
   CORS_ORIGINS: ${CORS_ORIGINS:-["${FRONTEND_URL:-http://localhost:3000}"]}
   JOYSAFETER_ENVOY_IMAGE: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.37.1}
-  JOYSAFETER_ENVOY_SOCKET_HOST_DIR: ${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}
+  JOYSAFETER_ENVOY_SOCKET_HOST_DIR: ""
+  JOYSAFETER_ENVOY_SOCKET_VOLUME: ${JOYSAFETER_ENVOY_SOCKET_VOLUME:-${COMPOSE_PROJECT_NAME:-deploy}_joysafeter-sockets}
   IDENTITY_FEDERATION_PROVIDERS: ${IDENTITY_FEDERATION_PROVIDERS:-}
   IDENTITY_FEDERATION_CONFIG_PATH: ${IDENTITY_FEDERATION_CONFIG_PATH:-}
   IDENTITY_FEDERATION_LOGIN_MODE: ${IDENTITY_FEDERATION_LOGIN_MODE:-chooser}
@@ -78,7 +79,6 @@ x-backend-volumes: &backend-volumes
   - backend-files:/app/data/files
   - ../skills:/app/skills:ro
   - ${JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR:-/tmp/joysafeter-runner-control}:${JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR:-/tmp/joysafeter-runner-control}
-  - ${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}:${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}
   - ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}:${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}
 
 x-backend-depends: &backend-depends
@@ -261,7 +261,6 @@ services:
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
       - ${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}:${JOYSAFETER_SANDBOX_WORKSPACE_ROOT:-/tmp/joysafeter-workspaces}
       - ${JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR:-/tmp/joysafeter-runner-control}:${JOYSAFETER_RUNNER_CONTROL_SOCKET_HOST_DIR:-/tmp/joysafeter-runner-control}
-      - ${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}:${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}
       - ${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}:${JOYSAFETER_ENVOY_CONFIG_DIR:-/tmp/joysafeter-envoy-config}
     # Liveness only: the orchestrator speaks gRPC (no HTTP/gRPC-health service),
     # so probe that the gRPC listener is accepting TCP. A crash-looping
@@ -370,7 +369,7 @@ volumes:
     name: joysafeter-backend-files
   joysafeter-sockets:
     driver: local
-    name: ${JOYSAFETER_ENVOY_SOCKET_VOLUME:-joysafeter-sockets}
+    name: ${JOYSAFETER_ENVOY_SOCKET_VOLUME:-${COMPOSE_PROJECT_NAME:-deploy}_joysafeter-sockets}
 
 networks:
   joysafeter-network:

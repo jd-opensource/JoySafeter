@@ -23,8 +23,13 @@ assert_not_contains() {
 # shellcheck source=../deploy.sh
 source "$DEPLOY_DIR/deploy.sh"
 
-grep -Eq '^  JOYSAFETER_ENVOY_SOCKET_HOST_DIR:' "$DEPLOY_DIR/docker-compose.yml" \
-    || fail 'Compose must inject JOYSAFETER_ENVOY_SOCKET_HOST_DIR into backend services'
+compose_source="$(cat "$DEPLOY_DIR/docker-compose.yml")"
+assert_contains "$compose_source" 'JOYSAFETER_ENVOY_SOCKET_HOST_DIR: ""'
+assert_contains "$compose_source" 'JOYSAFETER_ENVOY_SOCKET_VOLUME: ${JOYSAFETER_ENVOY_SOCKET_VOLUME:-${COMPOSE_PROJECT_NAME:-deploy}_joysafeter-sockets}'
+assert_contains "$compose_source" 'name: ${JOYSAFETER_ENVOY_SOCKET_VOLUME:-${COMPOSE_PROJECT_NAME:-deploy}_joysafeter-sockets}'
+assert_not_contains "$compose_source" '${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}:${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}'
+grep -Eq '^!scripts/credential_encryption_rotation\.py$' "$DEPLOY_DIR/../backend/.dockerignore" \
+    || fail 'Backend image must include the credential canary initialization command'
 
 bundled_env="$TEST_TMP/bundled.env"
 cat > "$bundled_env" <<'EOF'
@@ -114,7 +119,30 @@ kubernetes_kubectl() { return 0; }
 run_kubernetes_command deploy --sync-images --reuse-values
 helm_call="$(cat "$HELM_CALLS_FILE")"
 assert_contains "$helm_call" 'upgrade'
-assert_contains "$helm_call" '--reuse-values'
+assert_contains "$helm_call" '--reset-then-reuse-values'
+assert_not_contains "$helm_call" '--reuse-values'
 assert_contains "$helm_call" 'image.orchestrator=registry.example.test/joysafeter/joysafeter-orchestrator-rs:runtime-v1'
+
+DOWN_ARGS_FILE="$TEST_TMP/down-args"
+export DOWN_ARGS_FILE
+check_docker_running() { return 0; }
+get_docker_platform() { printf '%s\n' 'linux/arm64'; }
+run_down() { printf '%s\n' "$#" > "$DOWN_ARGS_FILE"; }
+if ! down_output="$(main down 2>&1)"; then
+    printf '%s\n' "$down_output" >&2
+    fail 'down without service arguments must not fail under set -u'
+fi
+[[ "$(cat "$DOWN_ARGS_FILE")" == "0" ]] \
+    || fail 'down without service arguments must pass zero arguments to run_down'
+
+: > "$COMPOSE_CALLS_FILE"
+COMPOSE_UP_RESULT=0
+wait_for_local_redis() { return 0; }
+verify_local_db_credentials() { return 0; }
+run_local_migrations >/dev/null
+migration_calls="$(cat "$COMPOSE_CALLS_FILE")"
+assert_contains "$migration_calls" 'run --rm db-init'
+assert_contains "$migration_calls" \
+    'run --rm db-init python scripts/credential_encryption_rotation.py --initialize-missing-canaries'
 
 printf 'deploy-sh regression tests passed\n'

@@ -73,6 +73,51 @@ def test_compose_uses_internal_dedicated_authenticated_xds_port() -> None:
     assert "${JOYSAFETER_XDS_PORT_HOST:-9092}:9092" in compose
 
 
+def test_compose_and_kubernetes_use_explicit_socket_storage_modes() -> None:
+    compose = read("deploy/docker-compose.yml")
+    configmap = read("deploy/helm/joysafeter-orchestrator/templates/configmap.yaml")
+    daemonset = read("deploy/helm/joysafeter-orchestrator/templates/envoy-daemonset.yaml")
+    k8s_provider = read("backend/app/joysafeter_orchestrator_rs/src/sandbox/k8s.rs")
+
+    volume_name = (
+        "${JOYSAFETER_ENVOY_SOCKET_VOLUME:-"
+        "${COMPOSE_PROJECT_NAME:-deploy}_joysafeter-sockets}"
+    )
+    assert 'JOYSAFETER_ENVOY_SOCKET_HOST_DIR: ""' in compose
+    assert f"JOYSAFETER_ENVOY_SOCKET_VOLUME: {volume_name}" in compose
+    assert f"name: {volume_name}" in compose
+    assert (
+        "${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}:"
+        "${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/joysafeter-sockets}"
+    ) not in compose
+
+    assert "JOYSAFETER_ENVOY_SOCKET_HOST_DIR: {{ .Values.envoy.socketHostDir | quote }}" in configmap
+    assert "path: {{ .Values.envoy.socketHostDir }}" in daemonset
+    assert '"type": "DirectoryOrCreate"' in k8s_provider
+    assert '"subPath": sandbox_uuid.to_string()' in k8s_provider
+    assert '"name": "create-socket-dir"' in k8s_provider
+
+
+def test_kubernetes_envoy_owns_socket_root_for_lifecycle_cleanup() -> None:
+    values = read("deploy/helm/joysafeter-orchestrator/values.yaml")
+    daemonset = read("deploy/helm/joysafeter-orchestrator/templates/envoy-daemonset.yaml")
+
+    assert "runAsUser: 101" in values
+    assert "runAsGroup: 101" in values
+    assert "name: prepare-socket-root" in daemonset
+    assert "chown 0:0 /sockets" in daemonset
+    assert "chown {{ .Values.envoy.runAsUser }}:{{ .Values.envoy.runAsGroup }} /sockets" in daemonset
+    assert 'add: ["CHOWN"]' in daemonset
+    root_chown = daemonset.index("chown 0:0 /sockets")
+    chmod = daemonset.index("chmod 0750 /sockets")
+    envoy_chown = daemonset.index(
+        "chown {{ .Values.envoy.runAsUser }}:{{ .Values.envoy.runAsGroup }} /sockets"
+    )
+    assert root_chown < chmod < envoy_chown
+    assert "runAsUser: {{ .Values.envoy.runAsUser }}" in daemonset
+    assert "runAsGroup: {{ .Values.envoy.runAsGroup }}" in daemonset
+
+
 def test_obsolete_envoy_grpc_port_bridge_is_removed() -> None:
     audited_files = [
         "backend/env.example",

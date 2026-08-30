@@ -178,6 +178,10 @@ impl NodeOwnershipRegistry {
             .cloned()
     }
 
+    pub fn requires_node_assignment(&self) -> bool {
+        self.inner.scope == VisibilityScope::NodeScoped
+    }
+
     pub fn delivery_owner_node(&self, sandbox_id: SandboxId) -> anyhow::Result<Option<String>> {
         match self.inner.scope {
             VisibilityScope::Unscoped => Ok(None),

@@ -3,9 +3,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::ids::SandboxId;
+use anyhow::Context;
 use async_trait::async_trait;
 use k8s_openapi::api::core::v1::Pod;
-use kube::api::{Api, AttachParams, DeleteParams, Patch, PatchParams, PostParams};
+use kube::api::{Api, AttachParams, DeleteParams, ListParams, Patch, PatchParams, PostParams};
 use kube::Client;
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -20,6 +21,8 @@ use super::provider::{
 };
 use super::runtime::{PlacementEventSink, SandboxSocketProvisioner};
 use crate::config::JoySafeterConfig;
+
+const ENVOY_POD_SELECTOR: &str = "app=joysafeter-envoy";
 
 /// Kubernetes-backed sandbox provider using the kube-rs SDK.
 ///
@@ -354,6 +357,45 @@ impl K8sProvider {
         Ok(stdout)
     }
 
+    async fn cleanup_egress_socket_dir(&self, external_id: &str) -> anyhow::Result<()> {
+        if self.egress_socket.is_none() {
+            return Ok(());
+        }
+
+        let command = socket_cleanup_plan(external_id)?;
+        let envoy_pods = self
+            .pods()
+            .list(&ListParams::default().labels(ENVOY_POD_SELECTOR))
+            .await
+            .context("failed to list Envoy pods for socket cleanup")?;
+        let pod_names = envoy_pods
+            .items
+            .into_iter()
+            .filter_map(|pod| pod.metadata.name)
+            .collect::<Vec<_>>();
+        if pod_names.is_empty() {
+            anyhow::bail!("no Envoy pods available for K8s socket cleanup");
+        }
+
+        let mut failures = Vec::new();
+        for pod_name in &pod_names {
+            if let Err(error) = self.exec_owned(pod_name, &command).await {
+                failures.push(format!("{pod_name}: {error}"));
+            }
+        }
+        if !failures.is_empty() {
+            anyhow::bail!(
+                "failed to clean K8s Envoy socket directory through {} of {} pods: {}",
+                failures.len(),
+                pod_names.len(),
+                failures.join("; ")
+            );
+        }
+
+        info!(external_id, "Removed K8s Envoy socket directory");
+        Ok(())
+    }
+
     fn pod_name(sandbox_id: SandboxId) -> String {
         format!("joysafeter-{}", sandbox_id.as_uuid())
     }
@@ -619,10 +661,11 @@ impl SandboxProvider for K8sProvider {
             .delete(external_id, &DeleteParams::default())
             .await
         {
-            Ok(_) => Ok(()),
-            Err(kube::Error::Api(err)) if err.code == 404 => Ok(()),
-            Err(e) => Err(e.into()),
+            Ok(_) => {}
+            Err(kube::Error::Api(err)) if err.code == 404 => {}
+            Err(e) => return Err(e.into()),
         }
+        self.cleanup_egress_socket_dir(external_id).await
     }
 
     async fn destroy(&self, external_id: &str) -> anyhow::Result<()> {
@@ -728,4 +771,46 @@ fn normalize_workspace_mount_path(path: &str) -> anyhow::Result<String> {
         }
     }
     Ok(format!("/{}", parts.join("/")))
+}
+
+fn socket_cleanup_plan(external_id: &str) -> anyhow::Result<Vec<String>> {
+    let sandbox_uuid = external_id
+        .strip_prefix("joysafeter-")
+        .and_then(|value| uuid::Uuid::parse_str(value).ok())
+        .ok_or_else(|| anyhow::anyhow!("invalid K8s sandbox pod name: {external_id}"))?;
+    Ok(vec![
+        "rm".to_string(),
+        "-rf".to_string(),
+        "--".to_string(),
+        format!("/sockets/{sandbox_uuid}"),
+    ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn socket_cleanup_plan_uses_a_validated_sandbox_uuid_and_fixed_arguments() {
+        let plan = socket_cleanup_plan("joysafeter-01a05121-bff9-7b30-b70a-3b8916454456")
+            .expect("valid managed sandbox pod name");
+
+        assert_eq!(
+            plan,
+            vec![
+                "rm".to_string(),
+                "-rf".to_string(),
+                "--".to_string(),
+                "/sockets/01a05121-bff9-7b30-b70a-3b8916454456".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn socket_cleanup_plan_rejects_non_sandbox_external_ids() {
+        let error = socket_cleanup_plan("joysafeter-envoy-xddjx")
+            .expect_err("non-sandbox pod names must not become filesystem paths");
+
+        assert!(error.to_string().contains("invalid K8s sandbox pod name"));
+    }
 }

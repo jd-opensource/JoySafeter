@@ -360,8 +360,12 @@ run_local_migrations() {
 
         log_info "运行数据库迁移..."
         compose_local_env --profile local-redis --profile rust-orchestrator --profile init run --rm db-init
+
+        log_info "初始化凭据加密 canary..."
+        compose_local_env --profile local-redis --profile rust-orchestrator --profile init run --rm db-init \
+            python scripts/credential_encryption_rotation.py --initialize-missing-canaries
     )
-    log_success "数据库迁移完成"
+    log_success "数据库迁移和凭据加密 canary 初始化完成"
 }
 
 require_single_platform() {

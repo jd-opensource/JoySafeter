@@ -22,7 +22,7 @@ deploy 选项:
   --replicas N        orchestrator 副本数
   -f, --values FILE   额外 values 文件
   --sync-images       从统一镜像 Registry 注入 orchestrator 和四个 runtime 镜像
-  --reuse-values      升级时保留 release 已有 values，再应用本次显式覆盖
+  --reuse-values      升级时先加载新 chart 默认值，再复用 release 已有覆盖
   --timeout DURATION  Helm/rollout 超时（默认: 180s）
   --dry-run           仅用 helm template 渲染，不访问集群
 
@@ -123,7 +123,7 @@ kubernetes_deploy() {
     fi
 
     helm_args=(upgrade --install "$release" "$chart_dir" --namespace "$namespace" --create-namespace --wait --timeout "$timeout" --set "haMode=$mode")
-    [ "$reuse_values" = true ] && helm_args+=(--reuse-values)
+    [ "$reuse_values" = true ] && helm_args+=(--reset-then-reuse-values)
     [ -n "$replicas" ] && helm_args+=(--set "orchestrator.replicas=$replicas")
     [ -n "$values_file" ] && helm_args+=(-f "$values_file")
     if [ "$sync_images" = true ]; then

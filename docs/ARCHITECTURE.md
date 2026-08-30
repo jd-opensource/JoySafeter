@@ -545,7 +545,7 @@ another through shared ad-hoc context.
 |---|---|---|
 | `src/sandbox/provider.rs` | Replaceable lifecycle/capability port for create/start/stop/destroy/status/exec/files | No PostgreSQL generation transitions and no xDS authority access |
 | `src/sandbox/docker.rs` | Docker container, mount, socket, and runtime facts | Does not publish/remove xDS resources directly |
-| `src/sandbox/k8s.rs` | Pod/PVC/spec lifecycle and watcher setup | Does not decide ownership or mutate xDS state |
+| `src/sandbox/k8s.rs` | Pod/PVC/spec lifecycle, node-local socket-directory cleanup, and watcher setup | Does not decide ownership or mutate xDS state |
 | `src/sandbox/pod_watcher.rs` | Kubernetes Pod observation and neutral `PlacementEvent` emission | No dependency on `XdsControlPlane` or policy application |
 | `src/sandbox/runtime.rs` | Small infrastructure ports for socket preparation and placement events | Contains no provider or xDS implementation |
 | `src/sandbox/envoy.rs` | Composition facade that wires disjoint Envoy capabilities | Owns no process, socket, policy-delivery, desired-policy, or ADS mutable state |
@@ -572,10 +572,22 @@ facts replaceable and prevents the provider from acquiring xDS context. Runner g
 servers and ports (`:9090`/`:9091` versus `:9092`), so protocol changes, authentication, limits, and failure
 handling cannot leak between execution and control-plane transports.
 
+Kubernetes socket storage follows the same ownership rule. The sandbox initContainer creates its
+UUID-scoped directory in the node-local hostPath before the runner starts. When a non-resumable Pod is
+stopped or destroyed, the Kubernetes provider removes that UUID directory through every Envoy DaemonSet
+Pod. The operation accepts only a parsed sandbox UUID and fixed command arguments, remains idempotent when
+the sandbox Pod is already absent, and never publishes or removes xDS resources itself.
+
 For node-scoped delivery, xDS publication waits inside `NodeOwnershipRegistry` for the authoritative
 placement revision before exposing resources. The Kubernetes watcher still only emits facts; schedulers and
 providers do not add Kubernetes-specific sleeps or retries. The enclosing delivery timeout owns the terminal
 failure, so a missing placement fact fails at the xDS boundary instead of contaminating business orchestration.
+
+Removal deliberately has different quorum semantics from publication. A live node assignment requires an
+exact ACK from that node. If placement has already been revoked, the resource is invisible to every node, so
+the xDS authority retires it from the authoritative inventory without inventing a fallback node or waiting for
+an impossible ACK. Periodic inventory reconciliation therefore remains able to converge after out-of-band Pod
+loss while publication continues to fail closed.
 
 ### 4.3 Worker service (`app/joysafeter_worker/`)
 

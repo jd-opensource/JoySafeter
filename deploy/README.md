@@ -240,8 +240,9 @@ cd deploy
 `k8s deploy --sync-images` 是显式覆盖模式：全局 `--registry` / `--tag` 必须写在 `k8s` 前面，脚本把统一
 Registry 里的镜像名投影为 Helm `image.orchestrator` 与 `image.sandbox.*`。不传 `--sync-images` 时，Helm
 继续使用 values 文件中的镜像，便于已有生产 values 保持不变。升级已有 release 且只希望替换镜像时，
-同时传 `--reuse-values`，避免 chart 默认值覆盖现有数据库、Redis、Secret 和存储配置；该选项不能与纯模板
-`--dry-run` 同时使用。
+同时传 `--reuse-values`。部署入口会使用 Helm 的 `--reset-then-reuse-values`：先加载当前 chart 默认值，
+再复用 release 已有覆盖并应用本次显式参数。这样既保留数据库、Redis、Secret 和存储配置，也不会遗漏
+chart 新增的安全或生命周期默认值；该选项不能与纯模板 `--dry-run` 同时使用。
 
 Agent runtime 的唯一构建定义是 `deploy/docker/runtime.Dockerfile`。其 `runner-builder` stage 在目标 Linux 平台内编译 `sandbox-runner`，`runtime-with-runner` stage 组装公共工具和 Runner，`claudecode` / `codex` / `native` / `pi` final stage 只安装各自 harness 与 entrypoint。Runner 不再导出到宿主 `target/` 后二次打包，因此 `fuser` 等 Linux 构建逻辑不会落到 macOS；`deploy.sh` 只选择 target、platform 和 image tag，不复制 provider 构建细节。宿主 `cargo-zigbuild` 仅属于 orchestrator 快速打包路径。
 

@@ -354,7 +354,16 @@ kubectl scale deployment joysafeter-orchestrator -n joysafeter-prod --replicas=5
 | `orchestrator.storage.oss.bucket/endpoint/region` | 空/空/空 | OSS 非敏感参数；region 为空时不注入环境变量 |
 | `orchestrator.storage.s3.bucket/endpoint/region` | 空/空/空 | S3 非敏感参数；region 允许为空字符串 |
 | `envoy.socketHostDir` | `/data/joysafeter/envoy-sockets` | Envoy UDS hostPath |
+| `envoy.runAsUser/runAsGroup` | `101/101` | Envoy 进程身份；初始化容器据此设置 socket 根目录所有权 |
 | `egress.allowedHosts` | [见 values.yaml] | Envoy 出站白名单 |
+
+动态 sandbox Pod 的 initContainer 负责在 `envoy.socketHostDir` 下创建 UUID 子目录；Pod 停止或销毁后，
+Kubernetes provider 会通过同节点 Envoy DaemonSet Pod 清理该目录。Chart 的 `pods/exec` RBAC 是该节点
+文件生命周期能力的一部分，不代表 provider 可以修改 xDS authority 或资源状态。
+
+Envoy DaemonSet 的 root initContainer 只负责幂等初始化 hostPath 根目录：临时收回为 root、收紧为
+`0750`，再交给 `envoy.runAsUser/runAsGroup`。它丢弃全部 capabilities 后仅加回执行 `chown` 所需的
+`CHOWN`；主 Envoy 容器始终以非 root UID/GID 运行并丢弃全部 capabilities。
 
 ### 预发 vs 生产差异
 

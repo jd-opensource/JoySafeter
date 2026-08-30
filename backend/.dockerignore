@@ -76,6 +76,7 @@ app/joysafeter_orchestrator_rs/
 scripts/*
 !scripts/db/
 !scripts/load_skills.py
+!scripts/credential_encryption_rotation.py
 
 # 测试文件
 tests/
